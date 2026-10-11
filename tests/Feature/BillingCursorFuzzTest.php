@@ -215,7 +215,7 @@ class BillingCursorFuzzTest extends TestCase
         }
 
         // Retire the service so later seeds' cron runs ignore it.
-        DB::table('services')->whereKey($this->service->id)->update(['status' => 'cancelled', 'expires_at' => null]);
+        DB::table('services')->where('id', $this->service->id)->update(['status' => 'cancelled', 'expires_at' => null]);
         DB::table('invoices')->whereIn('id', InvoiceItem::query()->where('reference_type', Service::class)
             ->where('reference_id', $this->service->id)->pluck('invoice_id'))->update(['status' => 'cancelled']);
 

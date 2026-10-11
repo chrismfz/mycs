@@ -7,6 +7,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Plan;
 use App\Models\Price;
+use App\Models\Product;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Models\User;
@@ -238,7 +239,7 @@ class BillingCursorMoneyTest extends TestCase
         $service = $this->service();
         $invoice = $this->invoiceFor($service, '2026-10-15', '2026-11-15');
         $yearly = Plan::factory()->create([
-            'priceable_id' => $service->product_id, 'priceable_type' => \App\Models\Product::class,
+            'priceable_id' => $service->product_id, 'priceable_type' => Product::class,
             'name' => 'Yearly', 'billing_unit' => 'year', 'billing_period' => 1, 'type' => 'recurring',
         ]);
         $service->update(['plan_id' => $yearly->id, 'price' => 100.00]);

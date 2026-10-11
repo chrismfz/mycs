@@ -316,7 +316,7 @@ class Service extends Model implements Auditable
     public function cycleNumber(CarbonInterface $periodStart, ?Collection $lines = null): int
     {
         $lines ??= $this->livePeriodLines();
-        $cursor = $lines->first()?->period_start
+        $cursor = $lines->first()->period_start
             ?? CarbonImmutable::parse($this->created_at ?? $periodStart)->startOfDay();
         $target = CarbonImmutable::instance($periodStart)->startOfDay();
 
