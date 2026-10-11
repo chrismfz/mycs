@@ -10,10 +10,15 @@ use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\Price;
 use App\Models\Service;
+use App\Models\Setting;
 use App\Models\User;
+use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\View;
 use Livewire\Livewire;
+use Paymenter\Extensions\Gateways\PayPal\PayPal;
 use Tests\TestCase;
 
 /** Code review of PR 2a (feat/payment-guards, docs/payments.md): the defects it found, now fixed, and a money-conservation check. */
@@ -85,10 +90,10 @@ class PaymentGuardsCodeReviewTest extends TestCase
         $this->user->credits()->create(['currency_code' => 'USD', 'amount' => 5.00]);
 
         // The Livewire request reloads settings from the database: persist the switch, not just config().
-        \App\Models\Setting::updateOrCreate(['key' => 'credits_enabled'], ['value' => true]);
-        \Illuminate\Support\Facades\Cache::flush();
+        Setting::updateOrCreate(['key' => 'credits_enabled'], ['value' => true]);
+        Cache::flush();
 
-        \Illuminate\Support\Facades\View::addLocation(base_path('themes/default/views'));
+        View::addLocation(base_path('themes/default/views'));
         $component = Livewire::actingAs($this->user)->test(Show::class, ['invoice' => $invoice])
             ->set('selectedMethod', 'credit');
 
@@ -96,7 +101,7 @@ class PaymentGuardsCodeReviewTest extends TestCase
         $fired = false;
         User::retrieved(function () use (&$fired, $invoice) {
             $inRecord = collect(debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS))
-                ->contains(fn ($frame) => ($frame['class'] ?? null) === \App\Services\Invoice\RecordPaymentService::class);
+                ->contains(fn ($frame) => ($frame['class'] ?? null) === RecordPaymentService::class);
             if ($fired || !$inRecord) {
                 return;
             }
@@ -128,7 +133,7 @@ class PaymentGuardsCodeReviewTest extends TestCase
 
         // The gateway's own PAYMENT.SALE.COMPLETED handling, then a replay of the same webhook.
         $resource = ['id' => 'SALE-1', 'billing_agreement_id' => 'I-SUB', 'amount' => ['total' => '20.00', 'currency' => 'USD'], 'transaction_fee' => ['value' => '1.00']];
-        $paypal = new \Paymenter\Extensions\Gateways\PayPal\PayPal([]);
+        $paypal = new PayPal([]);
         $paypal->recordSubscriptionSale($resource);
         $paypal->recordSubscriptionSale($resource);
 

@@ -87,8 +87,10 @@ class TransactionsRelationManager extends RelationManager
                     // invoice cannot take becomes account credit; a replayed transaction id changes nothing.
                     ->using(function (array $data): InvoiceTransaction {
                         $gateway = isset($data['gateway_id']) ? Gateway::query()->find($data['gateway_id']) : null;
+                        /** @var Invoice $invoice */
+                        $invoice = $this->getOwnerRecord();
                         $transaction = (new RecordPaymentService)->handle(
-                            $this->getOwnerRecord(), $gateway, $data['amount'] ?? null, $data['fee'] ?? null, $data['transaction_id'] ?? null,
+                            $invoice, $gateway, $data['amount'] ?? null, $data['fee'] ?? null, $data['transaction_id'] ?? null,
                         );
                         if ($transaction === null) {
                             Notification::make()->danger()->title(__('Payment not recorded'))
