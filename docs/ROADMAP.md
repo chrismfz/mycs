@@ -54,11 +54,13 @@
       (Andrei Vasilev) δίνει μενού πάνω (γνώριμο από το WHMCS) **και** το δικό μας αριστερά· το Filament έχει είτε
       sidebar είτε top navigation, όχι και τα δύο. Έλεγχος: άδεια, συντήρηση, συμβατότητα με Filament 5.
 - [x] `deploy/update.sh` (από το Ekdosi): ενημέρωση με snapshot/maintenance/queue drain/migrate/build (2026-10-11).
-      Μένουν: `deploy/rollback.sh` (restore snapshot + checkout), updater από το admin.
-- [ ] Installer και updater όπως του Ekdosi: `/install` wizard + `mycs:install` (πρώτος admin, ρυθμίσεις, seed)
-      αντί για τα `app:init`/`app:user:create` του Paymenter (μόνο όνομα εταιρείας + URL, χωρίς web installer,
-      upstream #1011)· `mycs:self-update` με git checkout/composer/migrate/caches και rollback (μοτίβο
-      `ekdosi:install`, `ekdosi:self-update`, `deploy/update.sh`, `deploy/rollback.sh`, `INSTALL.md`).
+      Χωρίς `deploy/rollback.sh` (απόφαση 2026-10-11: προσεκτικές ενημερώσεις + το snapshot του `update.sh`·
+      χειροκίνητη επαναφορά στο `docs/install.md`). Μένει: updater από το admin.
+- [x] Installer: `mycs:install` (migrations, seed, νόμισμα, εταιρεία/URL/γλώσσες/ζώνη ώρας, passport keys, πρώτος
+      admin) αντί για το `app:init` του Paymenter, **μόνο CLI** (χωρίς `/install` wizard), κωδικός ποτέ ως flag
+      (`docs/install.md`, 2026-10-11).
+- [ ] Updater όπως του Ekdosi: `mycs:self-update` (git checkout/composer/migrate/caches) από GitHub releases ή tags·
+      θέλει απόφαση (βλ. `ekdosi:self-update`).
 - [ ] Cherry-picks: #1338 (captcha), το enforcement του `credits_enabled` από το #1295.
 - [ ] **Spike 1–2 ημερών:** port ενός μικρού κομματιού των domains του Ekdosi, για να μετρηθεί το πραγματικό κόστος
       (από `company_id` και φορολογικό Invoice σε προτιμολόγιο).
@@ -105,7 +107,7 @@
 - [ ] Αποστολή email (SMTP/SPF/DKIM) και templates στα αγγλικά για τα γεγονότα της nixpal (τιμολόγιο, πληρωμή,
       υπενθυμίσεις, λήξη, αναστολή).
 - [ ] Branding ανά instance: logo, χρώματα, στοιχεία εταιρείας στο PDF του τιμολογίου.
-- [ ] Backups βάσης και `storage/` εκτός server, με δοκιμή επαναφοράς· `deploy/rollback.sh`.
+- [ ] Backups βάσης και `storage/` εκτός server, με δοκιμή επαναφοράς.
 - [ ] Παρακολούθηση: error log, failed jobs, cron που σταμάτησε.
 
 **Importer και cut-over nixpal**
