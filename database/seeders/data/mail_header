@@ -1,7 +1,7 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-<title>{{ config('app.name') }}</title>
+<title>{{ app.name }}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
 <meta name="color-scheme" content="light">
@@ -22,7 +22,7 @@ width: 100% !important;
 width: 100% !important;
 }
 }
-{!! config('settings.mail_css') !!}
+{{ mail_css|raw }}
 </style>
 </head>
 <body>
@@ -31,15 +31,15 @@ width: 100% !important;
 <tr>
 <td align="center">
 <table class="content" width="100%" cellpadding="0" cellspacing="0" role="presentation">
-@if(config('settings.logo'))    
+{% if app.logo_url %}
 <tr>
 <td class="header">
-<a href="{{ url('/') }}" style="display: inline-block;">
-<img src="{{ url(Storage::url(config('settings.logo'))) }}" class="logo" alt="{{ config('app.name') }}">
+<a href="{{ app.url }}" style="display: inline-block;">
+<img src="{{ app.logo_url }}" class="logo" alt="{{ app.name }}">
 </a>
 </td>
 </tr>
-@endif
+{% endif %}
 
 
 <!-- Email Body -->

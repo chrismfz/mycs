@@ -29,6 +29,9 @@
       compile (`audit-security.md` H1–H2).
 - [x] Κρυπτογραφημένα credentials σε όλα τα extensions (cPanel, Plesk, Convoy, Enhance, Virtualizor) **και** στη
       δημιουργία server/gateway, που τα αποθήκευε καθαρά· migration για όσα υπάρχουν (2026-10-11).
+- [x] Templates email/ειδοποιήσεων, `mail_header`/`mail_footer` και snippet προϊόντος χωρίς Blade: renderer
+      `packages/mail-template` (`templates.md`, `audit-security.md` H1–H2, 2026-10-11).
+- [ ] `encrypted` cast στα credentials όλων των server extensions (cPanel, Plesk, Convoy, Enhance, Virtualizor).
 - [ ] API keys περιορισμένα στο role αυτού που τα δημιουργεί· προστασία λογαριασμών admin στο `users.update`.
 - [ ] CI: phpstan (larastan) ενεργό, Pint, tests σε MariaDB.
 - [ ] `lib/*` του blesta-modules → `packages/` (nixpal-licensing, cardlink-eurobank, paypal-vault, domain-tools,

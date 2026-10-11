@@ -18,7 +18,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Mail as FacadesMail;
 use Illuminate\Support\Facades\URL;
-use Illuminate\View\Compilers\BladeCompiler;
+use MyCS\MailTemplate\TemplateError;
 
 class NotificationHelper
 {
@@ -95,9 +95,9 @@ class NotificationHelper
     ): void {
         Notification::create([
             'user_id' => $user->id,
-            'title' => BladeCompiler::render($notification->in_app_title, $data),
-            'body' => BladeCompiler::render($notification->in_app_body, $data),
-            'url' => isset($notification->in_app_url) ? BladeCompiler::render($notification->in_app_url, $data) : null,
+            'title' => TemplateRenderer::render($notification->in_app_title, $data, escape: false),
+            'body' => TemplateRenderer::render($notification->in_app_body, $data, escape: false),
+            'url' => isset($notification->in_app_url) ? TemplateRenderer::render($notification->in_app_url, $data, escape: false) : null,
             'show_in_app' => $show_in_app,
             'show_as_push' => $show_as_push,
         ]);
@@ -116,14 +116,26 @@ class NotificationHelper
             return;
         }
 
+        $data = TemplateRenderer::context($data, $user);
+
         $userPreference = $user->notificationsPreferences()->where('notification_template_id', $notification->id)->first();
 
-        if ($notification->isEnabledForPreference($userPreference, 'mail') && !config('settings.mail_disable')) {
-            self::sendEmailNotification($notification, $data, $user, $attachments);
+        // A template that does not parse must not break what triggered it (provisioning, cron, …):
+        // the error is reported and that notification is skipped.
+        try {
+            if ($notification->isEnabledForPreference($userPreference, 'mail') && !config('settings.mail_disable')) {
+                self::sendEmailNotification($notification, $data, $user, $attachments);
+            }
+        } catch (TemplateError $e) {
+            report($e);
         }
 
-        if ($notification->isEnabledForPreference($userPreference, 'app')) {
-            self::sendInAppNotification($notification, $data, $user, $show_in_app, $show_as_push);
+        try {
+            if ($notification->isEnabledForPreference($userPreference, 'app')) {
+                self::sendInAppNotification($notification, $data, $user, $show_in_app, $show_as_push);
+            }
+        } catch (TemplateError $e) {
+            report($e);
         }
     }
 

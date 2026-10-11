@@ -1,3 +1,3 @@
-{!! Illuminate\View\Compilers\BladeCompiler::render(config('settings.mail_header', null)) !!}
+{!! App\Helpers\TemplateRenderer::mailHeader() !!}
 {!! Str::markdown($slot) !!}
-{!! Illuminate\View\Compilers\BladeCompiler::render(config('settings.mail_footer', null)) !!}
+{!! App\Helpers\TemplateRenderer::mailFooter() !!}

@@ -228,9 +228,10 @@ class CronJob extends Command
         } catch (Exception $e) {
             DB::rollBack();
 
+            $message = e($e->getMessage());
             NotificationHelper::sendSystemEmailNotification('Cron Job Error', <<<HTML
                 An error occurred while running the cron job:<br>
-                <pre>{$e->getMessage()}.</pre><br>
+                <pre>{$message}.</pre><br>
                 Please check the system and application logs for more details.
                 HTML);
 
