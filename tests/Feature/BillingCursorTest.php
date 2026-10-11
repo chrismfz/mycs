@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\Plan;
 use App\Models\Service;
 use App\Models\User;
 use Carbon\CarbonImmutable;
@@ -259,5 +260,99 @@ class BillingCursorTest extends TestCase
 
         $this->assertSame(0, $service->invoices()->count());
         $this->assertSame('2026-11-15', $this->expires($service));
+    }
+
+    // Round 3 (code review) — docs/billing-cursor.md
+
+    public function test_staff_moving_the_date_forward_into_a_paid_period_picks_it_up(): void
+    {
+        $service = $this->service();
+        $october = $this->invoiceFor($service, '2026-10-15', '2026-11-15');
+        $this->pay($this->invoiceFor($service, '2026-11-15', '2026-12-15')); // waits for October
+        $october->update(['status' => 'cancelled']);
+
+        $service->update(['expires_at' => '2026-11-20']); // staff comp into the paid month
+
+        $this->assertSame('2026-12-15', $this->expires($service));
+    }
+
+    public function test_a_hole_shorter_than_a_period_is_billed_alone_and_prorated(): void
+    {
+        $service = $this->service(['price' => 30.00]);
+        $october = $this->invoiceFor($service, '2026-10-15', '2026-11-15');
+        $this->pay($this->invoiceFor($service, '2026-11-15', '2026-12-15'));
+        $october->update(['status' => 'cancelled']);
+        $service->update(['expires_at' => '2026-10-31']); // comp half of October
+
+        $this->artisan('app:cron-job')->assertExitCode(0); // today 2026-10-12, hole 10-31..11-15
+
+        $line = $service->invoiceItems()->whereHas('invoice', fn ($q) => $q->where('status', 'pending'))->sole();
+        $this->assertSame('2026-10-31', $line->period_start->toDateString());
+        $this->assertSame('2026-11-15', $line->period_end->toDateString()); // not 11-30: no day billed twice
+        $this->assertEquals(14.52, (float) $line->price); // 30 × 15/31
+    }
+
+    public function test_a_suspended_service_gets_its_hole_billed_before_a_paid_period(): void
+    {
+        $service = $this->service(['status' => 'suspended', 'expires_at' => '2026-10-15']);
+        $this->pay($this->invoiceFor($service, '2026-11-15', '2026-12-15')); // paid ahead, stranded
+        $this->invoiceFor($service, '2026-10-15', '2026-11-15', 'cancelled');
+
+        $this->artisan('app:cron-job')->assertExitCode(0);
+
+        $line = $service->invoiceItems()->whereHas('invoice', fn ($q) => $q->where('status', 'pending'))->sole();
+        $this->assertSame('2026-10-15', $line->period_start->toDateString());
+    }
+
+    public function test_a_suspended_service_without_a_stranded_payment_is_not_billed_again(): void
+    {
+        $service = $this->service(['status' => 'suspended', 'expires_at' => '2026-09-15']);
+        $this->invoiceFor($service, '2026-09-15', '2026-10-15', 'cancelled');
+
+        $this->artisan('app:cron-job')->assertExitCode(0);
+
+        $this->assertSame(0, $service->invoices()->where('status', 'pending')->count()); // A2
+    }
+
+    public function test_a_payment_never_unsuspends_a_one_time_service(): void
+    {
+        $service = $this->service(['status' => 'suspended', 'expires_at' => null]);
+        Plan::query()->whereKey($service->plan_id)->update(['type' => 'one-time']);
+
+        $this->pay($this->invoiceFor($service, null, null));
+
+        $this->assertSame('suspended', $service->fresh()->status);
+    }
+
+    public function test_a_first_order_line_text_gets_the_period_that_starts_when_paid(): void
+    {
+        $service = $this->service(['status' => 'pending', 'expires_at' => null]);
+        $invoice = $this->invoiceFor($service, null, null);
+
+        $this->pay($invoice);
+
+        $this->assertStringContainsString('Oct 12, 2026 - Nov 12, 2026', $invoice->items()->sole()->description);
+    }
+
+    public function test_an_order_on_the_30th_keeps_the_30th_after_february(): void
+    {
+        $service = $this->service(['expires_at' => '2027-02-28']);
+        $this->invoiceFor($service, '2026-11-30', '2026-12-30', 'paid');
+        $this->invoiceFor($service, '2026-12-30', '2027-01-30', 'paid');
+        $this->invoiceFor($service, '2027-01-30', '2027-02-28', 'paid');
+
+        $this->assertSame('2027-03-30', $service->periodEnd(CarbonImmutable::parse('2027-02-28'))->toDateString());
+    }
+
+    public function test_one_failing_service_does_not_stop_the_cron(): void
+    {
+        $broken = $this->service();
+        Plan::query()->whereKey($broken->plan_id)->update(['billing_unit' => 'hour']); // not whole days
+        $fine = $this->service();
+
+        $this->artisan('app:cron-job')->assertFailed(); // reported, not hidden
+
+        $this->assertSame(1, $fine->invoices()->count());
+        $this->assertSame(0, $broken->invoices()->count());
     }
 }
