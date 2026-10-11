@@ -15,19 +15,27 @@ use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Illuminate\Database\Eloquent\Model;
+use Livewire\Attributes\Locked;
 
 class EditService extends EditRecord
 {
     protected static string $resource = ServiceResource::class;
 
+    /** The record as the form was filled from it: a save writes only what staff changed since. */
+    #[Locked]
+    public array $filledAttributes = [];
+
+    protected function afterFill(): void
+    {
+        $this->filledAttributes = $this->getRecord()->getAttributes();
+    }
+
     protected function handleRecordUpdate(Model $record, array $data): Model
     {
         /** @var Service $record */
-        // Saving unrelated form fields is not an explicit request to change suspension policy.
-        if (($data['status'] ?? null) === $record->status) {
-            unset($data['status']);
-        }
-        $record->applyStaffChanges($data);
+        // Livewire reloads the record on every request: diff against the form as it was filled, so a
+        // payment or the cron that ran while the page was open is not written back.
+        $record->applyStaffChanges($data, $this->filledAttributes ?: null);
 
         return $record;
     }
@@ -93,12 +101,16 @@ class EditService extends EditRecord
                                 }
                                 break;
                             case 'suspend':
-                                $record->applyStaffChanges(['status' => Service::STATUS_SUSPENDED]);
+                                // A manual hold, saved before the adapter runs (pending/cancelled keep their status).
+                                $record->placeOnHold();
                                 $sdata = ExtensionHelper::suspendServer($record);
                                 break;
                             case 'unsuspend':
                                 $sdata = ExtensionHelper::unsuspendServer($record);
-                                $record->applyStaffChanges(['status' => Service::STATUS_ACTIVE]);
+                                // Only suspended -> active: a pending or cancelled service is not revived.
+                                if ($record->status === Service::STATUS_SUSPENDED) {
+                                    $record->applyStaffChanges(['status' => Service::STATUS_ACTIVE]);
+                                }
                                 break;
                             case 'terminate':
                                 $sdata = ExtensionHelper::terminateServer($record);

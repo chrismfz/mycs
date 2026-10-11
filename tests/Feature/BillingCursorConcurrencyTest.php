@@ -117,7 +117,7 @@ class BillingCursorConcurrencyTest extends TestCase
                             usleep(1000);
                         }
                         if ($staffHold && $index === 1) {
-                            Service::findOrFail($serviceId)->applyStaffChanges(['status' => 'suspended']);
+                            Service::findOrFail($serviceId)->placeOnHold(); // staff's explicit suspend
                         } else {
                             (new RenewServiceService)->handle(Service::findOrFail($serviceId), InvoiceItem::findOrFail($itemId));
                         }

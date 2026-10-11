@@ -854,6 +854,10 @@ class ImportFromWhmcs extends Command
                     'plan_id' => $planId,
                     'currency_code' => $user['code'],
                     'expires_at' => $this->validateDate($record['nextduedate']),
+                    // WHMCS's own suspension for non-payment: a payment lifts it here too. Any other reason
+                    // (or none) was staff's: a manual hold (docs/billing-cursor.md).
+                    'dunning_suspended_at' => $record['domainstatus'] === 'Suspended'
+                        && strcasecmp(trim((string) ($record['suspendreason'] ?? '')), 'Overdue on Payment') === 0 ? now() : null,
                     'created_at' => $this->validateDate($record['regdate']),
                     'updated_at' => $this->validateDate($record['regdate']),
                 ];

@@ -75,8 +75,8 @@
       `transaction_id`.
       Και (`docs/billing-cursor.md` PR 2): τιμολόγιο που δημιουργείται paid να ανανεώνει· τιμολόγιο να γίνεται paid όταν η
       τιμή μιας γραμμής πέφτει κάτω από ό,τι πληρώθηκε (ή στα 0 €)· περίοδος με πλήρη επιστροφή να μη μετράει ως πληρωμένη.
-- [ ] Ανανέωση δεμένη με **τιμολόγιο και περίοδο** (cursor, μία ανανέωση ανά τιμολόγιο)· όχι ανανέωση από
-      ακυρωμένο τιμολόγιο.
+- [x] Ανανέωση δεμένη με **τιμολόγιο και περίοδο** (cursor, μία ανανέωση ανά τιμολόγιο), PR #32 (2026-10-12,
+      `docs/billing-cursor.md`). Η «όχι ανανέωση από ακυρωμένο τιμολόγιο» είναι στα guards του `addPayment` (PR 2).
 - [ ] Status υπηρεσίας μόνο μετά την επιτυχία του server job· reconciliation (#1186).
 - [ ] Ακυρώσεις τιμολογίων μέσω observers (όχι μαζικό `->update()`)· ακύρωση προϊόντος όταν ακυρώνεται το τιμολόγιό του.
 - [ ] Υπερπληρωμή → πίστωση· ledger πιστώσεων· αυτόματη ή χειροκίνητη εφαρμογή (ρύθμιση)· add/remove από admin.
@@ -84,6 +84,19 @@
 - [ ] **Αλλαγή κύκλου χρέωσης** και πακέτου μαζί, με proration, από πελάτη και admin· ακύρωση εκκρεμών upgrades (#1266).
       Γνωστά από το Paymenter (`docs/billing-cursor.md` PR 4): η αναλογία μετράει απλήρωτες μέρες μετά τη λήξη· όριο 30
       ημερών όταν η ανανέωση πληρώθηκε νωρίς· πακέτο που γίνεται free/one-time ενώ υπάρχει τιμή.
+- [ ] **Φόρμα υπηρεσίας «σαν WHMCS»** (admin): το staff αλλάζει συχνά Next Due Date, Recurring Amount, Billing Cycle,
+      Payment Method, Promotion Code. Τα περισσότερα υπάρχουν με άλλο όνομα (`Expires At`, `Price`, `Plan`, `Coupon`):
+      μετονομασία στους όρους του WHMCS. Λείπουν: First Payment Amount, Payment Method ανά υπηρεσία
+      (κατάθεση/κάρτα/PayPal, όχι μόνο billing agreement), Registration και Termination Date, Auto-Terminate End of
+      Cycle, Admin Notes (το Subscription ID υπάρχει). Οι αλλαγές με το χέρι είναι ήδη συμβατές με τον δρομέα
+      χρέωσης (`docs/billing-cursor.md`). Το ίδιο αργότερα για τα domains.
+- [ ] **Products «σαν WHMCS»** (admin). Οι *Categories* του Paymenter είναι ήδη τα product groups (υποκατηγορίες,
+      σειρά)· τα products έχουν ήδη `hidden`, stock και τύπο πληρωμής ανά plan (free/one-time/recurring). Λείπουν:
+      κρυφή ομάδα (εκτός σελίδας παραγγελίας, παραγγέλνεται με direct link)· λίστα products ανά ομάδα με στήλες Type
+      (module), Pay Type, Stock, Auto Setup, σειρά με drag και «Duplicate Product». **Auto Setup ανά προϊόν**: σήμερα
+      ο server στήνεται πάντα στην πρώτη πληρωμή (ή αμέσως αν είναι δωρεάν)· όπως στο WHMCS: με την παραγγελία / με την
+      πρώτη πληρωμή / όταν το staff αποδεχτεί την παραγγελία (θέλει «Accept Order» στα Pending Orders) / ποτέ.
+      Αγγίζει την ενεργοποίηση μετά την πληρωμή, άρα code και adversarial review. Τα server groups: Φάση 3.
 - [ ] «Days before» τιμολογίου **ανά κύκλο**· «continuous invoice generation» ως ρύθμιση.
 - [ ] Υπενθυμίσεις (port από Ekdosi): πριν τη λήξη και 1η/2η/3η ληξιπρόθεσμου, ρυθμιζόμενες ημέρες ανά instance.
 - [ ] Ποσά σε decimal/minor units· Stripe: `round()` και helper για minor units (#1258).
