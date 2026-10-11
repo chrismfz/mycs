@@ -45,7 +45,7 @@ class Notifications extends Component
             );
         }
 
-        $this->notify('Notification preferences updated successfully.', 'success');
+        $this->notify(__('Notification preferences updated successfully.'), 'success');
     }
 
     public function storePushSubscription($subscription)
@@ -70,14 +70,14 @@ class Notifications extends Component
                 'auth_key' => $subscription['keys']['auth'],
             ]);
 
-        $this->notify('Push subscription saved successfully.', 'success');
+        $this->notify(__('Push subscription saved successfully.'), 'success');
 
         try {
             $this->sendTestNotification($pushSubscription);
-            $this->notify('Test push notification sent successfully. Please check your device.', 'success');
+            $this->notify(__('Test push notification sent successfully. Please check your device.'), 'success');
         } catch (\Exception $e) {
             // Failed to send notification
-            $this->notify('Failed to send test push notification: ' . $e->getMessage(), 'error');
+            $this->notify(__('Failed to send test push notification:') . ' ' . $e->getMessage(), 'error');
         }
     }
 

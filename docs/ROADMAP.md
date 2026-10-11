@@ -47,7 +47,9 @@
       τέλος τα `PHP Deprecated` σε κάθε `artisan` (2026-10-11). Το χρησιμοποιεί **μόνο το client area** (`themes/default`,
       ρύθμιση `theme`, `app:make-theme`)· το admin είναι Filament. Υποψήφιο για αφαίρεση αν μείνουμε σε ένα theme:
       μεταφορά του `themes/default` στο `resources/views` και κατάργηση του package.
-- [ ] Σκελετός ελληνικής μετάφρασης (`lang/el`).
+- [x] Ελληνικά στο client area: `lang/el` (όλα τα αρχεία), `lang/el.json` για τα 53 μηνύματα (toasts κ.λπ.) που ήταν hardcoded,
+      ξεχωριστή γλώσσα για το admin (`Admin Language`, default English), γλωσσάρι `docs/glossary-el.md` και test
+      που δεν αφήνει κλειδί/μήνυμα χωρίς ελληνικά (2026-10-11). Μένουν τα templates των emails (Φάση 1).
 - [ ] **Μενού admin «σαν WHMCS»:** να δούμε αν το [Topbar Menu](https://filamentphp.com/plugins/vaslv-topbar-menu)
       (Andrei Vasilev) δίνει μενού πάνω (γνώριμο από το WHMCS) **και** το δικό μας αριστερά· το Filament έχει είτε
       sidebar είτε top navigation, όχι και τα δύο. Έλεγχος: άδεια, συντήρηση, συμβατότητα με Filament 5.

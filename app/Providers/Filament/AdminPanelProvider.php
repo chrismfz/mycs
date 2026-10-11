@@ -3,6 +3,7 @@
 namespace App\Providers\Filament;
 
 use App\Actions\Auth\Logout;
+use App\Http\Middleware\AdminLocale;
 use App\Http\Middleware\ImpersonateMiddleware;
 use App\Http\Middleware\LockSession;
 use App\Http\Middleware\ResolveUserSession;
@@ -110,6 +111,8 @@ class AdminPanelProvider extends PanelProvider
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
             ])
+            // Persistent: Livewire updates inside the panel use the admin language too.
+            ->middleware([AdminLocale::class], isPersistent: true)
             ->viteTheme('resources/css/filament/admin/theme.css', 'default')
             ->authMiddleware([
                 Authenticate::class,

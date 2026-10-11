@@ -33,7 +33,7 @@ class VerifyEmail extends Component
 
         RateLimiter::hit('email-verification' . Auth::id(), 120);
 
-        $this->notify('Verification email sent.');
+        $this->notify(__('Verification email sent.'));
     }
 
     public function render()

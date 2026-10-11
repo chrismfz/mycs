@@ -124,7 +124,7 @@ class Show extends Component
             }
 
             if ($invoiceItems->count() > 0) {
-                $this->notify('Default payment method has been updated for recurring services.', 'success');
+                $this->notify(__('Default payment method has been updated for recurring services.'), 'success');
             }
         }
 

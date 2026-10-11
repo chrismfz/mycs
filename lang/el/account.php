@@ -1,0 +1,91 @@
+<?php
+
+return [
+    'account' => 'Λογαριασμός',
+    'personal_details' => 'Στοιχεία',
+    'security' => 'Ασφάλεια',
+    'credits' => 'Υπόλοιπο',
+
+    'change_password' => 'Αλλαγή κωδικού',
+
+    'two_factor_authentication' => 'Επαλήθευση δύο βημάτων (2FA)',
+    'two_factor_authentication_description' => 'Προστατέψτε τον λογαριασμό σας με επαλήθευση δύο βημάτων: εκτός από τον κωδικό, θα ζητείται και ένας κωδικός μίας χρήσης.',
+    'two_factor_authentication_enabled' => 'Η επαλήθευση δύο βημάτων είναι ενεργή.',
+    'two_factor_authentication_enable' => 'Ενεργοποίηση 2FA',
+    'two_factor_authentication_disable' => 'Απενεργοποίηση 2FA',
+    'two_factor_authentication_disable_description' => 'Θέλετε σίγουρα να απενεργοποιήσετε την επαλήθευση δύο βημάτων; Ο λογαριασμός σας θα προστατεύεται μόνο με τον κωδικό.',
+    'two_factor_authentication_enable_description' => 'Για να ενεργοποιήσετε την επαλήθευση δύο βημάτων, σκανάρετε τον παρακάτω κωδικό QR με μια εφαρμογή όπως το Google Authenticator ή το Authy.',
+    'two_factor_authentication_qr_code' => 'Σκανάρετε τον κωδικό QR με την εφαρμογή σας:',
+    'two_factor_authentication_secret' => 'Ή πληκτρολογήστε χειροκίνητα τον κωδικό:',
+
+    'sessions' => 'Συνδέσεις',
+    'sessions_description' => 'Δείτε σε ποιους browsers και συσκευές είστε συνδεδεμένοι και αποσυνδέστε όσες δεν αναγνωρίζετε.',
+    'logout_sessions' => 'Αποσύνδεση',
+    'current_device' => 'Αυτή η συσκευή',
+
+    'input' => [
+        'current_password' => 'Τρέχων κωδικός',
+        'current_password_placeholder' => 'Ο τρέχων κωδικός σας',
+        'new_password' => 'Νέος κωδικός',
+        'new_password_placeholder' => 'Ο νέος κωδικός σας',
+        'confirm_password' => 'Επιβεβαίωση κωδικού',
+        'confirm_password_placeholder' => 'Πληκτρολογήστε ξανά τον νέο κωδικό',
+
+        'two_factor_code' => 'Κωδικός από την εφαρμογή επαλήθευσης',
+        'two_factor_code_placeholder' => 'Κωδικός 6 ψηφίων',
+
+        'currency' => 'Νόμισμα',
+        'amount' => 'Ποσό',
+        'payment_gateway' => 'Τρόπος πληρωμής',
+    ],
+
+    'notifications' => [
+        'password_changed' => 'Ο κωδικός άλλαξε.',
+        'password_incorrect' => 'Ο τρέχων κωδικός δεν είναι σωστός.',
+        'two_factor_enabled' => 'Η επαλήθευση δύο βημάτων ενεργοποιήθηκε.',
+        'two_factor_disabled' => 'Η επαλήθευση δύο βημάτων απενεργοποιήθηκε.',
+        'two_factor_code_incorrect' => 'Ο κωδικός δεν είναι σωστός.',
+        'session_logged_out' => 'Η σύνδεση τερματίστηκε.',
+    ],
+
+    'no_credit' => 'Δεν έχετε υπόλοιπο.',
+    'add_credit' => 'Προσθήκη υπολοίπου',
+    'credit_deposit' => 'Προσθήκη υπολοίπου (:currency)',
+
+    'payment_methods' => 'Τρόποι πληρωμής',
+    'recent_transactions' => 'Πρόσφατες συναλλαγές',
+    'saved_payment_methods' => 'Αποθηκευμένοι τρόποι πληρωμής',
+    'setup_payment_method' => 'Προσθήκη νέου τρόπου πληρωμής',
+    'no_saved_payment_methods' => 'Δεν έχετε αποθηκευμένους τρόπους πληρωμής.',
+    'saved_payment_methods_description' => 'Οι αποθηκευμένοι τρόποι πληρωμής κάνουν πιο γρήγορη την πληρωμή και επιτρέπουν την αυτόματη πληρωμή των υπηρεσιών σας.',
+    'no_saved_payment_methods_description' => 'Προσθέστε έναν τρόπο πληρωμής για πιο γρήγορες πληρωμές και για να ενεργοποιήσετε την αυτόματη πληρωμή των υπηρεσιών σας.',
+    'add_payment_method' => 'Προσθήκη τρόπου πληρωμής',
+    'payment_method_statuses' => [
+        'active' => 'Ενεργός',
+        'inactive' => 'Ανενεργός',
+        'expired' => 'Έληξε',
+        'pending' => 'Σε εκκρεμότητα',
+    ],
+    'payment_method_added' => 'Ο τρόπος πληρωμής προστέθηκε.',
+    'payment_method_add_failed' => 'Δεν ήταν δυνατή η προσθήκη του τρόπου πληρωμής. Δοκιμάστε ξανά.',
+    'services_linked' => 'Συνδεδεμένες υπηρεσίες: :count',
+    'remove' => 'Αφαίρεση',
+    'remove_payment_method' => 'Αφαίρεση τρόπου πληρωμής',
+    'remove_payment_method_confirm' => 'Θέλετε σίγουρα να αφαιρέσετε το :name; Η ενέργεια δεν αναιρείται.',
+    'expires' => 'Λήγει :date',
+    'cancel' => 'Άκυρο',
+    'confirm' => 'Ναι, αφαίρεση',
+    'email_notifications' => 'Ειδοποιήσεις email',
+    'in_app_notifications' => 'Ειδοποιήσεις στην εφαρμογή',
+    'notifications_description' => 'Επιλέξτε πώς θέλετε να λαμβάνετε κάθε ειδοποίηση: με email, μέσα στην εφαρμογή (push) ή και τα δύο.',
+    'notification' => 'Ειδοποίηση',
+
+    'push_notifications' => 'Ειδοποιήσεις push',
+    'push_notifications_description' => 'Ενεργοποιήστε τις ειδοποιήσεις push για να ενημερώνεστε άμεσα στον browser σας, ακόμα και όταν δεν είστε στη σελίδα.',
+    'enable_push_notifications' => 'Ενεργοποίηση ειδοποιήσεων push',
+    'push_status' => [
+        'not_supported' => 'Ο browser σας δεν υποστηρίζει ειδοποιήσεις push.',
+        'denied' => 'Οι ειδοποιήσεις push είναι μπλοκαρισμένες. Ενεργοποιήστε τις από τις ρυθμίσεις του browser.',
+        'subscribed' => 'Οι ειδοποιήσεις push είναι ενεργές.',
+    ],
+];
