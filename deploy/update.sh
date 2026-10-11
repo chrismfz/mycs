@@ -26,13 +26,16 @@
 # Env overrides:
 #   APP_DIR=/var/www/mycs   run against another checkout (default: this repo)
 #   PHP=php  COMPOSER=composer  NPM=npm
-#   COMPOSER_DEV=1          keep dev dependencies (tests, pint) — devbox
+#   COMPOSER_DEV=1          keep dev dependencies (tests, pint). Default: DEPLOY_COMPOSER_DEV
+#                           from .env (set DEPLOY_COMPOSER_DEV=1 in the devbox .env)
 #   SKIP_SNAPSHOT=1         no DB snapshot (only for throwaway installs)
 #   SNAPSHOT_KEEP=10        snapshots to keep
 #   QUEUE_SERVICE=mycs-queue  systemd unit of the worker
 #   QUEUE_STOP_CMD / QUEUE_START_CMD  explicit hooks (win over systemd)
 #   ALLOW_DOWNGRADE=1
 #
+# Re-run under bash if started as `sh deploy/update.sh`.
+if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
 set -Eeuo pipefail
 
 cd "${APP_DIR:-$(dirname "$0")/..}"
@@ -50,6 +53,8 @@ fail() { printf '\n\033[1;31m✗ %s\033[0m\n' "$*" >&2; }
 warn() { printf '\n\033[1;33m! %s\033[0m\n' "$*"; }
 
 [[ -f artisan && -f .env ]] || { fail "Not an installed MyCS checkout: $(pwd) (artisan/.env missing)."; exit 1; }
+_env() { { grep -E "^$1=" .env || true; } | tail -1 | cut -d= -f2- | sed -E 's/^"(.*)"$/\1/'; }
+COMPOSER_DEV="${COMPOSER_DEV:-$(_env DEPLOY_COMPOSER_DEV)}"
 
 # --- queue worker -----------------------------------------------------------
 # Stop the worker before touching the schema so no job runs against a
@@ -64,7 +69,7 @@ stop_queue_worker() {
     log "Stopping queue worker (QUEUE_STOP_CMD)"
     if eval "${QUEUE_STOP_CMD}"; then _stopped_by="hook"; return 0; fi
     warn "QUEUE_STOP_CMD failed — falling back to queue:restart."
-  elif _have_unit && systemctl stop "${QUEUE_SERVICE}" 2>/dev/null; then
+  elif _have_unit && systemctl --no-ask-password stop "${QUEUE_SERVICE}" 2>/dev/null; then
     log "Stopped queue worker (systemd: ${QUEUE_SERVICE})"
     _stopped_by="systemd"; return 0
   fi
@@ -75,7 +80,7 @@ stop_queue_worker() {
 start_queue_worker() {
   case "$_stopped_by" in
     hook)    [[ -n "${QUEUE_START_CMD:-}" ]] && { log "Starting queue worker (QUEUE_START_CMD)"; eval "${QUEUE_START_CMD}" || true; } ;;
-    systemd) log "Starting queue worker (systemd: ${QUEUE_SERVICE})"; systemctl start "${QUEUE_SERVICE}" 2>/dev/null \
+    systemd) log "Starting queue worker (systemd: ${QUEUE_SERVICE})"; systemctl --no-ask-password start "${QUEUE_SERVICE}" 2>/dev/null \
                || fail "Could not start ${QUEUE_SERVICE} — START IT YOURSELF NOW." ;;
     restart) log "Queue: workers were asked to exit — their supervisor (systemd/cron) restarts them." ;;
   esac
@@ -132,7 +137,6 @@ stop_queue_worker
 # --- 4. DB snapshot ----------------------------------------------------------
 if [[ "${SKIP_SNAPSHOT:-0}" != "1" ]]; then
   log "DB snapshot (rollback point)"
-  _env() { grep -E "^$1=" .env | tail -1 | cut -d= -f2- | sed -E 's/^"(.*)"$/\1/'; }
   mkdir -p storage/app/db-snapshots
   _snap="storage/app/db-snapshots/$(_env DB_DATABASE)-$(date +%Y%m%d-%H%M%S)-${CURRENT_SHA:0:8}.sql.gz"
   ( umask 077
