@@ -296,16 +296,17 @@ class Service extends Model implements Auditable
 
     /**
      * Apply explicit staff changes on the same row lock as payment and billing. Only the fields that
-     * differ from this model as the caller loaded it (the admin form when it opened, the API record)
-     * are written: a payment, the cron or an upgrade may have changed the row since, and a form that
-     * sends back every field must not revert them. Suspending (a real status change) is a manual
-     * hold: a later payment does not lift it.
+     * differ from what the caller saw are written ($baseline: the raw attributes the admin form was
+     * filled from; else this model as loaded): a payment, the cron or an upgrade may have changed the
+     * row since, and a form that sends back every field must not revert them. Suspending (a real
+     * status change) is a manual hold: a later payment does not lift it.
      *
      * @param  array<string, mixed>  $attributes
+     * @param  array<string, mixed>|null  $baseline
      */
-    public function applyStaffChanges(array $attributes): void
+    public function applyStaffChanges(array $attributes, ?array $baseline = null): void
     {
-        $probe = clone $this;
+        $probe = (new self)->setRawAttributes($baseline ?? $this->getAttributes(), true);
         $probe->fill($attributes);
         $changes = $probe->getDirty();
         if ($changes === []) {
@@ -414,9 +415,16 @@ class Service extends Model implements Auditable
         }
         $cursor = $this->coupon_started_at;
         $target = CarbonImmutable::instance($periodStart)->startOfDay();
+        // Billed periods count as they were billed (a cycle change keeps the monthly ones monthly);
+        // periods with no line (free renewals) are counted in the current plan.
+        $billed = $this->invoiceItems()->whereNotNull('period_start')->whereNotNull('period_end')
+            ->get(['id', 'period_start', 'period_end'])->keyBy(fn (InvoiceItem $line) => $line->period_start->toDateString());
 
         for ($cycle = 1; $cycle < 1200 && $cursor->lessThan($target); $cycle++) {
-            $cursor = $this->periodEnd($cursor, $lines);
+            $line = $billed->get($cursor->toDateString());
+            $cursor = $line !== null && $line->period_end->greaterThan($cursor)
+                ? $line->period_end
+                : $this->periodEnd($cursor, $lines);
             if ($cursor === null) {
                 return $cycle;
             }

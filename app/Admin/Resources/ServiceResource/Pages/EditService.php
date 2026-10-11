@@ -15,16 +15,27 @@ use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Illuminate\Database\Eloquent\Model;
+use Livewire\Attributes\Locked;
 
 class EditService extends EditRecord
 {
     protected static string $resource = ServiceResource::class;
 
+    /** The record as the form was filled from it: a save writes only what staff changed since. */
+    #[Locked]
+    public array $filledAttributes = [];
+
+    protected function afterFill(): void
+    {
+        $this->filledAttributes = $this->getRecord()->getAttributes();
+    }
+
     protected function handleRecordUpdate(Model $record, array $data): Model
     {
         /** @var Service $record */
-        // Only what staff changed in the form is written (applyStaffChanges diffs against the record as loaded).
-        $record->applyStaffChanges($data);
+        // Livewire reloads the record on every request: diff against the form as it was filled, so a
+        // payment or the cron that ran while the page was open is not written back.
+        $record->applyStaffChanges($data, $this->filledAttributes ?: null);
 
         return $record;
     }
