@@ -1,0 +1,60 @@
+{
+    "_about": "Raw tag sets returned by WHMCS modules/servers/licensing/verify.php (Licensing Addon 3.1), captured 2026-10-08 on the nixpal WHMCS with zlic.php-style requests (dir=/home/clnixpal/public_html). Tag order is as returned. Customer data replaced with fixed placeholders; md5hash = md5(PSK . check_token) was verified against the product PSK at capture time. Bindings of every license were unchanged by the calls.",
+    "active_devnode": {
+        "status": "Active",
+        "registeredname": "Test Client",
+        "companyname": "Test Company",
+        "email": "client@example.com",
+        "serviceid": "1001",
+        "productid": "8",
+        "productname": "DEVNODE",
+        "regdate": "2023-10-23 00:00:00",
+        "nextduedate": "0000-00-00",
+        "billingcycle": "Free Account",
+        "validdomain": "host.example.com,www.host.example.com",
+        "validip": "198.51.100.7",
+        "validdirectory": "/home/clnixpal/public_html",
+        "md5hash": "<md5(PSK . check_token)>"
+    },
+    "expired": {
+        "status": "Expired",
+        "registeredname": "Test Client",
+        "companyname": "Test Company",
+        "email": "client@example.com",
+        "serviceid": "1001",
+        "productid": "5",
+        "productname": "Zonecloud Agent",
+        "regdate": "2023-07-25 00:00:00",
+        "nextduedate": "2025-05-25",
+        "billingcycle": "Monthly",
+        "validdomain": "host.example.com,www.host.example.com",
+        "validip": "198.51.100.7",
+        "validdirectory": "/home/clnixpal/public_html",
+        "customfields": "comments=",
+        "md5hash": "<md5(PSK . check_token)>"
+    },
+    "suspended": {
+        "status": "Suspended",
+        "registeredname": "Test Client",
+        "companyname": "Test Company",
+        "email": "client@example.com",
+        "serviceid": "1001",
+        "productid": "4",
+        "productname": "Zonecloud Web Controller",
+        "regdate": "2024-02-01 00:00:00",
+        "nextduedate": "2026-09-01",
+        "billingcycle": "Monthly",
+        "validdomain": "host.example.com,www.host.example.com",
+        "validip": "198.51.100.7",
+        "validdirectory": "/home/clnixpal/public_html",
+        "customfields": "comments=",
+        "md5hash": "<md5(PSK . check_token)>"
+    },
+    "ip_mismatch": {
+        "status": "Invalid",
+        "message": "IP Address Invalid"
+    },
+    "invalid_key": {
+        "status": "Invalid"
+    }
+}

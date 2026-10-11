@@ -34,6 +34,12 @@
         "laravel/tinker": "^3.0",
         "livewire/livewire": "^4.0",
         "mycs/mail-template": "^1.0",
+        "nixpal/cardlink-eurobank": "^1.0",
+        "nixpal/domain-tools": "^1.0",
+        "nixpal/mailcow": "^1.0",
+        "nixpal/myopenprovider": "^1.0",
+        "nixpal/licensing": "^1.0",
+        "nixpal/paypal-vault": "^1.0",
         "minishlink/web-push": "^11.0",
         "owen-it/laravel-auditing": "^14.0",
         "corwindev/laravel-themer": "^2.2.1",
@@ -77,7 +83,13 @@
     "autoload-dev": {
         "psr-4": {
             "Tests\\": "tests/",
-            "MyCS\\MailTemplate\\Tests\\": "packages/mail-template/tests/"
+            "MyCS\\MailTemplate\\Tests\\": "packages/mail-template/tests/",
+            "Nixpal\\CardlinkEurobank\\Tests\\": "packages/cardlink-eurobank/tests/",
+            "Nixpal\\DomainTools\\Tests\\": "packages/domain-tools/tests/",
+            "Nixpal\\Mailcow\\Tests\\": "packages/mailcow/tests/",
+            "Nixpal\\MyOpenprovider\\Tests\\": "packages/myopenprovider/tests/",
+            "Nixpal\\Licensing\\Tests\\": "packages/nixpal-licensing/tests/",
+            "Nixpal\\PaypalVault\\Tests\\": "packages/paypal-vault/tests/"
         }
     },
     "scripts": {

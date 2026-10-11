@@ -38,13 +38,19 @@
       upstream: σπάει μόνο σε νέα σφάλματα (2026-10-11).
 - [ ] Μείωση του `phpstan-baseline.neon`: όποιο αρχείο αγγίζουμε, καθαρίζουμε και τις εγγραφές του. 672 → 404 με
       τύπους στις σχέσεις και `@property-read` στα accessors των models, → 390 με τα «ύποπτα» (2 πραγματικά bugs, 2026-10-11).
-- [ ] `lib/*` του blesta-modules → `packages/` (nixpal-licensing, cardlink-eurobank, paypal-vault, domain-tools,
-      myopenprovider, mailcow), με composer `path` repositories και τα tests τους στο CI.
+- [x] `lib/*` του blesta-modules → `packages/` (nixpal-licensing, cardlink-eurobank, paypal-vault, domain-tools,
+      myopenprovider, mailcow), composer `path` repositories, 215 tests και phpstan στο CI (2026-10-11). Έμειναν εκτός
+      ό,τι ήταν μόνο για το Blesta (repository/plugin endpoint/importer του licensing, tests των modules). Μένουν
+      ονόματα του Blesta στο API (π.χ. `VposReturn::blestaStatus()`, `ServiceLifecycle`): αλλάζουν όταν γραφτούν τα
+      adapters του MyCS (Φάση 1/3). Το `gr-epp` ήταν άδειο (Φάση 4).
 - [x] `corwindev/laravel-themer` → `packages/laravel-themer` (MIT) με διορθώσεις για PHP 8.4 (implicit nullable):
       τέλος τα `PHP Deprecated` σε κάθε `artisan` (2026-10-11). Το χρησιμοποιεί **μόνο το client area** (`themes/default`,
       ρύθμιση `theme`, `app:make-theme`)· το admin είναι Filament. Υποψήφιο για αφαίρεση αν μείνουμε σε ένα theme:
       μεταφορά του `themes/default` στο `resources/views` και κατάργηση του package.
 - [ ] Σκελετός ελληνικής μετάφρασης (`lang/el`).
+- [ ] **Μενού admin «σαν WHMCS»:** να δούμε αν το [Topbar Menu](https://filamentphp.com/plugins/vaslv-topbar-menu)
+      (Andrei Vasilev) δίνει μενού πάνω (γνώριμο από το WHMCS) **και** το δικό μας αριστερά· το Filament έχει είτε
+      sidebar είτε top navigation, όχι και τα δύο. Έλεγχος: άδεια, συντήρηση, συμβατότητα με Filament 5.
 - [x] `deploy/update.sh` (από το Ekdosi): ενημέρωση με snapshot/maintenance/queue drain/migrate/build (2026-10-11).
       Μένουν: `deploy/rollback.sh` (restore snapshot + checkout), updater από το admin.
 - [ ] Installer και updater όπως του Ekdosi: `/install` wizard + `mycs:install` (πρώτος admin, ρυθμίσεις, seed)
@@ -141,6 +147,10 @@
 - [ ] Templates email el/en για όλα τα γεγονότα (#1306)· retry και ιστορικό emails (#1204, #1033).
 - [ ] Εύκολη επεξεργασία από admin: ημερομηνίες domain, ποσά υπηρεσίας, υποσύνολα τιμολογίου.
 - [ ] MCP server (μοτίβο του Ekdosi).
+- [ ] **Ειδοποιήσεις Mattermost** (incoming webhook, ρύθμιση ανά instance) για τα ίδια events με το WHMCS του myip
+      σήμερα (provider «Mattermost», 2026-10-11): ticket opened / reply πελάτη / reply staff, invoice paid, service
+      suspended, service terminated, «payment auto matched» (σήμερα από API call). Υπάρχει το extension
+      `DiscordNotifications` του Paymenter ως πρότυπο. Η nixpal δεν έχει ειδοποιήσεις.
 
 ## Φάση 4: .gr EPP
 - [ ] `packages/gr-epp` (HTTPS `/epp/proxy` + `JSESSIONID`) ως driver του `DomainRegistrar`· UAT· owner change/transfer

@@ -1,0 +1,26 @@
+{
+    "name": "nixpal/licensing",
+    "description": "Framework-agnostic core of the nixpal licensing server (WHMCS Licensing Addon compatible local keys).",
+    "type": "library",
+    "license": "proprietary",
+    "require": {
+        "php": ">=7.4"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.6"
+    },
+    "autoload": {
+        "psr-4": {
+            "Nixpal\\Licensing\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Nixpal\\Licensing\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit"
+    },
+    "version": "1.0.0"
+}
