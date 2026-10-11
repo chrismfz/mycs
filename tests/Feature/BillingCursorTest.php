@@ -10,6 +10,8 @@ use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Artisan;
+use InvalidArgumentException;
 use MyCS\BillingPeriod\BillingPeriod;
 use Tests\TestCase;
 
@@ -284,7 +286,8 @@ class BillingCursorTest extends TestCase
         $october->update(['status' => 'cancelled']);
         $service->update(['expires_at' => '2026-10-31']); // comp half of October
 
-        $this->artisan('app:cron-job')->assertExitCode(0); // today 2026-10-12, hole 10-31..11-15
+        Carbon::setTestNow('2026-10-28 10:00:00'); // the hole 10-31..11-15 is due
+        $this->artisan('app:cron-job')->assertExitCode(0);
 
         $line = $service->invoiceItems()->whereHas('invoice', fn ($q) => $q->where('status', 'pending'))->sole();
         $this->assertSame('2026-10-31', $line->period_start->toDateString());
@@ -350,7 +353,12 @@ class BillingCursorTest extends TestCase
         Plan::query()->whereKey($broken->plan_id)->update(['billing_unit' => 'hour']); // not whole days
         $fine = $this->service();
 
-        $this->artisan('app:cron-job')->assertFailed(); // reported, not hidden
+        try {
+            Artisan::call('app:cron-job');
+            $this->fail('The broken service was not reported');
+        } catch (InvalidArgumentException) {
+            // reported at the end of the run, after the other services were billed
+        }
 
         $this->assertSame(1, $fine->invoices()->count());
         $this->assertSame(0, $broken->invoices()->count());
