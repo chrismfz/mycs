@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "fc87519116e3eadf28b3040c09878e30",
+    "content-hash": "99776c77f8ecbab9ac49290afb3f47e3",
     "packages": [
         {
             "name": "andreiio/blade-remix-icon",
@@ -5051,6 +5051,40 @@
                 }
             ],
             "time": "2026-09-29T19:21:12+00:00"
+        },
+        {
+            "name": "mycs/mail-template",
+            "version": "1.0.0",
+            "dist": {
+                "type": "path",
+                "url": "packages/mail-template",
+                "reference": "93b01c101a5608512339b5ba71e96d9fe81dbacb"
+            },
+            "require": {
+                "php": "^8.3"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^11.5|^12.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "MyCS\\MailTemplate\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "MyCS\\MailTemplate\\Tests\\": "tests/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Logic-less template renderer for staff-edited email/notification templates: placeholders, if/for, no code execution.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
         },
         {
             "name": "nesbot/carbon",

@@ -2,13 +2,13 @@
 
 namespace App\Mail;
 
+use App\Helpers\TemplateRenderer;
 use App\Models\NotificationTemplate;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\View\Compilers\BladeCompiler;
 
 class Mail extends Mailable
 {
@@ -29,7 +29,6 @@ class Mail extends Mailable
     ) {
         $this->emailTemplate = $emailTemplate;
         $this->data = $data;
-        $this->data['body'] = $this->emailTemplate->body;
     }
 
     /**
@@ -38,7 +37,7 @@ class Mail extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: BladeCompiler::render($this->emailTemplate->subject, $this->data),
+            subject: TemplateRenderer::render($this->emailTemplate->subject, $this->data, escape: false),
         );
     }
 
@@ -49,7 +48,8 @@ class Mail extends Mailable
     {
         return new Content(
             html: 'components.mail.base',
-            with: $this->data,
+            // The data stays in the view data: listeners (e.g. TicketReplyEmailListener) read it.
+            with: [...$this->data, 'html' => TemplateRenderer::render($this->emailTemplate->body, $this->data)],
         );
     }
 }

@@ -7,6 +7,7 @@ use App\Admin\Resources\ProductResource\Pages\EditProduct;
 use App\Admin\Resources\ProductResource\Pages\ListProducts;
 use App\Classes\FilamentInput;
 use App\Helpers\ExtensionHelper;
+use App\Helpers\TemplateRenderer;
 use App\Models\Currency;
 use App\Models\Product;
 use App\Models\Server;
@@ -81,7 +82,8 @@ class ProductResource extends Resource
                                 ])->default('separated')
                                     ->required(),
                                 Textarea::make('email_template')
-                                    ->hint('This snippet will be used in the email template.')
+                                    ->hint('Shown as {{ product_info }} in the "service activated" email. Same template syntax, e.g. {{ service.product.name }}.')
+                                    ->rule(TemplateRenderer::rule())
                                     ->nullable(),
                                 Checkbox::make('hidden')
                                     ->label('Hide product')

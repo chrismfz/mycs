@@ -6,6 +6,7 @@ use App\Admin\Resources\NotificationTemplateResource\Pages\CreateNotificationTem
 use App\Admin\Resources\NotificationTemplateResource\Pages\EditNotificationTemplate;
 use App\Admin\Resources\NotificationTemplateResource\Pages\ListNotificationTemplates;
 use App\Enums\NotificationEnabledStatus;
+use App\Helpers\TemplateRenderer;
 use App\Models\NotificationTemplate;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\MarkdownEditor;
@@ -46,13 +47,14 @@ class NotificationTemplateResource extends Resource
                     ->hint('This message will be shown to users when they edit their notification preferences for this template.')
                     ->columnSpanFull(),
                 Section::make('Email Template')
-                    ->description('Define the subject and body of the email template. You can use either Markdown or HTML for the body content.')
+                    ->description('Markdown or HTML. Values: {{ invoice.number }}, {{ service.product.name }}, {{ urls.invoice }}; blocks: {% if … %}…{% else %}…{% endif %}, {% for item in items %}…{% endfor %}; filters: date("F j, Y"), default("…"), upper, lower, raw. No PHP or Blade.')
                     ->columns(2)
                     ->columnSpanFull()
                     ->collapsible()
                     ->schema([
                         TextInput::make('subject')
                             ->required()
+                            ->rule(TemplateRenderer::rule())
                             ->maxLength(255),
                         Select::make('mail_enabled')
                             ->label('Mail Enabled')
@@ -67,6 +69,7 @@ class NotificationTemplateResource extends Resource
                             ->hint('Use either Markdown or HTML to compose the email body.')
                             ->disableAllToolbarButtons()
                             ->required()
+                            ->rule(TemplateRenderer::rule())
                             ->columnSpanFull(),
                         TagsInput::make('cc')
                             ->placeholder('mail@example.com')
@@ -83,6 +86,7 @@ class NotificationTemplateResource extends Resource
                     ->schema([
                         TextInput::make('in_app_title')
                             ->label('In-App Title')
+                            ->rule(TemplateRenderer::rule())
                             ->required(fn (Get $get) => $get('in_app_enabled') !== NotificationEnabledStatus::Never->value)
                             ->disabled(fn (Get $get) => $get('in_app_enabled') === NotificationEnabledStatus::Never->value)
                             ->maxLength(255),
@@ -98,14 +102,16 @@ class NotificationTemplateResource extends Resource
                             ->required(),
                         TextInput::make('in_app_body')
                             ->label('In-App Body')
+                            ->rule(TemplateRenderer::rule())
                             ->required(fn (Get $get) => $get('in_app_enabled') !== NotificationEnabledStatus::Never->value)
                             ->disabled(fn (Get $get) => $get('in_app_enabled') === NotificationEnabledStatus::Never->value)
                             ->columnSpanFull(),
                         TextInput::make('in_app_url')
                             ->label('In-App URL')
                             ->maxLength(255)
-                            ->placeholder('{{ route("invoices.show", $invoice) }}')
-                            ->hint('Supports dynamic variables like {{ route("invoices.show", $invoice) }}')
+                            ->rule(TemplateRenderer::rule())
+                            ->placeholder('{{ urls.invoice }}')
+                            ->hint('urls.invoice, urls.service, urls.ticket, urls.services, urls.new_ticket, urls.security')
                             ->disabled(fn (Get $get) => $get('in_app_enabled') === NotificationEnabledStatus::Never->value)
                             ->columnSpanFull(),
                     ]),

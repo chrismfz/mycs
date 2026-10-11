@@ -42,6 +42,7 @@
 | `whmcs-usage.md` | Τι χρησιμοποιούμε στο WHMCS (myip, nixpal) και parity backlog ανά φάση |
 | `settings-map.md` | Ρυθμίσεις WHMCS → MyCS ανά instance (αρίθμηση, proforma, mass pay, domains, αυτοματισμοί) |
 | `upstream-triage.md` | Issues/PRs/advisories του Paymenter: τι μας επηρεάζει, τι είναι ήδη μέσα, τι θέλουμε |
+| `templates.md` | Σύνταξη των templates email/ειδοποιήσεων (χωρίς Blade) και τιμές ανά ειδοποίηση |
 | `importer.md` | WHMCS importer με 1:1 parity (πρότυπο: `migrate:firebird` του Ekdosi) |
 | `open-questions.md` | Ανοιχτά ερωτήματα και σκέψεις |
 | `history/blesta-modules/` | Τα docs του blesta-modules (HANDOFF, licensing/zlic, Openprovider, importer Blesta, nixpal cut-over, ασφάλεια gateways, domain-tools) και το CLAUDE.md του |

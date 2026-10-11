@@ -15,22 +15,22 @@ class EmailTemplateSeeder extends Seeder
                             
                 A new login was detected on your account.
                             
-                - IP: {{ $ip }}  
-                - Device: {{ $device }}
-                - Time: {{ $time }}
+                - IP: {{ ip }}  
+                - Device: {{ device }}
+                - Time: {{ time }}
 
                 **If this was you**  
                 You can ignore this message, there is no need to take any action.
                             
                 **If this wasn't you**  
-                Please reset your password [here]({{ route('password.request') }}).
+                Please reset your password [here]({{ urls.password_reset }}).
                 HTML,
             'in_app_title' => 'New login detected',
-            'in_app_body' => 'A new login was detected on your account from IP: {{ $ip }} using {{ $device }} at {{ $time }}.',
+            'in_app_body' => 'A new login was detected on your account from IP: {{ ip }} using {{ device }} at {{ time }}.',
             'mail_enabled' => 'force',
             'in_app_enabled' => 'choice_off',
             'edit_preference_message' => 'Alert me about new login attempts',
-            'in_app_url' => '{{ route("account.security") }}',
+            'in_app_url' => '{{ urls.security }}',
         ],
         'new_invoice_created' => [
             'subject' => 'New invoice created',
@@ -39,34 +39,34 @@ class EmailTemplateSeeder extends Seeder
                             
                 A new invoice was created on your account.
                             
-                Total amount: **{{ $total }}**
+                Total amount: **{{ total }}**
                             
                             
                 <div class="table">  
                             
                 |   Item   | Quantity |  Price   |  
                 | :------: | :------: | :------: |
-                @foreach ($items as $item)
-                | {{ $item->description }} | {{ $item->quantity }} | {{ $item->price }} |
-                @endforeach
+                {% for item in items %}
+                | {{ item.description }} | {{ item.quantity }} | {{ item.price }} |
+                {% endfor %}
                 </div>
                             
                 <div class="action">
-                	<a class="button button-blue" href="{{ route('invoices.show', $invoice) }}">
+                	<a class="button button-blue" href="{{ urls.invoice }}">
                 		Go to invoice
                 	</a>
                 </div>
                             
-                @if($has_subscription)
+                {% if has_subscription %}
                 You have a active subscription, the invoice will be automatically paid.
-                @endif
+                {% endif %}
                 HTML,
             'in_app_title' => 'New invoice created',
-            'in_app_body' => 'A new invoice was created on your account with total amount: {{ $total }}.',
+            'in_app_body' => 'A new invoice was created on your account with total amount: {{ total }}.',
             'mail_enabled' => 'choice_on',
             'in_app_enabled' => 'choice_on',
             'edit_preference_message' => 'Notify me about new invoices',
-            'in_app_url' => '{{ route("invoices.show", $invoice) }}',
+            'in_app_url' => '{{ urls.invoice }}',
         ],
         'invoice_paid' => [
             'subject' => 'Invoice paid',
@@ -75,22 +75,22 @@ class EmailTemplateSeeder extends Seeder
                             
                 Your invoice has been successfully paid.
                             
-                Total amount: **{{ $invoice->formattedTotal }}**
+                Total amount: **{{ invoice.formattedTotal }}**
                             
                 You can view your invoice details by clicking the button below.
                             
                 <div class="action">
-                	<a class="button button-blue" href="{{ route('invoices.show', $invoice) }}">
+                	<a class="button button-blue" href="{{ urls.invoice }}">
                 		View Invoice
                 	</a>
                 </div>
                 HTML,
             'in_app_title' => 'Invoice paid',
-            'in_app_body' => 'Your invoice #{{ $invoice->id }} has been successfully paid with total amount: {{ $invoice->formattedTotal }}.',
+            'in_app_body' => 'Your invoice #{{ invoice.id }} has been successfully paid with total amount: {{ invoice.formattedTotal }}.',
             'mail_enabled' => 'choice_on',
             'in_app_enabled' => 'choice_on',
             'edit_preference_message' => 'Notify me about successful payments',
-            'in_app_url' => '{{ route("invoices.show", $invoice) }}',
+            'in_app_url' => '{{ urls.invoice }}',
         ],
         'invoice_payment_failed' => [
             'subject' => 'Invoice payment failed',
@@ -99,22 +99,22 @@ class EmailTemplateSeeder extends Seeder
 
                 Your invoice payment has failed.
 
-                Total amount: **{{ $invoice->formattedTotal }}**
+                Total amount: **{{ invoice.formattedTotal }}**
                             
                 Please pay the invoice to avoid service interruptions.
                             
                 <div class="action">
-                	<a class="button button-blue" href="{{ route('invoices.show', $invoice) }}">
+                	<a class="button button-blue" href="{{ urls.invoice }}">
                 		Pay Invoice
                 	</a>
                 </div>
                 HTML,
             'in_app_title' => 'Invoice payment failed',
-            'in_app_body' => 'Your invoice #{{ $invoice->id }} payment has failed. Please pay the invoice to avoid service interruptions.',
+            'in_app_body' => 'Your invoice #{{ invoice.id }} payment has failed. Please pay the invoice to avoid service interruptions.',
             'mail_enabled' => 'choice_on',
             'in_app_enabled' => 'choice_on',
             'edit_preference_message' => 'Alert me about payment failures',
-            'in_app_url' => '{{ route("invoices.show", $invoice) }}',
+            'in_app_url' => '{{ urls.invoice }}',
         ],
         'new_order_created' => [
             'subject' => 'New order created',
@@ -128,9 +128,9 @@ class EmailTemplateSeeder extends Seeder
                             
                 |   Item   | Quantity |  Price   |  
                 | :------: | :------: | :------: |
-                @foreach ($items as $item)
-                | {{ $item->product->name }} | {{ $item->quantity }} | {{ $item->formattedPrice }} |
-                @endforeach
+                {% for item in items %}
+                | {{ item.product.name }} | {{ item.quantity }} | {{ item.formattedPrice }} |
+                {% endfor %}
                 </div>
                 HTML,
             'in_app_title' => 'New order created',
@@ -138,7 +138,7 @@ class EmailTemplateSeeder extends Seeder
             'mail_enabled' => 'choice_on',
             'in_app_enabled' => 'choice_on',
             'edit_preference_message' => 'Send me order confirmations',
-            'in_app_url' => '{{ route("services") }}',
+            'in_app_url' => '{{ urls.services }}',
         ],
         'new_server_created' => [
             'subject' => 'Service activated',
@@ -148,19 +148,19 @@ class EmailTemplateSeeder extends Seeder
                 Your service has been activated.
 
                 **Service details**
-                - Name: {{ $service->product->name }}
+                - Name: {{ service.product.name }}
 
-                @isset($service->product->email_template)
+                {% if product_info %}
                 **Service information**  
-                {!! Str::markdown(Illuminate\View\Compilers\BladeCompiler::render($service->product->email_template, get_defined_vars()['__data'])) !!}
-                @endisset
+                {{ product_info }}
+                {% endif %}
                 HTML,
             'in_app_title' => 'Service activated',
-            'in_app_body' => 'Your service {{ $service->product->name }} has been activated.',
+            'in_app_body' => 'Your service {{ service.product.name }} has been activated.',
             'mail_enabled' => 'force',
             'in_app_enabled' => 'choice_on',
             'edit_preference_message' => 'Notify me about new service activations',
-            'in_app_url' => '{{ route("services.show", $service) }}',
+            'in_app_url' => '{{ urls.service }}',
         ],
         'server_suspended' => [
             'subject' => 'Service suspended',
@@ -170,16 +170,16 @@ class EmailTemplateSeeder extends Seeder
                 Your service has been suspended due to a payment failure.
 
                 **Service details**
-                - Name: {{ $service->product->name }}
+                - Name: {{ service.product.name }}
 
                 Please pay the invoice to reactivate the service.
                 HTML,
             'in_app_title' => 'Service suspended',
-            'in_app_body' => 'Your service {{ $service->product->name }} has been suspended due to a payment failure. Please pay the invoice to reactivate the service.',
+            'in_app_body' => 'Your service {{ service.product.name }} has been suspended due to a payment failure. Please pay the invoice to reactivate the service.',
             'mail_enabled' => 'force',
             'in_app_enabled' => 'choice_on',
             'edit_preference_message' => 'Alert me about service suspensions',
-            'in_app_url' => '{{ route("services.show", $service) }}',
+            'in_app_url' => '{{ urls.service }}',
         ],
         'server_terminated' => [
             'subject' => 'Service terminated',
@@ -189,41 +189,38 @@ class EmailTemplateSeeder extends Seeder
                 Your service has been terminated.
 
                 **Service details**
-                - Name: {{ $service->product->name }}
+                - Name: {{ service.product.name }}
 
                 Do you consider it a mistake?
                 <div class="action">
-                	<a class="button button-blue" href="{{ route('tickets.create') }}">
+                	<a class="button button-blue" href="{{ urls.new_ticket }}">
                 		Contact us
                 	</a>
                 </div>
                 HTML,
             'in_app_title' => 'Server terminated',
-            'in_app_body' => 'Your server {{ $service->product->name }} has been terminated.',
+            'in_app_body' => 'Your server {{ service.product.name }} has been terminated.',
             'mail_enabled' => 'force',
             'in_app_enabled' => 'choice_on',
             'edit_preference_message' => 'Alert me about service terminations',
-            'in_app_url' => '{{ route("services.show", $service) }}',
+            'in_app_url' => '{{ urls.service }}',
         ],
         'new_ticket_message' => [
-            'subject' => '[Ticket #{{ $ticketMessage->ticket_id }}] New reply',
+            'subject' => '[Ticket #{{ ticketMessage.ticket_id }}] New reply',
             'body' => <<<'HTML'
                 # New ticket reply
 
-                {{ $ticketMessage->user->name }} replied to your ticket.
+                {{ ticketMessage.user.name }} replied to your ticket.
 
                 **Message**
-                {!! Str::markdown($ticketMessage->message, [
-                    'html_input' => 'strip',
-                    'allow_unsafe_links' => false,
-                ]) !!}
+                {{ message_html }}
                 HTML,
             'in_app_title' => 'New ticket reply',
-            'in_app_body' => 'You have a new reply on your ticket #{{ $ticketMessage->ticket_id }}.',
+            'in_app_body' => 'You have a new reply on your ticket #{{ ticketMessage.ticket_id }}.',
             'mail_enabled' => 'choice_on',
             'in_app_enabled' => 'choice_on',
             'edit_preference_message' => 'Notify me about ticket replies',
-            'in_app_url' => '{{ route("tickets.show", $ticketMessage->ticket_id) }}',
+            'in_app_url' => '{{ urls.ticket }}',
         ],
         'email_verification' => [
             'subject' => 'Email verification',
@@ -231,7 +228,7 @@ class EmailTemplateSeeder extends Seeder
                 # Email verification
                 Please verify your email address by clicking the link below.
                 <div class="action">
-                    <a class="button button-blue" href="{{ $url }}">
+                    <a class="button button-blue" href="{{ url }}">
                         Verify email
                     </a>
                 </div>
@@ -249,7 +246,7 @@ class EmailTemplateSeeder extends Seeder
 
                 **Reset password**
                 <div class="action">
-                	<a class="button button-blue" href="{{ $url }}">
+                	<a class="button button-blue" href="{{ url }}">
                 		Reset password
                 	</a>
                 </div>
@@ -269,17 +266,17 @@ class EmailTemplateSeeder extends Seeder
                 We're sorry to see you go! Your server cancellation has been successfully received.
                 
                 **Cancellation Details**
-                - Server: {{ $service->product->name }}
-                @if($cancellation->reason)
-                - Reason: {{ $cancellation->reason }}
-                @endif
-                - Requested at: {{ $cancellation->created_at->format('F j, Y, g:i A') }}
+                - Server: {{ service.product.name }}
+                {% if cancellation.reason %}
+                - Reason: {{ cancellation.reason }}
+                {% endif %}
+                - Requested at: {{ cancellation.created_at|date("F j, Y, g:i A") }}
                 
-                @if($cancellation->type === 'end_of_period')
-                Your server will remain active until {{ $service->expires_at->format('F j, Y') }} (end of your current billing period).
-                @else
+                {% if cancellation.type == "end_of_period" %}
+                Your server will remain active until {{ service.expires_at|date("F j, Y") }} (end of your current billing period).
+                {% else %}
                 Your server has been terminated immediately.
-                @endif
+                {% endif %}
 
                 HTML,
             'in_app_title' => 'Service cancellation received',
@@ -287,7 +284,7 @@ class EmailTemplateSeeder extends Seeder
             'mail_enabled' => 'choice_on',
             'in_app_enabled' => 'choice_on',
             'edit_preference_message' => 'Notify me about service cancellations',
-            'in_app_url' => '{{ route("services.show", $service) }}',
+            'in_app_url' => '{{ urls.service }}',
         ],
     ];
 

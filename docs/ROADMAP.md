@@ -25,8 +25,8 @@
 - [ ] Branding/footer links (Powered by, Sponsor, Star on GitHub, docs του Paymenter)· workflows `build-api-docs.yaml`,
       `release.yaml`, `beta`.
 - [ ] Upload extensions από το web: αφαίρεση ή μόνο από CLI.
-- [ ] Templates email/ειδοποιήσεων: placeholder renderer αντί για Blade, και `mail_header`/`mail_footer` χωρίς
-      compile (`audit-security.md` H1–H2).
+- [x] Templates email/ειδοποιήσεων, `mail_header`/`mail_footer` και snippet προϊόντος χωρίς Blade: renderer
+      `packages/mail-template` (`templates.md`, `audit-security.md` H1–H2, 2026-10-11).
 - [ ] `encrypted` cast στα credentials όλων των server extensions (cPanel, Plesk, Convoy, Enhance, Virtualizor).
 - [ ] API keys περιορισμένα στο role αυτού που τα δημιουργεί· προστασία λογαριασμών admin στο `users.update`.
 - [ ] CI: phpstan (larastan) ενεργό, Pint, tests σε MariaDB.
