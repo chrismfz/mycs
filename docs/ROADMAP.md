@@ -77,16 +77,24 @@
 - [ ] `nixpal_licensing` ως Server extension πάνω στο `packages/nixpal-licensing`· `zlic.php` byte-for-byte με τα
       fixtures· cache/rate-limit (588k checks/έτος).
 
+**Hosting και domains της nixpal** (λίγα, αλλά υπάρχουν· orion, 2026-10-11)
+- [ ] cPanel: **1 server** (όριο 20), **12 ενεργοί λογαριασμοί**, χωρίς server groups. Αρκεί το cPanel extension
+      που υπάρχει (ένας server ανά προϊόν)· έλεγχος create/suspend/unsuspend/terminate/αλλαγή πακέτου στο devbox,
+      `encrypted` credentials. Ο importer κρατά server και username κάθε υπηρεσίας. (+1 ενεργή υπηρεσία χωρίς module.)
+- [ ] Domains: **11** (Openprovider 7, CNIC 3 + 1 σε Grace). Θέλουν το Openprovider της Φάσης 2 και είτε driver CNIC
+      είτε μεταφορά των 4 CNIC στο Openprovider πριν το cut-over (απόφαση).
+
 **Importer και cut-over nixpal**
 - [ ] Importer (`importer.md`): clients, επαφές, custom fields, υπηρεσίες, τιμολόγια με ποσά, πληρωμές, πιστώσεις,
       promotions/ομάδες, κάρτες Stripe, vault tokens, άδειες, ρυθμίσεις από το `tblconfiguration`· re-runnable, id map.
 - [ ] `mycs:parity` με μηδενικό diff.
 - [ ] Export εσόδων/εξόδων ανά έτος (CSV/XLSX) για τον λογιστή.
-- [ ] Shadow-run του licensing → cut-over της nixpal.
+- [ ] Shadow-run του licensing → cut-over της nixpal, **μετά τα domains της Φάσης 2** (Openprovider, CNIC).
 
 ## Φάση 2: Domains (2–4 εβδομάδες, μετά το spike)
 - [ ] Port του υποσυστήματος του Ekdosi: contract `DomainRegistrar`, models, Openprovider, Renewal/Registration/
       Transfer/Sync/Management, adopt, tests.
+- [ ] Driver **CNIC** (CentralNic Reseller): myip 209, nixpal 4. Το Ekdosi έχει μόνο Openprovider.
 - [ ] Πολιτική ανανέωσης: on-paid (default) / on-issue ανά πελάτη / «Ανανέωση τώρα» με prepaid.
 - [ ] Ρυθμίσεις domains (`settings-map.md`): auto renew on payment, default auto-renew, grace/redemption fee στο
       υπάρχον τιμολόγιο, default nameservers, IDN, to-do για αποτυχίες, renewal orders.
