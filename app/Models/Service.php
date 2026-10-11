@@ -6,7 +6,6 @@ use App\Classes\Price;
 use App\Classes\Settings;
 use App\Models\Traits\HasProperties;
 use App\Observers\ServiceObserver;
-use MyCS\BillingPeriod\BillingPeriod;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
@@ -18,6 +17,7 @@ use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Collection;
+use MyCS\BillingPeriod\BillingPeriod;
 use OwenIt\Auditing\Contracts\Auditable;
 
 /**

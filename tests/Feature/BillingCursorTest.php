@@ -6,10 +6,10 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Models\User;
-use MyCS\BillingPeriod\BillingPeriod;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use MyCS\BillingPeriod\BillingPeriod;
 use Tests\TestCase;
 
 /** Renewal bound to invoice and period (docs/billing-cursor.md). */
