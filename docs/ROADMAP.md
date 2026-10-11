@@ -32,6 +32,10 @@
 - [ ] CI: phpstan (larastan) ενεργό, Pint, tests σε MariaDB.
 - [ ] `lib/*` του blesta-modules → `packages/` (nixpal-licensing, cardlink-eurobank, paypal-vault, domain-tools,
       myopenprovider, mailcow), με composer `path` repositories και τα tests τους στο CI.
+- [x] `corwindev/laravel-themer` → `packages/laravel-themer` (MIT) με διορθώσεις για PHP 8.4 (implicit nullable):
+      τέλος τα `PHP Deprecated` σε κάθε `artisan` (2026-10-11). Το χρησιμοποιεί **μόνο το client area** (`themes/default`,
+      ρύθμιση `theme`, `app:make-theme`)· το admin είναι Filament. Υποψήφιο για αφαίρεση αν μείνουμε σε ένα theme:
+      μεταφορά του `themes/default` στο `resources/views` και κατάργηση του package.
 - [ ] Σκελετός ελληνικής μετάφρασης (`lang/el`).
 - [ ] Installer και updater όπως του Ekdosi: `/install` wizard + `mycs:install` (πρώτος admin, ρυθμίσεις, seed)
       αντί για τα `app:init`/`app:user:create` του Paymenter (μόνο όνομα εταιρείας + URL, χωρίς web installer,
