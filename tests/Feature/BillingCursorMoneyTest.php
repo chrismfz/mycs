@@ -162,7 +162,7 @@ class BillingCursorMoneyTest extends TestCase
      */
     public function test_a_downgrade_that_drops_a_part_paid_renewal_below_the_paid_amount_still_renews(): void
     {
-        $this->markTestIncomplete('Known since Paymenter, fixed in PR 2 (payments): re-check an invoice's balance after a line's price changes.');
+        $this->markTestIncomplete('Known since Paymenter, fixed in PR 2 (payments): re-check the invoice balance after a line price changes.');
 
         $service = $this->service();
         $renewal = $this->invoiceFor($service, '2026-10-15', '2026-11-15');
