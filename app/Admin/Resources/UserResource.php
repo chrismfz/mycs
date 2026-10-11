@@ -11,7 +11,9 @@ use App\Admin\Resources\UserResource\Pages\ShowCredits;
 use App\Admin\Resources\UserResource\Pages\ShowInvoices;
 use App\Admin\Resources\UserResource\Pages\ShowServices;
 use App\Admin\Resources\UserResource\Pages\ShowTickets;
+use App\Classes\PermissionGuard;
 use App\Models\Credit;
+use App\Models\Role;
 use App\Models\User;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\Select;
@@ -66,7 +68,13 @@ class UserResource extends Resource
                     ->searchable()
                     ->preload()
                     ->hidden(fn (): bool => !auth()->user()?->hasPermission('admin.roles.update') ?? false)
-                    ->disabled(fn (): bool => !auth()->user()?->hasPermission('admin.roles.update') ?? false),
+                    ->disabled(fn (): bool => !auth()->user()?->hasPermission('admin.roles.update') ?? false)
+                    ->rule(fn () => function (string $attribute, mixed $value, \Closure $fail): void {
+                        $role = $value ? Role::find($value) : null;
+                        if ($role && !PermissionGuard::canGrant(auth()->user(), $role->permissions ?? [])) {
+                            $fail('You cannot assign a role with permissions you do not have.');
+                        }
+                    }),
                 Toggle::make('tfa_secret')
                     ->label('Two Factor Authentication')
                     ->disabled(fn ($record) => !$record?->tfa_secret)

@@ -3,6 +3,7 @@
 namespace App\Admin\Resources;
 
 use App\Admin\Resources\ApiResource\Pages\ManageApis;
+use App\Classes\PermissionGuard;
 use App\Models\ApiKey;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
@@ -54,7 +55,13 @@ class ApiResource extends Resource
                     ->columns(4)
                     ->bulkToggleable()
                     ->searchable()
-                    ->noSearchResultsMessage('Permission could not be found'),
+                    ->noSearchResultsMessage('Permission could not be found')
+                    ->disableOptionWhen(fn (string $value): bool => !PermissionGuard::canGrantApi(auth()->user(), $value))
+                    ->rule(fn () => function (string $attribute, mixed $value, \Closure $fail): void {
+                        if (!PermissionGuard::canGrantAllApi(auth()->user(), (array) $value)) {
+                            $fail('You cannot give an API key permissions you do not have.');
+                        }
+                    }),
 
             ])
             ->columns(1);

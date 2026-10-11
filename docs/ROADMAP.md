@@ -28,7 +28,8 @@
 - [ ] Templates email/ειδοποιήσεων: placeholder renderer αντί για Blade, και `mail_header`/`mail_footer` χωρίς
       compile (`audit-security.md` H1–H2).
 - [ ] `encrypted` cast στα credentials όλων των server extensions (cPanel, Plesk, Convoy, Enhance, Virtualizor).
-- [ ] API keys περιορισμένα στο role αυτού που τα δημιουργεί· προστασία λογαριασμών admin στο `users.update`.
+- [x] «Κανείς δεν δίνει ό,τι δεν έχει» (`PermissionGuard`): API keys, ρόλοι, ανάθεση ρόλου, επεξεργασία/διαγραφή/
+      impersonation άλλου admin· το key δεν ξεπερνά ποτέ τον δημιουργό του (2026-10-11).
 - [ ] CI: phpstan (larastan) ενεργό, Pint, tests σε MariaDB.
 - [ ] `lib/*` του blesta-modules → `packages/` (nixpal-licensing, cardlink-eurobank, paypal-vault, domain-tools,
       myopenprovider, mailcow), με composer `path` repositories και τα tests τους στο CI.

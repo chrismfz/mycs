@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Classes\PermissionGuard;
 use App\Models\Role;
 use App\Models\User;
 
@@ -36,7 +37,8 @@ class RolePolicy
      */
     public function update(User $user, Role $role): bool
     {
-        return $user->hasPermission('admin.roles.update');
+        // Only roles that carry nothing beyond your own permissions.
+        return $user->hasPermission('admin.roles.update') && PermissionGuard::canGrant($user, $role->permissions ?? []);
     }
 
     /**
@@ -44,7 +46,7 @@ class RolePolicy
      */
     public function delete(User $user, Role $role): bool
     {
-        return $user->hasPermission('admin.roles.delete');
+        return $user->hasPermission('admin.roles.delete') && PermissionGuard::canGrant($user, $role->permissions ?? []);
     }
 
     /**
