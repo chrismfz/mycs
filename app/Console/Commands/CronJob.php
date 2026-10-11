@@ -14,6 +14,7 @@ use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Models\Setting;
 use App\Models\Ticket;
+use App\Models\User;
 use App\Services\Service\RenewServiceService;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -329,6 +330,8 @@ class CronJob extends Command
             return;
         }
         $user = $invoice->user;
+        // The customer first, as every payment path does (RecordPaymentService): no lock-order deadlock.
+        User::query()->whereKey($user->id)->lockForUpdate()->first();
         $credits = $user->credits()
             ->where('currency_code', $invoice->currency_code)
             ->lockForUpdate()

@@ -10,6 +10,7 @@ use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\Service;
+use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Request;
@@ -150,6 +151,8 @@ class Show extends Component
     private function payWithCredit()
     {
         DB::transaction(function () {
+            // The customer first, as every payment path does (RecordPaymentService): no lock-order deadlock.
+            User::query()->whereKey(Auth::id())->lockForUpdate()->first();
             $credit = Auth::user()->credits()->where('currency_code', $this->invoice->currency_code)->lockForUpdate()->first();
             if ($credit && $credit->amount > 0) {
                 // Is it more credits or less credits than the total price?

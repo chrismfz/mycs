@@ -297,7 +297,7 @@ class PayPal extends Gateway
             abort(400, 'Failed to capture PayPal order');
         }
 
-        ExtensionHelper::addPayment($order->purchase_units[0]->invoice_id, 'PayPal', $response->purchase_units[0]->payments->captures[0]->amount->value, $response->purchase_units[0]->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value, $response->purchase_units[0]->payments->captures[0]->id);
+        ExtensionHelper::addPayment($order->purchase_units[0]->invoice_id, 'PayPal', $response->purchase_units[0]->payments->captures[0]->amount->value, $response->purchase_units[0]->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value, $response->purchase_units[0]->payments->captures[0]->id, currency: $response->purchase_units[0]->payments->captures[0]->amount->currency_code ?? null);
 
         return $response;
     }
@@ -339,7 +339,7 @@ class PayPal extends Gateway
             Service::where('subscription_id', $body['resource']['billing_agreement_id'])->each(function (Service $service) use ($body) {
                 // Add payment to the latest invoice
                 $latestInvoice = $service->invoices()->latest()->first();
-                ExtensionHelper::addPayment($latestInvoice->id, 'PayPal', $body['resource']['amount']['total'], $body['resource']['transaction_fee']['value'], $body['resource']['id']);
+                ExtensionHelper::addPayment($latestInvoice->id, 'PayPal', $body['resource']['amount']['total'], $body['resource']['transaction_fee']['value'], $body['resource']['id'], currency: $body['resource']['amount']['currency'] ?? null);
             });
         } elseif ($body['event_type'] === 'VAULT.PAYMENT-TOKEN.DELETED') {
             // Find the billing agreement with this external reference
@@ -355,7 +355,7 @@ class PayPal extends Gateway
                 // Verify that the currency is the same as the invoice
                 $invoice = Invoice::find($order->purchase_units[0]->invoice_id);
                 if ($invoice && $invoice->currency_code === $order->purchase_units[0]->payments->captures[0]->amount->currency_code) {
-                    ExtensionHelper::addPayment($order->purchase_units[0]->invoice_id, 'PayPal', $order->purchase_units[0]->payments->captures[0]->amount->value, $order->purchase_units[0]->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value, $body['resource']['id']);
+                    ExtensionHelper::addPayment($order->purchase_units[0]->invoice_id, 'PayPal', $order->purchase_units[0]->payments->captures[0]->amount->value, $order->purchase_units[0]->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value, $body['resource']['id'], currency: $order->purchase_units[0]->payments->captures[0]->amount->currency_code);
                 }
             }
         }

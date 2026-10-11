@@ -90,7 +90,7 @@ class Mollie extends Gateway
         $payment = $this->request('/v2/payments/' . $request->input('id'));
 
         if ($payment['status'] == 'paid') {
-            ExtensionHelper::addPayment($payment['metadata']['invoice_id'], 'Mollie', $payment['amount']['value'], transactionId: $payment['id']);
+            ExtensionHelper::addPayment($payment['metadata']['invoice_id'], 'Mollie', $payment['amount']['value'], transactionId: $payment['id'], currency: $payment['amount']['currency'] ?? null);
         }
     }
 

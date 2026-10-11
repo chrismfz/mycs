@@ -15,6 +15,7 @@ use App\Models\Product;
 use App\Models\Server;
 use App\Models\Service;
 use App\Models\User;
+use App\Services\Invoice\RecordPaymentService;
 use Exception;
 use Filament\Forms\Components\Placeholder;
 use Illuminate\Database\Eloquent\Collection;
@@ -494,59 +495,28 @@ class ExtensionHelper
     }
 
     /**
-     * Add payment to invoice
+     * Add payment to invoice. Guards, idempotency and over-payment to credit: RecordPaymentService
+     * (docs/payments.md). Gateways should pass the currency the provider reports.
      *
      * @param  Invoice|int  $invoice
      */
-    public static function addPayment($invoice, $gateway, $amount, $fee = null, $transactionId = null, InvoiceTransactionStatus $status = InvoiceTransactionStatus::Succeeded, $isCreditTransaction = false)
+    public static function addPayment($invoice, $gateway, $amount, $fee = null, $transactionId = null, InvoiceTransactionStatus $status = InvoiceTransactionStatus::Succeeded, $isCreditTransaction = false, ?string $currency = null)
     {
         if (isset($gateway)) {
             $gateway = Gateway::where('extension', $gateway)->first();
         }
 
-        $transaction = DB::transaction(function () use ($invoice, $gateway, $amount, $fee, $transactionId, $status, $isCreditTransaction) {
-            // Lock the invoice for update to prevent race conditions
-            $invoice = Invoice::where('id', $invoice instanceof Invoice ? $invoice->id : $invoice)->lockForUpdate()->firstOrFail();
-
-            if (!$transactionId) {
-                return $invoice->transactions()->create([
-                    'gateway_id' => $gateway?->id,
-                    'amount' => $amount,
-                    'fee' => $fee,
-                    'status' => $status,
-                    'is_credit_transaction' => $isCreditTransaction,
-                ]);
-            }
-
-            $updateData = [
-                'gateway_id' => $gateway?->id,
-                'amount' => $amount,
-                'status' => $status,
-                'is_credit_transaction' => $isCreditTransaction,
-            ];
-            if ($fee !== null) {
-                $updateData['fee'] = $fee;
-            }
-
-            return $invoice->transactions()->updateOrCreate(
-                [
-                    'transaction_id' => $transactionId,
-                ],
-                $updateData
-            );
-        });
-
-        return $transaction;
+        return (new RecordPaymentService)->handle($invoice, $gateway, $amount, $fee, $transactionId === null ? null : (string) $transactionId, $status, (bool) $isCreditTransaction, $currency);
     }
 
-    public static function addProcessingPayment($invoice, $gateway, $amount, $fee = null, $transactionId = null)
+    public static function addProcessingPayment($invoice, $gateway, $amount, $fee = null, $transactionId = null, ?string $currency = null)
     {
-        return self::addPayment($invoice, $gateway, $amount, $fee, $transactionId, InvoiceTransactionStatus::Processing);
+        return self::addPayment($invoice, $gateway, $amount, $fee, $transactionId, InvoiceTransactionStatus::Processing, currency: $currency);
     }
 
-    public static function addFailedPayment($invoice, $gateway, $amount, $fee = null, $transactionId = null)
+    public static function addFailedPayment($invoice, $gateway, $amount, $fee = null, $transactionId = null, ?string $currency = null)
     {
-        return self::addPayment($invoice, $gateway, $amount, $fee, $transactionId, InvoiceTransactionStatus::Failed);
+        return self::addPayment($invoice, $gateway, $amount, $fee, $transactionId, InvoiceTransactionStatus::Failed, currency: $currency);
     }
 
     public static function addPaymentFee($transactionId, $fee)
