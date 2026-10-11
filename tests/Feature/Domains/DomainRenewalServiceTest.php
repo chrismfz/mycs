@@ -465,6 +465,7 @@ class DomainRenewalServiceTest extends TestCase
         }
 
         $noExpiry = Domain::create([
+            'registrar_connection_id' => $this->connection->id, // Ekdosi: routed via the TLD rule
             'sld' => 'noexp', 'tld' => 'gr', 'fqdn' => 'noexp.gr', 'status' => 'active',
         ]);
         try {
