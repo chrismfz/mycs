@@ -10,7 +10,8 @@
       (`history/blesta-modules/HANDOFF.md` §6). Είναι το μακρύτερο κομμάτι· χωρίς αυτό το myip δεν μεταφέρεται.
 - [x] DNS δοκιμών: `mycs.myip.gr` + `*.mycs.myip.gr` → devbox (2026-10-11).
 - [x] Πρώτη εγκατάσταση στο devbox (`mycs.myip.gr`)· tests (66) και Pint περνάνε εκεί (2026-10-11).
-- [ ] Παρακολούθηση των security advisories του Paymenter (`upstream-triage.md`).
+- [x] Παρακολούθηση του upstream: routine «Upstream triage» κάθε Τρίτη 08:45 (issues, PRs, commits, security
+      advisories → PR στο `upstream-triage.md`, χωρίς αυτόματο cherry-pick· 2026-10-11).
 
 ## Φάση 0: Καθάρισμα και βάσεις (2–3 ημέρες)
 - [x] Αφαίρεση telemetry: `TelemetryCommand`, schedule, `TELEMETRY_ENABLED`, `Settings::getTelemetry()`.
@@ -59,7 +60,8 @@
 - [x] Installer: `mycs:install` (migrations, seed, νόμισμα, εταιρεία/URL/γλώσσες/ζώνη ώρας, passport keys, πρώτος
       admin) αντί για το `app:init` του Paymenter, **μόνο CLI** (χωρίς `/install` wizard), κωδικός ποτέ ως flag
       (`docs/install.md`, 2026-10-11).
-- [ ] Cherry-picks: #1338 (captcha), το enforcement του `credits_enabled` από το #1295.
+- [x] Cherry-picks: #1338 (captcha), από το #1295 το guard για αρνητικό υπόλοιπο και το enforcement του
+      `credits_enabled` (και στο cron)· όχι το «cap at max credit» (PR #24, 2026-10-11).
 - [x] **Spike domains:** port του πυρήνα των domains του Ekdosi (registrar, sync, transfer, renewal), branch
       `spike/domains` (δεν γίνεται merge· βάση της Φάσης 2), αποτελέσματα στο `docs/domains-spike.md` εκεί. Ο κώδικας
       μεταφέρεται σχεδόν αυτούσιος· εξαρτάται από το «ανανέωση δεμένη με περίοδο» της Φάσης 1. Live μεταφορά του
