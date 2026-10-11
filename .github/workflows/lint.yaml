@@ -37,3 +37,11 @@ jobs:
 
       - name: Pint (check only)
         run: vendor/bin/pint --test
+
+      - name: Prepare .env (larastan boots the app and needs an APP_KEY)
+        run: |
+          cp .env.example .env
+          sed -i "s|^APP_KEY=.*|APP_KEY=base64:$(openssl rand -base64 32)|" .env
+
+      - name: PHPStan (new errors only, see phpstan-baseline.neon)
+        run: vendor/bin/phpstan analyse --no-progress --memory-limit=2G

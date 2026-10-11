@@ -1,10 +1,18 @@
 includes:
     - vendor/larastan/larastan/extension.neon
+    - phpstan-baseline.neon
 
 parameters:
 
     paths:
         - app/
+        - extensions/
+        - packages/mail-template/src/
 
     # Level 9 is the highest level
     level: 5
+
+    # phpstan-baseline.neon holds the errors inherited from Paymenter (2026-10-11): CI fails only on
+    # new ones. Fix a file's entries when you touch it, then regenerate with
+    #   vendor/bin/phpstan analyse --memory-limit=2G --generate-baseline
+    reportUnmatchedIgnoredErrors: false

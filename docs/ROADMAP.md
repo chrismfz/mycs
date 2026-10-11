@@ -34,7 +34,9 @@
 - [x] «Κανείς δεν δίνει ό,τι δεν έχει» (`PermissionGuard`): API keys, ρόλοι, ανάθεση ρόλου, επεξεργασία/διαγραφή/
       impersonation άλλου admin· το key δεν ξεπερνά ποτέ τον δημιουργό του (2026-10-11).
 - [x] CI: tests σε sqlite + MariaDB 10.11 (PHP 8.4) και `pint --test` σε κάθε PR (PR #9, 2026-10-11).
-- [ ] CI: phpstan (larastan) ενεργό.
+- [x] CI: phpstan (larastan, level 5) σε `app/`, `extensions/`, `packages/mail-template` με baseline για τα 672 του
+      upstream: σπάει μόνο σε νέα σφάλματα (2026-10-11).
+- [ ] Μείωση του `phpstan-baseline.neon`: όποιο αρχείο αγγίζουμε, καθαρίζουμε και τις εγγραφές του.
 - [ ] `lib/*` του blesta-modules → `packages/` (nixpal-licensing, cardlink-eurobank, paypal-vault, domain-tools,
       myopenprovider, mailcow), με composer `path` repositories και τα tests τους στο CI.
 - [x] `corwindev/laravel-themer` → `packages/laravel-themer` (MIT) με διορθώσεις για PHP 8.4 (implicit nullable):
