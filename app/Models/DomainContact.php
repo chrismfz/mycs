@@ -11,6 +11,18 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * first-class, deliberately NOT the ekdosi Customer (pre-fill with explicit
  * confirmation; may diverge). Also the operator's manual-assign aid on
  * unassigned domains. docs/domains/README.md §3.7.
+ *
+ * @property string $type
+ * @property string $name
+ * @property string|null $org
+ * @property string|null $email
+ * @property string|null $phone
+ * @property string|null $address1
+ * @property string|null $address2
+ * @property string|null $city
+ * @property string|null $postcode
+ * @property string|null $country
+ * @property string|null $registrar_contact_handle
  */
 class DomainContact extends Model
 {

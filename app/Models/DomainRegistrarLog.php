@@ -12,6 +12,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * history». `status` = ok | adopted (the §6.6 already-renewed guard fired —
  * no registrar call was made) | failed. `request`/`response` are SANITIZED
  * snapshots — credentials never land here.
+ *
+ * @property int $id
+ * @property int|null $domain_id
+ * @property int|null $invoice_id
+ * @property string $action
+ * @property string $status
+ * @property array<string, mixed>|null $request
+ * @property array<string, mixed>|null $response
+ * @property string|null $error
  */
 class DomainRegistrarLog extends Model
 {

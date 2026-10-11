@@ -10,6 +10,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * A delegation nameserver a domain uses (Πυλώνας A / A1) — NOT a glue/child
  * host (domain_hosts, A3). docs/domains/README.md §3.5.
+ *
+ * @property string $host
+ * @property int $sort_order
  */
 class DomainNameserver extends Model
 {

@@ -14,6 +14,13 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * is live), `config` the ENCRYPTED per-account creds. Runtime behaviour is
  * resolved by the `registrar` key through DomainRegistrarRegistry ('manual' =
  * the API-less adapter). Mirrors PaymentGatewayConnection.
+ *
+ * @property int $id
+ * @property string $registrar
+ * @property string|null $label
+ * @property bool $is_active
+ * @property string $mode
+ * @property array<string, mixed>|null $config
  */
 class DomainRegistrarConnection extends Model
 {

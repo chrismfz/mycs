@@ -19,6 +19,31 @@ use Illuminate\Support\Carbon;
  * billing clock, 1:1 per domain — owner decision). `customer_id` NULL =
  * «αδέσποτο»: imported/unmatched, outside renewal billing until «Ανάθεση σε
  * πελάτη».
+ *
+ * @property int $id
+ * @property int|null $legacy_id
+ * @property int|null $user_id
+ * @property int|null $service_id
+ * @property int|null $registrar_connection_id
+ * @property string $sld
+ * @property string $tld
+ * @property string $fqdn
+ * @property \App\Enums\DomainStatus $status
+ * @property \Illuminate\Support\Carbon|null $registered_at
+ * @property \Illuminate\Support\Carbon|null $transferred_at
+ * @property \Illuminate\Support\Carbon|null $expires_at
+ * @property bool $auto_renew
+ * @property bool $transfer_lock
+ * @property bool $whois_privacy
+ * @property bool $dnssec_enabled
+ * @property bool $consent_publish
+ * @property string|null $registrar_domain_id
+ * @property \Illuminate\Support\Carbon|null $last_synced_at
+ * @property string|null $sync_error
+ * @property array<string, mixed>|null $module_meta
+ * @property \App\Models\DomainRegistrarConnection|null $registrarConnection
+ * @property \Illuminate\Database\Eloquent\Collection<int, \App\Models\DomainContact> $contacts
+ * @property \Illuminate\Database\Eloquent\Collection<int, \App\Models\DomainNameserver> $nameservers
  */
 class Domain extends Model
 {
@@ -163,6 +188,7 @@ class Domain extends Model
     {
         // Spike: the domain's own connection only. Ekdosi falls back to the TLD's default
         // connection (domain_tlds); that routing table comes back in Phase 2.
+        /** @var DomainRegistrarConnection|null */
         return $this->registrarConnection;
     }
 
