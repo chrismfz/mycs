@@ -9,7 +9,7 @@ Client system (billing, provisioning, domains, support) για **nixpal** και
   κατανομή πληρωμών και MCP.
 - Το Ekdosi μένει η τιμολογιέρα/myDATA. Το MyCS του στέλνει τιμολόγια και πληρωμές, όπως σήμερα το WHMCS.
 
-**Ξεκίνα από το [`docs/README.md`](docs/README.md)**: αποφάσεις, audits, parity με το WHMCS, φάσεις.
+**Ξεκίνα από το [`docs/HANDOFF.md`](docs/HANDOFF.md)** (κατάσταση) και το [`docs/ROADMAP.md`](docs/ROADMAP.md) (τι ακολουθεί). Ευρετήριο: [`docs/README.md`](docs/README.md).
 Κανόνες για όποιον δουλεύει εδώ: [`CLAUDE.md`](CLAUDE.md).
 
 ## Άδεια

@@ -128,7 +128,4 @@ on-issue ανά πελάτη / «Ανανέωση τώρα» με prepaid (`plat
 validation· cut-over.
 
 ## Ανοιχτά πριν τη Φάση 0
-1. Απόφαση A ή B (πρόταση: A, hard fork).
-2. PayPal: μεταφέρονται τα vault tokens του `paypal_ppcpv` σε άλλο REST app;
-3. Η nixpal εκδίδει φορολογικά μέσω Ekdosi; Αν όχι, η Φάση 1 δεν χρειάζεται bridge.
-4. Τι γίνεται με τη δουλειά στο Blesta: το `lib/` μεταφέρεται, τα adapters (`plugins/`, `components/`) όχι.
+Απαντήθηκαν όλα (`open-questions.md`). Η ενημερωμένη λίστα δουλειάς είναι στο `ROADMAP.md`.

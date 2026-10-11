@@ -1,0 +1,107 @@
+# MyCS: Roadmap
+
+> Ενιαία λίστα δουλειάς. Πηγές: φάσεις (`ekdosi-vs-paymenter.md`), parity backlog (`whmcs-usage.md`), ρυθμίσεις
+> (`settings-map.md`), upstream (`upstream-triage.md`), audits (`audit-*.md`), αποφάσεις (`decisions.md`).
+> Οι εκτιμήσεις είναι για έναν developer με βοήθεια: εκτιμήσεις, όχι δέσμευση. Ενημέρωσε τα κουτάκια σε κάθε PR.
+
+## Παράλληλα, από τώρα (ανεξάρτητα από φάση)
+- [ ] **.gr EPP:** δήλωση IP του dev/staging στο whitelist του UAT του Μητρώου (`history/blesta-modules/HANDOFF.md`
+      §6). Είναι το μακρύτερο κομμάτι· χωρίς αυτό το myip δεν μεταφέρεται.
+- [ ] Staging `mycs.nixpal.com` (ξεχωριστό από το Blesta στο `cs.nixpal.com`).
+- [ ] Παρακολούθηση των security advisories του Paymenter (`upstream-triage.md`).
+
+## Φάση 0: Καθάρισμα και βάσεις (2–3 ημέρες)
+- [ ] Αφαίρεση telemetry: `TelemetryCommand`, schedule, `TELEMETRY_ENABLED`, `Settings::getTelemetry()`.
+- [ ] Αφαίρεση update checker (`CheckForUpdates`, κλήση στο τέλος του `CronJob`), self-updater (`Upgrade`,
+      `Admin/Pages/Updates`, `update.sh`), marketplace και ελέγχου ενημερώσεων extensions.
+- [ ] Αφαίρεση Gravatar και branding/footer links· workflow `build-api-docs.yaml`.
+- [ ] Upload extensions από το web: αφαίρεση ή μόνο από CLI.
+- [ ] Templates email/ειδοποιήσεων: placeholder renderer αντί για Blade, και `mail_header`/`mail_footer` χωρίς
+      compile (`audit-security.md` H1–H2).
+- [ ] `encrypted` cast στα credentials όλων των server extensions (cPanel, Plesk, Convoy, Enhance, Virtualizor).
+- [ ] API keys περιορισμένα στο role αυτού που τα δημιουργεί· προστασία λογαριασμών admin στο `users.update`.
+- [ ] CI: phpstan (larastan) ενεργό, Pint, tests σε MariaDB.
+- [ ] `lib/*` του blesta-modules → `packages/` (nixpal-licensing, cardlink-eurobank, paypal-vault, domain-tools,
+      myopenprovider, mailcow), με composer `path` repositories και τα tests τους στο CI.
+- [ ] Σκελετός ελληνικής μετάφρασης (`lang/el`).
+- [ ] Cherry-picks: #1338 (captcha), το enforcement του `credits_enabled` από το #1295.
+- [ ] **Spike 1–2 ημερών:** port ενός μικρού κομματιού των domains του Ekdosi, για να μετρηθεί το πραγματικό κόστος
+      (από `company_id` και φορολογικό Invoice σε προτιμολόγιο).
+
+## Φάση 1: nixpal (3–5 εβδομάδες)
+**Πυρήνας χρημάτων και ανανεώσεων**
+- [ ] `addPayment`: guards για ποσό, νόμισμα, status τιμολογίου, ιδιοκτησία, μεταβάσεις μόνο προς τα εμπρός· unique
+      `transaction_id`.
+- [ ] Ανανέωση δεμένη με **τιμολόγιο και περίοδο** (cursor, μία ανανέωση ανά τιμολόγιο)· όχι ανανέωση από
+      ακυρωμένο τιμολόγιο.
+- [ ] Status υπηρεσίας μόνο μετά την επιτυχία του server job· reconciliation (#1186).
+- [ ] Ακυρώσεις τιμολογίων μέσω observers (όχι μαζικό `->update()`)· ακύρωση προϊόντος όταν ακυρώνεται το τιμολόγιό του.
+- [ ] Υπερπληρωμή → πίστωση· ledger πιστώσεων· αυτόματη ή χειροκίνητη εφαρμογή (ρύθμιση)· add/remove από admin.
+- [ ] **Mass Pay** και **merge τιμολογίων** (allocator του Ekdosi, #1137).
+- [ ] **Αλλαγή κύκλου χρέωσης** και πακέτου μαζί, με proration, από πελάτη και admin· ακύρωση εκκρεμών upgrades (#1266).
+- [ ] «Days before» τιμολογίου **ανά κύκλο**· «continuous invoice generation» ως ρύθμιση.
+- [ ] Υπενθυμίσεις (port από Ekdosi): πριν τη λήξη και 1η/2η/3η ληξιπρόθεσμου, ρυθμιζόμενες ημέρες ανά instance.
+- [ ] Ποσά σε decimal/minor units· Stripe: `round()` και helper για minor units (#1258).
+
+**Φόροι, τιμές, αρίθμηση**
+- [ ] **EU VAT:** κανόνες ανά χώρα, ΑΦΜ πελάτη, VIES (`ViesLookup` του Ekdosi), reverse charge, εξαιρέσεις πελατών.
+- [ ] Ομάδες πελατών με έκπτωση· recurring promotions.
+- [ ] Αρίθμηση `{YEAR}-{NUMBER}` + proforma (υπάρχει ως ρύθμιση· έλεγχος με τα νούμερα της nixpal).
+- [ ] Ρυθμίσεις: Group Similar Line Items, PDF συνημμένο στο email, σημειώσεις στο checkout.
+
+**Πληρωμές**
+- [ ] Stripe με αποθηκευμένες κάρτες και auto-charge (υπάρχει)· fallback επιβεβαίωσης στην επιστροφή (#1260).
+- [ ] PayPal ppcpv vault (`packages/paypal-vault`)· PayPal legacy subscriptions (77 υπηρεσίες, 5 ενεργές):
+      μετάβαση σε vault ή forwarder του IPN.
+
+**Licensing**
+- [ ] `nixpal_licensing` ως Server extension πάνω στο `packages/nixpal-licensing`· `zlic.php` byte-for-byte με τα
+      fixtures· cache/rate-limit (588k checks/έτος).
+
+**Importer και cut-over nixpal**
+- [ ] Importer (`importer.md`): clients, επαφές, custom fields, υπηρεσίες, τιμολόγια με ποσά, πληρωμές, πιστώσεις,
+      promotions/ομάδες, κάρτες Stripe, vault tokens, άδειες, ρυθμίσεις από το `tblconfiguration`· re-runnable, id map.
+- [ ] `mycs:parity` με μηδενικό diff.
+- [ ] Export εσόδων/εξόδων ανά έτος (CSV/XLSX) για τον λογιστή.
+- [ ] Shadow-run του licensing → cut-over της nixpal.
+
+## Φάση 2: Domains (2–4 εβδομάδες, μετά το spike)
+- [ ] Port του υποσυστήματος του Ekdosi: contract `DomainRegistrar`, models, Openprovider, Renewal/Registration/
+      Transfer/Sync/Management, adopt, tests.
+- [ ] Πολιτική ανανέωσης: on-paid (default) / on-issue ανά πελάτη / «Ανανέωση τώρα» με prepaid.
+- [ ] Ρυθμίσεις domains (`settings-map.md`): auto renew on payment, default auto-renew, grace/redemption fee στο
+      υπάρχον τιμολόγιο, default nameservers, IDN, to-do για αποτυχίες, renewal orders.
+- [ ] Ειδοποιήσεις λήξης 60/30/15/10/5· do-not-renew· EPP code· additional fields.
+- [ ] Αναζήτηση/whois/suggestions (`packages/domain-tools`)· domains στο portal· block existing domains.
+- [ ] Import domains από WHMCS + sync με τους registrars.
+- [ ] On-demand renewals (πρόωρη ανανέωση από πελάτη, #1167).
+
+## Φάση 3: Τα απαραίτητα του myip.gr (4–6 εβδομάδες)
+- [ ] **Eurobank/Cardlink + IRIS** (`packages/cardlink-eurobank`, με server-to-server returns): το 42% των πληρωμών.
+- [ ] Έμβασμα + `payments_tracking` (αντιστοίχιση καταθέσεων από IMAP τράπεζας) πάνω στον allocator.
+- [ ] Stripe SEPA.
+- [ ] **Tickets** (port από Ekdosi) με τις ρυθμίσεις του `settings-map.md` → Support: guest tickets, piping ανά τμήμα,
+      CC, αξιολογήσεις, canned replies, merge, σημειώσεις, spam, auto-close, όριο email, μορφή αριθμού.
+- [ ] Knowledgebase (97 άρθρα) και announcements.
+- [ ] Custom fields πελάτη (ΑΦΜ, ΔΟΥ, «Θα ήθελα τιμολόγιο», σημειώσεις, σήμανση) και επαφές/multi-user.
+- [ ] Modules: TheSSLStore, Proxmox, Centova, mailcow, ngm, Hetzner· DirectAdmin (υπάρχει, + #1186).
+- [ ] **Bridge προς Ekdosi** (billing source για το MyCS στο Ekdosi, ίδιο HMAC/ops, τιμολόγια σε τρίτους).
+- [ ] Business rules από τα ~20 hooks του myip (`history/blesta-modules/HANDOFF.md` §4.4).
+- [ ] Templates email el/en για όλα τα γεγονότα (#1306)· retry και ιστορικό emails (#1204, #1033).
+- [ ] Εύκολη επεξεργασία από admin: ημερομηνίες domain, ποσά υπηρεσίας, υποσύνολα τιμολογίου.
+- [ ] MCP server (μοτίβο του Ekdosi).
+
+## Φάση 4: .gr EPP
+- [ ] `packages/gr-epp` (HTTPS `/epp/proxy` + `JSESSIONID`) ως driver του `DomainRegistrar`· UAT· owner change/transfer
+      ως προϊόντα· 1.383 domains.
+
+## Φάση 5: myip.gr cut-over
+- [ ] Πλήρης importer (domains, addons, custom fields, tickets με συνημμένα, αρίθμηση = id, συνέχεια από τον
+      τελευταίο αριθμό του WHMCS).
+- [ ] 2–3 δοκιμαστικές μεταφορές με `mycs:parity`· validation domains απέναντι στους registrars.
+- [ ] Ekdosi: «Εισερχόμενα» από το MyCS χωρίς διπλά παραστατικά.
+- [ ] Freeze, import, DNS/rewrites, forwarder IPN για PayPal, dump του WHMCS για αρχείο.
+
+## Δεν γίνονται (απογραφή: δεν χρησιμοποιούνται)
+Late fees, billable items, affiliates, escalation rules, network issues, fraud modules, φόρος δεύτερου επιπέδου,
+premium domains, δωρεάν domain με hosting.
