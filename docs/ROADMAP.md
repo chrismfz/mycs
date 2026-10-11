@@ -10,7 +10,8 @@
       (`history/blesta-modules/HANDOFF.md` §6). Είναι το μακρύτερο κομμάτι· χωρίς αυτό το myip δεν μεταφέρεται.
 - [x] DNS δοκιμών: `mycs.myip.gr` + `*.mycs.myip.gr` → devbox (2026-10-11).
 - [x] Πρώτη εγκατάσταση στο devbox (`mycs.myip.gr`)· tests (66) και Pint περνάνε εκεί (2026-10-11).
-- [ ] Παρακολούθηση των security advisories του Paymenter (`upstream-triage.md`).
+- [x] Παρακολούθηση του upstream: routine «Upstream triage» κάθε Τρίτη 08:45 (issues, PRs, commits, security
+      advisories → PR στο `upstream-triage.md`, χωρίς αυτόματο cherry-pick· 2026-10-11).
 
 ## Φάση 0: Καθάρισμα και βάσεις (2–3 ημέρες)
 - [x] Αφαίρεση telemetry: `TelemetryCommand`, schedule, `TELEMETRY_ENABLED`, `Settings::getTelemetry()`.
@@ -50,16 +51,19 @@
 - [x] Ελληνικά στο client area: `lang/el` (όλα τα αρχεία), `lang/el.json` για τα 53 μηνύματα (toasts κ.λπ.) που ήταν hardcoded,
       ξεχωριστή γλώσσα για το admin (`Admin Language`, default English), γλωσσάρι `docs/glossary-el.md` και test
       που δεν αφήνει κλειδί/μήνυμα χωρίς ελληνικά (2026-10-11). Μένουν τα templates των emails (Φάση 1).
-- [ ] **Μενού admin «σαν WHMCS»:** να δούμε αν το [Topbar Menu](https://filamentphp.com/plugins/vaslv-topbar-menu)
-      (Andrei Vasilev) δίνει μενού πάνω (γνώριμο από το WHMCS) **και** το δικό μας αριστερά· το Filament έχει είτε
-      sidebar είτε top navigation, όχι και τα δύο. Έλεγχος: άδεια, συντήρηση, συμβατότητα με Filament 5.
+- [x] **Μενού admin «σαν WHMCS»:** δικό μας top menu (Clients/Orders/Billing/Support/Utilities/Setup) πάνω, το
+      sidebar μένει· ίδια permissions. Το Topbar Menu (vaslv) απορρίφθηκε: links στη βάση, χωρίς permissions
+      (`docs/admin-ux.md`, 2026-10-11).
+- [ ] **Dashboard «σαν WHMCS»:** μετρητές (Pending Orders, Tickets Waiting, Pending Cancellations, Pending Module
+      Actions), Billing, Income Forecast, Upcoming Renewals (`docs/admin-ux.md`).
 - [x] `deploy/update.sh` (από το Ekdosi): ενημέρωση με snapshot/maintenance/queue drain/migrate/build (2026-10-11).
       Χωρίς `deploy/rollback.sh` (απόφαση 2026-10-11: προσεκτικές ενημερώσεις + το snapshot του `update.sh`·
       χειροκίνητη επαναφορά στο `docs/install.md`).
 - [x] Installer: `mycs:install` (migrations, seed, νόμισμα, εταιρεία/URL/γλώσσες/ζώνη ώρας, passport keys, πρώτος
       admin) αντί για το `app:init` του Paymenter, **μόνο CLI** (χωρίς `/install` wizard), κωδικός ποτέ ως flag
       (`docs/install.md`, 2026-10-11).
-- [ ] Cherry-picks: #1338 (captcha), το enforcement του `credits_enabled` από το #1295.
+- [x] Cherry-picks: #1338 (captcha), από το #1295 το guard για αρνητικό υπόλοιπο και το enforcement του
+      `credits_enabled` (και στο cron)· όχι το «cap at max credit» (PR #24, 2026-10-11).
 - [x] **Spike domains:** port του πυρήνα των domains του Ekdosi (registrar, sync, transfer, renewal), branch
       `spike/domains` (δεν γίνεται merge· βάση της Φάσης 2), αποτελέσματα στο `docs/domains-spike.md` εκεί. Ο κώδικας
       μεταφέρεται σχεδόν αυτούσιος· εξαρτάται από το «ανανέωση δεμένη με περίοδο» της Φάσης 1. Live μεταφορά του
