@@ -11,6 +11,7 @@ use App\Services\Domains\DomainRegistrarNotConfigured;
 use App\Services\Domains\DomainRenewalInProgress;
 use App\Services\Domains\DomainSyncService;
 use App\Services\Domains\DomainTransferService;
+use App\Services\Domains\Registrars\OpenproviderRegistrar;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -84,6 +85,29 @@ class DomainTransferServiceTest extends TestCase
         Http::assertSent(fn ($request) => str_ends_with($request->url(), '/v1beta/customers')
             && $request['phone'] === ['country_code' => '+30', 'area_code' => '690', 'subscriber_number' => '0000001']);
         $this->assertSame('XX1-GR', $domain->contacts()->value('registrar_contact_handle'));
+    }
+
+    public function test_in_domain_nameservers_carry_their_glue_ip(): void
+    {
+        // Live finding (nixpal.com): OP answers 500 «IP is not specified» for ns1.<domain> without an ip.
+        OpenproviderRegistrar::$glueResolver = fn (string $host) => $host === 'ns1.moving.eu' ? '192.0.2.10' : null;
+        Http::fake([
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains?full_name=moving.eu' => Http::response(['data' => ['results' => []]]),
+            self::SANDBOX . '/v1beta/domains/transfer' => Http::response(['data' => ['id' => 702, 'status' => 'REQ']]),
+        ]);
+        $domain = $this->pendingTransferDomain();
+        $domain->nameservers()->create(['host' => 'ns1.moving.eu', 'sort_order' => 0]);
+        $domain->nameservers()->create(['host' => 'ns.example.net', 'sort_order' => 1]);
+
+        try {
+            app(DomainTransferService::class)->transferIn($domain->fresh(), 'SECRET-EPP-123');
+        } finally {
+            OpenproviderRegistrar::$glueResolver = null;
+        }
+
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/v1beta/domains/transfer')
+            && $request['name_servers'] === [['name' => 'ns1.moving.eu', 'ip' => '192.0.2.10'], ['name' => 'ns.example.net']]);
     }
 
     public function test_transfer_in_starts_stays_pending_and_never_logs_the_auth_code(): void

@@ -342,7 +342,7 @@ class OpenproviderRegistrar implements DomainRegistrar
         $nameservers = $domain->nameservers->pluck('host')
             ->map(fn ($h) => mb_strtolower(trim((string) $h)))
             ->filter(fn ($h) => $h !== '')
-            ->map(fn ($h) => ['name' => $h])
+            ->map(fn ($h) => $this->nameserverEntry($h, $domain->fqdn))
             ->values()
             ->all();
 
@@ -675,6 +675,39 @@ class OpenproviderRegistrar implements DomainRegistrar
      *
      * @return array{0: string, 1: string} [country_code, subscriber]
      */
+    /**
+     * Resolves a host to its IPv4 (null when it does not resolve). Replaceable in tests:
+     * no live DNS in CI.
+     *
+     * @var (\Closure(string): ?string)|null
+     */
+    public static ?\Closure $glueResolver = null;
+
+    /**
+     * One name_servers entry. A host inside the domain itself (ns1.example.com for
+     * example.com) needs its glue IP, else OP answers 500 «IP is not specified» (live
+     * finding, nixpal.com). The IP comes from current DNS, so the delegation stays as is.
+     *
+     * @return array{name: string, ip?: string}
+     */
+    private function nameserverEntry(string $host, string $fqdn): array
+    {
+        if (!str_ends_with($host, '.' . mb_strtolower($fqdn))) {
+            return ['name' => $host];
+        }
+        $resolver = self::$glueResolver ?? function (string $h): ?string {
+            $ip = gethostbyname($h);
+
+            return $ip !== $h && filter_var($ip, FILTER_VALIDATE_IP) !== false ? $ip : null;
+        };
+        $ip = $resolver($host);
+        if ($ip === null) {
+            throw new RuntimeException("Ο nameserver {$host} είναι μέσα στο {$fqdn} και χρειάζεται IP (glue), αλλά δεν επιλύεται.");
+        }
+
+        return ['name' => $host, 'ip' => $ip];
+    }
+
     private function splitCountryCode(string $digits): array
     {
         if (!str_starts_with($digits, '+')) {
