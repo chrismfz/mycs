@@ -60,4 +60,22 @@ final class BillingPeriodTest extends TestCase
         $this->assertFalse(BillingPeriod::isAmbiguousDay(CarbonImmutable::parse('2026-10-31')));
         $this->assertFalse(BillingPeriod::isAmbiguousDay(CarbonImmutable::parse('2026-11-29')));
     }
+
+    public function test_decimal_proration_rounds_once_without_float_conversion(): void
+    {
+        $start = CarbonImmutable::parse('2026-10-15');
+        $end = CarbonImmutable::parse('2026-11-01');
+        $full = CarbonImmutable::parse('2026-11-15');
+        $this->assertSame('5.48', BillingPeriod::prorate('10.00', $start, $end, $full));
+        $this->assertSame('10.97', BillingPeriod::prorate('20.00', $start, $end, $full));
+        $this->assertSame('100.00', BillingPeriod::prorate('100.00', $start, $full, $full));
+        $this->assertSame('5483870967741935.48', BillingPeriod::prorate('10000000000000000.00', $start, $end, $full));
+    }
+
+    public function test_invalid_pricing_interval_is_rejected(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $start = CarbonImmutable::parse('2026-10-15');
+        BillingPeriod::prorate('10.00', $start, $start, $start->addMonth());
+    }
 }

@@ -2,6 +2,8 @@
 
 namespace MyCS\BillingPeriod;
 
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use InvalidArgumentException;
@@ -44,6 +46,18 @@ final class BillingPeriod
         $anchor = $anchorDay !== null && $start->day === min($anchorDay, $start->daysInMonth) ? $anchorDay : $start->day;
 
         return $end->setDay(min($anchor, $end->daysInMonth));
+    }
+
+    /** Prorate in decimal, rounding once to cents. Full cycles retain their recurring amount. */
+    public static function prorate(string $price, CarbonInterface $start, CarbonInterface $end, CarbonInterface $fullEnd): string
+    {
+        $days = (int) CarbonImmutable::instance($start)->startOfDay()->diffInDays(CarbonImmutable::instance($end)->startOfDay());
+        $fullDays = (int) CarbonImmutable::instance($start)->startOfDay()->diffInDays(CarbonImmutable::instance($fullEnd)->startOfDay());
+        if ($days < 1 || $fullDays < 1) {
+            throw new InvalidArgumentException('A priced period must have a positive duration.');
+        }
+
+        return (string) BigDecimal::of($price)->multipliedBy($days)->dividedBy($fullDays, 2, RoundingMode::HalfUp);
     }
 
     /** Last day of a month shorter than 31 days: it may be a later billing day clamped. */

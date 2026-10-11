@@ -232,6 +232,7 @@ class BillingCursorFuzzTest extends TestCase
         $before = $this->state();
         $staffMoveBack = false;
         $paid = false;
+        $replay = false;
         $detail = '';
         $wasFreeCron = false;
 
@@ -309,9 +310,10 @@ class BillingCursorFuzzTest extends TestCase
                     return null;
                 }
                 $inv = $done->random();
+                $replay = $inv->items->every(fn ($item) => $item->applied_at !== null);
                 $inv->update(['status' => 'pending']);
                 $inv->fresh()->update(['status' => 'paid']);
-                $paid = true;
+                $paid = !$replay;
                 $detail = "#{$inv->id}";
                 break;
             case 'cancel_paid': // staff cancel a paid invoice (no refund logic yet: A6)
@@ -335,6 +337,10 @@ class BillingCursorFuzzTest extends TestCase
         }
 
         $after = $this->state();
+        // I7: an already processed line is not a new payment, including after staff moves the date back.
+        if ($replay && ($after['expires'] !== $before['expires'] || $after['status'] !== $before['status'])) {
+            return 'I7 replay changed the expiry or service status';
+        }
         if ($wasFreeCron && $after['expires'] !== null && $before['expires'] !== null && $after['expires'] > $before['expires']) {
             // A free renewal adds one period from what is paid (paid periods after the expiry are followed first).
             $paidBefore = array_filter($before['lines'], fn ($l) => $l['status'] === 'paid' && $l['s'] !== null);
@@ -397,7 +403,7 @@ class BillingCursorFuzzTest extends TestCase
         }
 
         // I3b no paid days are lost: after a payment paid-until is a fixpoint of the paid chain (not after a
-        // staff move back, which is a correction that stays until the next payment: decision A3)
+        // staff move back, which stays until a NEW payment, never a replay: decision A3)
         if ($paid && $exp !== null && $after['status'] !== 'cancelled') {
             $chained = $this->chain($exp, $paidLines);
             if ($chained !== $exp) {

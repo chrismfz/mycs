@@ -62,6 +62,8 @@ class Service extends Model implements Auditable
     protected $casts = [
         'expires_at' => 'date',
         'suspend_hold_until' => 'date',
+        'coupon_started_at' => 'immutable_date',
+        'coupon_expired_at' => 'immutable_datetime',
     ];
 
     /**
@@ -265,6 +267,31 @@ class Service extends Model implements Auditable
         return self::chain($this->paidUntilBase(), $lines ?? $this->livePeriodLines());
     }
 
+    /** Find a whole vacant period; a paid full cycle must never be clipped to a smaller hole.
+     * @param  Collection<int, InvoiceItem>|null  $lines
+     */
+    public function uncoveredPeriodStart(?Collection $lines = null): CarbonImmutable
+    {
+        $lines ??= $this->livePeriodLines();
+        $start = $this->nextPeriodStart($lines);
+        foreach ($lines as $line) {
+            $end = $this->periodEnd($start, $lines);
+            if ($end !== null && $line->period_start->lessThan($end) && $line->period_end->greaterThan($start)) {
+                $start = $line->period_end;
+            }
+        }
+
+        return $start;
+    }
+
+    /** Decimal price for the actual interval, using the same rounding in cron and upgrades. */
+    public function priceForPeriod(CarbonInterface $start, CarbonInterface $end): string
+    {
+        $fullEnd = $this->periodEnd($start);
+
+        return $fullEnd === null ? (string) $this->price : BillingPeriod::prorate((string) $this->price, $start, $end, $fullEnd);
+    }
+
     /**
      * Paid-until over the paid periods that follow $from. $exact: a period must start exactly on the
      * cursor (staff moved the date: only periods that pick up there count); otherwise a period that
@@ -308,7 +335,8 @@ class Service extends Model implements Auditable
 
     /**
      * Which billing cycle (1 = the first) the period starting on $periodStart is, counted in periods
-     * from the service's first billed period (or its registration). Free periods count too: they leave
+     * from the persisted coupon origin (activation, or first billed period/registration for legacy data).
+     * Free periods count too: they leave
      * no invoice, so invoices cannot be counted (coupons «for N cycles»). A cancelled first period
      * still counts: cancelling it does not restart the count.
      *
@@ -317,13 +345,16 @@ class Service extends Model implements Auditable
     public function cycleNumber(CarbonInterface $periodStart, ?Collection $lines = null): int
     {
         $lines ??= $this->livePeriodLines();
-        $first = $this->invoiceItems()->whereNotNull('period_start')->get(['id', 'period_start'])
-            ->min(fn (InvoiceItem $line) => $line->period_start);
-        $cursor = $first !== null ? CarbonImmutable::instance($first)
-            : CarbonImmutable::parse($this->created_at ?? $periodStart)->startOfDay();
+        if ($this->coupon_started_at === null) {
+            $first = $this->invoiceItems()->whereNotNull('period_start')->get(['id', 'period_start'])
+                ->min(fn (InvoiceItem $line) => $line->period_start);
+            $this->coupon_started_at = $first !== null ? CarbonImmutable::instance($first)
+                : CarbonImmutable::parse($this->created_at ?? $periodStart)->startOfDay();
+        }
+        $cursor = $this->coupon_started_at;
         $target = CarbonImmutable::instance($periodStart)->startOfDay();
 
-        for ($cycle = 1; $cycle < 1200 && $cursor->lessThan($target); $cycle++) {
+        for ($cycle = 1; $cursor->lessThan($target); $cycle++) {
             $cursor = $this->periodEnd($cursor, $lines);
             if ($cursor === null) {
                 return $cycle;
@@ -434,20 +465,20 @@ class Service extends Model implements Auditable
 
     public function productUpgrades()
     {
-        return $this->product->upgrades->filter(function ($product) {
+        return $this->product->upgrades->filter(function ($product): bool {
             // Check stock
             if ($product->stock !== null && ($product->stock - $this->quantity) < 0) {
-                return null;
+                return false;
             }
             $plan = $product->plans()->where('billing_unit', $this->plan->billing_unit)->where('billing_period', $this->plan->billing_period)->get();
             // Only get the upgrades that have the exact same billing cycle as the service
             if ($plan->count() > 0) {
-                $product->plan = $plan->first();
+                $product->setAttribute('plan', $plan->first());
 
-                return $product;
+                return true;
             }
 
-            return null;
+            return false;
         });
     }
 
@@ -464,7 +495,7 @@ class Service extends Model implements Auditable
         });
 
         // Add coupon discount if applicable
-        if ($applyCoupon && $this->coupon) {
+        if ($applyCoupon && $this->coupon && $this->coupon_expired_at === null) {
             $invoices = $this->invoices()->where('status', 'paid')->count() + 1;
             // If it already used for the recurring period, do not apply the discount
             if ($this->coupon->recurring == 0 || $invoices <= $this->coupon->recurring) {

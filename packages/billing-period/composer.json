@@ -5,7 +5,8 @@
     "version": "1.0.0",
     "require": {
         "php": "^8.3",
-        "nesbot/carbon": "^3.0"
+        "nesbot/carbon": "^3.0",
+        "brick/math": "^1.0"
     },
     "require-dev": {
         "phpunit/phpunit": "^11.5|^12.0"

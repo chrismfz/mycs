@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Log;
  * Renew a service after an invoice line is paid (docs/billing-cursor.md).
  *
  * Every paid service line ends up with a period: a line without one (first order, older invoices,
- * the WHMCS import, an invoice staff made by hand) gets the first period no live invoice covers
+ * the WHMCS import, an invoice staff made by hand) gets the first whole period no live invoice covers
  * yet, from the expiry (decision A), or starting today for a service that never started. The paid-until date
  * (expires_at) then moves over contiguous PAID periods only: paying the same period twice, an
  * older invoice after a newer one, or a period staff already extended adds nothing; a period paid
@@ -38,6 +38,11 @@ class RenewServiceService
             $locked = Service::query()->whereKey($service->getKey())->lockForUpdate()->firstOrFail();
             // Re-read the line under the service lock: a concurrent payment may have given it its period.
             $item = $item ? (InvoiceItem::query()->whereKey($item->getKey())->first() ?? $item) : null;
+
+            // A replay never overrides staff corrections, even if paidThrough could move forward.
+            if ($item?->applied_at !== null) {
+                return;
+            }
 
             if ($locked->status === Service::STATUS_CANCELLED) {
                 Log::warning('Payment for a cancelled service: not revived.', ['service_id' => $locked->id, 'invoice_item_id' => $item?->id]);
@@ -70,14 +75,14 @@ class RenewServiceService
             }
 
             if ($item->period_start === null || $item->period_end === null) {
-                // The first period no live invoice covers yet, so two payments always buy two periods,
+                // The first whole period no live invoice covers yet, so two payments always buy two periods,
                 // in whatever order they arrive.
                 $start = match (true) {
                     $current === null => CarbonImmutable::today(),
                     // The order's own invoice, after staff already started the service by hand: its
                     // period is the first one (from the order), not one more after it.
                     $this->isFirstOrderLine($locked, $item, $lines, $current) => CarbonImmutable::parse($locked->created_at ?? $current)->startOfDay(),
-                    default => $locked->nextPeriodStart($lines),
+                    default => $locked->uncoveredPeriodStart($lines),
                 };
                 $end = $locked->periodEnd($start, $lines);
                 $fill = ['period_start' => $start, 'period_end' => $end];
@@ -91,15 +96,14 @@ class RenewServiceService
 
             $paidUntil = $locked->paidThrough($current ?? $item->period_start, lines: $lines);
             $locked->rememberBillingDay($item->period_start);
-
-            // Processing the same line again (paid -> pending -> paid) is a replay, not a new payment.
-            $replay = $item->applied_at !== null;
-            if (!$replay) {
-                $item->forceFill(['applied_at' => now()])->save();
+            if ($locked->coupon_id && $locked->coupon_started_at === null && $locked->status === Service::STATUS_PENDING) {
+                $locked->coupon_started_at = $item->period_start;
             }
 
+            $item->forceFill(['applied_at' => now()])->save();
+
             if ($current !== null && !$paidUntil->greaterThan($current) && $locked->status !== Service::STATUS_PENDING
-                && ($replay || $item->period_start->greaterThan($current) || $this->paidByAnotherLine($item, $lines))) {
+                && ($item->period_start->greaterThan($current) || $this->paidByAnotherLine($item, $lines))) {
                 return; // a replay, a duplicate, or ahead of an unpaid period: nothing new is paid
             }
 

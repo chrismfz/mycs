@@ -85,3 +85,14 @@ Fixtures του zlic και η λογική του: `history/blesta-modules/lice
   δοκιμές EPP.
 - **2026-10-11:** απόφαση για hard fork· σύγκριση με Ekdosi· απογραφή χρήσης του WHMCS· triage του upstream· χάρτης
   ρυθμίσεων· repo `chrismfz/mycs` (fork + docs).
+
+
+### PR #32 — διορθώσεις δεύτερου εξωτερικού review (2026-10-12)
+
+Στο branch `feat/billing-cursor`: replay guard πριν από κάθε μεταβολή, κοινή decimal αναλογία για cron/upgrade,
+σταθερή αρχή και μοναδική λήξη κουπονιού, απόδοση πλήρους μη επικαλυπτόμενης περιόδου, απομόνωση σφαλμάτων ανά
+γραμμή πληρωμένου τιμολογίου. Νέο migration για `coupon_started_at`/`coupon_expired_at`. Συμπεριφορά και tests:
+`billing-cursor.md` → «Επανέλεγχος και διορθώσεις Codex». Οι γενικοί guards/refunds του PR 2 παραμένουν χωριστοί.
+
+Validation (2026-10-12): MariaDB full suite — 424 tests, 2809 assertions, 4 known incomplete, no failures;
+SQLite targeted regressions/package — 28 tests, 112 assertions; Pint, PHPStan and composer validate pass.

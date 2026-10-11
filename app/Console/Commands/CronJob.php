@@ -15,6 +15,7 @@ use App\Models\ServiceUpgrade;
 use App\Models\Setting;
 use App\Models\Ticket;
 use App\Services\Service\RenewServiceService;
+use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Exception;
 use Illuminate\Console\Command;
@@ -238,11 +239,15 @@ class CronJob extends Command
             return 0;
         }
         // A coupon «for N cycles»: the first cycle after them is billed at the full price. Cycles are
-        // counted in periods, not invoices (free cycles leave none); only at that one cycle, so a
-        // price staff set by hand afterwards is kept.
+        // counted from a persisted start (including free cycles). Expiration is recorded once, so
+        // skipping N+1 still ends the discount and a later staff price is kept.
         if ($service->coupon && $service->coupon->recurring > 0
-            && $service->cycleNumber($periodStart, $lines) === $service->coupon->recurring + 1) {
+            && $service->coupon_expired_at === null
+            && $service->cycleNumber($periodStart, $lines) > $service->coupon->recurring) {
             $service->price = $service->calculatePrice(applyCoupon: false);
+            $service->coupon_expired_at = CarbonImmutable::now();
+        }
+        if ($service->isDirty(['price', 'coupon_started_at', 'coupon_expired_at'])) {
             $service->save();
         }
 
@@ -263,10 +268,7 @@ class CronJob extends Command
         // A hole shorter than a period (the next live period starts sooner): bill only the hole, prorated.
         $nextStart = $lines->first(fn ($line) => $line->period_start->greaterThan($periodStart))?->period_start;
         if ($nextStart !== null && $periodEnd !== null && $nextStart->lessThan($periodEnd)) {
-            $days = (int) $periodStart->diffInDays($nextStart);
-            $fullDays = max(1, (int) $periodStart->diffInDays($periodEnd));
-            $cents = (int) round((float) $service->price * 100);
-            $price = number_format(intdiv($cents * $days + intdiv($fullDays, 2), $fullDays) / 100, 2, '.', '');
+            $price = $service->priceForPeriod($periodStart, $nextStart);
             $periodEnd = $nextStart;
         }
 
@@ -292,7 +294,12 @@ class CronJob extends Command
 
         $invoice = $invoice->refresh();
 
-        $this->payInvoiceWithCredits($invoice);
+        // A short prorated hole can round to zero cents; no gateway can collect that amount.
+        if ($invoice->total <= 0) {
+            $invoice->update(['status' => Invoice::STATUS_PAID]);
+        } else {
+            $this->payInvoiceWithCredits($invoice);
+        }
 
         // Charge billing agreements
         if ($service->billing_agreement_id && $invoice->fresh()->status === 'pending') {

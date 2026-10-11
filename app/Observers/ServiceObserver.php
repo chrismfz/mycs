@@ -27,6 +27,17 @@ class ServiceObserver
      */
     public function updating(Service $service): void
     {
+        if ($service->isDirty('coupon_id')) {
+            $service->coupon_started_at = $service->coupon_id ? CarbonImmutable::today() : null;
+            $service->coupon_expired_at = null;
+        }
+        if ($service->coupon_id && $service->coupon_started_at === null
+            && $service->getOriginal('status') === Service::STATUS_PENDING && $service->status === Service::STATUS_ACTIVE) {
+            $service->coupon_started_at = CarbonImmutable::today();
+        }
+        if ($service->isDirty('product_id')) {
+            $service->unsetRelation('product');
+        }
         if ($service->isDirty('plan_id')) {
             $service->unsetRelation('plan'); // a loaded relation still holds the old plan
         }
@@ -53,7 +64,7 @@ class ServiceObserver
     {
         // Billing cycle changed (e.g. monthly -> yearly) while a renewal invoice is open: its line covers
         // a period of the new cycle, so what the customer pays buys what the invoice says. Its price is
-        // staff's to set (Recurring Amount), as in WHMCS. Never over a later live period (one paid ahead,
+        // staff's Recurring Amount, prorated when clipped. Never over a later live period (one paid ahead,
         // say): the line stops where that one starts, so no day is billed twice.
         if ($service->wasChanged('plan_id')) {
             $service->unsetRelation('plan');
@@ -62,13 +73,21 @@ class ServiceObserver
             $lines = $service->livePeriodLines();
             $lines->filter(fn ($line) => in_array($line->invoice?->status, ['pending', 'draft'], true))
                 ->each(function ($line) use ($service, $lines) {
-                    $end = $service->periodEnd($line->period_start, $lines);
+                    $fullEnd = $service->periodEnd($line->period_start, $lines);
+                    $end = $fullEnd;
                     $next = $lines->first(fn ($other) => $other->id !== $line->id && $other->period_start->greaterThan($line->period_start))?->period_start;
                     if ($end !== null && $next !== null && $next->lessThan($end)) {
                         $end = $next;
                     }
-                    if ($end !== null && !$end->equalTo($line->period_end)) {
-                        $line->forceFill(['period_end' => $end, 'description' => $service->describePeriod($line->period_start, $end)])->save();
+                    if ($end !== null) {
+                        $fill = ['period_end' => $end, 'description' => $service->describePeriod($line->period_start, $end)];
+                        if ($end->lessThan($fullEnd)) {
+                            $fill['price'] = $service->priceForPeriod($line->period_start, $end);
+                        }
+                        $line->forceFill($fill);
+                        if ($line->isDirty()) {
+                            $line->save();
+                        }
                     }
                 });
         }

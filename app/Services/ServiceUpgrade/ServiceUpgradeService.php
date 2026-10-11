@@ -12,12 +12,10 @@ class ServiceUpgradeService
     /**
      * Handle the uploaded extension file.
      * The added file is always a zip file.
-     *
-     * @return void
      */
-    public function handle(ServiceUpgrade $serviceUpgrade)
+    public function handle(ServiceUpgrade $serviceUpgrade): void
     {
-        return DB::transaction(function () use ($serviceUpgrade) {
+        DB::transaction(function () use ($serviceUpgrade) {
             $serviceUpgrade->status = ServiceUpgrade::STATUS_COMPLETED;
             $serviceUpgrade->save();
 
@@ -70,7 +68,9 @@ class ServiceUpgradeService
                     ->where('reference_id', $service->id)
                     ->first();
                 if ($item) {
-                    $item->price = $service->price;
+                    $item->price = $item->period_start !== null && $item->period_end !== null
+                        ? $service->priceForPeriod($item->period_start, $item->period_end)
+                        : $service->price;
                     $item->save();
                 }
             }

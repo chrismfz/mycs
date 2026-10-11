@@ -5058,9 +5058,10 @@
             "dist": {
                 "type": "path",
                 "url": "packages/billing-period",
-                "reference": "900e03298f6961f5863fcd6ddb2b57ffe5a810bc"
+                "reference": "efbe3016e33816eee6306b3f8a9e4cbd2a692f58"
             },
             "require": {
+                "brick/math": "^1.0",
                 "nesbot/carbon": "^3.0",
                 "php": "^8.3"
             },
