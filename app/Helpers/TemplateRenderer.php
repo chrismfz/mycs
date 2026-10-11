@@ -6,7 +6,7 @@ use App\Models\Invoice;
 use App\Models\Service;
 use App\Models\TicketMessage;
 use App\Models\User;
-use Closure;
+use App\Rules\ValidTemplate;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -41,16 +41,10 @@ class TemplateRenderer
         return $template === null || $template === '' ? '' : self::renderer()->render($template, $data, $escape);
     }
 
-    /** Filament validation rule: the field must parse as a template. */
-    public static function rule(): Closure
+    /** Validation rule (Filament and Validator): the field must parse as a template. */
+    public static function rule(): ValidTemplate
     {
-        return function (string $attribute, mixed $value, Closure $fail): void {
-            try {
-                self::renderer()->validate((string) $value);
-            } catch (TemplateError $e) {
-                $fail($e->getMessage());
-            }
-        };
+        return new ValidTemplate;
     }
 
     /** @return array{name: string, url: string, logo_url: string, year: string} */
