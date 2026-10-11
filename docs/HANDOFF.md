@@ -60,7 +60,8 @@
 - **CI (GitHub Actions):** σε κάθε PR τρέχουν `Test` (sqlite + MariaDB 10.11, PHP 8.4) και `Lint` (`pint --test`).
   Τα tests τρέχουν και στο devbox (παραπάνω).
 - `.git/info/exclude` κρύβει τα αρχεία του home (`.db-credentials`, `.config/`, `.bash*`, caches).
-- **Δεν έχει γίνει:** πρώτος admin (`php artisan app:user:create`, με δικό σου κωδικό), mail (SMTP).
+- **Admin:** ο πρώτος λογαριασμός δημιουργήθηκε (`app:user:create`, 2026-10-11).
+- **Δεν έχει γίνει:** mail (SMTP).
 
 Λεπτομέρειες (servers, crons, μεγέθη, inventory του WHMCS): `history/blesta-modules/HANDOFF.md` §1, §4.
 
