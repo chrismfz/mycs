@@ -46,6 +46,11 @@
 6. **Κωδικοί servers χωρίς κρυπτογράφηση:** cPanel, Plesk, Convoy, Enhance, Virtualizor (π.χ. `CPanel.php:57`).
    Των DirectAdmin, Pterodactyl και Virtfusion είναι κρυπτογραφημένοι.
    **Fork:** `encrypted` cast σε όλους.
+   **Διορθώθηκε (2026-10-11).** Βρέθηκε και κάτι χειρότερο: η **δημιουργία** server ή gateway (`CreateServer`,
+   `CreateGateway`) αποθήκευε όλες τις ρυθμίσεις χωρίς το flag `encrypted`, άρα ακόμα και τα secret του Stripe/PayPal
+   και ο κωδικός του DirectAdmin έμεναν καθαρά μέχρι την πρώτη επεξεργασία. Το ίδιο το `stripe_webhook_secret` που
+   δημιουργείται αυτόματα. Τώρα create και edit περνούν από το `ExtensionHelper::saveSettings()`, και μια migration
+   κρυπτογραφεί όσα έμειναν καθαρά.
 
 ## Low
 7. Πεδία που γράφει το staff (περιγραφές προϊόντων, announcements) εμφανίζονται ως raw HTML. Είναι εκ σχεδιασμού. Τα

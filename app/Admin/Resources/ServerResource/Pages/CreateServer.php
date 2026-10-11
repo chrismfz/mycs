@@ -28,16 +28,7 @@ class CreateServer extends CreateRecord
             return $record;
         }
 
-        foreach ($data['settings'] as $key => $value) {
-            if (is_null($value)) {
-                continue;
-            }
-            $record->settings()->updateOrCreate([
-                'key' => $key,
-            ], [
-                'value' => $value,
-            ]);
-        }
+        ExtensionHelper::saveSettings($record, $data['settings'], skipNull: true);
 
         ExtensionHelper::call($record, 'enabled', [$record], mayFail: true);
 

@@ -160,7 +160,7 @@ class Stripe extends Gateway
             'api_version' => self::API_VERSION,
         ]);
 
-        $gateway->settings()->updateOrCreate(['key' => 'stripe_webhook_secret'], ['value' => $webhook->secret]);
+        $gateway->settings()->updateOrCreate(['key' => 'stripe_webhook_secret'], ['value' => $webhook->secret, 'encrypted' => true]);
 
         Notification::make()
             ->success()

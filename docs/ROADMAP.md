@@ -27,7 +27,8 @@
 - [ ] Upload extensions από το web: αφαίρεση ή μόνο από CLI.
 - [ ] Templates email/ειδοποιήσεων: placeholder renderer αντί για Blade, και `mail_header`/`mail_footer` χωρίς
       compile (`audit-security.md` H1–H2).
-- [ ] `encrypted` cast στα credentials όλων των server extensions (cPanel, Plesk, Convoy, Enhance, Virtualizor).
+- [x] Κρυπτογραφημένα credentials σε όλα τα extensions (cPanel, Plesk, Convoy, Enhance, Virtualizor) **και** στη
+      δημιουργία server/gateway, που τα αποθήκευε καθαρά· migration για όσα υπάρχουν (2026-10-11).
 - [ ] API keys περιορισμένα στο role αυτού που τα δημιουργεί· προστασία λογαριασμών admin στο `users.update`.
 - [ ] CI: phpstan (larastan) ενεργό, Pint, tests σε MariaDB.
 - [ ] `lib/*` του blesta-modules → `packages/` (nixpal-licensing, cardlink-eurobank, paypal-vault, domain-tools,
