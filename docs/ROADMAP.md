@@ -104,6 +104,12 @@
 - [ ] Knowledgebase (97 άρθρα) και announcements.
 - [ ] Custom fields πελάτη (ΑΦΜ, ΔΟΥ, «Θα ήθελα τιμολόγιο», σημειώσεις, σήμανση) και επαφές/multi-user.
 - [ ] Modules: TheSSLStore, Proxmox, Centova, mailcow, ngm, Hetzner· DirectAdmin (υπάρχει, + #1186).
+- [ ] **Server groups και κατανομή** (όπως το WHMCS): το Paymenter έχει **ένα** `server_id` ανά προϊόν και καμία
+      στήλη server στην υπηρεσία (το `ExtensionHelper` πάει πάντα στο `$service->product->server`). Χρειάζεται:
+      `server_groups` (fill type: least full / fill until full), προϊόν → ομάδα **ή** server, `services.server_id` που
+      κρατά πού ζει κάθε λογαριασμός (και όλες οι ενέργειες πάνε εκεί), όριο λογαριασμών και enable/disable ανά server,
+      μεταφορά υπηρεσίας σε άλλο server από admin, sync/μέτρηση λογαριασμών. Ο allocator ως καθαρή κλάση με tests.
+      Σήμερα: ομάδες ApacheServers / Greece-LiteSpeed / LiteSpeed-Germany / PVE Nodes / Centova, «least full».
 - [ ] **Bridge προς Ekdosi** (billing source για το MyCS στο Ekdosi, ίδιο HMAC/ops, τιμολόγια σε τρίτους).
 - [ ] Business rules από τα ~20 hooks του myip (`history/blesta-modules/HANDOFF.md` §4.4).
 - [ ] Templates email el/en για όλα τα γεγονότα (#1306)· retry και ιστορικό emails (#1204, #1033).
@@ -117,6 +123,7 @@
 ## Φάση 5: myip.gr cut-over
 - [ ] Πλήρης importer (domains, addons, custom fields, tickets με συνημμένα, αρίθμηση = id, συνέχεια από τον
       τελευταίο αριθμό του WHMCS).
+- [ ] Importer: servers, server groups και ο server κάθε υπηρεσίας (`tblhosting.server`), όχι μόνο του προϊόντος.
 - [ ] 2–3 δοκιμαστικές μεταφορές με `mycs:parity`· validation domains απέναντι στους registrars.
 - [ ] Ekdosi: «Εισερχόμενα» από το MyCS χωρίς διπλά παραστατικά.
 - [ ] Freeze, import, DNS/rewrites, forwarder IPN για PayPal, dump του WHMCS για αρχείο.
