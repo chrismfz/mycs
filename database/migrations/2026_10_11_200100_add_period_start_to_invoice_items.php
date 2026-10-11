@@ -13,6 +13,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // main's billing-period migration (2026_10_12) may already have added it (docs/billing-cursor.md).
+        if (Schema::hasColumn('invoice_items', 'period_start')) {
+            return;
+        }
         Schema::table('invoice_items', function (Blueprint $table) {
             $table->date('period_start')->nullable()->after('reference_type');
         });
@@ -20,8 +24,6 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::table('invoice_items', function (Blueprint $table) {
-            $table->dropColumn('period_start');
-        });
+        // Owned by main's billing-period migration from now on.
     }
 };
