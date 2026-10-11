@@ -61,6 +61,7 @@ class RenewServiceService
                 // Free renewal from the cron: one period from what is paid.
                 $start = $locked->paidThrough($current ?? CarbonImmutable::today(), lines: $lines);
                 $end = $locked->periodEnd($start, $lines);
+                $locked->rememberBillingDay($start);
                 $this->activate($locked, $end === null ? null : $locked->paidThrough($end, lines: $lines));
                 $service->setRawAttributes($locked->getAttributes(), true);
 
@@ -88,6 +89,7 @@ class RenewServiceService
             }
 
             $paidUntil = $locked->paidThrough($current ?? $item->period_start, lines: $lines);
+            $locked->rememberBillingDay($item->period_start);
 
             if ($current !== null && !$paidUntil->greaterThan($current) && $locked->status !== Service::STATUS_PENDING
                 && ($item->period_start->greaterThan($current) || $this->paidByAnotherLine($item, $lines))) {

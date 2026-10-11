@@ -216,6 +216,9 @@ class Service extends Model implements Auditable
         if (!BillingPeriod::isAmbiguousDay($start)) {
             return $start->day;
         }
+        if ($this->billing_day !== null) {
+            return max((int) $this->billing_day, $start->day);
+        }
 
         // Ambiguous earlier days still say «at least this day» (Nov 30 -> Feb 28 -> May 30, not May 28).
         $floor = $start->day;
@@ -237,6 +240,16 @@ class Service extends Model implements Auditable
         }
 
         return $floor;
+    }
+
+    /**
+     * Remember the billing day when a period starts on an unambiguous day (not saved here).
+     */
+    public function rememberBillingDay(CarbonInterface $periodStart): void
+    {
+        if (!BillingPeriod::isAmbiguousDay(CarbonImmutable::instance($periodStart)) && (int) $this->billing_day !== $periodStart->day) {
+            $this->billing_day = $periodStart->day;
+        }
     }
 
     /**

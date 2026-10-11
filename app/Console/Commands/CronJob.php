@@ -255,6 +255,10 @@ class CronJob extends Command
 
         $periodEnd = $service->periodEnd($periodStart, $lines);
         $price = $service->price;
+        $service->rememberBillingDay($periodStart);
+        if ($service->isDirty('billing_day')) {
+            $service->save();
+        }
 
         // A hole shorter than a period (the next live period starts sooner): bill only the hole, prorated.
         $nextStart = $lines->first(fn ($line) => $line->period_start->greaterThan($periodStart))?->period_start;
