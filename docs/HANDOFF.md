@@ -52,9 +52,9 @@
   το `ekdosi-queue.service`).
 - **Tests:** βάση `mycs_test` (ίδιος χρήστης)· `set -a; . ./.db-credentials; DB_DATABASE=mycs_test; set +a; php artisan test`
   → 66 passed· `vendor/bin/pint --test` → καθαρό (2026-10-11, μετά το PR #2).
-- **Ενημέρωση:** `su - mycs -c 'cd /var/www/mycs && COMPOSER_DEV=1 deploy/update.sh'` (το `main`· ή `deploy/update.sh <branch|tag>`).
+- **Ενημέρωση:** `su - mycs -c 'cd /var/www/mycs && deploy/update.sh'` (χωρίς `git pull` πριν· το script κάνει fetch/checkout) (το `main`· ή `deploy/update.sh <branch|tag>`).
   Snapshot της βάσης στο `storage/app/db-snapshots/` πριν από κάθε αλλαγή, maintenance mode, queue drain, migrate, build,
-  optimize, smoke check. Στο devbox με `COMPOSER_DEV=1`, για να μένουν tests/Pint. Δοκιμασμένο 2026-10-11 (10d69f0 → d56adcc).
+  optimize, smoke check. Στο devbox το `.env` έχει `DEPLOY_COMPOSER_DEV=1`, για να μένουν tests/Pint. Δοκιμασμένο 2026-10-11 (10d69f0 → d56adcc).
 - `.git/info/exclude` κρύβει τα αρχεία του home (`.db-credentials`, `.config/`, `.bash*`, caches).
 - **Δεν έχει γίνει:** πρώτος admin (`php artisan app:user:create`, με δικό σου κωδικό), mail (SMTP).
 
