@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\DomainStatus;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -28,22 +29,22 @@ use Illuminate\Support\Carbon;
  * @property string $sld
  * @property string $tld
  * @property string $fqdn
- * @property \App\Enums\DomainStatus|null $status
- * @property \Illuminate\Support\Carbon|null $registered_at
- * @property \Illuminate\Support\Carbon|null $transferred_at
- * @property \Illuminate\Support\Carbon|null $expires_at
+ * @property DomainStatus|null $status
+ * @property Carbon|null $registered_at
+ * @property Carbon|null $transferred_at
+ * @property Carbon|null $expires_at
  * @property bool $auto_renew
  * @property bool $transfer_lock
  * @property bool $whois_privacy
  * @property bool $dnssec_enabled
  * @property bool $consent_publish
  * @property string|null $registrar_domain_id
- * @property \Illuminate\Support\Carbon|null $last_synced_at
+ * @property Carbon|null $last_synced_at
  * @property string|null $sync_error
  * @property array<string, mixed>|null $module_meta
- * @property \App\Models\DomainRegistrarConnection|null $registrarConnection
- * @property \Illuminate\Database\Eloquent\Collection<int, \App\Models\DomainContact> $contacts
- * @property \Illuminate\Database\Eloquent\Collection<int, \App\Models\DomainNameserver> $nameservers
+ * @property DomainRegistrarConnection|null $registrarConnection
+ * @property Collection<int, DomainContact> $contacts
+ * @property Collection<int, DomainNameserver> $nameservers
  */
 class Domain extends Model
 {
