@@ -18,9 +18,9 @@
 - [x] Αφαίρεση update checker (`CheckForUpdates`, κλήση στο τέλος του `CronJob`), self-updater (`Upgrade`,
       `Admin/Pages/Updates`, `update.sh`), marketplace και ελέγχου ενημερώσεων extensions. Η σελίδα extensions
       κρατάει μόνο «διαθέσιμα» + upload zip.
-- [ ] Δικός μας updater από GitHub releases/tags του `chrismfz/mycs` (μοτίβο: `UpdateChecker` / `ekdosi:self-update`
-      του Ekdosi). Ο παλιός δεν κρατήθηκε: δούλευε με το `api.paymenter.org` και τα releases του upstream, άρα θα
-      **αντικαθιστούσε το fork με το upstream**.
+- [x] Updater: **όχι μέσα από την εφαρμογή** (απόφαση 2026-10-11, `decisions.md`)· ενημέρωση μόνο με
+      `deploy/update.sh`. Ο παλιός δεν κρατήθηκε: δούλευε με το `api.paymenter.org` και τα releases του upstream, άρα
+      θα **αντικαθιστούσε το fork με το upstream**.
 - [x] Αφαίρεση Gravatar (avatar = τοπικό SVG με αρχικά) και της ρύθμισης `gravatar_default`.
 - [x] Workflows του upstream (`build-api-docs`, `release`, `beta`, `docker`) αφαιρέθηκαν (PR #9).
 - [x] Branding/footer links (Powered by, Sponsor, Star on GitHub, docs του Paymenter): το admin footer δείχνει
@@ -55,15 +55,15 @@
       sidebar είτε top navigation, όχι και τα δύο. Έλεγχος: άδεια, συντήρηση, συμβατότητα με Filament 5.
 - [x] `deploy/update.sh` (από το Ekdosi): ενημέρωση με snapshot/maintenance/queue drain/migrate/build (2026-10-11).
       Χωρίς `deploy/rollback.sh` (απόφαση 2026-10-11: προσεκτικές ενημερώσεις + το snapshot του `update.sh`·
-      χειροκίνητη επαναφορά στο `docs/install.md`). Μένει: updater από το admin.
+      χειροκίνητη επαναφορά στο `docs/install.md`).
 - [x] Installer: `mycs:install` (migrations, seed, νόμισμα, εταιρεία/URL/γλώσσες/ζώνη ώρας, passport keys, πρώτος
       admin) αντί για το `app:init` του Paymenter, **μόνο CLI** (χωρίς `/install` wizard), κωδικός ποτέ ως flag
       (`docs/install.md`, 2026-10-11).
-- [ ] Updater όπως του Ekdosi: `mycs:self-update` (git checkout/composer/migrate/caches) από GitHub releases ή tags·
-      θέλει απόφαση (βλ. `ekdosi:self-update`).
 - [ ] Cherry-picks: #1338 (captcha), το enforcement του `credits_enabled` από το #1295.
-- [ ] **Spike 1–2 ημερών:** port ενός μικρού κομματιού των domains του Ekdosi, για να μετρηθεί το πραγματικό κόστος
-      (από `company_id` και φορολογικό Invoice σε προτιμολόγιο).
+- [x] **Spike domains:** port του πυρήνα των domains του Ekdosi (registrar, sync, transfer, renewal), branch
+      `spike/domains` (δεν γίνεται merge· βάση της Φάσης 2), αποτελέσματα στο `docs/domains-spike.md` εκεί. Ο κώδικας
+      μεταφέρεται σχεδόν αυτούσιος· εξαρτάται από το «ανανέωση δεμένη με περίοδο» της Φάσης 1. Live μεταφορά του
+      nixpal.com CNIC → Openprovider: ολοκληρώθηκε, βρήκε και διόρθωσε 3 bugs του driver (2026-10-11).
 
 ## Φάση 1: nixpal (3–5 εβδομάδες)
 **Πυρήνας χρημάτων και ανανεώσεων**
