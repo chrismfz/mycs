@@ -32,6 +32,22 @@
 | **DNS δοκιμών** | `mycs.myip.gr` και `*.mycs.myip.gr` → A 84.54.49.31 (TTL 600, στη ζώνη myip.gr, 2026-10-11) | ελεύθερη χρήση για δοκιμές (π.χ. `test.mycs.myip.gr`, ένα subdomain ανά σενάριο/instance) |
 | Staging MyCS (μετά) | ό,τι αποφασιστεί (π.χ. `mycs.nixpal.com`) | δεν έχει στηθεί |
 
+### Devbox: τι έχει στηθεί (2026-10-11)
+Ίδιο μοτίβο με το Ekdosi στο ίδιο VM (AlmaLinux 10.2, nginx, PHP 8.4.21, MariaDB 10.11):
+- **Χρήστης** `mycs` (system, home = `/var/www/mycs` = ρίζα της εφαρμογής).
+- **php-fpm pool** `/etc/php-fpm.d/mycs.conf` → `/run/php-fpm/mycs.sock` (user `mycs`, `pm.max_children = 10`),
+  log `/var/log/php-fpm/mycs-error.log`.
+- **nginx** `/etc/nginx/conf.d/mycs.myip.gr.conf`: root `/var/www/mycs/public`, security headers όπως του Ekdosi,
+  χωρίς deny στο `/storage` (το Paymenter σερβίρει uploads μέσω του symlink `public/storage`).
+  HTTPS με Let's Encrypt (certbot --nginx, redirect 80→443). Τα `*.mycs.myip.gr` δεν έχουν ακόμα vhost/πιστοποιητικό
+  (wildcard θέλει DNS-01· ή ένα πιστοποιητικό ανά subdomain).
+- **MariaDB:** βάση `mycs` (utf8mb4_unicode_ci), χρήστης `mycs`@`localhost` με δικαιώματα μόνο στη `mycs`. Τα
+  στοιχεία (`DB_*`) είναι στο `/var/www/mycs/.db-credentials` (600, owner `mycs`), για να μπουν στο `.env`.
+- Όλα τα PHP extensions που ζητάει το `composer.lock` υπάρχουν.
+- **Δεν έχουν γίνει ακόμα:** κώδικας (το `/var/www/mycs` δεν είναι άδειο: `public/index.html` placeholder και
+  `.db-credentials`, άρα `git init` + `git fetch` + `git checkout -f` αντί για `git clone`), `.env`, migrate, cron
+  `schedule:run` και queue worker (systemd, όπως το `ekdosi-queue.service`).
+
 Λεπτομέρειες (servers, crons, μεγέθη, inventory του WHMCS): `history/blesta-modules/HANDOFF.md` §1, §4.
 
 ## Contracts που δεν σπάνε
