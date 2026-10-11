@@ -14,7 +14,6 @@ use DateTimeZone;
 use Exception;
 use Filament\Schemas\Components\Utilities\Get;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\HtmlString;
 use Minishlink\WebPush\VAPID;
 
 class Settings
@@ -186,7 +185,6 @@ class Settings
                 [
                     'name' => 'oauth_google',
                     'label' => 'Google Enabled',
-                    'description' => new HtmlString('<a href="https://paymenter.org/docs/guides/OAuth#google" target="_blank">Documentation</a>'),
                     'type' => 'checkbox',
                     'database_type' => 'boolean',
                     'default' => false,
@@ -207,7 +205,6 @@ class Settings
                 [
                     'name' => 'oauth_github',
                     'label' => 'GitHub Enabled',
-                    'description' => new HtmlString('<a href="https://paymenter.org/docs/guides/OAuth#github" target="_blank">Documentation</a>'),
                     'type' => 'checkbox',
                     'database_type' => 'boolean',
                     'default' => false,
@@ -228,7 +225,6 @@ class Settings
                 [
                     'name' => 'oauth_discord',
                     'label' => 'Discord Enabled',
-                    'description' => new HtmlString('<a href="https://paymenter.org/docs/guides/OAuth#discord" target="_blank">Documentation</a>'),
                     'type' => 'checkbox',
                     'database_type' => 'boolean',
                     'default' => false,

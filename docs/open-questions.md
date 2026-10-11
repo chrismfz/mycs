@@ -18,6 +18,9 @@
 - **CNIC της nixpal (4 domains):** driver CNIC πριν το cut-over ή μεταφορά τους στο Openprovider; Ο driver
   χρειάζεται ούτως ή άλλως για το myip (209).
 - **Παραγωγή της nixpal:** σε ποιον server και σε ποιο domain ζει το instance.
+- **Ρόλοι staff (για αργότερα):** στο WHMCS του myip υπάρχουν 5 ρόλοι, ενεργοί admins μόνο σε 2: Full Administrator (3)
+  και Support Operator (1)· Sales Operator χωρίς ενεργό admin (2026-10-11). Ένας ρόλος ανά χρήστη αρκεί, άρα κρατάμε το
+  σύστημα του Paymenter (ρόλος με λίστα δικαιωμάτων) και όχι `spatie/laravel-permission` όπως στο Ekdosi.
 
 ## Κοινός κώδικας: απόφαση
 **Δύο κατηγορίες, δύο τρόποι:**

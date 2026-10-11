@@ -4,7 +4,6 @@ namespace App\Admin\Resources\FailedJobResource\Pages;
 
 use App\Admin\Resources\FailedJobResource;
 use Carbon\Carbon;
-use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Illuminate\Support\Facades\DB;
@@ -25,14 +24,8 @@ class ListFailedJobs extends ListRecords
             if ($diffInMinutes > 5) {
                 Notification::make()
                     ->title('Whoops!')
-                    ->body('There are ' . DB::table('jobs')->count() . " jobs in the queue.\nThis could mean that your jobs are not being processed correctly.")
+                    ->body('There are ' . DB::table('jobs')->count() . " jobs in the queue.\nThis could mean that your jobs are not being processed correctly: check the queue worker (systemd mycs-queue) and the cron (schedule:run).")
                     ->danger()
-                    ->actions([
-                        Action::make('view')
-                            ->label('Browse Documentation')
-                            ->button()
-                            ->url('https://paymenter.org/docs/installation/install#creating-cronjob-and-service', shouldOpenInNewTab: true),
-                    ])
                     ->send();
             }
         }

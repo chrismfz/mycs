@@ -23,7 +23,8 @@
       **αντικαθιστούσε το fork με το upstream**.
 - [x] Αφαίρεση Gravatar (avatar = τοπικό SVG με αρχικά) και της ρύθμισης `gravatar_default`.
 - [x] Workflows του upstream (`build-api-docs`, `release`, `beta`, `docker`) αφαιρέθηκαν (PR #9).
-- [ ] Branding/footer links (Powered by, Sponsor, Star on GitHub, docs του Paymenter).
+- [x] Branding/footer links (Powered by, Sponsor, Star on GitHub, docs του Paymenter): το admin footer δείχνει
+      «MyCS · commit», `APP_NAME` = MyCS (2026-10-11).
 - [ ] Upload extensions από το web: αφαίρεση ή μόνο από CLI.
 - [x] Κρυπτογραφημένα credentials σε όλα τα extensions (cPanel, Plesk, Convoy, Enhance, Virtualizor) **και** στη
       δημιουργία server/gateway, που τα αποθήκευε καθαρά· migration για όσα υπάρχουν (2026-10-11).
