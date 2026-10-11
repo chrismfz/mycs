@@ -113,6 +113,9 @@
 - [ ] Branding ανά instance: logo, χρώματα, στοιχεία εταιρείας στο PDF του τιμολογίου.
 - [ ] Backups βάσης και `storage/` εκτός server, με δοκιμή επαναφοράς.
 - [ ] Παρακολούθηση: error log, failed jobs, cron που σταμάτησε.
+- [ ] **2FA:** υπάρχει (TOTP, ίδιο για πελάτες και staff· ο admin το απενεργοποιεί από τον χρήστη). Λείπουν:
+      υποχρεωτικό για staff (στη myip το έχουν και οι 4 admins του WHMCS), backup/recovery codes. Port από Ekdosi.
+      Τα secrets του WHMCS (10 πελάτες myip, 1 nixpal) δεν μεταφέρονται: ξανά ενεργοποίηση.
 
 **Importer και cut-over nixpal**
 - [ ] Importer (`importer.md`): clients, επαφές, custom fields, υπηρεσίες, τιμολόγια με ποσά, πληρωμές, πιστώσεις,
@@ -134,6 +137,10 @@
 - [ ] On-demand renewals (πρόωρη ανανέωση από πελάτη, #1167).
 
 ## Φάση 3: Τα απαραίτητα του myip.gr (4–6 εβδομάδες)
+- [ ] **Ένας χρήστης, πολλοί λογαριασμοί πελάτη** (Users του WHMCS 8): στη myip 101 προσκεκλημένοι χρήστες, 33 χρήστες
+      με πρόσβαση σε >1 λογαριασμό, 93 λογαριασμοί με >1 χρήστη (+432 παλιά contacts)· στη nixpal 14 / 2.
+      Το Paymenter δεν το έχει (χρήστης = πελάτης). Μοτίβο του Ekdosi (χρήστης ↔ εταιρείες με ρόλο/δικαιώματα),
+      επιλογέας λογαριασμού στο client area, importer από `tblusers_clients` (2026-10-11).
 - [ ] **Eurobank/Cardlink + IRIS** (`packages/cardlink-eurobank`, με server-to-server returns): το 42% των πληρωμών.
 - [ ] Έμβασμα + `payments_tracking` (αντιστοίχιση καταθέσεων από IMAP τράπεζας) πάνω στον allocator: ο πελάτης
       γράφει τον αριθμό προτιμολογίου στην αιτιολογία· αν ταιριάζει, mark paid το συγκεκριμένο τιμολόγιο (port του
