@@ -93,7 +93,7 @@ class Show extends Component
         $this->service->save();
 
         $this->editLabel = false;
-        $this->notify('Service label updated successfully', 'success');
+        $this->notify(__('Service label updated successfully'), 'success');
     }
 
     public function changeView($view)
@@ -110,7 +110,7 @@ class Show extends Component
     public function updatedShowCancel($value)
     {
         if (!$this->service->cancellable) {
-            $this->notify('This service cannot be cancelled', 'error');
+            $this->notify(__('This service cannot be cancelled'), 'error');
             $this->showCancel = false;
 
             return;
@@ -121,7 +121,7 @@ class Show extends Component
     {
         // Check if function is allowed
         if (!in_array($function, array_column($this->buttons, 'function'))) {
-            $this->notify('This action is not allowed', 'error');
+            $this->notify(__('This action is not allowed'), 'error');
 
             return;
         }
@@ -148,7 +148,7 @@ class Show extends Component
                 $view = ExtensionHelper::getView($this->service, $currentViewObj);
             } catch (Exception $e) {
                 if ($previousView !== $this->views[0]['name'] ?? null) {
-                    $this->notify('Got an error while trying to load the view', 'error');
+                    $this->notify(__('Got an error while trying to load the view'), 'error');
                 }
                 $this->currentView = $this->views[0]['name'] ?? null;
             }

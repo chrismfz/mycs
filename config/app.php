@@ -96,6 +96,7 @@ return [
         'bn' => 'বাংলা',
         'da' => 'Dansk',
         'de' => 'Deutsch',
+        'el' => 'Ελληνικά',
         'en' => 'English',
         'es' => 'Español',
         'fi' => 'Suomi',

@@ -234,7 +234,7 @@ class Checkout extends Component
             })->get();
 
             if ($item->isNotEmpty()) {
-                $this->notify('This product is already in your cart and cannot be added again.', 'error');
+                $this->notify(__('This product is already in your cart and cannot be added again.'), 'error');
 
                 return;
             }

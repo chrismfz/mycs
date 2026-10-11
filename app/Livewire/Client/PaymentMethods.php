@@ -67,17 +67,17 @@ class PaymentMethods extends Component
     {
         $billingAgreement = Auth::user()->billingAgreements()->where('ulid', $billingAgreementUlid)->first();
         if (!$billingAgreement) {
-            return $this->notify('Billing agreement not found', 'error');
+            return $this->notify(__('Billing agreement not found'), 'error');
         }
 
         // Call the gateway to cancel the billing agreement if supported
         $succeeded = ExtensionHelper::cancelBillingAgreement($billingAgreement);
 
         if ($succeeded) {
-            $this->notify('Payment method removed successfully', 'success');
+            $this->notify(__('Payment method removed successfully'), 'success');
             $billingAgreement->delete();
         } else {
-            $this->notify('Failed to remove payment method', 'error');
+            $this->notify(__('Failed to remove payment method'), 'error');
         }
     }
 

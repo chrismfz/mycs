@@ -43,7 +43,7 @@ class Create extends Component
 
         $rateLimitKey = 'create-ticket:' . Auth::id();
         if (RateLimiter::tooManyAttempts($rateLimitKey, 1)) {
-            $this->notify('Too many ticket creation attempts. Please try again in 30 seconds.', 'error');
+            $this->notify(__('Too many ticket creation attempts. Please try again in 30 seconds.'), 'error');
 
             return;
         }
@@ -76,7 +76,7 @@ class Create extends Component
             ]);
         }
 
-        $this->notify('Message sent successfully', redirect: true);
+        $this->notify(__('Message sent successfully'), redirect: true);
 
         $this->reset(['attachments', 'message', 'subject', 'department', 'service', 'priority']);
         $this->dispatch('saved');

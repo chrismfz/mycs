@@ -61,6 +61,17 @@ class Settings
                     'override' => 'app.locale',
                 ],
                 [
+                    // MyCS: the admin panel has its own language, so a Greek client area
+                    // does not turn the admin into a Filament-Greek / Paymenter-English mix.
+                    'name' => 'admin_language',
+                    'label' => 'Admin Language',
+                    'default' => 'en',
+                    'type' => 'select',
+                    'options' => self::getAvailableLanguages(),
+                    'required' => true,
+                    'validation' => 'in:' . implode(',', self::getAvailableLanguages()),
+                ],
+                [
                     'name' => 'allowed_languages',
                     'label' => 'Allowed Languages',
                     'type' => 'select',

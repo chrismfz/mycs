@@ -43,7 +43,7 @@ class Request extends Component
             ], false))]);
         }
 
-        $this->notify('If the email address is associated with an account, you will receive an email with instructions on how to reset your password.', 'success');
+        $this->notify(__('If the email address is associated with an account, you will receive an email with instructions on how to reset your password.'), 'success');
     }
 
     public function render()

@@ -61,7 +61,7 @@ class Reset extends Component
             }
         );
 
-        return $status === Password::PASSWORD_RESET ? $this->redirect(route('login')) : $this->notify($status, 'error');
+        return $status === Password::PASSWORD_RESET ? $this->redirect(route('login')) : $this->notify(__($status), 'error');
     }
 
     public function render()

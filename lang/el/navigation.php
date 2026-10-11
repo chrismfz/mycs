@@ -1,0 +1,18 @@
+<?php
+
+return [
+    'home' => 'Αρχική',
+    'shop' => 'Προϊόντα',
+    'cart' => 'Καλάθι',
+    'login' => 'Σύνδεση',
+    'register' => 'Εγγραφή',
+    'services' => 'Υπηρεσίες',
+    'invoices' => 'Τιμολόγια',
+    'account' => 'Λογαριασμός',
+    'personal_details' => 'Στοιχεία',
+    'security' => 'Ασφάλεια',
+    'dashboard' => 'Αρχική',
+    'tickets' => 'Tickets',
+    'admin' => 'Διαχείριση',
+    'notifications' => 'Ειδοποιήσεις',
+];

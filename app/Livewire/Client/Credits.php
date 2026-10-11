@@ -69,7 +69,7 @@ class Credits extends Component
             if ($credits->isNotEmpty()) {
                 // Check if the current credits + the new credits exceed the maximum credits allowed
                 if ($credits->sum('amount') + $this->amount > config('settings.credits_maximum_credit')) {
-                    $this->notify('You cannot exceed the maximum credits allowed.', 'error');
+                    $this->notify(__('You cannot exceed the maximum credits allowed.'), 'error');
 
                     return;
                 }
