@@ -221,8 +221,11 @@ class Service extends Model implements Auditable
         }
 
         // Ambiguous earlier days still say «at least this day» (Nov 30 -> Feb 28 -> May 30, not May 28).
+        // Every period line counts here, a cancelled one too: it still shows the day the service billed on.
         $floor = $start->day;
-        foreach (($lines ?? $this->livePeriodLines())->reverse() as $line) {
+        $history = $this->invoiceItems()->whereNotNull('period_start')->get(['id', 'period_start'])
+            ->sortBy(fn (InvoiceItem $line) => $line->period_start->timestamp);
+        foreach ($history->reverse() as $line) {
             $day = $line->period_start;
             if ($day === null || !$day->lessThan($start)) {
                 continue;
