@@ -428,8 +428,10 @@ class BillingCursorFuzzTest extends TestCase
                 }
             }
 
-            // I6 one billing cycle per line
-            $bad = $this->badPeriod($l['s'], $l['e'], $action === 'cron' && !$this->staffMoved);
+            // I6 one billing cycle per line; a hole shorter than a cycle (it ends where the next live
+            // line starts, e.g. after a staff move back before a paid period) is billed alone, prorated.
+            $hole = collect($live)->contains(fn ($o) => $o['id'] !== $id && $o['s'] === $l['e']);
+            $bad = $hole ? null : $this->badPeriod($l['s'], $l['e'], $action === 'cron' && !$this->staffMoved);
             if ($bad !== null) {
                 return "I6 line #$id [{$l['s']},{$l['e']}) $bad (after $action)";
             }
