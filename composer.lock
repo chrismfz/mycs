@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "99776c77f8ecbab9ac49290afb3f47e3",
+    "content-hash": "3f6a87609539b315c9a9c28a4277a2c7",
     "packages": [
         {
             "name": "andreiio/blade-remix-icon",
@@ -5479,6 +5479,245 @@
                 "source": "https://github.com/nikic/PHP-Parser/tree/v5.9.0"
             },
             "time": "2026-09-13T18:51:52+00:00"
+        },
+        {
+            "name": "nixpal/cardlink-eurobank",
+            "version": "1.0.0",
+            "dist": {
+                "type": "path",
+                "url": "packages/cardlink-eurobank",
+                "reference": "a584b592e8421ce303b23cd0b0052f75de0d5496"
+            },
+            "require": {
+                "php": ">=7.4"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^9.6"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Nixpal\\CardlinkEurobank\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Nixpal\\CardlinkEurobank\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "phpunit"
+                ]
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "Framework-agnostic Cardlink/Modirum vPOS (Eurobank) hosted payment page: signed request, verified return.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "nixpal/domain-tools",
+            "version": "1.0.0",
+            "dist": {
+                "type": "path",
+                "url": "packages/domain-tools",
+                "reference": "4d4b24c75a2e35c1112d4f280b8561936d9896a9"
+            },
+            "require": {
+                "ext-json": "*",
+                "php": ">=7.4"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^9.6"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Nixpal\\DomainTools\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Nixpal\\DomainTools\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "phpunit"
+                ]
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "Framework-agnostic domain name parsing, suggestion filtering, RDAP / port-43 whois, rate limiting.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "nixpal/licensing",
+            "version": "1.0.0",
+            "dist": {
+                "type": "path",
+                "url": "packages/nixpal-licensing",
+                "reference": "73c6ddc0a9f8f566be5614af3f37bfb60e5d0dce"
+            },
+            "require": {
+                "php": ">=7.4"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^9.6"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Nixpal\\Licensing\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Nixpal\\Licensing\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "phpunit"
+                ]
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "Framework-agnostic core of the nixpal licensing server (WHMCS Licensing Addon compatible local keys).",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "nixpal/mailcow",
+            "version": "1.0.0",
+            "dist": {
+                "type": "path",
+                "url": "packages/mailcow",
+                "reference": "78f7cd59baf37a62da467eea9c7996cb8420b285"
+            },
+            "require": {
+                "ext-json": "*",
+                "php": ">=7.4"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^9.6"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Nixpal\\Mailcow\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Nixpal\\Mailcow\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "phpunit"
+                ]
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "Framework-agnostic mailcow API client and provisioning policy (domain + domain admin per service).",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "nixpal/myopenprovider",
+            "version": "1.0.0",
+            "dist": {
+                "type": "path",
+                "url": "packages/myopenprovider",
+                "reference": "d5cc51a8d836e537110672e7b60c71770353dc94"
+            },
+            "require": {
+                "ext-curl": "*",
+                "ext-json": "*",
+                "php": ">=7.4"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^9.6"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Nixpal\\MyOpenprovider\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Nixpal\\MyOpenprovider\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "phpunit"
+                ]
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "Small, dependency-free Openprovider REST (v1beta) client and renewal logic.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "nixpal/paypal-vault",
+            "version": "1.0.0",
+            "dist": {
+                "type": "path",
+                "url": "packages/paypal-vault",
+                "reference": "8a75975b243837bf7b01d309222f7433db766d1e"
+            },
+            "require": {
+                "ext-json": "*",
+                "php": ">=7.4"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^9.6"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Nixpal\\PaypalVault\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Nixpal\\PaypalVault\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "phpunit"
+                ]
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "Framework-agnostic PayPal Vault v3 + Orders v2 client for merchant-initiated charges on vaulted PayPal accounts.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
         },
         {
             "name": "nunomaduro/termwind",

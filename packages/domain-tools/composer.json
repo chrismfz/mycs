@@ -1,0 +1,27 @@
+{
+    "name": "nixpal/domain-tools",
+    "description": "Framework-agnostic domain name parsing, suggestion filtering, RDAP / port-43 whois, rate limiting.",
+    "type": "library",
+    "license": "proprietary",
+    "require": {
+        "php": ">=7.4",
+        "ext-json": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.6"
+    },
+    "autoload": {
+        "psr-4": {
+            "Nixpal\\DomainTools\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Nixpal\\DomainTools\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit"
+    },
+    "version": "1.0.0"
+}

@@ -1,0 +1,27 @@
+{
+    "name": "nixpal/paypal-vault",
+    "description": "Framework-agnostic PayPal Vault v3 + Orders v2 client for merchant-initiated charges on vaulted PayPal accounts.",
+    "type": "library",
+    "license": "proprietary",
+    "require": {
+        "php": ">=7.4",
+        "ext-json": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.6"
+    },
+    "autoload": {
+        "psr-4": {
+            "Nixpal\\PaypalVault\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Nixpal\\PaypalVault\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit"
+    },
+    "version": "1.0.0"
+}

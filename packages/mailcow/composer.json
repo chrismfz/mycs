@@ -1,0 +1,27 @@
+{
+    "name": "nixpal/mailcow",
+    "description": "Framework-agnostic mailcow API client and provisioning policy (domain + domain admin per service).",
+    "type": "library",
+    "license": "proprietary",
+    "require": {
+        "php": ">=7.4",
+        "ext-json": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.6"
+    },
+    "autoload": {
+        "psr-4": {
+            "Nixpal\\Mailcow\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Nixpal\\Mailcow\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit"
+    },
+    "version": "1.0.0"
+}

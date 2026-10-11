@@ -13,6 +13,12 @@
         </testsuite>
         <testsuite name="Packages">
             <directory>packages/mail-template/tests</directory>
+            <directory>packages/cardlink-eurobank/tests</directory>
+            <directory>packages/domain-tools/tests</directory>
+            <directory>packages/mailcow/tests</directory>
+            <directory>packages/myopenprovider/tests</directory>
+            <directory>packages/nixpal-licensing/tests</directory>
+            <directory>packages/paypal-vault/tests</directory>
         </testsuite>
     </testsuites>
     <source>

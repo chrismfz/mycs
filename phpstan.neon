@@ -8,6 +8,12 @@ parameters:
         - app/
         - extensions/
         - packages/mail-template/src/
+        - packages/cardlink-eurobank/src/
+        - packages/domain-tools/src/
+        - packages/mailcow/src/
+        - packages/myopenprovider/src/
+        - packages/nixpal-licensing/src/
+        - packages/paypal-vault/src/
 
     # Level 9 is the highest level
     level: 5
