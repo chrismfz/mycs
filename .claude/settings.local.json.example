@@ -4,17 +4,19 @@
     "defaultMode": "bypassPermissions",
     "allow": [
       "Bash",
-      "Read",
       "Edit",
-      "Write",
       "Glob",
       "Grep",
       "NotebookEdit",
+      "Read",
       "WebFetch",
       "WebSearch",
-      "mcp__gsc-mcp",
+      "Write",
+      "mcp__Claude_Browser",
+      "mcp__claude-in-chrome",
+      "mcp__ekdosi",
       "mcp__github",
-      "mcp__ekdosi"
+      "mcp__gsc-mcp"
     ]
   },
   "skipDangerousModePermissionPrompt": true
