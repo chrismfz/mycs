@@ -9,6 +9,7 @@ use App\Livewire\Component;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
+use App\Models\User;
 use Exception;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -61,6 +62,8 @@ class Credits extends Component
         DB::beginTransaction();
 
         try {
+            // The customer first, as every payment path does (RecordPaymentService): no lock-order deadlock.
+            User::query()->whereKey(Auth::id())->lockForUpdate()->first();
             // Lock the user's invoices and credits
             Auth::user()->invoices()->lockForUpdate()->get();
             $credits = Auth::user()->credits()->where('currency_code', $this->currency)->lockForUpdate()->get();
@@ -69,6 +72,7 @@ class Credits extends Component
             if ($credits->isNotEmpty()) {
                 // Check if the current credits + the new credits exceed the maximum credits allowed
                 if ($credits->sum('amount') + $this->amount > config('settings.credits_maximum_credit')) {
+                    DB::rollBack();
                     $this->notify(__('You cannot exceed the maximum credits allowed.'), 'error');
 
                     return;

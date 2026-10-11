@@ -33,6 +33,7 @@ class InvoiceTransaction extends Model implements Auditable
         'gateway_id',
         'amount',
         'refunded_amount',
+        'credited_amount',
         'fee',
         'transaction_id',
         'status',
@@ -42,6 +43,7 @@ class InvoiceTransaction extends Model implements Auditable
     protected $casts = [
         'amount' => 'decimal:2',
         'refunded_amount' => 'decimal:2',
+        'credited_amount' => 'decimal:2',
         'fee' => 'decimal:2',
         'status' => InvoiceTransactionStatus::class,
     ];
@@ -59,14 +61,14 @@ class InvoiceTransaction extends Model implements Auditable
     }
 
     /**
-     * Amount that is still refundable for this transaction.
+     * Amount that is still refundable for this transaction: not what became account credit (docs/payments.md).
      *
      * @return Attribute<mixed, mixed>
      */
     public function refundableAmount(): Attribute
     {
         return Attribute::make(
-            get: fn () => $this->amount - $this->refunded_amount
+            get: fn () => $this->amount - $this->refunded_amount - $this->credited_amount
         );
     }
 

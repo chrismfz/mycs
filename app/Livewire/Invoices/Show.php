@@ -10,9 +10,8 @@ use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\Service;
-use App\Models\User;
+use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Request;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
@@ -150,28 +149,16 @@ class Show extends Component
 
     private function payWithCredit()
     {
-        DB::transaction(function () {
-            // The customer first, as every payment path does (RecordPaymentService): no lock-order deadlock.
-            User::query()->whereKey(Auth::id())->lockForUpdate()->first();
-            $credit = Auth::user()->credits()->where('currency_code', $this->invoice->currency_code)->lockForUpdate()->first();
-            if ($credit && $credit->amount > 0) {
-                // Is it more credits or less credits than the total price?
-                if ($credit->amount >= $this->invoice->remaining) {
-                    $credit->amount -= $this->invoice->remaining;
-                    $credit->save();
-                    ExtensionHelper::addPayment($this->invoice->id, null, amount: $this->invoice->remaining, isCreditTransaction: true);
-
-                    return $this->redirect(route('invoices.show', $this->invoice), true);
-                } else {
-                    ExtensionHelper::addPayment($this->invoice->id, null, amount: $credit->amount, isCreditTransaction: true);
-                    $credit->amount = 0;
-                    $credit->save();
-
-                    $this->invoice = $this->invoice->fresh();
-                    $this->notify(__('Part of the invoice has been paid with credits. Please pay the remaining amount'));
-                }
-            }
-        });
+        // Read and spend the credit under the payment locks (RecordPaymentService): never a stale copy.
+        $transaction = (new RecordPaymentService)->payWithCredit($this->invoice);
+        $this->invoice = $this->invoice->fresh();
+        if ($transaction === null) {
+            return;
+        }
+        if ($this->invoice->status === Invoice::STATUS_PAID) {
+            return $this->redirect(route('invoices.show', $this->invoice), true);
+        }
+        $this->notify(__('Part of the invoice has been paid with credits. Please pay the remaining amount'));
     }
 
     private function payWithSavedMethod($agreementUlid)

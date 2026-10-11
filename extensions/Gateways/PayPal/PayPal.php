@@ -13,6 +13,7 @@ use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
 use App\Models\Service;
 use App\Models\User;
+use App\Services\Invoice\RecordPaymentService;
 use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -302,6 +303,25 @@ class PayPal extends Gateway
         return $response;
     }
 
+    /**
+     * One subscription sale pays every service of the subscription: record it ONCE (on the first service's
+     * latest invoice; what that invoice cannot take becomes account credit) and pay the other services'
+     * invoices from that credit. A replayed webhook records nothing and finds them paid (docs/payments.md).
+     *
+     * @param  array<string, mixed>  $resource  the PAYMENT.SALE.COMPLETED resource
+     */
+    public function recordSubscriptionSale(array $resource): void
+    {
+        $invoices = Service::where('subscription_id', $resource['billing_agreement_id'])->get()
+            ->map(fn (Service $service) => $service->invoices()->latest()->first())
+            ->filter()->unique('id')->values();
+        if ($invoices->isEmpty()) {
+            return;
+        }
+        ExtensionHelper::addPayment($invoices->first()->id, 'PayPal', $resource['amount']['total'], $resource['transaction_fee']['value'] ?? null, $resource['id'], currency: $resource['amount']['currency'] ?? null);
+        $invoices->slice(1)->each(fn (Invoice $invoice) => (new RecordPaymentService)->payWithCredit($invoice));
+    }
+
     public function webhook(Request $request)
     {
         $body = $request->getContent();
@@ -336,11 +356,7 @@ class PayPal extends Gateway
                 ]);
             });
         } elseif ($body['event_type'] === 'PAYMENT.SALE.COMPLETED' && isset($body['resource']['billing_agreement_id'])) {
-            Service::where('subscription_id', $body['resource']['billing_agreement_id'])->each(function (Service $service) use ($body) {
-                // Add payment to the latest invoice
-                $latestInvoice = $service->invoices()->latest()->first();
-                ExtensionHelper::addPayment($latestInvoice->id, 'PayPal', $body['resource']['amount']['total'], $body['resource']['transaction_fee']['value'], $body['resource']['id'], currency: $body['resource']['amount']['currency'] ?? null);
-            });
+            $this->recordSubscriptionSale($body['resource']);
         } elseif ($body['event_type'] === 'VAULT.PAYMENT-TOKEN.DELETED') {
             // Find the billing agreement with this external reference
             $billingAgreement = BillingAgreement::where('external_reference', $body['resource']['id'])->first();

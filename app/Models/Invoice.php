@@ -118,7 +118,7 @@ class Invoice extends Model implements Auditable
         return Attribute::make(
             get: fn () => $this->total
                 - $this->transactions->where('status', InvoiceTransactionStatus::Succeeded)->sum(function ($txn) {
-                    return $txn->amount - $txn->refunded_amount;
+                    return $txn->amount - $txn->refunded_amount - $txn->credited_amount;
                 })
         );
     }
@@ -148,7 +148,7 @@ class Invoice extends Model implements Auditable
     }
 
     /**
-     * Remaining amount of the invoice, net of refunded amounts.
+     * Remaining amount of the invoice, net of refunded amounts and of what became account credit.
      *
      * @return Attribute<mixed, mixed>
      */
@@ -161,6 +161,7 @@ class Invoice extends Model implements Auditable
                     ->where('status', InvoiceTransactionStatus::Succeeded)
                     ->sum(fn ($transaction) => $this->moneyToCents($transaction->amount)
                         - $this->moneyToCents($transaction->refunded_amount)
+                        - $this->moneyToCents($transaction->credited_amount)
                     )
             ) / 100.0
         );

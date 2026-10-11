@@ -13,17 +13,18 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
- * The one way money is written to an invoice (docs/payments.md, PR 2a): gateways and credits.
+ * The one way money is written to an invoice (docs/payments.md, PR 2a): gateways, staff and credits.
  *
- * - Locks the customer first, then the invoice: every payment path of one customer is serialised,
- *   so a duplicate transaction id is found on any of the customer's invoices (a replayed PayPal
- *   subscription webhook lands on «the latest invoice», which may be another one).
+ * - Locks the customer first, then the invoice, then the credit row: every payment path of one customer
+ *   is serialised, so a duplicate transaction id is found on any of the customer's invoices (a replayed
+ *   PayPal subscription webhook lands on «the latest invoice», which may be another one).
  * - The same gateway + transaction id already succeeded: nothing (Τ2). A succeeded transaction never
  *   goes back to processing/failed.
- * - Only a positive amount, and the invoice's currency when the gateway states one (Τ3): otherwise
- *   nothing is written, it is logged and staff are told.
- * - Money the invoice cannot take (cancelled, already paid, or above what is left) is still recorded
- *   on the invoice (the money arrived) and the part it cannot take becomes account credit (Τ7).
+ * - Only a positive amount, and the currency of the invoice the money lands on, when the gateway states
+ *   one (Τ3): otherwise nothing is written, it is logged and staff are told.
+ * - Money the invoice cannot take (cancelled, already paid, or above what is left) is still recorded on
+ *   the invoice (the money arrived); the part it cannot take becomes account credit and is kept on the
+ *   transaction as credited_amount, so it never counts on the invoice as well (Τ7).
  */
 class RecordPaymentService
 {
@@ -39,28 +40,17 @@ class RecordPaymentService
     ): ?InvoiceTransaction {
         $invoiceId = $invoice instanceof Invoice ? $invoice->getKey() : $invoice;
         $transactionId = $transactionId === null || $transactionId === '' ? null : (string) $transactionId;
-        $cents = is_numeric($amount) ? (int) round((float) $amount * 100) : 0;
+        $cents = self::toCents($amount);
 
         if ($cents <= 0) {
-            $this->refuse("Payment of «{$amount}» on invoice #{$invoiceId} refused: the amount must be positive.", $invoiceId, $transactionId, $gateway);
+            $this->notify("Payment of «{$this->show($amount)}» on invoice #{$invoiceId} refused: the amount must be positive.", $invoiceId, $transactionId, $gateway);
 
             return null;
         }
 
         $notices = [];
         $transaction = DB::transaction(function () use ($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, &$notices) {
-            // Customer first, always: the credit paths lock the customer before their credit row too.
-            $userId = Invoice::query()->whereKey($invoiceId)->value('user_id');
-            if ($userId !== null) {
-                User::query()->whereKey($userId)->lockForUpdate()->first();
-            }
-            $invoice = Invoice::query()->whereKey($invoiceId)->lockForUpdate()->firstOrFail();
-
-            if ($currency !== null && strtoupper($currency) !== strtoupper((string) $invoice->currency_code)) {
-                $notices[] = "Payment in {$currency} on invoice #{$invoice->id} ({$invoice->currency_code}) was NOT recorded: currency mismatch. Check it with the gateway.";
-
-                return null;
-            }
+            $invoice = $this->lockInvoice($invoiceId);
 
             $existing = $transactionId === null ? null : InvoiceTransaction::query()
                 ->where('transaction_id', $transactionId)
@@ -69,52 +59,101 @@ class RecordPaymentService
                 ->lockForUpdate()
                 ->first();
 
-            if ($existing !== null) {
-                if ($existing->status === InvoiceTransactionStatus::Succeeded) {
-                    if ($fee !== null && $existing->fee === null) {
-                        $existing->update(['fee' => $fee]); // a late fee report (Stripe)
-                    }
-
-                    return $existing; // a replay: already recorded
+            if ($existing !== null && $existing->status === InvoiceTransactionStatus::Succeeded) {
+                if ($fee !== null && $existing->fee === null) {
+                    $existing->update(['fee' => $fee]); // a late fee report (Stripe)
                 }
-                if ($status !== InvoiceTransactionStatus::Succeeded) {
-                    $existing->update(array_filter(['status' => $status, 'fee' => $fee], fn ($value) => $value !== null));
 
-                    return $existing;
-                }
-                // processing/failed -> succeeded, on the invoice it was started on
-                $target = $existing->invoice_id === $invoice->id ? $invoice
-                    : Invoice::query()->whereKey($existing->invoice_id)->lockForUpdate()->firstOrFail();
-                $excess = $this->excessCents($target, $cents);
-                $existing->update(array_filter([
-                    'amount' => $cents / 100,
-                    'fee' => $fee,
-                    'status' => $status,
-                ], fn ($value) => $value !== null));
-                $this->credit($target, $excess, $notices);
+                return $existing; // a replay: already recorded
+            }
+
+            // The money lands on the invoice the transaction was started on.
+            $target = $existing === null || $existing->invoice_id === $invoice->id ? $invoice
+                : Invoice::query()->whereKey($existing->invoice_id)->lockForUpdate()->firstOrFail();
+            if ($currency !== null && strtoupper($currency) !== strtoupper((string) $target->currency_code)) {
+                $notices[] = "Payment in {$currency} on invoice #{$target->id} ({$target->currency_code}) was NOT recorded: currency mismatch. Check it with the gateway.";
+
+                return null;
+            }
+
+            if ($existing !== null && $status !== InvoiceTransactionStatus::Succeeded) {
+                $existing->update(array_filter(['status' => $status, 'fee' => $fee], fn ($value) => $value !== null));
 
                 return $existing;
             }
 
-            $excess = $status === InvoiceTransactionStatus::Succeeded ? $this->excessCents($invoice, $cents) : 0;
-            $transaction = $invoice->transactions()->create([
+            $excess = $status === InvoiceTransactionStatus::Succeeded ? $this->excessCents($target, $cents) : 0;
+            $values = array_filter([
                 'gateway_id' => $gateway?->id,
                 'amount' => $cents / 100,
                 'fee' => $fee,
                 'transaction_id' => $transactionId,
                 'status' => $status,
                 'is_credit_transaction' => $isCreditTransaction,
-            ]);
-            $this->credit($invoice, $excess, $notices);
+                'credited_amount' => $excess / 100,
+            ], fn ($value) => $value !== null);
+            if ($existing !== null) {
+                unset($values['gateway_id'], $values['transaction_id'], $values['is_credit_transaction']);
+                $existing->update($values);
+                $transaction = $existing;
+            } else {
+                $transaction = $target->transactions()->create($values);
+            }
+            $this->addCredit($target, $excess, $notices);
 
             return $transaction;
         });
 
         foreach ($notices as $notice) {
-            $this->refuse($notice, $invoiceId, $transactionId, $gateway);
+            $this->notify($notice, $invoiceId, $transactionId, $gateway);
         }
 
         return $transaction;
+    }
+
+    /**
+     * Pay an open invoice from the customer's account credit, under the same locks: the credit is read
+     * and spent in one place, so nothing can save a stale copy of it. Pays what is left, or as much as
+     * the credit covers ($onlyIfCovers: all of it or nothing, as the cron does). Null when nothing is paid.
+     */
+    public function payWithCredit(Invoice|int $invoice, bool $onlyIfCovers = false): ?InvoiceTransaction
+    {
+        $invoiceId = $invoice instanceof Invoice ? $invoice->getKey() : $invoice;
+
+        return DB::transaction(function () use ($invoiceId, $onlyIfCovers) {
+            $invoice = $this->lockInvoice($invoiceId);
+            if (!in_array($invoice->status, [Invoice::STATUS_PENDING, Invoice::STATUS_DRAFT], true)) {
+                return null;
+            }
+            $credit = Credit::query()->where('user_id', $invoice->user_id)->where('currency_code', $invoice->currency_code)
+                ->lockForUpdate()->first();
+            $available = $credit === null ? 0 : self::toCents($credit->amount);
+            $remaining = max(0, self::toCents($invoice->remaining));
+            $cents = min($available, $remaining);
+            if ($cents <= 0 || ($onlyIfCovers && $available < $remaining)) {
+                return null;
+            }
+
+            $credit->amount = ($available - $cents) / 100;
+            $credit->save();
+
+            return $invoice->transactions()->create([
+                'amount' => $cents / 100,
+                'status' => InvoiceTransactionStatus::Succeeded,
+                'is_credit_transaction' => true,
+            ]);
+        });
+    }
+
+    /** Customer first, then the invoice (every payment path takes them in this order: no deadlock). */
+    private function lockInvoice(mixed $invoiceId): Invoice
+    {
+        $userId = Invoice::query()->whereKey($invoiceId)->value('user_id');
+        if ($userId !== null) {
+            User::query()->whereKey($userId)->lockForUpdate()->first();
+        }
+
+        return Invoice::query()->whereKey($invoiceId)->lockForUpdate()->firstOrFail();
     }
 
     /** The part of a payment the invoice cannot take: all of it unless pending/draft, else what exceeds the balance. */
@@ -123,13 +162,12 @@ class RecordPaymentService
         if (!in_array($invoice->status, [Invoice::STATUS_PENDING, Invoice::STATUS_DRAFT], true)) {
             return $cents;
         }
-        $remaining = (int) round((float) $invoice->fresh()->remaining * 100);
 
-        return max(0, $cents - max(0, $remaining));
+        return max(0, $cents - max(0, self::toCents($invoice->fresh()->remaining)));
     }
 
     /** @param  list<string>  $notices */
-    private function credit(Invoice $invoice, int $cents, array &$notices): void
+    private function addCredit(Invoice $invoice, int $cents, array &$notices): void
     {
         if ($cents <= 0) {
             return;
@@ -137,7 +175,7 @@ class RecordPaymentService
         $credit = Credit::query()->where('user_id', $invoice->user_id)->where('currency_code', $invoice->currency_code)
             ->lockForUpdate()->first()
             ?? $invoice->user->credits()->create(['currency_code' => $invoice->currency_code, 'amount' => 0]);
-        $credit->amount = ((int) round((float) $credit->amount * 100) + $cents) / 100;
+        $credit->amount = (self::toCents($credit->amount) + $cents) / 100;
         $credit->save();
 
         $notices[] = sprintf(
@@ -146,9 +184,29 @@ class RecordPaymentService
         );
     }
 
-    private function refuse(string $message, mixed $invoiceId, ?string $transactionId, ?Gateway $gateway): void
+    /** Positive, finite amounts only, in cents; anything else is 0. */
+    public static function toCents(mixed $amount): int
+    {
+        if (is_bool($amount) || !is_numeric($amount)) {
+            return 0;
+        }
+        $value = (float) $amount;
+        if (!is_finite($value) || abs($value) > 1e12) {
+            return 0;
+        }
+
+        return (int) round($value * 100);
+    }
+
+    private function show(mixed $amount): string
+    {
+        return is_scalar($amount) ? (string) $amount : get_debug_type($amount);
+    }
+
+    /** Logged now; staff are mailed after the commit (never for a rolled-back payment). */
+    private function notify(string $message, mixed $invoiceId, ?string $transactionId, ?Gateway $gateway): void
     {
         Log::warning($message, ['invoice_id' => $invoiceId, 'transaction_id' => $transactionId, 'gateway' => $gateway?->extension]);
-        NotificationHelper::sendSystemEmailNotification('Payment needs attention', e($message));
+        DB::afterCommit(fn () => NotificationHelper::sendSystemEmailNotification('Payment needs attention', e($message)));
     }
 }
