@@ -24,9 +24,10 @@ use Illuminate\Support\Facades\Log;
  * ahead of an unpaid one waits and is picked up once the gap is paid.
  *
  * A payment that adds no time changes nothing when it is a duplicate (the period was paid by
- * another line) or ahead of an unpaid period, so it never unsuspends a service suspended for
- * another reason. It does activate a service whose date staff already moved over that period
- * (grace given before the payment arrived). A cancelled service is never revived by a payment:
+ * another line), a replay of a line already applied (applied_at), or ahead of an unpaid period, so
+ * it never unsuspends a service suspended for another reason. On its first processing it does
+ * activate a service whose date staff already moved over that period (grace given before the
+ * payment arrived). A cancelled service is never revived by a payment:
  * staff decide (docs/billing-cursor.md, PR 3).
  */
 class RenewServiceService
@@ -91,9 +92,15 @@ class RenewServiceService
             $paidUntil = $locked->paidThrough($current ?? $item->period_start, lines: $lines);
             $locked->rememberBillingDay($item->period_start);
 
+            // Processing the same line again (paid -> pending -> paid) is a replay, not a new payment.
+            $replay = $item->applied_at !== null;
+            if (!$replay) {
+                $item->forceFill(['applied_at' => now()])->save();
+            }
+
             if ($current !== null && !$paidUntil->greaterThan($current) && $locked->status !== Service::STATUS_PENDING
-                && ($item->period_start->greaterThan($current) || $this->paidByAnotherLine($item, $lines))) {
-                return; // duplicate, or ahead of an unpaid period: nothing new is paid
+                && ($replay || $item->period_start->greaterThan($current) || $this->paidByAnotherLine($item, $lines))) {
+                return; // a replay, a duplicate, or ahead of an unpaid period: nothing new is paid
             }
 
             $this->activate($locked, $paidUntil); // never earlier than $current: the chain starts there

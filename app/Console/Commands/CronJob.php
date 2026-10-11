@@ -109,8 +109,8 @@ class CronJob extends Command
                         return;
                     }
 
-                    // Only the upgrade's own line: a renewal line on the same invoice keeps its price.
-                    $upgrade->invoice->items()->where('reference_type', ServiceUpgrade::class)->update([
+                    // Only this upgrade's own line: a renewal line, or another upgrade, on the same invoice keeps its price.
+                    $upgrade->invoice->items()->where('reference_type', ServiceUpgrade::class)->where('reference_id', $upgrade->id)->update([
                         'price' => $upgrade->calculatePrice()->price,
                     ]);
 

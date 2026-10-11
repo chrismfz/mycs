@@ -27,6 +27,9 @@ class ServiceObserver
      */
     public function updating(Service $service): void
     {
+        if ($service->isDirty('plan_id')) {
+            $service->unsetRelation('plan'); // a loaded relation still holds the old plan
+        }
         if (self::$renewing || !$service->isDirty('expires_at') || $service->expires_at === null
             || $service->plan === null || in_array($service->plan->type, ['one-time', 'free'], true)) {
             return;
@@ -50,12 +53,20 @@ class ServiceObserver
     {
         // Billing cycle changed (e.g. monthly -> yearly) while a renewal invoice is open: its line covers
         // a period of the new cycle, so what the customer pays buys what the invoice says. Its price is
-        // staff's to set (Recurring Amount), as in WHMCS.
+        // staff's to set (Recurring Amount), as in WHMCS. Never over a later live period (one paid ahead,
+        // say): the line stops where that one starts, so no day is billed twice.
+        if ($service->wasChanged('plan_id')) {
+            $service->unsetRelation('plan');
+        }
         if ($service->wasChanged('plan_id') && $service->plan !== null && !in_array($service->plan->type, ['one-time', 'free'], true)) {
-            $service->livePeriodLines()
-                ->filter(fn ($line) => in_array($line->invoice?->status, ['pending', 'draft'], true))
-                ->each(function ($line) use ($service) {
-                    $end = $service->periodEnd($line->period_start);
+            $lines = $service->livePeriodLines();
+            $lines->filter(fn ($line) => in_array($line->invoice?->status, ['pending', 'draft'], true))
+                ->each(function ($line) use ($service, $lines) {
+                    $end = $service->periodEnd($line->period_start, $lines);
+                    $next = $lines->first(fn ($other) => $other->id !== $line->id && $other->period_start->greaterThan($line->period_start))?->period_start;
+                    if ($end !== null && $next !== null && $next->lessThan($end)) {
+                        $end = $next;
+                    }
                     if ($end !== null && !$end->equalTo($line->period_end)) {
                         $line->forceFill(['period_end' => $end, 'description' => $service->describePeriod($line->period_start, $end)])->save();
                     }

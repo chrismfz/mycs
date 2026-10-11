@@ -308,16 +308,19 @@ class Service extends Model implements Auditable
 
     /**
      * Which billing cycle (1 = the first) the period starting on $periodStart is, counted in periods
-     * from the service's first period (or its registration). Free periods count too: they leave no
-     * invoice, so invoices cannot be counted (coupons «for N cycles»).
+     * from the service's first billed period (or its registration). Free periods count too: they leave
+     * no invoice, so invoices cannot be counted (coupons «for N cycles»). A cancelled first period
+     * still counts: cancelling it does not restart the count.
      *
      * @param  Collection<int, InvoiceItem>|null  $lines
      */
     public function cycleNumber(CarbonInterface $periodStart, ?Collection $lines = null): int
     {
         $lines ??= $this->livePeriodLines();
-        $cursor = $lines->first()->period_start
-            ?? CarbonImmutable::parse($this->created_at ?? $periodStart)->startOfDay();
+        $first = $this->invoiceItems()->whereNotNull('period_start')->get(['id', 'period_start'])
+            ->min(fn (InvoiceItem $line) => $line->period_start);
+        $cursor = $first !== null ? CarbonImmutable::instance($first)
+            : CarbonImmutable::parse($this->created_at ?? $periodStart)->startOfDay();
         $target = CarbonImmutable::instance($periodStart)->startOfDay();
 
         for ($cycle = 1; $cycle < 1200 && $cursor->lessThan($target); $cycle++) {

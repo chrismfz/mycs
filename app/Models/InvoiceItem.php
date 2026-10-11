@@ -38,6 +38,7 @@ class InvoiceItem extends Model implements Auditable
         'price' => 'decimal:2',
         'period_start' => 'immutable_date',
         'period_end' => 'immutable_date',
+        'applied_at' => 'immutable_datetime',
     ];
 
     /** @return BelongsTo<Invoice, $this> */
