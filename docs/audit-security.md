@@ -20,10 +20,14 @@
    είναι εκτέλεση κώδικα εκ σχεδιασμού.
    **Fork:** placeholder renderer αντί για Blade (όπως το `MailTemplateRenderer` του Ekdosi), και upload extension
    μόνο από CLI.
+   **Διορθώθηκε (2026-10-11)** για templates, header/footer και snippet προϊόντος: `packages/mail-template`
+   (`templates.md`). Μένει το upload extension.
 2. **Μήνυμα εξαίρεσης γίνεται compile ως template (υποψία).** Το error handler του cron βάζει το `$e->getMessage()`
    σε `SystemMail` που γίνεται Blade (`CronJob.php:231`, `SystemMail.php`). Το ίδιο κάνει το `CheckForUpdates.php:72`
    με την απάντηση του `api.paymenter.org`.
    **Fork:** escape, και αφαίρεση του update check.
+   **Διορθώθηκε:** το update check αφαιρέθηκε (Φάση 0)· το μήνυμα της εξαίρεσης γίνεται escape και το system mail
+   δεν γίνεται πια compile (2026-10-11).
 
 ## Medium
 3. **Ο πυρήνας πληρωμών εμπιστεύεται πλήρως το gateway** (`app/Helpers/ExtensionHelper.php:469-510`).

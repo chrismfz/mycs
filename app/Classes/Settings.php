@@ -4,6 +4,7 @@ namespace App\Classes;
 
 use App\Admin\Actions\ResetColorsAction;
 use App\Admin\Actions\SendTestEmailAction;
+use App\Helpers\TemplateRenderer;
 use App\Models\Currency;
 use App\Models\Setting;
 use App\Models\TaxRate;
@@ -348,6 +349,8 @@ class Settings
                     'required' => fn (Get $get) => !$get('mail_disable'),
                     'default' => '',
                     'disable_toolbar' => true,
+                    'description' => 'Template: {{ app.name }}, {{ app.url }}, {{ app.logo_url }}, {{ mail_css|raw }}, {% if app.logo_url %}…{% endif %}. No PHP or Blade.',
+                    'validation' => [TemplateRenderer::rule()],
                 ],
                 [
                     'name' => 'mail_footer',
@@ -356,6 +359,8 @@ class Settings
                     'required' => fn (Get $get) => !$get('mail_disable'),
                     'default' => '',
                     'disable_toolbar' => true,
+                    'description' => 'Template: {{ app.name }}, {{ app.year }}, {{ app.url }}. No PHP or Blade.',
+                    'validation' => [TemplateRenderer::rule()],
                 ],
                 [
                     'name' => 'mail_css',

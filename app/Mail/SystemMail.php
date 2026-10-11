@@ -40,7 +40,7 @@ class SystemMail extends Mailable
      */
     public function content(): Content
     {
-        $appName = config('app.name');
+        $appName = e(config('app.name'));
         $body = <<<HTML
         <p>Hi,</p>
 
