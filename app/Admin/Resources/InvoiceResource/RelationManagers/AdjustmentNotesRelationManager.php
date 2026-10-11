@@ -27,7 +27,7 @@ class AdjustmentNotesRelationManager extends RelationManager
 
     protected function canModifyAdjustmentNotes(): bool
     {
-        return !config('settings.immutable_invoices_enabled') || $this->getOwnerRecord()?->status === Invoice::STATUS_PENDING;
+        return !config('settings.immutable_invoices_enabled') || $this->getOwnerRecord()->status === Invoice::STATUS_PENDING;
     }
 
     public function form(Schema $schema): Schema

@@ -91,7 +91,6 @@ class FilamentInput
                     ->disabled($setting->disabled ?? false)
                     ->hintActions(isset($setting->action) ? [($setting->action)::make()] : [])
                     ->rules($setting->validation ?? []);
-                break;
 
             case 'tags':
                 return TagsInput::make($setting->name)
@@ -104,7 +103,6 @@ class FilamentInput
                     ->rules($setting->validation ?? [])
                     ->nestedRecursiveRules($setting->nested_validation ?? [])
                     ->helperText($setting->description ?? null);
-                break;
 
             case 'text':
                 return TextInput::make($setting->name)
@@ -121,7 +119,6 @@ class FilamentInput
                     ->disabled($setting->disabled ?? false)
                     ->hintActions(isset($setting->action) ? [($setting->action)::make()] : [])
                     ->rules($setting->validation ?? []);
-                break;
 
             case 'time':
                 return TimePicker::make($setting->name)
@@ -138,7 +135,6 @@ class FilamentInput
                     ->disabled($setting->disabled ?? false)
                     ->rules($setting->validation ?? [])
                     ->seconds($setting->seconds ?? false);
-                break;
 
             case 'textarea':
                 return Textarea::make($setting->name)
@@ -152,7 +148,6 @@ class FilamentInput
                     ->default($setting->default ?? '')
                     ->rules($setting->validation ?? [])
                     ->disabled($setting->disabled ?? false);
-                break;
 
             case 'markdown':
                 return MarkdownEditor::make($setting->name)
@@ -167,7 +162,6 @@ class FilamentInput
                     ->disableAllToolbarButtons($setting->disable_toolbar ?? false)
                     ->rules($setting->validation ?? [])
                     ->disabled($setting->disabled ?? false);
-                break;
             case 'password':
                 return TextInput::make($setting->name)
                     ->label($setting->label ?? $setting->name)
@@ -184,7 +178,6 @@ class FilamentInput
                     ->prefix($setting->prefix ?? null)
                     ->disabled($setting->disabled ?? false)
                     ->rules($setting->validation ?? []);
-                break;
             case 'email':
                 return TextInput::make($setting->name)
                     ->label($setting->label ?? $setting->name)
@@ -200,7 +193,6 @@ class FilamentInput
                     ->prefix($setting->prefix ?? null)
                     ->disabled($setting->disabled ?? false)
                     ->rules($setting->validation ?? []);
-                break;
             case 'number':
                 return TextInput::make($setting->name)
                     ->label($setting->label ?? $setting->name)
@@ -218,8 +210,6 @@ class FilamentInput
                     ->prefix($setting->prefix ?? null)
                     ->disabled($setting->disabled ?? false)
                     ->rules($setting->validation ?? []);
-
-                break;
             case 'color':
                 $mode = $setting->color_mode ?? 'hsl';
                 $color = ColorPicker::make($setting->name)
@@ -253,7 +243,6 @@ class FilamentInput
                 $color->$mode();
 
                 return $color;
-                break;
             case 'file':
                 $input = FileUpload::make($setting->name)
                     ->label($setting->label ?? $setting->name)
@@ -279,8 +268,6 @@ class FilamentInput
 
                 return $input;
 
-                break;
-
             case 'checkbox':
                 return Checkbox::make($setting->name)
                     ->label($setting->label ?? $setting->name)
@@ -292,7 +279,6 @@ class FilamentInput
                     ->default($setting->default ?? '')
                     ->disabled($setting->disabled ?? false)
                     ->rules($setting->validation ?? []);
-                break;
 
             case 'placeholder':
                 return Placeholder::make($setting->name)
@@ -300,7 +286,6 @@ class FilamentInput
                     ->helperText($setting->description ?? null)
                     ->hint($setting->hint ?? null)
                     ->hintColor('primary');
-                break;
 
             default:
                 throw new Exception("Unknown input type: {$setting->type}");

@@ -191,8 +191,6 @@ class Convoy extends Server
         } catch (Exception $e) {
             return $e->getMessage();
         }
-
-        return true;
     }
 
     // Convoy is reallyy strict (The account password must contain 8 - 50 characters, 1 uppercase, 1 lowercase, 1 number and 1 special character.)

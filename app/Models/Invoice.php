@@ -179,7 +179,7 @@ class Invoice extends Model implements Auditable
      */
     public function tax(): Attribute
     {
-        if (config('settings.invoice_snapshot', true) && $this?->snapshot?->tax_name) {
+        if (config('settings.invoice_snapshot', true) && $this->snapshot?->tax_name) {
             return Attribute::make(
                 get: fn () => new TaxRate([
                     'name' => $this->snapshot->tax_name,
@@ -197,7 +197,7 @@ class Invoice extends Model implements Auditable
     /** @return Attribute<mixed, mixed> */
     public function userProperties(): Attribute
     {
-        if (config('settings.invoice_snapshot', true) && $this?->snapshot?->properties) {
+        if (config('settings.invoice_snapshot', true) && $this->snapshot?->properties) {
             return Attribute::make(
                 get: fn () => $this->snapshot->properties
             );
@@ -213,21 +213,21 @@ class Invoice extends Model implements Auditable
     /** @return Attribute<mixed, mixed> */
     public function userName(): Attribute
     {
-        if (config('settings.invoice_snapshot', true) && $this?->snapshot?->name) {
+        if (config('settings.invoice_snapshot', true) && $this->snapshot?->name) {
             return Attribute::make(
                 get: fn () => $this->snapshot->name
             );
         }
 
         return Attribute::make(
-            get: fn () => $this->user?->name ?? __('invoices.deleted_user')
+            get: fn () => $this->user->name ?? __('invoices.deleted_user')
         );
     }
 
     /** @return Attribute<mixed, mixed> */
     public function billTo(): Attribute
     {
-        if (config('settings.invoice_snapshot', true) && $this?->snapshot?->bill_to) {
+        if (config('settings.invoice_snapshot', true) && $this->snapshot?->bill_to) {
             return Attribute::make(
                 get: fn () => $this->snapshot->bill_to
             );
