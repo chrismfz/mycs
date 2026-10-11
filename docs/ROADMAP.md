@@ -22,19 +22,17 @@
       του Ekdosi). Ο παλιός δεν κρατήθηκε: δούλευε με το `api.paymenter.org` και τα releases του upstream, άρα θα
       **αντικαθιστούσε το fork με το upstream**.
 - [x] Αφαίρεση Gravatar (avatar = τοπικό SVG με αρχικά) και της ρύθμισης `gravatar_default`.
-- [ ] Branding/footer links (Powered by, Sponsor, Star on GitHub, docs του Paymenter)· workflows `build-api-docs.yaml`,
-      `release.yaml`, `beta`.
+- [x] Workflows του upstream (`build-api-docs`, `release`, `beta`, `docker`) αφαιρέθηκαν (PR #9).
+- [ ] Branding/footer links (Powered by, Sponsor, Star on GitHub, docs του Paymenter).
 - [ ] Upload extensions από το web: αφαίρεση ή μόνο από CLI.
-- [ ] Templates email/ειδοποιήσεων: placeholder renderer αντί για Blade, και `mail_header`/`mail_footer` χωρίς
-      compile (`audit-security.md` H1–H2).
 - [x] Κρυπτογραφημένα credentials σε όλα τα extensions (cPanel, Plesk, Convoy, Enhance, Virtualizor) **και** στη
       δημιουργία server/gateway, που τα αποθήκευε καθαρά· migration για όσα υπάρχουν (2026-10-11).
 - [x] Templates email/ειδοποιήσεων, `mail_header`/`mail_footer` και snippet προϊόντος χωρίς Blade: renderer
       `packages/mail-template` (`templates.md`, `audit-security.md` H1–H2, 2026-10-11).
-- [ ] `encrypted` cast στα credentials όλων των server extensions (cPanel, Plesk, Convoy, Enhance, Virtualizor).
 - [x] «Κανείς δεν δίνει ό,τι δεν έχει» (`PermissionGuard`): API keys, ρόλοι, ανάθεση ρόλου, επεξεργασία/διαγραφή/
       impersonation άλλου admin· το key δεν ξεπερνά ποτέ τον δημιουργό του (2026-10-11).
-- [ ] CI: phpstan (larastan) ενεργό, Pint, tests σε MariaDB.
+- [x] CI: tests σε sqlite + MariaDB 10.11 (PHP 8.4) και `pint --test` σε κάθε PR (PR #9, 2026-10-11).
+- [ ] CI: phpstan (larastan) ενεργό.
 - [ ] `lib/*` του blesta-modules → `packages/` (nixpal-licensing, cardlink-eurobank, paypal-vault, domain-tools,
       myopenprovider, mailcow), με composer `path` repositories και τα tests τους στο CI.
 - [x] `corwindev/laravel-themer` → `packages/laravel-themer` (MIT) με διορθώσεις για PHP 8.4 (implicit nullable):
@@ -89,6 +87,14 @@
 - [ ] Domains: **11** (Openprovider 7, CNIC 3 + 1 σε Grace). Θέλουν το Openprovider της Φάσης 2 και είτε driver CNIC
       είτε μεταφορά των 4 CNIC στο Openprovider πριν το cut-over (απόφαση).
 
+**Λειτουργία της nixpal (παραγωγή)**
+- [ ] Πού ζει το instance (server, domain π.χ. `mycs.nixpal.com` ή `clients.nixpal.com`)· TLS, cron, queue.
+- [ ] Αποστολή email (SMTP/SPF/DKIM) και templates στα αγγλικά για τα γεγονότα της nixpal (τιμολόγιο, πληρωμή,
+      υπενθυμίσεις, λήξη, αναστολή).
+- [ ] Branding ανά instance: logo, χρώματα, στοιχεία εταιρείας στο PDF του τιμολογίου.
+- [ ] Backups βάσης και `storage/` εκτός server, με δοκιμή επαναφοράς· `deploy/rollback.sh`.
+- [ ] Παρακολούθηση: error log, failed jobs, cron που σταμάτησε.
+
 **Importer και cut-over nixpal**
 - [ ] Importer (`importer.md`): clients, επαφές, custom fields, υπηρεσίες, τιμολόγια με ποσά, πληρωμές, πιστώσεις,
       promotions/ομάδες, κάρτες Stripe, vault tokens, άδειες, ρυθμίσεις από το `tblconfiguration`· re-runnable, id map.
@@ -124,6 +130,8 @@
       μεταφορά υπηρεσίας σε άλλο server από admin, sync/μέτρηση λογαριασμών. Ο allocator ως καθαρή κλάση με tests.
       Σήμερα: ομάδες ApacheServers / Greece-LiteSpeed / LiteSpeed-Germany / PVE Nodes / Centova, «least full».
 - [ ] **Bridge προς Ekdosi** (billing source για το MyCS στο Ekdosi, ίδιο HMAC/ops, τιμολόγια σε τρίτους).
+- [ ] Portal: ο πελάτης βλέπει τα **φορολογικά παραστατικά** που στέλνει πίσω το Ekdosi (`decisions.md` §2)·
+      σύγκριση στην οθόνη portal Ekdosi vs Paymenter πριν αποφασίσουμε ποιες σελίδες κρατάμε.
 - [ ] Business rules από τα ~20 hooks του myip (`history/blesta-modules/HANDOFF.md` §4.4).
 - [ ] Templates email el/en για όλα τα γεγονότα (#1306)· retry και ιστορικό emails (#1204, #1033).
 - [ ] Εύκολη επεξεργασία από admin: ημερομηνίες domain, ποσά υπηρεσίας, υποσύνολα τιμολογίου.

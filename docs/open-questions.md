@@ -14,6 +14,11 @@
    το MyCS, π.χ. `mycs.nixpal.com`.
 6. **Κοινός κώδικας με το Ekdosi:** απόφαση Claude, παρακάτω.
 
+## Ανοιχτά
+- **CNIC της nixpal (4 domains):** driver CNIC πριν το cut-over ή μεταφορά τους στο Openprovider; Ο driver
+  χρειάζεται ούτως ή άλλως για το myip (209).
+- **Παραγωγή της nixpal:** σε ποιον server και σε ποιο domain ζει το instance.
+
 ## Κοινός κώδικας: απόφαση
 **Δύο κατηγορίες, δύο τρόποι:**
 
