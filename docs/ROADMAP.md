@@ -117,6 +117,12 @@
 - [ ] Branding ανά instance: logo, χρώματα, στοιχεία εταιρείας στο PDF του τιμολογίου.
 - [ ] Backups βάσης και `storage/` εκτός server, με δοκιμή επαναφοράς.
 - [ ] Παρακολούθηση: error log, failed jobs, cron που σταμάτησε.
+- [ ] **Χρονοπρογραμματιστής σαν του Ekdosi:** σήμερα system cron → `schedule:run` κάθε λεπτό + worker
+      (`mycs-queue`), αλλά όλη η χρέωση είναι **ένα** `CronJob` ημερησίως, 7 δουλειές σε ένα transaction (αν σκάσει η
+      μία, αναιρούνται όλες· κρατά locks). Σπάσιμο σε ξεχωριστές εργασίες (τιμολόγια ανανέωσης, ακυρώσεις
+      παραγγελιών, upgrades, αναστολές, τερματισμοί, tickets, logs· αργότερα domains sync/pending transfers,
+      υπενθυμίσεις, καταθέσεις τράπεζας), καθεμία με δικό της cron/ώρα και on/off από το admin, `withoutOverlapping`,
+      και κατάσταση τελευταίας εκτέλεσης στο dashboard.
 - [ ] **2FA:** υπάρχει (TOTP, ίδιο για πελάτες και staff· ο admin το απενεργοποιεί από τον χρήστη). Λείπουν:
       υποχρεωτικό για staff (στη myip το έχουν και οι 4 admins του WHMCS), backup/recovery codes. Port από Ekdosi.
       Τα secrets του WHMCS (10 πελάτες myip, 1 nixpal) δεν μεταφέρονται: ξανά ενεργοποίηση.
