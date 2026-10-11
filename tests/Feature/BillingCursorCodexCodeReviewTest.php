@@ -148,7 +148,7 @@ class BillingCursorCodexCodeReviewTest extends TestCase
         $service = $this->service(['expires_at' => '2026-11-15']); // paid through Nov 15, bills on the 15th
         $coupon = Coupon::create(['type' => 'percentage', 'applies_to' => 'all', 'code' => 'HALF1', 'value' => 50, 'recurring' => 1]);
         $service->update(['coupon_id' => $coupon->id, 'price' => 5.00]);
-        $this->assertSame('2026-10-20', $service->fresh()->coupon_started_at->toDateString());
+        $this->assertSame('2026-11-15', $service->fresh()->coupon_started_at->toDateString()); // the first period not billed yet
 
         Carbon::setTestNow('2026-11-10 10:00:00');
         $this->artisan('app:cron-job')->assertExitCode(0);
