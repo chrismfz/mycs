@@ -47,7 +47,7 @@
 - **Εγκατάσταση (2026-10-11):** κώδικας από το `main` (`git fetch` ανώνυμα μέσω HTTPS· ο `mycs` έχει και `gh auth`,
   token στο `~/.config/gh/hosts.yml`, 600), `composer install`, `npm ci && npm run build`, `.env` (600) με `APP_URL=https://mycs.myip.gr`,
   `APP_TIMEZONE=Europe/Athens`, `CACHE_STORE=file`, `SESSION_DRIVER=file`, `QUEUE_CONNECTION=database` (χωρίς Redis,
-  όπως το Ekdosi), `migrate --seed`, `storage:link`, `app:init`.
+  όπως το Ekdosi), `migrate --seed`, `storage:link`, `app:init` (σήμερα: `mycs:install`, `docs/install.md`).
 - **Cron:** `* * * * * php artisan schedule:run` (crontab του `mycs`). **Queue:** `mycs-queue.service` (systemd, όπως
   το `ekdosi-queue.service`).
 - **Tests:** βάση `mycs_test` (ίδιος χρήστης)· `set -a; . ./.db-credentials; DB_DATABASE=mycs_test; set +a; php artisan test`
