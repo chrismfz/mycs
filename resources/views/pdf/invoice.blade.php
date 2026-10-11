@@ -1,0 +1,308 @@
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>{{ !$invoice->number && config('settings.invoice_proforma', false) ? __('invoices.proforma_invoice', ['id' => $invoice->id]) : __('invoices.invoice', ['id' => $invoice->number]) }}</title>
+    <style>
+        body {
+            font-family:
+                system-ui,
+                -apple-system,
+                /* Firefox supports this but not yet `system-ui` */
+                'Segoe UI',
+                Roboto,
+                Helvetica,
+                Arial,
+                sans-serif,
+                'Apple Color Emoji',
+                'Segoe UI Emoji',
+                'DejaVu Sans';
+            font-size: 16px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        table th {
+            text-align: left;
+            color: #999;
+            border-bottom: 2px solid #ddd;
+            padding: 10px 0 15px 0;
+            font-size: 0.75em;
+            text-transform: uppercase;
+        }
+
+        table td {
+            padding: 15px 0;
+        }
+
+        table th:last-child {
+            text-align: right;
+        }
+
+        table tr td {
+            padding: 0;
+        }
+
+        table tr td:last-child {
+            text-align: right;
+        }
+
+        .invoice-items tbody tr:first-child td {
+            padding-top: 10px;
+        }
+
+        .invoice-info {
+            font-size: 0.875em;
+        }
+
+        .invoice-info td {
+            padding: 2px 0;
+        }
+
+        .totals-section {
+            margin-top: 30px;
+            float: right;
+            width: 300px;
+        }
+
+        .totals-table {
+            width: 100%;
+            margin-bottom: 10px;
+        }
+
+        .totals-table td {
+            padding: 8px 0;
+            border: none;
+        }
+
+        .totals-table .label {
+            text-align: left;
+            font-weight: normal;
+            color: #666;
+            text-transform: uppercase;
+            font-size: 0.875em;
+        }
+
+        .totals-table .amount {
+            text-align: right;
+            font-weight: bold;
+        }
+
+        .totals-table .total-row {
+            border-top: 2px solid #ddd;
+            font-size: 1.1em;
+        }
+
+        .totals-table .total-row .label {
+            font-weight: bold;
+            color: #000;
+        }
+
+        .section-title {
+            margin-top: 50px;
+            font-size: 1.2em;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+    @if(config('settings.logo'))
+    <div style="margin: 20px 0 70px 0;">
+        <img style="height: 30px" src="{{ public_path('storage/' . config('settings.logo')) }}"
+            alt="{{ config('app.name') }}">
+    </div>
+    @endif
+
+    <!-- Invoice status -->
+    <div style="margin-bottom: 20px;font-size: 20px">
+        <strong>{{ __('invoices.status') }}:</strong><span
+            style="@if($invoice->status == 'paid') color: green; @else color: orange; @endif">
+            {{ ucfirst($invoice->status) }}
+        </span>
+    </div>
+
+    <table class="invoice-info">
+        <tr>
+            <td rowspan="2" style="font-size: 1em;vertical-align: top;">
+                <strong>{{ __('invoices.issued_to') }}</strong><br>
+                {{ $invoice->user_name }} <br />
+                @foreach($invoice->user_properties as $property)
+                    {{ $property }} <br />
+                @endforeach
+            </td>
+            <td>
+                <strong>{{ strtoupper(__('invoices.bill_to')) }}</strong> <br />
+                {!! nl2br(e($invoice->bill_to)) !!}
+            </td>
+        </tr>
+    </table>
+    <p>{{ !$invoice->number && config('settings.invoice_proforma', false) ? __('invoices.proforma_invoice_date') : __('invoices.invoice_date') }}: <strong>{{ $invoice->created_at->translatedFormat('d M Y') }}</strong></p>
+    @if($invoice->number)
+    <p>{{ __('invoices.invoice_no') }}: <strong>{{ $invoice->number }}</strong></p>
+    @endif
+
+    <table style="margin-top: 40px;" class="invoice-items">
+        <thead>
+            <tr>
+                <th>{{ __('invoices.item') }}</th>
+                <th style="width: 100px">{{ __('invoices.quantity') }}</th>
+                <th>{{ __('invoices.unit_price') }}</th>
+                <th>{{ __('invoices.total') }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach($invoice->items as $item)
+            <tr>
+                <td>
+                    {{ $item->description }}
+                    
+                    @if($item->reference && $item->reference->label)
+                        <br><small style="color: #666; font-size: 0.9em;">{{ $item->reference->label }}</small>
+                    @endif
+                </td>
+                <td>{{ $item->quantity }}</td>
+                <td>{{ $item->formattedPrice }}</td>
+                <td>{{ $item->formattedTotal }}</td>
+            </tr>
+            @endforeach
+        </tbody>
+    </table>
+
+    <!-- Totals Section -->
+    <div class="totals-section">
+        @if ($invoice->formattedTotal->tax > 0)
+        <table class="totals-table">
+            <tr>
+                <td class="label">{{ __('invoices.subtotal') }}</td>
+                <td class="amount">{{ $invoice->formattedTotal->format($invoice->formattedTotal->price - $invoice->formattedTotal->tax) }}</td>
+            </tr>
+            <tr>
+                <td class="label">
+                    {{ $invoice->tax->name }} ({{ $invoice->tax->rate }}%)
+                </td>
+                <td class="amount">{{ $invoice->formattedTotal->formatted->tax }}</td>
+            </tr>
+            @php
+                $adjustmentsTotal = $invoice->adjustmentNotes->filter(fn ($note) => $note->status === \App\Enums\AdjustmentNoteStatus::Active)->sum('amount');
+                $adjustmentsPrice = new \App\Classes\Price(['price' => $adjustmentsTotal, 'currency' => $invoice->currency]);
+            @endphp
+            @if($adjustmentsTotal != 0)
+            <tr>
+                <td class="label">{{ __('invoices.ledger_adjustments') }}</td>
+                <td class="amount">{{ $adjustmentsPrice->format($adjustmentsTotal) }}</td>
+            </tr>
+            @endif
+            <tr class="total-row">
+                <td class="label">{{ __('invoices.total') }}</td>
+                <td class="amount">{{ $invoice->formattedTotal }}</td>
+            </tr>
+        </table>
+        @else
+        <table class="totals-table">
+            @php
+                $adjustmentsTotal = $invoice->adjustmentNotes->filter(fn ($note) => $note->status === \App\Enums\AdjustmentNoteStatus::Active)->sum('amount');
+                $adjustmentsPrice = new \App\Classes\Price(['price' => $adjustmentsTotal, 'currency' => $invoice->currency]);
+            @endphp
+            @if($adjustmentsTotal != 0)
+            <tr>
+                <td class="label">{{ __('invoices.ledger_adjustments') }}</td>
+                <td class="amount">{{ $adjustmentsPrice->format($adjustmentsTotal) }}</td>
+            </tr>
+            @endif
+            <tr class="total-row">
+                <td class="label">{{ __('invoices.total') }}</td>
+                <td class="amount">{{ $invoice->formattedTotal }}</td>
+            </tr>
+        </table>
+        @endif
+    </div>
+
+    <div style="clear: both;"></div>
+
+    @php
+        $clientAdjustmentNotes = $invoice->adjustmentNotes;
+    @endphp
+    @if (config('settings.notes_client_visible', false) && $clientAdjustmentNotes->isNotEmpty())
+    <div class="section-title">{{ __('invoices.ledger_adjustments') }}</div>
+    <table style="margin-top: 10px;" class="invoice-items">
+        <thead>
+            <tr>
+                <th>{{ __('invoices.date') }}</th>
+                <th>{{ __('invoices.type') }}</th>
+                <th>{{ __('invoices.status') }}</th>
+                <th>{{ __('invoices.description') }}</th>
+                <th>{{ __('invoices.amount') }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach ($clientAdjustmentNotes as $note)
+            <tr>
+                <td>{{ $note->created_at->format('d/m/Y') }}</td>
+                <td>
+                    @if($note->type === \App\Enums\AdjustmentNoteType::Credit->value)
+                    {{ __('invoices.credit_note') }}
+                    @elseif($note->type === \App\Enums\AdjustmentNoteType::Debit->value)
+                    {{ __('invoices.debit_note') }}
+                    @endif
+                </td>
+                <td>
+                    <span style="@if($note->status === \App\Enums\AdjustmentNoteStatus::Voided) color: red; text-decoration: line-through; @else color: green; @endif">
+                        {{ ucfirst($note->status instanceof \App\Enums\AdjustmentNoteStatus ? $note->status->value : $note->status) }}
+                    </span>
+                </td>
+                <td>{{ $note->description }}</td>
+                <td>{{ $note->formattedAmount }}</td>
+            </tr>
+            @endforeach
+        </tbody>
+    </table>
+    @endif
+
+    @php
+        $successfulTransactions = $invoice->transactions->where('status', \App\Enums\InvoiceTransactionStatus::Succeeded);
+        $hasRefunds = $successfulTransactions->contains(fn ($transaction) => $transaction->refunded_amount > 0);
+    @endphp
+    @if($successfulTransactions->isNotEmpty())
+    <div class="section-title">{{ __('invoices.transactions') }}</div>
+    <table style="margin-top: 10px;" class="invoice-items">
+        <thead>
+            <tr>
+                <th>{{ __('invoices.transaction_id') }}</th>
+                <th>{{ __('invoices.payment_date') }}</th>
+                <th>{{ __('invoices.amount') }}</th>
+                @if($hasRefunds)
+                <th>{{ __('invoices.refunded_amount') }}</th>
+                @endif
+                <th>{{ __('invoices.payment_method') }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach($successfulTransactions as $transaction)
+            <tr>
+                <td>{{ $transaction->transaction_id }}</td>
+                <td>{{ $transaction->created_at->translatedFormat('d M Y') }}</td>
+                <td>{{ $transaction->formattedAmount }}</td>
+                @if($hasRefunds)
+                <td>
+                    @if($transaction->refunded_amount > 0)
+                    {{ $transaction->formattedRefundedAmount }}
+                    @else
+                    -
+                    @endif
+                </td>
+                @endif
+                <td>{{ $transaction->gateway ? $transaction->gateway->name : '' }}</td>
+            </tr>
+            @endforeach
+        </tbody>
+    </table>
+    @endif
+</body>
+
+</html>
