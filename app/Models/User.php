@@ -78,14 +78,25 @@ class User extends Authenticatable implements Auditable, FilamentUser, HasAvatar
     }
 
     /**
-     * Avatar URL for the user.
+     * Avatar for the user: a locally generated SVG with the initials, so no
+     * third party (e.g. Gravatar) learns who is logged in.
      *
      * @return string
      */
     public function avatar(): Attribute
     {
         return Attribute::make(
-            get: fn () => 'https://www.gravatar.com/avatar/' . md5(strtolower($this->email)) . '?d=' . urlencode((string) config('settings.gravatar_default')),
+            get: function () {
+                $initials = mb_strtoupper(mb_substr((string) $this->first_name, 0, 1) . mb_substr((string) $this->last_name, 0, 1));
+                $initials = htmlspecialchars($initials !== '' ? $initials : '?', ENT_QUOTES | ENT_XML1);
+                $hue = crc32((string) $this->id) % 360;
+                $svg = '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">'
+                    . '<rect width="64" height="64" fill="hsl(' . $hue . ',45%,45%)"/>'
+                    . '<text x="50%" y="50%" dy=".35em" text-anchor="middle" font-family="sans-serif" font-size="26" fill="#fff">' . $initials . '</text>'
+                    . '</svg>';
+
+                return 'data:image/svg+xml;base64,' . base64_encode($svg);
+            },
         );
     }
 

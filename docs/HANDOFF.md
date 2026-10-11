@@ -4,8 +4,9 @@
 
 ## Κατάσταση
 - **Repo:** `chrismfz/mycs`, hard fork του Paymenter στο `5b69d45` (v1.5.8+41), χωρίς ιστορικό upstream.
-  Ο κώδικας είναι ακόμη **ίδιος με το upstream**.
-- **Φάση:** καμία δεν έχει ξεκινήσει. Επόμενη η **Φάση 0** (`ROADMAP.md`).
+  Αλλαγές μέχρι τώρα: αφαίρεση όσων «τηλεφωνούν σπίτι» (Φάση 0, `ROADMAP.md`).
+- **Φάση:** 0 σε εξέλιξη (`ROADMAP.md`). Το devbox είναι το VM `devbox` (το dev του Ekdosi: MariaDB, PHP, git, gh),
+  στο `mycs.myip.gr` (+ wildcard `*.mycs.myip.gr` για δοκιμές).
 - **Αποφάσεις:** όλες στο `decisions.md` και στο `README.md` (γιατί fork, γιατί όχι Blesta/FOSSBilling, Ekdosi μόνο
   τιμολόγηση).
 - **Το παλιό σχέδιο (Blesta):** εγκαταλείφθηκε 2026-10-11. Το staging `cs.nixpal.com` μένει ανέγγιχτο. Ό,τι αξίζει
@@ -27,7 +28,25 @@
 | Ekdosi (κώδικας) | `chrismfz/ekdosi` (Laravel 13, Filament 5) | πηγή για port· καμία αλλαγή χωρίς λόγο |
 | Ekdosi (εφαρμογή) | rigel, `/home/myipgr/invoicer/ekdosi` | παραγωγή |
 | Blesta staging (παλιό) | `cs.nixpal.com` | δεν το αγγίζουμε |
-| Staging MyCS | π.χ. `mycs.nixpal.com` | **δεν έχει στηθεί ακόμα** |
+| **Devbox MyCS** | VM `devbox` (84.54.49.31, ίδιο με το dev του Ekdosi)· gsc-mcp `ssh_run` host `devbox` | δοκιμές και η πρώτη εγκατάσταση· τρέχει και το dev του Ekdosi, προσοχή στα κοινά (MariaDB, php-fpm, cron) |
+| **DNS δοκιμών** | `mycs.myip.gr` και `*.mycs.myip.gr` → A 84.54.49.31 (TTL 600, στη ζώνη myip.gr, 2026-10-11) | ελεύθερη χρήση για δοκιμές (π.χ. `test.mycs.myip.gr`, ένα subdomain ανά σενάριο/instance) |
+| Staging MyCS (μετά) | ό,τι αποφασιστεί (π.χ. `mycs.nixpal.com`) | δεν έχει στηθεί |
+
+### Devbox: τι έχει στηθεί (2026-10-11)
+Ίδιο μοτίβο με το Ekdosi στο ίδιο VM (AlmaLinux 10.2, nginx, PHP 8.4.21, MariaDB 10.11):
+- **Χρήστης** `mycs` (system, home = `/var/www/mycs` = ρίζα της εφαρμογής).
+- **php-fpm pool** `/etc/php-fpm.d/mycs.conf` → `/run/php-fpm/mycs.sock` (user `mycs`, `pm.max_children = 10`),
+  log `/var/log/php-fpm/mycs-error.log`.
+- **nginx** `/etc/nginx/conf.d/mycs.myip.gr.conf`: root `/var/www/mycs/public`, security headers όπως του Ekdosi,
+  χωρίς deny στο `/storage` (το Paymenter σερβίρει uploads μέσω του symlink `public/storage`).
+  HTTPS με Let's Encrypt (certbot --nginx, redirect 80→443). Τα `*.mycs.myip.gr` δεν έχουν ακόμα vhost/πιστοποιητικό
+  (wildcard θέλει DNS-01· ή ένα πιστοποιητικό ανά subdomain).
+- **MariaDB:** βάση `mycs` (utf8mb4_unicode_ci), χρήστης `mycs`@`localhost` με δικαιώματα μόνο στη `mycs`. Τα
+  στοιχεία (`DB_*`) είναι στο `/var/www/mycs/.db-credentials` (600, owner `mycs`), για να μπουν στο `.env`.
+- Όλα τα PHP extensions που ζητάει το `composer.lock` υπάρχουν.
+- **Δεν έχουν γίνει ακόμα:** κώδικας (το `/var/www/mycs` δεν είναι άδειο: `public/index.html` placeholder και
+  `.db-credentials`, άρα `git init` + `git fetch` + `git checkout -f` αντί για `git clone`), `.env`, migrate, cron
+  `schedule:run` και queue worker (systemd, όπως το `ekdosi-queue.service`).
 
 Λεπτομέρειες (servers, crons, μεγέθη, inventory του WHMCS): `history/blesta-modules/HANDOFF.md` §1, §4.
 
@@ -45,5 +64,7 @@ Fixtures του zlic και η λογική του: `history/blesta-modules/lice
 
 ## Ημερολόγιο
 - **2026-10-10:** audits του Paymenter (χρέωση, ασφάλεια, importer, υγεία)· σύγκριση με Blesta.
+- **2026-10-11:** DNS `mycs.myip.gr` + `*.mycs.myip.gr` → devbox (84.54.49.31)· η ίδια IP δηλώθηκε στο Μητρώο .GR για τις
+  δοκιμές EPP.
 - **2026-10-11:** απόφαση για hard fork· σύγκριση με Ekdosi· απογραφή χρήσης του WHMCS· triage του upstream· χάρτης
   ρυθμίσεων· repo `chrismfz/mycs` (fork + docs).

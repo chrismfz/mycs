@@ -254,11 +254,6 @@ class CronJob extends Command
 
         // Remove old debug logs
         DebugLog::where('created_at', '<', now()->subDays(30))->delete();
-
-        // Check for updates
-        $this->info('Checking for updates...');
-
-        $this->call(CheckForUpdates::class);
     }
 
     private function payInvoiceWithCredits(Invoice $invoice): void

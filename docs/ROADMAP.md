@@ -5,16 +5,25 @@
 > Οι εκτιμήσεις είναι για έναν developer με βοήθεια: εκτιμήσεις, όχι δέσμευση. Ενημέρωσε τα κουτάκια σε κάθε PR.
 
 ## Παράλληλα, από τώρα (ανεξάρτητα από φάση)
-- [ ] **.gr EPP:** δήλωση IP του dev/staging στο whitelist του UAT του Μητρώου (`history/blesta-modules/HANDOFF.md`
-      §6). Είναι το μακρύτερο κομμάτι· χωρίς αυτό το myip δεν μεταφέρεται.
-- [ ] Staging `mycs.nixpal.com` (ξεχωριστό από το Blesta στο `cs.nixpal.com`).
+- [x] **.gr EPP:** η IP του devbox (84.54.49.31) δηλώθηκε στο Μητρώο .GR (2026-10-11).
+- [ ] .gr EPP: login/hello/check στο UAT από το devbox, ώστε να κλείσουν τα `[ΕΠΙΒΕΒΑΙΩΣΗ]`
+      (`history/blesta-modules/HANDOFF.md` §6). Είναι το μακρύτερο κομμάτι· χωρίς αυτό το myip δεν μεταφέρεται.
+- [x] DNS δοκιμών: `mycs.myip.gr` + `*.mycs.myip.gr` → devbox (2026-10-11).
+- [ ] Πρώτη εγκατάσταση στο devbox (`mycs.myip.gr`), και tests/Pint εκεί (το cloud περιβάλλον δεν κατεβάζει το phpstan).
 - [ ] Παρακολούθηση των security advisories του Paymenter (`upstream-triage.md`).
 
 ## Φάση 0: Καθάρισμα και βάσεις (2–3 ημέρες)
-- [ ] Αφαίρεση telemetry: `TelemetryCommand`, schedule, `TELEMETRY_ENABLED`, `Settings::getTelemetry()`.
-- [ ] Αφαίρεση update checker (`CheckForUpdates`, κλήση στο τέλος του `CronJob`), self-updater (`Upgrade`,
-      `Admin/Pages/Updates`, `update.sh`), marketplace και ελέγχου ενημερώσεων extensions.
-- [ ] Αφαίρεση Gravatar και branding/footer links· workflow `build-api-docs.yaml`.
+- [x] Αφαίρεση telemetry: `TelemetryCommand`, schedule, `TELEMETRY_ENABLED`, `Settings::getTelemetry()`.
+- [x] Αφαίρεση `app:logs` (ανέβαζε το τελευταίο error log στο `log.paymenter.org:99`).
+- [x] Αφαίρεση update checker (`CheckForUpdates`, κλήση στο τέλος του `CronJob`), self-updater (`Upgrade`,
+      `Admin/Pages/Updates`, `update.sh`), marketplace και ελέγχου ενημερώσεων extensions. Η σελίδα extensions
+      κρατάει μόνο «διαθέσιμα» + upload zip.
+- [ ] Δικός μας updater από GitHub releases/tags του `chrismfz/mycs` (μοτίβο: `UpdateChecker` / `ekdosi:self-update`
+      του Ekdosi). Ο παλιός δεν κρατήθηκε: δούλευε με το `api.paymenter.org` και τα releases του upstream, άρα θα
+      **αντικαθιστούσε το fork με το upstream**.
+- [x] Αφαίρεση Gravatar (avatar = τοπικό SVG με αρχικά) και της ρύθμισης `gravatar_default`.
+- [ ] Branding/footer links (Powered by, Sponsor, Star on GitHub, docs του Paymenter)· workflows `build-api-docs.yaml`,
+      `release.yaml`, `beta`.
 - [ ] Upload extensions από το web: αφαίρεση ή μόνο από CLI.
 - [ ] Templates email/ειδοποιήσεων: placeholder renderer αντί για Blade, και `mail_header`/`mail_footer` χωρίς
       compile (`audit-security.md` H1–H2).
@@ -24,6 +33,10 @@
 - [ ] `lib/*` του blesta-modules → `packages/` (nixpal-licensing, cardlink-eurobank, paypal-vault, domain-tools,
       myopenprovider, mailcow), με composer `path` repositories και τα tests τους στο CI.
 - [ ] Σκελετός ελληνικής μετάφρασης (`lang/el`).
+- [ ] Installer και updater όπως του Ekdosi: `/install` wizard + `mycs:install` (πρώτος admin, ρυθμίσεις, seed)
+      αντί για τα `app:init`/`app:user:create` του Paymenter (μόνο όνομα εταιρείας + URL, χωρίς web installer,
+      upstream #1011)· `mycs:self-update` με git checkout/composer/migrate/caches και rollback (μοτίβο
+      `ekdosi:install`, `ekdosi:self-update`, `deploy/update.sh`, `deploy/rollback.sh`, `INSTALL.md`).
 - [ ] Cherry-picks: #1338 (captcha), το enforcement του `credits_enabled` από το #1295.
 - [ ] **Spike 1–2 ημερών:** port ενός μικρού κομματιού των domains του Ekdosi, για να μετρηθεί το πραγματικό κόστος
       (από `company_id` και φορολογικό Invoice σε προτιμολόγιο).

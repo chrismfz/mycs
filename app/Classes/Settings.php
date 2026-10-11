@@ -15,7 +15,6 @@ use Filament\Schemas\Components\Utilities\Get;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\HtmlString;
 use Minishlink\WebPush\VAPID;
-use Ramsey\Uuid\Uuid;
 
 class Settings
 {
@@ -640,22 +639,6 @@ class Settings
             ],
             'other' => [
                 [
-                    'name' => 'gravatar_default',
-                    'label' => 'Gravatar Default',
-                    'description' => 'Default image to use when a user does not have a Gravatar. ',
-                    'link' => 'https://docs.gravatar.com/general/images/#default-image',
-                    'type' => 'select',
-                    'options' => [
-                        'mp' => 'Mystery Person',
-                        'identicon' => 'Identicon',
-                        'monsterid' => 'Monster',
-                        'wavatar' => 'Wavatar',
-                        'retro' => 'Retro',
-                        'robohash' => 'Robohash',
-                    ],
-                    'default' => 'wavatar',
-                ],
-                [
                     'name' => 'default_currency',
                     'label' => 'Default Currency',
                     'type' => 'select',
@@ -737,33 +720,6 @@ class Settings
         $setting->value = Setting::where('settingable_type', null)->where('key', $key)->value('value') ?? $setting->default ?? null;
 
         return $setting;
-    }
-
-    public static function getTelemetry()
-    {
-        try {
-            $uuid = Setting::where('key', 'telemetry_uuid')->value('value');
-        } catch (Exception $e) {
-            $uuid = null;
-        }
-        if (is_null($uuid)) {
-            $uuid = Uuid::uuid4()->toString();
-            try {
-                Setting::updateOrCreate(
-                    ['key' => 'telemetry_uuid'],
-                    ['value' => $uuid]
-                );
-            } catch (Exception $e) {
-                // Avoid errors in workflows
-            }
-        }
-
-        // Daily fixed time based on UUID
-        $time = hexdec(str_replace('-', '', substr($uuid, 27))) % 1440;
-        $hour = floor($time / 60);
-        $minute = $time % 60;
-
-        return compact('uuid', 'hour', 'minute');
     }
 
     public static function validateOrCreateVapidKeys(): bool
