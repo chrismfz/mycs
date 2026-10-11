@@ -109,7 +109,8 @@ class CronJob extends Command
                         return;
                     }
 
-                    $upgrade->invoice->items()->update([
+                    // Only the upgrade's own line: a renewal line on the same invoice keeps its price.
+                    $upgrade->invoice->items()->where('reference_type', ServiceUpgrade::class)->update([
                         'price' => $upgrade->calculatePrice()->price,
                     ]);
 
@@ -236,15 +237,13 @@ class CronJob extends Command
         if ($periodStart->greaterThanOrEqualTo($billUntil)) {
             return 0;
         }
-        // Calculate if we should edit the price because of the coupon
-        if ($service->coupon) {
-            // Calculate what iteration of the coupon we are in
-            $iteration = $service->invoices()->count() + 1;
-            if ($iteration == $service->coupon->recurring) {
-                // Calculate the price
-                $service->price = $service->calculatePrice();
-                $service->save();
-            }
+        // A coupon «for N cycles»: the first cycle after them is billed at the full price. Cycles are
+        // counted in periods, not invoices (free cycles leave none); only at that one cycle, so a
+        // price staff set by hand afterwards is kept.
+        if ($service->coupon && $service->coupon->recurring > 0
+            && $service->cycleNumber($periodStart, $lines) === $service->coupon->recurring + 1) {
+            $service->price = $service->calculatePrice(applyCoupon: false);
+            $service->save();
         }
 
         // If service price is 0, immediately activate next period

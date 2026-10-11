@@ -60,7 +60,8 @@ class RenewServiceService
             if ($item === null) {
                 // Free renewal from the cron: one period from what is paid.
                 $start = $locked->paidThrough($current ?? CarbonImmutable::today(), lines: $lines);
-                $this->activate($locked, $locked->periodEnd($start, $lines));
+                $end = $locked->periodEnd($start, $lines);
+                $this->activate($locked, $end === null ? null : $locked->paidThrough($end, lines: $lines));
                 $service->setRawAttributes($locked->getAttributes(), true);
 
                 return;
@@ -69,7 +70,13 @@ class RenewServiceService
             if ($item->period_start === null || $item->period_end === null) {
                 // The first period no live invoice covers yet, so two payments always buy two periods,
                 // in whatever order they arrive.
-                $start = $current === null ? CarbonImmutable::today() : $locked->nextPeriodStart($lines);
+                $start = match (true) {
+                    $current === null => CarbonImmutable::today(),
+                    // The order's own invoice, after staff already started the service by hand: its
+                    // period is the first one (from the order), not one more after it.
+                    $this->isFirstOrderLine($locked, $item, $lines) => CarbonImmutable::parse($locked->created_at ?? $current)->startOfDay(),
+                    default => $locked->nextPeriodStart($lines),
+                };
                 $end = $locked->periodEnd($start, $lines);
                 $fill = ['period_start' => $start, 'period_end' => $end];
                 if ($locked->status === Service::STATUS_PENDING) {
@@ -111,6 +118,17 @@ class RenewServiceService
         } finally {
             ServiceObserver::$renewing = false;
         }
+    }
+
+    /**
+     * The service's first invoice line, on a service never billed by period yet.
+     *
+     * @param  Collection<int, InvoiceItem>  $lines
+     */
+    private function isFirstOrderLine(Service $service, InvoiceItem $item, Collection $lines): bool
+    {
+        return $lines->isEmpty()
+            && (int) $service->invoiceItems()->min('invoice_id') === (int) $item->invoice_id;
     }
 
     /** @param  Collection<int, InvoiceItem>  $lines */

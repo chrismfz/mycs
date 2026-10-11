@@ -290,6 +290,30 @@ class Service extends Model implements Auditable
         return $cursor;
     }
 
+    /**
+     * Which billing cycle (1 = the first) the period starting on $periodStart is, counted in periods
+     * from the service's first period (or its registration). Free periods count too: they leave no
+     * invoice, so invoices cannot be counted (coupons «for N cycles»).
+     *
+     * @param  Collection<int, InvoiceItem>|null  $lines
+     */
+    public function cycleNumber(CarbonInterface $periodStart, ?Collection $lines = null): int
+    {
+        $lines ??= $this->livePeriodLines();
+        $cursor = $lines->first()?->period_start
+            ?? CarbonImmutable::parse($this->created_at ?? $periodStart)->startOfDay();
+        $target = CarbonImmutable::instance($periodStart)->startOfDay();
+
+        for ($cycle = 1; $cycle < 1200 && $cursor->lessThan($target); $cycle++) {
+            $cursor = $this->periodEnd($cursor, $lines);
+            if ($cursor === null) {
+                return $cycle;
+            }
+        }
+
+        return $cycle;
+    }
+
     /** The paid-until date the chains start from (today for a service that never started). */
     public function paidUntilBase(): CarbonImmutable
     {
@@ -408,7 +432,7 @@ class Service extends Model implements Auditable
         });
     }
 
-    public function calculatePrice()
+    public function calculatePrice(bool $applyCoupon = true)
     {
         // Calculate the price based on the plan and config options
         $price = $this->plan->price($this->currency_code)->price;
@@ -421,7 +445,7 @@ class Service extends Model implements Auditable
         });
 
         // Add coupon discount if applicable
-        if ($this->coupon) {
+        if ($applyCoupon && $this->coupon) {
             $invoices = $this->invoices()->where('status', 'paid')->count() + 1;
             // If it already used for the recurring period, do not apply the discount
             if ($this->coupon->recurring == 0 || $invoices <= $this->coupon->recurring) {

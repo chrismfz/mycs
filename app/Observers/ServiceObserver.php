@@ -48,6 +48,20 @@ class ServiceObserver
      */
     public function updated(Service $service): void
     {
+        // Billing cycle changed (e.g. monthly -> yearly) while a renewal invoice is open: its line covers
+        // a period of the new cycle, so what the customer pays buys what the invoice says. Its price is
+        // staff's to set (Recurring Amount), as in WHMCS.
+        if ($service->wasChanged('plan_id') && $service->plan !== null && !in_array($service->plan->type, ['one-time', 'free'], true)) {
+            $service->livePeriodLines()
+                ->filter(fn ($line) => in_array($line->invoice?->status, ['pending', 'draft'], true))
+                ->each(function ($line) use ($service) {
+                    $end = $service->periodEnd($line->period_start);
+                    if ($end !== null && !$end->equalTo($line->period_end)) {
+                        $line->forceFill(['period_end' => $end, 'description' => $service->describePeriod($line->period_start, $end)])->save();
+                    }
+                });
+        }
+
         // After commit: listeners (Stripe, Discord, ...) call out over the network; they must not run
         // inside a renewal's row lock, nor roll a committed renewal back by failing.
         DB::afterCommit(fn () => event(new ServiceEvent\Updated($service)));
