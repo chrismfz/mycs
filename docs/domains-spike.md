@@ -65,4 +65,7 @@ UI, TLD/τιμές, importer και CNIC. Η εκτίμηση 2–4 εβδομά
 
 Οι δύο πρώτες αποτυχίες έγιναν πριν τη χρέωση (log `failed`, χωρίς διπλή επαφή). Οι NS στο registry δεν άλλαξαν.
 Ο registrant δημιουργήθηκε ως νέο handle (κανένα domain της nixpal δεν ήταν ακόμα στο Openprovider).
+**Ολοκλήρωση:** approve στο CNIC → η μεταφορά εκτελέστηκε σε ~35″ (16:04:31 → 16:05:05 UTC). Το επόμενο sync βρήκε
+`ACT` και πέρασε το domain σε `active`, λήξη **2027-11-17** (2026-11-17 + 1 έτος), NS ns1/2/3.nixpal.com, registrant
+`CP935231-GR`. Η ροή «pending_transfer → sync → active με νέες ημερομηνίες» δουλεύει χωρίς χειροκίνητη επέμβαση.
 Μάθημα: οι drivers θέλουν **ένα live write test ανά ενέργεια** πριν το cut-over, όχι μόνο mocked tests.
