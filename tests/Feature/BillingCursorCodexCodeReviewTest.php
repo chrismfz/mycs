@@ -178,4 +178,18 @@ class BillingCursorCodexCodeReviewTest extends TestCase
         $this->assertSame('suspended', $service->fresh()->status);
         $this->assertNull($service->fresh()->dunning_suspended_at);
     }
+
+    /** F5: «Suspend server» is an explicit manual hold, also over a billing suspension; it never touches a cancelled service. */
+    public function test_the_suspend_action_holds_but_never_revives_a_cancelled_service(): void
+    {
+        $billing = $this->service(['status' => 'suspended', 'dunning_suspended_at' => now(), 'expires_at' => '2026-10-08']);
+        $cancelled = $this->service(['status' => 'cancelled']);
+
+        $billing->fresh()->placeOnHold();
+        $cancelled->fresh()->placeOnHold();
+
+        $this->assertSame('suspended', $billing->fresh()->status);
+        $this->assertNull($billing->fresh()->dunning_suspended_at, 'a payment must no longer lift a staff hold');
+        $this->assertSame('cancelled', $cancelled->fresh()->status);
+    }
 }

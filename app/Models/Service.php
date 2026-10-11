@@ -325,6 +325,26 @@ class Service extends Model implements Auditable
         });
     }
 
+    /**
+     * Staff's explicit «suspend» (the server action): a manual hold, also on a service already
+     * suspended for non-payment, so a payment no longer lifts it. Pending and cancelled services keep
+     * their status.
+     */
+    public function placeOnHold(): void
+    {
+        DB::transaction(function () {
+            $locked = self::query()->whereKey($this->getKey())->lockForUpdate()->firstOrFail();
+            if (!in_array($locked->status, [self::STATUS_ACTIVE, self::STATUS_SUSPENDED], true)) {
+                return;
+            }
+            $locked->status = self::STATUS_SUSPENDED;
+            $locked->dunning_suspended_at = null;
+            $locked->save();
+            $this->setRawAttributes($locked->getAttributes(), true);
+            $this->unsetRelations();
+        });
+    }
+
     /** Rebuild open renewal periods and prices from the current recurring amount. */
     public function refreshOpenPeriods(): void
     {

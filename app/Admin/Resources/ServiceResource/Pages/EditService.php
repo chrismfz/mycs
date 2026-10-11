@@ -101,14 +101,13 @@ class EditService extends EditRecord
                                 }
                                 break;
                             case 'suspend':
-                                // Only active <-> suspended: a pending or cancelled service keeps its status.
-                                if ($record->status === Service::STATUS_ACTIVE) {
-                                    $record->applyStaffChanges(['status' => Service::STATUS_SUSPENDED]);
-                                }
+                                // A manual hold, saved before the adapter runs (pending/cancelled keep their status).
+                                $record->placeOnHold();
                                 $sdata = ExtensionHelper::suspendServer($record);
                                 break;
                             case 'unsuspend':
                                 $sdata = ExtensionHelper::unsuspendServer($record);
+                                // Only suspended -> active: a pending or cancelled service is not revived.
                                 if ($record->status === Service::STATUS_SUSPENDED) {
                                     $record->applyStaffChanges(['status' => Service::STATUS_ACTIVE]);
                                 }
