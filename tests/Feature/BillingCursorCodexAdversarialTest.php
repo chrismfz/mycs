@@ -462,7 +462,9 @@ class BillingCursorCodexAdversarialTest extends TestCase
         $coupon = $this->coupon(10, 1);
         $service = $this->service(['status' => 'suspended', 'dunning_suspended_at' => now(), 'coupon_id' => $coupon->id]);
         $service->forceFill(['coupon_started_at' => '2026-09-01', 'coupon_expired_at' => now()])->saveQuietly();
-        $this->artisan('migrate:rollback', ['--step' => 2])->assertExitCode(0);
+        // Back to before the coupon-state migration, whatever came after it.
+        $steps = DB::table('migrations')->where('migration', '>=', '2026_10_12_000300')->count();
+        $this->artisan('migrate:rollback', ['--step' => $steps])->assertExitCode(0);
         $this->assertFalse(Schema::hasColumn('services', 'dunning_suspended_at'));
         $this->assertFalse(Schema::hasColumn('services', 'coupon_started_at'));
         $this->assertSame('suspended', DB::table('services')->where('id', $service->id)->value('status'));
