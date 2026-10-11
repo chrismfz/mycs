@@ -88,6 +88,7 @@ class PaymentGuardsCodeReviewTest extends TestCase
         \App\Models\Setting::updateOrCreate(['key' => 'credits_enabled'], ['value' => true]);
         \Illuminate\Support\Facades\Cache::flush();
 
+        \Illuminate\Support\Facades\View::addLocation(base_path('themes/default/views'));
         $component = Livewire::actingAs($this->user)->test(Show::class, ['invoice' => $invoice])
             ->set('selectedMethod', 'credit');
 
