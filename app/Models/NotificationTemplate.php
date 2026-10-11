@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\NotificationEnabledStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use OwenIt\Auditing\Contracts\Auditable;
 
 class NotificationTemplate extends Model implements Auditable
@@ -33,7 +34,8 @@ class NotificationTemplate extends Model implements Auditable
         'in_app_enabled' => NotificationEnabledStatus::class,
     ];
 
-    public function preferences()
+    /** @return HasMany<NotificationPreference, $this> */
+    public function preferences(): HasMany
     {
         return $this->hasMany(NotificationPreference::class);
     }

@@ -7,7 +7,11 @@ use App\Observers\CartItemObserver;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property-read mixed $price
+ */
 #[ObservedBy(CartItemObserver::class)]
 class CartItem extends Model
 {
@@ -27,21 +31,25 @@ class CartItem extends Model
 
     // Set default loads
 
-    public function cart()
+    /** @return BelongsTo<Cart, $this> */
+    public function cart(): BelongsTo
     {
         return $this->belongsTo(Cart::class);
     }
 
-    public function plan()
+    /** @return BelongsTo<Plan, $this> */
+    public function plan(): BelongsTo
     {
         return $this->belongsTo(Plan::class);
     }
 
-    public function product()
+    /** @return BelongsTo<Product, $this> */
+    public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
     }
 
+    /** @return Attribute<mixed, mixed> */
     public function price(): Attribute
     {
         return Attribute::make(

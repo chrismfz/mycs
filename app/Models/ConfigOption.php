@@ -4,6 +4,9 @@ namespace App\Models;
 
 use App\Models\Traits\HasPlans;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use OwenIt\Auditing\Contracts\Auditable;
 
 class ConfigOption extends Model implements Auditable
@@ -25,32 +28,40 @@ class ConfigOption extends Model implements Auditable
 
     /**
      * Get the parent option.
+     *
+     * @return BelongsTo<ConfigOption, $this>
      */
-    public function parent()
+    public function parent(): BelongsTo
     {
         return $this->belongsTo(ConfigOption::class, 'parent_id');
     }
 
     /**
      * Get the options that belong to the parent. (children or options)
+     *
+     * @return HasMany<ConfigOption, $this>
      */
-    public function children()
+    public function children(): HasMany
     {
         return $this->hasMany(ConfigOption::class, 'parent_id')->orderBy('sort');
     }
 
     /**
      * Get the products that belong to the option.
+     *
+     * @return BelongsToMany<Product, $this>
      */
-    public function products()
+    public function products(): BelongsToMany
     {
         return $this->belongsToMany(Product::class, 'config_option_products');
     }
 
     /**
      * Get the service configs that belong to the option.
+     *
+     * @return HasMany<ServiceConfig, $this>
      */
-    public function serviceConfigs()
+    public function serviceConfigs(): HasMany
     {
         return $this->hasMany(ServiceConfig::class, 'config_option_id');
     }

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use OwenIt\Auditing\Contracts\Auditable;
 
 class ProductUpgrade extends Model implements Auditable
@@ -11,12 +12,14 @@ class ProductUpgrade extends Model implements Auditable
 
     protected $guarded = [];
 
-    public function product()
+    /** @return BelongsTo<Product, $this> */
+    public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
     }
 
-    public function upgrade()
+    /** @return BelongsTo<Product, $this> */
+    public function upgrade(): BelongsTo
     {
         return $this->belongsTo(Product::class, 'upgrade_id');
     }

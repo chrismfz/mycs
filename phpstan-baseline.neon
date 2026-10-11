@@ -7,12 +7,6 @@ parameters:
 			path: app/Admin/Clusters/InvoiceCluster.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\User\:\:\$name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Admin/Components/UserComponent.php
-
-		-
 			message: '#^Access to an undefined property App\\Admin\\Pages\\Settings\:\:\$form\.$#'
 			identifier: property.notFound
 			count: 2
@@ -187,30 +181,6 @@ parameters:
 			path: app/Admin/Resources/InvoiceResource/RelationManagers/AdjustmentNotesRelationManager.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\InvoiceTransaction\:\:\$formattedRefundableAmount\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Admin/Resources/InvoiceResource/RelationManagers/TransactionsRelationManager.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\InvoiceTransaction\:\:\$gateway\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Admin/Resources/InvoiceResource/RelationManagers/TransactionsRelationManager.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\InvoiceTransaction\:\:\$invoice\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Admin/Resources/InvoiceResource/RelationManagers/TransactionsRelationManager.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\InvoiceTransaction\:\:\$refundable_amount\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Admin/Resources/InvoiceResource/RelationManagers/TransactionsRelationManager.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$status\.$#'
 			identifier: property.notFound
 			count: 1
@@ -233,12 +203,6 @@ parameters:
 			identifier: class.notFound
 			count: 1
 			path: app/Admin/Resources/OauthClientResource/Pages/CreateOauthClient.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Product\|Illuminate\\Database\\Eloquent\\Collection\<int, App\\Models\\Product\>\:\:\$plans\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Admin/Resources/OrderResource.php
 
 		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$name\.$#'
@@ -299,18 +263,6 @@ parameters:
 			identifier: method.notFound
 			count: 1
 			path: app/Admin/Resources/ProductResource/Pages/CreateProduct.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Product\:\:\$plans\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Admin/Resources/ProductResource/Pages/EditProduct.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Product\:\:\$upgrades\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Admin/Resources/ProductResource/Pages/EditProduct.php
 
 		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$id\.$#'
@@ -421,12 +373,6 @@ parameters:
 			path: app/Admin/Resources/ServiceResource.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$order\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Admin/Resources/ServiceResource/Pages/EditService.php
-
-		-
 			message: '#^Cannot access property \$product on Illuminate\\Database\\Eloquent\\Model\|int\|string\.$#'
 			identifier: property.nonObject
 			count: 1
@@ -443,12 +389,6 @@ parameters:
 			identifier: method.nonObject
 			count: 1
 			path: app/Admin/Resources/ServiceResource/Pages/EditService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\ServiceConfig\:\:\$configOption\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Admin/Resources/ServiceResource/RelationManagers/ConfigOptionsRelationManager.php
 
 		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$id\.$#'
@@ -485,12 +425,6 @@ parameters:
 			identifier: class.notFound
 			count: 1
 			path: app/Admin/Resources/TicketMessageResource/Pages/ListTicketMessages.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\User\|Illuminate\\Database\\Eloquent\\Collection\<int, App\\Models\\User\>\:\:\$name\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Admin/Resources/TicketResource.php
 
 		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$subject\.$#'
@@ -541,12 +475,6 @@ parameters:
 			path: app/Admin/Resources/TicketResource/Pages/EditTicket.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\User\:\:\$credits\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Admin/Resources/UserResource.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$name\.$#'
 			identifier: property.notFound
 			count: 1
@@ -571,12 +499,6 @@ parameters:
 			path: app/Admin/Resources/UserResource/Pages/ShowTickets.php
 
 		-
-			message: '#^Relation ''user'' is not found in App\\Models\\UserSession model\.$#'
-			identifier: larastan.relationExistence
-			count: 1
-			path: app/Admin/Widgets/ActiveUsers.php
-
-		-
 			message: '#^Match expression does not handle remaining values\: string\|null$#'
 			identifier: match.unhandled
 			count: 1
@@ -587,42 +509,6 @@ parameters:
 			identifier: match.unhandled
 			count: 1
 			path: app/Admin/Widgets/Support.php
-
-		-
-			message: '#^Relation ''messages'' is not found in App\\Models\\Ticket model\.$#'
-			identifier: larastan.relationExistence
-			count: 1
-			path: app/Admin/Widgets/Support.php
-
-		-
-			message: '#^Relation ''user'' is not found in App\\Models\\Ticket model\.$#'
-			identifier: larastan.relationExistence
-			count: 1
-			path: app/Admin/Widgets/Support.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Coupon\:\:\$products\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Classes/Cart.php
-
-		-
-			message: '#^Relation ''items'' is not found in App\\Models\\Cart model\.$#'
-			identifier: larastan.relationExistence
-			count: 3
-			path: app/Classes/Cart.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Extension\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Classes/Extension/Extension.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Gateway\|App\\Models\\Server\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Classes/Extension/Extension.php
 
 		-
 			message: '#^PHPDoc tag @param references unknown parameter\: \$currencyCode$#'
@@ -655,64 +541,10 @@ parameters:
 			path: app/Classes/Price.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\User\:\:\$properties\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Classes/Settings.php
-
-		-
 			message: '#^PHPDoc tag @param references unknown parameter\: \$items$#'
 			identifier: parameter.notFound
 			count: 1
 			path: app/Classes/helpers.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$remaining\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/CronJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/CronJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$billingAgreement\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Console/Commands/CronJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$coupon\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/CronJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$description\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/CronJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\ServiceUpgrade\:\:\$invoice\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Console/Commands/CronJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\ServiceUpgrade\:\:\$service\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/CronJob.php
-
-		-
-			message: '#^Relation ''invoices'' is not found in App\\Models\\Service model\.$#'
-			identifier: larastan.relationExistence
-			count: 1
-			path: app/Console/Commands/CronJob.php
 
 		-
 			message: '#^Called ''pluck'' on Laravel collection, but could have been retrieved as a query\.$#'
@@ -731,12 +563,6 @@ parameters:
 			identifier: method.void
 			count: 2
 			path: app/Console/Commands/Extension/Upgrade.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\TicketMessage\:\:\$ticket\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/FetchEmails.php
 
 		-
 			message: '#^Call to an undefined method DirectoryTree\\ImapEngine\\Connection\\ImapQueryBuilder\:\:withHeaders\(\)\.$#'
@@ -841,60 +667,6 @@ parameters:
 			path: app/Events/Setting/Saving.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\BillingAgreement\:\:\$gateway\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Helpers/ExtensionHelper.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Extension\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Helpers/ExtensionHelper.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Gateway\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 5
-			path: app/Helpers/ExtensionHelper.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$remaining\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Helpers/ExtensionHelper.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\InvoiceTransaction\:\:\$gateway\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Helpers/ExtensionHelper.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\InvoiceTransaction\:\:\$invoice\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Helpers/ExtensionHelper.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Product\:\:\$server\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Helpers/ExtensionHelper.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$configs\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Helpers/ExtensionHelper.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$properties\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Helpers/ExtensionHelper.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$auditCustomNew\.$#'
 			identifier: property.notFound
 			count: 1
@@ -985,58 +757,16 @@ parameters:
 			path: app/Helpers/ExtensionHelper.php
 
 		-
-			message: '#^Relation ''settings'' is not found in App\\Models\\Gateway model\.$#'
-			identifier: larastan.relationExistence
-			count: 2
-			path: app/Helpers/ExtensionHelper.php
-
-		-
 			message: '#^Variable \$settingsArray on left side of \?\? always exists and is not nullable\.$#'
 			identifier: nullCoalesce.variable
 			count: 1
 			path: app/Helpers/ExtensionHelper.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$formattedTotal\.$#'
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$subscription_id\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Helpers/NotificationHelper.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$items\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Helpers/NotificationHelper.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Order\:\:\$formattedTotal\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Helpers/NotificationHelper.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Order\:\:\$services\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Helpers/NotificationHelper.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\ServiceCancellation\:\:\$service\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Helpers/NotificationHelper.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\ApiKey\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Middleware/Api/AdminApi.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\UserSession\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Middleware/ResolveUserSession.php
 
 		-
 			message: '#^Class App\\Http\\Requests\\Api\\Admin\\Services\\Product not found\.$#'
@@ -1069,30 +799,6 @@ parameters:
 			path: app/Http/Resources/InvoiceItemResource.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Server/CreateJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Server/SuspendJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Server/TerminateJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\ServiceCancellation\:\:\$service\.$#'
-			identifier: property.notFound
-			count: 7
-			path: app/Listeners/CancellationCreatedListener.php
-
-		-
 			message: '#^Parameter \#1 \$string of function str_pad expects string, int given\.$#'
 			identifier: argument.type
 			count: 1
@@ -1103,18 +809,6 @@ parameters:
 			identifier: nullsafe.neverNull
 			count: 1
 			path: app/Listeners/InvoiceNumberListener.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\InvoiceTransaction\:\:\$invoice\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Listeners/InvoiceTransactionCreatedListener.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Notification\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Listeners/NotificationCreatedListener.php
 
 		-
 			message: '#^Call to an undefined method Symfony\\Component\\HttpFoundation\\File\\File\:\:getClientOriginalName\(\)\.$#'
@@ -1157,48 +851,6 @@ parameters:
 			identifier: parameter.phpDocType
 			count: 1
 			path: app/Listeners/RequestListener.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Listeners/SendMailListener.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\InvoiceTransaction\:\:\$invoice\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Listeners/SendMailListener.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Order\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Listeners/SendMailListener.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\ServiceCancellation\:\:\$service\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Listeners/SendMailListener.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\TicketMessage\:\:\$ticket\.$#'
-			identifier: property.notFound
-			count: 4
-			path: app/Listeners/TicketMessageCreatedListener.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\TicketMessage\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Listeners/TicketMessageCreatedListener.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\User\:\:\$cart\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Listeners/UserAuthListener.php
 
 		-
 			message: '#^Parameter \#1 \$view of function view expects view\-string\|null, string given\.$#'
@@ -1291,12 +943,6 @@ parameters:
 			path: app/Livewire/Cart.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Order\:\:\$services\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Livewire/Cart.php
-
-		-
 			message: '#^Parameter \#1 \$view of function view expects view\-string\|null, string given\.$#'
 			identifier: argument.type
 			count: 1
@@ -1330,12 +976,6 @@ parameters:
 			message: '#^Access to an undefined property App\\Livewire\\Client\\Notifications\:\:\$notifications\.$#'
 			identifier: property.notFound
 			count: 2
-			path: app/Livewire/Client/Notifications.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\User\:\:\$notificationsPreferences\.$#'
-			identifier: property.notFound
-			count: 1
 			path: app/Livewire/Client/Notifications.php
 
 		-
@@ -1483,39 +1123,9 @@ parameters:
 			path: app/Livewire/Invoices/Show.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$items\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Livewire/Invoices/Show.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$remaining\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Livewire/Invoices/Show.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$total\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Livewire/Invoices/Show.php
-
-		-
 			message: '#^Parameter \#1 \$view of function view expects view\-string\|null, string given\.$#'
 			identifier: argument.type
 			count: 1
-			path: app/Livewire/Invoices/Show.php
-
-		-
-			message: '#^Relation ''adjustmentNotes'' is not found in App\\Models\\Invoice model\.$#'
-			identifier: larastan.relationExistence
-			count: 1
-			path: app/Livewire/Invoices/Show.php
-
-		-
-			message: '#^Relation ''transactions'' is not found in App\\Models\\Invoice model\.$#'
-			identifier: larastan.relationExistence
-			count: 3
 			path: app/Livewire/Invoices/Show.php
 
 		-
@@ -1591,12 +1201,6 @@ parameters:
 			path: app/Livewire/Services/Index.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$cancellable\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Livewire/Services/Show.php
-
-		-
 			message: '#^Expression on left side of \?\? is not nullable\.$#'
 			identifier: nullCoalesce.expr
 			count: 1
@@ -1609,22 +1213,16 @@ parameters:
 			path: app/Livewire/Services/Show.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$configs\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Livewire/Services/Upgrade.php
+			message: '#^Property App\\Models\\Service\:\:\$label is not writable\.$#'
+			identifier: assign.propertyReadOnly
+			count: 1
+			path: app/Livewire/Services/Show.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$plan\.$#'
-			identifier: property.notFound
-			count: 4
-			path: app/Livewire/Services/Upgrade.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$upgradable\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Livewire/Services/Upgrade.php
+			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Database\\Eloquent\\Relations\\HasMany\<App\\Models\\BillingAgreement, App\\Models\\User\>\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Livewire/Services/Show.php
 
 		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$children\.$#'
@@ -1681,27 +1279,21 @@ parameters:
 			path: app/Livewire/Tickets/Widget.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\AdjustmentNote\:\:\$invoice\.$#'
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$children\.$#'
 			identifier: property.notFound
-			count: 1
-			path: app/Models/AdjustmentNote.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\CartItem\:\:\$cart\.$#'
-			identifier: property.notFound
-			count: 5
+			count: 2
 			path: app/Models/CartItem.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\CartItem\:\:\$plan\.$#'
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$id\.$#'
 			identifier: property.notFound
-			count: 7
+			count: 1
 			path: app/Models/CartItem.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\CartItem\:\:\$product\.$#'
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$type\.$#'
 			identifier: property.notFound
-			count: 1
+			count: 2
 			path: app/Models/CartItem.php
 
 		-
@@ -1723,24 +1315,6 @@ parameters:
 			path: app/Models/CartItem.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\ConfigOption\:\:\$plans\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/ConfigOption.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Credit\:\:\$currency\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Credit.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Extension\:\:\$namespace\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Extension.php
-
-		-
 			message: '#^Method App\\Models\\Gateway\:\:newQuery\(\) should return Illuminate\\Database\\Eloquent\\Builder\<static\(App\\Models\\Gateway\)\> but returns Illuminate\\Database\\Eloquent\\Builder\<App\\Models\\Extension\>\.$#'
 			identifier: return.type
 			count: 1
@@ -1751,72 +1325,6 @@ parameters:
 			identifier: arguments.count
 			count: 1
 			path: app/Models/Gateway.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$adjustmentNotes\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Models/Invoice.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$currency\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Models/Invoice.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$currentBalance\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Invoice.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$items\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Invoice.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$remaining\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Invoice.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$snapshot\.$#'
-			identifier: property.notFound
-			count: 4
-			path: app/Models/Invoice.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$tax\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Models/Invoice.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$total\.$#'
-			identifier: property.notFound
-			count: 4
-			path: app/Models/Invoice.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$transactions\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Models/Invoice.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Models/Invoice.php
-
-		-
-			message: '#^PHPDoc tag @return with type string is incompatible with native type Illuminate\\Database\\Eloquent\\Casts\\Attribute\.$#'
-			identifier: return.phpDocType
-			count: 2
-			path: app/Models/Invoice.php
 
 		-
 			message: '#^Using nullsafe property access "\?\-\>name" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
@@ -1831,70 +1339,10 @@ parameters:
 			path: app/Models/Invoice.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\InvoiceItem\:\:\$invoice\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Models/InvoiceItem.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\InvoiceTransaction\:\:\$invoice\.$#'
-			identifier: property.notFound
-			count: 4
-			path: app/Models/InvoiceTransaction.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\InvoiceTransaction\:\:\$refundable_amount\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/InvoiceTransaction.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Order\:\:\$currency\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Order.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Order\:\:\$services\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Models/Order.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Order\:\:\$total\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Order.php
-
-		-
-			message: '#^PHPDoc tag @return with type float is incompatible with native type Illuminate\\Database\\Eloquent\\Casts\\Attribute\.$#'
-			identifier: return.phpDocType
-			count: 1
-			path: app/Models/Order.php
-
-		-
-			message: '#^PHPDoc tag @return with type string is incompatible with native type Illuminate\\Database\\Eloquent\\Casts\\Attribute\.$#'
-			identifier: return.phpDocType
-			count: 1
-			path: app/Models/Order.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Plan\:\:\$prices\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Plan.php
-
-		-
 			message: '#^Match expression does not handle remaining values\: ''hour''\|null$#'
 			identifier: match.unhandled
 			count: 1
 			path: app/Models/Plan.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Product\:\:\$plans\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Product.php
 
 		-
 			message: '#^PHPDoc type array\<int, string\> of property App\\Models\\Role\:\:\$fillable is not covariant with PHPDoc type list\<string\> of overridden property Illuminate\\Database\\Eloquent\\Model\:\:\$fillable\.$#'
@@ -1915,82 +1363,16 @@ parameters:
 			path: app/Models/Server.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Product\:\:\$upgrades\.$#'
+			message: '#^Access to an undefined property App\\Models\\Product\:\:\$plan\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Models/Service.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$baseLabel\.$#'
-			identifier: property.notFound
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Support\\Collection\<int,App\\Models\\Product\>\:\:filter\(\) expects \(callable\(App\\Models\\Product, int\)\: bool\)\|null, Closure\(mixed\)\: \(App\\Models\\Product\|null\) given\.$#'
+			identifier: argument.type
 			count: 1
 			path: app/Models/Service.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$cancellation\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Service.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$configs\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Service.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$coupon\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Service.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$currency\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Models/Service.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$plan\.$#'
-			identifier: property.notFound
-			count: 15
-			path: app/Models/Service.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$upgrade\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Service.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Service.php
-
-		-
-			message: '#^PHPDoc tag @return with type string is incompatible with native type Illuminate\\Database\\Eloquent\\Casts\\Attribute\.$#'
-			identifier: return.phpDocType
-			count: 1
-			path: app/Models/Service.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\ServiceUpgrade\:\:\$configs\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/ServiceUpgrade.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\ServiceUpgrade\:\:\$product\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/ServiceUpgrade.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\ServiceUpgrade\:\:\$service\.$#'
-			identifier: property.notFound
-			count: 15
-			path: app/Models/ServiceUpgrade.php
 
 		-
 			message: '#^Cannot call method diffForHumans\(\) on int\.$#'
@@ -2015,18 +1397,6 @@ parameters:
 			identifier: trait.unused
 			count: 1
 			path: app/Models/Traits/Settingable.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\User\:\:\$avatar\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/User.php
-
-		-
-			message: '#^PHPDoc tag @return with type string is incompatible with native type Illuminate\\Database\\Eloquent\\Casts\\Attribute\.$#'
-			identifier: return.phpDocType
-			count: 3
-			path: app/Models/User.php
 
 		-
 			message: '#^PHPDoc type array\<int, string\> of property App\\Models\\User\:\:\$fillable is not covariant with PHPDoc type list\<string\> of overridden property Illuminate\\Database\\Eloquent\\Model\:\:\$fillable\.$#'
@@ -2059,12 +1429,6 @@ parameters:
 			path: app/Observers/CategoryObserver.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\TicketMessageAttachment\:\:\$ticketMessage\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Policies/TicketMessageAttachmentPolicy.php
-
-		-
 			message: '#^If condition is always true\.$#'
 			identifier: if.alwaysTrue
 			count: 1
@@ -2081,18 +1445,6 @@ parameters:
 			identifier: deadCode.unreachable
 			count: 1
 			path: app/Providers/AppServiceProvider.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Extension\:\:\$namespace\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Providers/Filament/AdminPanelProvider.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Extension\:\:\$path\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Providers/Filament/AdminPanelProvider.php
 
 		-
 			message: '#^Called ''pluck'' on Laravel collection, but could have been retrieved as a query\.$#'
@@ -2113,46 +1465,16 @@ parameters:
 			path: app/Rules/Cidr.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$snapshot\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Invoice/CreateInvoiceSnapshotService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Invoice/CreateInvoiceSnapshotService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$user_properties\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Invoice/CreateInvoiceSnapshotService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$items\.$#'
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$status\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Services/Invoice/ProcessPaidInvoiceService.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Product\:\:\$server\.$#'
-			identifier: property.notFound
+			message: '#^Parameter \#2 \$amount of method App\\Models\\Credit\:\:increment\(\) expects float\|int, string given\.$#'
+			identifier: argument.type
 			count: 1
-			path: app/Services/Service/RenewServiceService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\ServiceUpgrade\:\:\$configs\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/ServiceUpgrade/ServiceUpgradeService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\ServiceUpgrade\:\:\$service\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Services/ServiceUpgrade/ServiceUpgradeService.php
+			path: app/Services/Invoice/ProcessPaidInvoiceService.php
 
 		-
 			message: '#^Method App\\Services\\ServiceUpgrade\\ServiceUpgradeService\:\:handle\(\) with return type void returns null but should not return anything\.$#'
@@ -2173,32 +1495,14 @@ parameters:
 			path: app/View/Components/AppLayout.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\InvoiceTransaction\:\:\$invoice\.$#'
-			identifier: property.notFound
-			count: 1
-			path: extensions/Gateways/Mollie/Mollie.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\InvoiceItem\:\:\$reference\.$#'
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$subscription_id\.$#'
 			identifier: property.notFound
 			count: 1
 			path: extensions/Gateways/PayPal/PayPal.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\InvoiceTransaction\:\:\$invoice\.$#'
-			identifier: property.notFound
-			count: 1
-			path: extensions/Gateways/PayPal/PayPal.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$properties\.$#'
-			identifier: property.notFound
-			count: 1
-			path: extensions/Gateways/PayPal/PayPal.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\ServiceCancellation\:\:\$service\.$#'
-			identifier: property.notFound
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Model\:\:properties\(\)\.$#'
+			identifier: method.notFound
 			count: 1
 			path: extensions/Gateways/PayPal/PayPal.php
 
@@ -2209,68 +1513,44 @@ parameters:
 			path: extensions/Gateways/PayPal/PayPal.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$price\.$#'
-			identifier: property.notFound
-			count: 2
-			path: extensions/Gateways/Stripe/Stripe.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$reference\.$#'
-			identifier: property.notFound
-			count: 1
-			path: extensions/Gateways/Stripe/Stripe.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$reference_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: extensions/Gateways/Stripe/Stripe.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 1
-			path: extensions/Gateways/Stripe/Stripe.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\|Illuminate\\Database\\Eloquent\\Collection\<int, App\\Models\\Invoice\>\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 1
-			path: extensions/Gateways/Stripe/Stripe.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$currency\.$#'
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$id\.$#'
 			identifier: property.notFound
 			count: 3
 			path: extensions/Gateways/Stripe/Stripe.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$invoiceItems\.$#'
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$plan\.$#'
 			identifier: property.notFound
-			count: 1
+			count: 4
 			path: extensions/Gateways/Stripe/Stripe.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$plan\.$#'
-			identifier: property.notFound
-			count: 6
-			path: extensions/Gateways/Stripe/Stripe.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$properties\.$#'
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$price\.$#'
 			identifier: property.notFound
 			count: 2
 			path: extensions/Gateways/Stripe/Stripe.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\ServiceCancellation\:\:\$service\.$#'
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$product\.$#'
 			identifier: property.notFound
 			count: 1
 			path: extensions/Gateways/Stripe/Stripe.php
 
 		-
-			message: '#^Access to protected property Illuminate\\Database\\Eloquent\\Collection\<int, App\\Models\\Invoice\>\:\:\$items\.$#'
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$quantity\.$#'
+			identifier: property.notFound
+			count: 1
+			path: extensions/Gateways/Stripe/Stripe.php
+
+		-
+			message: '#^Access to protected property App\\Models\\Invoice\|Illuminate\\Database\\Eloquent\\Collection\<int, App\\Models\\Invoice\>\:\:\$items\.$#'
 			identifier: property.protected
+			count: 1
+			path: extensions/Gateways/Stripe/Stripe.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Model\:\:properties\(\)\.$#'
+			identifier: method.notFound
 			count: 1
 			path: extensions/Gateways/Stripe/Stripe.php
 
@@ -2278,6 +1558,12 @@ parameters:
 			message: '#^Parameter \#1 \$view of function view expects view\-string\|null, string given\.$#'
 			identifier: argument.type
 			count: 2
+			path: extensions/Gateways/Stripe/Stripe.php
+
+		-
+			message: '#^Parameter \#2 \$code of class Exception constructor expects int, App\\Models\\User\|null given\.$#'
+			identifier: argument.type
+			count: 1
 			path: extensions/Gateways/Stripe/Stripe.php
 
 		-
@@ -2335,13 +1621,13 @@ parameters:
 			path: extensions/Others/Affiliates/Listeners/IncreamentAffiliateSignups.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$total\.$#'
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$credits\.$#'
 			identifier: property.notFound
 			count: 1
 			path: extensions/Others/Affiliates/Listeners/RewardAffiliate.php
 
 		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$credits\.$#'
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$order\.$#'
 			identifier: property.notFound
 			count: 1
 			path: extensions/Others/Affiliates/Listeners/RewardAffiliate.php
@@ -2467,76 +1753,10 @@ parameters:
 			path: extensions/Others/Announcements/Livewire/Announcements/Widget.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$formattedTotal\.$#'
-			identifier: property.notFound
+			message: '#^Parameter \#3 \$subject of function str_replace expects array\<string\>\|string, int given\.$#'
+			identifier: argument.type
 			count: 1
 			path: extensions/Others/DiscordNotifications/DiscordNotifications.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$items\.$#'
-			identifier: property.notFound
-			count: 1
-			path: extensions/Others/DiscordNotifications/DiscordNotifications.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Invoice\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 1
-			path: extensions/Others/DiscordNotifications/DiscordNotifications.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Order\:\:\$formattedTotal\.$#'
-			identifier: property.notFound
-			count: 1
-			path: extensions/Others/DiscordNotifications/DiscordNotifications.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Order\:\:\$services\.$#'
-			identifier: property.notFound
-			count: 1
-			path: extensions/Others/DiscordNotifications/DiscordNotifications.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Order\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 1
-			path: extensions/Others/DiscordNotifications/DiscordNotifications.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$formattedPrice\.$#'
-			identifier: property.notFound
-			count: 1
-			path: extensions/Others/DiscordNotifications/DiscordNotifications.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 1
-			path: extensions/Others/DiscordNotifications/DiscordNotifications.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\User\:\:\$name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: extensions/Others/DiscordNotifications/DiscordNotifications.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\User\:\:\$properties\.$#'
-			identifier: property.notFound
-			count: 1
-			path: extensions/Others/DiscordNotifications/DiscordNotifications.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 1
-			path: extensions/Servers/CPanel/CPanel.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 3
-			path: extensions/Servers/Convoy/Convoy.php
 
 		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$value\.$#'
@@ -2575,12 +1795,6 @@ parameters:
 			path: extensions/Servers/Convoy/Convoy.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 1
-			path: extensions/Servers/DirectAdmin/DirectAdmin.php
-
-		-
 			message: '#^Method Paymenter\\Extensions\\Servers\\DirectAdmin\\DirectAdmin\:\:createServer\(\) should return bool but returns array\<string, mixed\>\.$#'
 			identifier: return.type
 			count: 1
@@ -2593,34 +1807,10 @@ parameters:
 			path: extensions/Servers/DirectAdmin/DirectAdmin.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 7
-			path: extensions/Servers/Enhance/Enhance.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\User\:\:\$name\.$#'
-			identifier: property.notFound
-			count: 2
-			path: extensions/Servers/Enhance/Enhance.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 7
-			path: extensions/Servers/Plesk/Plesk.php
-
-		-
 			message: '#^Method Paymenter\\Extensions\\Servers\\Plesk\\Plesk\:\:createServer\(\) should return bool but returns array\<string, mixed\>\.$#'
 			identifier: return.type
 			count: 1
 			path: extensions/Servers/Plesk/Plesk.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 1
-			path: extensions/Servers/Pterodactyl/Pterodactyl.php
 
 		-
 			message: '#^Call to function is_array\(\) with non\-empty\-array\<''id''\|''port''\|int\<0, max\>, mixed\> will always evaluate to true\.$#'
@@ -2645,18 +1835,6 @@ parameters:
 			identifier: variable.undefined
 			count: 1
 			path: extensions/Servers/Pterodactyl/Pterodactyl.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 5
-			path: extensions/Servers/Virtfusion/Virtfusion.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Service\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 1
-			path: extensions/Servers/Virtualizor/Virtualizor.php
 
 		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$value\.$#'

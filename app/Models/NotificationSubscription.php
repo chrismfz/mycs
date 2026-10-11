@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Support\PushEndpoint;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use InvalidArgumentException;
 use Minishlink\WebPush\Subscription;
 
@@ -21,7 +22,8 @@ class NotificationSubscription extends Model
         'auth_key' => 'encrypted',
     ];
 
-    public function user()
+    /** @return BelongsTo<User, $this> */
+    public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }

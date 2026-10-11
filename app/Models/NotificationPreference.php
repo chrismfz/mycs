@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class NotificationPreference extends Model
 {
@@ -18,12 +19,14 @@ class NotificationPreference extends Model
         'in_app_enabled' => 'boolean',
     ];
 
-    public function notificationTemplate()
+    /** @return BelongsTo<NotificationTemplate, $this> */
+    public function notificationTemplate(): BelongsTo
     {
         return $this->belongsTo(NotificationTemplate::class);
     }
 
-    public function user()
+    /** @return BelongsTo<User, $this> */
+    public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }

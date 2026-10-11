@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Traits\HasPlans;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
@@ -41,8 +42,10 @@ class Product extends Model implements Auditable
 
     /**
      * Get the extension of the product.
+     *
+     * @return BelongsTo<Server, $this>
      */
-    public function server()
+    public function server(): BelongsTo
     {
         return $this->belongsTo(Server::class);
     }
@@ -65,8 +68,10 @@ class Product extends Model implements Auditable
 
     /**
      * Get all available products upgrades
+     *
+     * @return BelongsToMany<Product, $this>
      */
-    public function upgrades()
+    public function upgrades(): BelongsToMany
     {
         return $this->belongsToMany(Product::class, 'product_upgrades', 'product_id', 'upgrade_id');
     }

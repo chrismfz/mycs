@@ -7,8 +7,17 @@ use App\Observers\OrderObserver;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use OwenIt\Auditing\Contracts\Auditable;
 
+/**
+ * @property-read mixed $total
+ * @property-read mixed $formatted_total
+ * @property-read mixed $formattedTotal
+ * @property-read mixed $invoices
+ */
 #[ObservedBy([OrderObserver::class])]
 class Order extends Model implements Auditable
 {
@@ -18,20 +27,24 @@ class Order extends Model implements Auditable
 
     public bool $send_create_email = true;
 
-    public function user()
+    /** @return BelongsTo<User, $this> */
+    public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
 
-    public function services()
+    /** @return HasMany<Service, $this> */
+    public function services(): HasMany
     {
         return $this->hasMany(Service::class);
     }
 
     /**
      * Get the currency corresponding to the service.
+     *
+     * @return HasOne<Currency, $this>
      */
-    public function currency()
+    public function currency(): HasOne
     {
         return $this->hasOne(Currency::class, 'code', 'currency_code');
     }
@@ -39,7 +52,7 @@ class Order extends Model implements Auditable
     /**
      * Total of the order.
      *
-     * @return float
+     * @return Attribute<mixed, mixed>
      */
     public function total(): Attribute
     {
@@ -51,7 +64,7 @@ class Order extends Model implements Auditable
     /**
      * Total of the order.
      *
-     * @return string
+     * @return Attribute<mixed, mixed>
      */
     public function formattedTotal(): Attribute
     {
@@ -62,6 +75,8 @@ class Order extends Model implements Auditable
 
     /**
      * Get all invoices for the order.
+     *
+     * @return Attribute<mixed, mixed>
      */
     public function invoices(): Attribute
     {
