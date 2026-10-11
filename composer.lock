@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "46fa460a365c31e17cb82d7d382ed4b2",
+    "content-hash": "fc87519116e3eadf28b3040c09878e30",
     "packages": [
         {
             "name": "andreiio/blade-remix-icon",
@@ -854,17 +854,11 @@
         },
         {
             "name": "corwindev/laravel-themer",
-            "version": "v2.5.0",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/CorwinDev/laravel-themer.git",
-                "reference": "b2bae1d9533a2a0e72944ad45f2fb2eac8d09099"
-            },
+            "version": "2.5.1",
             "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/CorwinDev/laravel-themer/zipball/b2bae1d9533a2a0e72944ad45f2fb2eac8d09099",
-                "reference": "b2bae1d9533a2a0e72944ad45f2fb2eac8d09099",
-                "shasum": ""
+                "type": "path",
+                "url": "packages/laravel-themer",
+                "reference": "9ef507f24ab37905689c79792a4b2ff973af08ba"
             },
             "require": {
                 "facade/ignition-contracts": "^1.0",
@@ -890,7 +884,25 @@
                     "Qirolab\\Theme\\Database\\Factories\\": "database/factories"
                 }
             },
-            "notification-url": "https://packagist.org/downloads/",
+            "autoload-dev": {
+                "psr-4": {
+                    "Qirolab\\Theme\\Tests\\": "tests"
+                }
+            },
+            "scripts": {
+                "psalm": [
+                    "vendor/bin/psalm"
+                ],
+                "test": [
+                    "vendor/bin/phpunit --colors=always"
+                ],
+                "test-coverage": [
+                    "vendor/bin/phpunit --coverage-html coverage"
+                ],
+                "format": [
+                    "vendor/bin/php-cs-fixer fix --allow-risky=yes"
+                ]
+            },
             "license": [
                 "MIT"
             ],
@@ -902,7 +914,7 @@
                     "role": "Developer"
                 }
             ],
-            "description": "A Laravel theme manager, that will help you organize and maintain your themes inside Laravel projects.",
+            "description": "A Laravel theme manager, that will help you organize and maintain your themes inside Laravel projects. (vendored in MyCS with PHP 8.4 nullable fixes)",
             "homepage": "https://qirolab.com",
             "keywords": [
                 "laravel",
@@ -910,16 +922,16 @@
                 "qirolab",
                 "theme"
             ],
-            "support": {
-                "source": "https://github.com/CorwinDev/laravel-themer/tree/v2.5.0"
-            },
             "funding": [
                 {
-                    "url": "https://www.buymeacoffee.com/qirolab",
-                    "type": "other"
+                    "type": "other",
+                    "url": "https://www.buymeacoffee.com/qirolab"
                 }
             ],
-            "time": "2026-10-07T12:01:49+00:00"
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
         },
         {
             "name": "danharrin/date-format-converter",
@@ -15089,5 +15101,5 @@
     "platform-overrides": {
         "php": "8.3.0"
     },
-    "plugin-api-version": "2.6.0"
+    "plugin-api-version": "2.9.0"
 }
