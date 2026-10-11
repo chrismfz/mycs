@@ -26,3 +26,6 @@ extensions/Servers/LicenseManager
 extensions/Servers/Proxmox
 !themes/default
 .DS_Store
+
+# Claude Code: per-machine overrides (template: .claude/settings.local.json.example)
+.claude/settings.local.json
