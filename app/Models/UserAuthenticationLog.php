@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class UserAuthenticationLog extends Model
 {
@@ -13,8 +14,10 @@ class UserAuthenticationLog extends Model
 
     /**
      * Get the user that owns the authentication log.
+     *
+     * @return BelongsTo<User, $this>
      */
-    public function user()
+    public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }

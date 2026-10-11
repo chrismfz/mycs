@@ -10,8 +10,22 @@ use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use OwenIt\Auditing\Contracts\Auditable;
 
+/**
+ * @property-read mixed $formatted_price
+ * @property-read mixed $formattedPrice
+ * @property-read mixed $label
+ * @property-read mixed $base_label
+ * @property-read mixed $baseLabel
+ * @property-read mixed $description
+ * @property-read mixed $cancellable
+ * @property-read mixed $upgradable
+ */
 #[ObservedBy([ServiceObserver::class])]
 class Service extends Model implements Auditable
 {
@@ -48,32 +62,40 @@ class Service extends Model implements Auditable
 
     /**
      * Get the order that owns the service.
+     *
+     * @return BelongsTo<Order, $this>
      */
-    public function order()
+    public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);
     }
 
     /**
      * Get the coupon that owns the service.
+     *
+     * @return BelongsTo<Coupon, $this>
      */
-    public function coupon()
+    public function coupon(): BelongsTo
     {
         return $this->belongsTo(Coupon::class);
     }
 
     /**
      * Get the currency corresponding to the service.
+     *
+     * @return HasOne<Currency, $this>
      */
-    public function currency()
+    public function currency(): HasOne
     {
         return $this->hasOne(Currency::class, 'code', 'currency_code');
     }
 
     /**
      * Get the user that owns the service.
+     *
+     * @return BelongsTo<User, $this>
      */
-    public function user()
+    public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
@@ -81,7 +103,7 @@ class Service extends Model implements Auditable
     /**
      * Price of the service.
      *
-     * @return string
+     * @return Attribute<mixed, mixed>
      */
     public function formattedPrice(): Attribute
     {
@@ -90,6 +112,7 @@ class Service extends Model implements Auditable
         );
     }
 
+    /** @return Attribute<mixed, mixed> */
     public function label(): Attribute
     {
         return Attribute::make(
@@ -97,6 +120,7 @@ class Service extends Model implements Auditable
         );
     }
 
+    /** @return Attribute<mixed, mixed> */
     public function baseLabel(): Attribute
     {
         return Attribute::make(
@@ -106,6 +130,8 @@ class Service extends Model implements Auditable
 
     /**
      * Get the description for the next invoice item.
+     *
+     * @return Attribute<mixed, mixed>
      */
     public function description(): Attribute
     {
@@ -151,44 +177,55 @@ class Service extends Model implements Auditable
 
     /**
      * Get the plan corresponding to the service.
+     *
+     * @return BelongsTo<Plan, $this>
      */
-    public function plan()
+    public function plan(): BelongsTo
     {
         return $this->belongsTo(Plan::class);
     }
 
     /**
      * Get the service's configurations.
+     *
+     * @return MorphMany<ServiceConfig, $this>
      */
-    public function configs()
+    public function configs(): MorphMany
     {
         return $this->morphMany(ServiceConfig::class, 'configurable');
     }
 
     /**
      * Get invoiceItems
+     *
+     * @return MorphMany<InvoiceItem, $this>
      */
-    public function invoiceItems()
+    public function invoiceItems(): MorphMany
     {
         return $this->morphMany(InvoiceItem::class, 'reference');
     }
 
     /**
      * Get invoices
+     *
+     * @return HasManyThrough<Invoice, InvoiceItem, $this>
      */
-    public function invoices()
+    public function invoices(): HasManyThrough
     {
         return $this->hasManyThrough(Invoice::class, InvoiceItem::class, 'reference_id', 'id', 'id', 'invoice_id')->where('reference_type', Service::class);
     }
 
     /**
      * Get cancellation requests
+     *
+     * @return HasOne<ServiceCancellation, $this>
      */
-    public function cancellation()
+    public function cancellation(): HasOne
     {
         return $this->hasOne(ServiceCancellation::class);
     }
 
+    /** @return Attribute<mixed, mixed> */
     public function cancellable(): Attribute
     {
         return Attribute::make(
@@ -196,6 +233,7 @@ class Service extends Model implements Auditable
         );
     }
 
+    /** @return Attribute<mixed, mixed> */
     public function upgradable(): Attribute
     {
         return Attribute::make(
@@ -252,12 +290,14 @@ class Service extends Model implements Auditable
         return number_format($price, 2, '.', '');
     }
 
-    public function upgrade()
+    /** @return HasMany<ServiceUpgrade, $this> */
+    public function upgrade(): HasMany
     {
         return $this->hasMany(ServiceUpgrade::class);
     }
 
-    public function billingAgreement()
+    /** @return BelongsTo<BillingAgreement, $this> */
+    public function billingAgreement(): BelongsTo
     {
         return $this->belongsTo(BillingAgreement::class, 'billing_agreement_id');
     }

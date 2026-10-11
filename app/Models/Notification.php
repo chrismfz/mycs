@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Observers\NotificationObserver;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[ObservedBy([NotificationObserver::class])]
 class Notification extends Model
@@ -15,7 +16,8 @@ class Notification extends Model
         'url',
     ];
 
-    public function user()
+    /** @return BelongsTo<User, $this> */
+    public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }

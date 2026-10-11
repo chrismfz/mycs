@@ -8,8 +8,21 @@ use App\Observers\InvoiceTransactionObserver;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use OwenIt\Auditing\Contracts\Auditable;
 
+/**
+ * @property-read mixed $refundable_amount
+ * @property-read mixed $refundableAmount
+ * @property-read mixed $formatted_fee
+ * @property-read mixed $formattedFee
+ * @property-read mixed $formatted_amount
+ * @property-read mixed $formattedAmount
+ * @property-read mixed $formatted_refunded_amount
+ * @property-read mixed $formattedRefundedAmount
+ * @property-read mixed $formatted_refundable_amount
+ * @property-read mixed $formattedRefundableAmount
+ */
 #[ObservedBy([InvoiceTransactionObserver::class])]
 class InvoiceTransaction extends Model implements Auditable
 {
@@ -33,18 +46,22 @@ class InvoiceTransaction extends Model implements Auditable
         'status' => InvoiceTransactionStatus::class,
     ];
 
-    public function invoice()
+    /** @return BelongsTo<Invoice, $this> */
+    public function invoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class);
     }
 
-    public function gateway()
+    /** @return BelongsTo<Gateway, $this> */
+    public function gateway(): BelongsTo
     {
         return $this->belongsTo(Gateway::class);
     }
 
     /**
      * Amount that is still refundable for this transaction.
+     *
+     * @return Attribute<mixed, mixed>
      */
     public function refundableAmount(): Attribute
     {
@@ -55,6 +72,8 @@ class InvoiceTransaction extends Model implements Auditable
 
     /**
      * Formatted remaining amount of the invoice.
+     *
+     * @return Attribute<mixed, mixed>
      */
     public function formattedFee(): Attribute
     {
@@ -65,6 +84,8 @@ class InvoiceTransaction extends Model implements Auditable
 
     /**
      * Formatted remaining amount of the invoice.
+     *
+     * @return Attribute<mixed, mixed>
      */
     public function formattedAmount(): Attribute
     {
@@ -75,6 +96,8 @@ class InvoiceTransaction extends Model implements Auditable
 
     /**
      * Formatted refunded amount of the invoice.
+     *
+     * @return Attribute<mixed, mixed>
      */
     public function formattedRefundedAmount(): Attribute
     {
@@ -85,6 +108,8 @@ class InvoiceTransaction extends Model implements Auditable
 
     /**
      * Formatted refundable amount of the invoice.
+     *
+     * @return Attribute<mixed, mixed>
      */
     public function formattedRefundableAmount(): Attribute
     {

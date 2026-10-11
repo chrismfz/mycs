@@ -7,8 +7,16 @@ use App\Observers\InvoiceItemObserver;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use OwenIt\Auditing\Contracts\Auditable;
 
+/**
+ * @property-read mixed $formatted_total
+ * @property-read mixed $formattedTotal
+ * @property-read mixed $formatted_price
+ * @property-read mixed $formattedPrice
+ */
 #[ObservedBy([InvoiceItemObserver::class])]
 class InvoiceItem extends Model implements Auditable
 {
@@ -28,17 +36,20 @@ class InvoiceItem extends Model implements Auditable
         'price' => 'decimal:2',
     ];
 
-    public function invoice()
+    /** @return BelongsTo<Invoice, $this> */
+    public function invoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class);
     }
 
-    public function reference()
+    /** @return MorphTo<\Illuminate\Database\Eloquent\Model, $this> */
+    public function reference(): MorphTo
     {
         return $this->morphTo();
     }
 
-    public function gateway()
+    /** @return BelongsTo<Gateway, $this> */
+    public function gateway(): BelongsTo
     {
         return $this->belongsTo(Gateway::class);
     }
@@ -48,6 +59,7 @@ class InvoiceItem extends Model implements Auditable
         return round((float) $this->price * $this->quantity, 2);
     }
 
+    /** @return Attribute<mixed, mixed> */
     public function formattedTotal(): Attribute
     {
         return Attribute::make(
@@ -55,6 +67,7 @@ class InvoiceItem extends Model implements Auditable
         );
     }
 
+    /** @return Attribute<mixed, mixed> */
     public function formattedPrice(): Attribute
     {
         return Attribute::make(

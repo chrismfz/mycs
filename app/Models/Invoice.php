@@ -13,8 +13,31 @@ use App\Observers\InvoiceObserver;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use OwenIt\Auditing\Contracts\Auditable;
 
+/**
+ * @property-read mixed $total
+ * @property-read mixed $formatted_total
+ * @property-read mixed $formattedTotal
+ * @property-read mixed $current_balance
+ * @property-read mixed $currentBalance
+ * @property-read mixed $formatted_current_balance
+ * @property-read mixed $formattedCurrentBalance
+ * @property-read mixed $formatted_remaining
+ * @property-read mixed $formattedRemaining
+ * @property-read mixed $remaining
+ * @property-read mixed $tax
+ * @property-read mixed $user_properties
+ * @property-read mixed $userProperties
+ * @property-read mixed $user_name
+ * @property-read mixed $userName
+ * @property-read mixed $bill_to
+ * @property-read mixed $billTo
+ * @property-read mixed $pdf
+ */
 #[ObservedBy([InvoiceObserver::class])]
 class Invoice extends Model implements Auditable
 {
@@ -48,7 +71,7 @@ class Invoice extends Model implements Auditable
     /**
      * Total of the invoice.
      *
-     * @return string
+     * @return Attribute<mixed, mixed>
      */
     public function total(): Attribute
     {
@@ -76,7 +99,7 @@ class Invoice extends Model implements Auditable
     /**
      * Total of the invoice.
      *
-     * @return string
+     * @return Attribute<mixed, mixed>
      */
     public function formattedTotal(): Attribute
     {
@@ -87,6 +110,8 @@ class Invoice extends Model implements Auditable
 
     /**
      * Current balance of the invoice, accounting for total + debit notes - credit notes - succeeded transactions (net of refunds).
+     *
+     * @return Attribute<mixed, mixed>
      */
     public function currentBalance(): Attribute
     {
@@ -100,6 +125,8 @@ class Invoice extends Model implements Auditable
 
     /**
      * Formatted current balance of the invoice.
+     *
+     * @return Attribute<mixed, mixed>
      */
     public function formattedCurrentBalance(): Attribute
     {
@@ -110,6 +137,8 @@ class Invoice extends Model implements Auditable
 
     /**
      * Formatted remaining amount of the invoice.
+     *
+     * @return Attribute<mixed, mixed>
      */
     public function formattedRemaining(): Attribute
     {
@@ -120,6 +149,8 @@ class Invoice extends Model implements Auditable
 
     /**
      * Remaining amount of the invoice, net of refunded amounts.
+     *
+     * @return Attribute<mixed, mixed>
      */
     public function remaining(): Attribute
     {
@@ -143,6 +174,8 @@ class Invoice extends Model implements Auditable
     /**
      * Get tax model of the invoice.
      * Either via locked invoice or via users country.
+     *
+     * @return Attribute<mixed, mixed>
      */
     public function tax(): Attribute
     {
@@ -161,6 +194,7 @@ class Invoice extends Model implements Auditable
         );
     }
 
+    /** @return Attribute<mixed, mixed> */
     public function userProperties(): Attribute
     {
         if (config('settings.invoice_snapshot', true) && $this?->snapshot?->properties) {
@@ -176,6 +210,7 @@ class Invoice extends Model implements Auditable
         );
     }
 
+    /** @return Attribute<mixed, mixed> */
     public function userName(): Attribute
     {
         if (config('settings.invoice_snapshot', true) && $this?->snapshot?->name) {
@@ -189,6 +224,7 @@ class Invoice extends Model implements Auditable
         );
     }
 
+    /** @return Attribute<mixed, mixed> */
     public function billTo(): Attribute
     {
         if (config('settings.invoice_snapshot', true) && $this?->snapshot?->bill_to) {
@@ -202,36 +238,43 @@ class Invoice extends Model implements Auditable
         );
     }
 
-    public function currency()
+    /** @return BelongsTo<Currency, $this> */
+    public function currency(): BelongsTo
     {
         return $this->belongsTo(Currency::class, 'currency_code');
     }
 
-    public function user()
+    /** @return BelongsTo<User, $this> */
+    public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
 
-    public function items()
+    /** @return HasMany<InvoiceItem, $this> */
+    public function items(): HasMany
     {
         return $this->hasMany(InvoiceItem::class);
     }
 
-    public function transactions()
+    /** @return HasMany<InvoiceTransaction, $this> */
+    public function transactions(): HasMany
     {
         return $this->hasMany(InvoiceTransaction::class);
     }
 
-    public function adjustmentNotes()
+    /** @return HasMany<AdjustmentNote, $this> */
+    public function adjustmentNotes(): HasMany
     {
         return $this->hasMany(AdjustmentNote::class);
     }
 
-    public function snapshot()
+    /** @return HasOne<InvoiceSnapshot, $this> */
+    public function snapshot(): HasOne
     {
         return $this->hasOne(InvoiceSnapshot::class);
     }
 
+    /** @return Attribute<mixed, mixed> */
     public function pdf(): Attribute
     {
         return Attribute::make(

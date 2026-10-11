@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use OwenIt\Auditing\Contracts\Auditable;
 
 class CouponProduct extends Model implements Auditable
@@ -14,12 +15,14 @@ class CouponProduct extends Model implements Auditable
         'product_id',
     ];
 
-    public function coupon()
+    /** @return BelongsTo<Coupon, $this> */
+    public function coupon(): BelongsTo
     {
         return $this->belongsTo(Coupon::class);
     }
 
-    public function product()
+    /** @return BelongsTo<Product, $this> */
+    public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
     }

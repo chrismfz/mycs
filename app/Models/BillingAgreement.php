@@ -5,6 +5,8 @@ namespace App\Models;
 use App\Models\Traits\HasProperties;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use OwenIt\Auditing\Contracts\Auditable;
 
@@ -29,17 +31,20 @@ class BillingAgreement extends Model implements Auditable
         ];
     }
 
-    public function user()
+    /** @return BelongsTo<User, $this> */
+    public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
 
-    public function gateway()
+    /** @return BelongsTo<Gateway, $this> */
+    public function gateway(): BelongsTo
     {
         return $this->belongsTo(Gateway::class, 'gateway_id');
     }
 
-    public function services()
+    /** @return HasMany<Service, $this> */
+    public function services(): HasMany
     {
         return $this->hasMany(Service::class, 'billing_agreement_id');
     }

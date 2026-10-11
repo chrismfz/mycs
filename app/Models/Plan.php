@@ -5,8 +5,14 @@ namespace App\Models;
 use App\Classes\Price as PriceClass;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use OwenIt\Auditing\Contracts\Auditable;
 
+/**
+ * @property-read mixed $billing_duration
+ * @property-read mixed $billingDuration
+ */
 class Plan extends Model implements Auditable
 {
     use HasFactory, Traits\Auditable;
@@ -27,16 +33,20 @@ class Plan extends Model implements Auditable
 
     /**
      * Get the available prices of the plan.
+     *
+     * @return HasMany<Price, $this>
      */
-    public function prices()
+    public function prices(): HasMany
     {
         return $this->hasMany(Price::class);
     }
 
     /**
      * Get the priceable model of the plan.
+     *
+     * @return MorphTo<\Illuminate\Database\Eloquent\Model, $this>
      */
-    public function priceable()
+    public function priceable(): MorphTo
     {
         return $this->morphTo();
     }
@@ -67,6 +77,7 @@ class Plan extends Model implements Auditable
     }
 
     // Time between billing periods
+    /** @return Attribute<mixed, mixed> */
     public function billingDuration(): Attribute
     {
         if ($this->type === 'free' || $this->type == 'one-time') {
@@ -84,7 +95,8 @@ class Plan extends Model implements Auditable
         );
     }
 
-    public function services()
+    /** @return HasMany<Service, $this> */
+    public function services(): HasMany
     {
         return $this->hasMany(Service::class);
     }

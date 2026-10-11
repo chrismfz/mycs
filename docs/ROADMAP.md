@@ -36,7 +36,8 @@
 - [x] CI: tests σε sqlite + MariaDB 10.11 (PHP 8.4) και `pint --test` σε κάθε PR (PR #9, 2026-10-11).
 - [x] CI: phpstan (larastan, level 5) σε `app/`, `extensions/`, `packages/mail-template` με baseline για τα 672 του
       upstream: σπάει μόνο σε νέα σφάλματα (2026-10-11).
-- [ ] Μείωση του `phpstan-baseline.neon`: όποιο αρχείο αγγίζουμε, καθαρίζουμε και τις εγγραφές του.
+- [ ] Μείωση του `phpstan-baseline.neon`: όποιο αρχείο αγγίζουμε, καθαρίζουμε και τις εγγραφές του. 672 → 404 με
+      τύπους στις σχέσεις και `@property-read` στα accessors των models (2026-10-11).
 - [ ] `lib/*` του blesta-modules → `packages/` (nixpal-licensing, cardlink-eurobank, paypal-vault, domain-tools,
       myopenprovider, mailcow), με composer `path` repositories και τα tests τους στο CI.
 - [x] `corwindev/laravel-themer` → `packages/laravel-themer` (MIT) με διορθώσεις για PHP 8.4 (implicit nullable):

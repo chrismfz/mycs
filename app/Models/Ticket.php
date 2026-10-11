@@ -5,6 +5,8 @@ namespace App\Models;
 use App\Observers\TicketObserver;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use OwenIt\Auditing\Contracts\Auditable;
 
 #[ObservedBy([TicketObserver::class])]
@@ -23,22 +25,26 @@ class Ticket extends Model implements Auditable
         'service_id',
     ];
 
-    public function user()
+    /** @return BelongsTo<User, $this> */
+    public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
 
-    public function assignedTo()
+    /** @return BelongsTo<User, $this> */
+    public function assignedTo(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assigned_to');
     }
 
-    public function service()
+    /** @return BelongsTo<Service, $this> */
+    public function service(): BelongsTo
     {
         return $this->belongsTo(Service::class);
     }
 
-    public function messages()
+    /** @return HasMany<TicketMessage, $this> */
+    public function messages(): HasMany
     {
         return $this->hasMany(TicketMessage::class);
     }

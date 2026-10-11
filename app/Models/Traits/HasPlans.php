@@ -4,13 +4,16 @@ namespace App\Models\Traits;
 
 use App\Classes\Price;
 use App\Models\Plan;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 trait HasPlans
 {
     /**
      * Get the plans (prices) of the product.
+     *
+     * @return MorphMany<Plan, $this>
      */
-    public function plans()
+    public function plans(): MorphMany
     {
         return $this->morphMany(Plan::class, 'priceable')->orderBy('sort');
     }

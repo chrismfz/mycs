@@ -5,6 +5,8 @@ namespace App\Models;
 use App\Observers\TicketMessageObserver;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use OwenIt\Auditing\Contracts\Auditable;
 
 #[ObservedBy([TicketMessageObserver::class])]
@@ -19,22 +21,26 @@ class TicketMessage extends Model implements Auditable
         'ticket_mail_log_id',
     ];
 
-    public function ticket()
+    /** @return BelongsTo<Ticket, $this> */
+    public function ticket(): BelongsTo
     {
         return $this->belongsTo(Ticket::class);
     }
 
-    public function user()
+    /** @return BelongsTo<User, $this> */
+    public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
 
-    public function attachments()
+    /** @return HasMany<TicketMessageAttachment, $this> */
+    public function attachments(): HasMany
     {
         return $this->hasMany(TicketMessageAttachment::class);
     }
 
-    public function ticketMailLog()
+    /** @return BelongsTo<TicketMailLog, $this> */
+    public function ticketMailLog(): BelongsTo
     {
         return $this->belongsTo(TicketMailLog::class);
     }

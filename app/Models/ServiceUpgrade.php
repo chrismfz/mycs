@@ -7,6 +7,8 @@ use App\Observers\ServiceUpgradeObserver;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use OwenIt\Auditing\Contracts\Auditable;
 
 #[ObservedBy([ServiceUpgradeObserver::class])]
@@ -20,27 +22,32 @@ class ServiceUpgrade extends Model implements Auditable
 
     public $guarded = [];
 
-    public function service()
+    /** @return BelongsTo<Service, $this> */
+    public function service(): BelongsTo
     {
         return $this->belongsTo(Service::class);
     }
 
-    public function product()
+    /** @return BelongsTo<Product, $this> */
+    public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
     }
 
-    public function plan()
+    /** @return BelongsTo<Plan, $this> */
+    public function plan(): BelongsTo
     {
         return $this->belongsTo(Plan::class);
     }
 
-    public function invoice()
+    /** @return BelongsTo<Invoice, $this> */
+    public function invoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class);
     }
 
-    public function configs()
+    /** @return MorphMany<ServiceConfig, $this> */
+    public function configs(): MorphMany
     {
         return $this->morphMany(ServiceConfig::class, 'configurable');
     }

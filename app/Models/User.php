@@ -3,23 +3,31 @@
 namespace App\Models;
 
 use App\Models\Traits\HasProperties;
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
-
 use App\Observers\UserObserver;
 use Dedoc\Scramble\Attributes\SchemaName;
 use Filament\Models\Contracts\FilamentUser;
+// use Illuminate\Contracts\Auth\MustVerifyEmail;
+
 use Filament\Models\Contracts\HasAvatar;
 use Filament\Panel;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Passport\Contracts\OAuthenticatable;
 use Laravel\Passport\HasApiTokens;
 use OwenIt\Auditing\Contracts\Auditable;
 
+/**
+ * @property-read mixed $initials
+ * @property-read mixed $avatar
+ * @property-read mixed $name
+ */
 #[SchemaName('UserModel')]
 #[ObservedBy([UserObserver::class])]
 class User extends Authenticatable implements Auditable, FilamentUser, HasAvatar, OAuthenticatable
@@ -69,7 +77,7 @@ class User extends Authenticatable implements Auditable, FilamentUser, HasAvatar
     /**
      * Initials of the user.
      *
-     * @return string
+     * @return Attribute<mixed, mixed>
      */
     public function initials(): Attribute
     {
@@ -82,7 +90,7 @@ class User extends Authenticatable implements Auditable, FilamentUser, HasAvatar
      * Avatar for the user: a locally generated SVG with the initials, so no
      * third party (e.g. Gravatar) learns who is logged in.
      *
-     * @return string
+     * @return Attribute<mixed, mixed>
      */
     public function avatar(): Attribute
     {
@@ -109,7 +117,7 @@ class User extends Authenticatable implements Auditable, FilamentUser, HasAvatar
     /**
      * Get the display name for the user.
      *
-     * @return string
+     * @return Attribute<mixed, mixed>
      */
     public function name(): Attribute
     {
@@ -145,32 +153,40 @@ class User extends Authenticatable implements Auditable, FilamentUser, HasAvatar
 
     /**
      * Get the user's sessions.
+     *
+     * @return HasMany<UserSession, $this>
      */
-    public function sessions()
+    public function sessions(): HasMany
     {
         return $this->hasMany(UserSession::class);
     }
 
     /**
      * Get the user's orders.
+     *
+     * @return HasMany<Order, $this>
      */
-    public function orders()
+    public function orders(): HasMany
     {
         return $this->hasMany(Order::class);
     }
 
     /**
      * Get the user's services
+     *
+     * @return HasMany<Service, $this>
      */
-    public function services()
+    public function services(): HasMany
     {
         return $this->hasMany(Service::class);
     }
 
     /**
      * Get the user's invoices.
+     *
+     * @return HasMany<Invoice, $this>
      */
-    public function invoices()
+    public function invoices(): HasMany
     {
         return $this->hasMany(Invoice::class);
     }
@@ -186,51 +202,62 @@ class User extends Authenticatable implements Auditable, FilamentUser, HasAvatar
 
     /**
      * Get the user tickets
+     *
+     * @return HasMany<Ticket, $this>
      */
-    public function tickets()
+    public function tickets(): HasMany
     {
         return $this->hasMany(Ticket::class);
     }
 
     /**
      * Get the user's credits
+     *
+     * @return HasMany<Credit, $this>
      */
-    public function credits()
+    public function credits(): HasMany
     {
         return $this->hasMany(Credit::class);
     }
 
-    public function cart()
+    /** @return HasOne<Cart, $this> */
+    public function cart(): HasOne
     {
         return $this->hasOne(Cart::class);
     }
 
-    public function billingAgreements()
+    /** @return HasMany<BillingAgreement, $this> */
+    public function billingAgreements(): HasMany
     {
         return $this->hasMany(BillingAgreement::class);
     }
 
-    public function transactions()
+    /** @return HasManyThrough<InvoiceTransaction, Invoice, $this> */
+    public function transactions(): HasManyThrough
     {
         return $this->hasManyThrough(InvoiceTransaction::class, Invoice::class, 'user_id', 'invoice_id', 'id', 'id');
     }
 
-    public function notifications()
+    /** @return HasMany<Notification, $this> */
+    public function notifications(): HasMany
     {
         return $this->hasMany(Notification::class);
     }
 
-    public function notificationsPreferences()
+    /** @return HasMany<NotificationPreference, $this> */
+    public function notificationsPreferences(): HasMany
     {
         return $this->hasMany(NotificationPreference::class);
     }
 
-    public function pushSubscriptions()
+    /** @return HasMany<NotificationSubscription, $this> */
+    public function pushSubscriptions(): HasMany
     {
         return $this->hasMany(NotificationSubscription::class);
     }
 
-    public function authenticationLogs()
+    /** @return HasMany<UserAuthenticationLog, $this> */
+    public function authenticationLogs(): HasMany
     {
         return $this->hasMany(UserAuthenticationLog::class);
     }

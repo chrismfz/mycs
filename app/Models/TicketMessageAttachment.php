@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
 
 class TicketMessageAttachment extends Model
@@ -21,7 +22,8 @@ class TicketMessageAttachment extends Model
         });
     }
 
-    public function ticketMessage()
+    /** @return BelongsTo<TicketMessage, $this> */
+    public function ticketMessage(): BelongsTo
     {
         return $this->belongsTo(TicketMessage::class);
     }

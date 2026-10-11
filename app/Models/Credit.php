@@ -4,8 +4,13 @@ namespace App\Models;
 
 use App\Classes\Price;
 use Illuminate\Database\Eloquent\Casts\Attribute;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use OwenIt\Auditing\Contracts\Auditable;
 
+/**
+ * @property-read mixed $formatted_amount
+ * @property-read mixed $formattedAmount
+ */
 class Credit extends Model implements Auditable
 {
     use Traits\Auditable;
@@ -16,16 +21,19 @@ class Credit extends Model implements Auditable
         'user_id',
     ];
 
-    public function user()
+    /** @return BelongsTo<User, $this> */
+    public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
 
-    public function currency()
+    /** @return BelongsTo<Currency, $this> */
+    public function currency(): BelongsTo
     {
         return $this->belongsTo(Currency::class, 'currency_code', 'code');
     }
 
+    /** @return Attribute<mixed, mixed> */
     public function formattedAmount(): Attribute
     {
         return Attribute::make(

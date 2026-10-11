@@ -5,9 +5,15 @@ namespace App\Models;
 use App\Helpers\ExtensionHelper;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use OwenIt\Auditing\Contracts\Auditable;
 
+/**
+ * @property-read mixed $path
+ * @property-read mixed $namespace
+ * @property-read mixed $meta
+ */
 class Extension extends Model implements Auditable
 {
     use HasFactory, SoftDeletes, Traits\Auditable;
@@ -24,12 +30,15 @@ class Extension extends Model implements Auditable
 
     /**
      * Get the extension's settings.
+     *
+     * @return MorphMany<Setting, $this>
      */
-    public function settings()
+    public function settings(): MorphMany
     {
         return $this->morphMany(Setting::class, 'settingable');
     }
 
+    /** @return Attribute<mixed, mixed> */
     public function path(): Attribute
     {
         return Attribute::make(
@@ -37,6 +46,7 @@ class Extension extends Model implements Auditable
         );
     }
 
+    /** @return Attribute<mixed, mixed> */
     public function namespace(): Attribute
     {
         return Attribute::make(
@@ -44,6 +54,7 @@ class Extension extends Model implements Auditable
         );
     }
 
+    /** @return Attribute<mixed, mixed> */
     public function meta(): Attribute
     {
         return Attribute::make(

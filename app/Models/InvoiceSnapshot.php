@@ -5,6 +5,7 @@ namespace App\Models;
 use Database\Factories\InvoiceSnapshotFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class InvoiceSnapshot extends Model
 {
@@ -26,7 +27,8 @@ class InvoiceSnapshot extends Model
         'tax_rate' => 'decimal:2',
     ];
 
-    public function invoice()
+    /** @return BelongsTo<Invoice, $this> */
+    public function invoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class);
     }
