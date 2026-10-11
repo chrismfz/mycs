@@ -292,7 +292,7 @@ class BillingCursorTest extends TestCase
         $line = $service->invoiceItems()->whereHas('invoice', fn ($q) => $q->where('status', 'pending'))->sole();
         $this->assertSame('2026-10-31', $line->period_start->toDateString());
         $this->assertSame('2026-11-15', $line->period_end->toDateString()); // not 11-30: no day billed twice
-        $this->assertEquals(14.52, (float) $line->price); // 30 × 15/31
+        $this->assertEquals(15.00, (float) $line->price); // 30 × 15/30 (the full period 10-31..11-30 has 30 days)
     }
 
     public function test_a_suspended_service_gets_its_hole_billed_before_a_paid_period(): void
