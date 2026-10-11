@@ -28,7 +28,7 @@ use Illuminate\Support\Carbon;
  * @property string $sld
  * @property string $tld
  * @property string $fqdn
- * @property \App\Enums\DomainStatus $status
+ * @property \App\Enums\DomainStatus|null $status
  * @property \Illuminate\Support\Carbon|null $registered_at
  * @property \Illuminate\Support\Carbon|null $transferred_at
  * @property \Illuminate\Support\Carbon|null $expires_at

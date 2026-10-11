@@ -143,7 +143,7 @@ class DomainSyncService
         // the failing by-id call); keep the old value in module_meta for audit.
         if ($result->registrarDomainId !== null && $result->registrarDomainId !== $domain->registrar_domain_id) {
             if ($domain->registrar_domain_id !== null && $domain->registrar_domain_id !== '') {
-                $meta = $updates['module_meta'] ?? ($domain->module_meta ?? []);
+                $meta = $domain->module_meta ?? [];
                 $meta['previous_registrar_domain_id'] = $domain->registrar_domain_id;
                 $updates['module_meta'] = $meta;
             }
@@ -202,7 +202,7 @@ class DomainSyncService
             // any (an empty answer must not wipe a manual record).
             if ($result->nameservers !== []) {
                 $domain->nameservers()->delete();
-                foreach (array_values($result->nameservers) as $i => $host) {
+                foreach ($result->nameservers as $i => $host) {
                     $domain->nameservers()->create([
                         'host' => $host,
                         'sort_order' => $i,
