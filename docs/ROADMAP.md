@@ -90,6 +90,13 @@
       (κατάθεση/κάρτα/PayPal, όχι μόνο billing agreement), Registration και Termination Date, Auto-Terminate End of
       Cycle, Admin Notes (το Subscription ID υπάρχει). Οι αλλαγές με το χέρι είναι ήδη συμβατές με τον δρομέα
       χρέωσης (`docs/billing-cursor.md`). Το ίδιο αργότερα για τα domains.
+- [ ] **Products «σαν WHMCS»** (admin). Οι *Categories* του Paymenter είναι ήδη τα product groups (υποκατηγορίες,
+      σειρά)· τα products έχουν ήδη `hidden`, stock και τύπο πληρωμής ανά plan (free/one-time/recurring). Λείπουν:
+      κρυφή ομάδα (εκτός σελίδας παραγγελίας, παραγγέλνεται με direct link)· λίστα products ανά ομάδα με στήλες Type
+      (module), Pay Type, Stock, Auto Setup, σειρά με drag και «Duplicate Product». **Auto Setup ανά προϊόν**: σήμερα
+      ο server στήνεται πάντα στην πρώτη πληρωμή (ή αμέσως αν είναι δωρεάν)· όπως στο WHMCS: με την παραγγελία / με την
+      πρώτη πληρωμή / όταν το staff αποδεχτεί την παραγγελία (θέλει «Accept Order» στα Pending Orders) / ποτέ.
+      Αγγίζει την ενεργοποίηση μετά την πληρωμή, άρα code και adversarial review. Τα server groups: Φάση 3.
 - [ ] «Days before» τιμολογίου **ανά κύκλο**· «continuous invoice generation» ως ρύθμιση.
 - [ ] Υπενθυμίσεις (port από Ekdosi): πριν τη λήξη και 1η/2η/3η ληξιπρόθεσμου, ρυθμιζόμενες ημέρες ανά instance.
 - [ ] Ποσά σε decimal/minor units· Stripe: `round()` και helper για minor units (#1258).
