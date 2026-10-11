@@ -21,7 +21,7 @@
 | Orders | List All Orders, Add New Order, Promotions |
 | Billing | Invoices, Create Invoice, Transactions List, Adjustment Notes |
 | Support | Support Tickets, Open New Ticket |
-| Reports | — (δεν υπάρχουν ακόμα· βλ. παρακάτω) |
+| Reports | — (δεν υπάρχουν ακόμα· τα χρησιμοποιούμε συχνά, ιδέες από WHMCS και Ekdosi· ROADMAP Φάση 3) |
 | Utilities | Email Message Log, Activity Log, Cron Stats, Failed Jobs |
 | Setup | Settings, Product Groups, Products/Services, Configurable Options, Custom Client Fields, Currencies, Tax Rules, Payment Gateways, Servers, Email Templates, Staff Roles, Extensions, API, OAuth |
 | Addons | — (extensions: όταν αποκτήσουν σελίδες, μπαίνουν εδώ) |
@@ -47,7 +47,7 @@
 | Automation Overview | σελίδα Cron Stats | `cron_stats` | μικρό widget με link |
 | Shortcuts (Add client/order, open ticket) | — | — | καλύπτεται από το μενού («Add New …») |
 | To-Do, Staff Noticeboard, Network Status | — | — | όχι τώρα |
-| Payments tracking (τράπεζα) | — | — | όχι εδώ: ανήκει στο Ekdosi |
+| Payments tracking (τράπεζα) | — | δικός μας κώδικας στο WHMCS: IMAP της τράπεζας, αριθμός προτιμολογίου στην αιτιολογία → mark paid | ROADMAP Φάση 3 (πάνω στον allocator) |
 
 Κάθε μετρητής είναι link στη φιλτραρισμένη λίστα (όπως στο WHMCS) και έχει το δικό του permission (`admin.widgets.*`).
 Τα ποσά από `invoice_transactions` αφαιρούν τα `refunded_amount`.
