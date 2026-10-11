@@ -5,7 +5,8 @@
 ## Κατάσταση
 - **Repo:** `chrismfz/mycs`, hard fork του Paymenter στο `5b69d45` (v1.5.8+41), χωρίς ιστορικό upstream.
   Αλλαγές μέχρι τώρα: αφαίρεση όσων «τηλεφωνούν σπίτι» (Φάση 0, `ROADMAP.md`).
-- **Φάση:** 0 σε εξέλιξη (`ROADMAP.md`). Το devbox στήνεται στο VM του dev του Ekdosi (MariaDB, PHP, git, gh).
+- **Φάση:** 0 σε εξέλιξη (`ROADMAP.md`). Το devbox είναι το VM `devbox` (το dev του Ekdosi: MariaDB, PHP, git, gh),
+  στο `mycs.myip.gr` (+ wildcard `*.mycs.myip.gr` για δοκιμές).
 - **Αποφάσεις:** όλες στο `decisions.md` και στο `README.md` (γιατί fork, γιατί όχι Blesta/FOSSBilling, Ekdosi μόνο
   τιμολόγηση).
 - **Το παλιό σχέδιο (Blesta):** εγκαταλείφθηκε 2026-10-11. Το staging `cs.nixpal.com` μένει ανέγγιχτο. Ό,τι αξίζει
@@ -27,8 +28,9 @@
 | Ekdosi (κώδικας) | `chrismfz/ekdosi` (Laravel 13, Filament 5) | πηγή για port· καμία αλλαγή χωρίς λόγο |
 | Ekdosi (εφαρμογή) | rigel, `/home/myipgr/invoicer/ekdosi` | παραγωγή |
 | Blesta staging (παλιό) | `cs.nixpal.com` | δεν το αγγίζουμε |
-| Devbox MyCS | VM του dev του Ekdosi | στήνεται |
-| Staging MyCS | π.χ. `mycs.nixpal.com` | **δεν έχει στηθεί ακόμα** |
+| **Devbox MyCS** | VM `devbox` (84.54.49.31, ίδιο με το dev του Ekdosi)· gsc-mcp `ssh_run` host `devbox` | δοκιμές και η πρώτη εγκατάσταση· τρέχει και το dev του Ekdosi, προσοχή στα κοινά (MariaDB, php-fpm, cron) |
+| **DNS δοκιμών** | `mycs.myip.gr` και `*.mycs.myip.gr` → A 84.54.49.31 (TTL 600, στη ζώνη myip.gr, 2026-10-11) | ελεύθερη χρήση για δοκιμές (π.χ. `test.mycs.myip.gr`, ένα subdomain ανά σενάριο/instance) |
+| Staging MyCS (μετά) | ό,τι αποφασιστεί (π.χ. `mycs.nixpal.com`) | δεν έχει στηθεί |
 
 Λεπτομέρειες (servers, crons, μεγέθη, inventory του WHMCS): `history/blesta-modules/HANDOFF.md` §1, §4.
 
@@ -46,5 +48,7 @@ Fixtures του zlic και η λογική του: `history/blesta-modules/lice
 
 ## Ημερολόγιο
 - **2026-10-10:** audits του Paymenter (χρέωση, ασφάλεια, importer, υγεία)· σύγκριση με Blesta.
+- **2026-10-11:** DNS `mycs.myip.gr` + `*.mycs.myip.gr` → devbox (84.54.49.31)· η ίδια IP δηλώθηκε στο Μητρώο .GR για τις
+  δοκιμές EPP.
 - **2026-10-11:** απόφαση για hard fork· σύγκριση με Ekdosi· απογραφή χρήσης του WHMCS· triage του upstream· χάρτης
   ρυθμίσεων· repo `chrismfz/mycs` (fork + docs).

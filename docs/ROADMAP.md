@@ -5,9 +5,11 @@
 > Οι εκτιμήσεις είναι για έναν developer με βοήθεια: εκτιμήσεις, όχι δέσμευση. Ενημέρωσε τα κουτάκια σε κάθε PR.
 
 ## Παράλληλα, από τώρα (ανεξάρτητα από φάση)
-- [ ] **.gr EPP:** δήλωση IP του dev/staging στο whitelist του UAT του Μητρώου (`history/blesta-modules/HANDOFF.md`
-      §6). Είναι το μακρύτερο κομμάτι· χωρίς αυτό το myip δεν μεταφέρεται.
-- [ ] Staging `mycs.nixpal.com` (ξεχωριστό από το Blesta στο `cs.nixpal.com`).
+- [x] **.gr EPP:** η IP του devbox (84.54.49.31) δηλώθηκε στο Μητρώο .GR (2026-10-11).
+- [ ] .gr EPP: login/hello/check στο UAT από το devbox, ώστε να κλείσουν τα `[ΕΠΙΒΕΒΑΙΩΣΗ]`
+      (`history/blesta-modules/HANDOFF.md` §6). Είναι το μακρύτερο κομμάτι· χωρίς αυτό το myip δεν μεταφέρεται.
+- [x] DNS δοκιμών: `mycs.myip.gr` + `*.mycs.myip.gr` → devbox (2026-10-11).
+- [ ] Πρώτη εγκατάσταση στο devbox (`mycs.myip.gr`), και tests/Pint εκεί (το cloud περιβάλλον δεν κατεβάζει το phpstan).
 - [ ] Παρακολούθηση των security advisories του Paymenter (`upstream-triage.md`).
 
 ## Φάση 0: Καθάρισμα και βάσεις (2–3 ημέρες)
