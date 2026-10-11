@@ -20,6 +20,7 @@ use Filament\Forms\Components\Placeholder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Migrations\Migrator;
+use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -458,7 +459,7 @@ class ExtensionHelper
      *
      * @param  User  $user
      * @param  Gateway  $gateway
-     * @return string|view
+     * @return mixed
      */
     public static function createBillingAgreement($user, $gateway)
     {

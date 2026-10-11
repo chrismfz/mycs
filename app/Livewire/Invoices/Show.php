@@ -61,7 +61,7 @@ class Show extends Component
     #[Computed]
     public function paymentMethods()
     {
-        return ExtensionHelper::getBillingAgreementGateways($this->invoice->currency_code);
+        return ExtensionHelper::getBillingAgreementGateways();
     }
 
     #[Computed]

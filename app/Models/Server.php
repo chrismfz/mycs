@@ -6,8 +6,8 @@ class Server extends Extension
 {
     protected $table = 'extensions';
 
-    public function newQuery($excludeDeleted = true)
+    public function newQuery()
     {
-        return parent::newQuery($excludeDeleted)->where('type', 'server');
+        return parent::newQuery()->where('type', 'server');
     }
 }

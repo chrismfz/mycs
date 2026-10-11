@@ -177,7 +177,7 @@ class ServiceResource extends Resource
                                 } else {
                                     Notification::make('Subscription Not Cancelled')
                                         ->title('The subscription could not be cancelled')
-                                        ->error()
+                                        ->danger()
                                         ->send();
                                 }
                                 // Update the record to remove the subscription ID
