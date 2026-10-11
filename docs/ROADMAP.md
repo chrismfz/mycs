@@ -51,9 +51,11 @@
 - [x] Ελληνικά στο client area: `lang/el` (όλα τα αρχεία), `lang/el.json` για τα 53 μηνύματα (toasts κ.λπ.) που ήταν hardcoded,
       ξεχωριστή γλώσσα για το admin (`Admin Language`, default English), γλωσσάρι `docs/glossary-el.md` και test
       που δεν αφήνει κλειδί/μήνυμα χωρίς ελληνικά (2026-10-11). Μένουν τα templates των emails (Φάση 1).
-- [ ] **Μενού admin «σαν WHMCS»:** να δούμε αν το [Topbar Menu](https://filamentphp.com/plugins/vaslv-topbar-menu)
-      (Andrei Vasilev) δίνει μενού πάνω (γνώριμο από το WHMCS) **και** το δικό μας αριστερά· το Filament έχει είτε
-      sidebar είτε top navigation, όχι και τα δύο. Έλεγχος: άδεια, συντήρηση, συμβατότητα με Filament 5.
+- [x] **Μενού admin «σαν WHMCS»:** δικό μας top menu (Clients/Orders/Billing/Support/Utilities/Setup) πάνω, το
+      sidebar μένει· ίδια permissions. Το Topbar Menu (vaslv) απορρίφθηκε: links στη βάση, χωρίς permissions
+      (`docs/admin-ux.md`, 2026-10-11).
+- [ ] **Dashboard «σαν WHMCS»:** μετρητές (Pending Orders, Tickets Waiting, Pending Cancellations, Pending Module
+      Actions), Billing, Income Forecast, Upcoming Renewals (`docs/admin-ux.md`).
 - [x] `deploy/update.sh` (από το Ekdosi): ενημέρωση με snapshot/maintenance/queue drain/migrate/build (2026-10-11).
       Χωρίς `deploy/rollback.sh` (απόφαση 2026-10-11: προσεκτικές ενημερώσεις + το snapshot του `update.sh`·
       χειροκίνητη επαναφορά στο `docs/install.md`).

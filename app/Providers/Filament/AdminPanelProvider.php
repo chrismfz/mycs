@@ -76,6 +76,11 @@ class AdminPanelProvider extends PanelProvider
                     }),
             ])
             ->discoverWidgets(in: app_path('Admin/Widgets'), for: 'App\\Admin\\Widgets')
+            // WHMCS-like menu next to the logo; the sidebar stays (docs/admin-ux.md).
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_LOGO_AFTER,
+                fn (): string => view('filament.admin.top-menu')->render(),
+            )
             ->renderHook(
                 PanelsRenderHook::SIDEBAR_NAV_END,
                 fn (): string => Blade::render('<x-admin-footer />'),
