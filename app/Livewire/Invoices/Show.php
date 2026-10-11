@@ -101,6 +101,9 @@ class Show extends Component
         }
 
         if ($this->selectedMethod === 'credit') {
+            if (!config('settings.credits_enabled')) {
+                return $this->notify(__('Paying with credits is currently disabled.'), 'error');
+            }
             if ($this->invoice->items->contains(fn ($item) => $item->reference_type === Credit::class)) {
                 return $this->notify(__('This invoice cannot be paid with credits.'), 'error');
             }

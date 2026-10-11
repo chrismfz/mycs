@@ -68,6 +68,7 @@ class ShowCredits extends ManageRelatedRecords
                 TextColumn::make('formattedAmount')->label('Formatted Amount'),
                 TextInputColumn::make('amount')
                     ->label('Amount')
+                    ->rules(['numeric', 'min:0'])
                     ->disabled(fn () => !auth()->user()->hasPermission('admin.credits.update')),
             ])
             ->filters([])

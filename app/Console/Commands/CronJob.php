@@ -259,7 +259,8 @@ class CronJob extends Command
 
     private function payInvoiceWithCredits(Invoice $invoice): void
     {
-        if (!config('settings.credits_auto_use', true)) {
+        // Credits switched off: the balance is never spent automatically either.
+        if (!config('settings.credits_enabled') || !config('settings.credits_auto_use', true)) {
             return;
         }
         $user = $invoice->user;

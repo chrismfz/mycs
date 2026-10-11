@@ -14,8 +14,6 @@
 | 1266 | Upgrade «κολλάει» όσο το τιμολόγιο αναβάθμισης είναι απλήρωτο, και δεν ακυρώνεται | Μέσα στη δουλειά για upgrade και αλλαγή κύκλου: ακύρωση ή λήξη εκκρεμών upgrades |
 | 1224 | PayPal: το subscription webhook πληρώνει το `$service->invoices()->latest()` (`PayPal.php:341` περίπου), όχι συγκεκριμένο τιμολόγιο | Ανανέωση δεμένη με τιμολόγιο (`decisions.md` §5). Δεν επιβεβαιώθηκε |
 | 1260 | Το τιμολόγιο μένει pending αν το Stripe webhook δεν φτάσει | Fallback: επιβεβαίωση του PaymentIntent κατά την επιστροφή του πελάτη |
-| 1295 (PR) | Οι πιστώσεις χρησιμοποιούνται στο checkout ακόμα κι όταν `credits_enabled` = off | Cherry-pick **μόνο** του enforcement και του guard για αρνητική πίστωση από admin |
-| 1338 (PR) | Το captcha reset hook σπάει σελίδες χωρίς captcha | Cherry-pick (μικρό) |
 | 1119 | PDF: «Bill to» και «Issued to» δείχνουν και τα δύο τον πελάτη | Μάλλον άνευ σημασίας, αφού το νόμιμο παραστατικό το εκδίδει το Ekdosi. Δεν επιβεβαιώθηκε |
 | 1263 (merged 10/7) | Immutable invoices, credit/debit notes | **Πολύ νέο** κομμάτι. Review απέναντι στο bridge προς Ekdosi και στην αρίθμηση μετά το 32453 |
 | 2b46478 | Laravel 13, τρεις ημέρες πριν το fork | Πλήρη regression tests· προσοχή σε ασυμβατότητες Filament/Livewire |
@@ -31,6 +29,10 @@
   αντιστοίχιση είναι συμπέρασμα.
 - **GHSA-7wwh** (SSRF στο PayPal IPN): 8961efa.
 - #1341/1342, #1271, #1207, #1332, #1313/1315 (`suspend_hold_until`).
+- **Cherry-picks (2026-10-11):** #1338 (captcha reset hook) αυτούσιο· από το #1295 **μόνο** το guard για αρνητικό
+  υπόλοιπο (734058c) και το enforcement του `credits_enabled` (σελίδα τιμολογίου). Προσθέσαμε και το cron
+  (`credits_auto_use` αγνοούσε το `credits_enabled`). **Δεν** πήραμε το «cap at max credit»: χάνει χρήματα του πελάτη
+  σιωπηλά (top-up ή διαφορά downgrade πάνω από το όριο) και με κενό όριο μηδενίζει το ποσό.
 
 ## Τα αντικαθιστούμε με δικά μας (ALREADY OURS)
 | Issues | Τι | Δικό μας |

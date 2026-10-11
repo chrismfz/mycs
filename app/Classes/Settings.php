@@ -506,6 +506,7 @@ class Settings
                     'type' => 'checkbox',
                     'database_type' => 'boolean',
                     'default' => false,
+                    'description' => 'Off: customers can neither add nor spend credit, and it is never used automatically. On: customers add funds and pay with credit; with "Automatically use credits" also on, due invoices are paid from the balance.',
                 ],
                 [
                     'name' => 'credits_minimum_deposit',

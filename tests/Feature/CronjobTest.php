@@ -65,7 +65,7 @@ class CronjobTest extends TestCase
 
         // Set config cronjob_invoice
         // This is the number of days before the due date to send an invoice
-        config(['settings.cronjob_invoice' => 7]);
+        config(['settings.cronjob_invoice' => 7, 'settings.credits_enabled' => true]);
 
         $product = $this->createProduct();
 
