@@ -105,3 +105,9 @@ Tests για κάθε συνδυασμό.
 Το upload extension (zip) από το admin αφαιρέθηκε: ανέβαζε PHP που έτρεχε αμέσως στον server (`audit-security.md` H1).
 Τα extensions μας είναι δικός μας κώδικας, άρα μπαίνουν όπως ο υπόλοιπος: commit στο repo, review, `deploy/update.sh`.
 Η σελίδα «Available Extensions» μένει για εγκατάσταση όσων βρίσκονται ήδη στο `extensions/`.
+
+## Ενημερώσεις μόνο με script, όχι μέσα από την εφαρμογή (2026-10-11)
+Δεν υπάρχει updater στο admin. Στο Ekdosi το «by the book» self-update (δικαιώματα αρχείων, composer/npm από τον
+χρήστη του web server, maintenance, αποτυχίες στη μέση) κόστισε πολύ για λίγο όφελος, και ένα κουμπί στο web που
+τρέχει git/composer έχει τα ίδια ρίσκα με έναν web installer. Ενημέρωση: `deploy/update.sh` από ssh (snapshot βάσης
+πριν, χειροκίνητη επαναφορά στο `install.md`). Ούτε `rollback.sh`: προσεκτικές ενημερώσεις + backup.
