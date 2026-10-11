@@ -1,0 +1,22 @@
+{
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "node vite.js dev",
+        "build": "node vite.js",
+        "dev:admin": "npx tailwindcss --input ./resources/css/filament/admin/theme.css --output ./public/css/filament/admin/theme.css --config ./resources/css/filament/admin/tailwind.config.js --watch",
+        "build:admin": "npx tailwindcss --input ./resources/css/filament/admin/theme.css --output ./public/css/filament/admin/theme.css --config ./resources/css/filament/admin/tailwind.config.js --minify"
+    },
+    "devDependencies": {
+        "@tailwindcss/forms": "^0.5.10",
+        "@tailwindcss/typography": "^0.5.16",
+        "@tailwindcss/vite": "^4.1.11",
+        "easymde": "^2.20.0",
+        "laravel-vite-plugin": "^3.1",
+        "tailwindcss": "^4.1.11",
+        "vite": "^8.0"
+    },
+    "dependencies": {
+        "@alpinejs/anchor": "^3.15.3"
+    }
+}
