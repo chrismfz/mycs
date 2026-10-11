@@ -47,6 +47,11 @@
      δεν έχει (`ApiResource.php:52`, `Middleware/Api/AdminApi.php`).
    - Το `users.update` αλλάζει password/email άλλων admins.
    - **Fork:** όριο στο role αυτού που δημιουργεί το key, και προστασία των λογαριασμών admin.
+   - **Διορθώθηκε (2026-10-11)** με το `App\Classes\PermissionGuard`. Βρέθηκαν και άλλοι δρόμοι του ίδιου είδους:
+     όποιος έχει `roles.update` έδινε σε ρόλο (και στον εαυτό του) `*`, και το impersonation δεν κοίταζε ποιον
+     υποδύεσαι. Τώρα: δικαιώματα ρόλου/API key μόνο αν τα έχεις· ανάθεση ρόλου μόνο αν τον «καλύπτεις»· update/delete/
+     impersonation άλλου admin μόνο αν έχεις όλα τα δικαιώματά του· ένα API key ζει με τα δικαιώματα του δημιουργού
+     του τη στιγμή του request (τα παλιά keys χωρίς δημιουργό μένουν ως έχουν).
 6. **Κωδικοί servers χωρίς κρυπτογράφηση:** cPanel, Plesk, Convoy, Enhance, Virtualizor (π.χ. `CPanel.php:57`).
    Των DirectAdmin, Pterodactyl και Virtfusion είναι κρυπτογραφημένοι.
    **Fork:** `encrypted` cast σε όλους.

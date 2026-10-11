@@ -19,6 +19,8 @@ class ManageApis extends ManageRecords
                 $token = 'PAYM' . bin2hex(random_bytes(32));
                 $data['token'] = hash('sha256', $token);
                 $data['type'] = 'admin';
+                // The key never outlives or outranks the admin who made it (see AdminApi).
+                $data['user_id'] = auth()->id();
 
                 Notification::make()
                     ->title('API Token Created')
