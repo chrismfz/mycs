@@ -57,7 +57,9 @@
   optimize, smoke check. Στο devbox το `.env` έχει `DEPLOY_COMPOSER_DEV=1`, για να μένουν tests/Pint. Δοκιμασμένο 2026-10-11 (10d69f0 → d56adcc).
 - **Πρόσβαση στο repo (private από 2026-10-11):** ο `mycs` κάνει fetch μέσω `gh` (`gh auth setup-git`, token στο
   `~/.config/gh/hosts.yml`, 600). Αν λήξει το token: `su - mycs -c 'gh auth login'` και ξανά `gh auth setup-git`.
-- **CI (GitHub Actions):** σε κάθε PR τρέχουν `Test` (sqlite + MariaDB 10.11, PHP 8.4) και `Lint` (`pint --test`).
+- **CI (GitHub Actions):** σε κάθε PR τρέχουν `Test` (sqlite + MariaDB 10.11, PHP 8.4) και `Lint` (`pint --test` και
+  `phpstan analyse`). Το phpstan έχει baseline (`phpstan-baseline.neon`) με τα σφάλματα του upstream: νέο σφάλμα σπάει το
+  CI. Τοπικά: `vendor/bin/phpstan analyse --memory-limit=2G`· μετά από καθάρισμα, `--generate-baseline`.
   Τα tests τρέχουν και στο devbox (παραπάνω).
 - `.git/info/exclude` κρύβει τα αρχεία του home (`.db-credentials`, `.config/`, `.bash*`, caches).
 - **Admin:** ο πρώτος λογαριασμός δημιουργήθηκε (`app:user:create`, 2026-10-11).

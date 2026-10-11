@@ -83,7 +83,7 @@ final class Renderer
             $tokens[] = ['tag' => $isTag, 'src' => $part, 'line' => $line];
             $line += substr_count($part, "\n");
         }
-        $this->trimStandaloneTags($tokens);
+        $tokens = $this->trimStandaloneTags($tokens);
 
         // Frames of open blocks, innermost last; each collects its own children.
         $frames = [['kind' => 'root', 'nodes' => []]];
@@ -155,7 +155,7 @@ final class Renderer
         return $open['nodes'];
     }
 
-    /** @param  list<array<string, mixed>>  $frames */
+    /** @param  array<array-key, array<mixed>>  $frames */
     private function append(array &$frames, array $node): void
     {
         $top = array_key_last($frames);
@@ -163,6 +163,7 @@ final class Renderer
             'root' => 'nodes',
             'for' => 'body',
             'if' => $frames[$top]['branch'],
+            default => throw new \LogicException('Unknown frame kind'),
         };
         $frames[$top][$list][] = $node;
     }
@@ -170,25 +171,34 @@ final class Renderer
     /**
      * A {% tag %} that is the only thing on its line removes that line (indent + newline).
      *
-     * @param  list<array{tag: bool, src: string, line: int}>  $tokens
+     * @param  array<int, array{tag: bool, src: string, line: int}>  $tokens
+     * @return array<int, array{tag: bool, src: string, line: int}>
      */
-    private function trimStandaloneTags(array &$tokens): void
+    private function trimStandaloneTags(array $tokens): array
     {
-        $count = count($tokens);
+        $src = array_column($tokens, 'src');
+        $count = count($src);
         for ($i = 1; $i < $count; $i += 2) {
-            if (!str_starts_with($tokens[$i]['src'], '{%')) {
+            if (!str_starts_with($src[$i], '{%')) {
                 continue;
             }
-            $before = $tokens[$i - 1]['src'];
-            $after = $tokens[$i + 1]['src'] ?? '';
+            $before = $src[$i - 1];
+            $after = $src[$i + 1] ?? '';
             // An empty text token between two tags means another tag shares the line.
             $startsLine = ($before !== '' || $i === 1) && preg_match('/(^|\n)[ \t]*$/', $before) === 1;
             $endsLine = ($after !== '' || $i + 1 >= $count - 1) && preg_match('/^[ \t]*(\r?\n|$)/', $after) === 1;
             if ($startsLine && $endsLine) {
-                $tokens[$i - 1]['src'] = preg_replace('/[ \t]*$/', '', $before);
-                $tokens[$i + 1]['src'] = preg_replace('/^[ \t]*(\r?\n)?/', '', $after, 1);
+                $src[$i - 1] = (string) preg_replace('/[ \t]*$/', '', $before);
+                if (isset($src[$i + 1])) {
+                    $src[$i + 1] = (string) preg_replace('/^[ \t]*(\r?\n)?/', '', $after, 1);
+                }
             }
         }
+        foreach ($tokens as $k => $token) {
+            $tokens[$k]['src'] = $src[$k];
+        }
+
+        return $tokens;
     }
 
     private function expectEmpty(string $rest, string $tag, int $at): void
@@ -322,6 +332,7 @@ final class Renderer
                 'out' => $this->renderOutput($node, $scopes, $escape),
                 'if' => $this->renderNodes($this->test($node['cond'], $scopes) ? $node['then'] : $node['else'], $scopes, $escape),
                 'for' => $this->renderLoop($node, $scopes, $escape),
+                default => throw new \LogicException('Unknown node type'),
             };
         }
 

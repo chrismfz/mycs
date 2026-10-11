@@ -2,9 +2,9 @@
 
 namespace App\Models;
 
+use App\Models\Traits\HasProperties;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 
-use App\Models\Traits\HasProperties;
 use App\Observers\UserObserver;
 use Dedoc\Scramble\Attributes\SchemaName;
 use Filament\Models\Contracts\FilamentUser;
@@ -13,6 +13,7 @@ use Filament\Panel;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Passport\Contracts\OAuthenticatable;
@@ -136,7 +137,8 @@ class User extends Authenticatable implements Auditable, FilamentUser, HasAvatar
      * Get the role that the user belongs to.
      * Can be null if the user is a normal user (non-admin).
      */
-    public function role()
+    /** @return BelongsTo<Role, $this> */
+    public function role(): BelongsTo
     {
         return $this->belongsTo(Role::class);
     }

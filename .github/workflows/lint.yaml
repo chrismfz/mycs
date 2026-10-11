@@ -37,3 +37,6 @@ jobs:
 
       - name: Pint (check only)
         run: vendor/bin/pint --test
+
+      - name: PHPStan (new errors only, see phpstan-baseline.neon)
+        run: vendor/bin/phpstan analyse --no-progress --memory-limit=2G
