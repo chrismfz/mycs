@@ -28,7 +28,7 @@
 | Ekdosi (κώδικας) | `chrismfz/ekdosi` (Laravel 13, Filament 5) | πηγή για port· καμία αλλαγή χωρίς λόγο |
 | Ekdosi (εφαρμογή) | rigel, `/home/myipgr/invoicer/ekdosi` | παραγωγή |
 | Blesta staging (παλιό) | `cs.nixpal.com` | δεν το αγγίζουμε |
-| **Devbox MyCS** | VM `devbox` (84.54.49.31, ίδιο με το dev του Ekdosi)· gsc-mcp `ssh_run` host `devbox` | δοκιμές και η πρώτη εγκατάσταση· τρέχει και το dev του Ekdosi, προσοχή στα κοινά (MariaDB, php-fpm, cron) |
+| **Devbox MyCS** (εγκατεστημένο, https://mycs.myip.gr) | VM `devbox` (84.54.49.31, ίδιο με το dev του Ekdosi)· gsc-mcp `ssh_run` host `devbox` | δοκιμές και η πρώτη εγκατάσταση· τρέχει και το dev του Ekdosi, προσοχή στα κοινά (MariaDB, php-fpm, cron) |
 | **DNS δοκιμών** | `mycs.myip.gr` και `*.mycs.myip.gr` → A 84.54.49.31 (TTL 600, στη ζώνη myip.gr, 2026-10-11) | ελεύθερη χρήση για δοκιμές (π.χ. `test.mycs.myip.gr`, ένα subdomain ανά σενάριο/instance) |
 | Staging MyCS (μετά) | ό,τι αποφασιστεί (π.χ. `mycs.nixpal.com`) | δεν έχει στηθεί |
 
@@ -44,9 +44,17 @@
 - **MariaDB:** βάση `mycs` (utf8mb4_unicode_ci), χρήστης `mycs`@`localhost` με δικαιώματα μόνο στη `mycs`. Τα
   στοιχεία (`DB_*`) είναι στο `/var/www/mycs/.db-credentials` (600, owner `mycs`), για να μπουν στο `.env`.
 - Όλα τα PHP extensions που ζητάει το `composer.lock` υπάρχουν.
-- **Δεν έχουν γίνει ακόμα:** κώδικας (το `/var/www/mycs` δεν είναι άδειο: `public/index.html` placeholder και
-  `.db-credentials`, άρα `git init` + `git fetch` + `git checkout -f` αντί για `git clone`), `.env`, migrate, cron
-  `schedule:run` και queue worker (systemd, όπως το `ekdosi-queue.service`).
+- **Εγκατάσταση (2026-10-11):** κώδικας από το `main` (`git fetch` ανώνυμα μέσω HTTPS· ο `mycs` έχει και `gh auth`,
+  token στο `~/.config/gh/hosts.yml`, 600), `composer install`, `npm ci && npm run build`, `.env` (600) με `APP_URL=https://mycs.myip.gr`,
+  `APP_TIMEZONE=Europe/Athens`, `CACHE_STORE=file`, `SESSION_DRIVER=file`, `QUEUE_CONNECTION=database` (χωρίς Redis,
+  όπως το Ekdosi), `migrate --seed`, `storage:link`, `app:init`.
+- **Cron:** `* * * * * php artisan schedule:run` (crontab του `mycs`). **Queue:** `mycs-queue.service` (systemd, όπως
+  το `ekdosi-queue.service`).
+- **Tests:** βάση `mycs_test` (ίδιος χρήστης)· `set -a; . ./.db-credentials; DB_DATABASE=mycs_test; set +a; php artisan test`
+  → 66 passed· `vendor/bin/pint --test` → καθαρό (2026-10-11, μετά το PR #2).
+- **Ενημέρωση:** `su - mycs`, `cd /var/www/mycs && git pull && composer install && npm ci && npm run build && php artisan migrate --force`.
+- `.git/info/exclude` κρύβει τα αρχεία του home (`.db-credentials`, `.config/`, `.bash*`, caches).
+- **Δεν έχει γίνει:** πρώτος admin (`php artisan app:user:create`, με δικό σου κωδικό), mail (SMTP).
 
 Λεπτομέρειες (servers, crons, μεγέθη, inventory του WHMCS): `history/blesta-modules/HANDOFF.md` §1, §4.
 
