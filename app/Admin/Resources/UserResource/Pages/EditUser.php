@@ -4,6 +4,7 @@ namespace App\Admin\Resources\UserResource\Pages;
 
 use App\Admin\Actions\AuditAction;
 use App\Admin\Resources\UserResource;
+use App\Classes\PermissionGuard;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
@@ -25,7 +26,7 @@ class EditUser extends EditRecord
 
                     $this->redirect('/dashboard');
                 })
-                ->hidden(fn ($record) => !Auth::user()->hasPermission('admin.users.impersonate') || Auth::user()->id == $record->id),
+                ->hidden(fn ($record) => !Auth::user()->hasPermission('admin.users.impersonate') || Auth::user()->id == $record->id || !PermissionGuard::outranks(Auth::user(), $record)),
             AuditAction::make()->auditChildren([
                 'invoices',
                 'services',

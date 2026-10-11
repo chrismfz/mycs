@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware\Api;
 
+use App\Classes\PermissionGuard;
 use App\Models\ApiKey;
 use Closure;
 use Illuminate\Http\Request;
@@ -37,7 +38,12 @@ class AdminApi
 
         // Attach the token to the request for further use
         $request->attributes->set('api_key', $token);
-        $request->attributes->set('api_key_permissions', $token->permissions);
+        // A key made by an admin never does more than that admin can do today.
+        $permissions = $token->permissions ?? [];
+        if ($token->user_id !== null) {
+            $permissions = array_values(array_filter($permissions, fn (string $p) => PermissionGuard::canGrantApi($token->user, $p)));
+        }
+        $request->attributes->set('api_key_permissions', $permissions);
 
         return $next($request);
     }

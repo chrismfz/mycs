@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Classes\PermissionGuard;
 use App\Models\User;
 use Closure;
 use Illuminate\Http\Request;
@@ -31,7 +32,7 @@ class ImpersonateMiddleware
                 }
 
                 $targetUser = User::find(session('impersonating'));
-                if (!$targetUser) {
+                if (!$targetUser || !PermissionGuard::outranks($adminUser, $targetUser)) {
                     session()->forget('impersonating');
 
                     return $next($request);

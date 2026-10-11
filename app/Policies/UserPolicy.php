@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Classes\PermissionGuard;
 use App\Models\User;
 
 class UserPolicy
@@ -35,7 +36,8 @@ class UserPolicy
      */
     public function update(User $user, User $model): bool
     {
-        return $user->hasPermission('admin.users.update');
+        // Another admin's account (password, email, role) only if you hold all of their permissions.
+        return $user->hasPermission('admin.users.update') && PermissionGuard::outranks($user, $model);
     }
 
     /**
@@ -43,7 +45,7 @@ class UserPolicy
      */
     public function delete(User $user, User $model): bool
     {
-        return $user->hasPermission('admin.users.delete');
+        return $user->hasPermission('admin.users.delete') && PermissionGuard::outranks($user, $model);
     }
 
     /**

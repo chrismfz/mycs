@@ -5,6 +5,7 @@ namespace App\Admin\Resources;
 use App\Admin\Resources\RoleResource\Pages\CreateRole;
 use App\Admin\Resources\RoleResource\Pages\EditRole;
 use App\Admin\Resources\RoleResource\Pages\ListRoles;
+use App\Classes\PermissionGuard;
 use App\Models\Role;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\CheckboxList;
@@ -46,7 +47,13 @@ class RoleResource extends Resource
                     ->columns(4)
                     ->bulkToggleable()
                     ->searchable()
-                    ->noSearchResultsMessage('Permission could not be found')->columnSpanFull(),
+                    ->noSearchResultsMessage('Permission could not be found')->columnSpanFull()
+                    ->disableOptionWhen(fn (string $value): bool => !PermissionGuard::canGrant(auth()->user(), [$value]))
+                    ->rule(fn () => function (string $attribute, mixed $value, \Closure $fail): void {
+                        if (!PermissionGuard::canGrant(auth()->user(), (array) $value)) {
+                            $fail('You cannot grant permissions you do not have.');
+                        }
+                    }),
             ])->columns(1);
     }
 

@@ -28,4 +28,10 @@ class ApiKey extends Model implements Auditable
     protected $auditExclude = [
         'last_used_at',
     ];
+
+    /** The admin who created the key; its permissions cap the key's (AdminApi). */
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
 }

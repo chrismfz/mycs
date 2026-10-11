@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Classes\PermissionGuard;
 use App\Models\ApiKey;
 use App\Models\User;
 
@@ -36,7 +37,7 @@ class ApiKeyPolicy
      */
     public function update(User $user, ApiKey $api_key): bool
     {
-        return $user->hasPermission('admin.api_keys.update');
+        return $user->hasPermission('admin.api_keys.update') && PermissionGuard::canGrantAllApi($user, $api_key->permissions ?? []);
     }
 
     /**
