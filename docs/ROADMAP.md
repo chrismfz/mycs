@@ -9,7 +9,7 @@
 - [ ] .gr EPP: login/hello/check στο UAT από το devbox, ώστε να κλείσουν τα `[ΕΠΙΒΕΒΑΙΩΣΗ]`
       (`history/blesta-modules/HANDOFF.md` §6). Είναι το μακρύτερο κομμάτι· χωρίς αυτό το myip δεν μεταφέρεται.
 - [x] DNS δοκιμών: `mycs.myip.gr` + `*.mycs.myip.gr` → devbox (2026-10-11).
-- [ ] Πρώτη εγκατάσταση στο devbox (`mycs.myip.gr`), και tests/Pint εκεί (το cloud περιβάλλον δεν κατεβάζει το phpstan).
+- [x] Πρώτη εγκατάσταση στο devbox (`mycs.myip.gr`)· tests (66) και Pint περνάνε εκεί (2026-10-11).
 - [ ] Παρακολούθηση των security advisories του Paymenter (`upstream-triage.md`).
 
 ## Φάση 0: Καθάρισμα και βάσεις (2–3 ημέρες)
