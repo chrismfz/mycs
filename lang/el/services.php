@@ -71,6 +71,10 @@ return [
     'label' => 'Ετικέτα',
     'label_placeholder' => 'Ένα όνομα για να την αναγνωρίζετε',
     'label_modal_title' => 'Ετικέτα υπηρεσίας',
+    // Renewal line on the invoice (stored as text when the invoice is created).
+    'invoice_period' => ':product (:start - :end)',
+    'invoice_period_date_format' => 'd/m/Y',
+
     'update_label' => 'Αποθήκευση',
 
 ];

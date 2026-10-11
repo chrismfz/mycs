@@ -50,11 +50,23 @@ class CronJob extends Command
         try {
             // Send invoices if due date is x days away
             $this->runCronJob('invoices_created', function ($number = 0) {
-                Service::where('status', 'active')->where('expires_at', '<', now()->addDays((int) config('settings.cronjob_invoice', 7)))->get()->each(function ($service) use (&$number) {
+                $billUntil = now()->addDays((int) config('settings.cronjob_invoice', 7));
+                Service::where('status', 'active')->where('expires_at', '<', $billUntil)->get()->each(function ($service) use (&$number, $billUntil) {
                     // Does the service have already a pending invoice?
-                    if ($service->invoices()->where('status', 'pending')->exists() || $service->cancellation()->exists()) {
+                    if ($service->invoices()->whereIn('status', ['pending', 'draft'])->exists() || $service->cancellation()->exists()) {
                         return;
                     }
+
+                    // The next period starts where the live periods that follow the paid-until date end
+                    // (docs/billing-cursor.md): never the same period twice, never across a hole. No
+                    // row lock here: this runs once a day on one server, inside one long transaction,
+                    // and a lock would block payments for the whole run.
+                    $lines = $service->livePeriodLines();
+                    $periodStart = $service->nextPeriodStart($lines);
+                    if ($periodStart->greaterThanOrEqualTo($billUntil)) {
+                        return;
+                    }
+                    $periodEnd = $service->periodEnd($periodStart, $lines);
 
                     // Calculate if we should edit the price because of the coupon
                     if ($service->coupon) {
@@ -69,7 +81,7 @@ class CronJob extends Command
 
                     // If service price is 0, immediately activate next period
                     if ($service->price <= 0) {
-                        (new RenewServiceService)->handle($service);
+                        (new RenewServiceService)->handle($service, lock: false);
                         $number++;
 
                         return;
@@ -79,18 +91,20 @@ class CronJob extends Command
                     $invoice = $service->invoices()->make([
                         'user_id' => $service->user_id,
                         'status' => 'pending',
-                        'due_at' => $service->expires_at,
+                        'due_at' => $periodStart,
                         'currency_code' => $service->currency_code,
                     ]);
 
                     $invoice->save();
-                    // Create invoice items
+                    // Create invoice items: the line records the period it pays for.
                     $invoice->items()->create([
                         'reference_id' => $service->id,
                         'reference_type' => Service::class,
                         'price' => $service->price,
                         'quantity' => $service->quantity,
-                        'description' => $service->description,
+                        'description' => $service->describePeriod($periodStart, $periodEnd),
+                        'period_start' => $periodStart,
+                        'period_end' => $periodEnd,
                     ]);
 
                     $invoice = $invoice->refresh();

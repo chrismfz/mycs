@@ -71,6 +71,10 @@ return [
     'label' => 'Label',
     'label_placeholder' => 'Enter a custom label for this service',
     'label_modal_title' => 'Edit Service Label',
+    // Renewal line on the invoice (stored as text when the invoice is created).
+    'invoice_period' => ':product (:start - :end)',
+    'invoice_period_date_format' => 'M d, Y',
+
     'update_label' => 'Update Label',
 
 ];

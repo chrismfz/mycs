@@ -4,27 +4,109 @@ namespace App\Services\Service;
 
 use App\Jobs\Server\CreateJob;
 use App\Jobs\Server\UnsuspendJob;
+use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\Service;
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
+/**
+ * Renew a service after an invoice line is paid (docs/billing-cursor.md).
+ *
+ * Every paid service line ends up with a period: a line without one (first order, older invoices,
+ * the WHMCS import, an invoice staff made by hand) gets the first period no live invoice covers
+ * yet, from the expiry (decision A), or starting today for a service that never started. The paid-until date
+ * (expires_at) then moves over contiguous PAID periods only: paying the same period twice, an
+ * older invoice after a newer one, or a period staff already extended adds nothing; a period paid
+ * ahead of an unpaid one waits and is picked up once the gap is paid.
+ *
+ * A payment that adds no time changes nothing when it is a duplicate (the period was paid by
+ * another line) or ahead of an unpaid period, so it never unsuspends a service suspended for
+ * another reason. It does activate a service whose date staff already moved over that period
+ * (grace given before the payment arrived). A cancelled service is never revived by a payment:
+ * staff decide (docs/billing-cursor.md, PR 3).
+ */
 class RenewServiceService
 {
     /**
-     * Handle the service renewal.
-     *
-     * @return void
+     * @param  bool  $lock  false only inside the daily cron's long transaction (no row lock held for the whole run)
      */
-    public function handle(Service $service)
+    public function handle(Service $service, ?InvoiceItem $item = null, bool $lock = true): void
+    {
+        DB::transaction(function () use ($service, $item, $lock) {
+            $locked = Service::query()->whereKey($service->getKey())->when($lock, fn ($q) => $q->lockForUpdate())->firstOrFail();
+            // Re-read the line under the service lock: a concurrent payment may have given it its period.
+            $item = $item ? (InvoiceItem::query()->whereKey($item->getKey())->first() ?? $item) : null;
+
+            if ($locked->status === Service::STATUS_CANCELLED) {
+                Log::warning('Payment for a cancelled service: not revived.', ['service_id' => $locked->id, 'invoice_item_id' => $item?->id]);
+
+                return;
+            }
+
+            if ($locked->plan->type == 'one-time' || $locked->plan->type == 'free') {
+                $this->activate($locked, null);
+                $service->setRawAttributes($locked->getAttributes(), true);
+
+                return;
+            }
+
+            $current = $locked->expires_at ? CarbonImmutable::parse($locked->expires_at)->startOfDay() : null;
+            $lines = $locked->livePeriodLines();
+
+            if ($item === null) {
+                // Free renewal from the cron: one period from what is paid.
+                $start = $locked->paidThrough($current ?? CarbonImmutable::today(), lines: $lines);
+                $this->activate($locked, $locked->periodEnd($start, $lines));
+                $service->setRawAttributes($locked->getAttributes(), true);
+
+                return;
+            }
+
+            if ($item->period_start === null || $item->period_end === null) {
+                // The first period no live invoice covers yet, so two payments always buy two periods,
+                // in whatever order they arrive.
+                $start = $current === null ? CarbonImmutable::today() : $locked->nextPeriodStart($lines);
+                $item->forceFill(['period_start' => $start, 'period_end' => $locked->periodEnd($start, $lines)])->save();
+                $lines = $locked->livePeriodLines();
+            }
+
+            $paidUntil = $locked->paidThrough($current ?? $item->period_start, lines: $lines);
+
+            if ($current !== null && !$paidUntil->greaterThan($current) && $locked->status !== Service::STATUS_PENDING
+                && ($item->period_start->greaterThan($current) || $this->paidByAnotherLine($item, $lines))) {
+                return; // duplicate, or ahead of an unpaid period: nothing new is paid
+            }
+
+            $this->activate($locked, $paidUntil); // never earlier than $current: the chain starts there
+            $service->setRawAttributes($locked->getAttributes(), true);
+        });
+    }
+
+    private function activate(Service $service, ?CarbonImmutable $paidUntil): void
     {
         if ($service->product->server) {
+            // Dispatched after commit: the worker sees the renewed service, and nothing runs on a rollback.
             if ($service->status == Service::STATUS_SUSPENDED) {
-                UnsuspendJob::dispatch($service);
+                UnsuspendJob::dispatch($service)->afterCommit();
             } elseif ($service->status == Service::STATUS_PENDING) {
-                CreateJob::dispatch($service);
+                CreateJob::dispatch($service)->afterCommit();
             }
         }
 
-        $service->expires_at = $service->calculateNextDueDate();
+        $service->expires_at = $paidUntil?->toMutable();
         $service->status = Service::STATUS_ACTIVE;
         $service->save();
+    }
+
+    /** @param  Collection<int, InvoiceItem>  $lines */
+    private function paidByAnotherLine(InvoiceItem $item, Collection $lines): bool
+    {
+        return $lines->contains(fn (InvoiceItem $line) => $line->id !== $item->id
+            && $line->invoice?->status === Invoice::STATUS_PAID
+            && $line->period_start->lessThanOrEqualTo($item->period_start)
+            && $line->period_end->greaterThanOrEqualTo($item->period_end));
     }
 }

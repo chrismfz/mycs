@@ -30,10 +30,14 @@ class InvoiceItem extends Model implements Auditable
         'gateway_id',
         'reference_id',
         'reference_type',
+        'period_start',
+        'period_end',
     ];
 
     protected $casts = [
         'price' => 'decimal:2',
+        'period_start' => 'immutable_date',
+        'period_end' => 'immutable_date',
     ];
 
     /** @return BelongsTo<Invoice, $this> */
