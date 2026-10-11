@@ -74,7 +74,7 @@ class RenewServiceService
                     $current === null => CarbonImmutable::today(),
                     // The order's own invoice, after staff already started the service by hand: its
                     // period is the first one (from the order), not one more after it.
-                    $this->isFirstOrderLine($locked, $item, $lines) => CarbonImmutable::parse($locked->created_at ?? $current)->startOfDay(),
+                    $this->isFirstOrderLine($locked, $item, $lines, $current) => CarbonImmutable::parse($locked->created_at ?? $current)->startOfDay(),
                     default => $locked->nextPeriodStart($lines),
                 };
                 $end = $locked->periodEnd($start, $lines);
@@ -121,14 +121,20 @@ class RenewServiceService
     }
 
     /**
-     * The service's first invoice line, on a service never billed by period yet.
+     * The order's own line on a service staff started by hand: the service's first invoice line, never
+     * billed by period, and staff already gave it (at least) its whole first period from the order.
      *
      * @param  Collection<int, InvoiceItem>  $lines
      */
-    private function isFirstOrderLine(Service $service, InvoiceItem $item, Collection $lines): bool
+    private function isFirstOrderLine(Service $service, InvoiceItem $item, Collection $lines, CarbonImmutable $current): bool
     {
-        return $lines->isEmpty()
-            && (int) $service->invoiceItems()->min('invoice_id') === (int) $item->invoice_id;
+        if ($lines->isNotEmpty() || $service->created_at === null
+            || (int) $service->invoiceItems()->min('invoice_id') !== (int) $item->invoice_id) {
+            return false;
+        }
+        $firstEnd = $service->periodEnd(CarbonImmutable::parse($service->created_at)->startOfDay(), $lines);
+
+        return $firstEnd !== null && $current->greaterThanOrEqualTo($firstEnd);
     }
 
     /** @param  Collection<int, InvoiceItem>  $lines */
