@@ -295,16 +295,27 @@ class Service extends Model implements Auditable
     }
 
     /**
-     * Apply explicit staff changes on the same row lock as payment and billing.
+     * Apply explicit staff changes on the same row lock as payment and billing. Only the fields that
+     * differ from this model as the caller loaded it (the admin form when it opened, the API record)
+     * are written: a payment, the cron or an upgrade may have changed the row since, and a form that
+     * sends back every field must not revert them. Suspending (a real status change) is a manual
+     * hold: a later payment does not lift it.
      *
      * @param  array<string, mixed>  $attributes
      */
     public function applyStaffChanges(array $attributes): void
     {
-        DB::transaction(function () use ($attributes) {
+        $probe = clone $this;
+        $probe->fill($attributes);
+        $changes = $probe->getDirty();
+        if ($changes === []) {
+            return;
+        }
+
+        DB::transaction(function () use ($changes) {
             $locked = self::query()->whereKey($this->getKey())->lockForUpdate()->firstOrFail();
-            $locked->fill($attributes);
-            if (($attributes['status'] ?? null) === self::STATUS_SUSPENDED) {
+            $locked->forceFill($changes);
+            if (($changes['status'] ?? null) === self::STATUS_SUSPENDED) {
                 $locked->dunning_suspended_at = null;
             }
             $locked->save();
@@ -404,7 +415,7 @@ class Service extends Model implements Auditable
         $cursor = $this->coupon_started_at;
         $target = CarbonImmutable::instance($periodStart)->startOfDay();
 
-        for ($cycle = 1; $cursor->lessThan($target); $cycle++) {
+        for ($cycle = 1; $cycle < 1200 && $cursor->lessThan($target); $cycle++) {
             $cursor = $this->periodEnd($cursor, $lines);
             if ($cursor === null) {
                 return $cycle;

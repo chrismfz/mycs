@@ -31,7 +31,10 @@ class ServiceObserver
             $service->dunning_suspended_at = null;
         }
         if ($service->isDirty('coupon_id')) {
-            $service->coupon_started_at = $service->coupon_id ? CarbonImmutable::today() : null;
+            // Cycles count from a period boundary: the first period not billed yet on a started service;
+            // a pending one starts counting when it is activated.
+            $started = $service->expires_at !== null && $service->status !== Service::STATUS_PENDING;
+            $service->coupon_started_at = $service->coupon_id && $started ? $service->nextPeriodStart() : null;
             $service->coupon_expired_at = null;
         }
         if ($service->coupon_id && $service->coupon_started_at === null

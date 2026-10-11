@@ -23,10 +23,7 @@ class EditService extends EditRecord
     protected function handleRecordUpdate(Model $record, array $data): Model
     {
         /** @var Service $record */
-        // Saving unrelated form fields is not an explicit request to change suspension policy.
-        if (($data['status'] ?? null) === $record->status) {
-            unset($data['status']);
-        }
+        // Only what staff changed in the form is written (applyStaffChanges diffs against the record as loaded).
         $record->applyStaffChanges($data);
 
         return $record;
@@ -93,12 +90,17 @@ class EditService extends EditRecord
                                 }
                                 break;
                             case 'suspend':
-                                $record->applyStaffChanges(['status' => Service::STATUS_SUSPENDED]);
+                                // Only active <-> suspended: a pending or cancelled service keeps its status.
+                                if ($record->status === Service::STATUS_ACTIVE) {
+                                    $record->applyStaffChanges(['status' => Service::STATUS_SUSPENDED]);
+                                }
                                 $sdata = ExtensionHelper::suspendServer($record);
                                 break;
                             case 'unsuspend':
                                 $sdata = ExtensionHelper::unsuspendServer($record);
-                                $record->applyStaffChanges(['status' => Service::STATUS_ACTIVE]);
+                                if ($record->status === Service::STATUS_SUSPENDED) {
+                                    $record->applyStaffChanges(['status' => Service::STATUS_ACTIVE]);
+                                }
                                 break;
                             case 'terminate':
                                 $sdata = ExtensionHelper::terminateServer($record);
