@@ -63,6 +63,29 @@ class DomainTransferServiceTest extends TestCase
         return $domain;
     }
 
+    public function test_a_new_contact_sends_a_non_empty_area_code_and_keeps_every_digit(): void
+    {
+        // Live finding (nixpal.com): OP answers 500 «Invalid telephone region code» to an empty area_code.
+        Http::fake([
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains?full_name=moving.eu' => Http::response(['data' => ['results' => []]]),
+            self::SANDBOX . '/v1beta/customers' => Http::response(['data' => ['handle' => 'XX1-GR']]),
+            self::SANDBOX . '/v1beta/domains/transfer' => Http::response(['data' => ['id' => 701, 'status' => 'REQ']]),
+        ]);
+        $domain = $this->pendingTransferDomain(withContact: false);
+        DomainContact::create([
+            'domain_id' => $domain->id, 'type' => 'registrant', 'name' => 'Test Person',
+            'email' => 't@example.test', 'phone' => '+30 6900000001',
+            'address1' => 'Odos 4', 'city' => 'Serres', 'postcode' => '62100', 'country' => 'GR',
+        ]);
+
+        app(DomainTransferService::class)->transferIn($domain, 'SECRET-EPP-123');
+
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/v1beta/customers')
+            && $request['phone'] === ['country_code' => '+30', 'area_code' => '690', 'subscriber_number' => '0000001']);
+        $this->assertSame('XX1-GR', $domain->contacts()->value('registrar_contact_handle'));
+    }
+
     public function test_transfer_in_starts_stays_pending_and_never_logs_the_auth_code(): void
     {
         Http::fake([

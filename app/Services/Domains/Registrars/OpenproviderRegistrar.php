@@ -414,10 +414,13 @@ class OpenproviderRegistrar implements DomainRegistrar
             $phonePayload = null;
             if ($digits !== '') {
                 [$cc, $subscriber] = $this->splitCountryCode($digits);
+                // OP rejects an empty area_code («Invalid telephone region code»);
+                // it only re-joins the parts, so a 3-digit head keeps every digit.
+                $area = strlen($subscriber) > 6 ? substr($subscriber, 0, 3) : '';
                 $phonePayload = [
                     'country_code' => $cc,
-                    'area_code' => '',
-                    'subscriber_number' => $subscriber,
+                    'area_code' => $area,
+                    'subscriber_number' => substr($subscriber, strlen($area)),
                 ];
             }
 
