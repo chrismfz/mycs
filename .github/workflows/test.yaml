@@ -3,7 +3,7 @@ name: Test
 on:
   push:
     branches:
-      - master
+      - main
   pull_request:
 
 permissions:
@@ -14,8 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        php: ['8.3', '8.4']
-    
+        php: ['8.4']
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -62,8 +62,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        php: ['8.3', '8.4']
-        mariadb: ['11', '12']
+        php: ['8.4']
+        mariadb: ['10.11']   # same as the devbox
     
     services:
       mariadb:

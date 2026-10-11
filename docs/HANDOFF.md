@@ -55,6 +55,10 @@
 - **Ενημέρωση:** `su - mycs -c 'cd /var/www/mycs && deploy/update.sh'` (χωρίς `git pull` πριν· το script κάνει fetch/checkout) (το `main`· ή `deploy/update.sh <branch|tag>`).
   Snapshot της βάσης στο `storage/app/db-snapshots/` πριν από κάθε αλλαγή, maintenance mode, queue drain, migrate, build,
   optimize, smoke check. Στο devbox το `.env` έχει `DEPLOY_COMPOSER_DEV=1`, για να μένουν tests/Pint. Δοκιμασμένο 2026-10-11 (10d69f0 → d56adcc).
+- **Πρόσβαση στο repo (private από 2026-10-11):** ο `mycs` κάνει fetch μέσω `gh` (`gh auth setup-git`, token στο
+  `~/.config/gh/hosts.yml`, 600). Αν λήξει το token: `su - mycs -c 'gh auth login'` και ξανά `gh auth setup-git`.
+- **CI (GitHub Actions):** σε κάθε PR τρέχουν `Test` (sqlite + MariaDB 10.11, PHP 8.4) και `Lint` (`pint --test`).
+  Τα tests τρέχουν και στο devbox (παραπάνω).
 - `.git/info/exclude` κρύβει τα αρχεία του home (`.db-credentials`, `.config/`, `.bash*`, caches).
 - **Δεν έχει γίνει:** πρώτος admin (`php artisan app:user:create`, με δικό σου κωδικό), mail (SMTP).
 
