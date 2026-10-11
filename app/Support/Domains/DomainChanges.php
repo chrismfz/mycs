@@ -32,6 +32,6 @@ final class DomainChanges
         return $this->nameservers === null
             && $this->transferLock === null
             && $this->whoisPrivacy === null
-            && ! $this->applyContacts;
+            && !$this->applyContacts;
     }
 }

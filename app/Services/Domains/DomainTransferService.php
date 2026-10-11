@@ -65,7 +65,7 @@ class DomainTransferService
                 // a second charged request. Tombstone/not-found → proceed.
                 try {
                     $probe = $adapter->syncDomain($domain, $credentials);
-                    if (! $probe->deadRecord && $probe->status !== DomainStatus::Deleted) {
+                    if (!$probe->deadRecord && $probe->status !== DomainStatus::Deleted) {
                         $this->sync->apply($domain, $probe);
                         $this->sync->persistHandles($domain, $probe->contactHandles);
 
@@ -78,9 +78,9 @@ class DomainTransferService
                 } catch (DomainNotFoundAtRegistrar) {
                     // not in the account yet — start (or restart) the transfer
                 } catch (\Throwable $e) {
-                    $log(DomainRegistrarLog::STATUS_FAILED, null, 'Έλεγχος λογαριασμού (probe) απέτυχε: '.$e->getMessage());
+                    $log(DomainRegistrarLog::STATUS_FAILED, null, 'Έλεγχος λογαριασμού (probe) απέτυχε: ' . $e->getMessage());
 
-                    throw new RuntimeException("Η μεταφορά του {$domain->fqdn} ΔΕΝ ξεκίνησε — ο έλεγχος του λογαριασμού απέτυχε: ".$e->getMessage());
+                    throw new RuntimeException("Η μεταφορά του {$domain->fqdn} ΔΕΝ ξεκίνησε — ο έλεγχος του λογαριασμού απέτυχε: " . $e->getMessage());
                 }
 
                 try {

@@ -88,15 +88,15 @@ class OpenproviderRegistrar implements DomainRegistrar
     public function checkAvailability(string $fqdn, DomainRegistrarCredentials $credentials): AvailabilityResult
     {
         [$name, $extension] = $this->splitFqdn($fqdn);
-        $fqdn = $name.'.'.$extension; // normalized (lowercased/trimmed)
+        $fqdn = $name . '.' . $extension; // normalized (lowercased/trimmed)
 
         $response = $this->request($credentials, 'POST', '/v1beta/domains/check', [
             'domains' => [['name' => $name, 'extension' => $extension]],
         ]);
 
         $result = $response->json('data.results.0');
-        if (! is_array($result)) {
-            throw new RuntimeException('Το Openprovider δεν επέστρεψε αποτέλεσμα διαθεσιμότητας για το '.$fqdn.'.');
+        if (!is_array($result)) {
+            throw new RuntimeException('Το Openprovider δεν επέστρεψε αποτέλεσμα διαθεσιμότητας για το ' . $fqdn . '.');
         }
 
         $status = (string) ($result['status'] ?? '');
@@ -110,7 +110,7 @@ class OpenproviderRegistrar implements DomainRegistrar
             reason: $status === 'free' ? null : ($reason ?? ($status !== '' ? $status : null)),
             // Any premium payload = a NON-standard price — the register path
             // must refuse rather than charge an unknown amount (§6.1).
-            premium: ! empty($result['premium']) || ! empty($result['is_premium']),
+            premium: !empty($result['premium']) || !empty($result['is_premium']),
         );
     }
 
@@ -134,7 +134,7 @@ class OpenproviderRegistrar implements DomainRegistrar
     public function renew(Domain $domain, int $years, DomainRegistrarCredentials $credentials): DomainSyncResult
     {
         if ($years < 1) {
-            throw new RuntimeException('Μη έγκυρη διάρκεια ανανέωσης: '.$years);
+            throw new RuntimeException('Μη έγκυρη διάρκεια ανανέωσης: ' . $years);
         }
 
         // The service's mandatory pre-check sync just adopted/refreshed the
@@ -142,7 +142,7 @@ class OpenproviderRegistrar implements DomainRegistrar
         // row genuinely lacks one.
         $id = $this->resolveDomainId($domain, $credentials, 'αδύνατη η ανανέωση');
 
-        $this->request($credentials, 'POST', '/v1beta/domains/'.rawurlencode($id).'/renew', [
+        $this->request($credentials, 'POST', '/v1beta/domains/' . rawurlencode($id) . '/renew', [
             'id' => (int) $id,
             'period' => $years,
         ]);
@@ -167,7 +167,7 @@ class OpenproviderRegistrar implements DomainRegistrar
     public function register(Domain $domain, int $years, DomainRegistrarCredentials $credentials): DomainSyncResult
     {
         if ($years < 1) {
-            throw new RuntimeException('Μη έγκυρη διάρκεια καταχώρησης: '.$years);
+            throw new RuntimeException('Μη έγκυρη διάρκεια καταχώρησης: ' . $years);
         }
 
         return $this->createDomainObject($domain, $credentials, '/v1beta/domains', ['period' => $years]);
@@ -200,7 +200,7 @@ class OpenproviderRegistrar implements DomainRegistrar
     {
         $id = $this->resolveDomainId($domain, $credentials, 'αδύνατη η ανάκτηση κωδικού EPP');
 
-        $code = $this->request($credentials, 'GET', '/v1beta/domains/'.rawurlencode($id).'/authcode')->json('data.auth_code');
+        $code = $this->request($credentials, 'GET', '/v1beta/domains/' . rawurlencode($id) . '/authcode')->json('data.auth_code');
 
         return is_string($code) && $code !== '' ? $code : null;
     }
@@ -239,7 +239,7 @@ class OpenproviderRegistrar implements DomainRegistrar
         $handles = [];
         if ($changes->applyContacts) {
             $handles = $this->ensureHandles($domain, $credentials);
-            if (! isset($handles['registrant'])) {
+            if (!isset($handles['registrant'])) {
                 throw new RuntimeException("Το {$domain->fqdn} δεν έχει επαφή registrant — απαιτείται για την ενημέρωση επαφών.");
             }
             $payload['owner_handle'] = $handles['registrant'];
@@ -248,7 +248,7 @@ class OpenproviderRegistrar implements DomainRegistrar
             $payload['billing_handle'] = $handles['billing'] ?? $handles['registrant'];
         }
 
-        $this->request($credentials, 'PUT', '/v1beta/domains/'.rawurlencode($id), $payload);
+        $this->request($credentials, 'PUT', '/v1beta/domains/' . rawurlencode($id), $payload);
 
         $base = $this->refetchAfterWrite($id, $credentials);
 
@@ -276,7 +276,7 @@ class OpenproviderRegistrar implements DomainRegistrar
     {
         $id = $this->resolveDomainId($domain, $credentials, 'αδύνατη η επαναφορά');
 
-        $this->request($credentials, 'POST', '/v1beta/domains/'.rawurlencode($id).'/restore', [
+        $this->request($credentials, 'POST', '/v1beta/domains/' . rawurlencode($id) . '/restore', [
             'id' => (int) $id,
         ]);
 
@@ -297,7 +297,7 @@ class OpenproviderRegistrar implements DomainRegistrar
             $id = isset($data['id']) && (string) $data['id'] !== '' ? (string) $data['id'] : null;
         }
         if ($id === null) {
-            throw new RuntimeException('Το Openprovider δεν επέστρεψε id για το '.$domain->fqdn.' — '.$impossible.'.');
+            throw new RuntimeException('Το Openprovider δεν επέστρεψε id για το ' . $domain->fqdn . ' — ' . $impossible . '.');
         }
 
         return $id;
@@ -311,11 +311,11 @@ class OpenproviderRegistrar implements DomainRegistrar
     private function refetchAfterWrite(string $id, DomainRegistrarCredentials $credentials): DomainSyncResult
     {
         try {
-            $fresh = $this->request($credentials, 'GET', '/v1beta/domains/'.rawurlencode($id))->json('data');
+            $fresh = $this->request($credentials, 'GET', '/v1beta/domains/' . rawurlencode($id))->json('data');
         } catch (\Throwable) {
             return new DomainSyncResult(registrarDomainId: $id);
         }
-        if (! is_array($fresh)) {
+        if (!is_array($fresh)) {
             return new DomainSyncResult(registrarDomainId: $id);
         }
 
@@ -335,7 +335,7 @@ class OpenproviderRegistrar implements DomainRegistrar
         [$name, $extension] = $this->splitFqdn($domain->fqdn);
 
         $handles = $this->ensureHandles($domain, $credentials);
-        if (! isset($handles['registrant'])) {
+        if (!isset($handles['registrant'])) {
             throw new RuntimeException("Το {$domain->fqdn} δεν έχει επαφή registrant — απαιτείται για την ενέργεια στον registrar.");
         }
 
@@ -409,7 +409,7 @@ class OpenproviderRegistrar implements DomainRegistrar
             // (never strip an area code) under the +30 default.
             $digits = str_replace([' ', '-', '(', ')'], '', trim((string) $contact->phone));
             if (str_starts_with($digits, '00')) {
-                $digits = '+'.substr($digits, 2); // 0030… international form
+                $digits = '+' . substr($digits, 2); // 0030… international form
             }
             $phonePayload = null;
             if ($digits !== '') {
@@ -439,7 +439,7 @@ class OpenproviderRegistrar implements DomainRegistrar
             ], fn ($v) => $v !== null);
 
             $handle = $this->request($credentials, 'POST', '/v1beta/customers', $payload)->json('data.handle');
-            if (! is_string($handle) || $handle === '') {
+            if (!is_string($handle) || $handle === '') {
                 throw new RuntimeException("Το Openprovider δεν επέστρεψε handle για την επαφή «{$contact->name}» ({$contact->type}).");
             }
             // Persist IMMEDIATELY — a later register failure must not lose the
@@ -496,17 +496,17 @@ class OpenproviderRegistrar implements DomainRegistrar
             throw new RuntimeException('Κενό TLD για άντληση τιμών.');
         }
 
-        $data = $this->request($credentials, 'GET', '/v1beta/tlds/'.rawurlencode($tld).'?with_price=true')->json('data');
+        $data = $this->request($credentials, 'GET', '/v1beta/tlds/' . rawurlencode($tld) . '?with_price=true')->json('data');
         $prices = is_array($data) && is_array($data['prices'] ?? null) ? $data['prices'] : null;
         if ($prices === null) {
-            throw new RuntimeException('Το Openprovider δεν επέστρεψε τιμές για το .'.$tld.'.');
+            throw new RuntimeException('Το Openprovider δεν επέστρεψε τιμές για το .' . $tld . '.');
         }
 
         $costs = [];
         foreach (self::PRICE_KEYS as $opKey => $operation) {
             $block = $prices[$opKey] ?? null;
             $entry = is_array($block) ? ($block['reseller'] ?? null) : null;
-            if (! is_array($entry) || ! is_numeric($entry['price'] ?? null)) {
+            if (!is_array($entry) || !is_numeric($entry['price'] ?? null)) {
                 continue;
             }
             $currency = is_string($entry['currency'] ?? null) && trim($entry['currency']) !== ''
@@ -528,13 +528,13 @@ class OpenproviderRegistrar implements DomainRegistrar
         $data = $this->request(
             $credentials,
             'GET',
-            '/v1beta/domains?limit='.max(1, $limit).'&offset='.max(0, $offset)
+            '/v1beta/domains?limit=' . max(1, $limit) . '&offset=' . max(0, $offset)
         )->json('data');
 
         $results = is_array($data) && is_array($data['results'] ?? null) ? $data['results'] : [];
         $records = [];
         foreach ($results as $result) {
-            if (! is_array($result)) {
+            if (!is_array($result)) {
                 continue;
             }
             $record = $this->mapDomainRecord($result);
@@ -554,19 +554,19 @@ class OpenproviderRegistrar implements DomainRegistrar
      */
     public function getContact(string $handle, DomainRegistrarCredentials $credentials): ?RegistrarContact
     {
-        $response = $this->request($credentials, 'GET', '/v1beta/customers/'.rawurlencode($handle), tolerateStatus: 404);
+        $response = $this->request($credentials, 'GET', '/v1beta/customers/' . rawurlencode($handle), tolerateStatus: 404);
         if ($response->status() === 404) {
             return null; // unknown/foreign handle — not an error, just no assign-aid
         }
 
         $data = $response->json('data');
-        if (! is_array($data)) {
+        if (!is_array($data)) {
             return null;
         }
 
         $first = is_array($data['name'] ?? null) ? trim((string) ($data['name']['first_name'] ?? '')) : '';
         $last = is_array($data['name'] ?? null) ? trim((string) ($data['name']['last_name'] ?? '')) : '';
-        $person = trim($first.' '.$last);
+        $person = trim($first . ' ' . $last);
         $org = trim((string) ($data['company_name'] ?? ''));
         $name = $person !== '' ? $person : $org;
         if ($name === '') {
@@ -584,7 +584,7 @@ class OpenproviderRegistrar implements DomainRegistrar
         }
 
         $address = is_array($data['address'] ?? null) ? $data['address'] : [];
-        $street = trim(((string) ($address['street'] ?? '')).' '.((string) ($address['number'] ?? '')));
+        $street = trim(((string) ($address['street'] ?? '')) . ' ' . ((string) ($address['number'] ?? '')));
         $country = strtoupper(trim((string) ($address['country'] ?? '')));
 
         return new RegistrarContact(
@@ -674,16 +674,16 @@ class OpenproviderRegistrar implements DomainRegistrar
      */
     private function splitCountryCode(string $digits): array
     {
-        if (! str_starts_with($digits, '+')) {
+        if (!str_starts_with($digits, '+')) {
             return ['+30', $digits];
         }
         if (preg_match('/^\+([17])(\d+)$/', $digits, $m) === 1) {
-            return ['+'.$m[1], $m[2]];
+            return ['+' . $m[1], $m[2]];
         }
         $three = substr($digits, 1, 3);
-        if (preg_match('/^(35\d|37\d|38[0-9])$/', $three) === 1 && ! in_array($three, ['384', '388'], true)
+        if (preg_match('/^(35\d|37\d|38[0-9])$/', $three) === 1 && !in_array($three, ['384', '388'], true)
             || preg_match('/^42[013]$/', $three) === 1) {
-            return ['+'.$three, substr($digits, 4)];
+            return ['+' . $three, substr($digits, 4)];
         }
 
         return [substr($digits, 0, 3), substr($digits, 3)];
@@ -706,7 +706,7 @@ class OpenproviderRegistrar implements DomainRegistrar
 
         if ($domain->registrar_domain_id !== null && $domain->registrar_domain_id !== '') {
             try {
-                $data = $this->request($credentials, 'GET', '/v1beta/domains/'.rawurlencode($domain->registrar_domain_id))->json('data');
+                $data = $this->request($credentials, 'GET', '/v1beta/domains/' . rawurlencode($domain->registrar_domain_id))->json('data');
                 if (is_array($data)) {
                     return $data;
                 }
@@ -719,7 +719,7 @@ class OpenproviderRegistrar implements DomainRegistrar
         }
 
         [$name, $extension] = $this->splitFqdn($domain->fqdn);
-        $results = $this->request($credentials, 'GET', '/v1beta/domains?full_name='.rawurlencode($name.'.'.$extension))
+        $results = $this->request($credentials, 'GET', '/v1beta/domains?full_name=' . rawurlencode($name . '.' . $extension))
             ->json('data.results');
         // Prefer a LIVE record: after a lapse-and-rebuy the account can hold
         // BOTH the lingering DEL tombstone AND the fresh ACT record for the
@@ -728,17 +728,17 @@ class OpenproviderRegistrar implements DomainRegistrar
         $candidates = is_array($results) ? array_values(array_filter($results, 'is_array')) : [];
         $first = null;
         foreach ($candidates as $candidate) {
-            if (! in_array((string) ($candidate['status'] ?? ''), self::DEAD_STATUSES, true)) {
+            if (!in_array((string) ($candidate['status'] ?? ''), self::DEAD_STATUSES, true)) {
                 $first = $candidate;
                 break;
             }
         }
         $first ??= $candidates[0] ?? null;
-        if (! is_array($first)) {
+        if (!is_array($first)) {
             // TYPED: «not in the account» must be distinguishable from a
             // transport failure — the register adopt-guard acts on the
             // difference (third party vs could-not-read).
-            throw new DomainNotFoundAtRegistrar('Το '.$domain->fqdn.' δεν βρέθηκε στον λογαριασμό Openprovider.');
+            throw new DomainNotFoundAtRegistrar('Το ' . $domain->fqdn . ' δεν βρέθηκε στον λογαριασμό Openprovider.');
         }
 
         return $first;
@@ -784,7 +784,7 @@ class OpenproviderRegistrar implements DomainRegistrar
             $desc = $response->json('desc');
 
             throw new RuntimeException(
-                'Openprovider error '.$response->status().': '.(is_scalar($desc) && $desc !== '' ? (string) $desc : $response->body())
+                'Openprovider error ' . $response->status() . ': ' . (is_scalar($desc) && $desc !== '' ? (string) $desc : $response->body())
             );
         }
 
@@ -796,7 +796,7 @@ class OpenproviderRegistrar implements DomainRegistrar
         return Http::withToken($token)
             ->acceptJson()
             ->timeout(30)
-            ->send($method, $this->baseUrl($credentials).$path, $payload === [] ? [] : ['json' => $payload]);
+            ->send($method, $this->baseUrl($credentials) . $path, $payload === [] ? [] : ['json' => $payload]);
     }
 
     /**
@@ -833,7 +833,7 @@ class OpenproviderRegistrar implements DomainRegistrar
      */
     private function freshToken(DomainRegistrarCredentials $credentials): ?string
     {
-        if (! $credentials->has('username') || ! $credentials->has('password')) {
+        if (!$credentials->has('username') || !$credentials->has('password')) {
             throw new DomainRegistrarNotConfigured(
                 'Η σύνδεση Openprovider δεν έχει username/password — συμπληρώστε τα στη «Σύνδεση registrar».'
             );
@@ -841,7 +841,7 @@ class OpenproviderRegistrar implements DomainRegistrar
 
         $response = Http::acceptJson()
             ->timeout(30)
-            ->post($this->baseUrl($credentials).'/v1beta/auth/login', [
+            ->post($this->baseUrl($credentials) . '/v1beta/auth/login', [
                 'username' => (string) $credentials->get('username'),
                 'password' => (string) $credentials->get('password'),
             ]);
@@ -850,7 +850,7 @@ class OpenproviderRegistrar implements DomainRegistrar
             $desc = $response->json('desc');
 
             throw new RuntimeException(
-                'Openprovider login '.$response->status().': '.(is_scalar($desc) ? (string) $desc : 'αποτυχία σύνδεσης')
+                'Openprovider login ' . $response->status() . ': ' . (is_scalar($desc) ? (string) $desc : 'αποτυχία σύνδεσης')
             );
         }
 
@@ -867,7 +867,7 @@ class OpenproviderRegistrar implements DomainRegistrar
     private function tokenCacheKey(DomainRegistrarCredentials $credentials): string
     {
         // Keyed by endpoint × username — never the password (no secret in a key).
-        return 'domains:op:token:'.md5($this->baseUrl($credentials).'|'.(string) $credentials->get('username'));
+        return 'domains:op:token:' . md5($this->baseUrl($credentials) . '|' . (string) $credentials->get('username'));
     }
 
     /** @return array{0: string, 1: string} name + extension for the OP payload shape. */
@@ -876,7 +876,7 @@ class OpenproviderRegistrar implements DomainRegistrar
         $fqdn = mb_strtolower(trim($fqdn));
         $dot = mb_strpos($fqdn, '.');
         if ($dot === false || $dot === 0) {
-            throw new RuntimeException('Μη έγκυρο όνομα domain: '.$fqdn);
+            throw new RuntimeException('Μη έγκυρο όνομα domain: ' . $fqdn);
         }
 
         return [mb_substr($fqdn, 0, $dot), mb_substr($fqdn, $dot + 1)];

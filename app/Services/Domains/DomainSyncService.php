@@ -42,11 +42,11 @@ class DomainSyncService
     {
         $connection = $this->connectionFor($domain);
 
-        return ! $domain->trashed() // a tombstone is never rewritten (parity with the nightly command)
+        return !$domain->trashed() // a tombstone is never rewritten (parity with the nightly command)
             && $connection !== null
             && $connection->isUsable()
             && $this->factory->for($connection)->key() !== 'manual'
-            && ! ($domain->status instanceof DomainStatus && $domain->status->blocksSync());
+            && !($domain->status instanceof DomainStatus && $domain->status->blocksSync());
     }
 
     /**
@@ -123,8 +123,8 @@ class DomainSyncService
                 ->whereIn('action', ['register', 'transfer_in'])
                 ->exists()) {
             $updates['sync_error'] = 'Η αίτηση (μεταφορά/καταχώρηση) απέτυχε στον registrar'
-                .($result->rawStatus !== null ? ' (κατάσταση '.$result->rawStatus.')' : '')
-                .' — χειριστείτε το από το domain.';
+                . ($result->rawStatus !== null ? ' (κατάσταση ' . $result->rawStatus . ')' : '')
+                . ' — χειριστείτε το από το domain.';
         }
         if ($result->expiresAt !== null) {
             $updates['expires_at'] = $result->expiresAt;
@@ -181,7 +181,7 @@ class DomainSyncService
             && Carbon::parse($effectiveExpiry)->lt(Carbon::today())) {
             $newStatus = DomainStatus::Expired;
         }
-        if ($newStatus !== null && ! $frozen) {
+        if ($newStatus !== null && !$frozen) {
             $updates['status'] = $newStatus;
         }
         if ($result->rawStatus !== null) {

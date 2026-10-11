@@ -55,8 +55,8 @@ class DomainSyncTest extends TestCase
     public function test_sync_applies_expiry_status_ns_and_adopts_the_registrar_id(): void
     {
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains?full_name=example.gr' => Http::response(['data' => ['results' => [[
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains?full_name=example.gr' => Http::response(['data' => ['results' => [[
                 'id' => 12345,
                 'status' => 'ACT',
                 'expiration_date' => '2027-06-15 00:00:00',
@@ -88,8 +88,8 @@ class DomainSyncTest extends TestCase
         // local mirrors wrong forever — the sync corrects them. Explicit
         // booleans ONLY: a non-boolean echo (string/int) never overwrites.
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains?full_name=example.gr' => Http::response(['data' => ['results' => [[
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains?full_name=example.gr' => Http::response(['data' => ['results' => [[
                 'id' => 5, 'status' => 'ACT', 'expiration_date' => '2027-06-15 00:00:00',
                 'is_locked' => true,                  // panel-toggled ON → corrects our false
                 'is_private_whois_enabled' => 'false', // NON-boolean → ignored, mirror keeps its value
@@ -109,10 +109,10 @@ class DomainSyncTest extends TestCase
         // OP keeps ACT past the expiry date — the documented active→expired
         // transition is derived from the registrar expiry (§6.5).
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains?full_name=example.gr' => Http::response(['data' => ['results' => [[
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains?full_name=example.gr' => Http::response(['data' => ['results' => [[
                 'id' => 5, 'status' => 'ACT',
-                'expiration_date' => now()->subDays(10)->format('Y-m-d').' 00:00:00',
+                'expiration_date' => now()->subDays(10)->format('Y-m-d') . ' 00:00:00',
                 'name_servers' => [],
             ]]]]),
         ]);
@@ -126,8 +126,8 @@ class DomainSyncTest extends TestCase
     public function test_unknown_registrar_status_keeps_the_local_status(): void
     {
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains?full_name=example.gr' => Http::response(['data' => ['results' => [[
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains?full_name=example.gr' => Http::response(['data' => ['results' => [[
                 'id' => 1, 'status' => 'SCH', 'expiration_date' => '2027-01-01 00:00:00', 'name_servers' => [],
             ]]]]),
         ]);
@@ -145,8 +145,8 @@ class DomainSyncTest extends TestCase
         // Same URL, first pull fails, second succeeds (a later Http::fake does
         // NOT supersede an earlier wildcard stub — sequence on one URL instead).
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains?full_name=example.gr' => Http::sequence()
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains?full_name=example.gr' => Http::sequence()
                 ->push(['desc' => 'boom'], 500)
                 ->push(['data' => ['results' => [[
                     'id' => 7, 'status' => 'ACT', 'expiration_date' => '2027-01-01 00:00:00', 'name_servers' => [],
@@ -209,9 +209,9 @@ class DomainSyncTest extends TestCase
     public function test_a_stale_registrar_id_falls_back_to_resolve_by_name(): void
     {
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains/999' => Http::response(['desc' => 'not found'], 404),
-            self::SANDBOX.'/v1beta/domains?full_name=example.gr' => Http::response(['data' => ['results' => [[
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains/999' => Http::response(['desc' => 'not found'], 404),
+            self::SANDBOX . '/v1beta/domains?full_name=example.gr' => Http::response(['data' => ['results' => [[
                 'id' => 1000, 'status' => 'ACT', 'expiration_date' => '2029-01-01 00:00:00', 'name_servers' => [],
             ]]]]),
         ]);
@@ -230,7 +230,7 @@ class DomainSyncTest extends TestCase
     public function test_rejected_login_surfaces_openproviders_own_message(): void
     {
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['desc' => 'Authentication failed'], 403),
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['desc' => 'Authentication failed'], 403),
         ]);
 
         $domain = $this->domain();

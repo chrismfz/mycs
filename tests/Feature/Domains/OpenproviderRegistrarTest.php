@@ -74,16 +74,16 @@ class OpenproviderRegistrarTest extends TestCase
 
     public function test_ping_true_on_successful_login_and_uses_the_sandbox_endpoint(): void
     {
-        Http::fake([self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok-1']])]);
+        Http::fake([self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok-1']])]);
 
         $this->assertTrue($this->adapter()->ping($this->creds(sandbox: true)));
-        Http::assertSent(fn ($request): bool => str_starts_with($request->url(), self::SANDBOX.'/v1beta/auth/login')
+        Http::assertSent(fn ($request): bool => str_starts_with($request->url(), self::SANDBOX . '/v1beta/auth/login')
             && $request['username'] === 'myip');
     }
 
     public function test_only_explicit_production_hits_the_live_endpoint(): void
     {
-        Http::fake([self::PRODUCTION.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok-live']])]);
+        Http::fake([self::PRODUCTION . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok-live']])]);
 
         $this->assertTrue($this->adapter()->ping($this->creds(sandbox: false)));
         Http::assertSent(fn ($request): bool => str_starts_with($request->url(), self::PRODUCTION));
@@ -95,7 +95,7 @@ class OpenproviderRegistrarTest extends TestCase
         $this->assertFalse($this->adapter()->ping(new DomainRegistrarCredentials));
 
         // Bad auth → false.
-        Http::fake([self::SANDBOX.'/v1beta/auth/login' => Http::response(['desc' => 'bad creds'], 403)]);
+        Http::fake([self::SANDBOX . '/v1beta/auth/login' => Http::response(['desc' => 'bad creds'], 403)]);
         $this->assertFalse($this->adapter()->ping($this->creds()));
 
         // Transport blowup → false.
@@ -106,8 +106,8 @@ class OpenproviderRegistrarTest extends TestCase
     public function test_check_availability_parses_free_and_taken(): void
     {
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok-1']]),
-            self::SANDBOX.'/v1beta/domains/check' => Http::sequence()
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok-1']]),
+            self::SANDBOX . '/v1beta/domains/check' => Http::sequence()
                 ->push(['data' => ['results' => [['domain' => 'free-name.gr', 'status' => 'free']]]])
                 ->push(['data' => ['results' => [['domain' => 'taken.gr', 'status' => 'active']]]]),
         ]);
@@ -122,7 +122,7 @@ class OpenproviderRegistrarTest extends TestCase
         $this->assertSame('active', $taken->reason);
 
         // The payload splits name/extension on the FIRST dot (com.gr works).
-        Http::assertSent(fn ($request): bool => ! str_contains($request->url(), 'check')
+        Http::assertSent(fn ($request): bool => !str_contains($request->url(), 'check')
             || $request['domains'][0]['name'] === 'free-name' || $request['domains'][0]['name'] === 'taken');
     }
 
@@ -136,11 +136,11 @@ class OpenproviderRegistrarTest extends TestCase
     {
         // Tokens are cached ENCRYPTED (a live bearer must never sit plaintext
         // in the cache table) — seed accordingly.
-        Cache::put('domains:op:token:'.md5(self::SANDBOX.'|myip'), Crypt::encryptString('stale-token'), 300);
+        Cache::put('domains:op:token:' . md5(self::SANDBOX . '|myip'), Crypt::encryptString('stale-token'), 300);
 
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'fresh-token']]),
-            self::SANDBOX.'/v1beta/domains/check' => Http::sequence()
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'fresh-token']]),
+            self::SANDBOX . '/v1beta/domains/check' => Http::sequence()
                 ->push(['desc' => 'expired'], 401)
                 ->push(['data' => ['results' => [['domain' => 'x.gr', 'status' => 'free']]]]),
         ]);
@@ -154,8 +154,8 @@ class OpenproviderRegistrarTest extends TestCase
     public function test_api_errors_surface_the_registrar_description(): void
     {
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains/check' => Http::response(['code' => 399, 'desc' => 'Extension not supported'], 400),
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains/check' => Http::response(['code' => 399, 'desc' => 'Extension not supported'], 400),
         ]);
 
         $this->expectException(RuntimeException::class);

@@ -32,7 +32,7 @@ class DomainRegistrarRegistry
         }
 
         $class = $this->map()[$key] ?? null;
-        if ($class === null || ! class_exists($class) || ! is_subclass_of($class, DomainRegistrar::class)) {
+        if ($class === null || !class_exists($class) || !is_subclass_of($class, DomainRegistrar::class)) {
             Log::warning('Unknown domain registrar requested — using the manual (Null) adapter.', ['key' => $key]);
 
             return $this->null();

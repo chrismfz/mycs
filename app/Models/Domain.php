@@ -70,7 +70,6 @@ class Domain extends Model
         ];
     }
 
-
     /** The client (Ekdosi: customer). */
     public function user(): BelongsTo
     {
@@ -112,7 +111,7 @@ class Domain extends Model
     public function isAssignable(): bool
     {
         return $this->user_id === null
-            && ! ($this->status instanceof DomainStatus && $this->status->isTerminal());
+            && !($this->status instanceof DomainStatus && $this->status->isTerminal());
     }
 
     /** Query twin of isAssignable() for worklist tabs/badges. */
@@ -138,7 +137,7 @@ class Domain extends Model
     public function isExpiringSoon(): bool
     {
         return $this->expires_at !== null
-            && ! $this->isExpired()
+            && !$this->isExpired()
             && $this->expires_at->lte(Carbon::today()->addDays(self::EXPIRING_SOON_DAYS));
     }
 
@@ -170,6 +169,6 @@ class Domain extends Model
     /** Keep fqdn derived from the authoritative sld + tld pair. */
     public static function fqdnFor(string $sld, string $tld): string
     {
-        return mb_strtolower(trim($sld).'.'.ltrim(trim($tld), '.'));
+        return mb_strtolower(trim($sld) . '.' . ltrim(trim($tld), '.'));
     }
 }

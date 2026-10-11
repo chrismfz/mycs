@@ -38,6 +38,6 @@ final class RegistrarDomainRecord
 
     public function fqdn(): string
     {
-        return $this->sld.'.'.$this->tld;
+        return $this->sld . '.' . $this->tld;
     }
 }

@@ -57,7 +57,7 @@ trait GuardsRegistrarWrites
      */
     private function resolveWriteAdapter(?DomainRegistrarConnection $connection, callable $log, string $manualAdvice): DomainRegistrar
     {
-        if ($connection === null || ! $connection->isUsable()) {
+        if ($connection === null || !$connection->isUsable()) {
             $log(DomainRegistrarLog::STATUS_FAILED, null, 'Καμία ενεργή σύνδεση registrar.');
 
             throw new DomainRegistrarNotConfigured('Το domain δεν δρομολογείται σε ενεργή σύνδεση registrar.');
@@ -72,7 +72,6 @@ trait GuardsRegistrarWrites
         return $adapter;
     }
 
-
     /**
      * ONE write at a time per (operation × domain): refusal is the typed
      * DomainRenewalInProgress («ΜΗΝ ξαναζητήσετε» advice at the call sites),
@@ -85,8 +84,8 @@ trait GuardsRegistrarWrites
      */
     private function withRegistrarLock(Domain $domain, string $operation, callable $log, string $busyMessage, \Closure $body): mixed
     {
-        $lock = Cache::lock("domains:{$operation}:".$domain->id, 300);
-        if (! $lock->get()) {
+        $lock = Cache::lock("domains:{$operation}:" . $domain->id, 300);
+        if (!$lock->get()) {
             $log(DomainRegistrarLog::STATUS_FAILED, null, 'Κλειδωμένο — άλλη ενέργεια σε εξέλιξη.');
 
             throw new DomainRenewalInProgress($busyMessage);

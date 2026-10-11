@@ -35,7 +35,7 @@ final class DomainRegistrarCredentials
     public static function fromConnection(DomainRegistrarConnection $connection): self
     {
         $config = $connection->config;
-        if (! is_array($config)) {
+        if (!is_array($config)) {
             $config = [];
         }
 

@@ -7,7 +7,6 @@ use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainRegistrarLog;
 use App\Models\Invoice;
-use App\Models\Plan;
 use App\Models\Service;
 use App\Models\User;
 use App\Services\Domains\DomainRegistrarNotConfigured;
@@ -95,19 +94,19 @@ class DomainRenewalServiceTest extends TestCase
     /** @return array<string, mixed> */
     private function opDomain(string $expiry): array
     {
-        return ['id' => 77, 'status' => 'ACT', 'expiration_date' => $expiry.' 00:00:00', 'name_servers' => []];
+        return ['id' => 77, 'status' => 'ACT', 'expiration_date' => $expiry . ' 00:00:00', 'name_servers' => []];
     }
 
     public function test_renew_fires_when_the_period_is_not_covered_and_applies_fresh_truth(): void
     {
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
             // 2 GETs: the §6.6 pre-check sync, then the post-renew re-fetch
             // (renew() reuses the freshly-synced stored id — no resolve GET)
-            self::SANDBOX.'/v1beta/domains/77' => Http::sequence()
+            self::SANDBOX . '/v1beta/domains/77' => Http::sequence()
                 ->push(['data' => $this->opDomain('2026-01-01')])
                 ->push(['data' => $this->opDomain('2027-01-01')]),
-            self::SANDBOX.'/v1beta/domains/77/renew' => Http::response(['code' => 0]),
+            self::SANDBOX . '/v1beta/domains/77/renew' => Http::response(['code' => 0]),
         ]);
         [$domain] = $this->assignedDomain();
 
@@ -125,8 +124,8 @@ class DomainRenewalServiceTest extends TestCase
         // the button (or the registrar panel); when the invoice is later
         // issued, the pre-check sync sees the covered period and ADOPTS.
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains/77' => Http::response(['data' => $this->opDomain('2027-01-01')]),
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains/77' => Http::response(['data' => $this->opDomain('2027-01-01')]),
         ]);
         [$domain, $contract] = $this->assignedDomain('2026-01-01'); // SC cursor = the period start
         $domain->forceFill(['expires_at' => '2027-01-01'])->save(); // the button already moved it
@@ -178,8 +177,8 @@ class DomainRenewalServiceTest extends TestCase
         // adopts AND must consume the button log: its year is spent, a later
         // intent-match must not count it again (review r2 finding 3).
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains/77' => Http::response(['data' => $this->opDomain('2028-01-01')]),
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains/77' => Http::response(['data' => $this->opDomain('2028-01-01')]),
         ]);
         [$domain, $contract] = $this->assignedDomain('2026-01-01');
         $contract->plan->update(['billing_period' => 2]); // Ekdosi: billing_cycle biennial
@@ -214,11 +213,11 @@ class DomainRenewalServiceTest extends TestCase
         // NOT intent-match today's invoice — stale logs fall through to the
         // sync-backed date check, which renews for real (r3 finding 2).
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains/77' => Http::sequence()
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains/77' => Http::sequence()
                 ->push(['data' => $this->opDomain('2026-01-01')])
                 ->push(['data' => $this->opDomain('2027-01-01')]),
-            self::SANDBOX.'/v1beta/domains/77/renew' => Http::response(['code' => 0]),
+            self::SANDBOX . '/v1beta/domains/77/renew' => Http::response(['code' => 0]),
         ]);
         [$domain, $contract] = $this->assignedDomain('2026-01-01');
         $stale = DomainRegistrarLog::create([
@@ -269,8 +268,8 @@ class DomainRenewalServiceTest extends TestCase
         // 2y-old orphan log exists — the stamping pool shares the intent-match
         // window, so the orphan stays for the A5 reconciler.
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains/77' => Http::response(['data' => $this->opDomain('2027-01-01')]),
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains/77' => Http::response(['data' => $this->opDomain('2027-01-01')]),
         ]);
         [$domain, $contract] = $this->assignedDomain('2026-01-01');
         $stale = DomainRegistrarLog::create([
@@ -295,8 +294,8 @@ class DomainRenewalServiceTest extends TestCase
         // from a mis-cycled era) must not shadow the older period-carrying
         // row — recovery reads the newest row that ACTUALLY carries a period.
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains/77' => Http::response(['data' => $this->opDomain('2027-01-01')]),
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains/77' => Http::response(['data' => $this->opDomain('2027-01-01')]),
         ]);
         [$domain, $contract] = $this->assignedDomain('2026-01-01');
         $contract->forceFill(['expires_at' => '2028-01-01'])->save(); // drifted way ahead
@@ -325,7 +324,7 @@ class DomainRenewalServiceTest extends TestCase
     public function test_a_concurrent_renewal_is_refused_by_the_per_domain_lock(): void
     {
         [$domain] = $this->assignedDomain();
-        $lock = Cache::lock('domains:renew:'.$domain->id, 60);
+        $lock = Cache::lock('domains:renew:' . $domain->id, 60);
         $this->assertTrue($lock->get());
 
         try {
@@ -347,8 +346,8 @@ class DomainRenewalServiceTest extends TestCase
         // Local status stale-Active; the pre-check sync flips it to Deleted
         // (registrar DEL) — «νεκρό όνομα = ποτέ χρέωση» must hold here too.
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains/77' => Http::response(['data' => [
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains/77' => Http::response(['data' => [
                 'id' => 77, 'status' => 'DEL', 'expiration_date' => '2026-01-01 00:00:00', 'name_servers' => [],
             ]]),
         ]);
@@ -369,11 +368,11 @@ class DomainRenewalServiceTest extends TestCase
         // From the POST on, the registrar HAS charged — a re-fetch hiccup must
         // not misrecord a real charge as failed (review r1 finding 5).
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains/77' => Http::sequence()
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains/77' => Http::sequence()
                 ->push(['data' => $this->opDomain('2026-01-01')]) // pre-check sync
                 ->push(['desc' => 'boom'], 502),                  // post-renew re-fetch
-            self::SANDBOX.'/v1beta/domains/77/renew' => Http::response(['code' => 0]),
+            self::SANDBOX . '/v1beta/domains/77/renew' => Http::response(['code' => 0]),
         ]);
         [$domain] = $this->assignedDomain();
 
@@ -390,11 +389,11 @@ class DomainRenewalServiceTest extends TestCase
         // retried): the charge is real → 'ok', but flagged so the operator
         // sees the domain will lapse before billing says.
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains/77' => Http::sequence()
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains/77' => Http::sequence()
                 ->push(['data' => $this->opDomain('2026-01-01')])
                 ->push(['data' => $this->opDomain('2027-01-01')]),
-            self::SANDBOX.'/v1beta/domains/77/renew' => Http::response(['code' => 0]),
+            self::SANDBOX . '/v1beta/domains/77/renew' => Http::response(['code' => 0]),
         ]);
         [$domain] = $this->assignedDomain('2026-01-01');
 
@@ -409,8 +408,8 @@ class DomainRenewalServiceTest extends TestCase
     public function test_a_failed_precheck_sync_aborts_without_writing_to_the_registrar(): void
     {
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains/77' => Http::response(['desc' => 'boom'], 500),
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains/77' => Http::response(['desc' => 'boom'], 500),
         ]);
         [$domain] = $this->assignedDomain();
 
@@ -518,11 +517,11 @@ class DomainRenewalServiceTest extends TestCase
         // CAS semantics: a log already tied to an invoice can't satisfy a
         // second invoice — that one proceeds to a REAL renew.
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains/77' => Http::sequence()
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains/77' => Http::sequence()
                 ->push(['data' => $this->opDomain('2026-01-01')])
                 ->push(['data' => $this->opDomain('2027-01-01')]),
-            self::SANDBOX.'/v1beta/domains/77/renew' => Http::response(['code' => 0]),
+            self::SANDBOX . '/v1beta/domains/77/renew' => Http::response(['code' => 0]),
         ]);
         [$domain, $contract] = $this->assignedDomain('2026-01-01');
         $earlier = $this->invoiceFor(null);
@@ -547,11 +546,11 @@ class DomainRenewalServiceTest extends TestCase
         // The full flow through the REAL observer: status -> paid fires Invoice\Paid after
         // the service is advanced; the domain renews for the period the item carries.
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains/77' => Http::sequence()
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains/77' => Http::sequence()
                 ->push(['data' => $this->opDomain('2026-01-01')])
                 ->push(['data' => $this->opDomain('2027-01-01')]),
-            self::SANDBOX.'/v1beta/domains/77/renew' => Http::response(['code' => 0]),
+            self::SANDBOX . '/v1beta/domains/77/renew' => Http::response(['code' => 0]),
         ]);
         [$domain, $contract] = $this->assignedDomain('2026-01-01');
         $invoice = $this->invoiceFor($contract);
@@ -570,8 +569,8 @@ class DomainRenewalServiceTest extends TestCase
         // The WHMCS double-renew war story, MyCS flavour: renewed at the registrar before
         // the client paid; on payment the cursor (2026) + 1y is already covered -> adopt.
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains/77' => Http::response(['data' => $this->opDomain('2027-01-01')]),
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains/77' => Http::response(['data' => $this->opDomain('2027-01-01')]),
         ]);
         [$domain, $contract] = $this->assignedDomain('2026-01-01');
         $invoice = $this->invoiceFor($contract);
@@ -586,9 +585,9 @@ class DomainRenewalServiceTest extends TestCase
     public function test_a_registrar_failure_never_fails_the_payment(): void
     {
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains/77' => Http::response(['data' => $this->opDomain('2026-01-01')]),
-            self::SANDBOX.'/v1beta/domains/77/renew' => Http::response(['code' => 399, 'desc' => 'Registry down'], 500),
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains/77' => Http::response(['data' => $this->opDomain('2026-01-01')]),
+            self::SANDBOX . '/v1beta/domains/77/renew' => Http::response(['code' => 399, 'desc' => 'Registry down'], 500),
         ]);
         [$domain, $contract] = $this->assignedDomain('2026-01-01');
         $invoice = $this->invoiceFor($contract);

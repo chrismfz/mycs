@@ -46,7 +46,7 @@ class DomainRenewalService
     {
         $logs = [];
         foreach ($invoice->items as $item) {
-            if ($item->reference_type !== Service::class || ! $item->reference instanceof Service) {
+            if ($item->reference_type !== Service::class || !$item->reference instanceof Service) {
                 continue;
             }
             $log = $this->renewForService($invoice, $item->reference, $item->period_start?->toDateString());
@@ -225,7 +225,7 @@ class DomainRenewalService
         if ($domain->trashed()) {
             $this->refuseWrite($log, 'Το domain είναι διαγραμμένο — δεν ανανεώνεται.');
         }
-        if ($domain->status instanceof DomainStatus && ! $domain->status->isRenewable()) {
+        if ($domain->status instanceof DomainStatus && !$domain->status->isRenewable()) {
             $this->refuseWrite($log, "Το {$domain->fqdn} είναι σε κατάσταση «{$domain->status->getLabel()}» — δεν ανανεώνεται (redemption/μεταφερμένα/ακυρωμένα θέλουν άλλο χειρισμό).");
         }
         $adapter = $this->resolveWriteAdapter($connection, $log, 'Ο registrar είναι «manual» — ανανεώστε στο portal του registrar και ενημερώστε τη λήξη.');
@@ -253,9 +253,9 @@ class DomainRenewalService
                 } catch (\Throwable $e) {
                     // If we can't even read the registrar, we must not WRITE to it
                     // blind — the whole guard rests on the read.
-                    $log(DomainRegistrarLog::STATUS_FAILED, null, 'Προ-έλεγχος (sync) απέτυχε: '.$e->getMessage());
+                    $log(DomainRegistrarLog::STATUS_FAILED, null, 'Προ-έλεγχος (sync) απέτυχε: ' . $e->getMessage());
 
-                    throw new RuntimeException("Η ανανέωση του {$domain->fqdn} ΔΕΝ εκτελέστηκε — ο προ-έλεγχος στον registrar απέτυχε: ".$e->getMessage());
+                    throw new RuntimeException("Η ανανέωση του {$domain->fqdn} ΔΕΝ εκτελέστηκε — ο προ-έλεγχος στον registrar απέτυχε: " . $e->getMessage());
                 }
                 $domain->refresh();
                 if ($domain->expires_at !== null && $domain->expires_at->toDateString() >= $target) {
@@ -297,8 +297,8 @@ class DomainRenewalService
                 // Re-check renewability on the FRESH status: the sync may have just
                 // flipped the row to Deleted/redemption (registrar DEL) — «νεκρό
                 // όνομα = ποτέ χρέωση» holds against stale local state too.
-                if ($domain->status instanceof DomainStatus && ! $domain->status->isRenewable()) {
-                    $log(DomainRegistrarLog::STATUS_FAILED, null, 'Ο registrar αναφέρει κατάσταση «'.$domain->status->getLabel().'» — η ανανέωση δεν εκτελέστηκε.');
+                if ($domain->status instanceof DomainStatus && !$domain->status->isRenewable()) {
+                    $log(DomainRegistrarLog::STATUS_FAILED, null, 'Ο registrar αναφέρει κατάσταση «' . $domain->status->getLabel() . '» — η ανανέωση δεν εκτελέστηκε.');
 
                     throw new RuntimeException("Το {$domain->fqdn} είναι πλέον σε κατάσταση «{$domain->status->getLabel()}» στον registrar — δεν ανανεώνεται.");
                 }

@@ -66,9 +66,9 @@ class DomainTransferServiceTest extends TestCase
     public function test_transfer_in_starts_stays_pending_and_never_logs_the_auth_code(): void
     {
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains?full_name=moving.eu' => Http::response(['data' => ['results' => []]]), // unconditional probe: not ours yet
-            self::SANDBOX.'/v1beta/domains/transfer' => Http::response(['data' => [
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains?full_name=moving.eu' => Http::response(['data' => ['results' => []]]), // unconditional probe: not ours yet
+            self::SANDBOX . '/v1beta/domains/transfer' => Http::response(['data' => [
                 'id' => 700, 'status' => 'REQ',
             ]]),
         ]);
@@ -82,7 +82,7 @@ class DomainTransferServiceTest extends TestCase
         $this->assertSame('700', $domain->registrar_domain_id);
 
         Http::assertSent(function ($req) {
-            if (! str_ends_with($req->url(), '/v1beta/domains/transfer')) {
+            if (!str_ends_with($req->url(), '/v1beta/domains/transfer')) {
                 return false;
             }
 
@@ -90,7 +90,7 @@ class DomainTransferServiceTest extends TestCase
                 && $req['period'] === 1
                 && $req['autorenew'] === 'off'
                 && $req['owner_handle'] === 'NP1-EU'
-                && ! array_key_exists('name_servers', $req->data()); // delegation kept
+                && !array_key_exists('name_servers', $req->data()); // delegation kept
         });
         // The auth code is a bearer credential for the name — NEVER in a log.
         $this->assertStringNotContainsString('SECRET-EPP-123', json_encode(DomainRegistrarLog::all()->toArray()));
@@ -99,8 +99,8 @@ class DomainTransferServiceTest extends TestCase
     public function test_a_retry_adopts_the_inflight_transfer_never_pays_twice(): void
     {
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains?full_name=moving.eu' => Http::response(['data' => ['results' => [[
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains?full_name=moving.eu' => Http::response(['data' => ['results' => [[
                 'id' => 700, 'status' => 'REQ',
             ]]]]),
         ]);
@@ -125,8 +125,8 @@ class DomainTransferServiceTest extends TestCase
         // the registrar panel (no local id, no logs) must be adopted on the
         // very first click, never re-POSTed.
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains?full_name=moving.eu' => Http::response(['data' => ['results' => [[
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains?full_name=moving.eu' => Http::response(['data' => ['results' => [[
                 'id' => 700, 'status' => 'REQ', 'owner_handle' => 'PANEL1-EU',
             ]]]]),
         ]);
@@ -143,9 +143,9 @@ class DomainTransferServiceTest extends TestCase
     public function test_a_registrar_error_echoing_the_auth_code_is_scrubbed(): void
     {
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains?full_name=moving.eu' => Http::response(['data' => ['results' => []]]),
-            self::SANDBOX.'/v1beta/domains/transfer' => Http::response(['desc' => 'invalid auth code SECRET-EPP-123 rejected'], 400),
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains?full_name=moving.eu' => Http::response(['data' => ['results' => []]]),
+            self::SANDBOX . '/v1beta/domains/transfer' => Http::response(['desc' => 'invalid auth code SECRET-EPP-123 rejected'], 400),
         ]);
         $domain = $this->pendingTransferDomain();
 
@@ -163,9 +163,9 @@ class DomainTransferServiceTest extends TestCase
         // The earlier request FAI-ed at the registry — the probe sees the
         // tombstone and a fresh transfer starts (with the new auth code).
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains/700' => Http::response(['data' => ['id' => 700, 'status' => 'FAI']]),
-            self::SANDBOX.'/v1beta/domains/transfer' => Http::response(['data' => ['id' => 701, 'status' => 'REQ']]),
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains/700' => Http::response(['data' => ['id' => 700, 'status' => 'FAI']]),
+            self::SANDBOX . '/v1beta/domains/transfer' => Http::response(['data' => ['id' => 701, 'status' => 'REQ']]),
         ]);
         $domain = $this->pendingTransferDomain(['registrar_domain_id' => '700']);
 
@@ -182,8 +182,8 @@ class DomainTransferServiceTest extends TestCase
         // flag is GATED on an actual request in the API history (a lingering
         // tombstone from the name's previous life must not fake it).
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains/700' => Http::response(['data' => ['id' => 700, 'status' => 'FAI']]),
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains/700' => Http::response(['data' => ['id' => 700, 'status' => 'FAI']]),
         ]);
         $domain = $this->pendingTransferDomain(['registrar_domain_id' => '700']);
         DomainRegistrarLog::create([ // the transfer WAS requested from ekdosi
@@ -234,7 +234,7 @@ class DomainTransferServiceTest extends TestCase
         }
 
         $locked = $this->pendingTransferDomain(['sld' => 'a4', 'fqdn' => 'a4.eu']);
-        $lock = Cache::lock('domains:transfer:'.$locked->id, 60);
+        $lock = Cache::lock('domains:transfer:' . $locked->id, 60);
         $this->assertTrue($lock->get());
         try {
             $service->transferIn($locked, 'X');
@@ -251,8 +251,8 @@ class DomainTransferServiceTest extends TestCase
     public function test_epp_code_is_returned_and_audited_without_the_code(): void
     {
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains/800/authcode' => Http::response(['data' => ['auth_code' => 'OUT-CODE-999']]),
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains/800/authcode' => Http::response(['data' => ['auth_code' => 'OUT-CODE-999']]),
         ]);
         $domain = $this->pendingTransferDomain(['sld' => 'own', 'fqdn' => 'own.eu', 'status' => 'active', 'registrar_domain_id' => '800']);
 
@@ -271,8 +271,8 @@ class DomainTransferServiceTest extends TestCase
         // tombstone from the name's previous life, NO request log → no false
         // «απέτυχε» flag, and the pending row is not flipped to Deleted.
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains/700' => Http::response(['data' => ['id' => 700, 'status' => 'DEL']]),
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains/700' => Http::response(['data' => ['id' => 700, 'status' => 'DEL']]),
         ]);
         $domain = $this->pendingTransferDomain(['registrar_domain_id' => '700']);
 
@@ -306,8 +306,8 @@ class DomainTransferServiceTest extends TestCase
     public function test_epp_code_failures_are_audited_too(): void
     {
         Http::fake([
-            self::SANDBOX.'/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX.'/v1beta/domains/800/authcode' => Http::response(['desc' => 'nope'], 500),
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains/800/authcode' => Http::response(['desc' => 'nope'], 500),
         ]);
         $domain = $this->pendingTransferDomain(['sld' => 'own2', 'fqdn' => 'own2.eu', 'status' => 'active', 'registrar_domain_id' => '800']);
 
