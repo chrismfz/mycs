@@ -58,8 +58,9 @@
       upstream #1011)· `mycs:self-update` με git checkout/composer/migrate/caches και rollback (μοτίβο
       `ekdosi:install`, `ekdosi:self-update`, `deploy/update.sh`, `deploy/rollback.sh`, `INSTALL.md`).
 - [ ] Cherry-picks: #1338 (captcha), το enforcement του `credits_enabled` από το #1295.
-- [ ] **Spike 1–2 ημερών:** port ενός μικρού κομματιού των domains του Ekdosi, για να μετρηθεί το πραγματικό κόστος
-      (από `company_id` και φορολογικό Invoice σε προτιμολόγιο).
+- [x] **Spike domains** (`domains-spike.md`, branch `spike/domains`, 2026-10-11): registrar/sync/transfer/renewal του
+      Ekdosi μεταφέρθηκαν σχεδόν αυτούσια, 48 tests. Εύρημα: η ανανέωση domains θέλει τον μετρητή περιόδου στα
+      items του τιμολογίου (Φάση 1, «ανανέωση δεμένη με τιμολόγιο και περίοδο»).
 
 ## Φάση 1: nixpal (3–5 εβδομάδες)
 **Πυρήνας χρημάτων και ανανεώσεων**
