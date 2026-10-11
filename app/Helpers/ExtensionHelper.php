@@ -96,6 +96,37 @@ class ExtensionHelper
     }
 
     /**
+     * Store an extension's settings from its config: each value gets the type and the
+     * `encrypted` flag its option declares, on create and on edit alike. Secrets (API
+     * keys, passwords, webhook secrets) are therefore never stored in plain text.
+     *
+     * @param  array<string, mixed>  $values  form values keyed by option name
+     * @param  bool  $skipNull  leave options without a value untouched (create form)
+     */
+    public static function saveSettings(Extension $record, array $values, bool $skipNull = false): void
+    {
+        $current = $record->settings->pluck('value', 'key')->toArray();
+        // This record's own values: with none, getConfig() would read another record's settings.
+        $config = self::getConfig($record->type, $record->extension, array_merge($current, $values) ?: ['_' => null]);
+
+        foreach ($config as $option) {
+            $value = $values[$option['name']] ?? null;
+            if ($skipNull && $value === null) {
+                continue;
+            }
+            $record->settings()->updateOrCreate([
+                'key' => $option['name'],
+                'settingable_id' => $record->id,
+                'settingable_type' => $record->getMorphClass(),
+            ], [
+                'type' => $option['database_type'] ?? 'string',
+                'value' => is_array($value) ? json_encode($value) : $value,
+                'encrypted' => $option['encrypted'] ?? false,
+            ]);
+        }
+    }
+
+    /**
      * Has function
      *
      * @param  object  $extension

@@ -55,15 +55,17 @@ class Virtualizor extends Server
         return [
             [
                 'name' => 'key',
-                'type' => 'text',
+                'type' => 'password',
                 'label' => 'API Key',
                 'required' => true,
+                'encrypted' => true,
             ],
             [
                 'name' => 'password',
-                'type' => 'text',
+                'type' => 'password',
                 'label' => 'API Password',
                 'required' => true,
+                'encrypted' => true,
             ],
             [
                 'name' => 'ip',

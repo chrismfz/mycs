@@ -60,10 +60,11 @@ class Enhance extends Server
             ],
             [
                 'name' => 'apikey',
-                'type' => 'text',
+                'type' => 'password',
                 'label' => 'API key',
                 'required' => true,
                 'placeholder' => '2cd0079b...',
+                'encrypted' => true,
             ],
             [
                 'name' => 'orgId',
