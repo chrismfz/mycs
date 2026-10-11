@@ -2,7 +2,6 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -19,18 +18,18 @@ return new class extends Migration
             }
             $table->date('period_end')->nullable()->after('period_start');
             $table->index(['reference_type', 'reference_id', 'period_start'], 'invoice_items_reference_period_index');
+            // The morph index is a prefix of the new one.
+            $table->dropIndex('invoice_items_reference_type_reference_id_index');
         });
     }
 
     public function down(): void
     {
-        // period_start belongs to the domains spike's migration when that one ran first: leave it to it.
-        $spikeOwnsStart = Schema::hasTable('migrations')
-            && DB::table('migrations')->where('migration', 'like', '%add_period_start_to_invoice_items')->exists();
-
-        Schema::table('invoice_items', function (Blueprint $table) use ($spikeOwnsStart) {
+        // This migration owns period_start too (the domains spike's own down() is a no-op).
+        Schema::table('invoice_items', function (Blueprint $table) {
+            $table->index(['reference_type', 'reference_id'], 'invoice_items_reference_type_reference_id_index');
             $table->dropIndex('invoice_items_reference_period_index');
-            $table->dropColumn($spikeOwnsStart ? ['period_end'] : ['period_start', 'period_end']);
+            $table->dropColumn(['period_start', 'period_end']);
         });
     }
 };

@@ -6,7 +6,7 @@ use App\Classes\Price;
 use App\Classes\Settings;
 use App\Models\Traits\HasProperties;
 use App\Observers\ServiceObserver;
-use App\Support\BillingPeriod;
+use MyCS\BillingPeriod\BillingPeriod;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
@@ -171,9 +171,9 @@ class Service extends Model implements Auditable
     }
 
     /**
-     * Calculate next due date for a renewal whose invoice line carries no period (first order,
-     * invoices from before docs/billing-cursor.md). A suspended service renews from its expiry,
-     * not from today (decision A): the customer pays the period that was billed.
+     * End of one period from the expiry (active or suspended service, decision A), or from today for
+     * a service that has not started. Used by the Cart for a free first period; renewals of paid
+     * lines go through RenewServiceService (docs/billing-cursor.md).
      */
     public function calculateNextDueDate()
     {
@@ -185,7 +185,7 @@ class Service extends Model implements Auditable
         }
 
         // A fresh start: the period starts today and today is the billing day.
-        return BillingPeriod::end(now(), $this->plan->billing_unit, max(1, (int) $this->plan->billing_period));
+        return BillingPeriod::end(now(), $this->plan->billing_unit, (int) $this->plan->billing_period);
     }
 
     /**
@@ -199,7 +199,7 @@ class Service extends Model implements Auditable
             return null;
         }
 
-        return BillingPeriod::end($start, $this->plan->billing_unit, max(1, (int) $this->plan->billing_period), $this->billingDay($start, $lines));
+        return BillingPeriod::end($start, $this->plan->billing_unit, (int) $this->plan->billing_period, $this->billingDay($start, $lines));
     }
 
     /**
@@ -213,24 +213,30 @@ class Service extends Model implements Auditable
     public function billingDay(CarbonInterface $start, ?Collection $lines = null): int
     {
         $start = CarbonImmutable::instance($start)->startOfDay();
-        if (!self::isAmbiguousDay($start)) {
+        if (!BillingPeriod::isAmbiguousDay($start)) {
             return $start->day;
         }
 
+        // Ambiguous earlier days still say «at least this day» (Nov 30 -> Feb 28 -> May 30, not May 28).
+        $floor = $start->day;
         foreach (($lines ?? $this->livePeriodLines())->reverse() as $line) {
             $day = $line->period_start;
-            if ($day !== null && $day->lessThan($start) && !self::isAmbiguousDay($day)) {
-                return max($day->day, $start->day);
+            if ($day === null || !$day->lessThan($start)) {
+                continue;
             }
+            if (!BillingPeriod::isAmbiguousDay($day)) {
+                return max($day->day, $floor);
+            }
+            $floor = max($floor, $day->day);
         }
 
-        return $start->day;
-    }
+        // No history with a clear day (e.g. imported from WHMCS): the day the service started.
+        $registered = $this->created_at ? CarbonImmutable::parse($this->created_at)->startOfDay() : null;
+        if ($registered !== null && $registered->lessThan($start)) {
+            $floor = max($floor, $registered->day);
+        }
 
-    /** Last day of a month shorter than 31 days: could be a later billing day clamped. */
-    private static function isAmbiguousDay(CarbonImmutable $day): bool
-    {
-        return $day->day === $day->daysInMonth && $day->daysInMonth < 31;
+        return $floor;
     }
 
     /**

@@ -6,7 +6,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Models\User;
-use App\Support\BillingPeriod;
+use MyCS\BillingPeriod\BillingPeriod;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;

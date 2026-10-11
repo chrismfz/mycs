@@ -7,6 +7,7 @@ use App\Jobs\Server\UnsuspendJob;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Service;
+use App\Observers\ServiceObserver;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -30,13 +31,10 @@ use Illuminate\Support\Facades\Log;
  */
 class RenewServiceService
 {
-    /**
-     * @param  bool  $lock  false only inside the daily cron's long transaction (no row lock held for the whole run)
-     */
-    public function handle(Service $service, ?InvoiceItem $item = null, bool $lock = true): void
+    public function handle(Service $service, ?InvoiceItem $item = null): void
     {
-        DB::transaction(function () use ($service, $item, $lock) {
-            $locked = Service::query()->whereKey($service->getKey())->when($lock, fn ($q) => $q->lockForUpdate())->firstOrFail();
+        DB::transaction(function () use ($service, $item) {
+            $locked = Service::query()->whereKey($service->getKey())->lockForUpdate()->firstOrFail();
             // Re-read the line under the service lock: a concurrent payment may have given it its period.
             $item = $item ? (InvoiceItem::query()->whereKey($item->getKey())->first() ?? $item) : null;
 
@@ -47,8 +45,11 @@ class RenewServiceService
             }
 
             if ($locked->plan->type == 'one-time' || $locked->plan->type == 'free') {
-                $this->activate($locked, null);
-                $service->setRawAttributes($locked->getAttributes(), true);
+                // Nothing to renew: a payment only starts a pending one (never unsuspends one).
+                if ($locked->status === Service::STATUS_PENDING) {
+                    $this->activate($locked, null);
+                    $service->setRawAttributes($locked->getAttributes(), true);
+                }
 
                 return;
             }
@@ -69,7 +70,13 @@ class RenewServiceService
                 // The first period no live invoice covers yet, so two payments always buy two periods,
                 // in whatever order they arrive.
                 $start = $current === null ? CarbonImmutable::today() : $locked->nextPeriodStart($lines);
-                $item->forceFill(['period_start' => $start, 'period_end' => $locked->periodEnd($start, $lines)])->save();
+                $end = $locked->periodEnd($start, $lines);
+                $fill = ['period_start' => $start, 'period_end' => $end];
+                if ($locked->status === Service::STATUS_PENDING) {
+                    // First order: the line text gets the period that actually starts today.
+                    $fill['description'] = $locked->describePeriod($start, $end);
+                }
+                $item->forceFill($fill)->save();
                 $lines = $locked->livePeriodLines();
             }
 
@@ -98,7 +105,12 @@ class RenewServiceService
 
         $service->expires_at = $paidUntil?->toMutable();
         $service->status = Service::STATUS_ACTIVE;
-        $service->save();
+        ServiceObserver::$renewing = true;
+        try {
+            $service->save();
+        } finally {
+            ServiceObserver::$renewing = false;
+        }
     }
 
     /** @param  Collection<int, InvoiceItem>  $lines */

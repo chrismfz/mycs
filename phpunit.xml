@@ -12,6 +12,7 @@
             <directory>tests/Feature</directory>
         </testsuite>
         <testsuite name="Packages">
+            <directory>packages/billing-period/tests</directory>
             <directory>packages/mail-template/tests</directory>
             <directory>packages/cardlink-eurobank/tests</directory>
             <directory>packages/domain-tools/tests</directory>

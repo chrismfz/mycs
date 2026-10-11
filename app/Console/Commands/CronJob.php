@@ -15,10 +15,12 @@ use App\Models\ServiceUpgrade;
 use App\Models\Setting;
 use App\Models\Ticket;
 use App\Services\Service\RenewServiceService;
+use Carbon\CarbonInterface;
 use Exception;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 class CronJob extends Command
 {
@@ -38,6 +40,9 @@ class CronJob extends Command
 
     private int $successFullCharges = 0;
 
+    /** @var array<string, Throwable> job (or job #service) => what failed */
+    private array $failures = [];
+
     /**
      * Execute the console command.
      */
@@ -45,95 +50,27 @@ class CronJob extends Command
     {
         Config::set('audit.console', true);
 
-        DB::beginTransaction();
-
+        // Each job commits on its own (renewals: per service): one failure no longer rolls back the
+        // whole run, nothing stays locked for the whole run, and each step sees what the previous
+        // ones committed (docs/billing-cursor.md).
         try {
             // Send invoices if due date is x days away
             $this->runCronJob('invoices_created', function ($number = 0) {
                 $billUntil = now()->addDays((int) config('settings.cronjob_invoice', 7));
-                Service::where('status', 'active')->where('expires_at', '<', $billUntil)->get()->each(function ($service) use (&$number, $billUntil) {
-                    // Does the service have already a pending invoice?
-                    if ($service->invoices()->whereIn('status', ['pending', 'draft'])->exists() || $service->cancellation()->exists()) {
-                        return;
+                $ids = Service::whereIn('status', ['active', 'suspended'])->where('expires_at', '<', $billUntil)->pluck('id');
+                foreach ($ids as $id) {
+                    try {
+                        // One short transaction per service, on a fresh locked row: a payment committed
+                        // while the cron runs is seen, and nothing stays locked for the whole run.
+                        $number += DB::transaction(fn () => $this->billRenewal($id, $billUntil));
+                    } catch (Throwable $e) {
+                        report($e);
+                        $this->failures["invoices_created #{$id}"] = $e;
                     }
-
-                    // The next period starts where the live periods that follow the paid-until date end
-                    // (docs/billing-cursor.md): never the same period twice, never across a hole. No
-                    // row lock here: this runs once a day on one server, inside one long transaction,
-                    // and a lock would block payments for the whole run.
-                    $lines = $service->livePeriodLines();
-                    $periodStart = $service->nextPeriodStart($lines);
-                    if ($periodStart->greaterThanOrEqualTo($billUntil)) {
-                        return;
-                    }
-                    $periodEnd = $service->periodEnd($periodStart, $lines);
-
-                    // Calculate if we should edit the price because of the coupon
-                    if ($service->coupon) {
-                        // Calculate what iteration of the coupon we are in
-                        $iteration = $service->invoices()->count() + 1;
-                        if ($iteration == $service->coupon->recurring) {
-                            // Calculate the price
-                            $service->price = $service->calculatePrice();
-                            $service->save();
-                        }
-                    }
-
-                    // If service price is 0, immediately activate next period
-                    if ($service->price <= 0) {
-                        (new RenewServiceService)->handle($service, lock: false);
-                        $number++;
-
-                        return;
-                    }
-
-                    // Create invoice
-                    $invoice = $service->invoices()->make([
-                        'user_id' => $service->user_id,
-                        'status' => 'pending',
-                        'due_at' => $periodStart,
-                        'currency_code' => $service->currency_code,
-                    ]);
-
-                    $invoice->save();
-                    // Create invoice items: the line records the period it pays for.
-                    $invoice->items()->create([
-                        'reference_id' => $service->id,
-                        'reference_type' => Service::class,
-                        'price' => $service->price,
-                        'quantity' => $service->quantity,
-                        'description' => $service->describePeriod($periodStart, $periodEnd),
-                        'period_start' => $periodStart,
-                        'period_end' => $periodEnd,
-                    ]);
-
-                    $invoice = $invoice->refresh();
-
-                    $this->payInvoiceWithCredits($invoice);
-
-                    // Charge billing agreements
-                    if ($service->billing_agreement_id && $invoice->fresh()->status === 'pending') {
-                        DB::afterCommit(function () use ($invoice, $service) {
-                            try {
-                                ExtensionHelper::charge(
-                                    $service->billingAgreement->gateway,
-                                    $invoice,
-                                    $service->billingAgreement
-                                );
-
-                                $this->successFullCharges++;
-                            } catch (Exception $e) {
-                                // Ignore errors here
-                                NotificationHelper::invoicePaymentFailedNotification($invoice->user, $invoice);
-                            }
-                        });
-                    }
-
-                    $number++;
-                });
+                }
 
                 return $number;
-            });
+            }, transaction: false);
 
             $this->runCronJob('orders_cancelled', function ($number = 0) {
                 // Cancel services if first invoice is not paid after x days
@@ -239,10 +176,11 @@ class CronJob extends Command
                 return $number;
             });
 
-        } catch (Exception $e) {
-            DB::rollBack();
-
-            $message = e($e->getMessage());
+            if ($this->failures !== []) {
+                throw reset($this->failures);
+            }
+        } catch (Throwable $e) {
+            $message = e(implode("\n", array_map(fn ($key, $failure) => "{$key}: {$failure->getMessage()}", array_keys($this->failures), $this->failures)) ?: $e->getMessage());
             NotificationHelper::sendSystemEmailNotification('Cron Job Error', <<<HTML
                 An error occurred while running the cron job:<br>
                 <pre>{$message}.</pre><br>
@@ -251,8 +189,6 @@ class CronJob extends Command
 
             throw $e;
         }
-
-        DB::commit();
 
         Setting::updateOrCreate(
             ['key' => 'last_cron_run', 'settingable_type' => CronStat::class],
@@ -269,6 +205,111 @@ class CronJob extends Command
 
         // Remove old debug logs
         DebugLog::where('created_at', '<', now()->subDays(30))->delete();
+    }
+
+    /**
+     * Bill (or, at zero price, renew) the next period of one service (docs/billing-cursor.md):
+     * where the live periods that follow the paid-until date end, never the same period twice,
+     * never across a hole. Returns 1 when it billed or renewed.
+     */
+    private function billRenewal(int $id, CarbonInterface $billUntil): int
+    {
+        $service = Service::query()->whereKey($id)->lockForUpdate()->first();
+        if (!$service || !in_array($service->status, ['active', 'suspended'], true)) {
+            return 0;
+        }
+
+        // Does the service have already an open (pending or draft) invoice?
+        if ($service->invoices()->whereIn('status', ['pending', 'draft'])->exists() || $service->cancellation()->exists()) {
+            return 0;
+        }
+
+        $lines = $service->livePeriodLines();
+        // A suspended service is not billed again (decision A2), except for a hole before a
+        // period that is already paid: otherwise that payment would be stranded.
+        if ($service->status === 'suspended' && !$lines->contains(fn ($line) => $line->invoice?->status === 'paid'
+            && $line->period_start->greaterThan($service->paidUntilBase()))) {
+            return 0;
+        }
+
+        $periodStart = $service->nextPeriodStart($lines);
+        if ($periodStart->greaterThanOrEqualTo($billUntil)) {
+            return 0;
+        }
+        // Calculate if we should edit the price because of the coupon
+        if ($service->coupon) {
+            // Calculate what iteration of the coupon we are in
+            $iteration = $service->invoices()->count() + 1;
+            if ($iteration == $service->coupon->recurring) {
+                // Calculate the price
+                $service->price = $service->calculatePrice();
+                $service->save();
+            }
+        }
+
+        // If service price is 0, immediately activate next period
+        if ($service->price <= 0) {
+            (new RenewServiceService)->handle($service);
+
+            return 1;
+        }
+
+        $periodEnd = $service->periodEnd($periodStart, $lines);
+        $price = $service->price;
+
+        // A hole shorter than a period (the next live period starts sooner): bill only the hole, prorated.
+        $nextStart = $lines->first(fn ($line) => $line->period_start->greaterThan($periodStart))?->period_start;
+        if ($nextStart !== null && $periodEnd !== null && $nextStart->lessThan($periodEnd)) {
+            $days = (int) $periodStart->diffInDays($nextStart);
+            $fullDays = max(1, (int) $periodStart->diffInDays($periodEnd));
+            $cents = (int) round((float) $service->price * 100);
+            $price = number_format(intdiv($cents * $days + intdiv($fullDays, 2), $fullDays) / 100, 2, '.', '');
+            $periodEnd = $nextStart;
+        }
+
+        // Create invoice
+        $invoice = $service->invoices()->make([
+            'user_id' => $service->user_id,
+            'status' => 'pending',
+            'due_at' => $periodStart,
+            'currency_code' => $service->currency_code,
+        ]);
+
+        $invoice->save();
+        // Create invoice items: the line records the period it pays for.
+        $invoice->items()->create([
+            'reference_id' => $service->id,
+            'reference_type' => Service::class,
+            'price' => $price,
+            'quantity' => $service->quantity,
+            'description' => $service->describePeriod($periodStart, $periodEnd),
+            'period_start' => $periodStart,
+            'period_end' => $periodEnd,
+        ]);
+
+        $invoice = $invoice->refresh();
+
+        $this->payInvoiceWithCredits($invoice);
+
+        // Charge billing agreements
+        if ($service->billing_agreement_id && $invoice->fresh()->status === 'pending') {
+            DB::afterCommit(function () use ($invoice, $service) {
+                try {
+                    ExtensionHelper::charge(
+                        $service->billingAgreement->gateway,
+                        $invoice,
+                        $service->billingAgreement
+                    );
+
+                    $this->successFullCharges++;
+                } catch (Exception $e) {
+                    // Ignore errors here
+                    NotificationHelper::invoicePaymentFailedNotification($invoice->user, $invoice);
+                }
+            });
+        }
+
+        return 1;
     }
 
     private function payInvoiceWithCredits(Invoice $invoice): void
@@ -295,9 +336,16 @@ class CronJob extends Command
     /**
      * Function to run a specific cron job by its key.
      */
-    private function runCronJob(string $key, callable $callback): void
+    private function runCronJob(string $key, callable $callback, bool $transaction = true): void
     {
-        $items = $callback() ?? 0;
+        try {
+            $items = ($transaction ? DB::transaction(fn () => $callback()) : $callback()) ?? 0;
+        } catch (Throwable $e) {
+            report($e);
+            $this->failures[$key] = $e;
+
+            return;
+        }
 
         CronStat::create([
             'key' => $key,
