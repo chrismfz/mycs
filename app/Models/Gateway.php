@@ -6,8 +6,8 @@ class Gateway extends Extension
 {
     protected $table = 'extensions';
 
-    public function newQuery($excludeDeleted = true)
+    public function newQuery()
     {
-        return parent::newQuery($excludeDeleted)->where('type', 'gateway');
+        return parent::newQuery()->where('type', 'gateway');
     }
 }

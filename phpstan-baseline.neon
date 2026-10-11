@@ -211,12 +211,6 @@ parameters:
 			path: app/Admin/Resources/OrderResource.php
 
 		-
-			message: '#^Call to an undefined method Filament\\Notifications\\Notification\:\:error\(\)\.$#'
-			identifier: method.notFound
-			count: 1
-			path: app/Admin/Resources/OrderResource.php
-
-		-
 			message: '#^Cannot access property \$currency on array\<string, mixed\>\|Illuminate\\Database\\Eloquent\\Model\.$#'
 			identifier: property.nonObject
 			count: 2
@@ -337,12 +331,6 @@ parameters:
 			path: app/Admin/Resources/ServiceResource.php
 
 		-
-			message: '#^Call to an undefined method Filament\\Notifications\\Notification\:\:error\(\)\.$#'
-			identifier: method.notFound
-			count: 1
-			path: app/Admin/Resources/ServiceResource.php
-
-		-
 			message: '#^Cannot access property \$subscription_id on array\<string, mixed\>\|Illuminate\\Database\\Eloquent\\Model\.$#'
 			identifier: property.nonObject
 			count: 1
@@ -409,24 +397,6 @@ parameters:
 			path: app/Admin/Resources/TaxRateResource.php
 
 		-
-			message: '#^Class App\\Admin\\Resources\\TicketMessageResource not found\.$#'
-			identifier: class.notFound
-			count: 1
-			path: app/Admin/Resources/TicketMessageResource/Pages/CreateTicketMessage.php
-
-		-
-			message: '#^Class App\\Admin\\Resources\\TicketMessageResource not found\.$#'
-			identifier: class.notFound
-			count: 1
-			path: app/Admin/Resources/TicketMessageResource/Pages/EditTicketMessage.php
-
-		-
-			message: '#^Class App\\Admin\\Resources\\TicketMessageResource not found\.$#'
-			identifier: class.notFound
-			count: 1
-			path: app/Admin/Resources/TicketMessageResource/Pages/ListTicketMessages.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$subject\.$#'
 			identifier: property.notFound
 			count: 1
@@ -441,12 +411,6 @@ parameters:
 		-
 			message: '#^Method App\\Admin\\Resources\\TicketResource\:\:getNavigationBadge\(\) should return string\|null but returns int\<1, max\>\|null\.$#'
 			identifier: return.type
-			count: 1
-			path: app/Admin/Resources/TicketResource.php
-
-		-
-			message: '#^Method Filament\\Tables\\Filters\\SelectFilter\:\:options\(\) invoked with 2 parameters, 1 required\.$#'
-			identifier: arguments.count
 			count: 1
 			path: app/Admin/Resources/TicketResource.php
 
@@ -715,12 +679,6 @@ parameters:
 			path: app/Helpers/ExtensionHelper.php
 
 		-
-			message: '#^Method App\\Helpers\\ExtensionHelper\:\:createBillingAgreement\(\) has invalid return type App\\Helpers\\view\.$#'
-			identifier: class.notFound
-			count: 1
-			path: app/Helpers/ExtensionHelper.php
-
-		-
 			message: '#^Method App\\Helpers\\ExtensionHelper\:\:getConfigAsInputs\(\) should return object but returns array\.$#'
 			identifier: return.type
 			count: 1
@@ -728,18 +686,6 @@ parameters:
 
 		-
 			message: '#^Method App\\Helpers\\ExtensionHelper\:\:getConfigAsInputs\(\) should return object but returns list\<mixed\>\.$#'
-			identifier: return.type
-			count: 1
-			path: app/Helpers/ExtensionHelper.php
-
-		-
-			message: '#^Method App\\Helpers\\ExtensionHelper\:\:registerMiddleware\(\) has invalid return type App\\Helpers\\Router\.$#'
-			identifier: class.notFound
-			count: 1
-			path: app/Helpers/ExtensionHelper.php
-
-		-
-			message: '#^Method App\\Helpers\\ExtensionHelper\:\:registerMiddleware\(\) should return App\\Helpers\\Router but returns Illuminate\\Routing\\Router\.$#'
 			identifier: return.type
 			count: 1
 			path: app/Helpers/ExtensionHelper.php
@@ -767,12 +713,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Helpers/NotificationHelper.php
-
-		-
-			message: '#^Class App\\Http\\Requests\\Api\\Admin\\Services\\Product not found\.$#'
-			identifier: class.notFound
-			count: 1
-			path: app/Http/Requests/Api/Admin/Services/UpdateServiceRequest.php
 
 		-
 			message: '#^Cannot access property \$id on object\|string\.$#'
@@ -809,12 +749,6 @@ parameters:
 			identifier: nullsafe.neverNull
 			count: 1
 			path: app/Listeners/InvoiceNumberListener.php
-
-		-
-			message: '#^Call to an undefined method Symfony\\Component\\HttpFoundation\\File\\File\:\:getClientOriginalName\(\)\.$#'
-			identifier: method.notFound
-			count: 1
-			path: app/Listeners/RequestListener.php
 
 		-
 			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
@@ -1129,12 +1063,6 @@ parameters:
 			path: app/Livewire/Invoices/Show.php
 
 		-
-			message: '#^Static method App\\Helpers\\ExtensionHelper\:\:getBillingAgreementGateways\(\) invoked with 1 parameter, 0 required\.$#'
-			identifier: arguments.count
-			count: 1
-			path: app/Livewire/Invoices/Show.php
-
-		-
 			message: '#^Parameter \#1 \$view of function view expects view\-string\|null, string given\.$#'
 			identifier: argument.type
 			count: 1
@@ -1321,12 +1249,6 @@ parameters:
 			path: app/Models/Gateway.php
 
 		-
-			message: '#^Method Illuminate\\Database\\Eloquent\\Model\:\:newQuery\(\) invoked with 1 parameter, 0 required\.$#'
-			identifier: arguments.count
-			count: 1
-			path: app/Models/Gateway.php
-
-		-
 			message: '#^Using nullsafe property access "\?\-\>name" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
@@ -1353,12 +1275,6 @@ parameters:
 		-
 			message: '#^Method App\\Models\\Server\:\:newQuery\(\) should return Illuminate\\Database\\Eloquent\\Builder\<static\(App\\Models\\Server\)\> but returns Illuminate\\Database\\Eloquent\\Builder\<App\\Models\\Extension\>\.$#'
 			identifier: return.type
-			count: 1
-			path: app/Models/Server.php
-
-		-
-			message: '#^Method Illuminate\\Database\\Eloquent\\Model\:\:newQuery\(\) invoked with 1 parameter, 0 required\.$#'
-			identifier: arguments.count
 			count: 1
 			path: app/Models/Server.php
 

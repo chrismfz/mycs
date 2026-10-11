@@ -10,6 +10,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\File\File;
+use Symfony\Component\HttpFoundation\File\UploadedFile;
 
 // Part of this code is from the Laravel Telescope package
 class RequestListener
@@ -210,7 +211,7 @@ class RequestListener
         return collect($request->data())->mapWithKeys(function ($data) {
             if ($data['contents'] instanceof File) {
                 $value = [
-                    'name' => $data['filename'] ?? $data['contents']->getClientOriginalName(),
+                    'name' => $data['filename'] ?? ($data['contents'] instanceof UploadedFile ? $data['contents']->getClientOriginalName() : $data['contents']->getFilename()),
                     'size' => ($data['contents']->getSize() / 1000) . 'KB',
                     'headers' => $data['headers'] ?? [],
                 ];

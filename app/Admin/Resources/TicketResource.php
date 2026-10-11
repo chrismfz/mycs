@@ -175,7 +175,7 @@ class TicketResource extends Resource
                         'high' => 'High',
                     ]),
                 SelectFilter::make('department')
-                    ->options(array_combine(config('settings.ticket_departments'), config('settings.ticket_departments')), config('settings.ticket_departments')),
+                    ->options(array_combine(config('settings.ticket_departments'), config('settings.ticket_departments'))),
                 SelectFilter::make('assigned_to')
                     ->label('Assigned To')
                     ->relationship('user', 'id', fn (Builder $query) => $query->where('role_id', '!=', null))
