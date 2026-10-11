@@ -25,13 +25,10 @@
 - [x] Workflows του upstream (`build-api-docs`, `release`, `beta`, `docker`) αφαιρέθηκαν (PR #9).
 - [ ] Branding/footer links (Powered by, Sponsor, Star on GitHub, docs του Paymenter).
 - [ ] Upload extensions από το web: αφαίρεση ή μόνο από CLI.
-- [ ] Templates email/ειδοποιήσεων: placeholder renderer αντί για Blade, και `mail_header`/`mail_footer` χωρίς
-      compile (`audit-security.md` H1–H2).
 - [x] Κρυπτογραφημένα credentials σε όλα τα extensions (cPanel, Plesk, Convoy, Enhance, Virtualizor) **και** στη
       δημιουργία server/gateway, που τα αποθήκευε καθαρά· migration για όσα υπάρχουν (2026-10-11).
 - [x] Templates email/ειδοποιήσεων, `mail_header`/`mail_footer` και snippet προϊόντος χωρίς Blade: renderer
       `packages/mail-template` (`templates.md`, `audit-security.md` H1–H2, 2026-10-11).
-- [ ] `encrypted` cast στα credentials όλων των server extensions (cPanel, Plesk, Convoy, Enhance, Virtualizor).
 - [ ] API keys περιορισμένα στο role αυτού που τα δημιουργεί· προστασία λογαριασμών admin στο `users.update`.
 - [x] CI: tests σε sqlite + MariaDB 10.11 (PHP 8.4) και `pint --test` σε κάθε PR (PR #9, 2026-10-11).
 - [ ] CI: phpstan (larastan) ενεργό.
