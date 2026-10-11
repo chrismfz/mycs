@@ -126,7 +126,11 @@ class DomainSyncService
                 . ($result->rawStatus !== null ? ' (κατάσταση ' . $result->rawStatus . ')' : '')
                 . ' — χειριστείτε το από το domain.';
         }
-        if ($result->expiresAt !== null) {
+        // While a transfer/registration is still pending, OP reports a placeholder expiry
+        // (today + 1y, live finding on nixpal.com); the real one lands with ACT.
+        $stillPending = in_array($domain->status, [DomainStatus::PendingTransfer, DomainStatus::PendingRegister], true)
+            && $result->status !== DomainStatus::Active;
+        if ($result->expiresAt !== null && !$stillPending) {
             $updates['expires_at'] = $result->expiresAt;
         }
         // A3d mirrors follow REGISTRAR truth wherever it's reported — a lock/

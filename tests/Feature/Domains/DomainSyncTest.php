@@ -82,6 +82,25 @@ class DomainSyncTest extends TestCase
         $this->assertSame(['ns1.myip.gr', 'ns2.myip.gr'], $domain->nameservers()->pluck('host')->all());
     }
 
+    public function test_a_pending_transfer_keeps_its_expiry_until_the_registrar_reports_act(): void
+    {
+        // Live finding (nixpal.com): while REQ, OP reports today + 1y as the expiry.
+        Http::fake([
+            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1beta/domains?full_name=example.gr' => Http::response(['data' => ['results' => [[
+                'id' => 777, 'status' => 'REQ', 'expiration_date' => '2027-10-11 00:00:00',
+            ]]]]),
+        ]);
+        $domain = $this->domain(['status' => 'pending_transfer', 'expires_at' => '2026-11-17']);
+
+        app(DomainSyncService::class)->sync($domain);
+        $domain->refresh();
+
+        $this->assertSame('2026-11-17', $domain->expires_at->toDateString());
+        $this->assertSame(DomainStatus::PendingTransfer, $domain->status);
+        $this->assertSame('777', $domain->registrar_domain_id);
+    }
+
     public function test_sync_corrects_the_lock_privacy_mirrors_from_registrar_truth(): void
     {
         // A3d gate r1/r2: a toggle at the registrar PANEL must not leave the
