@@ -36,7 +36,7 @@ class InvoiceNumberListener
         $formattedNumber = DB::transaction(function () use ($prefix) {
             $settingKey = $prefix . '_number';
             $setting = Setting::where('key', $settingKey)->lockForUpdate()->first();
-            $number = (int) ($setting?->value ?? 0);
+            $number = (int) ($setting->value ?? 0);
             $number++;
 
             Setting::updateOrCreate([

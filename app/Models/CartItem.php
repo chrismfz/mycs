@@ -55,7 +55,7 @@ class CartItem extends Model
         return Attribute::make(
             get: function () {
                 // Resolve against the cart's currency: the invoice inherits it, while the session may have expired back to the default currency.
-                $currency = $this->cart?->currency_code ?? session('currency', config('settings.default_currency'));
+                $currency = $this->cart->currency_code ?? session('currency', config('settings.default_currency'));
                 $total = 0;
                 $setup_fee = 0;
                 $unavailable = false;

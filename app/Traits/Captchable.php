@@ -64,8 +64,6 @@ trait Captchable
         }
 
         throw ValidationException::withMessages(['captcha' => 'The CAPTCHA was invalid.']);
-
-        return $this->is_valid = false;
     }
 
     // Google Recaptcha
@@ -82,8 +80,6 @@ trait Captchable
         }
 
         throw ValidationException::withMessages(['captcha' => 'The CAPTCHA was invalid.']);
-
-        return $this->is_valid = false;
     }
 
     // hCaptcha
@@ -100,7 +96,5 @@ trait Captchable
         }
 
         throw ValidationException::withMessages(['captcha' => 'The CAPTCHA was invalid.']);
-
-        return $this->is_valid = false;
     }
 }

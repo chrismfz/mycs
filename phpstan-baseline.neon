@@ -43,12 +43,6 @@ parameters:
 			path: app/Admin/Resources/AdjustmentNoteResource.php
 
 		-
-			message: '#^Using nullsafe property access "\?\-\>email" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Admin/Resources/AdjustmentNoteResource.php
-
-		-
 			message: '#^Cannot call method children\(\) on Illuminate\\Database\\Eloquent\\Model\|int\|string\.$#'
 			identifier: method.nonObject
 			count: 1
@@ -175,20 +169,8 @@ parameters:
 			path: app/Admin/Resources/InvoiceResource/RelationManagers/AdjustmentNotesRelationManager.php
 
 		-
-			message: '#^Using nullsafe property access on non\-nullable type Illuminate\\Database\\Eloquent\\Model\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Admin/Resources/InvoiceResource/RelationManagers/AdjustmentNotesRelationManager.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$status\.$#'
 			identifier: property.notFound
-			count: 1
-			path: app/Admin/Resources/InvoiceResource/RelationManagers/TransactionsRelationManager.php
-
-		-
-			message: '#^Using nullsafe property access on non\-nullable type Illuminate\\Database\\Eloquent\\Model\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
 			count: 1
 			path: app/Admin/Resources/InvoiceResource/RelationManagers/TransactionsRelationManager.php
 
@@ -487,12 +469,6 @@ parameters:
 			path: app/Classes/Extension/Gateway.php
 
 		-
-			message: '#^Unreachable statement \- code above always terminates\.$#'
-			identifier: deadCode.unreachable
-			count: 13
-			path: app/Classes/FilamentInput.php
-
-		-
 			message: '#^Access to an undefined property App\\Classes\\Price\:\:\$total\.$#'
 			identifier: property.notFound
 			count: 2
@@ -745,12 +721,6 @@ parameters:
 			path: app/Listeners/InvoiceNumberListener.php
 
 		-
-			message: '#^Using nullsafe property access "\?\-\>value" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Listeners/InvoiceNumberListener.php
-
-		-
 			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 1
@@ -793,12 +763,6 @@ parameters:
 			path: app/Livewire/Auth/Login.php
 
 		-
-			message: '#^Unreachable statement \- code above always terminates\.$#'
-			identifier: deadCode.unreachable
-			count: 3
-			path: app/Livewire/Auth/Login.php
-
-		-
 			message: '#^Parameter \#1 \$view of function view expects view\-string\|null, string given\.$#'
 			identifier: argument.type
 			count: 1
@@ -811,39 +775,15 @@ parameters:
 			path: app/Livewire/Auth/Password/Request.php
 
 		-
-			message: '#^Unreachable statement \- code above always terminates\.$#'
-			identifier: deadCode.unreachable
-			count: 3
-			path: app/Livewire/Auth/Password/Request.php
-
-		-
-			message: '#^Using nullsafe property access on non\-nullable type App\\Models\\User\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Livewire/Auth/Password/Request.php
-
-		-
 			message: '#^Parameter \#1 \$view of function view expects view\-string\|null, string given\.$#'
 			identifier: argument.type
 			count: 1
 			path: app/Livewire/Auth/Password/Reset.php
 
 		-
-			message: '#^Unreachable statement \- code above always terminates\.$#'
-			identifier: deadCode.unreachable
-			count: 3
-			path: app/Livewire/Auth/Password/Reset.php
-
-		-
 			message: '#^Parameter \#1 \$view of function view expects view\-string\|null, string given\.$#'
 			identifier: argument.type
 			count: 1
-			path: app/Livewire/Auth/Register.php
-
-		-
-			message: '#^Unreachable statement \- code above always terminates\.$#'
-			identifier: deadCode.unreachable
-			count: 3
 			path: app/Livewire/Auth/Register.php
 
 		-
@@ -856,12 +796,6 @@ parameters:
 			message: '#^Parameter \#1 \$view of function view expects view\-string\|null, string given\.$#'
 			identifier: argument.type
 			count: 1
-			path: app/Livewire/Auth/VerifyEmail.php
-
-		-
-			message: '#^Unreachable statement \- code above always terminates\.$#'
-			identifier: deadCode.unreachable
-			count: 3
 			path: app/Livewire/Auth/VerifyEmail.php
 
 		-
@@ -1147,12 +1081,6 @@ parameters:
 			path: app/Livewire/Services/Show.php
 
 		-
-			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Database\\Eloquent\\Relations\\HasMany\<App\\Models\\BillingAgreement, App\\Models\\User\>\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Livewire/Services/Show.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$children\.$#'
 			identifier: property.notFound
 			count: 3
@@ -1231,12 +1159,6 @@ parameters:
 			path: app/Models/CartItem.php
 
 		-
-			message: '#^Using nullsafe property access "\?\-\>currency_code" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Models/CartItem.php
-
-		-
 			message: '#^Using nullsafe property access on non\-nullable type stdClass\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 2
@@ -1247,18 +1169,6 @@ parameters:
 			identifier: return.type
 			count: 1
 			path: app/Models/Gateway.php
-
-		-
-			message: '#^Using nullsafe property access "\?\-\>name" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Models/Invoice.php
-
-		-
-			message: '#^Using nullsafe property access on non\-nullable type \$this\(App\\Models\\Invoice\)\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 4
-			path: app/Models/Invoice.php
 
 		-
 			message: '#^Match expression does not handle remaining values\: ''hour''\|null$#'
@@ -1701,12 +1611,6 @@ parameters:
 		-
 			message: '#^Method Paymenter\\Extensions\\Servers\\Convoy\\Convoy\:\:unsuspendServer\(\) should return bool but return statement is missing\.$#'
 			identifier: return.missing
-			count: 1
-			path: extensions/Servers/Convoy/Convoy.php
-
-		-
-			message: '#^Unreachable statement \- code above always terminates\.$#'
-			identifier: deadCode.unreachable
 			count: 1
 			path: extensions/Servers/Convoy/Convoy.php
 

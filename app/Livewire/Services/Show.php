@@ -64,7 +64,7 @@ class Show extends Component
 
     public function updatedShowBillingAgreement()
     {
-        $this->selectedMethod = Auth::user()->billingAgreements()->where('id', $this->service->billing_agreement_id)?->first()?->ulid;
+        $this->selectedMethod = Auth::user()->billingAgreements()->where('id', $this->service->billing_agreement_id)->first()?->ulid;
     }
 
     public function updateBillingAgreement()

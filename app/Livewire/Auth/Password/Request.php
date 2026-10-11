@@ -36,7 +36,7 @@ class Request extends Component
         // Find the user
         $user = User::where('email', $this->email)->first();
 
-        if ($user && !$user?->role) {
+        if ($user && !$user->role) {
             NotificationHelper::passwordResetNotification($user, ['url' => url(route('password.reset', [
                 'token' => Password::createToken($user),
                 'email' => $user->email,

@@ -38,7 +38,7 @@
 - [x] CI: phpstan (larastan, level 5) σε `app/`, `extensions/`, `packages/mail-template` με baseline για τα 672 του
       upstream: σπάει μόνο σε νέα σφάλματα (2026-10-11).
 - [ ] Μείωση του `phpstan-baseline.neon`: όποιο αρχείο αγγίζουμε, καθαρίζουμε και τις εγγραφές του. 672 → 404 με
-      τύπους στις σχέσεις και `@property-read` στα accessors των models, → 390 με τα «ύποπτα» (2 πραγματικά bugs, 2026-10-11).
+      τύπους στις σχέσεις και `@property-read` στα accessors των models, → 390 με τα «ύποπτα» (2 πραγματικά bugs), → 349 με νεκρό κώδικα και περιττά `?->` (2026-10-11).
 - [x] `lib/*` του blesta-modules → `packages/` (nixpal-licensing, cardlink-eurobank, paypal-vault, domain-tools,
       myopenprovider, mailcow), composer `path` repositories, 215 tests και phpstan στο CI (2026-10-11). Έμειναν εκτός
       ό,τι ήταν μόνο για το Blesta (repository/plugin endpoint/importer του licensing, tests των modules). Μένουν
