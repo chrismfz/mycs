@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use MyCS\BillingPeriod\BillingPeriod;
 use OwenIt\Auditing\Contracts\Auditable;
 
@@ -62,6 +63,7 @@ class Service extends Model implements Auditable
     protected $casts = [
         'expires_at' => 'date',
         'suspend_hold_until' => 'date',
+        'dunning_suspended_at' => 'immutable_datetime',
         'coupon_started_at' => 'immutable_date',
         'coupon_expired_at' => 'immutable_datetime',
     ];
@@ -290,6 +292,54 @@ class Service extends Model implements Auditable
         $fullEnd = $this->periodEnd($start);
 
         return $fullEnd === null ? (string) $this->price : BillingPeriod::prorate((string) $this->price, $start, $end, $fullEnd);
+    }
+
+    /**
+     * Apply explicit staff changes on the same row lock as payment and billing.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    public function applyStaffChanges(array $attributes): void
+    {
+        DB::transaction(function () use ($attributes) {
+            $locked = self::query()->whereKey($this->getKey())->lockForUpdate()->firstOrFail();
+            $locked->fill($attributes);
+            if (($attributes['status'] ?? null) === self::STATUS_SUSPENDED) {
+                $locked->dunning_suspended_at = null;
+            }
+            $locked->save();
+            $this->setRawAttributes($locked->getAttributes(), true);
+            $this->unsetRelations();
+        });
+    }
+
+    /** Rebuild open renewal periods and prices from the current recurring amount. */
+    public function refreshOpenPeriods(): void
+    {
+        if ($this->plan === null || in_array($this->plan->type, ['one-time', 'free'], true)) {
+            return;
+        }
+        $lines = $this->livePeriodLines();
+        foreach ($lines as $line) {
+            if (!in_array($line->invoice?->status, ['pending', 'draft'], true)) {
+                continue;
+            }
+            $end = $this->periodEnd($line->period_start, $lines);
+            $next = $lines->first(fn ($other) => $other->id !== $line->id && $other->period_start->greaterThan($line->period_start))?->period_start;
+            if ($end !== null && $next !== null && $next->lessThan($end)) {
+                $end = $next;
+            }
+            if ($end !== null) {
+                $line->forceFill([
+                    'period_end' => $end,
+                    'description' => $this->describePeriod($line->period_start, $end),
+                    'price' => $this->priceForPeriod($line->period_start, $end),
+                ]);
+                if ($line->isDirty()) {
+                    $line->save();
+                }
+            }
+        }
     }
 
     /**

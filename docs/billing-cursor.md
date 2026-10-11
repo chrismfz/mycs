@@ -142,3 +142,39 @@ replay μετά από διόρθωση λήξης, ανατιμολόγηση �
 
 Validation (2026-10-12): MariaDB full suite — 424 tests, 2809 assertions, 4 known incomplete, no failures;
 SQLite targeted regressions/package — 28 tests, 112 assertions; Pint, PHPStan and composer validate pass.
+
+
+## Τελικός έλεγχος reference Ekdosi / WHMCS — διορθώσεις (2026-10-12)
+
+- **F1, επιστροφή κύκλου:** `Service::refreshOpenPeriods()` επανυπολογίζει περίοδο, περιγραφή και decimal τιμή
+  για όλες τις pending/draft γραμμές ανανέωσης, ακόμη όταν η γραμμή γίνει πάλι ολόκληρος κύκλος. Το upgrade
+  το καλεί αφού αποθηκεύσει την τελική recurring τιμή και τα νέα configs. Οι paid γραμμές μένουν σταθερές.
+  Αλλαγή plan_id σημαίνει επανυπολογισμό από το recurring ποσό της υπηρεσίας· χειροκίνητο override τιμής
+  γραμμής χρειάζεται να εφαρμοστεί μετά την αλλαγή κύκλου. Απλή αλλαγή recurring ποσού χωρίς αλλαγή κύκλου
+  δεν ξαναγράφει τα υπάρχοντα τιμολόγια. Legacy γραμμές χωρίς περίοδο παίρνουν πλήρη τιμή στο upgrade.
+- **F2, χειροκίνητη αναστολή:** nullable `services.dunning_suspended_at` γράφεται μόνο από το cron, μαζί με
+  status suspended υπό row lock. Πληρωμή ενημερώνει πάντα τον πληρωμένο χρόνο, αλλά αίρει την αναστολή μόνο
+  όταν υπάρχει αυτός ο marker. Έξοδος από suspended καθαρίζει τον marker. Οι παλιές/εισαγόμενες αναστολές
+  χωρίς γνωστή αιτία θεωρούνται προστατευμένες: δεν γίνεται εικασία από τη λήξη ούτε μαζικό backfill.
+- **Ρητή ενέργεια staff:** το API με status=suspended και το «Trigger Extension Action → Suspend server»
+  δημιουργούν manual hold ακόμη κι αν η υπηρεσία ήταν ήδη suspended από το billing. Το hold αποθηκεύεται
+  πριν κληθεί ο adapter, ώστε αποτυχία provisioning να μη δώσει δικαίωμα αυτόματης επανενεργοποίησης.
+  «Unsuspend server» ενημερώνει το status σε active μετά από επιτυχημένη κλήση. Στη φόρμα, αποθήκευση
+  άσχετων πεδίων με αμετάβλητο status δεν μετατρέπει οικονομική αναστολή σε χειροκίνητη.
+- API, admin form και explicit extension actions γράφουν μέσω `applyStaffChanges()` με το ίδιο service row
+  lock που χρησιμοποιεί η πληρωμή. Έτσι, stale record του staff δεν αφήνει billing marker από ταυτόχρονο cron.
+- Η αυτόματη τερμάτιση λόγω οφειλής περιορίζεται επίσης στις αναστολές με billing marker. Για unknown/manual
+  αναστολή αποφασίζει το staff. Τα SuspendJob/UnsuspendJob ελέγχουν ξανά το τρέχον status πριν τον adapter,
+  ώστε ένα καθυστερημένο job να μη διορθώσει προς τα πίσω νεότερη πληρωμή ή hold.
+- Migration: `2026_10_12_000400_add_dunning_suspension_to_services`. Ο marker είναι εσωτερικός, δεν είναι
+  fillable ούτε δέχεται τιμή από το admin API. Ο importer πρέπει να διατηρεί γνωστή αιτία αναστολής ρητά.
+
+`BillingCursorReferenceFixTest`: τα δύο ευρήματα, επιστροφή pending/draft στον αρχικό κύκλο, upgrade draft,
+σταθερή paid γραμμή, invoice override χωρίς αλλαγή κύκλου, cron suspension/payment/new staff hold, legacy
+unknown suspension, καθυστερημένα jobs, adapter failure και admin form/stale staff record.
+`AdminServiceUpdateTest`: explicit API suspension δεν επιτρέπει billing-marker injection.
+`BillingCursorConcurrencyTest`: επιπλέον πραγματικό race staff hold ↔ payment, με τελικό suspended,
+πληρωμένο χρόνο και εφαρμογή γραμμής ακριβώς μία φορά.
+
+Οι ήδη υπάρχουσες δοκιμές οικονομικής αναστολής ορίζουν πλέον ρητά billing marker στα fixtures· τα assertions
+τους δεν χαλάρωσαν. Οι γνωστοί payment/refund περιορισμοί και τα τέσσερα incomplete παραμένουν στα επόμενα PR.

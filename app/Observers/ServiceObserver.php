@@ -27,6 +27,9 @@ class ServiceObserver
      */
     public function updating(Service $service): void
     {
+        if ($service->isDirty('status') && $service->status !== Service::STATUS_SUSPENDED) {
+            $service->dunning_suspended_at = null;
+        }
         if ($service->isDirty('coupon_id')) {
             $service->coupon_started_at = $service->coupon_id ? CarbonImmutable::today() : null;
             $service->coupon_expired_at = null;
@@ -62,34 +65,9 @@ class ServiceObserver
      */
     public function updated(Service $service): void
     {
-        // Billing cycle changed (e.g. monthly -> yearly) while a renewal invoice is open: its line covers
-        // a period of the new cycle, so what the customer pays buys what the invoice says. Its price is
-        // staff's Recurring Amount, prorated when clipped. Never over a later live period (one paid ahead,
-        // say): the line stops where that one starts, so no day is billed twice.
         if ($service->wasChanged('plan_id')) {
             $service->unsetRelation('plan');
-        }
-        if ($service->wasChanged('plan_id') && $service->plan !== null && !in_array($service->plan->type, ['one-time', 'free'], true)) {
-            $lines = $service->livePeriodLines();
-            $lines->filter(fn ($line) => in_array($line->invoice?->status, ['pending', 'draft'], true))
-                ->each(function ($line) use ($service, $lines) {
-                    $fullEnd = $service->periodEnd($line->period_start, $lines);
-                    $end = $fullEnd;
-                    $next = $lines->first(fn ($other) => $other->id !== $line->id && $other->period_start->greaterThan($line->period_start))?->period_start;
-                    if ($end !== null && $next !== null && $next->lessThan($end)) {
-                        $end = $next;
-                    }
-                    if ($end !== null) {
-                        $fill = ['period_end' => $end, 'description' => $service->describePeriod($line->period_start, $end)];
-                        if ($end->lessThan($fullEnd)) {
-                            $fill['price'] = $service->priceForPeriod($line->period_start, $end);
-                        }
-                        $line->forceFill($fill);
-                        if ($line->isDirty()) {
-                            $line->save();
-                        }
-                    }
-                });
+            $service->refreshOpenPeriods();
         }
 
         // After commit: listeners (Stripe, Discord, ...) call out over the network; they must not run

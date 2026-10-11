@@ -114,6 +114,7 @@ class ServiceRenewalTest extends TestCase
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'suspended',
+            'dunning_suspended_at' => now(),
             'expires_at' => now()->subDays(10),
             'currency_code' => 'USD',
             'price' => 10.00, // Set a price for the service

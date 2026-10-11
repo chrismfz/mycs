@@ -203,6 +203,7 @@ class CronjobTest extends TestCase
             'id' => $service->id,
             'status' => 'suspended',
         ]);
+        $this->assertNotNull($service->fresh()->dunning_suspended_at);
     }
 
     public function test_orders_are_terminated_if_due_date_is_overdue(): void
@@ -314,6 +315,7 @@ class CronjobTest extends TestCase
         $service = Service::factory()->create([
             'product_id' => $product->product->id,
             'status' => 'suspended',
+            'dunning_suspended_at' => now(),
             'expires_at' => now()->subDays(15),
             'user_id' => $user->id,
             'currency_code' => 'USD',
@@ -346,6 +348,7 @@ class CronjobTest extends TestCase
         $service = Service::factory()->create([
             'product_id' => $product->product->id,
             'status' => 'suspended',
+            'dunning_suspended_at' => now(),
             'expires_at' => now()->subDays(15),
             'user_id' => $user->id,
             'currency_code' => 'USD',
@@ -371,6 +374,7 @@ class CronjobTest extends TestCase
         $service = Service::factory()->create([
             'product_id' => $product->product->id,
             'status' => 'suspended',
+            'dunning_suspended_at' => now(),
             'expires_at' => now()->subDays(15),
             'user_id' => $user->id,
             'currency_code' => 'USD',

@@ -67,7 +67,33 @@ class BillingCursorConcurrencyTest extends TestCase
         }
     }
 
-    private function race(int $serviceId, array $itemIds): void
+    public function test_a_staff_hold_survives_a_concurrent_payment(): void
+    {
+        Carbon::setTestNow('2026-10-12 10:00:00');
+        try {
+            $product = $this->createProduct();
+            $service = Service::factory()->create([
+                'user_id' => User::factory()->create()->id, 'product_id' => $product->product->id,
+                'plan_id' => $product->plan->id, 'status' => 'suspended', 'dunning_suspended_at' => now(),
+                'expires_at' => '2026-10-15', 'currency_code' => 'USD', 'price' => 10,
+            ]);
+            $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'paid', 'currency_code' => 'USD']);
+            $item = $invoice->items()->create([
+                'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Concurrent staff hold',
+                'price' => 10, 'quantity' => 1, 'period_start' => '2026-10-15', 'period_end' => '2026-11-15',
+            ]);
+            $this->race($service->id, [$item->id, $item->id], staffHold: true);
+            $service->refresh();
+            $this->assertSame('2026-11-15', $service->expires_at->toDateString());
+            $this->assertSame('suspended', $service->status);
+            $this->assertNull($service->dunning_suspended_at);
+            $this->assertNotNull($item->fresh()->applied_at);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    private function race(int $serviceId, array $itemIds, bool $staffHold = false): void
     {
         $dir = sys_get_temp_dir() . '/mycs-billing-race-' . bin2hex(random_bytes(8));
         mkdir($dir, 0700);
@@ -90,7 +116,11 @@ class BillingCursorConcurrencyTest extends TestCase
                             }
                             usleep(1000);
                         }
-                        (new RenewServiceService)->handle(Service::findOrFail($serviceId), InvoiceItem::findOrFail($itemId));
+                        if ($staffHold && $index === 1) {
+                            Service::findOrFail($serviceId)->applyStaffChanges(['status' => 'suspended']);
+                        } else {
+                            (new RenewServiceService)->handle(Service::findOrFail($serviceId), InvoiceItem::findOrFail($itemId));
+                        }
                         DB::disconnect();
                         exit(0);
                     } catch (Throwable $e) {

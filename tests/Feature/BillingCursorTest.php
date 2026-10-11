@@ -178,7 +178,7 @@ class BillingCursorTest extends TestCase
 
     public function test_a_period_paid_ahead_of_an_unpaid_one_waits_for_the_gap(): void
     {
-        $service = $this->service(['status' => 'suspended']);
+        $service = $this->service(['status' => 'suspended', 'dunning_suspended_at' => now()]);
         $october = $this->invoiceFor($service, '2026-10-15', '2026-11-15');
         $november = $this->invoiceFor($service, '2026-11-15', '2026-12-15');
 
@@ -204,7 +204,7 @@ class BillingCursorTest extends TestCase
 
     public function test_a_suspended_service_renews_from_its_expiry(): void
     {
-        $service = $this->service(['status' => 'suspended', 'expires_at' => '2026-09-20']);
+        $service = $this->service(['status' => 'suspended', 'dunning_suspended_at' => now(), 'expires_at' => '2026-09-20']);
         $invoice = $this->invoiceFor($service, '2026-09-20', '2026-10-20');
 
         $this->pay($invoice);

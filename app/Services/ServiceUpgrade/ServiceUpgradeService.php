@@ -57,23 +57,14 @@ class ServiceUpgradeService
             $service->price = $service->calculatePrice();
             $service->save();
 
-            // Is there a pending renewal invoice? Update it.
-            $pendingInvoice = $service->invoices()
-                ->where('status', 'pending')
-                ->first();
-
-            if ($pendingInvoice) {
-                $item = $pendingInvoice->items()
-                    ->where('reference_type', Service::class)
-                    ->where('reference_id', $service->id)
-                    ->first();
-                if ($item) {
-                    $item->price = $item->period_start !== null && $item->period_end !== null
-                        ? $service->priceForPeriod($item->period_start, $item->period_end)
-                        : $service->price;
-                    $item->save();
-                }
-            }
+            // Reprice all open renewal lines (drafts too) after the new recurring amount is saved.
+            $service->refreshOpenPeriods();
+            // Legacy manual lines without a period retain their whole-cycle allocation on payment.
+            $service->invoiceItems()->where(fn ($query) => $query->whereNull('period_start')->orWhereNull('period_end'))
+                ->whereHas('invoice', fn ($query) => $query->whereIn('status', ['pending', 'draft']))
+                ->each(function ($item) use ($service) {
+                    $item->update(['price' => $service->price]);
+                });
 
             if ($service->product->server) {
                 UpgradeJob::dispatch($service);

@@ -128,10 +128,10 @@ class CronJob extends Command
                     ->where(function ($query) {
                         $query->whereNull('suspend_hold_until')->orWhere('suspend_hold_until', '<', now());
                     })
-                    ->get()->each(function ($service) use (&$number) {
-                        SuspendJob::dispatch($service);
-
-                        $service->update(['status' => 'suspended']);
+                    ->lockForUpdate()->get()->each(function ($service) use (&$number) {
+                        // Register before Service Updated listeners, but execute only after the status commits.
+                        SuspendJob::dispatch($service)->afterCommit();
+                        $service->forceFill(['status' => 'suspended', 'dunning_suspended_at' => now()])->save();
                         $number++;
                     });
 
@@ -140,7 +140,7 @@ class CronJob extends Command
 
             $this->runCronJob('services_terminated', function ($number = 0) {
                 // Terminate orders if due date is overdue for x days
-                Service::where('status', 'suspended')->where('expires_at', '<', now()->subDays((int) config('settings.cronjob_order_terminate', 14)))->each(function ($service) use (&$number) {
+                Service::where('status', 'suspended')->whereNotNull('dunning_suspended_at')->where('expires_at', '<', now()->subDays((int) config('settings.cronjob_order_terminate', 14)))->lockForUpdate()->get()->each(function ($service) use (&$number) {
                     TerminateJob::dispatch($service);
 
                     $service->update(['status' => 'cancelled']);

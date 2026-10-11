@@ -343,24 +343,6 @@ parameters:
 			path: app/Admin/Resources/ServiceResource.php
 
 		-
-			message: '#^Cannot access property \$product on Illuminate\\Database\\Eloquent\\Model\|int\|string\.$#'
-			identifier: property.nonObject
-			count: 1
-			path: app/Admin/Resources/ServiceResource/Pages/EditService.php
-
-		-
-			message: '#^Cannot access property \$status on Illuminate\\Database\\Eloquent\\Model\|int\|string\.$#'
-			identifier: property.nonObject
-			count: 1
-			path: app/Admin/Resources/ServiceResource/Pages/EditService.php
-
-		-
-			message: '#^Cannot call method cancellation\(\) on Illuminate\\Database\\Eloquent\\Model\|int\|string\.$#'
-			identifier: method.nonObject
-			count: 1
-			path: app/Admin/Resources/ServiceResource/Pages/EditService.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$id\.$#'
 			identifier: property.notFound
 			count: 1

@@ -96,3 +96,13 @@ Fixtures του zlic και η λογική του: `history/blesta-modules/lice
 
 Validation (2026-10-12): MariaDB full suite — 424 tests, 2809 assertions, 4 known incomplete, no failures;
 SQLite targeted regressions/package — 28 tests, 112 assertions; Pint, PHPStan and composer validate pass.
+
+
+### PR #32 — τελικές διορθώσεις reference review (2026-10-12)
+
+F1/F2: επανυπολογισμός όλων των pending/draft renewal γραμμών στην αλλαγή κύκλου και μετά το upgrade·
+marker `dunning_suspended_at` για οικονομική αναστολή, προστασία manual/unknown holds στην πληρωμή και
+στο αυτόματο termination. Staff/API writes υπό service row lock, φρέσκος έλεγχος status στα suspend/unsuspend
+jobs. Νέο migration `2026_10_12_000400_add_dunning_suspension_to_services`. Legacy suspended υπηρεσίες χωρίς
+αιτία χρειάζονται ρητή απόφαση staff, όχι αυτόματο backfill. Αναλυτική πολιτική και tests στο
+`billing-cursor.md` → «Τελικός έλεγχος reference Ekdosi / WHMCS — διορθώσεις».

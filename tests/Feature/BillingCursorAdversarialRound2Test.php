@@ -187,7 +187,7 @@ class BillingCursorAdversarialRound2Test extends TestCase
     public function test_a2_long_suspended_service_paying_old_invoice_gets_one_invoice_for_the_next_period(): void
     {
         Carbon::setTestNow('2026-11-25 10:00:00');
-        $service = $this->service(['status' => 'suspended']);
+        $service = $this->service(['status' => 'suspended', 'dunning_suspended_at' => now()]);
         $october = $this->invoiceFor($service, '2026-10-15', '2026-11-15');
 
         $this->pay($october);
