@@ -135,7 +135,11 @@
 
 ## Φάση 3: Τα απαραίτητα του myip.gr (4–6 εβδομάδες)
 - [ ] **Eurobank/Cardlink + IRIS** (`packages/cardlink-eurobank`, με server-to-server returns): το 42% των πληρωμών.
-- [ ] Έμβασμα + `payments_tracking` (αντιστοίχιση καταθέσεων από IMAP τράπεζας) πάνω στον allocator.
+- [ ] Έμβασμα + `payments_tracking` (αντιστοίχιση καταθέσεων από IMAP τράπεζας) πάνω στον allocator: ο πελάτης
+      γράφει τον αριθμό προτιμολογίου στην αιτιολογία· αν ταιριάζει, mark paid το συγκεκριμένο τιμολόγιο (port του
+      δικού μας κώδικα από το WHMCS).
+- [ ] **Reports** στο admin (τα χρησιμοποιούμε συχνά): ιδέες από τα reports του WHMCS και του Ekdosi· μενού «Reports»
+      στο `App\Admin\TopMenu`.
 - [ ] Stripe SEPA.
 - [ ] **Tickets** (port από Ekdosi) με τις ρυθμίσεις του `settings-map.md` → Support: guest tickets, piping ανά τμήμα,
       CC, αξιολογήσεις, canned replies, merge, σημειώσεις, spam, auto-close, όριο email, μορφή αριθμού.
