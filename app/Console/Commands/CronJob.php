@@ -88,6 +88,7 @@ class CronJob extends Command
                     $invoice->items()->create([
                         'reference_id' => $service->id,
                         'reference_type' => Service::class,
+                        'period_start' => $service->expires_at, // the period this renewal pays for
                         'price' => $service->price,
                         'quantity' => $service->quantity,
                         'description' => $service->description,

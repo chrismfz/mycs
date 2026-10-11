@@ -30,9 +30,11 @@ class InvoiceItem extends Model implements Auditable
         'gateway_id',
         'reference_id',
         'reference_type',
+        'period_start',
     ];
 
     protected $casts = [
+        'period_start' => 'date',
         'price' => 'decimal:2',
     ];
 
