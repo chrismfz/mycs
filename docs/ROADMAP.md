@@ -31,6 +31,10 @@
 - [ ] `lib/*` του blesta-modules → `packages/` (nixpal-licensing, cardlink-eurobank, paypal-vault, domain-tools,
       myopenprovider, mailcow), με composer `path` repositories και τα tests τους στο CI.
 - [ ] Σκελετός ελληνικής μετάφρασης (`lang/el`).
+- [ ] Installer και updater όπως του Ekdosi: `/install` wizard + `mycs:install` (πρώτος admin, ρυθμίσεις, seed)
+      αντί για τα `app:init`/`app:user:create` του Paymenter (μόνο όνομα εταιρείας + URL, χωρίς web installer,
+      upstream #1011)· `mycs:self-update` με git checkout/composer/migrate/caches και rollback (μοτίβο
+      `ekdosi:install`, `ekdosi:self-update`, `deploy/update.sh`, `deploy/rollback.sh`, `INSTALL.md`).
 - [ ] Cherry-picks: #1338 (captcha), το enforcement του `credits_enabled` από το #1295.
 - [ ] **Spike 1–2 ημερών:** port ενός μικρού κομματιού των domains του Ekdosi, για να μετρηθεί το πραγματικό κόστος
       (από `company_id` και φορολογικό Invoice σε προτιμολόγιο).
