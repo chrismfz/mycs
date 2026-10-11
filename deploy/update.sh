@@ -34,11 +34,19 @@
 #   QUEUE_STOP_CMD / QUEUE_START_CMD  explicit hooks (win over systemd)
 #   ALLOW_DOWNGRADE=1
 #
-# Re-run under bash if started as `sh deploy/update.sh`.
-if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
+# Run from a private copy, under bash: the checkout below replaces this very
+# file, and bash reads a script while it runs — editing it mid-run can execute
+# half-lines. Also covers `sh deploy/update.sh`.
+if [ -z "${MYCS_UPDATE_COPY:-}" ]; then
+  APP_DIR="${APP_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+  _copy="$(mktemp "${TMPDIR:-/tmp}/mycs-update.XXXXXX")"
+  cp "$0" "$_copy"
+  MYCS_UPDATE_COPY="$_copy" APP_DIR="$APP_DIR" exec bash "$_copy" "$@"
+fi
+trap 'rm -f "$MYCS_UPDATE_COPY"' EXIT
 set -Eeuo pipefail
 
-cd "${APP_DIR:-$(dirname "$0")/..}"
+cd "$APP_DIR"
 PHP="${PHP:-php}"
 COMPOSER="${COMPOSER:-composer}"
 NPM="${NPM:-npm}"
