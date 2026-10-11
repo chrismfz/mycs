@@ -157,9 +157,9 @@ SQLite targeted regressions/package — 28 tests, 112 assertions; Pint, PHPStan 
   όταν υπάρχει αυτός ο marker. Έξοδος από suspended καθαρίζει τον marker. Οι παλιές/εισαγόμενες αναστολές
   χωρίς γνωστή αιτία θεωρούνται προστατευμένες: δεν γίνεται εικασία από τη λήξη ούτε μαζικό backfill.
 - **Ρητή ενέργεια staff:** το «Trigger Extension Action → Suspend server» δημιουργεί manual hold ακόμη κι αν η
-  υπηρεσία ήταν ήδη suspended από το billing (`Service::placeOnHold`· pending/cancelled δεν αλλάζουν). Το API
-  δημιουργεί manual hold μόνο όταν **αλλάζει** πραγματικά το status σε suspended (PR #35: ένα PUT που στέλνει πίσω
-  όλο το αντικείμενο δεν είναι πρόθεση). Το hold αποθηκεύεται
+  υπηρεσία ήταν ήδη suspended από το billing (`Service::placeOnHold`· pending/cancelled δεν αλλάζουν). Το ίδιο το
+  API με `status=suspended` (τα πεδία του είναι «sometimes»: ό,τι στέλνεται είναι πρόθεση). Η φόρμα του admin, που
+  στέλνει πάντα όλα τα πεδία, γράφει μόνο ό,τι άλλαξε το staff (PR #35). Το hold αποθηκεύεται
   πριν κληθεί ο adapter, ώστε αποτυχία provisioning να μη δώσει δικαίωμα αυτόματης επανενεργοποίησης.
   «Unsuspend server» ενημερώνει το status σε active μετά από επιτυχημένη κλήση, μόνο από suspended (μια pending ή
   ακυρωμένη υπηρεσία δεν ξαναζωντανεύει).

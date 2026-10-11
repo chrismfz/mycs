@@ -74,8 +74,13 @@ class ServiceController extends ApiController
      */
     public function update(UpdateServiceRequest $request, Service $service)
     {
-        // Validate and update the service
-        $service->applyStaffChanges($request->validated());
+        // Validate and update the service. Only the fields sent are validated («sometimes»), so a status of
+        // suspended in the request is staff's explicit hold, also over a billing suspension.
+        $data = $request->validated();
+        $service->applyStaffChanges($data);
+        if (($data['status'] ?? null) === Service::STATUS_SUSPENDED) {
+            $service->placeOnHold();
+        }
 
         // Return the updated service as a JSON response
         return new ServiceResource($this->loadAllowedIncludes($service, self::INCLUDES));

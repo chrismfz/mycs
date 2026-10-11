@@ -157,8 +157,8 @@ class BillingCursorCodexCodeReviewTest extends TestCase
         $this->assertSame('5.00', (string) $line->price, 'The one discounted cycle was never billed');
     }
 
-    /** F4: an API update that sends the unchanged status back keeps a billing suspension a billing suspension. */
-    public function test_an_api_update_with_the_same_status_keeps_the_dunning_marker(): void
+    /** F4: a model update that carries the unchanged status (not the explicit hold) keeps a billing suspension. */
+    public function test_an_update_with_the_same_status_keeps_the_dunning_marker(): void
     {
         $service = $this->service(['status' => 'suspended', 'dunning_suspended_at' => now(), 'expires_at' => '2026-10-08']);
 
