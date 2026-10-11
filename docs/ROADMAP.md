@@ -37,6 +37,8 @@
       ρύθμιση `theme`, `app:make-theme`)· το admin είναι Filament. Υποψήφιο για αφαίρεση αν μείνουμε σε ένα theme:
       μεταφορά του `themes/default` στο `resources/views` και κατάργηση του package.
 - [ ] Σκελετός ελληνικής μετάφρασης (`lang/el`).
+- [x] `deploy/update.sh` (από το Ekdosi): ενημέρωση με snapshot/maintenance/queue drain/migrate/build (2026-10-11).
+      Μένουν: `deploy/rollback.sh` (restore snapshot + checkout), updater από το admin.
 - [ ] Installer και updater όπως του Ekdosi: `/install` wizard + `mycs:install` (πρώτος admin, ρυθμίσεις, seed)
       αντί για τα `app:init`/`app:user:create` του Paymenter (μόνο όνομα εταιρείας + URL, χωρίς web installer,
       upstream #1011)· `mycs:self-update` με git checkout/composer/migrate/caches και rollback (μοτίβο
