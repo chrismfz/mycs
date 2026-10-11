@@ -33,6 +33,7 @@
         "laravel/socialite": "^5.14",
         "laravel/tinker": "^3.0",
         "livewire/livewire": "^4.0",
+        "mycs/billing-period": "^1.0",
         "mycs/mail-template": "^1.0",
         "nixpal/cardlink-eurobank": "^1.0",
         "nixpal/domain-tools": "^1.0",
@@ -83,6 +84,7 @@
     "autoload-dev": {
         "psr-4": {
             "Tests\\": "tests/",
+            "MyCS\\BillingPeriod\\Tests\\": "packages/billing-period/tests/",
             "MyCS\\MailTemplate\\Tests\\": "packages/mail-template/tests/",
             "Nixpal\\CardlinkEurobank\\Tests\\": "packages/cardlink-eurobank/tests/",
             "Nixpal\\DomainTools\\Tests\\": "packages/domain-tools/tests/",

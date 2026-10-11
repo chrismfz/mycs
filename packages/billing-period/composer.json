@@ -1,0 +1,24 @@
+{
+    "name": "mycs/billing-period",
+    "description": "Billing-period arithmetic that keeps the billing day (31st -> 28th/30th -> 31st). Framework-free.",
+    "license": "MIT",
+    "version": "1.0.0",
+    "require": {
+        "php": "^8.3",
+        "nesbot/carbon": "^3.0",
+        "brick/math": "^1.0"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.5|^12.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "MyCS\\BillingPeriod\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "MyCS\\BillingPeriod\\Tests\\": "tests/"
+        }
+    }
+}

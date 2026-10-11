@@ -343,24 +343,6 @@ parameters:
 			path: app/Admin/Resources/ServiceResource.php
 
 		-
-			message: '#^Cannot access property \$product on Illuminate\\Database\\Eloquent\\Model\|int\|string\.$#'
-			identifier: property.nonObject
-			count: 1
-			path: app/Admin/Resources/ServiceResource/Pages/EditService.php
-
-		-
-			message: '#^Cannot access property \$status on Illuminate\\Database\\Eloquent\\Model\|int\|string\.$#'
-			identifier: property.nonObject
-			count: 1
-			path: app/Admin/Resources/ServiceResource/Pages/EditService.php
-
-		-
-			message: '#^Cannot call method cancellation\(\) on Illuminate\\Database\\Eloquent\\Model\|int\|string\.$#'
-			identifier: method.nonObject
-			count: 1
-			path: app/Admin/Resources/ServiceResource/Pages/EditService.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$id\.$#'
 			identifier: property.notFound
 			count: 1
@@ -1189,18 +1171,6 @@ parameters:
 			path: app/Models/Server.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Product\:\:\$plan\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Service.php
-
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Support\\Collection\<int,App\\Models\\Product\>\:\:filter\(\) expects \(callable\(App\\Models\\Product, int\)\: bool\)\|null, Closure\(mixed\)\: \(App\\Models\\Product\|null\) given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Models/Service.php
-
-		-
 			message: '#^Cannot call method diffForHumans\(\) on int\.$#'
 			identifier: method.nonObject
 			count: 1
@@ -1289,30 +1259,6 @@ parameters:
 			identifier: binaryOp.invalid
 			count: 1
 			path: app/Rules/Cidr.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Invoice/ProcessPaidInvoiceService.php
-
-		-
-			message: '#^Parameter \#2 \$amount of method App\\Models\\Credit\:\:increment\(\) expects float\|int, string given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Services/Invoice/ProcessPaidInvoiceService.php
-
-		-
-			message: '#^Method App\\Services\\ServiceUpgrade\\ServiceUpgradeService\:\:handle\(\) with return type void returns null but should not return anything\.$#'
-			identifier: return.void
-			count: 1
-			path: app/Services/ServiceUpgrade/ServiceUpgradeService.php
-
-		-
-			message: '#^Result of static method Illuminate\\Database\\Connection\:\:transaction\(\) \(void\) is used\.$#'
-			identifier: staticMethod.void
-			count: 1
-			path: app/Services/ServiceUpgrade/ServiceUpgradeService.php
 
 		-
 			message: '#^Parameter \#1 \$view of function view expects view\-string\|null, string given\.$#'

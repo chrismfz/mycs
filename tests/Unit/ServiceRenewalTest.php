@@ -102,7 +102,7 @@ class ServiceRenewalTest extends TestCase
         $this->assertTrue($service->expires_at <= now()->addDays(21));
     }
 
-    public function test_service_duedate_is_set_from_now_when_suspended(): void
+    public function test_service_duedate_continues_from_expiry_when_suspended(): void
     {
         // Create a user
         $user = User::factory()->create();
@@ -114,6 +114,7 @@ class ServiceRenewalTest extends TestCase
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'suspended',
+            'dunning_suspended_at' => now(),
             'expires_at' => now()->subDays(10),
             'currency_code' => 'USD',
             'price' => 10.00, // Set a price for the service
@@ -147,6 +148,7 @@ class ServiceRenewalTest extends TestCase
         $this->assertEquals('active', $service->status);
         $this->assertNotNull($service->expires_at);
 
-        $this->assertTrue($service->expires_at >= now()->addMonth()->addDay(-1)); // 30 days from now minus a few seconds for processing time
+        // Decision A (docs/billing-cursor.md): the paid period runs from the expiry, not from the payment day.
+        $this->assertSame(now()->subDays(10)->addMonthNoOverflow()->toDateString(), $service->expires_at->toDateString());
     }
 }

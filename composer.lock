@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "3f6a87609539b315c9a9c28a4277a2c7",
+    "content-hash": "6f3c14483b3643c5a8bd228ce0e82db1",
     "packages": [
         {
             "name": "andreiio/blade-remix-icon",
@@ -5051,6 +5051,42 @@
                 }
             ],
             "time": "2026-09-29T19:21:12+00:00"
+        },
+        {
+            "name": "mycs/billing-period",
+            "version": "1.0.0",
+            "dist": {
+                "type": "path",
+                "url": "packages/billing-period",
+                "reference": "efbe3016e33816eee6306b3f8a9e4cbd2a692f58"
+            },
+            "require": {
+                "brick/math": "^1.0",
+                "nesbot/carbon": "^3.0",
+                "php": "^8.3"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^11.5|^12.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "MyCS\\BillingPeriod\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "MyCS\\BillingPeriod\\Tests\\": "tests/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Billing-period arithmetic that keeps the billing day (31st -> 28th/30th -> 31st). Framework-free.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
         },
         {
             "name": "mycs/mail-template",

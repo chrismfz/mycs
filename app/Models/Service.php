@@ -6,6 +6,8 @@ use App\Classes\Price;
 use App\Classes\Settings;
 use App\Models\Traits\HasProperties;
 use App\Observers\ServiceObserver;
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -14,6 +16,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use MyCS\BillingPeriod\BillingPeriod;
 use OwenIt\Auditing\Contracts\Auditable;
 
 /**
@@ -58,6 +63,9 @@ class Service extends Model implements Auditable
     protected $casts = [
         'expires_at' => 'date',
         'suspend_hold_until' => 'date',
+        'dunning_suspended_at' => 'immutable_datetime',
+        'coupon_started_at' => 'immutable_date',
+        'coupon_expired_at' => 'immutable_datetime',
     ];
 
     /**
@@ -129,7 +137,7 @@ class Service extends Model implements Auditable
     }
 
     /**
-     * Get the description for the next invoice item.
+     * Get the description for the next invoice item (the next period to bill).
      *
      * @return Attribute<mixed, mixed>
      */
@@ -140,30 +148,294 @@ class Service extends Model implements Auditable
                 get: fn () => $this->product->name
             );
         }
-        $date = $this->expires_at ?? now();
-        $endDate = $date->copy()->{'add' . ucfirst($this->plan->billing_unit) . 's'}($this->plan->billing_period);
 
         return Attribute::make(
-            get: fn () => $this->product->name . ' (' . $date->format('M d, Y') . ' - ' . $endDate->format('M d, Y') . ')'
+            get: function () {
+                $start = $this->nextPeriodStart();
+
+                return $this->describePeriod($start, $this->periodEnd($start));
+            }
         );
     }
 
+    /** Invoice line text for one billing period. */
+    public function describePeriod(CarbonInterface $start, ?CarbonInterface $end): string
+    {
+        if ($end === null) {
+            return $this->product->name;
+        }
+
+        $format = __('services.invoice_period_date_format');
+
+        return __('services.invoice_period', [
+            'product' => $this->product->name,
+            'start' => $start->format($format),
+            'end' => $end->format($format),
+        ]);
+    }
+
     /**
-     * Calculate next due date.
+     * End of one period from the expiry (active or suspended service, decision A), or from today for
+     * a service that has not started. Used by the Cart for a free first period; renewals of paid
+     * lines go through RenewServiceService (docs/billing-cursor.md).
      */
     public function calculateNextDueDate()
     {
         if ($this->plan->type == 'one-time' || $this->plan->type == 'free') {
             return null;
         }
-        if (!$this->expires_at || $this->status != self::STATUS_ACTIVE) {
-            // Make sure that if a service is being renewed after suspension or pending, we use the current date as base
-            $date = now();
-        } else {
-            $date = $this->expires_at;
+        if ($this->expires_at && in_array($this->status, [self::STATUS_ACTIVE, self::STATUS_SUSPENDED], true)) {
+            return $this->periodEnd($this->expires_at);
         }
 
-        return $date->{'add' . ucfirst($this->plan->billing_unit) . 's'}($this->plan->billing_period);
+        // A fresh start: the period starts today and today is the billing day.
+        return BillingPeriod::end(now(), $this->plan->billing_unit, (int) $this->plan->billing_period);
+    }
+
+    /**
+     * End of the billing period starting on $start, keeping the service's billing day.
+     *
+     * @param  Collection<int, InvoiceItem>|null  $lines  livePeriodLines(), if already loaded
+     */
+    public function periodEnd(CarbonInterface $start, ?Collection $lines = null): ?CarbonImmutable
+    {
+        if ($this->plan->type == 'one-time' || $this->plan->type == 'free') {
+            return null;
+        }
+
+        return BillingPeriod::end($start, $this->plan->billing_unit, (int) $this->plan->billing_period, $this->billingDay($start, $lines));
+    }
+
+    /**
+     * The billing day for a period starting on $start: its own day, unless $start is the last day of a
+     * short month (the 28th/29th/30th a later day was clamped to). Then it is the day of the latest
+     * earlier period that is not ambiguous, so a service on the 31st goes back to the 31st, and one
+     * staff moved to another day follows that day.
+     *
+     * @param  Collection<int, InvoiceItem>|null  $lines
+     */
+    public function billingDay(CarbonInterface $start, ?Collection $lines = null): int
+    {
+        $start = CarbonImmutable::instance($start)->startOfDay();
+        if (!BillingPeriod::isAmbiguousDay($start)) {
+            return $start->day;
+        }
+        if ($this->billing_day !== null) {
+            return max((int) $this->billing_day, $start->day);
+        }
+
+        // Ambiguous earlier days still say «at least this day» (Nov 30 -> Feb 28 -> May 30, not May 28).
+        // Every period line counts here, a cancelled one too: it still shows the day the service billed on.
+        $floor = $start->day;
+        $history = $this->invoiceItems()->whereNotNull('period_start')->get(['id', 'period_start'])
+            ->sortBy(fn (InvoiceItem $line) => $line->period_start->timestamp);
+        foreach ($history->reverse() as $line) {
+            $day = $line->period_start;
+            if ($day === null || !$day->lessThan($start)) {
+                continue;
+            }
+            if (!BillingPeriod::isAmbiguousDay($day)) {
+                return max($day->day, $floor);
+            }
+            $floor = max($floor, $day->day);
+        }
+
+        // No history with a clear day (e.g. imported from WHMCS): the day the service started.
+        $registered = $this->created_at ? CarbonImmutable::parse($this->created_at)->startOfDay() : null;
+        if ($registered !== null && $registered->lessThan($start)) {
+            $floor = max($floor, $registered->day);
+        }
+
+        return $floor;
+    }
+
+    /**
+     * Remember the billing day when a period starts on an unambiguous day (not saved here).
+     */
+    public function rememberBillingDay(CarbonInterface $periodStart): void
+    {
+        if (!BillingPeriod::isAmbiguousDay(CarbonImmutable::instance($periodStart)) && (int) $this->billing_day !== $periodStart->day) {
+            $this->billing_day = $periodStart->day;
+        }
+    }
+
+    /**
+     * Where the next period to bill starts: the end of the live (paid or pending) periods that follow the expiry.
+     *
+     * @param  Collection<int, InvoiceItem>|null  $lines
+     */
+    public function nextPeriodStart(?Collection $lines = null): CarbonImmutable
+    {
+        return self::chain($this->paidUntilBase(), $lines ?? $this->livePeriodLines());
+    }
+
+    /** Find a whole vacant period; a paid full cycle must never be clipped to a smaller hole.
+     * @param  Collection<int, InvoiceItem>|null  $lines
+     */
+    public function uncoveredPeriodStart(?Collection $lines = null): CarbonImmutable
+    {
+        $lines ??= $this->livePeriodLines();
+        $start = $this->nextPeriodStart($lines);
+        foreach ($lines as $line) {
+            $end = $this->periodEnd($start, $lines);
+            if ($end !== null && $line->period_start->lessThan($end) && $line->period_end->greaterThan($start)) {
+                $start = $line->period_end;
+            }
+        }
+
+        return $start;
+    }
+
+    /** Decimal price for the actual interval, using the same rounding in cron and upgrades. */
+    public function priceForPeriod(CarbonInterface $start, CarbonInterface $end): string
+    {
+        $fullEnd = $this->periodEnd($start);
+
+        return $fullEnd === null ? (string) $this->price : BillingPeriod::prorate((string) $this->price, $start, $end, $fullEnd);
+    }
+
+    /**
+     * Apply explicit staff changes on the same row lock as payment and billing.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    public function applyStaffChanges(array $attributes): void
+    {
+        DB::transaction(function () use ($attributes) {
+            $locked = self::query()->whereKey($this->getKey())->lockForUpdate()->firstOrFail();
+            $locked->fill($attributes);
+            if (($attributes['status'] ?? null) === self::STATUS_SUSPENDED) {
+                $locked->dunning_suspended_at = null;
+            }
+            $locked->save();
+            $this->setRawAttributes($locked->getAttributes(), true);
+            $this->unsetRelations();
+        });
+    }
+
+    /** Rebuild open renewal periods and prices from the current recurring amount. */
+    public function refreshOpenPeriods(): void
+    {
+        if ($this->plan === null || in_array($this->plan->type, ['one-time', 'free'], true)) {
+            return;
+        }
+        $lines = $this->livePeriodLines();
+        foreach ($lines as $line) {
+            if (!in_array($line->invoice?->status, ['pending', 'draft'], true)) {
+                continue;
+            }
+            $end = $this->periodEnd($line->period_start, $lines);
+            $next = $lines->first(fn ($other) => $other->id !== $line->id && $other->period_start->greaterThan($line->period_start))?->period_start;
+            if ($end !== null && $next !== null && $next->lessThan($end)) {
+                $end = $next;
+            }
+            if ($end !== null) {
+                $line->forceFill([
+                    'period_end' => $end,
+                    'description' => $this->describePeriod($line->period_start, $end),
+                    'price' => $this->priceForPeriod($line->period_start, $end),
+                ]);
+                if ($line->isDirty()) {
+                    $line->save();
+                }
+            }
+        }
+    }
+
+    /**
+     * Paid-until over the paid periods that follow $from. $exact: a period must start exactly on the
+     * cursor (staff moved the date: only periods that pick up there count); otherwise a period that
+     * covers the cursor counts too (a payment).
+     *
+     * @param  Collection<int, InvoiceItem>|null  $lines
+     */
+    public function paidThrough(CarbonInterface $from, bool $exact = false, ?Collection $lines = null): CarbonImmutable
+    {
+        $paid = ($lines ?? $this->livePeriodLines())->filter(fn (InvoiceItem $line) => $line->invoice?->status === Invoice::STATUS_PAID);
+
+        return self::chain(CarbonImmutable::instance($from)->startOfDay(), $paid, $exact);
+    }
+
+    /**
+     * Follow contiguous periods from $from: a period that covers (or, if $exact, starts on) the cursor
+     * moves it to its end. Stops at the first hole, so an unpaid or cancelled period is never jumped.
+     *
+     * @param  iterable<InvoiceItem>  $lines
+     */
+    public static function chain(CarbonImmutable $from, iterable $lines, bool $exact = false): CarbonImmutable
+    {
+        $cursor = $from->startOfDay();
+        do {
+            $moved = false;
+            foreach ($lines as $line) {
+                $start = $line->period_start;
+                $end = $line->period_end;
+                if ($start === null || $end === null || !$end->greaterThan($cursor)) {
+                    continue;
+                }
+                if ($exact ? $start->equalTo($cursor) : $start->lessThanOrEqualTo($cursor)) {
+                    $cursor = $end;
+                    $moved = true;
+                }
+            }
+        } while ($moved);
+
+        return $cursor;
+    }
+
+    /**
+     * Which billing cycle (1 = the first) the period starting on $periodStart is, counted in periods
+     * from the persisted coupon origin (activation, or first billed period/registration for legacy data).
+     * Free periods count too: they leave
+     * no invoice, so invoices cannot be counted (coupons «for N cycles»). A cancelled first period
+     * still counts: cancelling it does not restart the count.
+     *
+     * @param  Collection<int, InvoiceItem>|null  $lines
+     */
+    public function cycleNumber(CarbonInterface $periodStart, ?Collection $lines = null): int
+    {
+        $lines ??= $this->livePeriodLines();
+        if ($this->coupon_started_at === null) {
+            $first = $this->invoiceItems()->whereNotNull('period_start')->get(['id', 'period_start'])
+                ->min(fn (InvoiceItem $line) => $line->period_start);
+            $this->coupon_started_at = $first !== null ? CarbonImmutable::instance($first)
+                : CarbonImmutable::parse($this->created_at ?? $periodStart)->startOfDay();
+        }
+        $cursor = $this->coupon_started_at;
+        $target = CarbonImmutable::instance($periodStart)->startOfDay();
+
+        for ($cycle = 1; $cursor->lessThan($target); $cycle++) {
+            $cursor = $this->periodEnd($cursor, $lines);
+            if ($cursor === null) {
+                return $cycle;
+            }
+        }
+
+        return $cycle;
+    }
+
+    /** The paid-until date the chains start from (today for a service that never started). */
+    public function paidUntilBase(): CarbonImmutable
+    {
+        return CarbonImmutable::parse($this->expires_at ?? now())->startOfDay();
+    }
+
+    /**
+     * This service's period lines on invoices that are not cancelled, oldest period first.
+     * Dates are compared in PHP: SQLite stores the date casts with a time part.
+     *
+     * @return Collection<int, InvoiceItem>
+     */
+    public function livePeriodLines(): Collection
+    {
+        return $this->invoiceItems()
+            ->whereNotNull('period_start')
+            ->whereNotNull('period_end')
+            ->whereHas('invoice', fn ($q) => $q->where('status', '!=', Invoice::STATUS_CANCELLED))
+            ->with('invoice:id,status')
+            ->get()
+            ->sortBy(fn (InvoiceItem $line) => $line->period_start->timestamp)
+            ->values();
     }
 
     /**
@@ -243,24 +515,24 @@ class Service extends Model implements Auditable
 
     public function productUpgrades()
     {
-        return $this->product->upgrades->filter(function ($product) {
+        return $this->product->upgrades->filter(function ($product): bool {
             // Check stock
             if ($product->stock !== null && ($product->stock - $this->quantity) < 0) {
-                return null;
+                return false;
             }
             $plan = $product->plans()->where('billing_unit', $this->plan->billing_unit)->where('billing_period', $this->plan->billing_period)->get();
             // Only get the upgrades that have the exact same billing cycle as the service
             if ($plan->count() > 0) {
-                $product->plan = $plan->first();
+                $product->setAttribute('plan', $plan->first());
 
-                return $product;
+                return true;
             }
 
-            return null;
+            return false;
         });
     }
 
-    public function calculatePrice()
+    public function calculatePrice(bool $applyCoupon = true)
     {
         // Calculate the price based on the plan and config options
         $price = $this->plan->price($this->currency_code)->price;
@@ -273,7 +545,7 @@ class Service extends Model implements Auditable
         });
 
         // Add coupon discount if applicable
-        if ($this->coupon) {
+        if ($applyCoupon && $this->coupon && $this->coupon_expired_at === null) {
             $invoices = $this->invoices()->where('status', 'paid')->count() + 1;
             // If it already used for the recurring period, do not apply the discount
             if ($this->coupon->recurring == 0 || $invoices <= $this->coupon->recurring) {

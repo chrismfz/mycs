@@ -75,7 +75,7 @@ class ServiceController extends ApiController
     public function update(UpdateServiceRequest $request, Service $service)
     {
         // Validate and update the service
-        $service->update($request->validated());
+        $service->applyStaffChanges($request->validated());
 
         // Return the updated service as a JSON response
         return new ServiceResource($this->loadAllowedIncludes($service, self::INCLUDES));

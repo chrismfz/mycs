@@ -30,6 +30,10 @@ class SuspendJob implements ShouldQueue
      */
     public function handle(): void
     {
+        // A queued action must not undo a newer payment or staff hold.
+        if ($this->service->fresh()?->status !== Service::STATUS_SUSPENDED) {
+            return;
+        }
         $data = [];
 
         try {

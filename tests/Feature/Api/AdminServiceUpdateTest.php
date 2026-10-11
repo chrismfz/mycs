@@ -52,4 +52,18 @@ class AdminServiceUpdateTest extends TestCase
             ->putJson(route('api.v1.admin.services.update', $service), ['product_id' => $to->product->id, 'plan_id' => $from->plan->id])
             ->assertUnprocessable();
     }
+
+    public function test_explicit_api_suspension_replaces_billing_suspension_with_a_manual_hold(): void
+    {
+        $product = $this->createProduct();
+        $service = Service::factory()->create([
+            'user_id' => User::factory()->create()->id, 'product_id' => $product->product->id,
+            'plan_id' => $product->plan->id, 'status' => 'suspended', 'dunning_suspended_at' => now(),
+        ]);
+        $this->withToken($this->token())
+            ->putJson(route('api.v1.admin.services.update', $service), ['status' => 'suspended', 'dunning_suspended_at' => now()->toDateTimeString()])
+            ->assertOk();
+        $this->assertSame('suspended', $service->fresh()->status);
+        $this->assertNull($service->fresh()->dunning_suspended_at);
+    }
 }

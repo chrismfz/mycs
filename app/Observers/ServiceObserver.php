@@ -4,6 +4,8 @@ namespace App\Observers;
 
 use App\Events\Service as ServiceEvent;
 use App\Models\Service;
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 
 class ServiceObserver
 {
@@ -15,12 +17,62 @@ class ServiceObserver
         event(new ServiceEvent\Created($service));
     }
 
+    /** Set while RenewServiceService saves: it has applied the paid periods already. */
+    public static bool $renewing = false;
+
+    /**
+     * Staff moving the Next Due Date (expires_at) forward onto or into periods that are already paid
+     * (e.g. comping an unpaid month before a paid one) picks those periods up, as a payment would.
+     * Moving it back is a correction and is left as set.
+     */
+    public function updating(Service $service): void
+    {
+        if ($service->isDirty('status') && $service->status !== Service::STATUS_SUSPENDED) {
+            $service->dunning_suspended_at = null;
+        }
+        if ($service->isDirty('coupon_id')) {
+            $service->coupon_started_at = $service->coupon_id ? CarbonImmutable::today() : null;
+            $service->coupon_expired_at = null;
+        }
+        if ($service->coupon_id && $service->coupon_started_at === null
+            && $service->getOriginal('status') === Service::STATUS_PENDING && $service->status === Service::STATUS_ACTIVE) {
+            $service->coupon_started_at = CarbonImmutable::today();
+        }
+        if ($service->isDirty('product_id')) {
+            $service->unsetRelation('product');
+        }
+        if ($service->isDirty('plan_id')) {
+            $service->unsetRelation('plan'); // a loaded relation still holds the old plan
+        }
+        if (self::$renewing || !$service->isDirty('expires_at') || $service->expires_at === null
+            || $service->plan === null || in_array($service->plan->type, ['one-time', 'free'], true)) {
+            return;
+        }
+
+        $original = $service->getOriginal('expires_at');
+        if ($original !== null && !$service->paidUntilBase()->greaterThan(CarbonImmutable::parse($original)->startOfDay())) {
+            return;
+        }
+
+        $paid = $service->paidThrough($service->expires_at);
+        if ($paid->greaterThan($service->paidUntilBase())) {
+            $service->expires_at = $paid->toMutable();
+        }
+    }
+
     /**
      * Handle the Service "updated" event.
      */
     public function updated(Service $service): void
     {
-        event(new ServiceEvent\Updated($service));
+        if ($service->wasChanged('plan_id')) {
+            $service->unsetRelation('plan');
+            $service->refreshOpenPeriods();
+        }
+
+        // After commit: listeners (Stripe, Discord, ...) call out over the network; they must not run
+        // inside a renewal's row lock, nor roll a committed renewal back by failing.
+        DB::afterCommit(fn () => event(new ServiceEvent\Updated($service)));
     }
 
     /**

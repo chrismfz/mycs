@@ -14,17 +14,33 @@ use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
+use Illuminate\Database\Eloquent\Model;
 
 class EditService extends EditRecord
 {
     protected static string $resource = ServiceResource::class;
 
+    protected function handleRecordUpdate(Model $record, array $data): Model
+    {
+        /** @var Service $record */
+        // Saving unrelated form fields is not an explicit request to change suspension policy.
+        if (($data['status'] ?? null) === $record->status) {
+            unset($data['status']);
+        }
+        $record->applyStaffChanges($data);
+
+        return $record;
+    }
+
     protected function getHeaderActions(): array
     {
+        /** @var Service $record */
+        $record = $this->getRecord();
+
         return [
             DeleteAction::make()
-                ->form(function (DeleteAction $action) {
-                    $status = !in_array($this->record->status, [Service::STATUS_PENDING, Service::STATUS_CANCELLED]) && $this->record->product->server_id !== null;
+                ->form(function (DeleteAction $action) use ($record) {
+                    $status = !in_array($record->status, [Service::STATUS_PENDING, Service::STATUS_CANCELLED]) && $record->product->server_id !== null;
                     if (!$status) {
                         return [];
                     }
@@ -77,10 +93,12 @@ class EditService extends EditRecord
                                 }
                                 break;
                             case 'suspend':
+                                $record->applyStaffChanges(['status' => Service::STATUS_SUSPENDED]);
                                 $sdata = ExtensionHelper::suspendServer($record);
                                 break;
                             case 'unsuspend':
                                 $sdata = ExtensionHelper::unsuspendServer($record);
+                                $record->applyStaffChanges(['status' => Service::STATUS_ACTIVE]);
                                 break;
                             case 'terminate':
                                 $sdata = ExtensionHelper::terminateServer($record);
@@ -122,7 +140,9 @@ class EditService extends EditRecord
 
     protected function getHeaderWidgets(): array
     {
-        if (!$this->record->cancellation()->exists()) {
+        /** @var Service $record */
+        $record = $this->getRecord();
+        if (!$record->cancellation()->exists()) {
             return [];
         }
 
