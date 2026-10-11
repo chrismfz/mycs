@@ -20,12 +20,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
-use Illuminate\Http\Client\ConnectionException;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Http;
-use Livewire\Attributes\Url;
 
 class Extension extends Page implements HasActions, HasTable
 {
@@ -47,88 +42,6 @@ class Extension extends Page implements HasActions, HasTable
 
     // Label for the navigation item
     protected static ?string $navigationLabel = 'Available Extensions';
-
-    #[Url(except: 'marketplace', as: 'tab')]
-    public string $activeTab = 'marketplace';
-
-    private const PER_PAGE = 12;
-
-    #[Url(except: '', as: 'q')]
-    public string $search = '';
-
-    #[Url(except: 'all')]
-    public string $filter = 'all';
-
-    public int $loadedItems = self::PER_PAGE;
-
-    public ?array $allExtensions = [];
-
-    public ?string $error = null;
-
-    public function mount(): void
-    {
-        try {
-            $this->allExtensions = Cache::remember('paymenter_marketplace_extensions', now()->addHours(6), function () {
-                $response = Http::timeout(15)
-                    ->withUserAgent('Paymenter/' . config('app.version') . ' (https://paymenter.org)')
-                    ->get('https://api.paymenter.org/extensions', ['limit' => 999]);
-                if (!$response->successful()) {
-                    logger()->error('Paymenter Marketplace API request failed', ['status' => $response->status(), 'body' => $response->body()]);
-
-                    return null;
-                }
-
-                return $response->json('extensions', []);
-            });
-            if (is_null($this->allExtensions)) {
-                $this->error = 'The Paymenter Marketplace is currently unavailable. Please try again later.';
-            }
-        } catch (ConnectionException $e) {
-            $this->error = 'Failed to connect to the Paymenter Marketplace. Please check your server\'s internet connection.';
-            logger()->error('Paymenter Marketplace API connection failed: ' . $e->getMessage());
-        }
-    }
-
-    public function updatedSearch(): void
-    {
-        $this->resetLoadedItems();
-    }
-
-    public function updatedFilter(): void
-    {
-        $this->resetLoadedItems();
-    }
-
-    public function loadMore(): void
-    {
-        $this->loadedItems += self::PER_PAGE;
-    }
-
-    private function resetLoadedItems(): void
-    {
-        $this->loadedItems = self::PER_PAGE;
-    }
-
-    public function getFilteredExtensionsProperty(): Collection
-    {
-        if (is_null($this->allExtensions)) {
-            return collect();
-        }
-
-        return collect($this->allExtensions)
-            ->when($this->search, fn (Collection $c) => $c->filter(fn ($i) => stripos($i['name'], $this->search) !== false))
-            ->when($this->filter !== 'all', fn (Collection $c) => $c->where('type', $this->filter));
-    }
-
-    public function getCanLoadMoreProperty(): bool
-    {
-        return $this->filteredExtensions->count() > $this->loadedItems;
-    }
-
-    public function getExtensionsProperty(): Collection
-    {
-        return $this->filteredExtensions->take($this->loadedItems);
-    }
 
     public function table(Table $table): Table
     {
@@ -206,7 +119,7 @@ class Extension extends Page implements HasActions, HasTable
                                     // Unknown type, just stay on the page
                                     Notification::make()
                                         ->title('Extension uploaded successfully')
-                                        ->body('It should now be available on the "Ready to Install" tab.')
+                                        ->body('It should now be available in the list below.')
                                         ->success()
                                         ->send();
                                     break;

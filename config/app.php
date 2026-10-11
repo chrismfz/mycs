@@ -24,8 +24,6 @@ return [
 
     'commit' => '',
 
-    'telemetry_enabled' => env('TELEMETRY_ENABLED', true),
-
     /*
     |--------------------------------------------------------------------------
     | Application Environment

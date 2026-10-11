@@ -11,10 +11,17 @@
 - [ ] Παρακολούθηση των security advisories του Paymenter (`upstream-triage.md`).
 
 ## Φάση 0: Καθάρισμα και βάσεις (2–3 ημέρες)
-- [ ] Αφαίρεση telemetry: `TelemetryCommand`, schedule, `TELEMETRY_ENABLED`, `Settings::getTelemetry()`.
-- [ ] Αφαίρεση update checker (`CheckForUpdates`, κλήση στο τέλος του `CronJob`), self-updater (`Upgrade`,
-      `Admin/Pages/Updates`, `update.sh`), marketplace και ελέγχου ενημερώσεων extensions.
-- [ ] Αφαίρεση Gravatar και branding/footer links· workflow `build-api-docs.yaml`.
+- [x] Αφαίρεση telemetry: `TelemetryCommand`, schedule, `TELEMETRY_ENABLED`, `Settings::getTelemetry()`.
+- [x] Αφαίρεση `app:logs` (ανέβαζε το τελευταίο error log στο `log.paymenter.org:99`).
+- [x] Αφαίρεση update checker (`CheckForUpdates`, κλήση στο τέλος του `CronJob`), self-updater (`Upgrade`,
+      `Admin/Pages/Updates`, `update.sh`), marketplace και ελέγχου ενημερώσεων extensions. Η σελίδα extensions
+      κρατάει μόνο «διαθέσιμα» + upload zip.
+- [ ] Δικός μας updater από GitHub releases/tags του `chrismfz/mycs` (μοτίβο: `UpdateChecker` / `ekdosi:self-update`
+      του Ekdosi). Ο παλιός δεν κρατήθηκε: δούλευε με το `api.paymenter.org` και τα releases του upstream, άρα θα
+      **αντικαθιστούσε το fork με το upstream**.
+- [x] Αφαίρεση Gravatar (avatar = τοπικό SVG με αρχικά) και της ρύθμισης `gravatar_default`.
+- [ ] Branding/footer links (Powered by, Sponsor, Star on GitHub, docs του Paymenter)· workflows `build-api-docs.yaml`,
+      `release.yaml`, `beta`.
 - [ ] Upload extensions από το web: αφαίρεση ή μόνο από CLI.
 - [ ] Templates email/ειδοποιήσεων: placeholder renderer αντί για Blade, και `mail_header`/`mail_footer` χωρίς
       compile (`audit-security.md` H1–H2).

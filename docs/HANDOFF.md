@@ -4,8 +4,8 @@
 
 ## Κατάσταση
 - **Repo:** `chrismfz/mycs`, hard fork του Paymenter στο `5b69d45` (v1.5.8+41), χωρίς ιστορικό upstream.
-  Ο κώδικας είναι ακόμη **ίδιος με το upstream**.
-- **Φάση:** καμία δεν έχει ξεκινήσει. Επόμενη η **Φάση 0** (`ROADMAP.md`).
+  Αλλαγές μέχρι τώρα: αφαίρεση όσων «τηλεφωνούν σπίτι» (Φάση 0, `ROADMAP.md`).
+- **Φάση:** 0 σε εξέλιξη (`ROADMAP.md`). Το devbox στήνεται στο VM του dev του Ekdosi (MariaDB, PHP, git, gh).
 - **Αποφάσεις:** όλες στο `decisions.md` και στο `README.md` (γιατί fork, γιατί όχι Blesta/FOSSBilling, Ekdosi μόνο
   τιμολόγηση).
 - **Το παλιό σχέδιο (Blesta):** εγκαταλείφθηκε 2026-10-11. Το staging `cs.nixpal.com` μένει ανέγγιχτο. Ό,τι αξίζει
@@ -27,6 +27,7 @@
 | Ekdosi (κώδικας) | `chrismfz/ekdosi` (Laravel 13, Filament 5) | πηγή για port· καμία αλλαγή χωρίς λόγο |
 | Ekdosi (εφαρμογή) | rigel, `/home/myipgr/invoicer/ekdosi` | παραγωγή |
 | Blesta staging (παλιό) | `cs.nixpal.com` | δεν το αγγίζουμε |
+| Devbox MyCS | VM του dev του Ekdosi | στήνεται |
 | Staging MyCS | π.χ. `mycs.nixpal.com` | **δεν έχει στηθεί ακόμα** |
 
 Λεπτομέρειες (servers, crons, μεγέθη, inventory του WHMCS): `history/blesta-modules/HANDOFF.md` §1, §4.
