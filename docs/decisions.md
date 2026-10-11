@@ -100,3 +100,8 @@ Tests για κάθε συνδυασμό.
 - **14. Ειδοποιήσεις:** κρατάμε Web Push/Discord;
 - **15. Admin:** κρατάμε RBAC, audit και impersonation.
 - **17. Multi-tenancy:** δύο instances (nixpal, myip) ή multi-company;
+
+## Extensions μόνο ως κώδικας (2026-10-11)
+Το upload extension (zip) από το admin αφαιρέθηκε: ανέβαζε PHP που έτρεχε αμέσως στον server (`audit-security.md` H1).
+Τα extensions μας είναι δικός μας κώδικας, άρα μπαίνουν όπως ο υπόλοιπος: commit στο repo, review, `deploy/update.sh`.
+Η σελίδα «Available Extensions» μένει για εγκατάσταση όσων βρίσκονται ήδη στο `extensions/`.

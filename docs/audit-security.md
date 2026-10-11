@@ -21,7 +21,7 @@
    **Fork:** placeholder renderer αντί για Blade (όπως το `MailTemplateRenderer` του Ekdosi), και upload extension
    μόνο από CLI.
    **Διορθώθηκε (2026-10-11)** για templates, header/footer και snippet προϊόντος: `packages/mail-template`
-   (`templates.md`). Μένει το upload extension.
+   (`templates.md`). Το upload extension αφαιρέθηκε (2026-10-11): extensions μόνο με git και `deploy/update.sh`.
 2. **Μήνυμα εξαίρεσης γίνεται compile ως template (υποψία).** Το error handler του cron βάζει το `$e->getMessage()`
    σε `SystemMail` που γίνεται Blade (`CronJob.php:231`, `SystemMail.php`). Το ίδιο κάνει το `CheckForUpdates.php:72`
    με την απάντηση του `api.paymenter.org`.

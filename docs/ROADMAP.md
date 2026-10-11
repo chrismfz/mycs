@@ -25,7 +25,8 @@
 - [x] Workflows του upstream (`build-api-docs`, `release`, `beta`, `docker`) αφαιρέθηκαν (PR #9).
 - [x] Branding/footer links (Powered by, Sponsor, Star on GitHub, docs του Paymenter): το admin footer δείχνει
       «MyCS · commit», `APP_NAME` = MyCS (2026-10-11).
-- [ ] Upload extensions από το web: αφαίρεση ή μόνο από CLI.
+- [x] Upload extensions από το web: αφαιρέθηκε. Τα extensions μπαίνουν ως κώδικας με git και `deploy/update.sh`
+      (απόφαση 2026-10-11).
 - [x] Κρυπτογραφημένα credentials σε όλα τα extensions (cPanel, Plesk, Convoy, Enhance, Virtualizor) **και** στη
       δημιουργία server/gateway, που τα αποθήκευε καθαρά· migration για όσα υπάρχουν (2026-10-11).
 - [x] Templates email/ειδοποιήσεων, `mail_header`/`mail_footer` και snippet προϊόντος χωρίς Blade: renderer
