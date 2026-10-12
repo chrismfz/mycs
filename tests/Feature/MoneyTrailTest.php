@@ -13,6 +13,7 @@ use App\Models\InvoiceTransaction;
 use App\Models\MoneyEvent;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Money\MoneyTrail;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -314,10 +315,10 @@ class MoneyTrailTest extends TestCase
         $invoice = $this->invoice();
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 100.00, null, 'pi_13', currency: 'USD');
         $event = MoneyEvent::query()->sole();
-        DB::transaction(fn () => (new \App\Services\Money\MoneyTrail)->reverse($event));
+        DB::transaction(fn () => (new MoneyTrail)->reverse($event));
 
         $this->expectException(QueryException::class);
-        DB::transaction(fn () => (new \App\Services\Money\MoneyTrail)->reverse($event));
+        DB::transaction(fn () => (new MoneyTrail)->reverse($event));
     }
 
     public function test_a_customer_with_money_events_cannot_be_deleted(): void
