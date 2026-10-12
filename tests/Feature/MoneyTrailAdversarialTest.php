@@ -596,12 +596,17 @@ class MoneyTrailAdversarialTest extends TestCase
         ]);
         $this->orphan($invoice);
 
+        // Refused with a message staff can read (not an Error on a null customer); nothing changes. The invoice/journal
+        // check (I3) does not apply: the legacy transaction predates the journal.
         try {
             (new RecordPaymentService)->deleteTransaction($transaction);
+            $this->fail('The deletion was not refused.');
         } catch (DisplayException) {
         }
 
-        $this->assertAll();
+        $this->assertNotNull($transaction->fresh());
+        $this->assertSame(0, MoneyEvent::query()->count());
+        $this->assertCreditsMatchJournal();
     }
 
     /** Held: a plain payment and an overpayment on a customer-less invoice are journaled without a customer. */
