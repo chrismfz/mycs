@@ -249,9 +249,10 @@ class MoneyTrailTest extends TestCase
 
         ExtensionHelper::refundLocally($transaction, 50.00);
 
+        // The invoice turns paid (and gives its credit) while the transaction is created, so before its payment event.
         $this->assertSame([
-            ['payment', '50.00', 'stripe', null],
             ['credit_in', '50.00', 'system', 'purchase'],
+            ['payment', '50.00', 'stripe', null],
             ['credit_out', '50.00', 'local', 'purchase_refunded'],
             ['refund', '50.00', 'local', null],
         ], $this->events());
