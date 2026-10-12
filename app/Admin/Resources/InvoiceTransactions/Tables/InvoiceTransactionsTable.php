@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\InvoiceTransactions\Tables;
 
+use App\Admin\Actions\DeleteInvoiceTransaction;
 use App\Admin\Resources\InvoiceResource;
 use App\Enums\InvoiceTransactionStatus;
 use App\Models\InvoiceTransaction;
@@ -10,6 +11,7 @@ use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Support\Collection;
 
 class InvoiceTransactionsTable
 {
@@ -56,11 +58,15 @@ class InvoiceTransactionsTable
             ])
             ->defaultSort('created_at', 'desc')
             ->recordActions([
-                DeleteAction::make(),
+                DeleteAction::make()
+                    ->visible(fn (InvoiceTransaction $record): bool => DeleteInvoiceTransaction::allowed($record->invoice))
+                    ->using(fn (InvoiceTransaction $record): bool => DeleteInvoiceTransaction::run($record)),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+                    // One by one through the payments service, never a mass query delete.
+                    DeleteBulkAction::make()
+                        ->using(fn (Collection $records) => $records->each(fn (InvoiceTransaction $record) => DeleteInvoiceTransaction::run($record))),
                 ]),
             ]);
     }

@@ -14,6 +14,7 @@ use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Models\Setting;
 use App\Models\Ticket;
+use App\Services\Invoice\RecordPaymentService;
 use App\Services\Service\RenewServiceService;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -328,19 +329,8 @@ class CronJob extends Command
         if (!config('settings.credits_enabled') || !config('settings.credits_auto_use', true)) {
             return;
         }
-        $user = $invoice->user;
-        $credits = $user->credits()
-            ->where('currency_code', $invoice->currency_code)
-            ->lockForUpdate()
-            ->first();
-        $remaining = $invoice->fresh()->remaining;
-
-        if ($remaining > 0 && $credits && $credits->amount >= $remaining) {
-            $credits->amount -= $remaining;
-            $credits->save();
-
-            ExtensionHelper::addPayment($invoice->id, null, amount: $remaining, isCreditTransaction: true);
-        }
+        // Only when the credit covers the whole invoice; read and spent under the payment locks.
+        (new RecordPaymentService)->payWithCredit($invoice, onlyIfCovers: true);
     }
 
     /**

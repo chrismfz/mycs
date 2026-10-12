@@ -2,7 +2,10 @@
 
 namespace App\Observers;
 
+use App\Enums\AdjustmentNoteStatus;
 use App\Events\Invoice as InvoiceEvent;
+use App\Exceptions\DisplayException;
+use App\Models\AdjustmentNote;
 use App\Models\Invoice;
 use App\Services\Invoice\CreateInvoiceSnapshotService;
 use App\Services\Invoice\ProcessPaidInvoiceService;
@@ -45,6 +48,12 @@ class InvoiceObserver
      */
     public function updating(Invoice $invoice): void
     {
+        // A cancelled invoice is never marked paid directly, by anyone (docs/payments.md): it renews nothing
+        // and its credit note already covers it. Staff reopen it (pending) and record the payment.
+        if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_CANCELLED
+            && $invoice->status === Invoice::STATUS_PAID) {
+            throw new DisplayException(__('A cancelled invoice cannot be marked paid: reopen it (pending) and record the payment.'));
+        }
         event(new InvoiceEvent\Updating($invoice));
     }
 
@@ -55,6 +64,16 @@ class InvoiceObserver
     {
         if ($invoice->status === Invoice::STATUS_CANCELLED && $invoice->getOriginal('status') !== Invoice::STATUS_CANCELLED) {
             $invoice->createCancellationCreditNote($invoice->cancellation_reason);
+        }
+
+        // Reopened: the cancellation's credit note no longer applies, the invoice is payable again
+        // (docs/payments.md). Refund notes and other adjustments stay as they are.
+        if ($invoice->getOriginal('status') === Invoice::STATUS_CANCELLED
+            && in_array($invoice->status, [Invoice::STATUS_PENDING, Invoice::STATUS_DRAFT], true)) {
+            $invoice->adjustmentNotes()->where('is_cancellation', true)
+                ->where('status', AdjustmentNoteStatus::Active->value)->get()
+                ->each(fn (AdjustmentNote $note) => $note->update(['status' => AdjustmentNoteStatus::Voided]));
+            $invoice->unsetRelation('adjustmentNotes');
         }
 
         if ($invoice->getOriginal('status') === Invoice::STATUS_DRAFT && $invoice->status === Invoice::STATUS_PENDING) {
@@ -75,6 +94,18 @@ class InvoiceObserver
             });
         }
         event(new InvoiceEvent\Updated($invoice));
+    }
+
+    /**
+     * An invoice with money on it is never deleted (docs/payments.md): its transactions would go by cascade,
+     * with no event, leaving the credit they created and losing the gateway ids that stop a replayed webhook.
+     * A processing payment counts too: when it succeeds it has no invoice to land on. Staff cancel it, or delete its transactions first (each through RecordPaymentService::deleteTransaction).
+     */
+    public function deleting(Invoice $invoice): void
+    {
+        if ($invoice->hasPayments()) {
+            throw new DisplayException(__('An invoice with payments cannot be deleted: cancel it, or delete its transactions first.'));
+        }
     }
 
     /**

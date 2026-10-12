@@ -52,5 +52,18 @@
     "You cannot exceed the maximum credits allowed.": "Δεν μπορείτε να ξεπεράσετε το μέγιστο επιτρεπτό υπόλοιπο.",
     "You have not changed anything. Please select a different product or change the configuration options.": "Δεν αλλάξατε κάτι. Επιλέξτε άλλο πακέτο ή αλλάξτε τις ρυθμίσεις.",
     "You must accept the terms of service": "Πρέπει να αποδεχτείτε τους Όρους χρήσης",
-    "Your cart is empty": "Το καλάθι σας είναι άδειο"
+    "Your cart is empty": "Το καλάθι σας είναι άδειο",
+    "A cancelled invoice cannot be marked paid: reopen it (pending) and record the payment.": "Ένα ακυρωμένο τιμολόγιο δεν γίνεται πληρωμένο απευθείας: ξανανοίξτε το (pending) και καταγράψτε την πληρωμή.",
+    "Payment not recorded": "Η πληρωμή δεν καταγράφηκε",
+    "The amount must be positive (see the log for details).": "Το ποσό πρέπει να είναι θετικό (λεπτομέρειες στο log).",
+    "Payment already recorded": "Η πληρωμή έχει ήδη καταγραφεί",
+    "This gateway transaction is already recorded (invoice #:invoice): nothing was added.": "Αυτή η συναλλαγή του gateway έχει ήδη καταγραφεί (τιμολόγιο #:invoice): δεν προστέθηκε τίποτα.",
+    "Transaction not deleted": "Η συναλλαγή δεν διαγράφηκε",
+    "This payment already paid other invoices with its credit: it cannot be deleted.": "Η πίστωση αυτής της πληρωμής έχει ήδη εξοφλήσει άλλα τιμολόγια: δεν μπορεί να διαγραφεί.",
+    "Part of this payment became account credit and the customer has already used it: it cannot be deleted.": "Μέρος αυτής της πληρωμής έγινε πίστωση και ο πελάτης την έχει ήδη χρησιμοποιήσει: δεν μπορεί να διαγραφεί.",
+    "This payment has refunds: it cannot be deleted (its refund history and gateway transaction id must stay).": "Αυτή η πληρωμή έχει επιστροφές: δεν μπορεί να διαγραφεί (πρέπει να μείνουν το ιστορικό των επιστροφών και το transaction id του gateway).",
+    "Transactions of a finalized invoice cannot be deleted.": "Οι συναλλαγές ενός οριστικοποιημένου τιμολογίου δεν διαγράφονται.",
+    "An invoice with payments cannot be deleted: cancel it, or delete its transactions first.": "Ένα τιμολόγιο με πληρωμές δεν διαγράφεται: ακυρώστε το, ή διαγράψτε πρώτα τις συναλλαγές του.",
+    "Invoice not deleted": "Το τιμολόγιο δεν διαγράφηκε",
+    "This invoice bought account credit together with other items: handle it by hand (take the credit back first).": "Αυτό το τιμολόγιο αγόρασε πίστωση μαζί με άλλες γραμμές: χειριστείτε το με το χέρι (αφαιρέστε πρώτα την πίστωση)."
 }

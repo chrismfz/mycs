@@ -25,8 +25,8 @@ use Throwable;
  * customers (suspend/terminate), zero-price months. Invariants I1..I7 are checked after every step.
  *
  * FUZZ_SEEDS="1,2,3" or FUZZ_SEEDS="1-200" overrides the seed list. On failure the seed and event log print.
- * Violations that only involve a payment on a cancelled invoice are counted as KNOWN (guards: PR 2) and
- * do not fail the run; FUZZ_STRICT=1 makes them fail too.
+ * A payment on a cancelled invoice no longer revives it (PR 2a, docs/payments.md), so every violation fails
+ * the run; FUZZ_LENIENT=1 counts those that involve one as KNOWN instead (the pre-2a behaviour).
  */
 class BillingCursorFuzzTest extends TestCase
 {
@@ -455,7 +455,7 @@ class BillingCursorFuzzTest extends TestCase
 
     private function knownOr(string $msg, array $ids, callable $revivedInvolved): ?string
     {
-        if ($revivedInvolved($ids) && !getenv('FUZZ_STRICT')) {
+        if ($revivedInvolved($ids) && getenv('FUZZ_LENIENT')) {
             $this->known[] = $msg;
 
             return null;
@@ -697,13 +697,11 @@ class BillingCursorFuzzTest extends TestCase
     }
 
     /**
-     * Known, PR 2 (guards in addPayment): a cancelled invoice carries a credit note for its total, so its
+     * Fixed in PR 2a (docs/payments.md): a cancelled invoice carries a credit note for its total, so its
      * remaining is 0 and ANY transaction (even 0.00) flips it to paid, which renews the period for nothing.
      */
     public function test_min_a_zero_transaction_on_a_cancelled_invoice_buys_no_period(): void
     {
-        $this->markTestIncomplete('Known since Paymenter, fixed in PR 2 (payments): a cancelled invoice must not turn paid on a transaction.');
-
         Carbon::setTestNow('2026-10-12 10:00:00');
         $service = $this->fixedService('2026-10-15');
         $invoice = $this->invoiceFor('2026-10-15', '2026-11-15', 'pending', $service);

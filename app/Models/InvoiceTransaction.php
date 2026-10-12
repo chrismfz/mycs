@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use OwenIt\Auditing\Contracts\Auditable;
 
 /**
@@ -33,6 +34,8 @@ class InvoiceTransaction extends Model implements Auditable
         'gateway_id',
         'amount',
         'refunded_amount',
+        'credited_amount',
+        'source_transaction_id',
         'fee',
         'transaction_id',
         'status',
@@ -42,6 +45,7 @@ class InvoiceTransaction extends Model implements Auditable
     protected $casts = [
         'amount' => 'decimal:2',
         'refunded_amount' => 'decimal:2',
+        'credited_amount' => 'decimal:2',
         'fee' => 'decimal:2',
         'status' => InvoiceTransactionStatus::class,
     ];
@@ -59,14 +63,34 @@ class InvoiceTransaction extends Model implements Auditable
     }
 
     /**
-     * Amount that is still refundable for this transaction.
+     * The transaction whose credit paid this one (a PayPal subscription sale paying another service's invoice).
+     *
+     * @return BelongsTo<InvoiceTransaction, $this>
+     */
+    public function source(): BelongsTo
+    {
+        return $this->belongsTo(InvoiceTransaction::class, 'source_transaction_id');
+    }
+
+    /**
+     * Payments made from the credit this transaction left.
+     *
+     * @return HasMany<InvoiceTransaction, $this>
+     */
+    public function allocations(): HasMany
+    {
+        return $this->hasMany(InvoiceTransaction::class, 'source_transaction_id');
+    }
+
+    /**
+     * Amount that is still refundable for this transaction: not what became account credit (docs/payments.md).
      *
      * @return Attribute<mixed, mixed>
      */
     public function refundableAmount(): Attribute
     {
         return Attribute::make(
-            get: fn () => $this->amount - $this->refunded_amount
+            get: fn () => $this->amount - $this->refunded_amount - $this->credited_amount
         );
     }
 

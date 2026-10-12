@@ -27,11 +27,13 @@ class AdjustmentNote extends Model implements Auditable
         'amount',
         'description',
         'status',
+        'is_cancellation',
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
         'status' => AdjustmentNoteStatus::class,
+        'is_cancellation' => 'boolean',
     ];
 
     /** @return BelongsTo<Invoice, $this> */

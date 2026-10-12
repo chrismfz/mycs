@@ -102,7 +102,7 @@ class PayPal_IPN extends Gateway
             if (!$invoice || $request->mc_currency !== $invoice->currency_code) {
                 return;
             }
-            ExtensionHelper::addPayment($request->item_number, 'PayPal', $request->mc_gross, $request->mc_fee, transactionId: $request->txn_id);
+            ExtensionHelper::addPayment($request->item_number, 'PayPal', $request->mc_gross, $request->mc_fee, transactionId: $request->txn_id, currency: $request->mc_currency);
         }
     }
 }
