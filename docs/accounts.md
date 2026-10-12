@@ -4,6 +4,27 @@
 > τα migrations/cut-over της nixpal**, όσο δεν υπάρχουν ζωντανά δεδομένα. Ο importer (`importer.md`) και το bridge
 > προς Ekdosi χτίζονται πάνω στο σχήμα που θα αποφασιστεί εδώ.
 
+## Αρχή: parity με το WHMCS (για «αναίμακτο» migration)
+Το σχήμα (users, λογαριασμοί πελάτη, στοιχεία εταιρείας, contacts, staff) σχεδιάζεται ώστε **κάθε πεδίο και σχέση του
+WHMCS να έχει ένα σαφές σπίτι εδώ**. Ο importer τότε κάνει απλή αντιστοίχιση, όχι μετάφραση, και ο έλεγχος parity
+(`importer.md`) βγαίνει 1:1. Επεκτάσεις επιτρέπονται· απώλειες όχι.
+
+| WHMCS | Εδώ (προς σχεδιασμό) |
+|---|---|
+| `tblclients` (στοιχεία, `companyname`, `tax_id`, διεύθυνση, `groupid`, `status`, `language`, `currency`, `credit`, `notes`, email preferences) | λογαριασμός πελάτη + προφίλ |
+| `tblusers` (login, 2FA, γλώσσα) | users (login) |
+| `tblusers_clients` (`owner`, `permissions`) | user ↔ λογαριασμός με ρόλο/δικαιώματα |
+| `tblcontacts` (επαφές/παλιοί sub-accounts, email preferences) | επαφές του λογαριασμού |
+| `tblcustomfields` / `tblcustomfieldsvalues` (type `client`: ΑΦΜ, ΔΟΥ, «Θα ήθελα τιμολόγιο» κ.λπ.) | πραγματικά πεδία όπου είναι βασικά, αλλιώς custom fields |
+| `tblclientgroups` | ομάδες πελατών |
+| `tbladmins` / `tbladminroles` | staff / ρόλοι |
+
+- Τα **IDs πελατών του WHMCS κρατιούνται** (όπως τα IDs τιμολογίων), ώστε αναφορές, σημειώσεις και το Ekdosi να
+  δείχνουν στο ίδιο νούμερο. Να επιβεβαιωθεί στον σχεδιασμό.
+- Πριν τον σχεδιασμό: **απογραφή** (μόνο aggregate SELECTs, read-only) ποια πεδία και custom fields χρησιμοποιούνται
+  πραγματικά σε nixpal και myip, με πλήθος μη κενών τιμών. Τα αχρησιμοποίητα δεν μεταφέρονται.
+- Οι όροι στο admin ακολουθούν το WHMCS (Client, User, Contact, Company Name, Tax ID), όπως και στη φόρμα υπηρεσίας.
+
 ## Σήμερα (κληρονομιά Paymenter)
 - Ένας πίνακας `users` για όλους. Admin = user με `role_id` (`User::canAccessPanel()`).
 - Ίδιο login, session και «ξέχασα τον κωδικό» για πελάτες και staff· τίποτα δεν υποχρεώνει το staff σε 2FA.
@@ -40,7 +61,7 @@
 - Ποιος staff μπορεί να είναι και πελάτης: δύο ξεχωριστοί λογαριασμοί, ποτέ ο ίδιος.
 - Δικαιώματα ανά χρήστη λογαριασμού (WHMCS: profile, contacts, products, domains, invoices, tickets, orders).
 - Ποια στοιχεία «παγώνουν» στο snapshot του τιμολογίου (σήμερα `CreateInvoiceSnapshotService`).
-- Mapping των WHMCS πεδίων και custom fields της nixpal/myip στα νέα πεδία.
+- Η απογραφή και το πλήρες mapping πεδίο-προς-πεδίο (βλ. «Αρχή: parity με το WHMCS»).
 - Ελληνικά και αγγλικά strings σε `lang/`.
 
 ## Reviews
