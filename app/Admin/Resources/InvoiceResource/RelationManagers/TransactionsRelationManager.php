@@ -2,7 +2,7 @@
 
 namespace App\Admin\Resources\InvoiceResource\RelationManagers;
 
-use App\Exceptions\DisplayException;
+use App\Admin\Actions\DeleteInvoiceTransaction;
 use App\Helpers\ExtensionHelper;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -136,7 +136,7 @@ class TransactionsRelationManager extends RelationManager
                                     if ((float) $value <= 0) {
                                         $fail(__('invoices.refund_amount_positive'));
                                     }
-                                    if ((float) $value > $record->refundable_amount) {
+                                    if (RecordPaymentService::toCents($value) > RecordPaymentService::toCents($record->refundable_amount)) {
                                         $fail(__('invoices.refund_amount_exceeds_refundable', ['max' => $record->formattedRefundableAmount]));
                                     }
                                 },
@@ -171,30 +171,16 @@ class TransactionsRelationManager extends RelationManager
                     ->modalSubmitAction(fn (Action $action) => $action->label(__('invoices.refund'))),
                 DeleteAction::make()
                     ->visible(fn (): bool => $this->canModifyTransactions())
-                    ->using(fn (InvoiceTransaction $record): bool => $this->deleteTransaction($record)),
+                    ->using(fn (InvoiceTransaction $record): bool => DeleteInvoiceTransaction::run($record)),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
                     DeleteBulkAction::make()
                         ->visible(fn (): bool => $this->canModifyTransactions())
                         // One by one through the service, never a mass query delete (credit, money trail).
-                        ->using(fn (Collection $records) => $records->each(fn (InvoiceTransaction $record) => $this->deleteTransaction($record))),
+                        ->using(fn (Collection $records) => $records->each(fn (InvoiceTransaction $record) => DeleteInvoiceTransaction::run($record))),
                 ]),
             ]);
-    }
-
-    /** Through RecordPaymentService: what became credit is taken back, or the deletion is refused. */
-    private function deleteTransaction(InvoiceTransaction $record): bool
-    {
-        try {
-            (new RecordPaymentService)->deleteTransaction($record);
-        } catch (DisplayException $e) {
-            Notification::make()->danger()->title(__('Transaction not deleted'))->body($e->getMessage())->send();
-
-            throw new Halt;
-        }
-
-        return true;
     }
 
     private function notifyRefundResult(bool $success, ?string $errorMessage = null): void

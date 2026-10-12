@@ -82,7 +82,10 @@ class InvoiceController extends ApiController
      */
     public function destroy(DeleteInvoiceRequest $request, Invoice $invoice)
     {
-        // Delete the invoice
+        // An invoice with payments is never deleted (InvoiceObserver::deleting, docs/payments.md).
+        if ($invoice->hasSucceededTransactions()) {
+            abort(422, 'An invoice with payments cannot be deleted: cancel it, or delete its transactions first.');
+        }
         $invoice->delete();
 
         return $this->returnNoContent();

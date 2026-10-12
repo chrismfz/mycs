@@ -10,12 +10,14 @@ use App\Enums\AdjustmentNoteType;
 use App\Enums\InvoiceTransactionStatus;
 use App\Models\Traits\HasProperties;
 use App\Observers\InvoiceObserver;
+use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Facades\DB;
 use OwenIt\Auditing\Contracts\Auditable;
 
 /**
@@ -58,6 +60,31 @@ class Invoice extends Model implements Auditable
     ];
 
     public bool $send_create_email = true;
+
+    /**
+     * Reopening a cancelled invoice (cancelled -> pending/draft) is one atomic step under the payments' locks
+     * (customer, then invoice): the status change and the void of the cancellation credit note (InvoiceObserver)
+     * commit together. Otherwise a payment arriving in between sees a pending invoice whose total is still 0:
+     * it pays and renews, and all the money becomes credit (docs/payments.md).
+     */
+    public function save(array $options = []): bool
+    {
+        if ($this->exists && $this->isDirty('status') && $this->getOriginal('status') === self::STATUS_CANCELLED
+            && in_array($this->status, [self::STATUS_PENDING, self::STATUS_DRAFT], true)) {
+            return DB::transaction(function () use ($options) {
+                (new RecordPaymentService)->lockInvoice($this->getKey());
+
+                return parent::save($options);
+            });
+        }
+
+        return parent::save($options);
+    }
+
+    public function hasSucceededTransactions(): bool
+    {
+        return $this->transactions()->where('status', InvoiceTransactionStatus::Succeeded->value)->exists();
+    }
 
     public function createCancellationCreditNote($description = null): void
     {

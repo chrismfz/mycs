@@ -8,6 +8,7 @@ use App\Classes\PDF;
 use App\Models\Invoice;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
+use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 
 class EditInvoice extends EditRecord
@@ -36,7 +37,14 @@ class EditInvoice extends EditRecord
                 ->color('success')
                 ->icon('heroicon-o-check-circle')
                 ->successRedirectUrl(InvoiceResource::getUrl('index')),
-            DeleteAction::make(),
+            DeleteAction::make()
+                ->before(function (Invoice $record, DeleteAction $action): void {
+                    if ($record->hasSucceededTransactions()) {
+                        Notification::make()->danger()->title(__('Invoice not deleted'))
+                            ->body(__('An invoice with payments cannot be deleted: cancel it, or delete its transactions first.'))->send();
+                        $action->cancel();
+                    }
+                }),
             Action::make('pdf')
                 ->label('Download PDF')
                 ->action(function (Invoice $invoice) {

@@ -55,9 +55,14 @@ class RecordPaymentService
         $transaction = DB::transaction(function () use ($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, &$notices) {
             $invoice = $this->lockInvoice($invoiceId);
 
+            // Same id on the same gateway, or recorded by staff without a gateway: the same money. Staff
+            // without a gateway match any gateway's id (re-entering what a webhook already recorded).
             $existing = $transactionId === null ? null : InvoiceTransaction::query()
                 ->where('transaction_id', $transactionId)
-                ->where('gateway_id', $gateway?->id)
+                ->when($gateway !== null, fn ($query) => $query->where(
+                    fn ($query) => $query->where('gateway_id', $gateway->id)->orWhereNull('gateway_id')
+                ))
+                ->orderByRaw('case when status = ? then 0 else 1 end', [InvoiceTransactionStatus::Succeeded->value])
                 ->whereHas('invoice', fn ($query) => $query->where('user_id', $invoice->user_id))
                 ->lockForUpdate()
                 ->first();
@@ -185,7 +190,7 @@ class RecordPaymentService
     /**
      * Delete a transaction (staff correcting a mistake) without leaving money behind: the part that became
      * account credit is taken back, and a payment made with credit gives it back. Refused when that credit
-     * was already spent, or when it paid other invoices.
+     * was already spent, when it paid other invoices, or when the payment has refunds.
      *
      * @throws DisplayException
      */
@@ -199,6 +204,11 @@ class RecordPaymentService
             }
             if (InvoiceTransaction::query()->where('source_transaction_id', $transaction->id)->lockForUpdate()->exists()) {
                 throw new DisplayException(__('This payment already paid other invoices with its credit: it cannot be deleted.'));
+            }
+            // Its refunds stay on the invoice (adjustment notes): without the row, the refund history and the
+            // gateway's transaction id are gone, and a replayed webhook records the whole payment again.
+            if (self::toCents($transaction->refunded_amount) > 0) {
+                throw new DisplayException(__('This payment has refunds: it cannot be deleted (its refund history and gateway transaction id must stay).'));
             }
 
             // Credit to give back (+) or take back (-). A payment made with credit: what is still on the invoice

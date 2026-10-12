@@ -7,6 +7,7 @@ use App\Classes\FilamentInput;
 use App\Enums\AdjustmentNoteType;
 use App\Enums\InvoiceTransactionStatus;
 use App\Models\BillingAgreement;
+use App\Models\Credit;
 use App\Models\Extension;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -569,36 +570,67 @@ class ExtensionHelper
             throw new \RuntimeException('Gateway does not support refunds for transaction #' . $transaction->id);
         }
 
-        return DB::transaction(function () use ($transaction, $gatewayInstance, $amount) {
-            // Every lock this refund needs is taken BEFORE the gateway call, in the payments' order (customer,
-            // invoice, transaction): nothing after the money left can wait for a lock or deadlock.
-            (new RecordPaymentService)->lockInvoice($transaction->invoice_id);
-            $transaction = InvoiceTransaction::whereKey($transaction->id)->lockForUpdate()->firstOrFail();
+        $refundedAtGateway = false;
+        try {
+            return DB::transaction(function () use ($transaction, $gatewayInstance, $amount, &$refundedAtGateway) {
+                // Every lock and check happens BEFORE the gateway call: nothing after the money left can wait
+                // for a lock, deadlock, or be refused.
+                [$transaction, $credit] = self::prepareRefund($transaction, $amount);
 
-            $refundable = $transaction->refundable_amount; // net of refunds and of what became account credit
-            if ($amount > $refundable) {
-                throw new \InvalidArgumentException(
-                    "Refund amount ({$amount}) exceeds refundable amount ({$refundable}) for this transaction."
-                );
-            }
+                $success = $gatewayInstance->refund($transaction, $amount);
 
-            $success = $gatewayInstance->refund($transaction, $amount);
+                if (!$success) {
+                    throw new \RuntimeException('Gateway refund failed for transaction #' . $transaction->id);
+                }
+                $refundedAtGateway = true;
 
-            if (!$success) {
-                throw new \RuntimeException('Gateway refund failed for transaction #' . $transaction->id);
-            }
-
-            try {
-                return self::recordRefund($transaction, $amount);
-            } catch (\Throwable $e) {
+                return self::recordRefund($transaction, $amount, $credit);
+            });
+        } catch (\Throwable $e) {
+            if ($refundedAtGateway) { // recording or the commit failed after the money left
                 Log::critical('Gateway refund succeeded but was NOT recorded locally: record it by hand.', [
                     'transaction_id' => $transaction->id, 'gateway_transaction_id' => $transaction->transaction_id,
                     'invoice_id' => $transaction->invoice_id, 'amount' => $amount, 'error' => $e->getMessage(),
                 ]);
-
-                throw $e;
             }
-        });
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Locks (customer, invoice, transaction, then credit: the payments' order) and checks for a refund.
+     * A refund of a credit purchase takes the bought credit back: refused when it was already spent, and for
+     * an invoice that mixes a credit purchase with other lines (which part is refunded is not known).
+     *
+     * @return array{0: InvoiceTransaction, 1: ?Credit} the locked transaction, and the credit to take back from
+     */
+    private static function prepareRefund(InvoiceTransaction $transaction, float $amount): array
+    {
+        $invoice = (new RecordPaymentService)->lockInvoice($transaction->invoice_id);
+        $transaction = InvoiceTransaction::whereKey($transaction->id)->lockForUpdate()->firstOrFail();
+
+        $refundable = $transaction->refundable_amount; // net of refunds and of what became account credit
+        if (RecordPaymentService::toCents($amount) > RecordPaymentService::toCents($refundable)) {
+            throw new \InvalidArgumentException(
+                "Refund amount ({$amount}) exceeds refundable amount ({$refundable}) for this transaction."
+            );
+        }
+
+        $types = $invoice->items()->pluck('reference_type');
+        if (!$types->contains(Credit::class)) {
+            return [$transaction, null];
+        }
+        if ($types->contains(fn ($type) => $type !== Credit::class)) {
+            throw new \InvalidArgumentException('This invoice buys account credit together with other items: refund it by hand (take the credit back first).');
+        }
+        $credit = Credit::query()->where('user_id', $invoice->user_id)->where('currency_code', $invoice->currency_code)
+            ->lockForUpdate()->first();
+        if (RecordPaymentService::toCents($credit === null ? 0 : $credit->amount) < RecordPaymentService::toCents($amount)) {
+            throw new \InvalidArgumentException('The account credit this payment bought was already used: it cannot be refunded.');
+        }
+
+        return [$transaction, $credit];
     }
 
     /**
@@ -613,25 +645,22 @@ class ExtensionHelper
         }
 
         DB::transaction(function () use ($transaction, $amount) {
-            (new RecordPaymentService)->lockInvoice($transaction->invoice_id); // the payments' lock order
-            $transaction = InvoiceTransaction::whereKey($transaction->id)->lockForUpdate()->firstOrFail();
+            [$transaction, $credit] = self::prepareRefund($transaction, $amount);
 
-            $refundable = $transaction->refundable_amount; // net of refunds and of what became account credit
-            if ($amount > $refundable) {
-                throw new \InvalidArgumentException(
-                    "Refund amount ({$amount}) exceeds refundable amount ({$refundable}) for this transaction."
-                );
-            }
-
-            self::recordRefund($transaction, $amount);
+            self::recordRefund($transaction, $amount, $credit);
         });
     }
 
     /**
-     * Record a refund by updating the transaction and creating an adjustment note.
+     * Record a refund by updating the transaction and creating an adjustment note; a credit purchase also
+     * gives back the credit it bought.
      */
-    private static function recordRefund(InvoiceTransaction $transaction, float $amount): bool
+    private static function recordRefund(InvoiceTransaction $transaction, float $amount, ?Credit $credit = null): bool
     {
+        if ($credit !== null) {
+            $credit->amount = (RecordPaymentService::toCents($credit->amount) - RecordPaymentService::toCents($amount)) / 100;
+            $credit->save();
+        }
         $transaction->increment('refunded_amount', $amount);
 
         $transaction->invoice->adjustmentNotes()->create([
