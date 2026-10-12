@@ -160,6 +160,13 @@
       promotions/ομάδες, κάρτες Stripe, vault tokens, άδειες, ρυθμίσεις από το `tblconfiguration`· re-runnable, id map.
 - [ ] `mycs:parity` με μηδενικό diff.
 - [ ] Export εσόδων/εξόδων ανά έτος (CSV/XLSX) για τον λογιστή.
+- [ ] **Υπενθύμιση πριν το cut-over: πέρασμα UI/UX «σαν WHMCS»** (admin και client area, για nixpal και myip). Το
+      Paymenter έχει έτοιμη λειτουργικότητα αλλά γυμνό UI. Πρώτα λίστα από ό,τι χρησιμοποιούμε καθημερινά στο WHMCS
+      (screenshots, `whmcs-usage.md`), μετά αποφασίζουμε τι μπαίνει πριν και τι μετά. Ενδεικτικά: σελίδα πελάτη με
+      tabs (Summary, Profile, Users/Contacts, Products, Domains, Invoices, Transactions, Credit, Tickets, Notes, Log)·
+      πυκνές λίστες με φίλτρα, αναζήτηση παντού (πελάτης, domain, τιμολόγιο, IP)· όροι και διάταξη του WHMCS στις
+      φόρμες· γρήγορες ενέργειες (Mark Paid, Add Payment, Login as Client, Send Email)· dashboard με εκκρεμότητες·
+      client area με καθαρή αρχική (υπηρεσίες, απλήρωτα, tickets) και branding ανά εταιρεία. Ελληνικά/αγγλικά.
 - [ ] Shadow-run του licensing → cut-over της nixpal, **μετά τα domains της Φάσης 2** (Openprovider, CNIC).
 
 ## Φάση 2: Domains (2–4 εβδομάδες, μετά το spike)
