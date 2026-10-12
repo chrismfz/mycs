@@ -555,7 +555,7 @@ class ExtensionHelper
      */
     public static function refund(InvoiceTransaction $transaction, float $amount): bool
     {
-        if ($amount <= 0) {
+        if (RecordPaymentService::toCents($amount) <= 0) { // at least a cent: checked before the gateway is called
             throw new \InvalidArgumentException('Refund amount must be greater than 0.');
         }
 
@@ -610,6 +610,10 @@ class ExtensionHelper
     {
         $invoice = (new RecordPaymentService)->lockInvoice($transaction->invoice_id);
         $transaction = InvoiceTransaction::whereKey($transaction->id)->lockForUpdate()->firstOrFail();
+        // Only money that arrived goes back: a failed or processing payment has nothing to refund.
+        if ($transaction->status !== InvoiceTransactionStatus::Succeeded) {
+            throw new \InvalidArgumentException('Only a succeeded payment can be refunded.');
+        }
 
         $refundable = $transaction->refundable_amount; // net of refunds and of what became account credit
         if (RecordPaymentService::toCents($amount) > RecordPaymentService::toCents($refundable)) {
@@ -638,7 +642,7 @@ class ExtensionHelper
      */
     public static function refundLocally(InvoiceTransaction $transaction, float $amount): void
     {
-        if ($amount <= 0) {
+        if (RecordPaymentService::toCents($amount) <= 0) {
             throw new \InvalidArgumentException('Refund amount must be greater than 0.');
         }
 

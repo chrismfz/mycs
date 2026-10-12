@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\MoneyEventKind;
+use App\Models\Builders\AppendOnlyBuilder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
@@ -41,6 +42,16 @@ class MoneyEvent extends Model
         'credit_balance_after' => 'decimal:2',
         'occurred_at' => 'datetime',
     ];
+
+    /**
+     * Mass updates and deletes are refused as well (they skip the model events below).
+     *
+     * @return AppendOnlyBuilder<MoneyEvent>
+     */
+    public function newEloquentBuilder($query): AppendOnlyBuilder
+    {
+        return new AppendOnlyBuilder($query);
+    }
 
     protected static function booted(): void
     {

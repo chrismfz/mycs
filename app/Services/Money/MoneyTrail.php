@@ -25,7 +25,7 @@ use LogicException;
  * is Σ credit_in − Σ credit_out (reversals counted the other way).
  *
  * No personal data is written: ids, amounts, the provider's ids, and who acted (by id) only (§9). The external
- * reference is kept only for gateway sources: an id staff type by hand can hold a payer's name.
+ * reference is kept only when a gateway recorded the payment: an id staff type by hand can hold a payer's name.
  */
 class MoneyTrail
 {
@@ -59,8 +59,11 @@ class MoneyTrail
         return $gateway?->extension ? strtolower($gateway->extension) : self::SOURCE_MANUAL;
     }
 
-    /** Money onto the invoice: the whole transaction amount (what it could not take is a separate credit_in). */
-    public function payment(Invoice $invoice, InvoiceTransaction $transaction, string $source, ?string $group = null): MoneyEvent
+    /**
+     * Money onto the invoice: the whole transaction amount (what it could not take is a separate credit_in).
+     * $reference: the provider's id, only when the gateway itself recorded the payment (§9).
+     */
+    public function payment(Invoice $invoice, InvoiceTransaction $transaction, string $source, ?string $group = null, ?string $reference = null): MoneyEvent
     {
         return $this->write([
             'kind' => MoneyEventKind::Payment,
@@ -70,7 +73,7 @@ class MoneyTrail
             'invoice_id' => $invoice->id,
             'invoice_transaction_id' => $transaction->id,
             'source' => $source,
-            'external_reference' => self::externalReference($transaction),
+            'external_reference' => $reference,
             'group_reference' => $group,
         ]);
     }
@@ -141,10 +144,15 @@ class MoneyTrail
         ]);
     }
 
-    /** The provider's id of a gateway payment; never what staff typed for a manual one (it can name the payer). */
+    /**
+     * The provider's id, as the transaction's payment event holds it: set only when a gateway recorded the payment,
+     * never what staff typed in the admin form (it can name the payer).
+     */
     private static function externalReference(InvoiceTransaction $transaction): ?string
     {
-        return $transaction->gateway_id === null ? null : $transaction->transaction_id;
+        return MoneyEvent::query()->where('invoice_transaction_id', $transaction->id)
+            ->where('kind', MoneyEventKind::Payment->value)->whereNotNull('external_reference')
+            ->value('external_reference');
     }
 
     /** @param  array<string, mixed>  $values */

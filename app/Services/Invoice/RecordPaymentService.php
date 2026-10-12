@@ -44,6 +44,7 @@ class RecordPaymentService
         InvoiceTransactionStatus $status = InvoiceTransactionStatus::Succeeded,
         bool $isCreditTransaction = false,
         ?string $currency = null,
+        bool $enteredByStaff = false,
     ): ?InvoiceTransaction {
         $invoiceId = $invoice instanceof Invoice ? $invoice->getKey() : $invoice;
         $transactionId = $transactionId === null || $transactionId === '' ? null : (string) $transactionId;
@@ -56,7 +57,7 @@ class RecordPaymentService
         }
 
         $notices = [];
-        $transaction = DB::transaction(function () use ($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, &$notices) {
+        $transaction = DB::transaction(function () use ($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, &$notices) {
             $invoice = $this->lockInvoice($invoiceId);
 
             // Same id on the same gateway, or recorded by staff without a gateway: the same money. Staff
@@ -122,7 +123,9 @@ class RecordPaymentService
             if ($status === InvoiceTransactionStatus::Succeeded) {
                 // Staff completing a gateway's processing payment: the money still came through that gateway.
                 $source = MoneyTrail::sourceFor($gateway ?? $transaction->gateway, $isCreditTransaction || (bool) $transaction->is_credit_transaction);
-                (new MoneyTrail)->payment($target, $transaction, $source);
+                // The provider's id only when the gateway recorded it; what staff type can name the payer (§9).
+                $reference = $enteredByStaff || $transaction->gateway_id === null ? null : $transaction->transaction_id;
+                (new MoneyTrail)->payment($target, $transaction, $source, reference: $reference);
                 $credit = $this->addCredit($target, $excess, $notices);
                 if ($credit !== null) {
                     (new MoneyTrail)->creditIn($credit, $excess, MoneyTrail::CAUSE_OVERPAYMENT, $source, $target, $transaction);
@@ -255,6 +258,9 @@ class RecordPaymentService
             $credit = null;
             $balance = 0;
             if ($change !== 0 || $events->contains(fn (MoneyEvent $event) => $event->creditEffectCents() !== 0)) {
+                if ($invoice->user_id === null) {
+                    throw new DisplayException(__('This invoice has no customer, so the account credit this payment moved cannot be taken back: handle it by hand.'));
+                }
                 $credit = $this->lockCredit($invoice)
                     ?? $invoice->user->credits()->create(['currency_code' => $invoice->currency_code, 'amount' => 0]);
                 $balance = self::toCents($credit->amount);

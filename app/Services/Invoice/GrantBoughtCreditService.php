@@ -4,8 +4,12 @@ namespace App\Services\Invoice;
 
 use App\Models\Credit;
 use App\Models\Invoice;
+use App\Helpers\NotificationHelper;
 use App\Services\Money\MoneyTrail;
 use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class GrantBoughtCreditService
 {
@@ -17,6 +21,17 @@ class GrantBoughtCreditService
     public function handle(Invoice $invoice): void
     {
         $items = $invoice->items()->where('reference_type', Credit::class)->lockForUpdate()->get();
+        // An invoice left without a customer (deleted before money-trail §8): its payment is still recorded, but there
+        // is no account to give the credit to. The lines stay unapplied; staff are told.
+        if ($invoice->user_id === null) {
+            if ($items->contains(fn ($item) => $item->applied_at === null)) {
+                $message = "Credit purchase invoice #{$invoice->id} was paid but has no customer: its credit was NOT given. Handle it by hand.";
+                Log::warning($message, ['invoice_id' => $invoice->id]);
+                DB::afterCommit(fn () => NotificationHelper::sendSystemEmailNotification('Payment needs attention', e($message)));
+            }
+
+            return;
+        }
         foreach ($items as $item) {
             if ($item->applied_at !== null) {
                 continue;
@@ -35,9 +50,12 @@ class GrantBoughtCreditService
                     'amount' => $item->price,
                 ]);
             }
-            $cents = RecordPaymentService::toCents($item->price);
+            // A line staff edited to a negative price takes credit away: journaled as such (toCents is positive-only).
+            $cents = (int) BigDecimal::of((string) $item->price)->multipliedBy(100)->toScale(0, RoundingMode::HALF_UP)->toInt();
             if ($cents > 0) {
                 (new MoneyTrail)->creditIn($credit, $cents, MoneyTrail::CAUSE_PURCHASE, MoneyTrail::SOURCE_SYSTEM, $invoice);
+            } elseif ($cents < 0) {
+                (new MoneyTrail)->creditOut($credit, -$cents, MoneyTrail::CAUSE_PURCHASE, MoneyTrail::SOURCE_SYSTEM, $invoice);
             }
             $item->forceFill(['applied_at' => now()])->save();
         }

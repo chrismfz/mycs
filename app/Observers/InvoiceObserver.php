@@ -55,6 +55,11 @@ class InvoiceObserver
             && $invoice->status === Invoice::STATUS_PAID) {
             throw new DisplayException(__('A cancelled invoice cannot be marked paid: reopen it (pending) and record the payment.'));
         }
+        // Its money belongs to its customer and currency (credit, journal, docs/money-trail.md): an invoice with a
+        // payment (processing too) keeps both. Staff delete or refund the payment first, then move the invoice.
+        if ($invoice->isDirty(['user_id', 'currency_code']) && $invoice->hasPayments()) {
+            throw new DisplayException(__('An invoice with payments keeps its customer and currency: delete or refund its payments first.'));
+        }
         event(new InvoiceEvent\Updating($invoice));
     }
 
