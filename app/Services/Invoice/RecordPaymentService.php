@@ -189,8 +189,9 @@ class RecordPaymentService
 
     /**
      * Delete a transaction (staff correcting a mistake) without leaving money behind: the part that became
-     * account credit is taken back, and a payment made with credit gives it back. Refused when that credit
-     * was already spent, when it paid other invoices, or when the payment has refunds.
+     * account credit is taken back (and the credit it bought, on a credit purchase), and a payment made with
+     * credit gives it back. Refused when that credit was already spent, when it paid other invoices, or when
+     * the payment has refunds.
      *
      * @throws DisplayException
      */
@@ -213,12 +214,15 @@ class RecordPaymentService
 
             // Credit to give back (+) or take back (-). A payment made with credit: what is still on the invoice
             // goes back (its credited part is already back). Any other payment: what became credit is taken back.
+            // On a credit purchase that gave its credit, what is on the invoice bought credit: taken back too.
             $change = 0;
             if ($transaction->status === InvoiceTransactionStatus::Succeeded) {
                 $credited = self::toCents($transaction->credited_amount);
-                $change = $transaction->is_credit_transaction
-                    ? self::toCents($transaction->amount) - self::toCents($transaction->refunded_amount) - $credited
-                    : -$credited;
+                $onInvoice = self::toCents($transaction->amount) - self::toCents($transaction->refunded_amount) - $credited;
+                $change = $transaction->is_credit_transaction ? $onInvoice : -$credited;
+                if ($this->lockBoughtCredit($invoice)) {
+                    $change -= $onInvoice;
+                }
             }
             if ($change !== 0) {
                 $credit = $this->lockCredit($invoice)
@@ -247,6 +251,28 @@ class RecordPaymentService
         }
 
         return Invoice::query()->whereKey($invoiceId)->lockForUpdate()->firstOrFail();
+    }
+
+    /**
+     * Whether the invoice gave its customer account credit: a credit line ProcessPaidInvoiceService applied
+     * (applied_at, given only once the invoice is paid). Taking its money back (refund, deletion) takes that
+     * credit back; an invoice that gave nothing takes nothing. Call under the payments' locks (customer, invoice):
+     * the lines are read locked, before the credit row.
+     *
+     * @throws DisplayException a credit purchase that gave credit and has other lines: which part of a payment
+     *                          bought the credit is not known
+     */
+    public function lockBoughtCredit(Invoice $invoice): bool
+    {
+        $items = $invoice->items()->lockForUpdate()->get(['reference_type', 'applied_at']);
+        if (!$items->contains(fn (InvoiceItem $item) => $item->reference_type === Credit::class && $item->applied_at !== null)) {
+            return false;
+        }
+        if ($items->contains(fn (InvoiceItem $item) => $item->reference_type !== Credit::class)) {
+            throw new DisplayException(__('This invoice bought account credit together with other items: handle it by hand (take the credit back first).'));
+        }
+
+        return true;
     }
 
     /** The part of a payment the invoice cannot take: all of it unless pending/draft, else what exceeds the balance. */

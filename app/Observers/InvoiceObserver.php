@@ -99,11 +99,11 @@ class InvoiceObserver
     /**
      * An invoice with money on it is never deleted (docs/payments.md): its transactions would go by cascade,
      * with no event, leaving the credit they created and losing the gateway ids that stop a replayed webhook.
-     * Staff cancel it, or delete its transactions first (each through RecordPaymentService::deleteTransaction).
+     * A processing payment counts too: when it succeeds it has no invoice to land on. Staff cancel it, or delete its transactions first (each through RecordPaymentService::deleteTransaction).
      */
     public function deleting(Invoice $invoice): void
     {
-        if ($invoice->hasSucceededTransactions()) {
+        if ($invoice->hasPayments()) {
             throw new DisplayException(__('An invoice with payments cannot be deleted: cancel it, or delete its transactions first.'));
         }
     }

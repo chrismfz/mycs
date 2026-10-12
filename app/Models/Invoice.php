@@ -81,9 +81,12 @@ class Invoice extends Model implements Auditable
         return parent::save($options);
     }
 
-    public function hasSucceededTransactions(): bool
+    /** Money arrived or on its way (a processing payment, e.g. a SEPA debit, still lands on this invoice). */
+    public function hasPayments(): bool
     {
-        return $this->transactions()->where('status', InvoiceTransactionStatus::Succeeded->value)->exists();
+        return $this->transactions()->whereIn('status', [
+            InvoiceTransactionStatus::Succeeded->value, InvoiceTransactionStatus::Processing->value,
+        ])->exists();
     }
 
     public function createCancellationCreditNote($description = null): void

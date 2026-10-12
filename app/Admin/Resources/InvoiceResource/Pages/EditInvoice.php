@@ -39,7 +39,7 @@ class EditInvoice extends EditRecord
                 ->successRedirectUrl(InvoiceResource::getUrl('index')),
             DeleteAction::make()
                 ->before(function (Invoice $record, DeleteAction $action): void {
-                    if ($record->hasSucceededTransactions()) {
+                    if ($record->hasPayments()) {
                         Notification::make()->danger()->title(__('Invoice not deleted'))
                             ->body(__('An invoice with payments cannot be deleted: cancel it, or delete its transactions first.'))->send();
                         $action->cancel();

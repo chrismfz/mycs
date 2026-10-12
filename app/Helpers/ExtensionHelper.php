@@ -599,9 +599,9 @@ class ExtensionHelper
     }
 
     /**
-     * Locks (customer, invoice, transaction, then credit: the payments' order) and checks for a refund.
-     * A refund of a credit purchase takes the bought credit back: refused when it was already spent, and for
-     * an invoice that mixes a credit purchase with other lines (which part is refunded is not known).
+     * Locks (customer, invoice, transaction, lines, then credit: the payments' order) and checks for a refund.
+     * A refund of a credit purchase that gave its credit takes that credit back: refused when it was already
+     * spent, and for an invoice that mixes it with other lines (RecordPaymentService::lockBoughtCredit).
      *
      * @return array{0: InvoiceTransaction, 1: ?Credit} the locked transaction, and the credit to take back from
      */
@@ -617,12 +617,9 @@ class ExtensionHelper
             );
         }
 
-        $types = $invoice->items()->pluck('reference_type');
-        if (!$types->contains(Credit::class)) {
+        // Only credit the invoice gave (once paid) is taken back: a partial payment of an unpaid one bought nothing.
+        if (!(new RecordPaymentService)->lockBoughtCredit($invoice)) {
             return [$transaction, null];
-        }
-        if ($types->contains(fn ($type) => $type !== Credit::class)) {
-            throw new \InvalidArgumentException('This invoice buys account credit together with other items: refund it by hand (take the credit back first).');
         }
         $credit = Credit::query()->where('user_id', $invoice->user_id)->where('currency_code', $invoice->currency_code)
             ->lockForUpdate()->first();

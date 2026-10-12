@@ -64,5 +64,6 @@
     "This payment has refunds: it cannot be deleted (its refund history and gateway transaction id must stay).": "Αυτή η πληρωμή έχει επιστροφές: δεν μπορεί να διαγραφεί (πρέπει να μείνουν το ιστορικό των επιστροφών και το transaction id του gateway).",
     "Transactions of a finalized invoice cannot be deleted.": "Οι συναλλαγές ενός οριστικοποιημένου τιμολογίου δεν διαγράφονται.",
     "An invoice with payments cannot be deleted: cancel it, or delete its transactions first.": "Ένα τιμολόγιο με πληρωμές δεν διαγράφεται: ακυρώστε το, ή διαγράψτε πρώτα τις συναλλαγές του.",
-    "Invoice not deleted": "Το τιμολόγιο δεν διαγράφηκε"
+    "Invoice not deleted": "Το τιμολόγιο δεν διαγράφηκε",
+    "This invoice bought account credit together with other items: handle it by hand (take the credit back first).": "Αυτό το τιμολόγιο αγόρασε πίστωση μαζί με άλλες γραμμές: χειριστείτε το με το χέρι (αφαιρέστε πρώτα την πίστωση)."
 }
