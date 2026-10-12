@@ -55,5 +55,10 @@
     "Your cart is empty": "Το καλάθι σας είναι άδειο",
     "A cancelled invoice cannot be marked paid: reopen it (pending) and record the payment.": "Ένα ακυρωμένο τιμολόγιο δεν γίνεται πληρωμένο απευθείας: ξανανοίξτε το (pending) και καταγράψτε την πληρωμή.",
     "Payment not recorded": "Η πληρωμή δεν καταγράφηκε",
-    "The amount must be positive (see the log for details).": "Το ποσό πρέπει να είναι θετικό (λεπτομέρειες στο log)."
+    "The amount must be positive (see the log for details).": "Το ποσό πρέπει να είναι θετικό (λεπτομέρειες στο log).",
+    "Payment already recorded": "Η πληρωμή έχει ήδη καταγραφεί",
+    "This gateway transaction is already recorded (invoice #:invoice): nothing was added.": "Αυτή η συναλλαγή του gateway έχει ήδη καταγραφεί (τιμολόγιο #:invoice): δεν προστέθηκε τίποτα.",
+    "Transaction not deleted": "Η συναλλαγή δεν διαγράφηκε",
+    "This payment already paid other invoices with its credit: it cannot be deleted.": "Η πίστωση αυτής της πληρωμής έχει ήδη εξοφλήσει άλλα τιμολόγια: δεν μπορεί να διαγραφεί.",
+    "Part of this payment became account credit and the customer has already used it: it cannot be deleted.": "Μέρος αυτής της πληρωμής έγινε πίστωση και ο πελάτης την έχει ήδη χρησιμοποιήσει: δεν μπορεί να διαγραφεί."
 }

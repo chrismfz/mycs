@@ -2,6 +2,7 @@
 
 namespace App\Listeners;
 
+use App\Enums\InvoiceTransactionStatus;
 use App\Events\InvoiceTransaction\Created;
 use App\Events\InvoiceTransaction\Updated;
 use App\Models\Invoice;
@@ -14,6 +15,11 @@ class InvoiceTransactionCreatedListener
      */
     public function handle(Created|Updated $event): void
     {
+        // Only money that arrived pays an invoice: a failed or processing transaction never does.
+        // No status set on the model means the column default (succeeded).
+        if (($event->invoiceTransaction->status ?? InvoiceTransactionStatus::Succeeded) !== InvoiceTransactionStatus::Succeeded) {
+            return;
+        }
         // Only an open invoice becomes paid (docs/payments.md): a cancelled one has nothing left to pay
         // (its credit note covers it), so any transaction, even 0.00, would turn it paid and renew.
         // Locking reads only: inside a payment's transaction a plain read returns the snapshot of the

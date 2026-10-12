@@ -4,6 +4,7 @@ namespace Paymenter\Extensions\Gateways\PayPal;
 
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Gateway;
+use App\Enums\InvoiceTransactionStatus;
 use App\Events\Service\Updated;
 use App\Events\ServiceCancellation\Created;
 use App\Helpers\ExtensionHelper;
@@ -21,6 +22,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\HtmlString;
+use Throwable;
 
 #[ExtensionMeta(
     name: 'PayPal Gateway',
@@ -304,37 +306,60 @@ class PayPal extends Gateway
     }
 
     /**
-     * One subscription sale pays every service of the subscription: record it ONCE (on the first service's
-     * latest invoice; what that invoice cannot take becomes account credit) and pay the other services' open
-     * invoices with that credit (docs/payments.md). Only a sale recorded now does so, and only with what it
-     * left as credit: a replayed or refused webhook spends nothing, and credit the customer already had is
-     * never touched.
+     * One subscription sale pays every service of the subscription (docs/payments.md): the oldest open invoice
+     * of each service, one cycle per service. The sale is recorded ONCE, on the first of those invoices; what
+     * that invoice cannot take becomes account credit and pays the others (RecordPaymentService::
+     * allocateFromTransaction), only up to what this sale left: credit the customer already had is never spent.
+     *
+     * Resumable: a retried webhook (the sale already recorded) finishes an interrupted allocation, and a failure
+     * of one step (e.g. a renewal after its commit) does not stop the others; the first failure is rethrown at
+     * the end, so PayPal retries.
      *
      * @param  array<string, mixed>  $resource  the PAYMENT.SALE.COMPLETED resource
      */
     public function recordSubscriptionSale(array $resource): void
     {
-        $services = Service::where('subscription_id', $resource['billing_agreement_id'])->get();
-        $first = $services->map(fn (Service $service) => $service->invoices()->latest()->first())->filter()->first();
+        $services = Service::where('subscription_id', $resource['billing_agreement_id'])->orderBy('id')->get();
+        $targets = $services
+            ->map(fn (Service $service) => $service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)
+                ->orderBy('invoices.created_at')->orderBy('invoices.id')->first())
+            ->filter()->unique('id')->values();
+        // No open invoice at all: the sale goes to the first service's latest invoice and becomes credit.
+        $first = $targets->first()
+            ?? $services->map(fn (Service $service) => $service->invoices()->latest('invoices.created_at')->first())->filter()->first();
         if ($first === null) {
             return;
         }
-        $transaction = ExtensionHelper::addPayment($first->id, 'PayPal', $resource['amount']['total'], $resource['transaction_fee']['value'] ?? null, $resource['id'], currency: $resource['amount']['currency'] ?? null);
-        if ($transaction === null || !$transaction->wasRecentlyCreated) {
-            return;
+
+        $failure = null;
+        try {
+            $sale = ExtensionHelper::addPayment($first->id, 'PayPal', $resource['amount']['total'], $resource['transaction_fee']['value'] ?? null, $resource['id'], currency: $resource['amount']['currency'] ?? null);
+        } catch (Throwable $e) {
+            // The sale may be committed and only something after its commit failed (a renewal): allocate anyway.
+            $failure = $e;
+            $sale = InvoiceTransaction::query()->where('transaction_id', (string) $resource['id'])
+                ->where('status', InvoiceTransactionStatus::Succeeded)
+                ->whereHas('gateway', fn ($query) => $query->where('extension', 'PayPal'))
+                ->whereHas('invoice', fn ($query) => $query->where('user_id', $first->user_id))
+                ->first();
         }
 
-        $budget = RecordPaymentService::toCents($transaction->credited_amount);
-        $services->map(fn (Service $service) => $service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->oldest('invoices.created_at')->first())
-            ->filter(fn (?Invoice $invoice) => $invoice !== null && $invoice->id !== $first->id)
-            ->unique('id')
-            ->each(function (Invoice $invoice) use (&$budget) {
-                if ($budget <= 0) {
-                    return false;
+        if ($sale !== null) {
+            foreach ($targets as $invoice) {
+                if ($invoice->id === $sale->invoice_id) {
+                    continue;
                 }
-                $paid = (new RecordPaymentService)->payWithCredit($invoice, maxCents: $budget);
-                $budget -= $paid === null ? 0 : RecordPaymentService::toCents($paid->amount);
-            });
+                try {
+                    (new RecordPaymentService)->allocateFromTransaction($sale, $invoice);
+                } catch (Throwable $e) {
+                    $failure ??= $e;
+                }
+            }
+        }
+
+        if ($failure !== null) {
+            throw $failure;
+        }
     }
 
     public function webhook(Request $request)

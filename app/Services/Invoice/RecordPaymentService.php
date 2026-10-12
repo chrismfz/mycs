@@ -3,11 +3,14 @@
 namespace App\Services\Invoice;
 
 use App\Enums\InvoiceTransactionStatus;
+use App\Exceptions\DisplayException;
 use App\Helpers\NotificationHelper;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
+use App\Models\Service;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -114,40 +117,119 @@ class RecordPaymentService
     /**
      * Pay an open invoice from the customer's account credit, under the same locks: the credit is read
      * and spent in one place, so nothing can save a stale copy of it. Pays what is left, or as much as
-     * the credit covers ($onlyIfCovers: all of it or nothing, as the cron does; $maxCents: at most this
-     * much). Null when nothing is paid.
+     * the credit covers ($onlyIfCovers: all of it or nothing, as the cron does). Null when nothing is paid.
      */
-    public function payWithCredit(Invoice|int $invoice, bool $onlyIfCovers = false, ?int $maxCents = null): ?InvoiceTransaction
+    public function payWithCredit(Invoice|int $invoice, bool $onlyIfCovers = false): ?InvoiceTransaction
     {
         $invoiceId = $invoice instanceof Invoice ? $invoice->getKey() : $invoice;
 
-        return DB::transaction(function () use ($invoiceId, $onlyIfCovers, $maxCents) {
+        return DB::transaction(function () use ($invoiceId, $onlyIfCovers) {
             $invoice = $this->lockInvoice($invoiceId);
             if (!in_array($invoice->status, [Invoice::STATUS_PENDING, Invoice::STATUS_DRAFT], true)) {
                 return null;
             }
-            $credit = Credit::query()->where('user_id', $invoice->user_id)->where('currency_code', $invoice->currency_code)
-                ->lockForUpdate()->first();
+            $credit = $this->lockCredit($invoice);
             $available = $credit === null ? 0 : self::toCents($credit->amount);
             $remaining = max(0, self::toCents($invoice->withLockedBalance()->remaining));
-            $cents = min($available, $remaining, $maxCents ?? PHP_INT_MAX);
-            if ($cents <= 0 || ($onlyIfCovers && $available < $remaining)) {
+            $cents = min($available, $remaining);
+            if ($credit === null || $cents <= 0 || ($onlyIfCovers && $available < $remaining)) {
                 return null;
             }
 
-            $credit->amount = ($available - $cents) / 100;
-            $credit->save();
-
-            return $invoice->transactions()->create([
-                'amount' => $cents / 100,
-                'status' => InvoiceTransactionStatus::Succeeded,
-                'is_credit_transaction' => true,
-            ]);
+            return $this->spendCredit($invoice, $credit, $cents);
         });
     }
 
-    /** Customer first, then the invoice (every payment path takes them in this order: no deadlock). */
-    private function lockInvoice(mixed $invoiceId): Invoice
+    /**
+     * Pay an open invoice with the credit another transaction left ($source->credited_amount), e.g. one PayPal
+     * subscription sale for several services. Idempotent and resumable: what the source already paid
+     * (its allocations) is subtracted, and a service the source already paid a cycle of is skipped, so a retried
+     * webhook finishes an interrupted allocation without paying a second cycle or spending other credit.
+     * Null when nothing is paid.
+     */
+    public function allocateFromTransaction(InvoiceTransaction $source, Invoice|int $target): ?InvoiceTransaction
+    {
+        $targetId = $target instanceof Invoice ? $target->getKey() : $target;
+
+        return DB::transaction(function () use ($source, $targetId) {
+            $invoice = $this->lockInvoice($targetId);
+            $source = InvoiceTransaction::query()->whereKey($source->getKey())->lockForUpdate()->first();
+            $sourceInvoice = $source === null ? null : Invoice::query()->whereKey($source->invoice_id)->first();
+            if ($source === null || $sourceInvoice === null || $source->status !== InvoiceTransactionStatus::Succeeded
+                || $sourceInvoice->user_id !== $invoice->user_id || $sourceInvoice->currency_code !== $invoice->currency_code
+                || !in_array($invoice->status, [Invoice::STATUS_PENDING, Invoice::STATUS_DRAFT], true)) {
+                return null;
+            }
+
+            $allocations = InvoiceTransaction::query()->where('source_transaction_id', $source->id)->lockForUpdate()->get();
+            $paidServices = InvoiceItem::query()->where('reference_type', Service::class)
+                ->whereIn('invoice_id', $allocations->pluck('invoice_id')->push($source->invoice_id))->pluck('reference_id');
+            $targetServices = $invoice->items()->where('reference_type', Service::class)->pluck('reference_id');
+            if ($targetServices->intersect($paidServices)->isNotEmpty()) {
+                return null; // one cycle per service per sale
+            }
+
+            $budget = self::toCents($source->credited_amount) - $allocations->sum(fn (InvoiceTransaction $paid) => self::toCents($paid->amount));
+            $credit = $this->lockCredit($invoice);
+            $available = $credit === null ? 0 : self::toCents($credit->amount);
+            $remaining = max(0, self::toCents($invoice->withLockedBalance()->remaining));
+            $cents = min($budget, $available, $remaining);
+            if ($credit === null || $cents <= 0) {
+                return null;
+            }
+
+            return $this->spendCredit($invoice, $credit, $cents, $source->id);
+        });
+    }
+
+    /**
+     * Delete a transaction (staff correcting a mistake) without leaving money behind: the part that became
+     * account credit is taken back, and a payment made with credit gives it back. Refused when that credit
+     * was already spent, or when it paid other invoices.
+     *
+     * @throws DisplayException
+     */
+    public function deleteTransaction(InvoiceTransaction $transaction): void
+    {
+        DB::transaction(function () use ($transaction) {
+            $invoice = $this->lockInvoice($transaction->invoice_id);
+            $transaction = InvoiceTransaction::query()->whereKey($transaction->getKey())->lockForUpdate()->first();
+            if ($transaction === null) {
+                return;
+            }
+            if (InvoiceTransaction::query()->where('source_transaction_id', $transaction->id)->lockForUpdate()->exists()) {
+                throw new DisplayException(__('This payment already paid other invoices with its credit: it cannot be deleted.'));
+            }
+
+            // Credit to give back (+) or take back (-). A payment made with credit: what is still on the invoice
+            // goes back (its credited part is already back). Any other payment: what became credit is taken back.
+            $change = 0;
+            if ($transaction->status === InvoiceTransactionStatus::Succeeded) {
+                $credited = self::toCents($transaction->credited_amount);
+                $change = $transaction->is_credit_transaction
+                    ? self::toCents($transaction->amount) - self::toCents($transaction->refunded_amount) - $credited
+                    : -$credited;
+            }
+            if ($change !== 0) {
+                $credit = $this->lockCredit($invoice)
+                    ?? $invoice->user->credits()->create(['currency_code' => $invoice->currency_code, 'amount' => 0]);
+                $available = self::toCents($credit->amount);
+                if ($available + $change < 0) {
+                    throw new DisplayException(__('Part of this payment became account credit and the customer has already used it: it cannot be deleted.'));
+                }
+                $credit->amount = ($available + $change) / 100;
+                $credit->save();
+            }
+
+            $transaction->delete();
+        });
+    }
+
+    /**
+     * Customer first, then the invoice. Every path that writes money (payments, credit, refunds, deletions)
+     * takes them in this order before any transaction row: no deadlock.
+     */
+    public function lockInvoice(mixed $invoiceId): Invoice
     {
         $userId = Invoice::query()->whereKey($invoiceId)->value('user_id');
         if ($userId !== null) {
@@ -167,14 +249,32 @@ class RecordPaymentService
         return max(0, $cents - max(0, self::toCents($invoice->withLockedBalance()->remaining)));
     }
 
+    private function lockCredit(Invoice $invoice): ?Credit
+    {
+        return Credit::query()->where('user_id', $invoice->user_id)->where('currency_code', $invoice->currency_code)
+            ->lockForUpdate()->first();
+    }
+
+    private function spendCredit(Invoice $invoice, Credit $credit, int $cents, ?int $sourceId = null): InvoiceTransaction
+    {
+        $credit->amount = (self::toCents($credit->amount) - $cents) / 100;
+        $credit->save();
+
+        return $invoice->transactions()->create(array_filter([
+            'amount' => $cents / 100,
+            'status' => InvoiceTransactionStatus::Succeeded,
+            'is_credit_transaction' => true,
+            'source_transaction_id' => $sourceId,
+        ], fn ($value) => $value !== null));
+    }
+
     /** @param  list<string>  $notices */
     private function addCredit(Invoice $invoice, int $cents, array &$notices): void
     {
         if ($cents <= 0) {
             return;
         }
-        $credit = Credit::query()->where('user_id', $invoice->user_id)->where('currency_code', $invoice->currency_code)
-            ->lockForUpdate()->first()
+        $credit = $this->lockCredit($invoice)
             ?? $invoice->user->credits()->create(['currency_code' => $invoice->currency_code, 'amount' => 0]);
         $credit->amount = (self::toCents($credit->amount) + $cents) / 100;
         $credit->save();

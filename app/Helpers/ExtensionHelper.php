@@ -570,6 +570,9 @@ class ExtensionHelper
         }
 
         return DB::transaction(function () use ($transaction, $gatewayInstance, $amount) {
+            // Every lock this refund needs is taken BEFORE the gateway call, in the payments' order (customer,
+            // invoice, transaction): nothing after the money left can wait for a lock or deadlock.
+            (new RecordPaymentService)->lockInvoice($transaction->invoice_id);
             $transaction = InvoiceTransaction::whereKey($transaction->id)->lockForUpdate()->firstOrFail();
 
             $refundable = $transaction->refundable_amount; // net of refunds and of what became account credit
@@ -585,7 +588,16 @@ class ExtensionHelper
                 throw new \RuntimeException('Gateway refund failed for transaction #' . $transaction->id);
             }
 
-            return self::recordRefund($transaction, $amount);
+            try {
+                return self::recordRefund($transaction, $amount);
+            } catch (\Throwable $e) {
+                Log::critical('Gateway refund succeeded but was NOT recorded locally: record it by hand.', [
+                    'transaction_id' => $transaction->id, 'gateway_transaction_id' => $transaction->transaction_id,
+                    'invoice_id' => $transaction->invoice_id, 'amount' => $amount, 'error' => $e->getMessage(),
+                ]);
+
+                throw $e;
+            }
         });
     }
 
@@ -601,6 +613,7 @@ class ExtensionHelper
         }
 
         DB::transaction(function () use ($transaction, $amount) {
+            (new RecordPaymentService)->lockInvoice($transaction->invoice_id); // the payments' lock order
             $transaction = InvoiceTransaction::whereKey($transaction->id)->lockForUpdate()->firstOrFail();
 
             $refundable = $transaction->refundable_amount; // net of refunds and of what became account credit

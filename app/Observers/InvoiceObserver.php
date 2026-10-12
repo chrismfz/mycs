@@ -2,8 +2,10 @@
 
 namespace App\Observers;
 
+use App\Enums\AdjustmentNoteStatus;
 use App\Events\Invoice as InvoiceEvent;
 use App\Exceptions\DisplayException;
+use App\Models\AdjustmentNote;
 use App\Models\Invoice;
 use App\Services\Invoice\CreateInvoiceSnapshotService;
 use App\Services\Invoice\ProcessPaidInvoiceService;
@@ -62,6 +64,16 @@ class InvoiceObserver
     {
         if ($invoice->status === Invoice::STATUS_CANCELLED && $invoice->getOriginal('status') !== Invoice::STATUS_CANCELLED) {
             $invoice->createCancellationCreditNote($invoice->cancellation_reason);
+        }
+
+        // Reopened: the cancellation's credit note no longer applies, the invoice is payable again
+        // (docs/payments.md). Refund notes and other adjustments stay as they are.
+        if ($invoice->getOriginal('status') === Invoice::STATUS_CANCELLED
+            && in_array($invoice->status, [Invoice::STATUS_PENDING, Invoice::STATUS_DRAFT], true)) {
+            $invoice->adjustmentNotes()->where('is_cancellation', true)
+                ->where('status', AdjustmentNoteStatus::Active->value)->get()
+                ->each(fn (AdjustmentNote $note) => $note->update(['status' => AdjustmentNoteStatus::Voided]));
+            $invoice->unsetRelation('adjustmentNotes');
         }
 
         if ($invoice->getOriginal('status') === Invoice::STATUS_DRAFT && $invoice->status === Invoice::STATUS_PENDING) {
