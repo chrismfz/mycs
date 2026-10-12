@@ -305,21 +305,36 @@ class PayPal extends Gateway
 
     /**
      * One subscription sale pays every service of the subscription: record it ONCE (on the first service's
-     * latest invoice; what that invoice cannot take becomes account credit) and pay the other services'
-     * invoices from that credit. A replayed webhook records nothing and finds them paid (docs/payments.md).
+     * latest invoice; what that invoice cannot take becomes account credit) and pay the other services' open
+     * invoices with that credit (docs/payments.md). Only a sale recorded now does so, and only with what it
+     * left as credit: a replayed or refused webhook spends nothing, and credit the customer already had is
+     * never touched.
      *
      * @param  array<string, mixed>  $resource  the PAYMENT.SALE.COMPLETED resource
      */
     public function recordSubscriptionSale(array $resource): void
     {
-        $invoices = Service::where('subscription_id', $resource['billing_agreement_id'])->get()
-            ->map(fn (Service $service) => $service->invoices()->latest()->first())
-            ->filter()->unique('id')->values();
-        if ($invoices->isEmpty()) {
+        $services = Service::where('subscription_id', $resource['billing_agreement_id'])->get();
+        $first = $services->map(fn (Service $service) => $service->invoices()->latest()->first())->filter()->first();
+        if ($first === null) {
             return;
         }
-        ExtensionHelper::addPayment($invoices->first()->id, 'PayPal', $resource['amount']['total'], $resource['transaction_fee']['value'] ?? null, $resource['id'], currency: $resource['amount']['currency'] ?? null);
-        $invoices->slice(1)->each(fn (Invoice $invoice) => (new RecordPaymentService)->payWithCredit($invoice));
+        $transaction = ExtensionHelper::addPayment($first->id, 'PayPal', $resource['amount']['total'], $resource['transaction_fee']['value'] ?? null, $resource['id'], currency: $resource['amount']['currency'] ?? null);
+        if ($transaction === null || !$transaction->wasRecentlyCreated) {
+            return;
+        }
+
+        $budget = RecordPaymentService::toCents($transaction->credited_amount);
+        $services->map(fn (Service $service) => $service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->oldest('invoices.created_at')->first())
+            ->filter(fn (?Invoice $invoice) => $invoice !== null && $invoice->id !== $first->id)
+            ->unique('id')
+            ->each(function (Invoice $invoice) use (&$budget) {
+                if ($budget <= 0) {
+                    return false;
+                }
+                $paid = (new RecordPaymentService)->payWithCredit($invoice, maxCents: $budget);
+                $budget -= $paid === null ? 0 : RecordPaymentService::toCents($paid->amount);
+            });
     }
 
     public function webhook(Request $request)

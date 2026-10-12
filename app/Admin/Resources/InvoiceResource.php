@@ -80,6 +80,8 @@ class InvoiceResource extends Resource
                         'draft' => 'Draft',
                         'cancelled' => 'Cancelled',
                     ])
+                    // A cancelled invoice is reopened (pending) before it can be paid (docs/payments.md).
+                    ->disableOptionWhen(fn (string $value, ?Invoice $record): bool => $value === Invoice::STATUS_PAID && $record?->getOriginal('status') === Invoice::STATUS_CANCELLED)
                     ->default(fn (): string => config('settings.immutable_invoices_enabled', false) ? Invoice::STATUS_DRAFT : Invoice::STATUS_PENDING)
                     ->placeholder('Select the status of the invoice'),
                 Select::make('currency_code')

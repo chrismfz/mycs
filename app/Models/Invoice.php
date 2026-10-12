@@ -167,6 +167,21 @@ class Invoice extends Model implements Auditable
         );
     }
 
+    /**
+     * Reload what the balance is computed from (lines, transactions, adjustment notes) with locking reads,
+     * inside a transaction. Under REPEATABLE READ a plain read returns the snapshot of the transaction's
+     * first read, even after waiting for a lock, and would miss a payment committed meanwhile
+     * (docs/payments.md). Returns $this, so `$invoice->withLockedBalance()->remaining` is current.
+     */
+    public function withLockedBalance(): static
+    {
+        $this->setRelation('items', $this->items()->lockForUpdate()->get());
+        $this->setRelation('transactions', $this->transactions()->lockForUpdate()->get());
+        $this->setRelation('adjustmentNotes', $this->adjustmentNotes()->lockForUpdate()->get());
+
+        return $this;
+    }
+
     private function moneyToCents($amount): int
     {
         return (int) round((float) $amount * 100);

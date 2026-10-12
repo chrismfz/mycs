@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\InvoiceTransactionStatus;
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\Credit;
 use App\Models\Gateway;
@@ -13,6 +14,8 @@ use App\Models\Service;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use InvalidArgumentException;
+use Paymenter\Extensions\Gateways\PayPal\PayPal;
 use Tests\TestCase;
 
 /**
@@ -253,5 +256,83 @@ class PaymentGuardsTest extends TestCase
 
         $this->assertNotNull(ExtensionHelper::addPayment($otherInvoice->id, 'Stripe', 5.00, null, 'shared-id'));
         $this->assertSame('paid', $otherInvoice->fresh()->status);
+    }
+
+    // ------------------------------------------------------------------ follow-up review (2026-10-12)
+
+    /** A replayed or refused subscription webhook never spends credit the customer already had. */
+    public function test_a_replayed_or_refused_paypal_sale_spends_no_existing_credit(): void
+    {
+        $a = $this->service(['subscription_id' => 'I-SUB']);
+        $b = $this->service(['subscription_id' => 'I-SUB']);
+        $this->invoiceFor($a, '2026-10-15', '2026-11-15');
+        $invoiceB = $this->invoiceFor($b, '2026-10-15', '2026-11-15');
+        $this->user->credits()->create(['currency_code' => 'USD', 'amount' => 50.00]); // the customer's own credit
+        $paypal = new PayPal([]);
+
+        // refused: wrong currency, nothing recorded, nothing spent
+        $paypal->recordSubscriptionSale(['id' => 'SALE-X', 'billing_agreement_id' => 'I-SUB', 'amount' => ['total' => '20.00', 'currency' => 'EUR'], 'transaction_fee' => ['value' => '1.00']]);
+        $this->assertSame('pending', $invoiceB->fresh()->status);
+        $this->assertSame('50.00', $this->credit());
+
+        // an old sale replayed after it was recorded: nothing spent
+        ExtensionHelper::addPayment($invoiceB->id, 'PayPal', 5.00, null, 'SALE-OLD');
+        $paypal->recordSubscriptionSale(['id' => 'SALE-OLD', 'billing_agreement_id' => 'I-SUB', 'amount' => ['total' => '20.00', 'currency' => 'USD'], 'transaction_fee' => ['value' => '1.00']]);
+        $this->assertSame('pending', $invoiceB->fresh()->status);
+        $this->assertSame('50.00', $this->credit());
+    }
+
+    /** A sale pays the other services only with what it left as credit, on their oldest open invoice. */
+    public function test_a_paypal_sale_pays_siblings_only_with_its_own_excess(): void
+    {
+        $a = $this->service(['subscription_id' => 'I-SUB']);
+        $b = $this->service(['subscription_id' => 'I-SUB']);
+        $invoiceA = $this->invoiceFor($a, '2026-10-15', '2026-11-15');
+        $octoberB = $this->invoiceFor($b, '2026-10-15', '2026-11-15');
+        Carbon::setTestNow('2026-10-13 10:00:00');
+        $novemberB = $this->invoiceFor($b, '2026-11-15', '2026-12-15'); // next cycle, already billed
+        $this->user->credits()->create(['currency_code' => 'USD', 'amount' => 50.00]);
+
+        (new PayPal([]))->recordSubscriptionSale(['id' => 'SALE-1', 'billing_agreement_id' => 'I-SUB', 'amount' => ['total' => '20.00', 'currency' => 'USD'], 'transaction_fee' => ['value' => '1.00']]);
+
+        $this->assertSame('paid', $invoiceA->fresh()->status);
+        $this->assertSame('paid', $octoberB->fresh()->status);
+        $this->assertSame('pending', $novemberB->fresh()->status, 'the next cycle is not paid from the customer\'s own credit');
+        $this->assertSame('50.00', $this->credit());
+    }
+
+    /** Nobody marks a cancelled invoice paid directly; reopened, it is paid normally. */
+    public function test_a_cancelled_invoice_cannot_be_marked_paid_directly(): void
+    {
+        $service = $this->service();
+        $invoice = $this->invoiceFor($service, '2026-10-15', '2026-11-15');
+        $invoice->update(['status' => 'cancelled']);
+
+        try {
+            $invoice->fresh()->update(['status' => 'paid']);
+            $this->fail('cancelled -> paid was accepted');
+        } catch (DisplayException) {
+        }
+
+        $this->assertSame('cancelled', $invoice->fresh()->status);
+        $this->assertSame('2026-10-15', $this->expires($service));
+    }
+
+    /** What became account credit cannot also be refunded. */
+    public function test_a_refund_never_includes_what_became_credit(): void
+    {
+        $service = $this->service();
+        $invoice = $this->invoiceFor($service, '2026-10-15', '2026-11-15');
+        $transaction = ExtensionHelper::addPayment($invoice->id, 'Stripe', 15.00, null, 'pi_over'); // 5.00 to credit
+
+        try {
+            ExtensionHelper::refundLocally($transaction->fresh(), 15.00);
+            $this->fail('a refund of 15.00 was accepted although 5.00 became credit');
+        } catch (InvalidArgumentException) {
+        }
+        ExtensionHelper::refundLocally($transaction->fresh(), 10.00);
+
+        $this->assertEquals(10.00, (float) $transaction->fresh()->refunded_amount);
+        $this->assertSame('5.00', $this->credit());
     }
 }

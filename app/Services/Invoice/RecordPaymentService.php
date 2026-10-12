@@ -114,13 +114,14 @@ class RecordPaymentService
     /**
      * Pay an open invoice from the customer's account credit, under the same locks: the credit is read
      * and spent in one place, so nothing can save a stale copy of it. Pays what is left, or as much as
-     * the credit covers ($onlyIfCovers: all of it or nothing, as the cron does). Null when nothing is paid.
+     * the credit covers ($onlyIfCovers: all of it or nothing, as the cron does; $maxCents: at most this
+     * much). Null when nothing is paid.
      */
-    public function payWithCredit(Invoice|int $invoice, bool $onlyIfCovers = false): ?InvoiceTransaction
+    public function payWithCredit(Invoice|int $invoice, bool $onlyIfCovers = false, ?int $maxCents = null): ?InvoiceTransaction
     {
         $invoiceId = $invoice instanceof Invoice ? $invoice->getKey() : $invoice;
 
-        return DB::transaction(function () use ($invoiceId, $onlyIfCovers) {
+        return DB::transaction(function () use ($invoiceId, $onlyIfCovers, $maxCents) {
             $invoice = $this->lockInvoice($invoiceId);
             if (!in_array($invoice->status, [Invoice::STATUS_PENDING, Invoice::STATUS_DRAFT], true)) {
                 return null;
@@ -128,8 +129,8 @@ class RecordPaymentService
             $credit = Credit::query()->where('user_id', $invoice->user_id)->where('currency_code', $invoice->currency_code)
                 ->lockForUpdate()->first();
             $available = $credit === null ? 0 : self::toCents($credit->amount);
-            $remaining = max(0, self::toCents($invoice->remaining));
-            $cents = min($available, $remaining);
+            $remaining = max(0, self::toCents($invoice->withLockedBalance()->remaining));
+            $cents = min($available, $remaining, $maxCents ?? PHP_INT_MAX);
             if ($cents <= 0 || ($onlyIfCovers && $available < $remaining)) {
                 return null;
             }
@@ -163,7 +164,7 @@ class RecordPaymentService
             return $cents;
         }
 
-        return max(0, $cents - max(0, self::toCents($invoice->fresh()->remaining)));
+        return max(0, $cents - max(0, self::toCents($invoice->withLockedBalance()->remaining)));
     }
 
     /** @param  list<string>  $notices */

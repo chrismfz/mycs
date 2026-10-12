@@ -3,6 +3,7 @@
 namespace App\Observers;
 
 use App\Events\Invoice as InvoiceEvent;
+use App\Exceptions\DisplayException;
 use App\Models\Invoice;
 use App\Services\Invoice\CreateInvoiceSnapshotService;
 use App\Services\Invoice\ProcessPaidInvoiceService;
@@ -45,6 +46,12 @@ class InvoiceObserver
      */
     public function updating(Invoice $invoice): void
     {
+        // A cancelled invoice is never marked paid directly, by anyone (docs/payments.md): it renews nothing
+        // and its credit note already covers it. Staff reopen it (pending) and record the payment.
+        if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_CANCELLED
+            && $invoice->status === Invoice::STATUS_PAID) {
+            throw new DisplayException(__('A cancelled invoice cannot be marked paid: reopen it (pending) and record the payment.'));
+        }
         event(new InvoiceEvent\Updating($invoice));
     }
 

@@ -52,5 +52,8 @@
     "You cannot exceed the maximum credits allowed.": "Δεν μπορείτε να ξεπεράσετε το μέγιστο επιτρεπτό υπόλοιπο.",
     "You have not changed anything. Please select a different product or change the configuration options.": "Δεν αλλάξατε κάτι. Επιλέξτε άλλο πακέτο ή αλλάξτε τις ρυθμίσεις.",
     "You must accept the terms of service": "Πρέπει να αποδεχτείτε τους Όρους χρήσης",
-    "Your cart is empty": "Το καλάθι σας είναι άδειο"
+    "Your cart is empty": "Το καλάθι σας είναι άδειο",
+    "A cancelled invoice cannot be marked paid: reopen it (pending) and record the payment.": "Ένα ακυρωμένο τιμολόγιο δεν γίνεται πληρωμένο απευθείας: ξανανοίξτε το (pending) και καταγράψτε την πληρωμή.",
+    "Payment not recorded": "Η πληρωμή δεν καταγράφηκε",
+    "The amount must be positive (see the log for details).": "Το ποσό πρέπει να είναι θετικό (λεπτομέρειες στο log)."
 }

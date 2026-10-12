@@ -572,7 +572,7 @@ class ExtensionHelper
         return DB::transaction(function () use ($transaction, $gatewayInstance, $amount) {
             $transaction = InvoiceTransaction::whereKey($transaction->id)->lockForUpdate()->firstOrFail();
 
-            $refundable = $transaction->amount - $transaction->refunded_amount;
+            $refundable = $transaction->refundable_amount; // net of refunds and of what became account credit
             if ($amount > $refundable) {
                 throw new \InvalidArgumentException(
                     "Refund amount ({$amount}) exceeds refundable amount ({$refundable}) for this transaction."
@@ -603,7 +603,7 @@ class ExtensionHelper
         DB::transaction(function () use ($transaction, $amount) {
             $transaction = InvoiceTransaction::whereKey($transaction->id)->lockForUpdate()->firstOrFail();
 
-            $refundable = $transaction->amount - $transaction->refunded_amount;
+            $refundable = $transaction->refundable_amount; // net of refunds and of what became account credit
             if ($amount > $refundable) {
                 throw new \InvalidArgumentException(
                     "Refund amount ({$amount}) exceeds refundable amount ({$refundable}) for this transaction."
