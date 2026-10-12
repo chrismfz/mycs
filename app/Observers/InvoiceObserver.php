@@ -8,6 +8,7 @@ use App\Exceptions\DisplayException;
 use App\Models\AdjustmentNote;
 use App\Models\Invoice;
 use App\Services\Invoice\CreateInvoiceSnapshotService;
+use App\Services\Invoice\GrantBoughtCreditService;
 use App\Services\Invoice\ProcessPaidInvoiceService;
 use Illuminate\Support\Facades\DB;
 
@@ -88,6 +89,8 @@ class InvoiceObserver
         }
 
         if ($invoice->isDirty('status') && $invoice->status == 'paid') {
+            app(GrantBoughtCreditService::class)->handle($invoice);
+
             DB::afterCommit(function () use ($invoice) {
                 app(ProcessPaidInvoiceService::class)->handle($invoice);
                 event(new InvoiceEvent\Paid($invoice));
@@ -103,7 +106,7 @@ class InvoiceObserver
      */
     public function deleting(Invoice $invoice): void
     {
-        if ($invoice->hasPayments()) {
+        if ($invoice->hasPayments(lock: true)) {
             throw new DisplayException(__('An invoice with payments cannot be deleted: cancel it, or delete its transactions first.'));
         }
     }
