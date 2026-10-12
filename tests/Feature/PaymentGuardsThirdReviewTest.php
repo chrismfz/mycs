@@ -6,6 +6,7 @@ use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationManager;
 use App\Enums\AdjustmentNoteStatus;
 use App\Helpers\ExtensionHelper;
+use App\Models\ApiKey;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -233,6 +234,68 @@ class PaymentGuardsThirdReviewTest extends TestCase
         (new RecordPaymentService)->deleteTransaction($paid);
 
         $this->assertSame('18.00', $this->credit(), 'the 15 spent come back once: 3 + 5 already back + 10');
+    }
+
+    // ------------------------------------------------------------------ fourth round (independent review, Codex)
+
+    /** Staff recorded the payment by hand (no gateway), then the gateway's webhook arrives: one payment. */
+    public function test_a_webhook_after_a_manual_entry_of_the_same_id_is_a_replay(): void
+    {
+        $invoice = $this->invoiceFor($this->service());
+        ExtensionHelper::addPayment($invoice->id, null, 10.00, null, 'pi_manual_first');
+
+        ExtensionHelper::addPayment($invoice->id, 'Stripe', 10.00, null, 'pi_manual_first', currency: 'usd');
+
+        $this->assertSame(1, InvoiceTransaction::query()->count());
+        $this->assertSame('0.00', $this->credit());
+    }
+
+    /** Credit bought with a card and already spent: the purchase cannot be refunded. */
+    public function test_a_spent_credit_purchase_cannot_be_refunded(): void
+    {
+        $purchase = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $purchase->items()->create(['reference_id' => null, 'reference_type' => Credit::class, 'description' => 'Credit', 'quantity' => 1, 'price' => 10.00]);
+        $paid = ExtensionHelper::addPayment($purchase->id, 'Stripe', 10.00, null, 'pi_buy', currency: 'usd');
+        $this->assertSame('10.00', $this->credit());
+        (new RecordPaymentService)->payWithCredit($this->invoiceFor($this->service()));
+        $this->assertSame('0.00', $this->credit());
+
+        try {
+            ExtensionHelper::refundLocally($paid->fresh(), 10.00);
+            $this->fail('a refund of credit already spent was accepted');
+        } catch (\InvalidArgumentException) {
+        }
+        $this->assertEquals(0.0, (float) $paid->fresh()->refunded_amount);
+    }
+
+    /** An invoice buying credit together with a service: which part is refunded is not known, so it is refused. */
+    public function test_a_mixed_credit_purchase_is_refunded_by_hand_only(): void
+    {
+        $invoice = $this->invoiceFor($this->service());
+        $invoice->items()->create(['reference_id' => null, 'reference_type' => Credit::class, 'description' => 'Credit', 'quantity' => 1, 'price' => 5.00]);
+        $paid = ExtensionHelper::addPayment($invoice->id, 'Stripe', 15.00, null, 'pi_mixed', currency: 'usd');
+
+        $this->expectException(\InvalidArgumentException::class);
+        ExtensionHelper::refundLocally($paid->fresh(), 5.00);
+    }
+
+    /** The admin API refuses to delete an invoice with payments (422), and the payment and its credit stay. */
+    public function test_the_api_does_not_delete_an_invoice_with_payments(): void
+    {
+        $invoice = $this->invoiceFor($this->service());
+        ExtensionHelper::addPayment($invoice->id, 'Stripe', 15.00, null, 'pi_api', currency: 'usd'); // 5 -> credit
+        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        $token = 'PAYM' . bin2hex(random_bytes(8));
+        ApiKey::create([
+            'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
+            'user_id' => $owner->id, 'permissions' => ['admin.invoices.delete'],
+        ]);
+
+        $this->deleteJson("/api/v1/admin/invoices/{$invoice->id}", [], ['Authorization' => 'Bearer ' . $token])->assertStatus(422);
+
+        $this->assertNotNull($invoice->fresh());
+        $this->assertSame(1, InvoiceTransaction::query()->count());
+        $this->assertSame('5.00', $this->credit());
     }
 
     // ------------------------------------------------------------------ PayPal subscription allocation
