@@ -4,6 +4,7 @@ namespace App\Services\Invoice;
 
 use App\Models\Credit;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Services\Service\RenewServiceService;
@@ -40,6 +41,13 @@ class ProcessPaidInvoiceService
                 } elseif ($item->reference_type == Credit::class) {
                     DB::transaction(function () use ($invoice, $item) {
                         $user = $invoice->user()->lockForUpdate()->first();
+                        // Given once per line (applied_at): a refund or a deletion of the payment takes back only
+                        // credit that was given (RecordPaymentService::lockBoughtCredit).
+                        $item = InvoiceItem::query()->whereKey($item->id)->lockForUpdate()->first();
+                        if ($item === null || $item->applied_at !== null) {
+                            return;
+                        }
+                        $item->forceFill(['applied_at' => now()])->save();
                         $credit = $user->credits()->where('currency_code', $invoice->currency_code)->lockForUpdate()->first();
 
                         if ($credit) {

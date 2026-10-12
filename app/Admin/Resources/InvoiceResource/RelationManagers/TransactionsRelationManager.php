@@ -2,9 +2,12 @@
 
 namespace App\Admin\Resources\InvoiceResource\RelationManagers;
 
+use App\Admin\Actions\DeleteInvoiceTransaction;
 use App\Helpers\ExtensionHelper;
+use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
+use App\Services\Invoice\RecordPaymentService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\CreateAction;
@@ -16,9 +19,11 @@ use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
+use Filament\Support\Exceptions\Halt;
 use Filament\Support\RawJs;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 
 class TransactionsRelationManager extends RelationManager
@@ -79,7 +84,33 @@ class TransactionsRelationManager extends RelationManager
             ])
             ->headerActions([
                 CreateAction::make()
-                    ->visible(fn (): bool => $this->canModifyTransactions()),
+                    ->visible(fn (): bool => $this->canModifyTransactions())
+                    // Staff-recorded money follows the same rules as a gateway's (docs/payments.md): what the
+                    // invoice cannot take becomes account credit; a replayed transaction id changes nothing.
+                    ->using(function (array $data): InvoiceTransaction {
+                        // The select is bound to the relationship: its state is gateway.name (the gateway id).
+                        $gatewayId = data_get($data, 'gateway.name') ?? ($data['gateway_id'] ?? null);
+                        $gateway = $gatewayId !== null ? Gateway::query()->find($gatewayId) : null;
+                        /** @var Invoice $invoice */
+                        $invoice = $this->getOwnerRecord();
+                        $transaction = (new RecordPaymentService)->handle(
+                            $invoice, $gateway, $data['amount'] ?? null, $data['fee'] ?? null, $data['transaction_id'] ?? null,
+                        );
+                        if ($transaction === null) {
+                            Notification::make()->danger()->title(__('Payment not recorded'))
+                                ->body(__('The amount must be positive (see the log for details).'))->send();
+
+                            throw new Halt;
+                        }
+                        if (!$transaction->wasRecentlyCreated && !$transaction->wasChanged('status')) {
+                            Notification::make()->warning()->title(__('Payment already recorded'))
+                                ->body(__('This gateway transaction is already recorded (invoice #:invoice): nothing was added.', ['invoice' => $transaction->invoice_id]))->send();
+
+                            throw new Halt;
+                        }
+
+                        return $transaction;
+                    }),
             ])
             ->recordActions([
                 Action::make('refund')
@@ -105,7 +136,7 @@ class TransactionsRelationManager extends RelationManager
                                     if ((float) $value <= 0) {
                                         $fail(__('invoices.refund_amount_positive'));
                                     }
-                                    if ((float) $value > $record->refundable_amount) {
+                                    if (RecordPaymentService::toCents($value) > RecordPaymentService::toCents($record->refundable_amount)) {
                                         $fail(__('invoices.refund_amount_exceeds_refundable', ['max' => $record->formattedRefundableAmount]));
                                     }
                                 },
@@ -139,12 +170,15 @@ class TransactionsRelationManager extends RelationManager
                     )
                     ->modalSubmitAction(fn (Action $action) => $action->label(__('invoices.refund'))),
                 DeleteAction::make()
-                    ->visible(fn (): bool => $this->canModifyTransactions()),
+                    ->visible(fn (): bool => $this->canModifyTransactions())
+                    ->using(fn (InvoiceTransaction $record): bool => DeleteInvoiceTransaction::run($record)),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
                     DeleteBulkAction::make()
-                        ->visible(fn (): bool => $this->canModifyTransactions()),
+                        ->visible(fn (): bool => $this->canModifyTransactions())
+                        // One by one through the service, never a mass query delete (credit, money trail).
+                        ->using(fn (Collection $records) => $records->each(fn (InvoiceTransaction $record) => DeleteInvoiceTransaction::run($record))),
                 ]),
             ]);
     }

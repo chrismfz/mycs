@@ -4,6 +4,7 @@ namespace Paymenter\Extensions\Gateways\PayPal;
 
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Gateway;
+use App\Enums\InvoiceTransactionStatus;
 use App\Events\Service\Updated;
 use App\Events\ServiceCancellation\Created;
 use App\Helpers\ExtensionHelper;
@@ -13,6 +14,7 @@ use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
 use App\Models\Service;
 use App\Models\User;
+use App\Services\Invoice\RecordPaymentService;
 use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -20,6 +22,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\HtmlString;
+use Throwable;
 
 #[ExtensionMeta(
     name: 'PayPal Gateway',
@@ -297,9 +300,66 @@ class PayPal extends Gateway
             abort(400, 'Failed to capture PayPal order');
         }
 
-        ExtensionHelper::addPayment($order->purchase_units[0]->invoice_id, 'PayPal', $response->purchase_units[0]->payments->captures[0]->amount->value, $response->purchase_units[0]->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value, $response->purchase_units[0]->payments->captures[0]->id);
+        ExtensionHelper::addPayment($order->purchase_units[0]->invoice_id, 'PayPal', $response->purchase_units[0]->payments->captures[0]->amount->value, $response->purchase_units[0]->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value, $response->purchase_units[0]->payments->captures[0]->id, currency: $response->purchase_units[0]->payments->captures[0]->amount->currency_code ?? null);
 
         return $response;
+    }
+
+    /**
+     * One subscription sale pays every service of the subscription (docs/payments.md): the oldest open invoice
+     * of each service, one cycle per service. The sale is recorded ONCE, on the first of those invoices; what
+     * that invoice cannot take becomes account credit and pays the others (RecordPaymentService::
+     * allocateFromTransaction), only up to what this sale left: credit the customer already had is never spent.
+     *
+     * Resumable: a retried webhook (the sale already recorded) finishes an interrupted allocation, and a failure
+     * of one step (e.g. a renewal after its commit) does not stop the others; the first failure is rethrown at
+     * the end, so PayPal retries.
+     *
+     * @param  array<string, mixed>  $resource  the PAYMENT.SALE.COMPLETED resource
+     */
+    public function recordSubscriptionSale(array $resource): void
+    {
+        $services = Service::where('subscription_id', $resource['billing_agreement_id'])->orderBy('id')->get();
+        $targets = $services
+            ->map(fn (Service $service) => $service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)
+                ->orderBy('invoices.created_at')->orderBy('invoices.id')->first())
+            ->filter()->unique('id')->values();
+        // No open invoice at all: the sale goes to the first service's latest invoice and becomes credit.
+        $first = $targets->first()
+            ?? $services->map(fn (Service $service) => $service->invoices()->latest('invoices.created_at')->first())->filter()->first();
+        if ($first === null) {
+            return;
+        }
+
+        $failure = null;
+        try {
+            $sale = ExtensionHelper::addPayment($first->id, 'PayPal', $resource['amount']['total'], $resource['transaction_fee']['value'] ?? null, $resource['id'], currency: $resource['amount']['currency'] ?? null);
+        } catch (Throwable $e) {
+            // The sale may be committed and only something after its commit failed (a renewal): allocate anyway.
+            $failure = $e;
+            $sale = InvoiceTransaction::query()->where('transaction_id', (string) $resource['id'])
+                ->where('status', InvoiceTransactionStatus::Succeeded)
+                ->whereHas('gateway', fn ($query) => $query->where('extension', 'PayPal'))
+                ->whereHas('invoice', fn ($query) => $query->where('user_id', $first->user_id))
+                ->first();
+        }
+
+        if ($sale !== null) {
+            foreach ($targets as $invoice) {
+                if ($invoice->id === $sale->invoice_id) {
+                    continue;
+                }
+                try {
+                    (new RecordPaymentService)->allocateFromTransaction($sale, $invoice);
+                } catch (Throwable $e) {
+                    $failure ??= $e;
+                }
+            }
+        }
+
+        if ($failure !== null) {
+            throw $failure;
+        }
     }
 
     public function webhook(Request $request)
@@ -336,11 +396,7 @@ class PayPal extends Gateway
                 ]);
             });
         } elseif ($body['event_type'] === 'PAYMENT.SALE.COMPLETED' && isset($body['resource']['billing_agreement_id'])) {
-            Service::where('subscription_id', $body['resource']['billing_agreement_id'])->each(function (Service $service) use ($body) {
-                // Add payment to the latest invoice
-                $latestInvoice = $service->invoices()->latest()->first();
-                ExtensionHelper::addPayment($latestInvoice->id, 'PayPal', $body['resource']['amount']['total'], $body['resource']['transaction_fee']['value'], $body['resource']['id']);
-            });
+            $this->recordSubscriptionSale($body['resource']);
         } elseif ($body['event_type'] === 'VAULT.PAYMENT-TOKEN.DELETED') {
             // Find the billing agreement with this external reference
             $billingAgreement = BillingAgreement::where('external_reference', $body['resource']['id'])->first();
@@ -355,7 +411,7 @@ class PayPal extends Gateway
                 // Verify that the currency is the same as the invoice
                 $invoice = Invoice::find($order->purchase_units[0]->invoice_id);
                 if ($invoice && $invoice->currency_code === $order->purchase_units[0]->payments->captures[0]->amount->currency_code) {
-                    ExtensionHelper::addPayment($order->purchase_units[0]->invoice_id, 'PayPal', $order->purchase_units[0]->payments->captures[0]->amount->value, $order->purchase_units[0]->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value, $body['resource']['id']);
+                    ExtensionHelper::addPayment($order->purchase_units[0]->invoice_id, 'PayPal', $order->purchase_units[0]->payments->captures[0]->amount->value, $order->purchase_units[0]->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value, $body['resource']['id'], currency: $order->purchase_units[0]->payments->captures[0]->amount->currency_code);
                 }
             }
         }
