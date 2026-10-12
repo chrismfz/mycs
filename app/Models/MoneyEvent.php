@@ -50,7 +50,10 @@ class MoneyEvent extends Model
      */
     public function newEloquentBuilder($query): AppendOnlyBuilder
     {
-        return new AppendOnlyBuilder($query);
+        /** @var AppendOnlyBuilder<MoneyEvent> $builder */
+        $builder = new AppendOnlyBuilder($query);
+
+        return $builder;
     }
 
     protected static function booted(): void

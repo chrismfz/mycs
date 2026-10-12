@@ -19,6 +19,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use LogicException;
+use Paymenter\Extensions\Gateways\AdvFakeGw\AdvFakeGw;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -381,14 +382,14 @@ class MoneyTrailAdversarialTest extends TestCase
         } catch (\Throwable) {
         }
 
-        $called = \Paymenter\Extensions\Gateways\AdvFakeGw\AdvFakeGw::$refunds;
+        $called = AdvFakeGw::$refunds;
         $recorded = MoneyEvent::query()->where('kind', MoneyEventKind::Refund->value)->count();
         $this->assertFalse($called > 0 && $recorded === 0, 'The gateway refunded but nothing was recorded (rolled back after the money left).');
     }
 
     private function fakeRefundGateway(): void
     {
-        if (!class_exists(\Paymenter\Extensions\Gateways\AdvFakeGw\AdvFakeGw::class, false)) {
+        if (!class_exists(AdvFakeGw::class, false)) {
             eval('namespace Paymenter\Extensions\Gateways\AdvFakeGw;
                 class AdvFakeGw {
                     public static int $refunds = 0;
@@ -397,7 +398,7 @@ class MoneyTrailAdversarialTest extends TestCase
                     public function refund($transaction, $amount): bool { self::$refunds++; return true; }
                 }');
         }
-        \Paymenter\Extensions\Gateways\AdvFakeGw\AdvFakeGw::$refunds = 0;
+        AdvFakeGw::$refunds = 0;
         Gateway::query()->firstOrCreate(['extension' => 'AdvFakeGw'], ['name' => 'Fake', 'type' => 'gateway']);
     }
 
