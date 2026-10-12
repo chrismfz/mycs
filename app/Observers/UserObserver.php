@@ -4,7 +4,6 @@ namespace App\Observers;
 
 use App\Events\User as UserEvent;
 use App\Exceptions\DisplayException;
-use App\Models\MoneyEvent;
 use App\Models\User;
 
 class UserObserver
@@ -34,12 +33,12 @@ class UserObserver
     }
 
     /**
-     * A customer with money movements is never deleted (docs/money-trail.md §8): the cascade would take their
-     * invoices, transactions and credit. The journal's foreign key refuses it too; this gives the reason.
+     * A customer with money history is never deleted (docs/money-trail.md §8): their invoices would lose their
+     * customer and their credit would go by cascade. The journal's foreign key refuses it too; this gives the reason.
      */
     public function deleting(User $user): void
     {
-        if (MoneyEvent::query()->where('user_id', $user->id)->exists()) {
+        if ($user->hasMoneyHistory()) {
             throw new DisplayException(__('A customer with payments or account credit history cannot be deleted.'));
         }
     }

@@ -87,7 +87,10 @@ class UserController extends ApiController
      */
     public function destroy(DeleteUserRequest $request, User $user)
     {
-        // Delete the user
+        // A customer with money history is never deleted (UserObserver::deleting, docs/money-trail.md §8).
+        if ($user->hasMoneyHistory()) {
+            abort(422, 'A customer with payments or account credit history cannot be deleted.');
+        }
         $user->delete();
 
         return $this->returnNoContent();

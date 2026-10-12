@@ -14,8 +14,7 @@ use LogicException;
 
 /**
  * Writes the money journal (docs/money-trail.md §1, MT-1a). Called only by the code that moves the money, inside
- * its database transaction and under its locks: if the movement rolls back, so does its event. (A staff edit that
- * marks an invoice paid runs without an outer transaction; its event is then written right after the change.)
+ * its database transaction and under its locks: if the movement rolls back, so does its event.
  *
  * Meaning of the kinds, so the journal adds up:
  * - payment: money onto an invoice from a source (a gateway key, `manual` for staff/API, `credit`);
@@ -25,7 +24,8 @@ use LogicException;
  * So an invoice holds Σ payment − Σ credit_in (overpayment) − Σ refund of its transactions, and the credit balance
  * is Σ credit_in − Σ credit_out (reversals counted the other way).
  *
- * No personal data is written: ids, amounts, the provider's ids, and who acted (by id) only (§9).
+ * No personal data is written: ids, amounts, the provider's ids, and who acted (by id) only (§9). The external
+ * reference is kept only for gateway sources: an id staff type by hand can hold a payer's name.
  */
 class MoneyTrail
 {
@@ -47,6 +47,8 @@ class MoneyTrail
 
     public const CAUSE_TRANSACTION_DELETED = 'transaction_deleted';
 
+    public const CAUSE_OPENING_BALANCE = 'opening_balance';
+
     /** The source of a payment: the gateway's key, else credit or a manual entry. */
     public static function sourceFor(?Gateway $gateway, bool $fromCredit = false): string
     {
@@ -58,7 +60,7 @@ class MoneyTrail
     }
 
     /** Money onto the invoice: the whole transaction amount (what it could not take is a separate credit_in). */
-    public function payment(Invoice $invoice, InvoiceTransaction $transaction, string $source): MoneyEvent
+    public function payment(Invoice $invoice, InvoiceTransaction $transaction, string $source, ?string $group = null): MoneyEvent
     {
         return $this->write([
             'kind' => MoneyEventKind::Payment,
@@ -68,7 +70,8 @@ class MoneyTrail
             'invoice_id' => $invoice->id,
             'invoice_transaction_id' => $transaction->id,
             'source' => $source,
-            'external_reference' => $transaction->transaction_id,
+            'external_reference' => self::externalReference($transaction),
+            'group_reference' => $group,
         ]);
     }
 
@@ -79,9 +82,9 @@ class MoneyTrail
     }
 
     /** Credit went down by $cents; $credit is the saved row (its balance is the balance after). */
-    public function creditOut(Credit $credit, int $cents, string $cause, string $source, ?Invoice $invoice = null, ?InvoiceTransaction $transaction = null): MoneyEvent
+    public function creditOut(Credit $credit, int $cents, string $cause, string $source, ?Invoice $invoice = null, ?InvoiceTransaction $transaction = null, ?string $group = null): MoneyEvent
     {
-        return $this->creditMove(MoneyEventKind::CreditOut, $credit, $cents, $cause, $source, $invoice, $transaction);
+        return $this->creditMove(MoneyEventKind::CreditOut, $credit, $cents, $cause, $source, $invoice, $transaction, $group);
     }
 
     /** Money back to the customer from $transaction (through its gateway, or recorded locally). */
@@ -95,7 +98,7 @@ class MoneyTrail
             'invoice_id' => $invoice->id,
             'invoice_transaction_id' => $transaction->id,
             'source' => $source,
-            'external_reference' => $transaction->transaction_id,
+            'external_reference' => self::externalReference($transaction),
         ]);
     }
 
@@ -116,11 +119,12 @@ class MoneyTrail
             'source' => $event->source,
             'cause' => $cause,
             'external_reference' => $event->external_reference,
+            'group_reference' => $event->group_reference,
             'reverses_id' => $event->id,
         ]);
     }
 
-    private function creditMove(MoneyEventKind $kind, Credit $credit, int $cents, string $cause, string $source, ?Invoice $invoice, ?InvoiceTransaction $transaction): MoneyEvent
+    private function creditMove(MoneyEventKind $kind, Credit $credit, int $cents, string $cause, string $source, ?Invoice $invoice, ?InvoiceTransaction $transaction, ?string $group = null): MoneyEvent
     {
         return $this->write([
             'kind' => $kind,
@@ -132,8 +136,15 @@ class MoneyTrail
             'credit_balance_after' => $credit->amount,
             'source' => $source,
             'cause' => $cause,
-            'external_reference' => $transaction?->transaction_id,
+            'external_reference' => $transaction === null ? null : self::externalReference($transaction),
+            'group_reference' => $group,
         ]);
+    }
+
+    /** The provider's id of a gateway payment; never what staff typed for a manual one (it can name the payer). */
+    private static function externalReference(InvoiceTransaction $transaction): ?string
+    {
+        return $transaction->gateway_id === null ? null : $transaction->transaction_id;
     }
 
     /** @param  array<string, mixed>  $values */

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\InvoiceTransactionStatus;
 use App\Models\Traits\HasProperties;
 use App\Observers\UserObserver;
 use Dedoc\Scramble\Attributes\SchemaName;
@@ -19,6 +20,7 @@ use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\DB;
 use Laravel\Passport\Contracts\OAuthenticatable;
 use Laravel\Passport\HasApiTokens;
 use OwenIt\Auditing\Contracts\Auditable;
@@ -208,6 +210,34 @@ class User extends Authenticatable implements Auditable, FilamentUser, HasAvatar
     public function tickets(): HasMany
     {
         return $this->hasMany(Ticket::class);
+    }
+
+    /**
+     * Money history (docs/money-trail.md §8): journal events, a payment (a processing one too: it lands later), or
+     * account credit ≠ 0 (set before the journal, or by a path MT-1b moves to the ledger). Such a customer is never
+     * deleted: their invoices would lose their customer and the credit would go by cascade.
+     */
+    public function hasMoneyHistory(): bool
+    {
+        return MoneyEvent::query()->where('user_id', $this->id)->exists()
+            || InvoiceTransaction::query()
+                ->whereIn('status', [InvoiceTransactionStatus::Succeeded->value, InvoiceTransactionStatus::Processing->value])
+                ->whereHas('invoice', fn ($query) => $query->where('user_id', $this->id))->exists()
+            || Credit::query()->where('user_id', $this->id)->where('amount', '!=', 0)->exists();
+    }
+
+    /** The customer lock of the payment paths is held through the guard (UserObserver::deleting) and the DELETE. */
+    public function delete(): ?bool
+    {
+        if (!$this->exists) {
+            return parent::delete();
+        }
+
+        return DB::transaction(function () {
+            static::query()->whereKey($this->getKey())->lockForUpdate()->first();
+
+            return parent::delete();
+        });
     }
 
     /**

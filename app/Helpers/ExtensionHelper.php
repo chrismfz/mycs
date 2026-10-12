@@ -662,12 +662,13 @@ class ExtensionHelper
             $credit->save();
             $trail->creditOut($credit, $cents, MoneyTrail::CAUSE_PURCHASE_REFUNDED, $source, $transaction->invoice, $transaction);
         }
-        $transaction->increment('refunded_amount', $amount);
+        // One rounded amount for the transaction, the note and the journal.
+        $transaction->increment('refunded_amount', $cents / 100);
         $trail->refund($transaction, $transaction->invoice, $cents, $source);
 
         $transaction->invoice->adjustmentNotes()->create([
             'type' => AdjustmentNoteType::Credit->value,
-            'amount' => -1 * abs($amount),
+            'amount' => -1 * $cents / 100,
             'description' => 'Refund for transaction #' . $transaction->id . ' (' . ($transaction->transaction_id ?? 'manual') . ')',
         ]);
 

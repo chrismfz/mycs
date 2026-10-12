@@ -95,6 +95,13 @@ class RecordPaymentService
             }
 
             $excess = $status === InvoiceTransactionStatus::Succeeded ? $this->excessCents($target, $cents) : 0;
+            // An invoice left without a customer (deleted before the journal): the money is still recorded, but
+            // there is no account to credit what it cannot take. Staff are told.
+            if ($excess > 0 && $target->user_id === null) {
+                $notices[] = sprintf('Invoice #%d has no customer: %s %s of a payment could not become account credit. Handle it by hand.',
+                    $target->id, number_format($excess / 100, 2, '.', ''), $target->currency_code);
+                $excess = 0;
+            }
             $values = array_filter([
                 'gateway_id' => $gateway?->id,
                 'amount' => $cents / 100,
@@ -113,7 +120,8 @@ class RecordPaymentService
             }
             // Only money that arrived is journaled: a processing/failed payment is, once (and if) it succeeds.
             if ($status === InvoiceTransactionStatus::Succeeded) {
-                $source = MoneyTrail::sourceFor($gateway, $isCreditTransaction);
+                // Staff completing a gateway's processing payment: the money still came through that gateway.
+                $source = MoneyTrail::sourceFor($gateway ?? $transaction->gateway, $isCreditTransaction || (bool) $transaction->is_credit_transaction);
                 (new MoneyTrail)->payment($target, $transaction, $source);
                 $credit = $this->addCredit($target, $excess, $notices);
                 if ($credit !== null) {
@@ -225,6 +233,9 @@ class RecordPaymentService
             }
 
             // Its journal entries not undone yet (none for a payment that never succeeded): each gets a reversal.
+            // Locked: read current, not the transaction's snapshot. Its gap locks can make two concurrent deletions
+            // of neighbouring transactions deadlock (InnoDB rolls one back; staff retry); events of a transaction
+            // are only written under that transaction's row lock, which is held here.
             $events = MoneyEvent::query()->where('invoice_transaction_id', $transaction->id)
                 ->where('kind', '!=', MoneyEventKind::Reversal->value)->whereDoesntHave('reversal')
                 ->orderBy('id')->lockForUpdate()->get();
@@ -343,9 +354,11 @@ class RecordPaymentService
             'source_transaction_id' => $sourceId,
         ], fn ($value) => $value !== null));
 
+        // Credit one sale left, paying other invoices: its events are grouped under that sale's transaction.
+        $group = $sourceId === null ? null : 'transaction:' . $sourceId;
         $trail = new MoneyTrail;
-        $trail->creditOut($credit, $cents, MoneyTrail::CAUSE_CREDIT_PAYMENT, MoneyTrail::SOURCE_CREDIT, $invoice, $transaction);
-        $trail->payment($invoice, $transaction, MoneyTrail::SOURCE_CREDIT);
+        $trail->creditOut($credit, $cents, MoneyTrail::CAUSE_CREDIT_PAYMENT, MoneyTrail::SOURCE_CREDIT, $invoice, $transaction, $group);
+        $trail->payment($invoice, $transaction, MoneyTrail::SOURCE_CREDIT, $group);
 
         return $transaction;
     }
