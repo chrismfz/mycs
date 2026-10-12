@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationManager;
 use App\Enums\AdjustmentNoteStatus;
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\ApiKey;
 use App\Models\Credit;
@@ -275,7 +276,7 @@ class PaymentGuardsThirdReviewTest extends TestCase
         $invoice->items()->create(['reference_id' => null, 'reference_type' => Credit::class, 'description' => 'Credit', 'quantity' => 1, 'price' => 5.00]);
         $paid = ExtensionHelper::addPayment($invoice->id, 'Stripe', 15.00, null, 'pi_mixed', currency: 'usd');
 
-        $this->expectException(\InvalidArgumentException::class);
+        $this->expectException(DisplayException::class); // a paid mixed credit purchase: refused, with a translated message
         ExtensionHelper::refundLocally($paid->fresh(), 5.00);
     }
 
