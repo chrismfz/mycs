@@ -4,6 +4,7 @@ namespace App\Services\Invoice;
 
 use App\Models\Credit;
 use App\Models\Invoice;
+use App\Services\Money\MoneyTrail;
 use Brick\Math\BigDecimal;
 
 class GrantBoughtCreditService
@@ -28,11 +29,15 @@ class GrantBoughtCreditService
                 $credit->save();
             } else {
                 // A reassigned invoice can still have the previous owner cached in its user relation.
-                Credit::query()->create([
+                $credit = Credit::query()->create([
                     'user_id' => $invoice->user_id,
                     'currency_code' => $invoice->currency_code,
                     'amount' => $item->price,
                 ]);
+            }
+            $cents = RecordPaymentService::toCents($item->price);
+            if ($cents > 0) {
+                (new MoneyTrail)->creditIn($credit, $cents, MoneyTrail::CAUSE_PURCHASE, MoneyTrail::SOURCE_SYSTEM, $invoice);
             }
             $item->forceFill(['applied_at' => now()])->save();
         }
