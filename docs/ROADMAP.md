@@ -87,6 +87,14 @@
 - [ ] **GDPR και πελάτες χρόνια μετά** (μετά το cut-over, `docs/money-trail.md` §9): ανωνυμοποίηση αντί για διαγραφή
       (κρατά ποσά και κινήσεις), export των δεδομένων του πελάτη (admin και client area), πολιτική διατήρησης με
       αυτόματη απενεργοποίηση και ανωνυμοποίηση μετά τη νόμιμη περίοδο (να επιβεβαιωθεί με τον λογιστή).
+- [ ] **Λογαριασμοί: staff, multi-user, προφίλ πελάτη** (`docs/accounts.md`, σχέδιο εκκρεμεί). **Αμέσως μετά τα
+      MT-x και πριν τα migrations/cut-over της nixpal** (απόφαση 2026-10-12), όσο δεν υπάρχουν ζωντανά δεδομένα:
+      (α) **staff χωριστά από πελάτες** (πίνακας/guard για το admin, όπως WHMCS/Blesta/Ekdosi· σήμερα admin = user με
+      `role_id`)· (β) **ένας χρήστης, πολλοί λογαριασμοί πελάτη** (Users του WHMCS 8, μεταφέρθηκε εδώ από τη Φάση 3)·
+      (γ) **προφίλ πελάτη** «σαν WHMCS/Ekdosi»: ιδιώτης/επιχείρηση, επωνυμία, ΑΦΜ/VAT, ΔΟΥ, δραστηριότητα, «Θέλω
+      τιμολόγιο» (για αργότερα, myip), στοιχεία χρέωσης, σημειώσεις staff. **Parity με το WHMCS** (`tblclients`,
+      `tblusers`, `tblusers_clients`, `tblcontacts`, custom fields): κάθε πεδίο έχει σπίτι εδώ, ώστε το migration να
+      είναι αντιστοίχιση 1:1. Ο importer και το bridge προς Ekdosi χτίζονται πάνω σε αυτό το σχήμα.
 - [ ] **Mass Pay** και **merge τιμολογίων** (allocator του Ekdosi, #1137).
 - [ ] **Αλλαγή κύκλου χρέωσης** και πακέτου μαζί, με proration, από πελάτη και admin· ακύρωση εκκρεμών upgrades (#1266).
       Γνωστά από το Paymenter (`docs/billing-cursor.md` PR 4): η αναλογία μετράει απλήρωτες μέρες μετά τη λήξη· όριο 30
@@ -152,6 +160,13 @@
       promotions/ομάδες, κάρτες Stripe, vault tokens, άδειες, ρυθμίσεις από το `tblconfiguration`· re-runnable, id map.
 - [ ] `mycs:parity` με μηδενικό diff.
 - [ ] Export εσόδων/εξόδων ανά έτος (CSV/XLSX) για τον λογιστή.
+- [ ] **Υπενθύμιση πριν το cut-over: πέρασμα UI/UX «σαν WHMCS»** (admin και client area, για nixpal και myip). Το
+      Paymenter έχει έτοιμη λειτουργικότητα αλλά γυμνό UI. Πρώτα λίστα από ό,τι χρησιμοποιούμε καθημερινά στο WHMCS
+      (screenshots, `whmcs-usage.md`), μετά αποφασίζουμε τι μπαίνει πριν και τι μετά. Ενδεικτικά: σελίδα πελάτη με
+      tabs (Summary, Profile, Users/Contacts, Products, Domains, Invoices, Transactions, Credit, Tickets, Notes, Log)·
+      πυκνές λίστες με φίλτρα, αναζήτηση παντού (πελάτης, domain, τιμολόγιο, IP)· όροι και διάταξη του WHMCS στις
+      φόρμες· γρήγορες ενέργειες (Mark Paid, Add Payment, Login as Client, Send Email)· dashboard με εκκρεμότητες·
+      client area με καθαρή αρχική (υπηρεσίες, απλήρωτα, tickets) και branding ανά εταιρεία. Ελληνικά/αγγλικά.
 - [ ] Shadow-run του licensing → cut-over της nixpal, **μετά τα domains της Φάσης 2** (Openprovider, CNIC).
 
 ## Φάση 2: Domains (2–4 εβδομάδες, μετά το spike)
@@ -167,7 +182,8 @@
 - [ ] On-demand renewals (πρόωρη ανανέωση από πελάτη, #1167).
 
 ## Φάση 3: Τα απαραίτητα του myip.gr (4–6 εβδομάδες)
-- [ ] **Ένας χρήστης, πολλοί λογαριασμοί πελάτη** (Users του WHMCS 8): στη myip 101 προσκεκλημένοι χρήστες, 33 χρήστες
+- [ ] ~~**Ένας χρήστης, πολλοί λογαριασμοί πελάτη**~~ → μεταφέρθηκε στη Φάση 1, «Λογαριασμοί» (2026-10-12).
+      (Users του WHMCS 8): στη myip 101 προσκεκλημένοι χρήστες, 33 χρήστες
       με πρόσβαση σε >1 λογαριασμό, 93 λογαριασμοί με >1 χρήστη (+432 παλιά contacts)· στη nixpal 14 / 2.
       Το Paymenter δεν το έχει (χρήστης = πελάτης). Μοτίβο του Ekdosi (χρήστης ↔ εταιρείες με ρόλο/δικαιώματα),
       επιλογέας λογαριασμού στο client area, importer από `tblusers_clients` (2026-10-11).
@@ -181,7 +197,8 @@
 - [ ] **Tickets** (port από Ekdosi) με τις ρυθμίσεις του `settings-map.md` → Support: guest tickets, piping ανά τμήμα,
       CC, αξιολογήσεις, canned replies, merge, σημειώσεις, spam, auto-close, όριο email, μορφή αριθμού.
 - [ ] Knowledgebase (97 άρθρα) και announcements.
-- [ ] Custom fields πελάτη (ΑΦΜ, ΔΟΥ, «Θα ήθελα τιμολόγιο», σημειώσεις, σήμανση) και επαφές/multi-user.
+- [ ] Custom fields πελάτη πέρα από το βασικό προφίλ (το ΑΦΜ, η ΔΟΥ, το «Θα ήθελα τιμολόγιο» και το multi-user πάνε στη
+      Φάση 1, «Λογαριασμοί»)· επαφές.
 - [ ] Modules: TheSSLStore, Proxmox, Centova, mailcow, ngm, Hetzner· DirectAdmin (υπάρχει, + #1186).
 - [ ] **Server groups και κατανομή** (όπως το WHMCS): το Paymenter έχει **ένα** `server_id` ανά προϊόν και καμία
       στήλη server στην υπηρεσία (το `ExtensionHelper` πάει πάντα στο `$service->product->server`). Χρειάζεται:
