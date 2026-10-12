@@ -27,7 +27,9 @@ class GrantBoughtCreditService
                 $credit->setAttribute('amount', (string) BigDecimal::of((string) $credit->getRawOriginal('amount'))->plus($item->price));
                 $credit->save();
             } else {
-                $invoice->user->credits()->create([
+                // A reassigned invoice can still have the previous owner cached in its user relation.
+                Credit::query()->create([
+                    'user_id' => $invoice->user_id,
                     'currency_code' => $invoice->currency_code,
                     'amount' => $item->price,
                 ]);
