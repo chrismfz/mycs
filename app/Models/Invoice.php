@@ -62,17 +62,18 @@ class Invoice extends Model implements Auditable
     public bool $send_create_email = true;
 
     /**
-     * Reopening a cancelled invoice (cancelled -> pending/draft) is one atomic step under the payments' locks
-     * (customer, then invoice): the status change and the void of the cancellation credit note (InvoiceObserver)
-     * commit together. Otherwise a payment arriving in between sees a pending invoice whose total is still 0:
-     * it pays and renews, and all the money becomes credit (docs/payments.md).
+     * Status and its local money effects commit together under customer -> invoice locks. External
+     * provisioning still runs after commit. This also makes a cancelled invoice's reopening atomic.
      */
     public function save(array $options = []): bool
     {
-        if ($this->exists && $this->isDirty('status') && $this->getOriginal('status') === self::STATUS_CANCELLED
-            && in_array($this->status, [self::STATUS_PENDING, self::STATUS_DRAFT], true)) {
+        if ($this->exists && $this->isDirty('status') && ($this->status === self::STATUS_PAID
+            || ($this->getOriginal('status') === self::STATUS_CANCELLED
+                && in_array($this->status, [self::STATUS_PENDING, self::STATUS_DRAFT], true)))) {
             return DB::transaction(function () use ($options) {
-                (new RecordPaymentService)->lockInvoice($this->getKey());
+                $locked = (new RecordPaymentService)->lockInvoice($this->getKey());
+                // The model may have been loaded before another request changed the status.
+                $this->original['status'] = $locked->getRawOriginal('status');
 
                 return parent::save($options);
             });
@@ -81,12 +82,26 @@ class Invoice extends Model implements Auditable
         return parent::save($options);
     }
 
+    /** Hold the payment locks through both the observer's guard and the actual DELETE. */
+    public function delete(): ?bool
+    {
+        if (!$this->exists) {
+            return parent::delete();
+        }
+
+        return DB::transaction(function () {
+            (new RecordPaymentService)->lockInvoice($this->getKey());
+
+            return parent::delete();
+        });
+    }
+
     /** Money arrived or on its way (a processing payment, e.g. a SEPA debit, still lands on this invoice). */
-    public function hasPayments(): bool
+    public function hasPayments(bool $lock = false): bool
     {
         return $this->transactions()->whereIn('status', [
             InvoiceTransactionStatus::Succeeded->value, InvoiceTransactionStatus::Processing->value,
-        ])->exists();
+        ])->when($lock, fn ($query) => $query->lockForUpdate())->first(['id']) !== null;
     }
 
     public function createCancellationCreditNote($description = null): void

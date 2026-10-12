@@ -254,7 +254,7 @@ class RecordPaymentService
     }
 
     /**
-     * Whether the invoice gave its customer account credit: a credit line ProcessPaidInvoiceService applied
+     * Whether the invoice gave its customer account credit: a credit line GrantBoughtCreditService applied
      * (applied_at, given only once the invoice is paid). Taking its money back (refund, deletion) takes that
      * credit back; an invoice that gave nothing takes nothing. Call under the payments' locks (customer, invoice):
      * the lines are read locked, before the credit row.
