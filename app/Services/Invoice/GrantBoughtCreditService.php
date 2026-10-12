@@ -7,7 +7,6 @@ use App\Models\Invoice;
 use App\Helpers\NotificationHelper;
 use App\Services\Money\MoneyTrail;
 use Brick\Math\BigDecimal;
-use Brick\Math\RoundingMode;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -51,7 +50,7 @@ class GrantBoughtCreditService
                 ]);
             }
             // A line staff edited to a negative price takes credit away: journaled as such (toCents is positive-only).
-            $cents = (int) BigDecimal::of((string) $item->price)->multipliedBy(100)->toScale(0, RoundingMode::HALF_UP)->toInt();
+            $cents = (int) round((float) $item->price * 100);
             if ($cents > 0) {
                 (new MoneyTrail)->creditIn($credit, $cents, MoneyTrail::CAUSE_PURCHASE, MoneyTrail::SOURCE_SYSTEM, $invoice);
             } elseif ($cents < 0) {
