@@ -3,19 +3,29 @@
 namespace App\Admin\Resources\UserResource\Pages;
 
 use App\Admin\Resources\UserResource;
+use App\Exceptions\DisplayException;
+use App\Models\Credit;
 use App\Models\Currency;
-use Filament\Actions\CreateAction;
-use Filament\Actions\DeleteAction;
+use App\Services\Invoice\RecordPaymentService;
+use App\Services\Money\CreditLedger;
+use App\Services\Money\MoneyTrail;
+use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ManageRelatedRecords;
 use Filament\Schemas\Components\Utilities\Get;
-use Filament\Schemas\Schema;
+use Filament\Support\Exceptions\Halt;
 use Filament\Support\RawJs;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Columns\TextInputColumn;
 use Filament\Tables\Table;
 
+/**
+ * Account credit of a customer (docs/money-trail.md §2, decision 2): staff add or remove credit with a reason, like the
+ * WHMCS «Credit Log». The balance is never edited or deleted directly: every change goes through the ledger and is
+ * journaled.
+ */
 class ShowCredits extends ManageRelatedRecords
 {
     protected static string $resource = UserResource::class;
@@ -29,58 +39,72 @@ class ShowCredits extends ManageRelatedRecords
         return 'Credits';
     }
 
-    public function form(Schema $schema): Schema
-    {
-        return $schema
-            ->components([
-                Select::make('currency_code')
-                    ->options(function () {
-                        $existing_currencies = $this->getOwnerRecord()->credits->pluck('currency_code');
-
-                        return Currency::whereNotIn('code', $existing_currencies)->pluck('code', 'code');
-                    })
-                    ->live()
-                    ->required(),
-                TextInput::make('amount')
-                    ->required()
-                    ->label('Amount')
-                    // Suffix based on chosen currency
-                    ->prefix(fn (Get $get) => Currency::where('code', $get('currency_code'))->first()?->prefix)
-                    ->suffix(fn (Get $get) => Currency::where('code', $get('currency_code'))->first()?->suffix)
-                    ->live(onBlur: true)
-                    ->mask(RawJs::make(
-                        <<<'JS'
-                        $money($input, '.', '', 2)
-                        JS
-                    ))
-                    ->numeric()
-                    ->minValue(0),
-
-            ]);
-    }
-
     public function table(Table $table): Table
     {
         return $table
             ->recordTitleAttribute('currency.code')
             ->columns([
-                TextColumn::make('currency.code'),
-                TextColumn::make('formattedAmount')->label('Formatted Amount'),
-                TextInputColumn::make('amount')
-                    ->label('Amount')
-                    ->rules(['numeric', 'min:0'])
-                    ->disabled(fn () => !auth()->user()->hasPermission('admin.credits.update')),
+                TextColumn::make('currency.code')->label(__('Currency')),
+                TextColumn::make('formattedAmount')->label(__('Balance')),
             ])
             ->filters([])
             ->headerActions([
-                CreateAction::make()->disabled(function () {
-                    $existing_currencies = $this->getOwnerRecord()->credits->pluck('currency_code');
-
-                    return count(Currency::whereNotIn('code', $existing_currencies)->pluck('code', 'code')) <= 0;
-                }),
+                $this->adjustAction('addCredit', __('Add credit'), add: true),
+                $this->adjustAction('removeCredit', __('Remove credit'), add: false),
             ])
-            ->recordActions([
-                DeleteAction::make(),
-            ]);
+            ->recordActions([]);
+    }
+
+    private function adjustAction(string $name, string $label, bool $add): Action
+    {
+        return Action::make($name)
+            ->label($label)
+            ->color($add ? 'success' : 'danger')
+            ->visible(fn (): bool => (bool) auth()->user()?->hasPermission('admin.credits.update'))
+            ->schema([
+                Select::make('currency_code')
+                    ->label(__('Currency'))
+                    ->options(fn () => Currency::query()->pluck('code', 'code'))
+                    ->default(fn () => Credit::query()->where('user_id', $this->getOwnerRecord()->getKey())->value('currency_code') ?? config('settings.default_currency'))
+                    ->live()
+                    ->required(),
+                TextInput::make('amount')
+                    ->label(__('Amount'))
+                    ->required()
+                    ->prefix(fn (Get $get) => Currency::where('code', $get('currency_code'))->first()?->prefix)
+                    ->suffix(fn (Get $get) => Currency::where('code', $get('currency_code'))->first()?->suffix)
+                    ->mask(RawJs::make(
+                        <<<'JS'
+                        $money($input, '.', '', 2)
+                        JS
+                    ))
+                    ->rules([fn (): \Closure => function (string $attribute, $value, \Closure $fail) {
+                        if (is_numeric($value) && (float) $value * 100 > CreditLedger::MAX_CENTS) {
+                            $fail(__('The amount cannot be more than :max.', ['max' => number_format(CreditLedger::MAX_CENTS / 100, 2, '.', '')]));
+                        } elseif (RecordPaymentService::toCents($value) <= 0) {
+                            $fail(__('The amount must be positive.'));
+                        }
+                    }]),
+                Textarea::make('reason')
+                    ->label(__('Reason'))
+                    ->helperText(__('Kept with the credit history, for staff only.'))
+                    ->required()
+                    ->maxLength(1000),
+            ])
+            ->action(function (array $data) use ($add, $label): void {
+                $ledger = new CreditLedger;
+                $userId = (int) $this->getOwnerRecord()->getKey();
+                $cents = RecordPaymentService::toCents($data['amount']);
+                try {
+                    $add
+                        ? $ledger->add($userId, $data['currency_code'], $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: $data['reason'])
+                        : $ledger->remove($userId, $data['currency_code'], $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: $data['reason']);
+                } catch (DisplayException $e) {
+                    Notification::make()->danger()->title(__('Credit not changed'))->body($e->getMessage())->send();
+
+                    throw new Halt;
+                }
+                Notification::make()->success()->title($label)->send();
+            });
     }
 }

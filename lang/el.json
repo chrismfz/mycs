@@ -69,5 +69,17 @@
     "A customer with payments or account credit history cannot be deleted.": "Πελάτης με πληρωμές ή ιστορικό πίστωσης δεν μπορεί να διαγραφεί.",
     "This invoice has no customer, so the account credit this payment moved cannot be taken back: handle it by hand.": "Αυτό το τιμολόγιο δεν έχει πελάτη, οπότε η πίστωση που κίνησε αυτή η πληρωμή δεν μπορεί να αφαιρεθεί: χειριστείτε το με το χέρι.",
     "An invoice with payments keeps its customer and currency: delete its payments first (a refunded payment keeps the invoice where it is).": "Τιμολόγιο με πληρωμές κρατά τον πελάτη και το νόμισμά του: διαγράψτε πρώτα τις πληρωμές του (μια πληρωμή με επιστροφή κρατά το τιμολόγιο εκεί που είναι).",
-    "Invoice not saved": "Το τιμολόγιο δεν αποθηκεύτηκε"
+    "Invoice not saved": "Το τιμολόγιο δεν αποθηκεύτηκε",
+    "Not enough account credit: the balance is :balance.": "Η πίστωση δεν φτάνει: το υπόλοιπο είναι :balance.",
+    "Currency": "Νόμισμα",
+    "Balance": "Υπόλοιπο",
+    "Add credit": "Πρόσθεση πίστωσης",
+    "Remove credit": "Αφαίρεση πίστωσης",
+    "Amount": "Ποσό",
+    "The amount must be positive.": "Το ποσό πρέπει να είναι θετικό.",
+    "Reason": "Αιτία",
+    "Kept with the credit history, for staff only.": "Μένει στο ιστορικό πίστωσης, μόνο για το staff.",
+    "Credit not changed": "Η πίστωση δεν άλλαξε",
+    "Account credit cannot go past :max.": "Η πίστωση δεν μπορεί να ξεπεράσει τα :max.",
+    "The amount cannot be more than :max.": "Το ποσό δεν μπορεί να ξεπερνά τα :max."
 }

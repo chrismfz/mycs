@@ -5,8 +5,8 @@ namespace App\Services\Invoice;
 use App\Helpers\NotificationHelper;
 use App\Models\Credit;
 use App\Models\Invoice;
+use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
-use Brick\Math\BigDecimal;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -36,25 +36,15 @@ class GrantBoughtCreditService
                 continue;
             }
 
-            $credit = Credit::query()->where('user_id', $invoice->user_id)
-                ->where('currency_code', $invoice->currency_code)->lockForUpdate()->first();
-            if ($credit !== null) {
-                $credit->setAttribute('amount', (string) BigDecimal::of((string) $credit->getRawOriginal('amount'))->plus($item->price));
-                $credit->save();
-            } else {
-                // A reassigned invoice can still have the previous owner cached in its user relation.
-                $credit = Credit::query()->create([
-                    'user_id' => $invoice->user_id,
-                    'currency_code' => $invoice->currency_code,
-                    'amount' => $item->price,
-                ]);
-            }
-            // A line staff edited to a negative price takes credit away: journaled as such (toCents is positive-only).
+            // By the current user_id: a reassigned invoice can still have the previous owner cached in its relation.
+            // A line staff edited to a negative price takes credit away (it may leave the balance negative).
             $cents = (int) round((float) $item->price * 100);
+            $ledger = new CreditLedger;
             if ($cents > 0) {
-                (new MoneyTrail)->creditIn($credit, $cents, MoneyTrail::CAUSE_PURCHASE, MoneyTrail::SOURCE_SYSTEM, $invoice);
+                $ledger->add($invoice->user_id, $invoice->currency_code, $cents, MoneyTrail::CAUSE_PURCHASE, MoneyTrail::SOURCE_SYSTEM, $invoice);
             } elseif ($cents < 0) {
-                (new MoneyTrail)->creditOut($credit, -$cents, MoneyTrail::CAUSE_PURCHASE, MoneyTrail::SOURCE_SYSTEM, $invoice);
+                $ledger->remove($invoice->user_id, $invoice->currency_code, -$cents, MoneyTrail::CAUSE_PURCHASE,
+                    MoneyTrail::SOURCE_SYSTEM, $invoice, mayGoNegative: true);
             }
             $item->forceFill(['applied_at' => now()])->save();
         }

@@ -14,6 +14,7 @@ use App\Models\InvoiceTransaction;
 use App\Models\MoneyEvent;
 use App\Models\Service;
 use App\Models\User;
+use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -126,10 +127,7 @@ class RecordPaymentService
                 // The provider's id only when the gateway recorded it; what staff type can name the payer (§9).
                 $reference = $enteredByStaff || $transaction->gateway_id === null ? null : $transaction->transaction_id;
                 (new MoneyTrail)->payment($target, $transaction, $source, reference: $reference);
-                $credit = $this->addCredit($target, $excess, $notices);
-                if ($credit !== null) {
-                    (new MoneyTrail)->creditIn($credit, $excess, MoneyTrail::CAUSE_OVERPAYMENT, $source, $target, $transaction);
-                }
+                $this->addCredit($target, $transaction, $excess, $source, $notices);
             }
 
             return $transaction;
@@ -157,14 +155,14 @@ class RecordPaymentService
                 return null;
             }
             $credit = $this->lockCredit($invoice);
-            $available = $credit === null ? 0 : self::toCents($credit->amount);
+            $available = $credit === null ? 0 : CreditLedger::cents($credit);
             $remaining = max(0, self::toCents($invoice->withLockedBalance()->remaining));
             $cents = min($available, $remaining);
             if ($credit === null || $cents <= 0 || ($onlyIfCovers && $available < $remaining)) {
                 return null;
             }
 
-            return $this->spendCredit($invoice, $credit, $cents);
+            return $this->spendCredit($invoice, $cents);
         });
     }
 
@@ -199,14 +197,14 @@ class RecordPaymentService
 
             $budget = self::toCents($source->credited_amount) - $allocations->sum(fn (InvoiceTransaction $paid) => self::toCents($paid->amount));
             $credit = $this->lockCredit($invoice);
-            $available = $credit === null ? 0 : self::toCents($credit->amount);
+            $available = $credit === null ? 0 : CreditLedger::cents($credit);
             $remaining = max(0, self::toCents($invoice->withLockedBalance()->remaining));
             $cents = min($budget, $available, $remaining);
             if ($credit === null || $cents <= 0) {
                 return null;
             }
 
-            return $this->spendCredit($invoice, $credit, $cents, $source->id);
+            return $this->spendCredit($invoice, $cents, $source->id);
         });
     }
 
@@ -263,7 +261,7 @@ class RecordPaymentService
                 }
                 $credit = $this->lockCredit($invoice)
                     ?? $invoice->user->credits()->create(['currency_code' => $invoice->currency_code, 'amount' => 0]);
-                $balance = self::toCents($credit->amount);
+                $balance = CreditLedger::cents($credit);
                 if ($balance + $change < 0) {
                     throw new DisplayException(__('Part of this payment became account credit and the customer has already used it: it cannot be deleted.'));
                 }
@@ -357,11 +355,9 @@ class RecordPaymentService
             ->lockForUpdate()->first();
     }
 
-    private function spendCredit(Invoice $invoice, Credit $credit, int $cents, ?int $sourceId = null): InvoiceTransaction
+    /** Pay $cents of the invoice from its customer's credit (checked by the caller under the same locks). */
+    private function spendCredit(Invoice $invoice, int $cents, ?int $sourceId = null): InvoiceTransaction
     {
-        $credit->amount = (self::toCents($credit->amount) - $cents) / 100;
-        $credit->save();
-
         $transaction = $invoice->transactions()->create(array_filter([
             'amount' => $cents / 100,
             'status' => InvoiceTransactionStatus::Succeeded,
@@ -371,33 +367,25 @@ class RecordPaymentService
 
         // Credit one sale left, paying other invoices: its events are grouped under that sale's transaction.
         $group = $sourceId === null ? null : 'transaction:' . $sourceId;
-        $trail = new MoneyTrail;
-        $trail->creditOut($credit, $cents, MoneyTrail::CAUSE_CREDIT_PAYMENT, MoneyTrail::SOURCE_CREDIT, $invoice, $transaction, $group);
-        $trail->payment($invoice, $transaction, MoneyTrail::SOURCE_CREDIT, $group);
+        (new CreditLedger)->remove($invoice->user_id, $invoice->currency_code, $cents, MoneyTrail::CAUSE_CREDIT_PAYMENT,
+            MoneyTrail::SOURCE_CREDIT, $invoice, $transaction, group: $group);
+        (new MoneyTrail)->payment($invoice, $transaction, MoneyTrail::SOURCE_CREDIT, $group);
 
         return $transaction;
     }
 
-    /**
-     * @param  list<string>  $notices
-     * @return ?Credit the saved credit row, null when nothing was added
-     */
-    private function addCredit(Invoice $invoice, int $cents, array &$notices): ?Credit
+    /** @param  list<string>  $notices */
+    private function addCredit(Invoice $invoice, InvoiceTransaction $transaction, int $cents, string $source, array &$notices): void
     {
         if ($cents <= 0) {
-            return null;
+            return;
         }
-        $credit = $this->lockCredit($invoice)
-            ?? $invoice->user->credits()->create(['currency_code' => $invoice->currency_code, 'amount' => 0]);
-        $credit->amount = (self::toCents($credit->amount) + $cents) / 100;
-        $credit->save();
+        (new CreditLedger)->add($invoice->user_id, $invoice->currency_code, $cents, MoneyTrail::CAUSE_OVERPAYMENT, $source, $invoice, $transaction);
 
         $notices[] = sprintf(
             'Invoice #%d (%s) could not take %s %s of a payment; it was added to the customer\'s account credit.',
             $invoice->id, $invoice->status, number_format($cents / 100, 2, '.', ''), $invoice->currency_code,
         );
-
-        return $credit;
     }
 
     /** Positive, finite amounts only, in cents; anything else is 0. */

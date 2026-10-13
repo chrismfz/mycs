@@ -9,10 +9,11 @@ use App\Models\Product;
 use App\Models\Service;
 use App\Models\ServiceConfig;
 use App\Models\ServiceUpgrade;
-use App\Models\User;
+use App\Services\Invoice\RecordPaymentService;
+use App\Services\Money\CreditLedger;
+use App\Services\Money\MoneyTrail;
 use App\Services\ServiceUpgrade\ServiceUpgradeService;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
@@ -207,16 +208,10 @@ class Upgrade extends Component
                     return $this->redirect(route('services.show', $service), true);
                 }
 
-                $user = User::where('id', Auth::id())->lockForUpdate()->first();
-                $credit = $user->credits()->where('currency_code', $price->currency->code)->first();
-
-                if ($credit) {
-                    $credit->increment('amount', abs($price->price));
-                } else {
-                    $user->credits()->create([
-                        'currency_code' => $price->currency->code,
-                        'amount' => abs($price->price),
-                    ]);
+                // The difference of a downgrade becomes account credit, through the ledger (docs/money-trail.md §2).
+                $cents = RecordPaymentService::toCents(abs($price->price));
+                if ($cents > 0) {
+                    (new CreditLedger)->add((int) $service->user_id, $price->currency->code, $cents, MoneyTrail::CAUSE_DOWNGRADE, MoneyTrail::SOURCE_SYSTEM);
                 }
 
                 DB::commit();
