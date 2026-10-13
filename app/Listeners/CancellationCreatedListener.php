@@ -24,9 +24,10 @@ class CancellationCreatedListener implements ShouldQueue
             return;
         }
 
-        // Invoices that bill only this service; one also billing something else, or holding gateway money, stays
-        // open for staff (CancelOpenInvoices: the reason is in the log).
-        $open = $service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->get();
+        // Its open invoices, or its lines on an invoice that also bills other services (CancelOpenInvoices). One
+        // holding gateway money stays open for staff: the reason is mailed.
+        // Queued: the worker keeps the audit on (AppServiceProvider), so these changes are in it too.
+        $open = $service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get();
 
         if ($event->cancellation->type == 'immediate') {
             if (in_array($service->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true)) {
@@ -38,16 +39,17 @@ class CancellationCreatedListener implements ShouldQueue
             ]);
 
             // Its pending upgrades end with it: paid later, an upgrade would change a cancelled service (and give
-            // stock back a second time). Their invoices only bill the upgrade: cancelled through the model.
+            // stock back a second time). Their lines go with the service's (an invoice that bills another service too
+            // keeps the rest).
             $upgrades = ServiceUpgrade::query()->where('service_id', $service->id)->where('status', ServiceUpgrade::STATUS_PENDING)->get();
             foreach ($upgrades as $upgrade) {
                 $upgrade->update(['status' => 'cancelled']);
-                if ($upgrade->invoice !== null && $upgrade->invoice->status === Invoice::STATUS_PENDING) {
-                    self::report(CancelOpenInvoices::handle([$upgrade->invoice], throughModel: true));
+                if ($upgrade->invoice !== null && in_array($upgrade->invoice->status, Invoice::OPEN_STATUSES, true)) {
+                    self::report(CancelOpenInvoices::handle([$upgrade->invoice], __('invoices.cancellation_reasons.cancellation_request'), $service));
                 }
             }
 
-            self::report(CancelOpenInvoices::handle($open, onlyFor: $service));
+            self::report(CancelOpenInvoices::handle($open, __('invoices.cancellation_reasons.cancellation_request'), $service));
 
             if ($service->product?->stock !== null) {
                 $service->product->increment('stock', $service->quantity);
@@ -59,7 +61,7 @@ class CancellationCreatedListener implements ShouldQueue
         // At the end of the billing period: the cron ends the service on its due date (cancellations_processed). Its
         // open invoices are cancelled now, as WHMCS does with «cancel unpaid invoices on cancellation request» (on at
         // both companies, docs/settings-map.md): nothing left to pay that would renew it by mistake.
-        self::report(CancelOpenInvoices::handle($open, onlyFor: $service));
+        self::report(CancelOpenInvoices::handle($open, __('invoices.cancellation_reasons.cancellation_request'), $service));
     }
 
     /** @param  array<string, \Throwable>  $left  invoices left open or failed: logged, and mailed to staff */

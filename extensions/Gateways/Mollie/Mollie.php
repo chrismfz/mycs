@@ -87,7 +87,20 @@ class Mollie extends Gateway
 
     public function webhook(Request $request)
     {
-        $payment = $this->request('/v2/payments/' . $request->input('id'));
+        // Mollie only sends an id: one it does not know (anyone can post one) is a 404, not an error that mails staff
+        // (MT-2a). Mollie being down stays an error, so it retries.
+        $id = $request->input('id');
+        if (!is_string($id) || preg_match('/^[A-Za-z0-9_]{1,64}$/', $id) !== 1) {
+            return response('', 400);
+        }
+        $response = Http::withHeaders(['Authorization' => 'Bearer ' . $this->config('api_key')])->get('https://api.mollie.com/v2/payments/' . $id);
+        if ($response->clientError()) {
+            return response('', 404);
+        }
+        if (!$response->successful()) {
+            throw new Exception('Mollie API error: ' . $response->status());
+        }
+        $payment = $response->json();
 
         if ($payment['status'] == 'paid') {
             ExtensionHelper::addPayment($payment['metadata']['invoice_id'], 'Mollie', $payment['amount']['value'], transactionId: $payment['id'], currency: $payment['amount']['currency'] ?? null);

@@ -12,11 +12,14 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
 use App\Models\MoneyEvent;
+use App\Models\PaymentGatewayEvent;
 use App\Models\Service;
 use App\Models\User;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
+use App\Services\Money\GatewayLog;
 use App\Services\Money\MoneyTrail;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -55,13 +58,41 @@ class RecordPaymentService
         $cents = self::toCents($amount);
 
         if ($cents <= 0) {
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_REJECTED, 'amount_not_positive', [
+                'amount' => is_numeric($amount) && abs((float) $amount) < 1e12 ? $amount : null,
+                'currency_code' => $currency, 'external_id' => $transactionId, 'invoice_id' => $invoiceId,
+            ]);
             $this->notify("Payment of «{$this->show($amount)}» on invoice #{$invoiceId} refused: the amount must be positive.", $invoiceId, $transactionId, $gateway);
 
             return null;
         }
 
         $notices = [];
-        $transaction = DB::transaction(function () use ($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, $paidAt, &$notices) {
+        try {
+            $transaction = $this->record($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, $paidAt, $notices);
+        } catch (ModelNotFoundException $e) {
+            // A gateway paid an invoice that does not exist (deleted, or another app's): the gateway log keeps what it
+            // charged and staff hear of it (MT-2a). Still thrown: the gateway is told it failed.
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_REJECTED, 'invoice_not_found', [
+                'amount' => $cents / 100, 'currency_code' => $currency, 'external_id' => $transactionId, 'invoice_id' => $invoiceId,
+            ]);
+
+            throw $e;
+        }
+
+        foreach ($notices as $notice) {
+            $this->notify($notice, $invoiceId, $transactionId, $gateway);
+        }
+
+        return $transaction;
+    }
+
+    /**
+     * @param  list<string>  $notices
+     */
+    private function record(mixed $invoiceId, ?Gateway $gateway, int $cents, mixed $fee, ?string $transactionId, InvoiceTransactionStatus $status, bool $isCreditTransaction, ?string $currency, bool $enteredByStaff, ?\DateTimeInterface $paidAt, array &$notices): ?InvoiceTransaction
+    {
+        return DB::transaction(function () use ($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, $paidAt, &$notices) {
             $invoice = $this->lockInvoice($invoiceId);
 
             // Same id on the same gateway, or recorded by staff without a gateway: the same money. Staff
@@ -81,6 +112,11 @@ class RecordPaymentService
                     $existing->update(['fee' => $fee]); // a late fee report (Stripe)
                 }
 
+                GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_IGNORED, 'replay', [
+                    'amount' => $cents / 100, 'currency_code' => $currency ?? $invoice->currency_code, 'external_id' => $transactionId,
+                    'invoice_id' => $existing->invoice_id, 'invoice_transaction_id' => $existing->id,
+                ]);
+
                 return $existing; // a replay: already recorded
             }
 
@@ -89,12 +125,19 @@ class RecordPaymentService
                 : Invoice::query()->whereKey($existing->invoice_id)->lockForUpdate()->firstOrFail();
             if ($currency !== null && strtoupper($currency) !== strtoupper((string) $target->currency_code)) {
                 $notices[] = "Payment in {$currency} on invoice #{$target->id} ({$target->currency_code}) was NOT recorded: currency mismatch. Check it with the gateway.";
+                GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_REJECTED, 'currency_mismatch', [
+                    'amount' => $cents / 100, 'currency_code' => $currency, 'external_id' => $transactionId, 'invoice_id' => $target->id,
+                ]);
 
                 return null;
             }
 
             if ($existing !== null && $status !== InvoiceTransactionStatus::Succeeded) {
                 $existing->update(array_filter(['status' => $status, 'fee' => $fee], fn ($value) => $value !== null));
+                GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_RECORDED, $status->value, [
+                    'amount' => $cents / 100, 'currency_code' => $target->currency_code, 'external_id' => $transactionId,
+                    'invoice_id' => $existing->invoice_id, 'invoice_transaction_id' => $existing->id,
+                ]);
 
                 return $existing;
             }
@@ -156,27 +199,28 @@ class RecordPaymentService
                 }
             }
 
+            // The gateway log (MT-2a): what this request did with the money (a rolled-back one is dropped at the end).
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_RECORDED,
+                $status === InvoiceTransactionStatus::Succeeded ? null : $status->value, [
+                    'amount' => $cents / 100, 'currency_code' => $target->currency_code, 'external_id' => $transactionId,
+                    'invoice_id' => $target->id, 'invoice_transaction_id' => $transaction->id,
+                ]);
+
             return $transaction;
         });
-
-        foreach ($notices as $notice) {
-            $this->notify($notice, $invoiceId, $transactionId, $gateway);
-        }
-
-        return $transaction;
     }
 
     /**
      * Pay an open invoice from the customer's account credit, under the same locks: the credit is read
      * and spent in one place, so nothing can save a stale copy of it. Pays what is left, or as much as
      * the credit covers ($onlyIfCovers: all of it or nothing). $eligible, when given, is asked with the locked invoice
-     * before anything is spent. Null when nothing is paid.
+     * before anything is spent; $upToCents caps what is spent. Null when nothing is paid.
      */
-    public function payWithCredit(Invoice|int $invoice, bool $onlyIfCovers = false, ?\Closure $eligible = null): ?InvoiceTransaction
+    public function payWithCredit(Invoice|int $invoice, bool $onlyIfCovers = false, ?\Closure $eligible = null, ?int $upToCents = null): ?InvoiceTransaction
     {
         $invoiceId = $invoice instanceof Invoice ? $invoice->getKey() : $invoice;
 
-        return DB::transaction(function () use ($invoiceId, $onlyIfCovers, $eligible) {
+        return DB::transaction(function () use ($invoiceId, $onlyIfCovers, $eligible, $upToCents) {
             $invoice = $this->lockInvoice($invoiceId);
             if (!in_array($invoice->status, [Invoice::STATUS_PENDING, Invoice::STATUS_DRAFT], true)) {
                 return null;
@@ -188,7 +232,7 @@ class RecordPaymentService
             $credit = $this->lockCredit($invoice);
             $available = $credit === null ? 0 : CreditLedger::cents($credit);
             $remaining = max(0, self::toCents($invoice->withLockedBalance()->remaining));
-            $cents = min($available, $remaining);
+            $cents = min($available, $remaining, $upToCents ?? PHP_INT_MAX);
             if ($credit === null || $cents <= 0 || ($onlyIfCovers && $available < $remaining)) {
                 return null;
             }
@@ -300,9 +344,9 @@ class RecordPaymentService
      *
      * @throws DisplayException
      */
-    public function deleteTransaction(InvoiceTransaction $transaction, bool $allowNegativeCredit = false): void
+    public function deleteTransaction(InvoiceTransaction $transaction, bool $allowNegativeCredit = false, string $cause = MoneyTrail::CAUSE_TRANSACTION_DELETED): void
     {
-        DB::transaction(function () use ($transaction, $allowNegativeCredit) {
+        DB::transaction(function () use ($transaction, $allowNegativeCredit, $cause) {
             $invoice = $this->lockInvoice($transaction->invoice_id);
             $transaction = InvoiceTransaction::query()->whereKey($transaction->getKey())->lockForUpdate()->first();
             if ($transaction === null) {
@@ -361,7 +405,7 @@ class RecordPaymentService
                     $journaled += $effect;
                     $credit->amount = $balance / 100;
                 }
-                $trail->reverse($event, MoneyTrail::CAUSE_TRANSACTION_DELETED, $effect !== 0 ? $credit : null);
+                $trail->reverse($event, $cause, $effect !== 0 ? $credit : null);
             }
             // What the reversals do not cover: credit a credit purchase bought, or a payment from before the journal.
             $rest = $change - $journaled;
@@ -369,8 +413,8 @@ class RecordPaymentService
                 $balance += $rest;
                 $credit->amount = $balance / 100;
                 $rest > 0
-                    ? $trail->creditIn($credit, $rest, MoneyTrail::CAUSE_TRANSACTION_DELETED, MoneyTrail::SOURCE_MANUAL, $invoice, $transaction)
-                    : $trail->creditOut($credit, -$rest, MoneyTrail::CAUSE_TRANSACTION_DELETED, MoneyTrail::SOURCE_MANUAL, $invoice, $transaction);
+                    ? $trail->creditIn($credit, $rest, $cause, MoneyTrail::SOURCE_MANUAL, $invoice, $transaction)
+                    : $trail->creditOut($credit, -$rest, $cause, MoneyTrail::SOURCE_MANUAL, $invoice, $transaction);
             }
             $credit?->save();
 

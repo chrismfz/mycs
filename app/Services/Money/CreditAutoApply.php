@@ -131,7 +131,7 @@ class CreditAutoApply
     {
         $payments = $invoice->transactions()->where('is_credit_transaction', true)->get();
         foreach ($payments as $payment) {
-            (new RecordPaymentService)->deleteTransaction($payment);
+            (new RecordPaymentService)->deleteTransaction($payment, cause: MoneyTrail::CAUSE_CANCELLATION);
         }
 
         return $payments->count();

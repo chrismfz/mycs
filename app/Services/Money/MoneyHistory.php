@@ -109,6 +109,7 @@ class MoneyHistory
             MoneyTrail::CAUSE_PURCHASE => 'purchase',
             MoneyTrail::CAUSE_PURCHASE_REFUNDED => 'purchase_refunded',
             MoneyTrail::CAUSE_TRANSACTION_DELETED => 'correction',
+            MoneyTrail::CAUSE_CANCELLATION => 'cancellation',
             MoneyTrail::CAUSE_STAFF_ADJUSTMENT => 'adjustment',
             MoneyTrail::CAUSE_DOWNGRADE => 'downgrade',
             MoneyTrail::CAUSE_AFFILIATE_REWARD => 'affiliate_reward',

@@ -175,6 +175,9 @@ return [
                 'viewAny' => 'View Email Logs',
                 'view' => 'View Email Log',
             ],
+            'gateway_events' => [
+                'viewAny' => 'View Gateway Log',
+            ],
             'email_templates' => [
                 'create' => 'Create Email Templates',
                 'update' => 'Update Email Templates',

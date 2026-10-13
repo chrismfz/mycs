@@ -9,6 +9,7 @@ return [
         'purchase' => 'credit purchase',
         'purchase_refunded' => 'credit purchase refunded',
         'transaction_deleted' => 'transaction deleted',
+        'cancellation' => 'cancellation',
         'staff_adjustment' => 'staff adjustment',
         'downgrade' => 'downgrade',
         'affiliate_reward' => 'affiliate reward',
@@ -18,5 +19,12 @@ return [
         'pending' => 'pending',
         'paid' => 'paid',
         'cancelled' => 'cancelled',
+    ],
+    'outcomes' => [
+        'received' => 'received',
+        'recorded' => 'recorded',
+        'ignored' => 'ignored',
+        'rejected' => 'rejected',
+        'error' => 'error',
     ],
 ];

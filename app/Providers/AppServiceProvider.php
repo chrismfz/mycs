@@ -9,6 +9,7 @@ use App\Models\EmailLog;
 use App\Models\Extension;
 use App\Models\OauthClient;
 use App\Models\User;
+use App\Services\Money\GatewayLog;
 use App\Support\BootFailure;
 use App\Support\Passport\ScopeRegistry;
 use Closure;
@@ -18,9 +19,12 @@ use Dedoc\Scramble\Support\Generator\SecurityScheme;
 use Exception;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Foundation\Exceptions\Handler;
+use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Http\Request;
+use Illuminate\Queue\Events\JobAttempted;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\JobProcessed;
+use Illuminate\Routing\Events\RouteMatched;
 use Illuminate\Routing\UrlGenerator;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
@@ -129,6 +133,8 @@ class AppServiceProvider extends ServiceProvider
             return new ErrorHandler($app);
         });
 
+        // The gateway log (MT-2a) lives for one request (or one Octane request).
+        $this->app->scoped(GatewayLog::class);
     }
 
     /**
@@ -148,6 +154,18 @@ class AppServiceProvider extends ServiceProvider
 
         Event::listen(function (SocialiteWasCalled $event) {
             $event->extendSocialite('discord', Provider::class);
+        });
+
+        // The gateway log (docs/money-trail.md §4, MT-2a): every request to a gateway's routes, without code in the
+        // gateways (their routes are registered in their own boot, outside any middleware group).
+        Event::listen(function (RouteMatched $event) {
+            $name = (string) $event->route->getName();
+            if (str_starts_with($name, 'extensions.gateways.')) {
+                GatewayLog::current()->start($event->request, $name);
+            }
+        });
+        Event::listen(function (RequestHandled $event) {
+            GatewayLog::current()->finish($event->response);
         });
 
         Gate::defaultDenialResponse(Response::denyAsNotFound());
@@ -187,6 +205,20 @@ class AppServiceProvider extends ServiceProvider
                 ]);
             }
         });
+        // The audit is off in the console (config/audit.php): seeding and the WHMCS importer write no audit rows. A
+        // queued job is the app at work (a cancellation request, provisioning), audited like a web request
+        // (docs/money-trail.md §3, MT-2b). Put back after the job: a command that runs a job inline stays as it was.
+        $auditing = [];
+        Queue::before(function () use (&$auditing) {
+            $auditing[] = config('audit.console');
+            config(['audit.console' => true]);
+        });
+        $restore = function () use (&$auditing) {
+            if ($auditing !== []) {
+                config(['audit.console' => array_pop($auditing)]);
+            }
+        };
+        Event::listen(JobAttempted::class, $restore); // after every attempt, whatever happened (finally)
 
         Str::macro('markdown', function ($markdown) {
             return Str::markdown($markdown, extensions: [
