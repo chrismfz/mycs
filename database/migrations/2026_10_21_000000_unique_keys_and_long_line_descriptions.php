@@ -68,8 +68,14 @@ return new class extends Migration
             $table->dropUnique(['key', 'scope']);
             $table->dropColumn('scope');
         });
-        Schema::table('invoice_snapshots', fn (Blueprint $table) => $table->dropUnique(['invoice_id']));
-        Schema::table('service_cancellations', fn (Blueprint $table) => $table->dropUnique(['service_id']));
+        // MariaDB/MySQL use the unique key for the foreign key (it replaced the key's own index): an index of its own
+        // first, or the unique key cannot be dropped (as in the credit ledger's migration).
+        foreach (['invoice_snapshots' => 'invoice_id', 'service_cancellations' => 'service_id'] as $table => $column) {
+            Schema::table($table, function (Blueprint $blueprint) use ($column) {
+                $blueprint->index($column);
+                $blueprint->dropUnique([$column]);
+            });
+        }
         Schema::table('coupons', fn (Blueprint $table) => $table->dropUnique(['code']));
     }
 };
