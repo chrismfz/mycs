@@ -578,7 +578,8 @@ class ExtensionHelper
                 // for a lock, deadlock, or be refused.
                 [$transaction, $credit] = self::prepareRefund($transaction, $amount);
 
-                $success = $gatewayInstance->refund($transaction, $amount);
+                // The rounded amount, the same the transaction, the note and the journal record.
+                $success = $gatewayInstance->refund($transaction, RecordPaymentService::toCents($amount) / 100);
 
                 if (!$success) {
                     throw new \RuntimeException('Gateway refund failed for transaction #' . $transaction->id);

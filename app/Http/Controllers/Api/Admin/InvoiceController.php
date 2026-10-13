@@ -70,8 +70,14 @@ class InvoiceController extends ApiController
      */
     public function update(UpdateInvoiceRequest $request, Invoice $invoice)
     {
-        // Validate and update the invoice
-        $invoice->update($request->validated());
+        $data = $request->validated();
+        // An invoice with payments keeps its customer and currency (InvoiceObserver::updating, docs/money-trail.md §8).
+        $moves = (array_key_exists('user_id', $data) && (int) $data['user_id'] !== (int) $invoice->user_id)
+            || (array_key_exists('currency_code', $data) && $data['currency_code'] !== $invoice->currency_code);
+        if ($moves && $invoice->hasPayments()) {
+            abort(422, 'An invoice with payments keeps its customer and currency: delete its payments first (a refunded payment keeps the invoice where it is).');
+        }
+        $invoice->update($data);
 
         // Return the updated invoice as a JSON response
         return new InvoiceResource($this->loadAllowedIncludes($invoice, self::INCLUDES));

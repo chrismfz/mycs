@@ -67,13 +67,18 @@ class Invoice extends Model implements Auditable
      */
     public function save(array $options = []): bool
     {
-        if ($this->exists && $this->isDirty('status') && ($this->status === self::STATUS_PAID
+        if ($this->exists && (($this->isDirty('status') && ($this->status === self::STATUS_PAID
             || ($this->getOriginal('status') === self::STATUS_CANCELLED
-                && in_array($this->status, [self::STATUS_PENDING, self::STATUS_DRAFT], true)))) {
+                && in_array($this->status, [self::STATUS_PENDING, self::STATUS_DRAFT], true))))
+            // Moving the invoice (customer, currency) is checked against its payments under the same locks.
+            || $this->isDirty(['user_id', 'currency_code']))) {
             return DB::transaction(function () use ($options) {
                 $locked = (new RecordPaymentService)->lockInvoice($this->getKey());
-                // The model may have been loaded before another request changed the status.
-                $this->original['status'] = $locked->getRawOriginal('status');
+                // The model may have been loaded before another request changed the status. Only when this save
+                // changes the status: otherwise a stale form would write its old status back over a new one.
+                if ($this->isDirty('status')) {
+                    $this->original['status'] = $locked->getRawOriginal('status');
+                }
 
                 return parent::save($options);
             });

@@ -67,6 +67,7 @@
     "Invoice not deleted": "Το τιμολόγιο δεν διαγράφηκε",
     "This invoice bought account credit together with other items: handle it by hand (take the credit back first).": "Αυτό το τιμολόγιο αγόρασε πίστωση μαζί με άλλες γραμμές: χειριστείτε το με το χέρι (αφαιρέστε πρώτα την πίστωση).",
     "A customer with payments or account credit history cannot be deleted.": "Πελάτης με πληρωμές ή ιστορικό πίστωσης δεν μπορεί να διαγραφεί.",
-    "An invoice with payments keeps its customer and currency: delete or refund its payments first.": "Τιμολόγιο με πληρωμές κρατά τον πελάτη και το νόμισμά του: διαγράψτε ή επιστρέψτε πρώτα τις πληρωμές του.",
-    "This invoice has no customer, so the account credit this payment moved cannot be taken back: handle it by hand.": "Αυτό το τιμολόγιο δεν έχει πελάτη, οπότε η πίστωση που κίνησε αυτή η πληρωμή δεν μπορεί να αφαιρεθεί: χειριστείτε το με το χέρι."
+    "This invoice has no customer, so the account credit this payment moved cannot be taken back: handle it by hand.": "Αυτό το τιμολόγιο δεν έχει πελάτη, οπότε η πίστωση που κίνησε αυτή η πληρωμή δεν μπορεί να αφαιρεθεί: χειριστείτε το με το χέρι.",
+    "An invoice with payments keeps its customer and currency: delete its payments first (a refunded payment keeps the invoice where it is).": "Τιμολόγιο με πληρωμές κρατά τον πελάτη και το νόμισμά του: διαγράψτε πρώτα τις πληρωμές του (μια πληρωμή με επιστροφή κρατά το τιμολόγιο εκεί που είναι).",
+    "Invoice not saved": "Το τιμολόγιο δεν αποθηκεύτηκε"
 }
