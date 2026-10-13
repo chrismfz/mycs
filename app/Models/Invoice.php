@@ -355,26 +355,30 @@ class Invoice extends Model implements Auditable
         );
     }
 
+    /**
+     * The invoice's URL: its number when that cannot be taken for an id (nixpal's «2026-15»), else its id. A purely
+     * numeric number would be ambiguous: «/invoices/3» could be invoice #3 or the invoice numbered 3.
+     */
     public function getRouteKey()
     {
-        // Prefer using number if it’s set, otherwise fallback to id
-        return $this->number ?: $this->id;
+        return self::numberIsKey($this->number) ? $this->number : $this->id;
     }
 
+    /** A purely numeric value is always an id; anything else is an invoice number. Never both (one lookup, one answer). */
     public function resolveRouteBinding($value, $field = null)
     {
         if ($field) {
             return $this->where($field, $value)->firstOrFail();
         }
-
-        // Try to find by number first
-        $query = $this->where('number', $value);
-
-        // Only try to match by ID if value is numeric
-        if (is_numeric($value)) {
-            $query->orWhere('id', $value);
+        if (is_string($value) && self::numberIsKey($value)) {
+            return $this->where('number', $value)->firstOrFail();
         }
 
-        return $query->orderByRaw('(number = ?) DESC', [$value])->firstOrFail();
+        return $this->whereKey(ctype_digit((string) $value) ? (int) $value : 0)->firstOrFail();
+    }
+
+    private static function numberIsKey(mixed $number): bool
+    {
+        return is_string($number) && $number !== '' && !ctype_digit($number);
     }
 }
