@@ -467,7 +467,9 @@ class CronJob extends Command
 
         // Only this upgrade's own line: a renewal line, or another upgrade, on the same invoice keeps its price. Line
         // by line (MT-2b): a change of price is in the audit. ChangeOpenLine locks the invoice and leaves a paid one.
-        $price = $upgrade->calculatePrice()->price;
+        // Never below zero: a downgrade's difference is credit at order time (Livewire Upgrade), not a negative line
+        // that leaves the invoice owing the customer (adversarial review of 2b, S6).
+        $price = max(0, $upgrade->calculatePrice()->price);
         $changed = 0;
         $invoice->items()->where('reference_type', ServiceUpgrade::class)->where('reference_id', $upgrade->id)->get()
             ->each(function (InvoiceItem $line) use ($price, &$changed) {

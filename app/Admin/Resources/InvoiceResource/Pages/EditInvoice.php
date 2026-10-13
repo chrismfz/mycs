@@ -3,6 +3,7 @@
 namespace App\Admin\Resources\InvoiceResource\Pages;
 
 use App\Admin\Actions\AuditAction;
+use App\Admin\Actions\CloseInvoiceAsPaid;
 use App\Admin\Actions\MarkInvoicePaid;
 use App\Admin\Resources\InvoiceResource;
 use App\Classes\PDF;
@@ -35,6 +36,47 @@ class EditInvoice extends EditRecord
         }
     }
 
+    /** The status the form was filled with (or last saved): to tell a change staff made from one made meanwhile. */
+    public ?string $statusWhenLoaded = null;
+
+    protected function afterFill(): void
+    {
+        $this->statusWhenLoaded = $this->data['status'] ?? null;
+    }
+
+    /**
+     * Its status changed since the form was filled (closed as paid after the last Save, a payment, the cron): a form
+     * that did not touch it writes the current one, never the old one back (code review of 2b). One that did, and
+     * disagrees, is refused: staff look again.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    protected function mutateFormDataBeforeSave(array $data): array
+    {
+        $current = Invoice::query()->whereKey($this->record->getKey())->value('status');
+        if ($current !== null && $current !== $this->statusWhenLoaded && array_key_exists('status', $data) && $data['status'] !== $current) {
+            if ($data['status'] !== $this->statusWhenLoaded) {
+                $this->record->refresh();
+                $this->refreshFormData(['status']);
+                $this->statusWhenLoaded = $current;
+                Notification::make()->warning()->title(__('Invoice not saved'))
+                    ->body(__('Its status changed meanwhile (now :status): check it and save again.', ['status' => $current]))->send();
+
+                throw new Halt;
+            }
+            $data['status'] = $current;
+            $this->data['status'] = $current;
+        }
+
+        return $data;
+    }
+
+    protected function afterSave(): void
+    {
+        $this->statusWhenLoaded = $this->data['status'] ?? null;
+    }
+
     public function mount(int|string $record): void
     {
         parent::mount($record);
@@ -65,12 +107,21 @@ class EditInvoice extends EditRecord
 
             throw new Halt;
         }
+        // Paid over its total (a line taken off, a discount): the part over is the customer's, given by «Close as paid».
+        if (($this->data['status'] ?? null) === Invoice::STATUS_PAID && $invoice->getOriginal('status') !== Invoice::STATUS_PAID
+            && RecordPaymentService::toCents($invoice->fresh()->remaining) < 0) {
+            Notification::make()->danger()->title(__('Invoice not saved'))
+                ->body(__('More was paid than it bills: close it with «Close as paid», which gives the part over as account credit.'))->send();
+
+            throw new Halt;
+        }
     }
 
     protected function getHeaderActions(): array
     {
         return [
             MarkInvoicePaid::make(),
+            CloseInvoiceAsPaid::make(),
             Action::make('publish')
                 ->label('Publish')
                 ->action(function (Invoice $record) {

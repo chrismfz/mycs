@@ -689,7 +689,9 @@ class StaffCorrectionsAdversarialTest extends TestCase
         return match ($event->kind) {
             MoneyEventKind::Payment => $cents,
             MoneyEventKind::Refund => -$cents,
-            MoneyEventKind::CreditIn => $event->cause === MoneyTrail::CAUSE_OVERPAYMENT ? -$cents : 0,
+            // The part of a payment the invoice did not take: an overpayment, or what was over its total when it was
+            // closed (2b, invoice_reduced).
+            MoneyEventKind::CreditIn => in_array($event->cause, [MoneyTrail::CAUSE_OVERPAYMENT, MoneyTrail::CAUSE_INVOICE_REDUCED], true) ? -$cents : 0,
             MoneyEventKind::Reversal => -self::invoiceEffect($event->reverses),
             default => 0,
         };

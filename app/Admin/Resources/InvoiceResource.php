@@ -88,11 +88,12 @@ class InvoiceResource extends Resource
                         'cancelled' => 'Cancelled',
                     ])
                     // Paid only by recording its payment (Mark Paid, docs/money-trail.md MT-1c): never on a new invoice,
-                    // and on an existing one only when nothing is left to pay. A cancelled invoice is reopened first.
+                    // and on an existing one only when exactly nothing is left to pay. Paid over its total, it is closed
+                    // with «Close as paid», which gives the part over as credit (2b). A cancelled invoice is reopened first.
                     ->disableOptionWhen(fn (string $value, ?Invoice $record): bool => $value === Invoice::STATUS_PAID
                         && $record?->getOriginal('status') !== Invoice::STATUS_PAID
                         && ($record === null || $record->getOriginal('status') === Invoice::STATUS_CANCELLED
-                            || RecordPaymentService::toCents($record->remaining) > 0))
+                            || RecordPaymentService::toCents($record->remaining) !== 0))
                     ->default(fn (): string => config('settings.immutable_invoices_enabled', false) ? Invoice::STATUS_DRAFT : Invoice::STATUS_PENDING)
                     ->placeholder('Select the status of the invoice'),
                 Select::make('currency_code')

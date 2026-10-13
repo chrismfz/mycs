@@ -4,6 +4,7 @@ namespace App\Services\Invoice;
 
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\ServiceUpgrade;
 use App\Services\Money\PaymentsLog;
 use Closure;
 use Illuminate\Support\Facades\DB;
@@ -42,6 +43,12 @@ class ChangeOpenLine
             }
             $locked->save();
             $line->setRawAttributes($locked->getAttributes(), true);
+            // Down to nothing to pay (a price now free): closed as paid, as a zero invoice is (2b). Its payments are
+            // none (above), so nothing becomes credit. Not an upgrade's: one repriced to nothing (a cheaper target)
+            // would be applied without its downgrade credit and without anyone deciding it; staff or the customer do.
+            if (!InvoiceItem::query()->where('invoice_id', $invoice->id)->where('reference_type', ServiceUpgrade::class)->exists()) {
+                (new RecordPaymentService)->settle($invoice->id);
+            }
 
             return true;
         });

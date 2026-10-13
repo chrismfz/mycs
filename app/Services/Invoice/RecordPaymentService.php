@@ -432,6 +432,129 @@ class RecordPaymentService
     }
 
     /**
+     * Close a pending invoice that is covered (PR 2b, docs/payments.md): it bills nothing (a free service, as WHMCS
+     * marks a zero invoice paid), or what it bills came down below what was paid on it (staff took a line off or wrote
+     * a discount). It becomes paid, and the part of its payments over its total becomes account credit, once
+     * (credited_amount, newest payment first), as an overpayment does. Under the payment locks.
+     *
+     * Not closed: an invoice with no lines (staff still writing it), one with something left to pay, and one whose
+     * total is below what came in (notes that take off more than its lines and payments: staff fix the notes).
+     *
+     * @return bool whether it became paid
+     */
+    public function settle(Invoice|int $invoice, bool $withoutCredit = false): bool
+    {
+        $id = $invoice instanceof Invoice ? $invoice->getKey() : $invoice;
+
+        return DB::transaction(function () use ($id, $withoutCredit) {
+            $locked = $this->lockInvoice($id);
+            if ($locked->status !== Invoice::STATUS_PENDING) {
+                return false;
+            }
+            $locked->withLockedBalance();
+            if (self::settleRefusal($locked, $withoutCredit) !== null) {
+                return false;
+            }
+            $over = -self::toCents($locked->remaining);
+            $payments = $locked->transactions->where('status', InvoiceTransactionStatus::Succeeded)->sortByDesc('id');
+            $kept = fn (InvoiceTransaction $payment): int => self::toCents($payment->amount) - self::toCents($payment->refunded_amount)
+                - self::toCents($payment->credited_amount);
+
+            // Paid first, while its payments still cover it: crediting a payment fires the listener that turns a
+            // covered pending invoice paid (InvoiceTransactionCreatedListener), which would do it halfway.
+            self::$settling = true;
+            try {
+                $locked->status = Invoice::STATUS_PAID;
+                $locked->save();
+            } finally {
+                self::$settling = false;
+            }
+
+            $credited = 0;
+            foreach ($payments as $payment) {
+                $take = min($over - $credited, max(0, $kept($payment)));
+                if ($take <= 0) {
+                    continue;
+                }
+                $payment->update(['credited_amount' => (self::toCents($payment->credited_amount) + $take) / 100]);
+                $source = MoneyTrail::sourceFor($payment->gateway, (bool) $payment->is_credit_transaction);
+                (new CreditLedger)->add($locked->user_id, $locked->currency_code, $take, MoneyTrail::CAUSE_INVOICE_REDUCED, $source, $locked, $payment);
+                $credited += $take;
+                if ($credited === $over) {
+                    break;
+                }
+            }
+            if ($credited > 0) {
+                $message = sprintf('Invoice #%d came down below what was paid on it and was closed: %s %s became the customer\'s account credit.',
+                    $locked->id, number_format($credited / 100, 2, '.', ''), $locked->currency_code);
+                $userId = (int) $locked->user_id;
+                $currency = (string) $locked->currency_code;
+                // Not a subscription sale's: what it left pays the subscription's services (allocateFromTransaction).
+                $autoApply = !$this->paysSubscription($locked);
+                DB::afterCommit(function () use ($message, $id, $userId, $currency, $autoApply) {
+                    PaymentsLog::info($message, ['invoice_id' => $id]);
+                    if (!$autoApply) {
+                        return;
+                    }
+                    try {
+                        (new CreditAutoApply)->forCustomer($userId, $currency); // decision 5, MT-1e
+                    } catch (\Throwable $e) {
+                        report($e); // the invoice stays closed; the daily pass tries again
+                    }
+                });
+            }
+
+            return true;
+        });
+    }
+
+    /**
+     * Why settle() would not close this pending invoice, or null when it would. Read from the relations loaded on it
+     * (locked by settle(); plain reads for the admin action's visibility). $withoutCredit: only when nothing becomes
+     * credit (an invoice finalized by staff who may not move payments: code review/adversarial review of 2b).
+     */
+    public static function settleRefusal(Invoice $invoice, bool $withoutCredit = false): ?string
+    {
+        if ($invoice->items->isEmpty()) {
+            return __('It has no lines.');
+        }
+        $over = -self::toCents($invoice->remaining);
+        if ($over < 0) {
+            return __('Something is left to pay on it.');
+        }
+        if ($over === 0) {
+            return null;
+        }
+        if ($withoutCredit) {
+            return __('More was paid than it bills: close it with «Close as paid», which gives the part over as account credit.');
+        }
+        $kept = (int) $invoice->transactions->where('status', InvoiceTransactionStatus::Succeeded)
+            ->sum(fn (InvoiceTransaction $payment) => self::toCents($payment->amount) - self::toCents($payment->refunded_amount)
+                - self::toCents($payment->credited_amount));
+        if ($over > $kept) {
+            return __('Its notes take off more than its lines and payments: fix the notes.');
+        }
+        if ($invoice->user_id === null) {
+            return __('It has no customer to credit the part over to: handle it by hand.');
+        }
+        // A credit purchase brought down below its payment: the part over may be credit it already gave, or the money
+        // that buys the credit it is to give. Which one is not known (code review and adversarial review of 2b).
+        if ($invoice->items->contains('reference_type', Credit::class)) {
+            return __('It buys account credit: lower or take back the credit by hand.');
+        }
+
+        return null;
+    }
+
+    /** Set while settle() turns an invoice paid over its total: the only path allowed to (InvoiceObserver). */
+    private static bool $settling = false;
+
+    public static function settling(): bool
+    {
+        return self::$settling;
+    }
+
+    /**
      * Customer first, then the invoice. Every path that writes money (payments, credit, refunds, deletions)
      * takes them in this order before any transaction row: no deadlock.
      *

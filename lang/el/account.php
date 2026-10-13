@@ -73,6 +73,7 @@ return [
         'adjustment' => 'Προσαρμογή',
         'downgrade' => 'Υποβάθμιση πακέτου',
         'affiliate_reward' => 'Αμοιβή συνεργάτη',
+        'invoice_reduced' => 'Μείωση τιμολογίου μετά την πληρωμή',
         'credit_added' => 'Προσθήκη υπολοίπου',
         'credit_used' => 'Χρήση υπολοίπου',
     ],

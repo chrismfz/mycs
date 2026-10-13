@@ -111,18 +111,23 @@ final class MoneyCheck
             });
     }
 
-    /** An open invoice whose payments cover it should have become paid. */
+    /**
+     * An open invoice whose payments cover it, or a pending one with nothing to pay (a zero invoice, 2b), should have
+     * become paid: staff close it («Close as paid»). A draft without payments is still being written.
+     */
     private function openSettled(): void
     {
         Invoice::query()->whereIn('status', Invoice::OPEN_STATUSES)
-            ->whereHas('transactions', fn ($query) => $query->where('status', InvoiceTransactionStatus::Succeeded->value))
+            ->where(fn ($query) => $query
+                ->whereHas('transactions', fn ($query) => $query->where('status', InvoiceTransactionStatus::Succeeded->value))
+                ->orWhere(fn ($query) => $query->where('status', Invoice::STATUS_PENDING)->whereHas('items')))
             ->with(['items', 'adjustmentNotes', 'transactions'])
             ->chunkById(500, function ($invoices) {
                 foreach ($invoices as $invoice) {
                     $remaining = self::remainingCents($invoice);
                     if ($remaining <= 0) {
                         $this->add('open_settled', "invoice #{$invoice->id}", "{$invoice->status}, left to pay "
-                            . self::money($remaining) . " {$invoice->currency_code}");
+                            . self::money($remaining) . " {$invoice->currency_code} (Close as paid, or by hand: a credit purchase, notes over its total)");
                     }
                 }
             });
