@@ -5,6 +5,7 @@ namespace App\Admin\Resources\CurrencyResource\Pages;
 use App\Admin\Resources\CurrencyResource;
 use App\Models\Cart;
 use App\Models\Currency;
+use App\Models\Invoice;
 use App\Models\Price;
 use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
@@ -26,7 +27,9 @@ class EditCurrency extends EditRecord
                 $serviceCount = $record->services()->count();
                 $orderCount = $record->orders()->count();
                 $creditCount = $record->credits()->where('amount', '>', 0)->count();
-                if ($serviceCount > 0 || $orderCount > 0 || $creditCount > 0) {
+                // Invoices too (DATA-16): their money, credit notes and transactions are in this currency.
+                $invoiceCount = Invoice::query()->where('currency_code', $record->code)->count();
+                if ($serviceCount > 0 || $orderCount > 0 || $creditCount > 0 || $invoiceCount > 0) {
                     $message = 'Cannot delete currency because it is being used by ';
                     $parts = [];
                     if ($serviceCount > 0) {
@@ -37,6 +40,9 @@ class EditCurrency extends EditRecord
                     }
                     if ($creditCount > 0) {
                         $parts[] = "{$creditCount} credit(s)";
+                    }
+                    if ($invoiceCount > 0) {
+                        $parts[] = "{$invoiceCount} invoice(s)";
                     }
                     $message .= implode(', ', $parts) . '.';
                     Notification::make()

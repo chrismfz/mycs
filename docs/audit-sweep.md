@@ -137,12 +137,13 @@
 ### Σ6. Ακεραιότητα δεδομένων και διαγραφές
 - Διαγραφή παραγγελίας → **cascade σβήνει τις υπηρεσίες** χωρίς events και χωρίς terminate· διαγραφή υπηρεσίας (bulk, API, coupon/order relation managers) αφήνει ζωντανό λογαριασμό και γραμμές τιμολογίων που δείχνουν στο κενό (500 στη σελίδα τιμολογίου και στα emails). Μία υπηρεσία διαγραφής, `restrict`, null-safe `reference`. DATA-2, SVC-7, AUTH-9
 - Διαγραφή μέλους staff → **σβήνονται όλες οι απαντήσεις του σε tickets** (`cascadeOnDelete`)· διαγραφή πελάτη → τιμολόγια με `user_id NULL` που σκάνε στο `RecordPaymentService`. Staff απενεργοποιείται, δεν σβήνεται. DATA-3, AUTH-7 (επικάλυψη MT-1 §8)
-- Αφαίρεση τιμής config option → cascade από όλες τις υπηρεσίες (υποτιμολόγηση). DATA-8
-- Soft-deleted billing agreement/gateway με FK που μένει → `TypeError` στο cron, ο πελάτης δεν ειδοποιείται. DATA-9
+- Αφαίρεση τιμής config option → cascade από όλες τις υπηρεσίες (υποτιμολόγηση). DATA-8 *(restrict + μήνυμα· η διαγραφή ολόκληρου option μένει, με την προειδοποίηση)*
+- Soft-deleted billing agreement/gateway με FK που μένει → `TypeError` στο cron, ο πελάτης δεν ειδοποιείται. DATA-9 *(η υπηρεσία αφήνει τη μέθοδο· το cron ειδοποιεί τον πελάτη)*
 - Unique στη βάση: `credits(user_id, currency_code)`, `coupons.code`, `service_cancellations.service_id`, `invoice_snapshots.invoice_id`, global `settings.key` (τα NULL δεν είναι μοναδικά στη MySQL). DATA-11 *(credits στο MT-1d· τα υπόλοιπα στο PR του DATA-11/12)*
 - `invoice_items.description` varchar(255) → `text` (WHMCS: πολλές γραμμές). DATA-12 *(μαζί με το DATA-11)*
-- Διαγραφή νομίσματος αγνοεί τιμολόγια. DATA-16
+- Διαγραφή νομίσματος αγνοεί τιμολόγια. DATA-16 *(ελέγχει και τα τιμολόγια)*
 - **Credentials υπηρεσιών σε καθαρό κείμενο** (DirectAdmin, Convoy) στα properties και αντιγραμμένα στα `audits`· πού θα μπουν κρυπτογραφημένα του importer. Redaction αναδρομικά (secret, token, passwd) στο debug log· TLS verification στο Plesk/Virtualizor. DATA-4, SVC-16, EVT-16
+  **Backlog (απόφαση 2026-10-14):** όχι τώρα. Το κλειδί κρυπτογράφησης είναι στο `.env`, που φεύγει με το ίδιο backup, οπότε η κρυπτογράφηση στη βάση προσθέτει λίγα· το staff θέλει να βλέπει και να δίνει τον κωδικό όπως είναι. Ξανά μαζί με τον importer και τον cPanel adapter (Σ1).
 
 ### Σ7. Καλάθι και παραγγελία: ένα `PlaceOrderService`
 Η τιμολόγηση είναι αντιγραμμένη σε 5 σημεία (`Checkout`, `CartItem`, `Service::calculatePrice`, admin Create Order,

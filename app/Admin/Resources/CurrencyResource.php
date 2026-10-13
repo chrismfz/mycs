@@ -6,8 +6,6 @@ use App\Admin\Resources\CurrencyResource\Pages\CreateCurrency;
 use App\Admin\Resources\CurrencyResource\Pages\EditCurrency;
 use App\Admin\Resources\CurrencyResource\Pages\ListCurrencies;
 use App\Models\Currency;
-use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -86,11 +84,9 @@ class CurrencyResource extends Resource
             ->recordActions([
                 EditAction::make(),
             ])
-            ->toolbarActions([
-                BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                ]),
-            ]);
+            // No bulk delete (DATA-16): it skipped every check of the edit page's Delete (services, orders, credits,
+            // invoices, the default currency) and its clean-up of prices and carts. One at a time, from the edit page.
+            ->toolbarActions([]);
     }
 
     public static function getRelations(): array

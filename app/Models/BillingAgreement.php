@@ -48,4 +48,15 @@ class BillingAgreement extends Model implements Auditable
     {
         return $this->hasMany(Service::class, 'billing_agreement_id');
     }
+
+    /**
+     * Removed (soft-deleted: the customer took the method off): no service charges it any more (DATA-9). The foreign key
+     * only acts on a hard delete, so the services kept it and the cron failed charging a method that was gone.
+     */
+    protected static function booted(): void
+    {
+        static::deleting(function (self $agreement) {
+            Service::query()->where('billing_agreement_id', $agreement->getKey())->update(['billing_agreement_id' => null]);
+        });
+    }
 }
