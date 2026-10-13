@@ -69,9 +69,12 @@ class EditService extends EditRecord
 
                         Notification::make('Error')
                             ->title('Error occured while deleting the related server:')
-                            ->body($e->getMessage())
+                            ->body($e->getMessage() . ' The service was not deleted (untick the server deletion to delete it anyway).')
                             ->danger()
                             ->send();
+
+                        // Kept: deleting it would orphan the account on the server and lose its username.
+                        return;
                     }
                     $record->delete();
                 }),
@@ -97,7 +100,9 @@ class EditService extends EditRecord
                             case 'create':
                                 $sdata = ExtensionHelper::createServer($record);
                                 if ($data['sendNotification']) {
-                                    NotificationHelper::serverCreatedNotification($record->order->user, $record, $sdata);
+                                    // The service's user (order is null for services made by staff or the API); adapters
+                                    // return true or the data for the email.
+                                    NotificationHelper::serverCreatedNotification($record->user, $record, is_array($sdata) ? $sdata : []);
                                 }
                                 break;
                             case 'suspend':
