@@ -11,7 +11,7 @@ class CreateUserRequest extends AdminApiRequest
     public function authorize(): bool
     {
         return parent::authorize()
-            && (!$this->exists('role_id') || $this->hasApiPermission('admin.roles.update'));
+            && (!$this->exists('role_id') || ($this->hasApiPermission('admin.roles.update') && $this->mayAssignRole($this->input('role_id'))));
     }
 
     public function rules(): array
