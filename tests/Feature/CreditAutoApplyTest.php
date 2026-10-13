@@ -4,12 +4,14 @@ namespace Tests\Feature;
 
 use App\Enums\InvoiceTransactionStatus;
 use App\Helpers\ExtensionHelper;
+use App\Livewire\Client\Credits;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\Notification;
 use App\Models\Service;
+use App\Models\Setting;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditAutoApply;
@@ -18,6 +20,7 @@ use App\Services\Money\MoneyTrail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Mail;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
@@ -198,9 +201,10 @@ class CreditAutoApplyTest extends TestCase
 
     public function test_the_customer_switches_it_off_on_the_credits_page(): void
     {
+        Setting::query()->updateOrCreate(['key' => 'credits_enabled', 'settingable_type' => null], ['value' => true, 'type' => 'boolean']);
         $this->actingAs($this->user);
 
-        \Livewire\Livewire::test(\App\Livewire\Client\Credits::class)->set('autoApply', false);
+        Livewire::test(Credits::class)->assertSet('autoApply', true)->set('autoApply', false);
 
         $this->assertFalse($this->user->fresh()->credit_auto_apply);
     }
