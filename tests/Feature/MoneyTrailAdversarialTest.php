@@ -202,7 +202,7 @@ class MoneyTrailAdversarialTest extends TestCase
                     };
                     $txid = 'fz' . $seed . '-' . (++$n);
                     if ($transactions->isNotEmpty() && mt_rand(0, 3) === 0) { // replay / processing → succeeded
-                        $old = $transactions->random();
+                        $old = $this->pickOne($transactions);
                         if ($old->transaction_id !== null) {
                             $txid = $old->transaction_id;
                             $gateway = $old->gateway_id === null ? null : 'Stripe';
@@ -220,7 +220,7 @@ class MoneyTrailAdversarialTest extends TestCase
                     if ($sources->isEmpty()) {
                         $op = 'allocate: no source';
                     } else {
-                        $source = $sources->random();
+                        $source = $this->pickOne($sources);
                         $t = $svc->allocateFromTransaction($source, $invoiceId);
                         $op = "allocate tx{$source->id} -> #{$invoiceId}: " . ($t?->id ?? 'none');
                     }
@@ -230,7 +230,7 @@ class MoneyTrailAdversarialTest extends TestCase
                     if ($refundable->isEmpty()) {
                         $op = 'refund: none';
                     } else {
-                        $t = $refundable->random();
+                        $t = $this->pickOne($refundable);
                         $max = self::cents($t->amount) - self::cents($t->refunded_amount) - self::cents($t->credited_amount);
                         $cents = mt_rand(0, 1) ? $max : mt_rand(1, $max);
                         $op = "refundLocally tx{$t->id} {$cents}c";
@@ -240,7 +240,7 @@ class MoneyTrailAdversarialTest extends TestCase
                     if ($transactions->isEmpty()) {
                         $op = 'delete: none';
                     } else {
-                        $t = $transactions->random();
+                        $t = $this->pickOne($transactions);
                         $op = "delete tx{$t->id} ({$t->status->value}, {$t->amount}, cred {$t->credited_amount})";
                         $svc->deleteTransaction($t);
                     }
@@ -650,5 +650,11 @@ class MoneyTrailAdversarialTest extends TestCase
 
         $this->assertNotNull(User::query()->find($this->user->id));
         $this->assertSame(1, MoneyEvent::query()->count());
+    }
+
+    /** One of $items with mt_rand: Collection::random() uses a CSPRNG that mt_srand() does not seed (a seed must replay). */
+    private function pickOne($items)
+    {
+        return $items->values()->get(mt_rand(0, $items->count() - 1));
     }
 }
