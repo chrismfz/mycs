@@ -144,6 +144,18 @@ admin και API (`cause=staff_adjustment`, `source=staff`/`api`). Εξαίρε�
 `RecordPaymentService` για το «τι έγινε»), χωρίς κώδικα σε κάθε gateway. Ειδοποίηση στο staff, με cooldown, όταν
 ένα gateway λέει «χρέωσα» αλλά τα χρήματα δεν γράφτηκαν.
 
+**Όπως χτίστηκε (MT-2a):** πίνακας `payment_gateway_events`, `App\Services\Money\GatewayLog`. Τα routes των gateways
+δηλώνονται στο `boot()` τους χωρίς middleware group, οπότε αντί για middleware ακούμε τα `RouteMatched` (ανοίγει η
+γραμμή για κάθε route `extensions.gateways.{gateway}.{endpoint}`) και `RequestHandled` (κλείνει με το HTTP status).
+Το `RecordPaymentService::handle()` λέει τι έγινε, μόνο αφού γίνει commit: `recorded` (με ποσό, νόμισμα, id παρόχου,
+τιμολόγιο, συναλλαγή· `reason` = `processing`/`failed` όταν δεν πέτυχε ακόμη), `ignored`/`replay`,
+`rejected`/`currency_mismatch` ή `amount_not_positive`. Ό,τι δεν πέρασε από εκεί: 2xx → `ignored`/`nothing_recorded`,
+4xx → `rejected`/`http_4xx`, 5xx → `error`. Κρατιούνται μόνο τα **ονόματα** των πεδίων και ο τύπος γεγονότος
+(`type`/`event_type`/`txn_type`, μόνο αν είναι σύντομος κωδικός)· ποτέ τιμές, tokens ή υπογραφές. Stripe και PayPal
+λένε αν η υπογραφή επαληθεύτηκε (μία γραμμή το καθένα). Σε 5xx το staff παίρνει email, το πολύ μία φορά την ώρα ανά
+gateway και endpoint (το gateway ξαναστέλνει). Οθόνη «Gateway log» στο admin, μόνο ανάγνωση, permission
+`admin.gateway_events.viewAny`.
+
 ### 5. Καθημερινός έλεγχος συνέπειας (`mycs:money-check`)
 Προγραμματισμένος, χωρίς να αλλάζει τίποτα, με email στο staff μόνο όταν βρει κάτι:
 - τιμολόγιο `paid` με υπόλοιπο > 0· `pending` με υπόλοιπο ≤ 0· ακυρωμένο που ανανέωσε υπηρεσία·
@@ -267,8 +279,9 @@ admin και API (`cause=staff_adjustment`, `source=staff`/`api`). Εξαίρε�
    `credit_applied` όταν μένει υπόλοιπο (το εξοφλημένο στέλνει ήδη «Invoice paid»· όχι όταν ακολουθεί χρέωση billing
    agreement για το υπόλοιπο). Η ρύθμιση «Automatically use credits» (και το «Credits Enabled») το απενεργοποιεί όλο.
    Πρόσθεση πίστωσης δεν αρνείται ποτέ (σε αρνητικό υπόλοιπο ξεπληρώνει μέρος του χρέους).
-6. **MT-2, audit και Log πύλης:** audit στους workers, όχι μαζικά updates (και πιστωτικό στις μαζικές ακυρώσεις),
-   γενικό Log πύλης με ειδοποιήσεις.
+6. **MT-2, audit και Log πύλης:** σε δύο PR. **MT-2a:** γενικό Log πύλης με ειδοποιήσεις (§4). **MT-2b**, μετά το
+   PR των κανόνων αναστολής/τερματισμού (αγγίζουν τα ίδια βήματα του cron): audit στους workers, όχι μαζικά updates
+   (και πιστωτικό στις μαζικές ακυρώσεις).
 7. **MT-3, έλεγχος και διατήρηση:** `mycs:money-check` στον scheduler, κανάλι `payments`, ο έλεγχος μέσα στην
    προσομοίωση.
 

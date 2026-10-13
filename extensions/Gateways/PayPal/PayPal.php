@@ -16,6 +16,7 @@ use App\Models\InvoiceTransaction;
 use App\Models\Service;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Money\GatewayLog;
 use Exception;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
@@ -476,7 +477,9 @@ class PayPal extends Gateway
             $verification = null;
         }
 
-        if (($verification->verification_status ?? null) !== 'SUCCESS') {
+        $verified = ($verification->verification_status ?? null) === 'SUCCESS';
+        GatewayLog::current()->signature($verified);
+        if (!$verified) {
             return response()->json(['status' => 'error'], 400);
         }
 

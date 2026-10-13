@@ -12,10 +12,12 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
 use App\Models\MoneyEvent;
+use App\Models\PaymentGatewayEvent;
 use App\Models\Service;
 use App\Models\User;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
+use App\Services\Money\GatewayLog;
 use App\Services\Money\MoneyTrail;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -55,6 +57,10 @@ class RecordPaymentService
         $cents = self::toCents($amount);
 
         if ($cents <= 0) {
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_REJECTED, 'amount_not_positive', [
+                'amount' => is_numeric($amount) && abs((float) $amount) < 1e12 ? $amount : null,
+                'currency_code' => $currency, 'external_id' => $transactionId, 'invoice_id' => $invoiceId,
+            ]);
             $this->notify("Payment of «{$this->show($amount)}» on invoice #{$invoiceId} refused: the amount must be positive.", $invoiceId, $transactionId, $gateway);
 
             return null;
@@ -81,6 +87,11 @@ class RecordPaymentService
                     $existing->update(['fee' => $fee]); // a late fee report (Stripe)
                 }
 
+                GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_IGNORED, 'replay', [
+                    'amount' => $cents / 100, 'currency_code' => $currency ?? $invoice->currency_code, 'external_id' => $transactionId,
+                    'invoice_id' => $existing->invoice_id, 'invoice_transaction_id' => $existing->id,
+                ]);
+
                 return $existing; // a replay: already recorded
             }
 
@@ -89,12 +100,19 @@ class RecordPaymentService
                 : Invoice::query()->whereKey($existing->invoice_id)->lockForUpdate()->firstOrFail();
             if ($currency !== null && strtoupper($currency) !== strtoupper((string) $target->currency_code)) {
                 $notices[] = "Payment in {$currency} on invoice #{$target->id} ({$target->currency_code}) was NOT recorded: currency mismatch. Check it with the gateway.";
+                GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_REJECTED, 'currency_mismatch', [
+                    'amount' => $cents / 100, 'currency_code' => $currency, 'external_id' => $transactionId, 'invoice_id' => $target->id,
+                ]);
 
                 return null;
             }
 
             if ($existing !== null && $status !== InvoiceTransactionStatus::Succeeded) {
                 $existing->update(array_filter(['status' => $status, 'fee' => $fee], fn ($value) => $value !== null));
+                GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_RECORDED, $status->value, [
+                    'amount' => $cents / 100, 'currency_code' => $target->currency_code, 'external_id' => $transactionId,
+                    'invoice_id' => $existing->invoice_id, 'invoice_transaction_id' => $existing->id,
+                ]);
 
                 return $existing;
             }
@@ -155,6 +173,13 @@ class RecordPaymentService
                     });
                 }
             }
+
+            // The gateway log (MT-2a): what this request did with the money, once it commits.
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_RECORDED,
+                $status === InvoiceTransactionStatus::Succeeded ? null : $status->value, [
+                    'amount' => $cents / 100, 'currency_code' => $target->currency_code, 'external_id' => $transactionId,
+                    'invoice_id' => $target->id, 'invoice_transaction_id' => $transaction->id,
+                ]);
 
             return $transaction;
         });
