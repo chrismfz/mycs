@@ -3,6 +3,7 @@
 namespace App\Admin\Resources\InvoiceResource\Pages;
 
 use App\Admin\Resources\InvoiceResource;
+use App\Services\Invoice\RecordPaymentService;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Database\Eloquent\Model;
 
@@ -18,5 +19,11 @@ class CreateInvoice extends CreateRecord
         $invoice->save();
 
         return $invoice;
+    }
+
+    /** Written with nothing to pay (a free item): paid now, as WHMCS marks a zero invoice paid (2b). Lines saved first. */
+    protected function afterCreate(): void
+    {
+        (new RecordPaymentService)->settle($this->record->getKey());
     }
 }

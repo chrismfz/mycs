@@ -13,6 +13,7 @@ return [
         'staff_adjustment' => 'προσαρμογή από staff',
         'downgrade' => 'υποβάθμιση',
         'affiliate_reward' => 'αμοιβή συνεργάτη',
+        'invoice_reduced' => 'μείωση τιμολογίου',
     ],
     'statuses' => [
         'draft' => 'πρόχειρο',

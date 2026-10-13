@@ -59,6 +59,9 @@ class MoneyTrail
 
     public const CAUSE_AFFILIATE_REWARD = 'affiliate_reward';
 
+    /** An open invoice came down below what was paid on it and was closed: the part over became credit (2b). */
+    public const CAUSE_INVOICE_REDUCED = 'invoice_reduced';
+
     public const SOURCE_STAFF = 'staff';
 
     public const SOURCE_API = 'api';

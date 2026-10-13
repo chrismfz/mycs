@@ -13,6 +13,7 @@ return [
         'staff_adjustment' => 'staff adjustment',
         'downgrade' => 'downgrade',
         'affiliate_reward' => 'affiliate reward',
+        'invoice_reduced' => 'invoice reduced',
     ],
     'statuses' => [
         'draft' => 'draft',

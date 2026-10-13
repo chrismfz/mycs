@@ -93,7 +93,7 @@ class MoneyTrailAdversarialTest extends TestCase
         return match ($event->kind) {
             MoneyEventKind::Payment => $cents,
             MoneyEventKind::Refund => -$cents,
-            MoneyEventKind::CreditIn => $event->cause === MoneyTrail::CAUSE_OVERPAYMENT ? -$cents : 0,
+            MoneyEventKind::CreditIn => in_array($event->cause, [MoneyTrail::CAUSE_OVERPAYMENT, MoneyTrail::CAUSE_INVOICE_REDUCED], true) ? -$cents : 0, // 2b
             MoneyEventKind::Reversal => -self::invoiceEffect($event->reverses),
             default => 0,
         };
@@ -427,7 +427,11 @@ class MoneyTrailAdversarialTest extends TestCase
         ExtensionHelper::addPayment($deposit->id, 'Stripe', 50.00, null, 'pi_dep2', currency: 'USD');
         $odd = $this->invoiceFor($this->user, -1000, creditPurchase: true);
 
-        $odd->update(['status' => 'paid']); // staff mark it paid (its total is negative, nothing to pay)
+        try {
+            $odd->update(['status' => 'paid']); // staff mark it paid (its total is negative, nothing to pay)
+        } catch (DisplayException) {
+            // Refused since 2b: an invoice paid over its total closes only through «Close as paid» (settle).
+        }
 
         $this->assertCreditsMatchJournal();
     }

@@ -4,6 +4,7 @@ namespace App\Admin\Resources\OrderResource\Pages;
 
 use App\Admin\Resources\OrderResource;
 use App\Models\Invoice;
+use App\Services\Invoice\RecordPaymentService;
 use Filament\Resources\Pages\CreateRecord;
 
 class CreateOrder extends CreateRecord
@@ -29,5 +30,8 @@ class CreateOrder extends CreateRecord
                 'reference_type' => get_class($service),
             ]);
         }
+
+        // Nothing to pay (a free service, a .gr transfer): paid now, as WHMCS does, so the service goes ahead (2b).
+        (new RecordPaymentService)->settle($invoice);
     }
 }

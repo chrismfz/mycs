@@ -76,8 +76,13 @@ class InvoiceObserver
         }
         if ($invoice->isDirty('status') && $invoice->status === Invoice::STATUS_PAID
             && $invoice->getOriginal('status') !== Invoice::STATUS_PAID) {
-            if (RecordPaymentService::toCents($invoice->withLockedBalance()->remaining) > 0) {
+            $remaining = RecordPaymentService::toCents($invoice->withLockedBalance()->remaining);
+            if ($remaining > 0) {
                 throw new DisplayException(__('An invoice becomes paid when its payment is recorded: use Mark Paid instead.'));
+            }
+            // Paid over its total: the part over is the customer's, given only by RecordPaymentService::settle (2b).
+            if ($remaining < 0 && !RecordPaymentService::settling()) {
+                throw new DisplayException(__('More was paid than it bills: close it with «Close as paid», which gives the part over as account credit.'));
             }
             // Its lines are applied after commit; until then (and after a failure there) the cron sees it (BIL-9).
             $invoice->apply_pending_since = now()->toImmutable();
@@ -145,6 +150,18 @@ class InvoiceObserver
             dispatch(function () use ($invoice, $sendEmail) {
                 event(new InvoiceEvent\Finalized($invoice, $sendEmail));
             })->afterResponse();
+
+            // Finalized with nothing to pay (a free service, or its payments cover it exactly): closed as paid, as a
+            // zero invoice is (2b). Never one paid over its total: that would move a payment to credit for whoever may
+            // edit invoices (staff close it with «Close as paid»). After the commit; a failure leaves it open for staff.
+            $id = $invoice->id;
+            DB::afterCommit(function () use ($id) {
+                try {
+                    (new RecordPaymentService)->settle($id, withoutCredit: true);
+                } catch (Throwable $e) {
+                    report($e);
+                }
+            });
         }
 
         if ($invoice->isDirty('status') && $invoice->status == 'paid') {

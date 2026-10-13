@@ -73,6 +73,7 @@ return [
         'adjustment' => 'Adjustment',
         'downgrade' => 'Plan downgrade',
         'affiliate_reward' => 'Affiliate reward',
+        'invoice_reduced' => 'Invoice reduced after payment',
         'credit_added' => 'Credit added',
         'credit_used' => 'Credit used',
     ],

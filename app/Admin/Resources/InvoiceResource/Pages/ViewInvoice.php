@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\InvoiceResource\Pages;
 
+use App\Admin\Actions\CloseInvoiceAsPaid;
 use App\Admin\Actions\MarkInvoicePaid;
 use App\Admin\Resources\InvoiceResource;
 use App\Admin\Resources\InvoiceResource\RelationManagers\AdjustmentNotesRelationManager;
@@ -92,6 +93,7 @@ class ViewInvoice extends ViewRecord
     {
         return [
             MarkInvoicePaid::make(),
+            CloseInvoiceAsPaid::make(),
             Action::make('cancel')
                 ->label('Cancel Invoice')
                 ->icon('heroicon-o-x-circle')
