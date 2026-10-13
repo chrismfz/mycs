@@ -7,6 +7,7 @@ use App\Admin\Resources\UserResource\Pages\CreateUser;
 use App\Admin\Resources\UserResource\Pages\EditUser;
 use App\Admin\Resources\UserResource\Pages\ListUsers;
 use App\Admin\Resources\UserResource\Pages\ShowBillingAgreements;
+use App\Admin\Resources\UserResource\Pages\ShowCreditHistory;
 use App\Admin\Resources\UserResource\Pages\ShowCredits;
 use App\Admin\Resources\UserResource\Pages\ShowInvoices;
 use App\Admin\Resources\UserResource\Pages\ShowServices;
@@ -157,6 +158,7 @@ class UserResource extends Resource
             'services' => ShowServices::route('/{record}/services'),
             'invoices' => ShowInvoices::route('/{record}/invoices'),
             'credits' => ShowCredits::route('/{record}/credits'),
+            'credit-history' => ShowCreditHistory::route('/{record}/credit-history'),
             'tickets' => ShowTickets::route('/{record}/tickets'),
             'billing-agreements' => ShowBillingAgreements::route('/{record}/billing-agreements'),
         ];
@@ -169,6 +171,7 @@ class UserResource extends Resource
             ShowServices::class,
             ShowInvoices::class,
             ShowCredits::class,
+            ShowCreditHistory::class,
             ShowTickets::class,
             ShowBillingAgreements::class,
         ]);

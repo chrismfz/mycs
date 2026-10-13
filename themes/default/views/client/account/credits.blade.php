@@ -46,5 +46,40 @@
                 {{ __('account.add_credit') }}
             </x-button.primary>
         </form>
+
+        <h4 class="text-xl font-bold pt-8 pb-3">{{ __('account.credit_history') }}</h4>
+        @if ($history->isEmpty())
+        <p>{{ __('account.credit_history_empty') }}</p>
+        @else
+        <div class="overflow-x-auto bg-background-secondary border border-neutral rounded-lg">
+            <table class="w-full text-sm text-left">
+                <thead class="text-base/60">
+                    <tr>
+                        <th class="px-4 py-2">{{ __('account.credit_history_date') }}</th>
+                        <th class="px-4 py-2">{{ __('account.credit_history_movement') }}</th>
+                        <th class="px-4 py-2">{{ __('account.credit_history_invoice') }}</th>
+                        <th class="px-4 py-2 text-right">{{ __('account.credit_history_amount') }}</th>
+                        <th class="px-4 py-2 text-right">{{ __('account.credit_history_balance') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach ($history as $event)
+                    <tr class="border-t border-neutral" wire:key="credit-event-{{ $event->id }}">
+                        <td class="px-4 py-2 whitespace-nowrap">{{ $event->occurred_at?->translatedFormat('d M Y H:i') }}</td>
+                        <td class="px-4 py-2">{{ \App\Services\Money\MoneyHistory::customerLabel($event) }}</td>
+                        <td class="px-4 py-2">
+                            @if ($event->invoice && (int) $event->invoice->user_id === (int) Auth::id())
+                            <a href="{{ route('invoices.show', $event->invoice) }}" class="text-primary hover:underline" wire:navigate>#{{ $event->invoice_id }}</a>
+                            @endif
+                        </td>
+                        <td class="px-4 py-2 text-right whitespace-nowrap {{ $event->creditEffectCents() < 0 ? 'text-error' : 'text-success' }}">{{ \App\Services\Money\MoneyHistory::signedCredit($event) }}</td>
+                        <td class="px-4 py-2 text-right whitespace-nowrap">{{ \App\Services\Money\MoneyHistory::money($event->credit_balance_after, $event->currency_code) }}</td>
+                    </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
+        <div class="pt-3">{{ $history->links() }}</div>
+        @endif
     </div>
 </div>

@@ -252,6 +252,16 @@ class User extends Authenticatable implements Auditable, FilamentUser, HasAvatar
         return $this->hasMany(Credit::class);
     }
 
+    /**
+     * The customer's money journal (docs/money-trail.md §1): read only.
+     *
+     * @return HasMany<MoneyEvent, $this>
+     */
+    public function moneyEvents(): HasMany
+    {
+        return $this->hasMany(MoneyEvent::class);
+    }
+
     /** @return HasOne<Cart, $this> */
     public function cart(): HasOne
     {

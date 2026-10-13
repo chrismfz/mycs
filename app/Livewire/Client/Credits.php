@@ -10,16 +10,20 @@ use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\User;
+use App\Services\Money\MoneyHistory;
 use Exception;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Validate;
+use Livewire\WithPagination;
 
 #[DisabledIf('credits_enabled', reverse: true)]
 class Credits extends Component
 {
+    use WithPagination;
+
     #[Validate('required|exists:currencies,code')]
     public $currency;
 
@@ -135,7 +139,11 @@ class Credits extends Component
 
     public function render()
     {
-        return view('client.account.credits')->layoutData([
+        // The customer's credit history (decision 3, MT-1d): read only, without who, source or the staff reason.
+        $history = MoneyHistory::creditEvents((int) Auth::id())->with('invoice:id,user_id')
+            ->paginate(config('settings.pagination', 15), pageName: 'history');
+
+        return view('client.account.credits', ['history' => $history])->layoutData([
             'sidebar' => true,
             'title' => 'Add Credits',
         ]);
