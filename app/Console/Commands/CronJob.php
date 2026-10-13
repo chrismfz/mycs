@@ -28,7 +28,6 @@ use App\Services\Service\RenewServiceService;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
-use Exception;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Cache;
@@ -676,15 +675,19 @@ class CronJob extends Command
         if ($service->billing_agreement_id && $invoice->fresh()->status === Invoice::STATUS_UNPAID) {
             DB::afterCommit(function () use ($invoice, $service) {
                 try {
-                    ExtensionHelper::charge(
-                        $service->billingAgreement->gateway,
-                        $invoice,
-                        $service->billingAgreement
-                    );
+                    // A method removed (soft-deleted) or its gateway gone: nothing to charge, the customer is told to pay
+                    // (DATA-9), as for a charge that failed.
+                    $agreement = $service->billingAgreement;
+                    if ($agreement?->gateway === null) {
+                        throw new DisplayException("Service #{$service->id}: its saved payment method is gone.");
+                    }
+                    ExtensionHelper::charge($agreement->gateway, $invoice, $agreement);
 
                     $this->successFullCharges++;
-                } catch (Exception $e) {
-                    // Ignore errors here
+                } catch (Throwable $e) {
+                    if (!$e instanceof DisplayException) {
+                        report($e);
+                    }
                     NotificationHelper::invoicePaymentFailedNotification($invoice->user, $invoice);
                 }
             });

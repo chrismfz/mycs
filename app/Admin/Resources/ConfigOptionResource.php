@@ -6,11 +6,13 @@ use App\Admin\Resources\ConfigOptionResource\Pages\CreateConfigOption;
 use App\Admin\Resources\ConfigOptionResource\Pages\EditConfigOption;
 use App\Admin\Resources\ConfigOptionResource\Pages\ListConfigOptions;
 use App\Models\ConfigOption;
+use Filament\Actions\Action;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Tabs;
 use Filament\Schemas\Components\Tabs\Tab;
@@ -102,6 +104,16 @@ class ConfigOptionResource extends Resource
                                         return 1; // checkbox
                                     })
                                     ->minItems(1)
+                                    // A value services use is not removed (DATA-8): they would lose it, and be under-billed.
+                                    ->deleteAction(fn (Action $action) => $action->before(function ($state, Action $action, array $arguments) {
+                                        $id = $state[$arguments['item']]['id'] ?? null;
+                                        if ($id !== null && ConfigOption::query()->find($id)?->valueInUse()) {
+                                            Notification::make()->title('Whoops!')
+                                                ->body(__('This option value is used by services: move them to another value first.'))
+                                                ->danger()->send();
+                                            $action->cancel();
+                                        }
+                                    }))
                                     ->schema([
                                         TextInput::make('name')
                                             ->label('Name')

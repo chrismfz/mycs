@@ -168,7 +168,7 @@ class Show extends Component
             return $this->notify(__('Invalid payment method.'), 'error');
         }
 
-        if (!in_array($agreement->gateway->id, array_column($this->paymentMethods, 'id'))) {
+        if ($agreement->gateway === null || !in_array($agreement->gateway->id, array_column($this->paymentMethods, 'id'))) {
             return $this->notify(__('This payment method cannot be used for this invoice.'), 'error');
         }
 

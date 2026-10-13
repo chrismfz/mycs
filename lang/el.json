@@ -166,5 +166,7 @@
     "A refunded invoice stays refunded: bill the customer on a new invoice.": "Ένα τιμολόγιο που επιστράφηκε μένει επιστραμμένο: χρέωσε τον πελάτη σε νέο τιμολόγιο.",
     "An invoice becomes refunded when all its payments were refunded: use Refund on its transactions.": "Ένα τιμολόγιο γίνεται «Επιστράφηκε» όταν επιστραφούν όλες οι πληρωμές του: χρησιμοποίησε την Επιστροφή στις συναλλαγές του.",
     "A paid invoice is not cancelled: refund its payments (back, or to account credit).": "Ένα εξοφλημένο τιμολόγιο δεν ακυρώνεται: επίστρεψε τις πληρωμές του (πίσω στον πελάτη ή σε πίστωση).",
-    "This invoice holds payments: refund them (back, or to account credit) before cancelling it.": "Το τιμολόγιο έχει πληρωμές: επίστρεψέ τες (πίσω στον πελάτη ή σε πίστωση) πριν το ακυρώσεις."
+    "This invoice holds payments: refund them (back, or to account credit) before cancelling it.": "Το τιμολόγιο έχει πληρωμές: επίστρεψέ τες (πίσω στον πελάτη ή σε πίστωση) πριν το ακυρώσεις.",
+    "This option value is used by services: move them to another value first.": "Η τιμή χρησιμοποιείται από υπηρεσίες: μεταφέρετέ τες πρώτα σε άλλη τιμή.",
+    "Option not saved": "Η επιλογή δεν αποθηκεύτηκε"
 }

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Exceptions\DisplayException;
 use App\Models\Traits\HasPlans;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -64,5 +65,20 @@ class ConfigOption extends Model implements Auditable
     public function serviceConfigs(): HasMany
     {
         return $this->hasMany(ServiceConfig::class, 'config_option_id');
+    }
+
+    /** A value (a child option) services use: never deleted with them (DATA-8). */
+    public function valueInUse(): bool
+    {
+        return $this->parent_id !== null && ServiceConfig::query()->where('config_value_id', $this->id)->exists();
+    }
+
+    protected static function booted(): void
+    {
+        static::deleting(function (self $option) {
+            if ($option->valueInUse()) {
+                throw new DisplayException(__('This option value is used by services: move them to another value first.'));
+            }
+        });
     }
 }
