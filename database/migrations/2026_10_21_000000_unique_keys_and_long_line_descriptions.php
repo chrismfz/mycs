@@ -71,10 +71,11 @@ return new class extends Migration
         // MariaDB/MySQL use the unique key for the foreign key (it replaced the key's own index): an index of its own
         // first, or the unique key cannot be dropped (as in the credit ledger's migration).
         foreach (['invoice_snapshots' => 'invoice_id', 'service_cancellations' => 'service_id'] as $table => $column) {
-            Schema::table($table, function (Blueprint $blueprint) use ($column) {
-                $blueprint->index($column);
-                $blueprint->dropUnique([$column]);
-            });
+            // Once: an earlier rollback left it (up() keeps it, harmless), and a second index of that name fails.
+            if (!Schema::hasIndex($table, "{$table}_{$column}_index")) {
+                Schema::table($table, fn (Blueprint $blueprint) => $blueprint->index($column));
+            }
+            Schema::table($table, fn (Blueprint $blueprint) => $blueprint->dropUnique([$column]));
         }
         Schema::table('coupons', fn (Blueprint $table) => $table->dropUnique(['code']));
     }

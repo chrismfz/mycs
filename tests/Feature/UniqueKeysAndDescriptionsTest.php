@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 /**
@@ -73,6 +74,17 @@ class UniqueKeysAndDescriptionsTest extends TestCase
         $codes = DB::table('coupons')->orderBy('id')->pluck('code')->all();
         $this->assertSame('WELCOME', $codes[0], 'the oldest keeps its code');
         $this->assertStringStartsWith('WELCOME-', $codes[1]);
+    }
+
+    public function test_the_migration_rolls_back_and_forth_twice(): void
+    {
+        $migration = $this->migration();
+        foreach ([1, 2] as $round) {
+            $migration->down();
+            $migration->up();
+        }
+
+        $this->assertTrue(Schema::hasColumn('settings', 'scope'));
     }
 
     public function test_a_long_multi_line_description_is_kept_whole(): void
