@@ -519,6 +519,12 @@ class CronJob extends Command
         if (!$service || !in_array($service->status, ['active', 'suspended'], true)) {
             return 0;
         }
+        // No plan (deleted before BIL-6, or an import with none): nothing to price a period with. Staff set one.
+        if ($service->plan === null) {
+            $this->notices["invoices_created #{$id}"] = new DisplayException("Service #{$id} has no plan: not billed (set its plan).");
+
+            return 0;
+        }
 
         // Does the service have already an open (pending or draft) invoice?
         if ($service->invoices()->whereIn('status', ['pending', 'draft'])->exists() || $service->cancellation()->exists()) {

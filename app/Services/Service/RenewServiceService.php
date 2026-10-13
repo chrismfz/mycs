@@ -2,6 +2,7 @@
 
 namespace App\Services\Service;
 
+use App\Exceptions\DisplayException;
 use App\Helpers\NotificationHelper;
 use App\Jobs\Server\CreateJob;
 use App\Jobs\Server\UnsuspendJob;
@@ -57,6 +58,11 @@ class RenewServiceService
                 return;
             }
 
+            if ($locked->plan === null) {
+                // Nothing to price a period with (a plan deleted before BIL-6, an import with none): staff set one; the
+                // invoice stays to be applied (BIL-9) and the cron tells them.
+                throw new DisplayException("Service #{$locked->id} has no plan: its payment cannot be applied (set its plan).");
+            }
             if ($locked->plan->type == 'one-time' || $locked->plan->type == 'free') {
                 // Nothing to renew: a payment only starts a pending one (never unsuspends one).
                 if ($locked->status === Service::STATUS_PENDING) {
@@ -122,7 +128,7 @@ class RenewServiceService
     private function activate(Service $service, ?CarbonImmutable $paidUntil): void
     {
         $manualHold = $service->status === Service::STATUS_SUSPENDED && $service->dunning_suspended_at === null;
-        if (!$manualHold && $service->product->server) {
+        if (!$manualHold && $service->product?->server) {
             // Dispatched after commit: the worker sees the renewed service, and nothing runs on a rollback.
             if ($service->status == Service::STATUS_SUSPENDED) {
                 UnsuspendJob::dispatch($service)->afterCommit();

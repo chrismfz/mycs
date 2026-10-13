@@ -68,10 +68,10 @@ class EditProduct extends EditRecord
                 }),
             DeleteAction::make()
                 ->before(function (Product $record, DeleteAction $action) {
-                    if ($record->services()->count() > 0) {
+                    if ($record->inUse()) {
                         Notification::make()
                             ->title('Whoops!')
-                            ->body('You cannot delete this plan because it is being used by one or more services.')
+                            ->body(__('This product is used by services or upgrades: hide it instead of deleting it.'))
                             ->danger()
                             ->send();
                         $action->cancel();

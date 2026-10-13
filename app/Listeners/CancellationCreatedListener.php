@@ -67,6 +67,9 @@ class CancellationCreatedListener implements ShouldQueue
         // open invoices are cancelled now, as WHMCS does with «cancel unpaid invoices on cancellation request» (on at
         // both companies, docs/settings-map.md): nothing left to pay that would renew it by mistake.
         self::report(CancelOpenInvoices::handle($open, __('invoices.cancellation_reasons.cancellation_request'), $service));
+        // And its pending upgrades now (with their own invoices): an upgrade of a service about to end makes no sense,
+        // and its payment would have to be refunded. A paid one stays. Withdrawn, the customer asks for it again.
+        self::report(CancelPendingUpgrades::forService($service, __('invoices.cancellation_reasons.cancellation_request')));
     }
 
     /** @param  array<string, \Throwable>  $left  invoices left open or failed: logged, and mailed to staff */
