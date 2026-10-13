@@ -13,8 +13,8 @@ use App\Models\Extension;
 use App\Models\Gateway;
 use App\Models\GatewayRefund;
 use App\Models\Invoice;
-use App\Models\PaymentGatewayEvent;
 use App\Models\InvoiceTransaction;
+use App\Models\PaymentGatewayEvent;
 use App\Models\Product;
 use App\Models\Server;
 use App\Models\Service;
@@ -808,11 +808,12 @@ class ExtensionHelper
         }
 
         $staff = null;
-        $recorded = DB::transaction(function () use ($payment, $gateway, $refundReference, $cents, $currency, $known, $log, &$staff) {
+        $recorded = DB::transaction(function () use ($payment, $gateway, $refundReference, $cents, $currency, $log, &$staff) {
             $invoice = (new RecordPaymentService)->lockInvoice($payment->invoice_id);
             $invoice->transactions()->lockForUpdate()->get(['id']);
             $payment = InvoiceTransaction::whereKey($payment->id)->lockForUpdate()->firstOrFail();
-            if ($known()) { // MyCS's own refund, committed while this waited for the locks
+            // MyCS's own refund, committed while this waited for the locks (read again: not the check above).
+            if (GatewayRefund::query()->where('gateway', $gateway)->where('reference', $refundReference)->exists()) {
                 $log(PaymentGatewayEvent::OUTCOME_IGNORED, 'replay', $payment);
 
                 return 0;
