@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Admin\Resources\OrderResource\Pages\ListOrders;
+use App\Events\Invoice\Updated as InvoiceUpdated;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\EmailLog;
@@ -21,6 +22,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
@@ -280,5 +282,64 @@ class ServiceOrderDeleteReviewTest extends TestCase
             return;
         }
         $this->assertNull(Service::find($service->id));
+    }
+
+    /**
+     * D1 (low, dry run). The dry run's rolled-back cancellation fires the synchronous model events (InvoiceObserver
+     * `event(new Invoice\Updated)`, InvoiceItem/AdjustmentNote/ServiceUpgrade events) as if it had happened. Listeners
+     * that act outside the database see a cancellation that never was: DiscordNotifications posts «Invoice Updated»
+     * (status cancelled) for an invoice that stays unpaid when the delete is refused.
+     */
+    public function test_d1_a_refused_delete_announces_no_cancellation(): void
+    {
+        $this->markTestIncomplete('Σ4 (notifications after commit): Discord\'s «Invoice Updated» listener runs synchronously, also for changes rolled back.');
+        $service = $this->service();
+        $plain = $this->renewal($service);
+        $withMoney = $this->renewal($service);
+        ExtensionHelper::addPayment($withMoney->id, 'Stripe', 4.00, null, 'pi_d1', currency: 'usd');
+        $announced = [];
+        Event::listen(InvoiceUpdated::class, function (InvoiceUpdated $event) use (&$announced) {
+            if ($event->invoice->status === Invoice::STATUS_CANCELLED) {
+                $announced[] = $event->invoice->id;
+            }
+        });
+
+        try {
+            (new DeleteService)->handle($service->fresh());
+            $this->fail('deleted with money on an open invoice');
+        } catch (DisplayException) {
+        }
+
+        $this->assertSame(Invoice::STATUS_UNPAID, $plain->fresh()->status);
+        $this->assertSame([], $announced, 'listeners were told invoices were cancelled; the dry run rolled it back');
+    }
+
+    /**
+     * D2 (low, window). The dry run releases the service lock before the server and the gateway are called; a payment
+     * that lands meanwhile (a customer paying the renewal while the account is being removed) makes the real run refuse,
+     * after the subscription was cancelled (and, with $terminate, the account removed). The service is left running, with
+     * no subscription and maybe no account: it should at least end up ended (as markTerminated), not stay active.
+     */
+    public function test_d2_a_payment_during_the_gateway_call_does_not_leave_the_service_running(): void
+    {
+        $service = $this->service(['subscription_id' => 'sub_d2']);
+        $service->properties()->create(['key' => 'has_stripe_subscription', 'name' => 'Subscription', 'value' => '1']);
+        $invoice = $this->renewal($service);
+        Http::preventStrayRequests();
+        Http::fake(['https://api.stripe.com/*' => function () use ($invoice) {
+            ExtensionHelper::addPayment($invoice->id, 'Stripe', 4.00, null, 'pi_d2', currency: 'usd'); // lands meanwhile
+
+            return Http::response(['id' => 'sub_d2']);
+        }]);
+        (new Stripe(['stripe_secret_key' => 'sk_test']))->boot();
+
+        try {
+            (new DeleteService)->handle($service->fresh());
+        } catch (DisplayException) {
+        }
+
+        $after = Service::find($service->id);
+        $this->assertTrue($after === null || $after->isEnded() || $after->subscription_id === 'sub_d2',
+            'refused after its subscription was cancelled: left active, no subscription, the renewal half paid');
     }
 }

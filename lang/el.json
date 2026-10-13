@@ -174,5 +174,6 @@
     "This customer has services: delete them first.": "Ο πελάτης έχει υπηρεσίες: διαγράψτε τες πρώτα.",
     "Service not deleted": "Η υπηρεσία δεν διαγράφηκε",
     "Not deleted": "Δεν διαγράφηκαν",
-    "This service cannot be deleted yet: :reasons": "Η υπηρεσία δεν μπορεί να διαγραφεί ακόμη: :reasons"
+    "This service cannot be deleted yet: :reasons": "Η υπηρεσία δεν μπορεί να διαγραφεί ακόμη: :reasons",
+    "The service was terminated but not deleted: :reason": "Η υπηρεσία τερματίστηκε αλλά δεν διαγράφηκε: :reason"
 }

@@ -33,13 +33,21 @@ class DeleteService
         // Before anything outside the database (the server, the gateway): what the cancellation would leave open, with
         // its own rules and net amounts, run once and rolled back (N1/N2 of #82). Nothing is touched when it refuses.
         $left = $this->dryRun($service);
+        if ($left === null) {
+            return; // already deleted (a double click, two calls): nothing outside the database is touched
+        }
         if ($left !== []) {
             throw new DisplayException(__('This service cannot be deleted yet: :reasons', [
                 'reasons' => implode(' ', array_map(fn (\Throwable $reason) => $reason->getMessage(), $left)),
             ]));
         }
+        $outside = false; // something done outside the database: the server's account, the gateway's subscription
         if ($terminate && !$service->isEnded() && $service->status !== Service::STATUS_PENDING && $service->product?->server_id !== null) {
             ExtensionHelper::terminateServer($service); // throws when the server refuses: nothing is deleted
+            $outside = true;
+        }
+        if ($service->subscription_id && !$service->isEnded()) {
+            $outside = true;
         }
         if ($service->subscription_id && !$service->isEnded() && !ExtensionHelper::cancelSubscription($service)) {
             // No gateway knows the id (an imported or legacy one): deleted anyway, staff check it at the gateway.
@@ -48,6 +56,21 @@ class DeleteService
             ]);
         }
 
+        try {
+            $this->deleteUnderLock($service);
+        } catch (DisplayException $e) {
+            // Money landed between the check and now (D2 of #82), after the account or the subscription went: the
+            // service is not left running without them. Marked terminated (its open invoices with it), staff told.
+            if ($outside) {
+                $service->markTerminated();
+                throw new DisplayException(__('The service was terminated but not deleted: :reason', ['reason' => $e->getMessage()]));
+            }
+            throw $e;
+        }
+    }
+
+    private function deleteUnderLock(Service $service): void
+    {
         DB::transaction(function () use ($service) {
             $locked = $this->cancelUnderLock($service);
             if ($locked === null) {
@@ -61,18 +84,18 @@ class DeleteService
         });
     }
 
-    /** @return array<string, \Throwable> what the cancellation would leave open, nothing kept */
-    private function dryRun(Service $service): array
+    /** @return array<string, \Throwable>|null what the cancellation would leave open, nothing kept; null: no service */
+    private function dryRun(Service $service): ?array
     {
         $left = [];
         DB::beginTransaction();
         try {
-            $this->cancelUnderLock($service, $left);
+            $found = $this->cancelUnderLock($service, $left) !== null;
         } finally {
             DB::rollBack();
         }
 
-        return $left;
+        return $found ? $left : null;
     }
 
     /**
