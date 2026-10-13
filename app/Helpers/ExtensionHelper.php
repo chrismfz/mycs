@@ -595,7 +595,7 @@ class ExtensionHelper
 
         $refundedAtGateway = false;
         try {
-            return DB::transaction(function () use ($transaction, $gatewayInstance, $amount, &$refundedAtGateway) {
+            return DB::transaction(function () use ($transaction, $gatewayInstance, $amount, $notify, &$refundedAtGateway) {
                 // Every lock and check happens BEFORE the gateway call: nothing after the money left can wait
                 // for a lock, deadlock, or be refused.
                 [$transaction, $credit] = self::prepareRefund($transaction, $amount);
@@ -690,7 +690,7 @@ class ExtensionHelper
             throw new \InvalidArgumentException('A payment made with account credit goes back to account credit.');
         }
 
-        DB::transaction(function () use ($transaction, $amount) {
+        DB::transaction(function () use ($transaction, $amount, $notify) {
             [$transaction, $credit] = self::prepareRefund($transaction, $amount);
 
             self::recordRefund($transaction, $amount, $credit, MoneyTrail::SOURCE_LOCAL);
@@ -718,7 +718,7 @@ class ExtensionHelper
 
         $userId = null;
         $currency = null;
-        DB::transaction(function () use (&$transaction, $amount, $cents, &$userId, &$currency) {
+        DB::transaction(function () use (&$transaction, $amount, $cents, $notify, &$userId, &$currency) {
             $invoice = (new RecordPaymentService)->lockInvoice($transaction->invoice_id);
             if ($invoice->user_id === null) {
                 throw new \InvalidArgumentException('This invoice has no customer whose credit could take it.');

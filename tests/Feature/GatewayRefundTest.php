@@ -211,11 +211,11 @@ class GatewayRefundTest extends TestCase
         $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => 50]);
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 50, transactionId: 'pi_credit', currency: 'usd');
-        $this->assertSame('50.00', (string) Credit::query()->where('user_id', $this->user->id)->value('amount'));
+        $this->assertEquals(50, (float) Credit::query()->where('user_id', $this->user->id)->value('amount'));
 
         $this->stripeWebhook($this->stripeRefund('re_credit', 'pi_credit', 5000))->assertOk();
 
-        $this->assertSame('0.00', (string) Credit::query()->where('user_id', $this->user->id)->value('amount'));
+        $this->assertEquals(0, (float) Credit::query()->where('user_id', $this->user->id)->value('amount'));
         $this->assertSame([], (new MoneyCheck)->run(), json_encode((new MoneyCheck)->run()));
     }
 
