@@ -11,6 +11,7 @@ use App\Models\Product;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Models\User;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -261,7 +262,7 @@ class BillingCursorReview5Test extends TestCase
         $invoice = $this->invoiceFor($a, null, null);
         $invoice->items()->create(['reference_id' => $b->id, 'reference_type' => Service::class, 'description' => 'Second service', 'quantity' => 1, 'price' => 10, 'period_start' => '2026-10-15', 'period_end' => '2026-11-15']);
         $reported = [];
-        $this->app->make(\Illuminate\Contracts\Debug\ExceptionHandler::class)->reportable(function (\InvalidArgumentException $e) use (&$reported) {
+        $this->app->make(ExceptionHandler::class)->reportable(function (\InvalidArgumentException $e) use (&$reported) {
             $reported[] = $e;
         });
         $this->pay($invoice); // the payment is recorded: whoever paid is not told it failed (BIL-9)

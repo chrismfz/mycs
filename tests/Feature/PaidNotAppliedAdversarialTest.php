@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Events\Invoice\Paid;
 use App\Helpers\ExtensionHelper;
 use App\Models\Credit;
+use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
@@ -164,7 +165,7 @@ class PaidNotAppliedAdversarialTest extends TestCase
         $this->failRenewal = false;
 
         // Reported to staff as a notice (the run itself succeeds: the service is protected meanwhile).
-        $this->assertTrue(\App\Models\EmailLog::where('body', 'like', "%paid_applied #{$invoice->id}%")->exists(), 'staff are told');
+        $this->assertTrue(EmailLog::where('body', 'like', "%paid_applied #{$invoice->id}%")->exists(), 'staff are told');
         $this->assertNotNull($invoice->fresh()->apply_pending_since, 'precondition: still pending');
         $this->assertSame(Service::STATUS_ACTIVE, $service->fresh()->status, 'paid renewal pending application: suspended');
     }

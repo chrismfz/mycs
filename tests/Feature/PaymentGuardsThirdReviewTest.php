@@ -319,12 +319,11 @@ class PaymentGuardsThirdReviewTest extends TestCase
             }
         });
 
-        try {
-            (new PayPal([]))->recordSubscriptionSale($this->sale('SALE-1', '20.00'));
-            $this->fail('the renewal failure was swallowed');
-        } catch (\RuntimeException $e) {
-            $this->assertSame('renewal of A failed', $e->getMessage(), 'the failure reaches PayPal, which retries');
-        }
+        // The sale is recorded; A's renewal is reported and left for the cron (BIL-9), not thrown at PayPal: its retry
+        // is a replay that adds nothing, so it never renewed A anyway.
+        (new PayPal([]))->recordSubscriptionSale($this->sale('SALE-1', '20.00'));
+        $this->assertNotNull($invoiceA->fresh()->apply_pending_since, 'A is left for the cron to apply');
+        $this->assertNull($invoiceB->fresh()->apply_pending_since);
         $this->assertSame('paid', $invoiceA->fresh()->status);
         $this->assertSame('paid', $invoiceB->fresh()->status);
         $this->assertSame('2026-11-15', $this->expires($b));
