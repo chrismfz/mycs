@@ -62,6 +62,9 @@ class UpgradeKeepsConfigOptionsTest extends TestCase
         $this->assertSame($ram->children[1]->id, $configs[$ram->id], 'the upgraded option changes');
         $this->assertSame($ip->children[1]->id, $configs[$ip->id] ?? null, 'the extra IP stays');
         $this->assertSame($backup->children[1]->id, $configs[$backup->id] ?? null, 'the hidden option staff set stays');
+        // The money: the recurring amount keeps the options it kept (plan + 4 GB 5 + 1 IP 3 + backups 2).
+        $planPrice = (float) $product->plan->prices()->where('currency_code', 'USD')->value('price');
+        $this->assertEqualsWithDelta($planPrice + 5 + 3 + 2, (float) $service->fresh()->price, 0.001);
     }
 
     public function test_an_option_the_new_product_does_not_have_goes(): void
@@ -81,5 +84,23 @@ class UpgradeKeepsConfigOptionsTest extends TestCase
         (new ServiceUpgradeService)->handle($upgrade->fresh());
 
         $this->assertSame(0, $service->fresh()->configs()->count());
+    }
+
+    public function test_on_the_same_product_an_option_staff_unlinked_since_stays(): void
+    {
+        Queue::fake();
+        $product = $this->createProduct();
+        $ip = $this->option('Extra IP', upgradable: false, values: [['None', 0], ['1 IP', 3]], productId: $product->product->id);
+        $service = Service::factory()->create([
+            'user_id' => User::factory()->create()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'status' => 'active', 'expires_at' => now()->addMonth(), 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1,
+        ]);
+        $service->configs()->create(['config_option_id' => $ip->id, 'config_value_id' => $ip->children[1]->id]);
+        $ip->products()->detach($product->product->id); // unlinked later (or an imported WHMCS option)
+
+        $upgrade = ServiceUpgrade::create(['service_id' => $service->id, 'product_id' => $product->product->id, 'plan_id' => $product->plan->id]);
+        (new ServiceUpgradeService)->handle($upgrade->fresh());
+
+        $this->assertSame(1, $service->fresh()->configs()->count());
     }
 }
