@@ -70,9 +70,9 @@ class InvoiceItemReferenceAdversarialTest extends TestCase
         $theirs = $this->serviceOf(User::factory()->create());
         $token = $this->token();
 
-        // The dangling id the API accepts (F2): a line with a reference_id and no type.
+        // The dangling id the API accepted (F2, now refused): a line with a reference_id and no type, written directly.
         $id = DB::table('invoice_items')->insertGetId(['invoice_id' => $this->invoice->id, 'description' => 'Line', 'price' => 50, 'quantity' => 1,
-            'reference_id' => $theirs->id, 'created_at' => now(), 'updated_at' => now()]);
+            'reference_type' => null, 'reference_id' => $theirs->id, 'created_at' => now(), 'updated_at' => now()]); // null: MariaDB would store ''
 
         $this->withToken($token)->putJson(route('api.v1.admin.invoice-items.update', $id), ['reference_type' => Service::class]);
 
