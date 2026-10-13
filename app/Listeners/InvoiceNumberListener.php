@@ -35,23 +35,24 @@ class InvoiceNumberListener
     {
         $formattedNumber = DB::transaction(function () use ($prefix) {
             $settingKey = $prefix . '_number';
-            $setting = Setting::where('key', $settingKey)->lockForUpdate()->first();
+            $setting = Setting::where('key', $settingKey)->whereNull('settingable_type')->lockForUpdate()->first();
             $number = (int) ($setting->value ?? 0);
             $number++;
 
             Setting::updateOrCreate([
                 'key' => $settingKey,
+                'settingable_type' => null,
             ], [
                 'value' => $number,
             ]);
 
-            return $this->formatInvoiceNumber($number, $prefix);
+            return self::formatInvoiceNumber($number, $prefix);
         });
 
         $model->number = $formattedNumber;
     }
 
-    private function formatInvoiceNumber(int $number, string $prefix): string
+    public static function formatInvoiceNumber(int $number, string $prefix): string
     {
         // Pad the invoice number with leading zeros
         $paddedNumber = str_pad($number, config("settings.{$prefix}_number_padding", 1), '0', STR_PAD_LEFT);
