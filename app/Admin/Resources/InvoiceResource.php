@@ -38,6 +38,10 @@ class InvoiceResource extends Resource
 {
     protected static ?string $model = Invoice::class;
 
+    // By id, as its URLs ({record:id}): Filament finds the record again on every request by this key, and the model's
+    // own route key is the number when it is not numeric (Invoice::getRouteKey).
+    protected static ?string $recordRouteKeyName = 'id';
+
     protected static ?string $cluster = InvoiceCluster::class;
 
     protected static string|\BackedEnum|null $navigationIcon = 'ri-receipt-line';
