@@ -36,6 +36,9 @@ class MoneyEventsRelationManager extends RelationManager
                 return $invoice instanceof Invoice ? (new MoneyHistory)->invoiceMovements($invoice) : [];
             })
             ->paginated(false)
+            // Rows are arrays (journal and audit together), not models: nothing to open on click.
+            ->recordAction(null)
+            ->recordUrl(null)
             ->columns([
                 TextColumn::make('at')->label(__('Date'))->dateTime(),
                 TextColumn::make('what')->label(__('Movement'))->wrap(),
