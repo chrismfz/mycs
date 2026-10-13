@@ -136,7 +136,9 @@ class ServerAdapterFailureTest extends TestCase
 
         try {
             ExtensionHelper::terminateServer($this->service);
-        } catch (Exception) {
+            $this->fail('A refused terminate must throw.');
+        } catch (Exception $e) {
+            $this->assertStringContainsString('Account is locked', $e->getMessage());
         }
 
         $this->assertSame('exampleuser', $this->service->properties()->where('key', 'cpanel_username')->value('value'));
@@ -149,5 +151,15 @@ class ServerAdapterFailureTest extends TestCase
         $this->whm($endpoint, 1);
 
         $this->assertNotFalse(ExtensionHelper::$action($this->service));
+    }
+
+    public function test_an_adapter_returning_false_is_a_failure(): void
+    {
+        require_once __DIR__ . '/../Fixtures/FalseServer.php';
+        $server = Server::query()->create(['name' => 'Legacy', 'extension' => 'FalseServer', 'type' => 'server', 'enabled' => true]);
+        $this->service->product->update(['server_id' => $server->id]);
+
+        $this->expectExceptionMessage('Server action suspendServer failed for service #' . $this->service->id . ' (FalseServer)');
+        ExtensionHelper::suspendServer($this->service->fresh());
     }
 }
