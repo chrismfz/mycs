@@ -317,6 +317,17 @@ class ImportFromWhmcs extends Command
             }
             if (count($credits) > 0) {
                 DB::table('credits')->insert($credits);
+                // The journal opens with the imported balance, so credits = Σ events (docs/money-trail.md §2).
+                DB::table('money_events')->insert(array_map(fn (array $credit) => [
+                    'kind' => 'credit_in',
+                    'amount' => $credit['amount'],
+                    'currency_code' => $credit['currency_code'],
+                    'user_id' => $credit['user_id'],
+                    'credit_balance_after' => $credit['amount'],
+                    'source' => 'import',
+                    'cause' => 'opening_balance',
+                    'occurred_at' => now(),
+                ], $credits));
             }
         });
     }

@@ -21,7 +21,14 @@ class UpdateCreditRequest extends AdminApiRequest
                 'exists:currencies,code',
                 'unique:credits,currency_code,' . $this->route('credit')->id . ',id,user_id,' . $this->route('credit')->user_id,
             ],
+            /**
+             * The new balance: the difference is journaled as a staff adjustment (docs/money-trail.md §2).
+             */
             'amount' => 'sometimes|required|numeric|min:0',
+            /**
+             * Why the balance changes (kept with the credit history, staff only). Required with amount.
+             */
+            'reason' => 'required_with:amount|nullable|string|max:1000',
         ];
     }
 }

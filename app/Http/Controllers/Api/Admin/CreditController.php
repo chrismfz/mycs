@@ -10,6 +10,9 @@ use App\Http\Requests\Api\Admin\Credits\GetCreditsRequest;
 use App\Http\Requests\Api\Admin\Credits\UpdateCreditRequest;
 use App\Http\Resources\CreditResource;
 use App\Models\Credit;
+use App\Services\Invoice\RecordPaymentService;
+use App\Services\Money\CreditLedger;
+use App\Services\Money\MoneyTrail;
 use Dedoc\Scramble\Attributes\Group;
 use Dedoc\Scramble\Attributes\QueryParameter;
 use Spatie\QueryBuilder\QueryBuilder;
@@ -41,11 +44,16 @@ class CreditController extends ApiController
 
     /**
      * Create a new credit
+     *
+     * The amount is journaled as a staff adjustment with its reason (docs/money-trail.md §2).
      */
     public function store(CreateCreditRequest $request)
     {
-        // Validate and create the credit
-        $credit = Credit::create($request->validated());
+        $data = $request->validated();
+        $cents = RecordPaymentService::toCents($data['amount']);
+        $credit = $cents > 0
+            ? (new CreditLedger)->add((int) $data['user_id'], $data['currency_code'], $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_API, note: $data['reason'] ?? null)
+            : Credit::query()->create(['user_id' => $data['user_id'], 'currency_code' => $data['currency_code'], 'amount' => 0]);
 
         // Return the created credit as a JSON response
         return new CreditResource($this->loadAllowedIncludes($credit, self::INCLUDES));
@@ -66,11 +74,24 @@ class CreditController extends ApiController
 
     /**
      * Update a specific credit
+     *
+     * A new amount is applied as a staff adjustment of the difference, with its reason. The currency changes only
+     * while the balance is zero.
      */
     public function update(UpdateCreditRequest $request, Credit $credit)
     {
-        // Validate and update the credit
-        $credit->update($request->validated());
+        $data = $request->validated();
+        if (array_key_exists('currency_code', $data) && $data['currency_code'] !== $credit->currency_code) {
+            if (RecordPaymentService::toCents($credit->amount) !== 0) {
+                abort(422, 'The currency of a credit changes only while its balance is zero.');
+            }
+            $credit->update(['currency_code' => $data['currency_code']]);
+        }
+        if (array_key_exists('amount', $data)) {
+            (new CreditLedger)->setBalance((int) $credit->user_id, $credit->currency_code, RecordPaymentService::toCents($data['amount']),
+                MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_API, $data['reason'] ?? null);
+            $credit->refresh();
+        }
 
         // Return the updated credit as a JSON response
         return new CreditResource($this->loadAllowedIncludes($credit, self::INCLUDES));
@@ -78,10 +99,14 @@ class CreditController extends ApiController
 
     /**
      * Delete a specific credit
+     *
+     * Only a zero balance: set the amount to 0 first (with a reason), so the change is journaled.
      */
     public function destroy(DeleteCreditRequest $request, Credit $credit)
     {
-        // Delete the credit
+        if (RecordPaymentService::toCents($credit->amount) !== 0) {
+            abort(422, 'A credit with a balance cannot be deleted: set its amount to 0 first (with a reason).');
+        }
         $credit->delete();
 
         return $this->returnNoContent();

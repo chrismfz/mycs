@@ -22,6 +22,10 @@ class CreateCreditRequest extends AdminApiRequest
                 'unique:credits,currency_code,NULL,id,user_id,' . $this->input('user_id'),
             ],
             'amount' => 'required|numeric|min:0',
+            /**
+             * Why the credit is given (kept with the credit history, staff only). Required when amount > 0.
+             */
+            'reason' => 'required_unless:amount,0|nullable|string|max:1000',
         ];
     }
 }

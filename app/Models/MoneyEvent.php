@@ -80,6 +80,12 @@ class MoneyEvent extends Model
         return $this->belongsTo(InvoiceTransaction::class);
     }
 
+    /** @return HasOne<MoneyEventNote, $this> */
+    public function note(): HasOne
+    {
+        return $this->hasOne(MoneyEventNote::class);
+    }
+
     /** @return MorphTo<\Illuminate\Database\Eloquent\Model, $this> */
     public function actor(): MorphTo
     {

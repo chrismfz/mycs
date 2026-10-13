@@ -5,7 +5,9 @@ namespace Paymenter\Extensions\Others\Affiliates\Listeners;
 use App\Helpers\ExtensionHelper;
 use App\Models\Invoice;
 use App\Models\Service;
-use Illuminate\Support\Collection;
+use App\Services\Invoice\RecordPaymentService;
+use App\Services\Money\CreditLedger;
+use App\Services\Money\MoneyTrail;
 use Paymenter\Extensions\Others\Affiliates\Models\Affiliate;
 use Paymenter\Extensions\Others\Affiliates\Models\AffiliateOrder;
 
@@ -50,25 +52,11 @@ class RewardAffiliate
         $reward_percentage = $affiliate->reward ?: $extension->config('default_reward');
         $reward_amount = $invoice->total * $reward_percentage / 100;
 
-        /**
-         * @var Collection
-         */
-        $user_credits = $affiliate->user->credits;
-        $affiliate_credits = $user_credits->filter(function ($credit) use ($invoice) {
-            return $credit->currency_code === $invoice->currency_code;
-        })->first();
-
-        if ($affiliate_credits) {
-            // Add reward to credits
-            $affiliate->user->credits()->where('currency_code', $invoice->currency_code)->update([
-                'amount' => $affiliate_credits->amount + $reward_amount,
-            ]);
-        } else {
-            // Create new credits with the invoice's currency code
-            $affiliate->user->credits()->create([
-                'amount' => $reward_amount,
-                'currency_code' => $invoice->currency_code,
-            ]);
+        // The reward becomes the affiliate's account credit, through the ledger (docs/money-trail.md §2).
+        $cents = RecordPaymentService::toCents($reward_amount);
+        if ($cents > 0) {
+            (new CreditLedger)->add((int) $affiliate->user_id, $invoice->currency_code, $cents,
+                MoneyTrail::CAUSE_AFFILIATE_REWARD, MoneyTrail::SOURCE_SYSTEM, $invoice);
         }
     }
 }

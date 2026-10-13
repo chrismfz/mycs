@@ -17,6 +17,7 @@ use App\Models\Server;
 use App\Models\Service;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
 use Exception;
 use Filament\Forms\Components\Placeholder;
@@ -662,10 +663,9 @@ class ExtensionHelper
     {
         $cents = RecordPaymentService::toCents($amount);
         $trail = new MoneyTrail;
-        if ($credit !== null) {
-            $credit->amount = (RecordPaymentService::toCents($credit->amount) - $cents) / 100;
-            $credit->save();
-            $trail->creditOut($credit, $cents, MoneyTrail::CAUSE_PURCHASE_REFUNDED, $source, $transaction->invoice, $transaction);
+        if ($credit !== null) { // checked in prepareRefund, under the same locks
+            (new CreditLedger)->remove((int) $credit->user_id, $credit->currency_code, $cents, MoneyTrail::CAUSE_PURCHASE_REFUNDED,
+                $source, $transaction->invoice, $transaction);
         }
         // One rounded amount for the transaction, the note and the journal.
         $transaction->increment('refunded_amount', $cents / 100);

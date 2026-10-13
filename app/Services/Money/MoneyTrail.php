@@ -8,6 +8,7 @@ use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\MoneyEvent;
+use App\Models\MoneyEventNote;
 use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Support\Facades\Auth;
 use LogicException;
@@ -49,6 +50,18 @@ class MoneyTrail
 
     public const CAUSE_OPENING_BALANCE = 'opening_balance';
 
+    public const CAUSE_STAFF_ADJUSTMENT = 'staff_adjustment';
+
+    public const CAUSE_DOWNGRADE = 'downgrade';
+
+    public const CAUSE_AFFILIATE_REWARD = 'affiliate_reward';
+
+    public const SOURCE_STAFF = 'staff';
+
+    public const SOURCE_API = 'api';
+
+    public const SOURCE_IMPORT = 'import';
+
     /** The source of a payment: the gateway's key, else credit or a manual entry. */
     public static function sourceFor(?Gateway $gateway, bool $fromCredit = false): string
     {
@@ -79,15 +92,15 @@ class MoneyTrail
     }
 
     /** Credit went up by $cents; $credit is the saved row (its balance is the balance after). */
-    public function creditIn(Credit $credit, int $cents, string $cause, string $source, ?Invoice $invoice = null, ?InvoiceTransaction $transaction = null): MoneyEvent
+    public function creditIn(Credit $credit, int $cents, string $cause, string $source, ?Invoice $invoice = null, ?InvoiceTransaction $transaction = null, ?string $group = null, ?string $note = null): MoneyEvent
     {
-        return $this->creditMove(MoneyEventKind::CreditIn, $credit, $cents, $cause, $source, $invoice, $transaction);
+        return $this->creditMove(MoneyEventKind::CreditIn, $credit, $cents, $cause, $source, $invoice, $transaction, $group, $note);
     }
 
     /** Credit went down by $cents; $credit is the saved row (its balance is the balance after). */
-    public function creditOut(Credit $credit, int $cents, string $cause, string $source, ?Invoice $invoice = null, ?InvoiceTransaction $transaction = null, ?string $group = null): MoneyEvent
+    public function creditOut(Credit $credit, int $cents, string $cause, string $source, ?Invoice $invoice = null, ?InvoiceTransaction $transaction = null, ?string $group = null, ?string $note = null): MoneyEvent
     {
-        return $this->creditMove(MoneyEventKind::CreditOut, $credit, $cents, $cause, $source, $invoice, $transaction, $group);
+        return $this->creditMove(MoneyEventKind::CreditOut, $credit, $cents, $cause, $source, $invoice, $transaction, $group, $note);
     }
 
     /** Money back to the customer from $transaction (through its gateway, or recorded locally). */
@@ -127,9 +140,9 @@ class MoneyTrail
         ]);
     }
 
-    private function creditMove(MoneyEventKind $kind, Credit $credit, int $cents, string $cause, string $source, ?Invoice $invoice, ?InvoiceTransaction $transaction, ?string $group = null): MoneyEvent
+    private function creditMove(MoneyEventKind $kind, Credit $credit, int $cents, string $cause, string $source, ?Invoice $invoice, ?InvoiceTransaction $transaction, ?string $group = null, ?string $note = null): MoneyEvent
     {
-        return $this->write([
+        $event = $this->write([
             'kind' => $kind,
             'amount' => $cents / 100,
             'currency_code' => $credit->currency_code,
@@ -142,6 +155,12 @@ class MoneyTrail
             'external_reference' => $transaction === null ? null : self::externalReference($transaction),
             'group_reference' => $group,
         ]);
+        // Staff's reason: apart from the journal, so it can be cleared (free text may hold personal data, §9).
+        if ($note !== null && trim($note) !== '') {
+            MoneyEventNote::query()->create(['money_event_id' => $event->id, 'note' => trim($note)]);
+        }
+
+        return $event;
     }
 
     /**
