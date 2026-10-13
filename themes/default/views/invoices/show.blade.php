@@ -109,7 +109,7 @@
                                 {{ $item->description }}
                                 @endif
 
-                                @if($item->reference && $item->reference->label)
+                                @if($item->reference_type && $item->reference && $item->reference->label)
                                     <br><small style="color: #666; font-size: 0.9em;">{{ $item->reference->label }}</small>
                                 @endif
                             </td>

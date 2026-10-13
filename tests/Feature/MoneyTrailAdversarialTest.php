@@ -181,7 +181,7 @@ class MoneyTrailAdversarialTest extends TestCase
             $roll = mt_rand(1, 100);
             $invoiceId = $invoices[array_rand($invoices)];
             $invoice = Invoice::query()->find($invoiceId);
-            $transactions = InvoiceTransaction::query()->get();
+            $transactions = InvoiceTransaction::query()->orderBy('id')->get();
             try {
                 if ($roll <= 8) {
                     $invoices[] = $this->invoiceFor($users[mt_rand(0, 1)], mt_rand(100, 20000), mt_rand(0, 2) === 0)->id;
@@ -202,7 +202,7 @@ class MoneyTrailAdversarialTest extends TestCase
                     };
                     $txid = 'fz' . $seed . '-' . (++$n);
                     if ($transactions->isNotEmpty() && mt_rand(0, 3) === 0) { // replay / processing → succeeded
-                        $old = $transactions->random();
+                        $old = $this->pickOne($transactions);
                         if ($old->transaction_id !== null) {
                             $txid = $old->transaction_id;
                             $gateway = $old->gateway_id === null ? null : 'Stripe';
@@ -220,7 +220,7 @@ class MoneyTrailAdversarialTest extends TestCase
                     if ($sources->isEmpty()) {
                         $op = 'allocate: no source';
                     } else {
-                        $source = $sources->random();
+                        $source = $this->pickOne($sources);
                         $t = $svc->allocateFromTransaction($source, $invoiceId);
                         $op = "allocate tx{$source->id} -> #{$invoiceId}: " . ($t?->id ?? 'none');
                     }
@@ -230,7 +230,7 @@ class MoneyTrailAdversarialTest extends TestCase
                     if ($refundable->isEmpty()) {
                         $op = 'refund: none';
                     } else {
-                        $t = $refundable->random();
+                        $t = $this->pickOne($refundable);
                         $max = self::cents($t->amount) - self::cents($t->refunded_amount) - self::cents($t->credited_amount);
                         $cents = mt_rand(0, 1) ? $max : mt_rand(1, $max);
                         $op = "refundLocally tx{$t->id} {$cents}c";
@@ -240,7 +240,7 @@ class MoneyTrailAdversarialTest extends TestCase
                     if ($transactions->isEmpty()) {
                         $op = 'delete: none';
                     } else {
-                        $t = $transactions->random();
+                        $t = $this->pickOne($transactions);
                         $op = "delete tx{$t->id} ({$t->status->value}, {$t->amount}, cred {$t->credited_amount})";
                         $svc->deleteTransaction($t);
                     }

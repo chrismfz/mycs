@@ -181,7 +181,7 @@ class CreditLedgerAdversarialTest extends TestCase
             $roll = mt_rand(1, 100);
             $invoiceId = $invoices[array_rand($invoices)];
             $invoice = Invoice::query()->find($invoiceId);
-            $transactions = InvoiceTransaction::query()->get();
+            $transactions = InvoiceTransaction::query()->orderBy('id')->get();
             $user = $users[mt_rand(0, 1)];
             $currency = $currencies[mt_rand(0, 1)];
             $op = 'op';
@@ -200,7 +200,7 @@ class CreditLedgerAdversarialTest extends TestCase
                     $status = mt_rand(0, 9) === 0 ? InvoiceTransactionStatus::Processing : InvoiceTransactionStatus::Succeeded;
                     $txid = 'cl' . $seed . '-' . (++$n);
                     if ($transactions->isNotEmpty() && mt_rand(0, 4) === 0) {
-                        $old = $transactions->random();
+                        $old = $this->pickOne($transactions);
                         if ($old->transaction_id !== null) {
                             $txid = $old->transaction_id;
                             $invoiceId = $old->invoice_id;
@@ -216,7 +216,7 @@ class CreditLedgerAdversarialTest extends TestCase
                     $sources = $transactions->filter(fn ($t) => $t->status === InvoiceTransactionStatus::Succeeded && self::cents($t->credited_amount) > 0);
                     $op = 'allocate: none';
                     if ($sources->isNotEmpty()) {
-                        $source = $sources->random();
+                        $source = $this->pickOne($sources);
                         $t = $svc->allocateFromTransaction($source, $invoiceId);
                         $op = "allocate tx{$source->id} -> #{$invoiceId}: " . ($t?->id ?? 'none');
                     }
@@ -225,7 +225,7 @@ class CreditLedgerAdversarialTest extends TestCase
                         && self::cents($t->amount) - self::cents($t->refunded_amount) - self::cents($t->credited_amount) > 0);
                     $op = 'refund: none';
                     if ($refundable->isNotEmpty()) {
-                        $t = $refundable->random();
+                        $t = $this->pickOne($refundable);
                         $max = self::cents($t->amount) - self::cents($t->refunded_amount) - self::cents($t->credited_amount);
                         $cents = mt_rand(0, 1) ? $max : mt_rand(1, $max);
                         $op = "refundLocally tx{$t->id} {$cents}c";
@@ -234,7 +234,7 @@ class CreditLedgerAdversarialTest extends TestCase
                 } elseif ($roll <= 57) {
                     $op = 'delete: none';
                     if ($transactions->isNotEmpty()) {
-                        $t = $transactions->random();
+                        $t = $this->pickOne($transactions);
                         $op = "delete tx{$t->id}";
                         $svc->deleteTransaction($t);
                     }

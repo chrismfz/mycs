@@ -530,7 +530,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
             $before = $this->snapshot();
             $invoiceId = $invoices[array_rand($invoices)];
             $invoice = Invoice::query()->find($invoiceId);
-            $transactions = InvoiceTransaction::query()->get();
+            $transactions = InvoiceTransaction::query()->orderBy('id')->get();
             $kind = 'other';
             $refused = false;
             $roll = mt_rand(1, 100);
@@ -551,7 +551,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
                     $cents = [$remaining ?: mt_rand(1, 5000), $remaining + mt_rand(1, 3000), mt_rand(1, max(1, $remaining))][mt_rand(0, 2)];
                     $txid = mt_rand(0, 2) === 0 ? null : 'm' . $seed . '-' . (++$n);
                     if ($transactions->isNotEmpty() && mt_rand(0, 3) === 0) {
-                        $txid = $transactions->random()->transaction_id ?? $txid; // replay
+                        $txid = $this->pickOne($transactions)->transaction_id ?? $txid; // replay
                     }
                     $reopen = (bool) mt_rand(0, 1);
                     $op = "markPaid #{$invoiceId} ({$invoice->status}) {$cents}c tx={$txid}" . ($reopen ? ' reopen' : '');
@@ -565,7 +565,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
                     if ($refundable->isEmpty()) {
                         $op = 'refund: none';
                     } else {
-                        $t = $refundable->random();
+                        $t = $this->pickOne($refundable);
                         $max = self::cents($t->amount) - self::cents($t->refunded_amount) - self::cents($t->credited_amount);
                         $cents = mt_rand(0, 1) ? $max : mt_rand(1, $max);
                         $op = "refundLocally tx{$t->id} {$cents}c";
@@ -575,7 +575,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
                     if ($transactions->isEmpty()) {
                         $op = 'delete: none';
                     } else {
-                        $t = $transactions->random();
+                        $t = $this->pickOne($transactions);
                         $allow = (bool) mt_rand(0, 1);
                         $kind = $allow ? 'delete-allow' : 'delete';
                         $op = "delete tx{$t->id} ({$t->status->value}, {$t->amount}, cred {$t->credited_amount})" . ($allow ? ' allowNegative' : '');
@@ -601,11 +601,11 @@ class StaffCorrectionsAdversarialTest extends TestCase
                     $this->note($invoice, $cents / 100);
                     $op = "note #{$invoiceId} {$cents}c";
                 } else {
-                    $notes = AdjustmentNote::query()->get()->filter(fn (AdjustmentNote $note) => $note->isVoidableByStaff());
+                    $notes = AdjustmentNote::query()->orderBy('id')->get()->filter(fn (AdjustmentNote $note) => $note->isVoidableByStaff());
                     if ($notes->isEmpty()) {
                         $op = 'void: none';
                     } else {
-                        $note = $notes->random();
+                        $note = $this->pickOne($notes);
                         $op = "toggle note {$note->id} ({$note->status->value})";
                         $note->update(['status' => $note->status === AdjustmentNoteStatus::Voided ? AdjustmentNoteStatus::Active : AdjustmentNoteStatus::Voided]);
                     }
