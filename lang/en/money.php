@@ -14,12 +14,14 @@ return [
         'downgrade' => 'downgrade',
         'affiliate_reward' => 'affiliate reward',
         'invoice_reduced' => 'invoice reduced',
+        'refund_to_credit' => 'refund to credit',
     ],
     'statuses' => [
         'draft' => 'draft',
-        'pending' => 'pending',
+        'pending' => 'unpaid',
         'paid' => 'paid',
         'cancelled' => 'cancelled',
+        'refunded' => 'refunded',
     ],
     'outcomes' => [
         'received' => 'received',

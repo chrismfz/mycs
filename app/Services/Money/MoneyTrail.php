@@ -62,6 +62,9 @@ class MoneyTrail
     /** An open invoice came down below what was paid on it and was closed: the part over became credit (2b). */
     public const CAUSE_INVOICE_REDUCED = 'invoice_reduced';
 
+    /** Staff refunded a payment to the customer's account credit instead of back to them (PR 2c). */
+    public const CAUSE_REFUND_TO_CREDIT = 'refund_to_credit';
+
     public const SOURCE_STAFF = 'staff';
 
     public const SOURCE_API = 'api';

@@ -16,6 +16,14 @@ return [
     'bill_to' => 'Bill To',
     'issued_to' => 'Issued To',
     'paid' => 'Paid',
+    // An invoice's status as staff and customers read it: WHMCS's words (pending is «Unpaid»).
+    'statuses' => [
+        'draft' => 'Draft',
+        'pending' => 'Unpaid',
+        'paid' => 'Paid',
+        'cancelled' => 'Cancelled',
+        'refunded' => 'Refunded',
+    ],
     'payment_pending' => 'Payment Pending',
     'checking_payment' => 'Checking Payment',
     'invoice_date' => 'Invoice Date',
@@ -70,6 +78,10 @@ return [
     'refund_success' => 'Refund processed successfully.',
     'refund_failed' => 'Refund failed.',
     'refund_via_gateway' => 'Refund via Payment Gateway',
+    'refund_method' => 'Refund to',
+    'refund_method_gateway' => 'The customer, through the payment gateway',
+    'refund_method_manual' => 'The customer, by hand (a transfer: recorded here only)',
+    'refund_method_credit' => 'The customer\'s account credit',
     'deleted_user' => 'Deleted User',
 
     // The credit note of an invoice the app cancels (CancelOpenInvoices), written in the app's language.

@@ -15,9 +15,9 @@ use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
@@ -151,18 +151,22 @@ class TransactionsRelationManager extends RelationManager
                                     }
                                 },
                             ]),
-                        Toggle::make('refund_via_gateway')
-                            ->label(__('invoices.refund_via_gateway'))
-                            ->default(false)
-                            ->visible(fn (InvoiceTransaction $record): bool => $record->gateway && $record->gateway->extension && ExtensionHelper::hasFunction($record->gateway, 'supportsRefunds') && ExtensionHelper::hasFunction($record->gateway, 'refund')),
+                        // As WHMCS: back through the gateway, back by hand (a bank transfer: recorded only), or to
+                        // the customer's account credit (PR 2c). A payment made with credit goes back to credit only.
+                        Radio::make('method')
+                            ->label(__('invoices.refund_method'))
+                            ->options(fn (InvoiceTransaction $record): array => self::refundMethods($record))
+                            ->default(fn (InvoiceTransaction $record): string => array_key_first(self::refundMethods($record)))
+                            ->required(),
                     ])
                     ->action(function (InvoiceTransaction $record, array $data, Action $action): void {
                         try {
-                            if (!empty($data['refund_via_gateway']) && $record->gateway) {
-                                ExtensionHelper::refund($record, (float) $data['amount']);
-                            } else {
-                                ExtensionHelper::refundLocally($record, (float) $data['amount']);
-                            }
+                            match ($data['method'] ?? null) {
+                                'gateway' => ExtensionHelper::refund($record, (float) $data['amount']),
+                                'manual' => ExtensionHelper::refundLocally($record, (float) $data['amount']),
+                                'credit' => ExtensionHelper::refundToCredit($record, (float) $data['amount']),
+                                default => throw new \InvalidArgumentException('Choose how the money goes back.'),
+                            };
 
                             $this->notifyRefundResult(true);
 
@@ -174,8 +178,8 @@ class TransactionsRelationManager extends RelationManager
                         }
                     })
                     ->visible(
-                        fn (InvoiceTransaction $record): bool => !empty($record->transaction_id) &&
-                            $record->status === InvoiceTransactionStatus::Succeeded &&
+                        // Any payment that arrived, with or without a provider id (a transfer staff recorded, a credit payment).
+                        fn (InvoiceTransaction $record): bool => $record->status === InvoiceTransactionStatus::Succeeded &&
                             $record->refundable_amount > 0 &&
                             Auth::user()->can('update', $record)
                     )
@@ -193,6 +197,24 @@ class TransactionsRelationManager extends RelationManager
                         ->using(fn (Collection $records) => $records->each(fn (InvoiceTransaction $record) => DeleteInvoiceTransaction::run($record))),
                 ]),
             ]);
+    }
+
+    /** @return array<string, string> the ways this payment can go back, the default first */
+    private static function refundMethods(InvoiceTransaction $record): array
+    {
+        if ($record->is_credit_transaction) {
+            return ['credit' => __('invoices.refund_method_credit')];
+        }
+        $methods = [];
+        if ($record->gateway && $record->gateway->extension && ExtensionHelper::hasFunction($record->gateway, 'supportsRefunds')
+            && ExtensionHelper::hasFunction($record->gateway, 'refund')) {
+            $methods['gateway'] = __('invoices.refund_method_gateway');
+        }
+
+        return $methods + [
+            'manual' => __('invoices.refund_method_manual'),
+            'credit' => __('invoices.refund_method_credit'),
+        ];
     }
 
     private function notifyRefundResult(bool $success, ?string $errorMessage = null): void

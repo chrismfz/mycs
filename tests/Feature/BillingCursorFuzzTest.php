@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\InvoiceTransactionStatus;
+use App\Helpers\ExtensionHelper;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
@@ -337,15 +338,20 @@ class BillingCursorFuzzTest extends TestCase
                 $paid = !$replay;
                 $detail = "#{$inv->id}";
                 break;
-            case 'cancel_paid': // staff cancel a paid invoice (no refund logic yet: A6)
+            case 'cancel_paid': // staff take back a paid invoice: refunded in full since 2c (a paid one is never cancelled)
                 $done = $this->invoices('paid');
                 if ($done->isEmpty()) {
                     return null;
                 }
                 $inv = $this->pickOne($done);
-                $inv->update(['status' => 'cancelled']);
-                $this->staffLeft[$inv->id] = true; // its money stays on it, as the money check says (I10)
-                $detail = "#{$inv->id}";
+                foreach ($inv->transactions()->where('status', 'succeeded')->get() as $payment) {
+                    $back = (float) $payment->refundable_amount;
+                    if ($back <= 0) {
+                        continue;
+                    }
+                    $payment->is_credit_transaction ? ExtensionHelper::refundToCredit($payment, $back) : ExtensionHelper::refundLocally($payment, $back);
+                }
+                $detail = "#{$inv->id} -> " . $inv->fresh()->status;
                 break;
             case 'manual_line':
                 $inv = $this->invoiceFor(null, null, 'pending');
@@ -697,7 +703,10 @@ class BillingCursorFuzzTest extends TestCase
         Carbon::setTestNow('2027-04-25 10:00:00');
         $service = $this->fixedService('2027-04-30');
         $march = $this->invoiceFor('2027-03-31', '2027-04-30', 'paid', $service);
-        $march->update(['status' => 'cancelled']); // staff cancel it (or it was cancelled and then comped)
+        // Staff refund it in full (2c: a paid invoice is refunded, not cancelled): its period is a hole again.
+        $march->transactions()->where('status', 'succeeded')->get()->each(fn ($payment) => (float) $payment->refundable_amount > 0
+            ? ($payment->is_credit_transaction ? ExtensionHelper::refundToCredit($payment, (float) $payment->refundable_amount)
+                : ExtensionHelper::refundLocally($payment, (float) $payment->refundable_amount)) : null);
 
         Artisan::call('app:cron-job');
 

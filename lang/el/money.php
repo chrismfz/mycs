@@ -14,12 +14,14 @@ return [
         'downgrade' => 'υποβάθμιση',
         'affiliate_reward' => 'αμοιβή συνεργάτη',
         'invoice_reduced' => 'μείωση τιμολογίου',
+        'refund_to_credit' => 'επιστροφή σε πίστωση',
     ],
     'statuses' => [
         'draft' => 'πρόχειρο',
         'pending' => 'ανεξόφλητο',
         'paid' => 'εξοφλημένο',
         'cancelled' => 'ακυρωμένο',
+        'refunded' => 'επιστράφηκε',
     ],
     'outcomes' => [
         'received' => 'ελήφθη',

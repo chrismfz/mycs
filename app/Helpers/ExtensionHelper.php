@@ -17,6 +17,7 @@ use App\Models\Server;
 use App\Models\Service;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
 use Exception;
@@ -573,6 +574,9 @@ class ExtensionHelper
             throw new \InvalidArgumentException('Refund amount must be greater than 0.');
         }
 
+        if ($transaction->is_credit_transaction) {
+            throw new \InvalidArgumentException('A payment made with account credit goes back to account credit.');
+        }
         $gateway = $transaction->gateway;
 
         if (!$gateway || !self::hasFunction($gateway, 'supportsRefunds') || !self::hasFunction($gateway, 'refund')) {
@@ -624,6 +628,8 @@ class ExtensionHelper
     private static function prepareRefund(InvoiceTransaction $transaction, float $amount): array
     {
         $invoice = (new RecordPaymentService)->lockInvoice($transaction->invoice_id);
+        // All its payments, before the credit row: afterRefund reads them to tell a full refund (code review of 2c).
+        $invoice->transactions()->lockForUpdate()->get(['id']);
         $transaction = InvoiceTransaction::whereKey($transaction->id)->lockForUpdate()->firstOrFail();
         // Only money that arrived goes back: a failed or processing payment has nothing to refund.
         if ($transaction->status !== InvoiceTransactionStatus::Succeeded) {
@@ -661,11 +667,88 @@ class ExtensionHelper
             throw new \InvalidArgumentException('Refund amount must be greater than 0.');
         }
 
+        if ($transaction->is_credit_transaction) {
+            throw new \InvalidArgumentException('A payment made with account credit goes back to account credit.');
+        }
+
         DB::transaction(function () use ($transaction, $amount) {
             [$transaction, $credit] = self::prepareRefund($transaction, $amount);
 
             self::recordRefund($transaction, $amount, $credit, MoneyTrail::SOURCE_LOCAL);
         });
+    }
+
+    /**
+     * Refund a payment to the customer's account credit instead of back to them («Add to Client's Credit Balance», as
+     * WHMCS; PR 2c): the amount leaves the invoice as credited_amount and becomes credit (cause refund_to_credit), then
+     * pays the customer's other open invoices (decision 5). The invoice's note and status follow as for any refund.
+     * Not a credit purchase (credit back for credit bought: take the credit back with a refund instead), and not an
+     * invoice without a customer.
+     *
+     * @throws \InvalidArgumentException If amount is invalid or the invoice cannot take it.
+     */
+    public static function refundToCredit(InvoiceTransaction $transaction, float $amount): void
+    {
+        $cents = RecordPaymentService::toCents($amount);
+        if ($cents <= 0) {
+            throw new \InvalidArgumentException('Refund amount must be greater than 0.');
+        }
+
+        $userId = null;
+        $currency = null;
+        DB::transaction(function () use (&$transaction, $amount, $cents, &$userId, &$currency) {
+            $invoice = (new RecordPaymentService)->lockInvoice($transaction->invoice_id);
+            if ($invoice->user_id === null) {
+                throw new \InvalidArgumentException('This invoice has no customer whose credit could take it.');
+            }
+            if ($invoice->items()->where('reference_type', Credit::class)->exists()) {
+                throw new \InvalidArgumentException('A credit purchase is not refunded to credit: refund it back, which takes the credit it bought.');
+            }
+            [$transaction] = self::prepareRefund($transaction, $amount);
+
+            $transaction->increment('credited_amount', $cents / 100);
+            (new CreditLedger)->add((int) $invoice->user_id, $invoice->currency_code, $cents, MoneyTrail::CAUSE_REFUND_TO_CREDIT,
+                MoneyTrail::sourceFor($transaction->gateway, (bool) $transaction->is_credit_transaction), $invoice, $transaction);
+            self::afterRefund($transaction, $cents, 'Refund to account credit for transaction #' . $transaction->id);
+            [$userId, $currency] = [(int) $invoice->user_id, (string) $invoice->currency_code];
+        });
+
+        // The credit pays the customer's other open invoices (decision 5, MT-1e), as an overpayment's does.
+        DB::afterCommit(function () use ($userId, $currency) {
+            try {
+                (new CreditAutoApply)->forCustomer($userId, $currency);
+            } catch (\Throwable $e) {
+                report($e); // the refund stands; the daily pass tries again
+            }
+        });
+    }
+
+    /**
+     * After a refund (back or to credit) is recorded: a paid invoice stays settled, so a note takes the refund off its
+     * total; an open one is still to pay in full, its balance grows back (MT-1c); a cancelled one is settled by its
+     * cancellation note already (the whole total), and reopened it is to pay in full again (adversarial review of 2c,
+     * R4). A paid invoice whose payments all went back is refunded (PR 2c, as WHMCS); its services stay as they are.
+     * The rows are locked already (prepareRefund): nothing here waits for a lock after a gateway refund.
+     */
+    private static function afterRefund(InvoiceTransaction $transaction, int $cents, string $description): void
+    {
+        $invoice = $transaction->invoice;
+        if ($invoice->status === Invoice::STATUS_PAID) {
+            $invoice->adjustmentNotes()->create([
+                'type' => AdjustmentNoteType::Credit->value,
+                'amount' => -1 * $cents / 100,
+                'description' => $description,
+                'is_refund' => true, // follows refunded_amount / credited_amount: never voided by hand (MT-1c)
+            ]);
+        }
+        if ($invoice->status === Invoice::STATUS_PAID) {
+            $kept = (int) $invoice->transactions()->where('status', InvoiceTransactionStatus::Succeeded->value)->lockForUpdate()->get()
+                ->sum(fn (InvoiceTransaction $payment) => RecordPaymentService::toCents($payment->amount)
+                    - RecordPaymentService::toCents($payment->refunded_amount) - RecordPaymentService::toCents($payment->credited_amount));
+            if ($kept === 0) {
+                $invoice->refresh()->update(['status' => Invoice::STATUS_REFUNDED]);
+            }
+        }
     }
 
     /**
@@ -683,17 +766,7 @@ class ExtensionHelper
         // One rounded amount for the transaction, the note and the journal.
         $transaction->increment('refunded_amount', $cents / 100);
         $trail->refund($transaction, $transaction->invoice, $cents, $source);
-
-        // A paid (or cancelled) invoice stays settled: the note takes the refund off its total. An open invoice is
-        // still to pay in full: the refund only lowers what it received, its balance grows back (MT-1c).
-        if (!in_array($transaction->invoice->status, [Invoice::STATUS_PENDING, Invoice::STATUS_DRAFT], true)) {
-            $transaction->invoice->adjustmentNotes()->create([
-                'type' => AdjustmentNoteType::Credit->value,
-                'amount' => -1 * $cents / 100,
-                'description' => 'Refund for transaction #' . $transaction->id . ' (' . ($transaction->transaction_id ?? 'manual') . ')',
-                'is_refund' => true, // follows refunded_amount: never voided by hand (MT-1c)
-            ]);
-        }
+        self::afterRefund($transaction, $cents, 'Refund for transaction #' . $transaction->id . ' (' . ($transaction->transaction_id ?? 'manual') . ')');
 
         return true;
     }

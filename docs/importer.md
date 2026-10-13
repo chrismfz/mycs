@@ -38,6 +38,23 @@
 - **Ρυθμίσεις αυτοματισμού:** από το `tblconfiguration` της εταιρείας στην καρτέλα Automation (`AutoSuspension`, `AutoSuspensionDays`, `AutoTermination`, `AutoTerminationDays`, `CreateInvoiceDaysBefore`, `CloseInactiveTickets` σε ώρες → ημέρες, `DailyCronExecutionHour`)· αντιστοίχιση στο `settings-map.md` (Αυτοματισμοί).
 - **Ό,τι άλλο βγάλει η απογραφή χρήσης του WHMCS** (`whmcs-usage.md`): mass pay/merge, πιστώσεις, promotions και εκπτώσεις ομάδων, κανόνες ΦΠΑ/VIES, custom fields, suspend overrides, guest tickets.
 
+## Status τιμολογίων (2026-10-13)
+Το WHMCS και το MyCS λένε τα ίδια με άλλες λέξεις. Στη βάση του MyCS το «Unpaid» είναι `pending` (λέξη του Paymenter)·
+οι οθόνες γράφουν «Unpaid» / «Απλήρωτο» (`Invoice::statusLabel`). Αντιστοίχιση για τον importer:
+
+| WHMCS | MyCS |
+|---|---|
+| Draft | `draft` |
+| Unpaid, Payment Pending | `pending` (το «Payment Pending» είναι συναλλαγή `processing`, όχι status τιμολογίου) |
+| Paid | `paid` |
+| Cancelled | `cancelled` |
+| Refunded | `refunded` (PR 2c) |
+| Collections | να αποφασιστεί (δεν χρησιμοποιείται σήμερα· πρόταση: `pending` με σημείωση) |
+
+Ο importer του Paymenter (`ImportFromWhmcs.php`) γράφει `unpaid`, status που δεν υπάρχει στο MyCS: τα απλήρωτα θα
+χάνονταν από τις λίστες, τις πληρωμές και τον cron (adversarial review του 2b). Δεν χρησιμοποιείται· ο νέος importer
+ακολουθεί τον πίνακα.
+
 ## Έλεγχος
 - Κάθε αριθμός της λίστας parity βγαίνει **και από τις δύο πλευρές** με μία εντολή (π.χ. `mycs:parity --whmcs-copy=…`)
   και τυπώνει diff. Cut-over μόνο με μηδενικό diff ή με κάθε διαφορά εξηγημένη και καταγεγραμμένη.

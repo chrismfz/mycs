@@ -361,6 +361,14 @@ class RecordPaymentService
             if (self::toCents($transaction->refunded_amount) > 0) {
                 throw new DisplayException(__('This payment has refunds: it cannot be deleted (its refund history and gateway transaction id must stay).'));
             }
+            // Refunded to credit (PR 2c): its refund note stays on the invoice, so without the payment it would be a
+            // discount (code review and adversarial review of 2c). Its other credited part (an overpayment, a
+            // settle) is no refund and is taken back as before.
+            if (MoneyEvent::query()->where('invoice_transaction_id', $transaction->id)->where('cause', MoneyTrail::CAUSE_REFUND_TO_CREDIT)
+                ->whereNotExists(fn ($reversal) => $reversal->from('money_events as reversals')->whereColumn('reversals.reverses_id', 'money_events.id'))
+                ->exists()) {
+                throw new DisplayException(__('This payment has refunds: it cannot be deleted (its refund history and gateway transaction id must stay).'));
+            }
 
             // Its journal entries not undone yet (none for a payment that never succeeded): each gets a reversal.
             // Locked: read current, not the transaction's snapshot. Its gap locks can make two concurrent deletions

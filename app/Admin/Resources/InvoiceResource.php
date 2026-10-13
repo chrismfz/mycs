@@ -11,6 +11,7 @@ use App\Admin\Resources\InvoiceResource\Pages\ViewInvoice;
 use App\Admin\Resources\InvoiceResource\RelationManagers\AdjustmentNotesRelationManager;
 use App\Admin\Resources\InvoiceResource\RelationManagers\MoneyEventsRelationManager;
 use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationManager;
+use App\Exceptions\DisplayException;
 use App\Models\Currency;
 use App\Models\Invoice;
 use App\Models\Service;
@@ -25,9 +26,11 @@ use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
+use Filament\Support\Exceptions\Halt;
 use Filament\Support\RawJs;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
@@ -81,19 +84,18 @@ class InvoiceResource extends Resource
                 Select::make('status')
                     ->label('Status')
                     ->required()
-                    ->options([
-                        'paid' => 'Paid',
-                        'pending' => 'Pending',
-                        'draft' => 'Draft',
-                        'cancelled' => 'Cancelled',
-                    ])
+                    ->options(Invoice::statusOptions())
                     // Paid only by recording its payment (Mark Paid, docs/money-trail.md MT-1c): never on a new invoice,
                     // and on an existing one only when exactly nothing is left to pay. Paid over its total, it is closed
                     // with «Close as paid», which gives the part over as credit (2b). A cancelled invoice is reopened first.
-                    ->disableOptionWhen(fn (string $value, ?Invoice $record): bool => $value === Invoice::STATUS_PAID
+                    // Refunded only by refunding its payments, and final (PR 2c); a paid invoice is refunded, never
+                    // cancelled (INV-16).
+                    ->disableOptionWhen(fn (string $value, ?Invoice $record): bool => ($value === Invoice::STATUS_PAID
                         && $record?->getOriginal('status') !== Invoice::STATUS_PAID
                         && ($record === null || $record->getOriginal('status') === Invoice::STATUS_CANCELLED
                             || RecordPaymentService::toCents($record->remaining) !== 0))
+                        || ($value === Invoice::STATUS_REFUNDED) !== ($record?->getOriginal('status') === Invoice::STATUS_REFUNDED)
+                        || ($value === Invoice::STATUS_CANCELLED && $record?->getOriginal('status') === Invoice::STATUS_PAID))
                     ->default(fn (): string => config('settings.immutable_invoices_enabled', false) ? Invoice::STATUS_DRAFT : Invoice::STATUS_PENDING)
                     ->placeholder('Select the status of the invoice'),
                 Select::make('currency_code')
@@ -166,14 +168,9 @@ class InvoiceResource extends Resource
                     ->searchable(true, fn (Builder $query, string $search) => $query->whereHas('user', fn (Builder $query) => $query->where('first_name', 'like', "%$search%")->orWhere('last_name', 'like', "%$search%"))),
                 TextColumn::make('status')
                     ->label('Status')
-                    // Make first letter uppercase
-                    ->formatStateUsing(fn (string $state): string => ucfirst($state))
+                    ->formatStateUsing(fn (string $state): string => Invoice::statusLabel($state))
                     ->badge()
-                    ->color(fn (string $state): string => match ($state) {
-                        'paid' => 'success',
-                        'pending' => 'warning',
-                        default => 'danger',
-                    })
+                    ->color(fn (string $state): string => Invoice::statusColor($state))
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('created_at')
@@ -193,11 +190,7 @@ class InvoiceResource extends Resource
             ->filters([
                 SelectFilter::make('status')
                     ->label('Status')
-                    ->options([
-                        'paid' => 'Paid',
-                        'pending' => 'Pending',
-                        'cancelled' => 'Cancelled',
-                    ]),
+                    ->options(Invoice::statusOptions()),
                 // Paid, its services not renewed yet (BIL-9): the cron's paid_applied tries again; the money check
                 // reports one still waiting after a day (MT-3).
                 Filter::make('paid_not_applied')
@@ -219,12 +212,19 @@ class InvoiceResource extends Resource
                             ->required(),
                     ])
                     ->action(function (Invoice $record, array $data) {
-                        $record->update([
-                            'status' => Invoice::STATUS_CANCELLED,
-                            'cancellation_reason' => $data['cancellation_reason'],
-                        ]);
+                        try {
+                            $record->update([
+                                'status' => Invoice::STATUS_CANCELLED,
+                                'cancellation_reason' => $data['cancellation_reason'],
+                            ]);
+                        } catch (DisplayException $e) { // it holds payments: refund them first (PR 2c)
+                            Notification::make()->danger()->title(__('Invoice not cancelled'))->body($e->getMessage())->send();
+
+                            throw new Halt;
+                        }
                     })
-                    ->visible(fn (Invoice $record): bool => auth()->user()->can('update', Invoice::class) && !in_array($record->status, [Invoice::STATUS_CANCELLED, Invoice::STATUS_PAID])),
+                    ->visible(fn (Invoice $record): bool => auth()->user()->can('update', Invoice::class)
+                        && !in_array($record->status, [Invoice::STATUS_CANCELLED, Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED], true)),
             ]);
     }
 

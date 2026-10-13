@@ -9,6 +9,7 @@ use App\Admin\Resources\InvoiceResource\RelationManagers\AdjustmentNotesRelation
 use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationManager;
 use App\Admin\Resources\ServiceResource;
 use App\Classes\PDF;
+use App\Exceptions\DisplayException;
 use App\Models\Invoice;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
@@ -16,9 +17,11 @@ use Filament\Actions\Action;
 use Filament\Forms\Components\TextInput;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
+use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
+use Filament\Support\Exceptions\Halt;
 
 class ViewInvoice extends ViewRecord
 {
@@ -46,13 +49,8 @@ class ViewInvoice extends ViewRecord
                         TextEntry::make('status')
                             ->label('Status')
                             ->badge()
-                            ->color(fn (string $state): string => match ($state) {
-                                'paid' => 'success',
-                                'pending' => 'warning',
-                                'draft' => 'gray',
-                                default => 'danger',
-                            })
-                            ->formatStateUsing(fn (string $state): string => ucfirst($state)),
+                            ->color(fn (string $state): string => Invoice::statusColor($state))
+                            ->formatStateUsing(fn (string $state): string => Invoice::statusLabel($state)),
                         TextEntry::make('currency.code')
                             ->label('Currency'),
                         TextEntry::make('created_at')
@@ -105,12 +103,19 @@ class ViewInvoice extends ViewRecord
                         ->required(),
                 ])
                 ->action(function (Invoice $invoice, array $data) {
-                    $invoice->update([
-                        'status' => Invoice::STATUS_CANCELLED,
-                        'cancellation_reason' => $data['cancellation_reason'],
-                    ]);
+                    try {
+                        $invoice->update([
+                            'status' => Invoice::STATUS_CANCELLED,
+                            'cancellation_reason' => $data['cancellation_reason'],
+                        ]);
+                    } catch (DisplayException $e) { // it holds payments: refund them first (PR 2c)
+                        Notification::make()->danger()->title(__('Invoice not cancelled'))->body($e->getMessage())->send();
+
+                        throw new Halt;
+                    }
                 })
-                ->visible(fn (Invoice $invoice): bool => $invoice->status !== Invoice::STATUS_CANCELLED),
+                // A paid invoice is refunded, not cancelled (INV-16, PR 2c); a refunded one is final.
+                ->visible(fn (Invoice $invoice): bool => !in_array($invoice->status, [Invoice::STATUS_CANCELLED, Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED], true)),
             Action::make('pdf')
                 ->label('Download PDF')
                 ->action(function (Invoice $invoice) {

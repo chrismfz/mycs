@@ -51,14 +51,9 @@ class InvoicesRelationManager extends RelationManager
                 TextColumn::make('formattedTotal')->label('Total'),
                 TextColumn::make('status')
                     ->label('Status')
-                    // Make first letter uppercase
-                    ->formatStateUsing(fn (string $state): string => ucfirst($state))
+                    ->formatStateUsing(fn (string $state): string => Invoice::statusLabel($state))
                     ->badge()
-                    ->color(fn (string $state): string => match ($state) {
-                        'paid' => 'success',
-                        'pending' => 'warning',
-                        default => 'danger',
-                    }),
+                    ->color(fn (string $state): string => Invoice::statusColor($state)),
             ])
             ->filters([
                 //

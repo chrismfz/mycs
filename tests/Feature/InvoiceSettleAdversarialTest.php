@@ -309,7 +309,8 @@ class InvoiceSettleAdversarialTest extends TestCase
         ExtensionHelper::refundLocally($payment->fresh(), 50.0);
 
         $this->assertSame(1000, $this->balanceCents());
-        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
+        // All of what stayed on it went back: refunded since 2c (it was paid before).
+        $this->assertSame(Invoice::STATUS_REFUNDED, $invoice->fresh()->status);
         $this->assertBooksClean('guard refund:');
     }
 

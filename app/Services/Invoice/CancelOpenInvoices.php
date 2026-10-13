@@ -75,8 +75,11 @@ final class CancelOpenInvoices
         }
         // A payment still processing does not keep it open: when it settles on a cancelled invoice it becomes credit
         // (RecordPaymentService), and on a smaller one the part over becomes credit.
-        $transactions = $invoice->transactions()->lockForUpdate()->get(['id', 'status', 'is_credit_transaction']);
-        if ($transactions->contains(fn ($transaction) => $transaction->status === InvoiceTransactionStatus::Succeeded && !$transaction->is_credit_transaction)) {
+        // What stays on it: a payment refunded, or moved to credit, holds nothing any more (code review of 2c).
+        $transactions = $invoice->transactions()->lockForUpdate()->get(['id', 'status', 'is_credit_transaction', 'amount', 'refunded_amount', 'credited_amount']);
+        if ($transactions->contains(fn ($transaction) => $transaction->status === InvoiceTransactionStatus::Succeeded && !$transaction->is_credit_transaction
+            && RecordPaymentService::toCents($transaction->amount) - RecordPaymentService::toCents($transaction->refunded_amount)
+                - RecordPaymentService::toCents($transaction->credited_amount) > 0)) {
             return 'it holds money a gateway or a transfer paid (refund it or move it to credit, then cancel it).';
         }
 

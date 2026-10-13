@@ -162,7 +162,7 @@ upgrades) που διαφωνούν μεταξύ τους. Ένα service, σε 
 - «Mark Paid» = dropdown status χωρίς συναλλαγή (χωρίς ημερομηνία/μέθοδο, `remaining > 0`, και μετά διαγράφεται). Action μέσω `RecordPaymentService` με ημερομηνία πληρωμής (έμβασμα = 42,7% στη myip). INV-4, PAY-13 (επικάλυψη MT-1 «Mark Paid»)
 - Αλλαγή πελάτη/νομίσματος σε τιμολόγιο με χρήματα. INV-10
 - Επεξεργασία γραμμών σε πληρωμένο τιμολόγιο χωρίς επανέλεγχο status. INV-11 (επικάλυψη PR 2b). **Έκλεισε:** οι γραμμές του paid κλειδώνουν (MT-1c)· το ανοιχτό που καλύπτεται κλείνει με το «Close as paid», το 0 € αυτόματα (2b, `payments.md`)
-- Paid → Cancelled επιτρέπεται και γράφει πιστωτικό ίσο με το σύνολο. INV-16 (επικάλυψη 2c)
+- Paid → Cancelled επιτρέπεται και γράφει πιστωτικό ίσο με το σύνολο. INV-16 (επικάλυψη 2c). **Έκλεισε (2c-1):** paid ή ανοιχτό με πληρωμές δεν ακυρώνεται· πρώτα επιστροφή, πίσω ή σε πίστωση· status `refunded`
 - Adjustment notes: επεξεργάσιμα, διαγράψιμα, αριθμημένα και ορατά στον πελάτη ως «Credit note» (μπερδεύεται με το φορολογικό πιστωτικό του Ekdosi). Append-only, εσωτερικά. INV-9 (επικάλυψη MT-1)
 - PDF/σελίδα πελάτη: τα σύνολα δεν αθροίζονται (ΦΠΑ από σύνολο που περιέχει ήδη τις προσαρμογές), λείπουν «Πληρώθηκε/Υπόλοιπο» και η ημερομηνία λήξης. INV-8
 - «Issued At» στη φόρμα αγνοείται (εκτός `$fillable`). INV-17
@@ -208,7 +208,7 @@ status** (Accept Order = 449/έτος στη myip). Enums με casts + CHECK, κ
 ## Parity με WHMCS που χρειάζεται η nixpal πριν το go-live
 Μπαίνουν στα υπάρχοντα items του ROADMAP:
 - **Auto-charge**: σήμερα μία προσπάθεια, 7–20 ημέρες πριν τη λήξη, χωρίς retry, μόνο για τιμολόγια ανανέωσης, χωρίς ειδοποίηση staff. WHMCS: χρέωση στη λήξη + N retries. nixpal: 62% Stripe auto-charge. BIL-3, PAY-2
-- **Refunds/chargebacks από το dashboard του gateway** δεν φτάνουν ποτέ (invoice μένει paid). PAY-5 (με 2c/MT-1)
+- **Refunds/chargebacks από το dashboard του gateway** δεν φτάνουν ποτέ (invoice μένει paid). PAY-5 (με 2c/MT-1· μένει για το 2c-2)
 - **Υπενθυμίσεις**: καμία πριν την αναστολή· η ρύθμιση `cronjob_invoice_reminder` φαίνεται στο admin αλλά δεν κάνει τίποτα. EVT-5
 - **Tickets της nixpal ως το port**: το `FetchEmails` σταματά σε ένα κακό μήνυμα για όλα τα επόμενα, χάνει απαντήσεις (case-sensitive From, log πριν το create)· **καμία ειδοποίηση staff** για νέο ticket ή απάντηση πελάτη· οποιοσδήποτε γράφει σε ticket άλλου με πλαστό From. EVT-3, EVT-6, EVT-4 (σχέδιο token τώρα)
 - Templates email που λείπουν (unsuspended, refund, credit, upgrade, admin notifications…)· γλώσσα ανά πελάτη. EVT-7, EVT-8
