@@ -261,8 +261,9 @@ class CronJob extends Command
                             TerminateJob::dispatch($service)->afterCommit();
                             $service->update(['status' => 'cancelled']);
                             // Only its own lines: an invoice imported from WHMCS bills every service due that day.
-                            $this->cancelInvoices($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), __('invoices.cancellation_reasons.service_terminated'), $service);
+                            // Upgrades first: service, upgrade, then invoices (the order ServiceUpgradeService takes).
                             $this->leftOpen(CancelPendingUpgrades::forService($service, __('invoices.cancellation_reasons.service_terminated')));
+                            $this->cancelInvoices($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), __('invoices.cancellation_reasons.service_terminated'), $service);
                             if ($service->product?->stock !== null) {
                                 $service->product->increment('stock', $service->quantity);
                             }
@@ -434,10 +435,10 @@ class CronJob extends Command
     }
 
     /**
-     * One pending upgrade. Paid: left to paid_applied (BIL-9), never cancelled here. Its service ended (cancelled, gone)
-     * or past its due date (a one-time plan, with no due date, never is): cancelled with its part of its invoice.
-     * Otherwise its own line takes the current price, under the payment locks (an invoice with a payment on it keeps
-     * its line: a lower price would leave a payment above what is owed).
+     * One pending upgrade. Its service ended (cancelled, gone) or past its due date (a one-time plan, with no due date,
+     * never is): given up on (CancelPendingUpgrades: never a paid one, never while its invoice is kept open). Otherwise
+     * its own line takes the current price, under the payment locks (an invoice with a payment on it keeps its line: a
+     * lower price would leave a payment above what is owed).
      */
     private function refreshUpgrade(int $id): int
     {
@@ -447,28 +448,23 @@ class CronJob extends Command
         if ($upgrade === null || $upgrade->status !== ServiceUpgrade::STATUS_PENDING) {
             return 0;
         }
-        $invoice = $upgrade->invoice;
-        if ($invoice?->status === Invoice::STATUS_PAID) {
-            return 0;
-        }
 
         $running = $service !== null && in_array($service->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true);
         if (!$running || ($service->expires_at !== null && $service->expires_at < now())) {
-            $upgrade->update(['status' => ServiceUpgrade::STATUS_CANCELLED]);
-            // Somehow people manage to have an upgrade without an invoice
-            if ($invoice !== null) {
-                $reason = $running ? 'upgrade_expired' : 'service_terminated';
-                $this->cancelInvoices([$invoice], __("invoices.cancellation_reasons.{$reason}"), $upgrade);
-            }
+            // Decided under the invoice's lock: a paid one is left to ServiceUpgradeService, one kept open waits.
+            [$cancelled, $left] = CancelPendingUpgrades::one($id, __('invoices.cancellation_reasons.' . ($running ? 'upgrade_expired' : 'service_terminated')));
+            $this->leftOpen($left);
 
-            return 1;
+            return $cancelled ? 1 : 0;
         }
-        if ($invoice === null) {
+        // No invoice to follow the price; or a service whose plan was deleted: no price to compute (staff fix it).
+        $invoice = $upgrade->invoice;
+        if ($invoice === null || $service->plan === null) {
             return 0;
         }
 
         // Only this upgrade's own line: a renewal line, or another upgrade, on the same invoice keeps its price. Line
-        // by line (MT-2b): a change of price is in the audit.
+        // by line (MT-2b): a change of price is in the audit. ChangeOpenLine locks the invoice and leaves a paid one.
         $price = $upgrade->calculatePrice()->price;
         $changed = 0;
         $invoice->items()->where('reference_type', ServiceUpgrade::class)->where('reference_id', $upgrade->id)->get()
@@ -503,8 +499,8 @@ class CronJob extends Command
 
         TerminateJob::dispatch($service)->afterCommit();
         $service->forceFill(['status' => Service::STATUS_CANCELLED])->save();
-        $this->cancelInvoices($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), __('invoices.cancellation_reasons.cancellation_request'), $service);
         $this->leftOpen(CancelPendingUpgrades::forService($service, __('invoices.cancellation_reasons.cancellation_request')));
+        $this->cancelInvoices($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), __('invoices.cancellation_reasons.cancellation_request'), $service);
         if ($service->product?->stock !== null) {
             $service->product->increment('stock', $service->quantity);
         }

@@ -2,6 +2,7 @@
 
 namespace App\Services\ServiceUpgrade;
 
+use App\Helpers\NotificationHelper;
 use App\Jobs\Server\UpgradeJob;
 use App\Models\ConfigOptionProduct;
 use App\Models\Service;
@@ -20,27 +21,33 @@ class ServiceUpgradeService
      * (cancelled, or never started) is not upgraded (audit sweep SVC-6): the upgrade is cancelled and its money is the
      * staff's to refund or credit.
      */
-    public function handle(ServiceUpgrade $serviceUpgrade): void
+    public function handle(ServiceUpgrade $serviceUpgrade): bool
     {
-        DB::transaction(function () use ($serviceUpgrade) {
+        $original = $serviceUpgrade;
+
+        return DB::transaction(function () use ($serviceUpgrade, $original) {
             $serviceId = ServiceUpgrade::query()->whereKey($serviceUpgrade->getKey())->value('service_id');
             $service = $serviceId === null ? null : Service::query()->whereKey($serviceId)->lockForUpdate()->first();
             $locked = ServiceUpgrade::query()->whereKey($serviceUpgrade->getKey())->lockForUpdate()->first();
             if ($locked === null || $locked->status !== ServiceUpgrade::STATUS_PENDING) {
-                return;
+                return false;
             }
             if ($service === null || !in_array($service->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true)) {
                 $locked->update(['status' => ServiceUpgrade::STATUS_CANCELLED]);
-                $serviceUpgrade->setRawAttributes($locked->getAttributes(), true);
-                Log::warning('Paid upgrade of a service that no longer runs: not applied (refund or credit it).', [
-                    'service_upgrade_id' => $locked->id, 'service_id' => $serviceId, 'invoice_id' => $locked->invoice_id,
-                ]);
+                $original->setRawAttributes($locked->getAttributes(), true);
+                $context = ['service_upgrade_id' => $locked->id, 'service_id' => $serviceId, 'invoice_id' => $locked->invoice_id];
+                Log::warning('Paid upgrade of a service that no longer runs: not applied (refund or credit it).', $context);
+                DB::afterCommit(fn () => NotificationHelper::sendSystemEmailNotification('Paid upgrade not applied: needs staff attention', e(
+                    "Upgrade #{$locked->id} of service #{$serviceId} (invoice #{$locked->invoice_id}) was paid, but the service no longer runs: "
+                    . 'it was not applied. Refund the payment or move it to credit.'
+                )));
 
-                return;
+                return false;
             }
             $serviceUpgrade = $locked;
             $serviceUpgrade->status = ServiceUpgrade::STATUS_COMPLETED;
             $serviceUpgrade->save();
+            $original->setRawAttributes($serviceUpgrade->getAttributes(), true);
 
             // Check if old product stock should be increased
             if ($service->product->stock !== null) {
@@ -98,6 +105,8 @@ class ServiceUpgradeService
             if ($service->product->server) {
                 UpgradeJob::dispatch($service);
             }
+
+            return true;
         });
     }
 }

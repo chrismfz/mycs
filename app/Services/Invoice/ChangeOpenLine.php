@@ -6,6 +6,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use Closure;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * A change to a line of an open invoice made by the app (a new recurring amount, an upgrade's price), under the
@@ -20,7 +21,15 @@ class ChangeOpenLine
     {
         return DB::transaction(function () use ($line, $change) {
             $invoice = (new RecordPaymentService)->lockInvoice($line->invoice_id);
-            if (!in_array($invoice->status, [Invoice::STATUS_PENDING, Invoice::STATUS_DRAFT], true) || $invoice->hasPayments(lock: true)) {
+            if (!in_array($invoice->status, [Invoice::STATUS_PENDING, Invoice::STATUS_DRAFT], true)) {
+                return false;
+            }
+            if ($invoice->hasPayments(lock: true)) {
+                // Kept at its price: staff decide (a note, or a refund of the part over).
+                Log::warning('A line of an invoice with a payment on it keeps its price: the app would have changed it.', [
+                    'invoice_id' => $invoice->id, 'invoice_item_id' => $line->getKey(),
+                ]);
+
                 return false;
             }
             $locked = InvoiceItem::query()->whereKey($line->getKey())->lockForUpdate()->first();
