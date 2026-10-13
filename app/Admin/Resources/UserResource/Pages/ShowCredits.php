@@ -79,7 +79,9 @@ class ShowCredits extends ManageRelatedRecords
                         JS
                     ))
                     ->rules([fn (): \Closure => function (string $attribute, $value, \Closure $fail) {
-                        if (RecordPaymentService::toCents($value) <= 0) {
+                        if (is_numeric($value) && (float) $value * 100 > CreditLedger::MAX_CENTS) {
+                            $fail(__('The amount cannot be more than :max.', ['max' => number_format(CreditLedger::MAX_CENTS / 100, 2, '.', '')]));
+                        } elseif (RecordPaymentService::toCents($value) <= 0) {
                             $fail(__('The amount must be positive.'));
                         }
                     }]),

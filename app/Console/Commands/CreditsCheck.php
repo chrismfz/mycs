@@ -5,7 +5,6 @@ namespace App\Console\Commands;
 use App\Enums\MoneyEventKind;
 use App\Models\Credit;
 use App\Models\MoneyEvent;
-use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -24,11 +23,12 @@ class CreditsCheck extends Command
 
     public function handle(): int
     {
-        // One snapshot for both reads (REPEATABLE READ): a move between them would show as a false mismatch.
+        // One snapshot for both reads (REPEATABLE READ): a move between them would show as a false mismatch. Balances
+        // are read exactly, any size (not through toCents, which reads a huge amount as zero), so they show here.
         [$journal, $balances] = DB::transaction(fn () => [
             $this->journalCents(),
             Credit::query()->get(['user_id', 'currency_code', 'amount'])
-                ->mapWithKeys(fn (Credit $credit) => [$credit->user_id . '|' . $credit->currency_code => RecordPaymentService::toCents($credit->amount)]),
+                ->mapWithKeys(fn (Credit $credit) => [$credit->user_id . '|' . $credit->currency_code => (int) round((float) $credit->amount * 100)]),
         ]);
 
         $rows = [];

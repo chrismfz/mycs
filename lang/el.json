@@ -79,5 +79,7 @@
     "The amount must be positive.": "Το ποσό πρέπει να είναι θετικό.",
     "Reason": "Αιτία",
     "Kept with the credit history, for staff only.": "Μένει στο ιστορικό πίστωσης, μόνο για το staff.",
-    "Credit not changed": "Η πίστωση δεν άλλαξε"
+    "Credit not changed": "Η πίστωση δεν άλλαξε",
+    "Account credit cannot go past :max.": "Η πίστωση δεν μπορεί να ξεπεράσει τα :max.",
+    "The amount cannot be more than :max.": "Το ποσό δεν μπορεί να ξεπερνά τα :max."
 }

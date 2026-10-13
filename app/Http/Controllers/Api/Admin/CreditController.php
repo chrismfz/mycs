@@ -88,7 +88,7 @@ class CreditController extends ApiController
             // Checked and changed under the ledger's lock: a payment can move this balance in between.
             DB::transaction(function () use ($credit, $data) {
                 $locked = (new CreditLedger)->lock((int) $credit->user_id, $credit->currency_code);
-                if ($locked === null || RecordPaymentService::toCents($locked->amount) !== 0) {
+                if ($locked === null || !CreditLedger::isZero($locked)) {
                     abort(422, 'The currency of a credit changes only while its balance is zero.');
                 }
                 $locked->update(['currency_code' => $data['currency_code']]);
@@ -117,7 +117,7 @@ class CreditController extends ApiController
         // Checked and deleted under the ledger's lock: a payment can move this balance in between.
         DB::transaction(function () use ($credit) {
             $locked = (new CreditLedger)->lock((int) $credit->user_id, $credit->currency_code);
-            if ($locked !== null && RecordPaymentService::toCents($locked->amount) !== 0) {
+            if ($locked !== null && !CreditLedger::isZero($locked)) {
                 abort(422, 'A credit with a balance cannot be deleted: set its amount to 0 first (with a reason).');
             }
             $locked?->delete();

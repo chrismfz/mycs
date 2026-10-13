@@ -155,7 +155,7 @@ class RecordPaymentService
                 return null;
             }
             $credit = $this->lockCredit($invoice);
-            $available = $credit === null ? 0 : self::toCents($credit->amount);
+            $available = $credit === null ? 0 : CreditLedger::cents($credit);
             $remaining = max(0, self::toCents($invoice->withLockedBalance()->remaining));
             $cents = min($available, $remaining);
             if ($credit === null || $cents <= 0 || ($onlyIfCovers && $available < $remaining)) {
@@ -197,7 +197,7 @@ class RecordPaymentService
 
             $budget = self::toCents($source->credited_amount) - $allocations->sum(fn (InvoiceTransaction $paid) => self::toCents($paid->amount));
             $credit = $this->lockCredit($invoice);
-            $available = $credit === null ? 0 : self::toCents($credit->amount);
+            $available = $credit === null ? 0 : CreditLedger::cents($credit);
             $remaining = max(0, self::toCents($invoice->withLockedBalance()->remaining));
             $cents = min($budget, $available, $remaining);
             if ($credit === null || $cents <= 0) {
@@ -261,7 +261,7 @@ class RecordPaymentService
                 }
                 $credit = $this->lockCredit($invoice)
                     ?? $invoice->user->credits()->create(['currency_code' => $invoice->currency_code, 'amount' => 0]);
-                $balance = self::toCents($credit->amount);
+                $balance = CreditLedger::cents($credit);
                 if ($balance + $change < 0) {
                     throw new DisplayException(__('Part of this payment became account credit and the customer has already used it: it cannot be deleted.'));
                 }

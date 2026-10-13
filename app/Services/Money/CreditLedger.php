@@ -7,7 +7,6 @@ use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\User;
-use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Support\Facades\DB;
 use LogicException;
 
@@ -21,6 +20,9 @@ use LogicException;
  */
 class CreditLedger
 {
+    /** The largest balance (either way) in cents: 9,999,999,999.99, the API's max too. */
+    public const MAX_CENTS = 999_999_999_999;
+
     /** The customer's credit row in this currency, locked after the customer; null when there is none. */
     public function lock(int $userId, string $currency): ?Credit
     {
@@ -61,7 +63,7 @@ class CreditLedger
 
         return DB::transaction(function () use ($userId, $currency, $targetCents, $cause, $source, $note) {
             $credit = $this->lock($userId, $currency);
-            $difference = $targetCents - RecordPaymentService::toCents($credit === null ? 0 : $credit->amount);
+            $difference = $targetCents - ($credit === null ? 0 : self::cents($credit));
             if ($difference === 0) {
                 return $credit;
             }
@@ -83,7 +85,29 @@ class CreditLedger
     /** The balance in cents (no lock: for display and checks). */
     public function balanceCents(int $userId, string $currency): int
     {
-        return RecordPaymentService::toCents(Credit::query()->where('user_id', $userId)->where('currency_code', $currency)->value('amount') ?? 0);
+        $credit = Credit::query()->where('user_id', $userId)->where('currency_code', $currency)->first();
+
+        return $credit === null ? 0 : self::cents($credit);
+    }
+
+    /**
+     * A stored balance in cents. Unlike RecordPaymentService::toCents, never 0 for an amount it cannot represent:
+     * a balance past MAX_CENTS (only from outside the ledger) stops the caller instead of being read as zero.
+     */
+    public static function cents(Credit $credit): int
+    {
+        $cents = (float) $credit->amount * 100;
+        if (abs($cents) > self::MAX_CENTS + 0.5) {
+            throw new LogicException("The credit balance of row {$credit->getKey()} is out of range.");
+        }
+
+        return (int) round($cents);
+    }
+
+    /** Whether a stored balance is exactly zero (any size: for checks that must not read a huge balance as zero). */
+    public static function isZero(Credit $credit): bool
+    {
+        return (float) $credit->amount === 0.0;
     }
 
     private function move(int $sign, int $userId, string $currency, int $cents, string $cause, string $source, ?Invoice $invoice, ?InvoiceTransaction $transaction, ?string $note, ?string $group, bool $mayGoNegative): Credit
@@ -96,10 +120,16 @@ class CreditLedger
         return DB::transaction(function () use ($sign, $userId, $currency, $cents, $cause, $source, $invoice, $transaction, $note, $group, $mayGoNegative) {
             $credit = $this->lock($userId, $currency)
                 ?? Credit::query()->create(['user_id' => $userId, 'currency_code' => $currency, 'amount' => 0]);
-            $balance = RecordPaymentService::toCents($credit->amount) + $sign * $cents;
+            $before = self::cents($credit);
+            $balance = $before + $sign * $cents;
             if ($balance < 0 && !$mayGoNegative) {
                 throw new DisplayException(__('Not enough account credit: the balance is :balance.', [
-                    'balance' => number_format(RecordPaymentService::toCents($credit->amount) / 100, 2, '.', '') . ' ' . $currency,
+                    'balance' => number_format($before / 100, 2, '.', '') . ' ' . $currency,
+                ]));
+            }
+            if (abs($balance) > self::MAX_CENTS) {
+                throw new DisplayException(__('Account credit cannot go past :max.', [
+                    'max' => number_format(self::MAX_CENTS / 100, 2, '.', '') . ' ' . $currency,
                 ]));
             }
             $credit->amount = $balance / 100;
