@@ -121,7 +121,7 @@ class SuspensionRulesAdversarialTest extends TestCase
 
         $fired = false;
         DB::listen(function ($query) use (&$fired, $invoice, $service) {
-            if (!$fired && str_contains($query->sql, 'due_at') && str_contains($query->sql, 'exists') && str_contains($query->sql, '"services"')) {
+            if (!$fired && str_contains($query->sql, 'due_at') && str_contains($query->sql, 'exists') && preg_match('/[`"]services[`"]/', $query->sql)) {
                 $fired = true; // the payment lands right after the selection query
                 DB::table('invoices')->where('id', $invoice->id)->update(['status' => 'paid']);
                 DB::table('services')->where('id', $service->id)->update(['expires_at' => '2026-11-10 00:00:00']);
@@ -143,7 +143,7 @@ class SuspensionRulesAdversarialTest extends TestCase
 
         $fired = false;
         DB::listen(function ($query) use (&$fired, $service) {
-            if (!$fired && str_contains($query->sql, 'due_at') && str_contains($query->sql, 'exists') && str_contains($query->sql, '"services"')) {
+            if (!$fired && str_contains($query->sql, 'due_at') && str_contains($query->sql, 'exists') && preg_match('/[`"]services[`"]/', $query->sql)) {
                 $fired = true;
                 DB::table('services')->where('id', $service->id)->update(['suspend_hold_until' => '2026-10-30']);
             }
