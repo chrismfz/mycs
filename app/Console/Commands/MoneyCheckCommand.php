@@ -47,11 +47,11 @@ class MoneyCheckCommand extends Command
 
         $this->table(['Rule', 'About', 'Detail'], array_map(fn (array $finding) => array_values($finding), $findings));
         $this->warn(count($findings) . ' finding(s).');
-        PaymentsLog::warning('money-check: ' . count($findings) . ' finding(s).', ['findings' => $findings]);
-
+        // Staff first: whatever happens to the log, they hear of it.
         if (!$this->option('no-mail') && $rules === null) {
             $this->mailStaff($findings);
         }
+        PaymentsLog::warning('money-check: ' . count($findings) . ' finding(s).', ['findings' => $findings]);
 
         return self::FAILURE;
     }

@@ -22,10 +22,23 @@ final class PaymentsLog
         self::write('info', $message, $context);
     }
 
-    /** @param  array<string, mixed>  $context */
+    /**
+     * Never throws: a log that cannot be written (its file made by another user, a full disk) must not fail a payment
+     * or the money check. Then the app's own log, and the error is reported.
+     *
+     * @param  array<string, mixed>  $context
+     */
     private static function write(string $level, string $message, array $context): void
     {
-        $channels = array_values(array_unique([(string) config('logging.default'), 'payments']));
-        Log::stack($channels)->log($level, $message, $context);
+        try {
+            Log::stack(array_values(array_unique([(string) config('logging.default'), 'payments'])))->log($level, $message, $context);
+        } catch (\Throwable $e) {
+            try {
+                Log::log($level, $message, $context);
+                report($e);
+            } catch (\Throwable) {
+                // nowhere to write: the money itself is in the database and the journal
+            }
+        }
     }
 }

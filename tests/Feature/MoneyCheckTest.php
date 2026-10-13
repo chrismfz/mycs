@@ -15,6 +15,7 @@ use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\GatewayLog;
 use App\Services\Money\MoneyCheck;
+use App\Services\Money\MoneyTrail;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -131,6 +132,29 @@ class MoneyCheckTest extends TestCase
         $this->assertSame([], $this->rules(['open_for_cancelled']), 'it still bills a running service');
     }
 
+    public function test_a_paid_invoice_for_a_cancelled_service_only_when_mycs_took_the_money_and_still_holds_it(): void
+    {
+        $product = $this->createProduct();
+        $service = Service::factory()->create(['user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id, 'status' => Service::STATUS_CANCELLED, 'currency_code' => 'USD']);
+        $line = fn (Invoice $invoice) => $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => 10]);
+
+        // Imported history (paid in WHMCS, applied before MyCS kept applied_at): not a finding.
+        $imported = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_PENDING, 'currency_code' => 'USD']);
+        $line($imported);
+        $transaction = $imported->transactions()->create(['amount' => 10, 'status' => InvoiceTransactionStatus::Succeeded, 'transaction_id' => 'whmcs-1']);
+        (new MoneyTrail)->payment($imported->fresh(), $transaction, MoneyTrail::SOURCE_IMPORT);
+        DB::table('invoices')->where('id', $imported->id)->update(['status' => Invoice::STATUS_PAID]);
+        $this->assertSame([], $this->rules(['paid_for_cancelled']), 'an imported paid invoice is history');
+
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_PENDING, 'currency_code' => 'USD']);
+        $line($invoice);
+        (new RecordPaymentService)->handle($invoice->fresh(), null, 10.0, transactionId: 'wire-1');
+        $this->assertSame(['paid_for_cancelled'], $this->rules(['paid_for_cancelled']));
+
+        ExtensionHelper::refundLocally($invoice->transactions()->sole(), 10.0);
+        $this->assertSame([], $this->rules(['paid_for_cancelled']), 'refunded: nothing left on it');
+    }
+
     public function test_a_credit_balance_the_journal_does_not_add_up_to_and_a_negative_one(): void
     {
         $credit = (new CreditLedger)->add($this->user->id, 'USD', 500, 'staff_adjustment', 'staff', note: 'Goodwill');
@@ -171,11 +195,11 @@ class MoneyCheckTest extends TestCase
     public function test_one_gateway_payment_id_that_succeeded_twice(): void
     {
         $gateway = Gateway::query()->create(['extension' => 'Stripe', 'name' => 'Stripe', 'type' => 'gateway']);
-        foreach ([$this->invoice(), $this->invoice()] as $invoice) {
-            DB::table('invoice_transactions')->insert(['invoice_id' => $invoice->id, 'gateway_id' => $gateway->id, 'transaction_id' => 'pi_same', 'amount' => 10,
-                'status' => InvoiceTransactionStatus::Succeeded->value, 'created_at' => now(), 'updated_at' => now()]);
-        }
+        (new RecordPaymentService)->handle($this->invoice(), $gateway, 10.0, transactionId: 'pi_same'); // the gateway recorded it
+        $this->assertSame([], $this->rules(['duplicate_gateway_id']));
 
+        DB::table('invoice_transactions')->insert(['invoice_id' => $this->invoice()->id, 'transaction_id' => 'pi_same', 'amount' => 10,
+            'status' => InvoiceTransactionStatus::Succeeded->value, 'created_at' => now(), 'updated_at' => now()]);
         $this->assertSame(['duplicate_gateway_id'], $this->rules(['duplicate_gateway_id']));
     }
 

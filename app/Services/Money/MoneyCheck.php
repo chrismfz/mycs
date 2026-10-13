@@ -30,7 +30,8 @@ final class MoneyCheck
     public const GATEWAY_RECEIVED_MINUTES = 60;
 
     public const RULES = [
-        'paid_balance', 'open_settled', 'cancelled_applied', 'paid_not_applied', 'open_for_cancelled',
+        'paid_balance', 'open_settled', 'cancelled_applied', 'cancelled_holds_money', 'paid_not_applied',
+        'paid_for_cancelled', 'open_for_cancelled',
         'credit_journal', 'credit_negative', 'payment_not_journaled', 'journal_without_payment', 'refund_journal',
         'over_refunded', 'duplicate_gateway_id', 'gateway_received',
     ];
@@ -136,6 +137,54 @@ final class MoneyCheck
             ->each(fn ($id) => $this->add('cancelled_applied', "invoice #{$id}", 'cancelled, with a line that renewed its service'));
     }
 
+    /**
+     * A cancelled invoice keeps money: payments on it, less refunds and what became credit, not zero. The customer's
+     * money stuck on a cancelled invoice (staff cancelled it with its payment on it): refund it or move it to credit.
+     */
+    private function cancelledHoldsMoney(): void
+    {
+        Invoice::query()->where('status', Invoice::STATUS_CANCELLED)
+            ->whereHas('transactions', fn ($query) => $query->where('status', InvoiceTransactionStatus::Succeeded->value))
+            ->with('transactions')
+            ->chunkById(500, function ($invoices) {
+                foreach ($invoices as $invoice) {
+                    $kept = (int) $invoice->transactions->where('status', InvoiceTransactionStatus::Succeeded)
+                        ->sum(fn ($payment) => RecordPaymentService::toCents($payment->amount) - RecordPaymentService::toCents($payment->refunded_amount)
+                            - RecordPaymentService::toCents($payment->credited_amount));
+                    if ($kept !== 0) {
+                        $this->add('cancelled_holds_money', "invoice #{$invoice->id}", 'cancelled, with ' . self::money($kept)
+                            . " {$invoice->currency_code} of payments still on it (refund it or move it to credit)");
+                    }
+                }
+            });
+    }
+
+    /**
+     * A paid invoice that renews a cancelled service: the payment bought nothing (a cancelled service is never revived)
+     * and its money stays on the invoice. Staff refund it or move it to credit. Only money MyCS took (a payment event
+     * that is not an import) and still on it: an imported paid invoice, applied before MyCS kept applied_at, is history.
+     */
+    private function paidForCancelled(): void
+    {
+        Invoice::query()->where('status', Invoice::STATUS_PAID)
+            ->whereHas('items', fn ($query) => $query->where('reference_type', Service::class)->whereNull('applied_at')
+                ->whereIn('reference_id', Service::query()->where('status', Service::STATUS_CANCELLED)->select('id')))
+            ->whereHas('transactions', fn ($query) => $query->where('status', InvoiceTransactionStatus::Succeeded->value)
+                ->whereExists(self::liveEventsOf(MoneyEventKind::Payment)->where('source', '!=', MoneyTrail::SOURCE_IMPORT)))
+            ->with('transactions')
+            ->chunkById(500, function ($invoices) {
+                foreach ($invoices as $invoice) {
+                    $kept = (int) $invoice->transactions->where('status', InvoiceTransactionStatus::Succeeded)
+                        ->sum(fn ($payment) => RecordPaymentService::toCents($payment->amount) - RecordPaymentService::toCents($payment->refunded_amount)
+                            - RecordPaymentService::toCents($payment->credited_amount));
+                    if ($kept !== 0) {
+                        $this->add('paid_for_cancelled', "invoice #{$invoice->id}", 'paid, for a service already cancelled: the payment renewed nothing, '
+                            . self::money($kept) . " {$invoice->currency_code} still on it (refund it or move it to credit)");
+                    }
+                }
+            });
+    }
+
     /** Paid, its lines still not applied (BIL-9): the cron's paid_applied has not managed it for a day. */
     private function paidNotApplied(): void
     {
@@ -201,19 +250,35 @@ final class MoneyCheck
                 ->whereColumn('reversals.reverses_id', 'money_events.id'));
     }
 
+    /**
+     * Live events of $kind (not reversed) of the transaction in the outer query (invoice_transactions.id): for a
+     * sub-select, so that the journal is compared a chunk of transactions at a time, in the database.
+     *
+     * @return \Illuminate\Database\Eloquent\Builder<MoneyEvent>
+     */
+    private static function liveEventsOf(MoneyEventKind $kind): \Illuminate\Database\Eloquent\Builder
+    {
+        return MoneyEvent::query()->where('kind', $kind->value)
+            ->whereColumn('money_events.invoice_transaction_id', 'invoice_transactions.id')
+            ->whereNotExists(fn (Builder $reversal) => $reversal->from('money_events as reversals')
+                ->whereColumn('reversals.reverses_id', 'money_events.id'));
+    }
+
     /** Every succeeded payment has its one payment event in the journal, for its amount. */
     private function paymentNotJournaled(): void
     {
-        $events = self::livePaymentEvents()->whereNotNull('invoice_transaction_id')
-            ->get(['invoice_transaction_id', 'amount'])->groupBy('invoice_transaction_id');
-        InvoiceTransaction::query()->where('status', InvoiceTransactionStatus::Succeeded->value)->orderBy('id')
-            ->get(['id', 'invoice_id', 'amount'])
-            ->each(function (InvoiceTransaction $transaction) use ($events) {
-                $mine = $events->get($transaction->id, collect());
-                $journaled = (int) $mine->sum(fn ($event) => RecordPaymentService::toCents($event->amount));
-                if ($mine->count() !== 1 || $journaled !== RecordPaymentService::toCents($transaction->amount)) {
-                    $this->add('payment_not_journaled', "transaction #{$transaction->id} (invoice #{$transaction->invoice_id})",
-                        "amount {$transaction->amount}, " . $mine->count() . ' payment event(s) for ' . self::money($journaled));
+        InvoiceTransaction::query()->where('status', InvoiceTransactionStatus::Succeeded->value)
+            ->select(['id', 'invoice_id', 'amount'])
+            ->selectSub(self::liveEventsOf(MoneyEventKind::Payment)->selectRaw('COUNT(*)'), 'journal_events')
+            ->selectSub(self::liveEventsOf(MoneyEventKind::Payment)->selectRaw('COALESCE(SUM(amount), 0)'), 'journal_amount')
+            ->chunkById(500, function ($transactions) {
+                foreach ($transactions as $transaction) {
+                    $journaled = RecordPaymentService::toCents($transaction->getAttribute('journal_amount'));
+                    $events = (int) $transaction->getAttribute('journal_events');
+                    if ($events !== 1 || $journaled !== RecordPaymentService::toCents($transaction->amount)) {
+                        $this->add('payment_not_journaled', "transaction #{$transaction->id} (invoice #{$transaction->invoice_id})",
+                            "amount {$transaction->amount}, {$events} payment event(s) for " . self::money($journaled));
+                    }
                 }
             });
     }
@@ -221,28 +286,35 @@ final class MoneyCheck
     /** Every payment event (not reversed) has its succeeded payment: a payment deleted reverses its events. */
     private function journalWithoutPayment(): void
     {
-        $succeeded = InvoiceTransaction::query()->where('status', InvoiceTransactionStatus::Succeeded->value)->pluck('id')->flip();
-        self::livePaymentEvents()->orderBy('id')->get(['id', 'invoice_id', 'invoice_transaction_id'])
-            ->reject(fn (MoneyEvent $event) => $event->invoice_transaction_id !== null && $succeeded->has($event->invoice_transaction_id))
-            ->each(fn (MoneyEvent $event) => $this->add('journal_without_payment', "money event #{$event->id} (invoice #{$event->invoice_id})",
-                $event->invoice_transaction_id === null ? 'no transaction' : "transaction #{$event->invoice_transaction_id} gone or not succeeded"));
+        self::livePaymentEvents()
+            ->whereNotExists(fn (Builder $payment) => $payment->from('invoice_transactions')
+                ->whereColumn('invoice_transactions.id', 'money_events.invoice_transaction_id')
+                ->where('invoice_transactions.status', InvoiceTransactionStatus::Succeeded->value))
+            ->select(['id', 'invoice_id', 'invoice_transaction_id'])
+            ->chunkById(500, function ($events) {
+                foreach ($events as $event) {
+                    $this->add('journal_without_payment', "money event #{$event->id} (invoice #{$event->invoice_id})",
+                        $event->invoice_transaction_id === null ? 'no transaction' : "transaction #{$event->invoice_transaction_id} gone or not succeeded");
+                }
+            });
     }
 
     /** What a payment says it refunded is what the journal's refunds (not reversed) add up to. */
     private function refundJournal(): void
     {
-        $refunds = MoneyEvent::query()->where('kind', MoneyEventKind::Refund->value)->whereNotNull('invoice_transaction_id')
-            ->whereNotExists(fn (Builder $reversal) => $reversal->from('money_events as reversals')
-                ->whereColumn('reversals.reverses_id', 'money_events.id'))
-            ->get(['invoice_transaction_id', 'amount'])->groupBy('invoice_transaction_id')
-            ->map(fn ($events) => (int) $events->sum(fn ($event) => RecordPaymentService::toCents($event->amount)));
-        InvoiceTransaction::query()->where(fn ($query) => $query->where('refunded_amount', '>', 0)
-            ->orWhereIn('id', $refunds->keys()))->orderBy('id')->get(['id', 'invoice_id', 'refunded_amount'])
-            ->each(function (InvoiceTransaction $transaction) use ($refunds) {
-                $journaled = $refunds->get($transaction->id, 0);
-                if ($journaled !== RecordPaymentService::toCents($transaction->refunded_amount)) {
-                    $this->add('refund_journal', "transaction #{$transaction->id} (invoice #{$transaction->invoice_id})",
-                        "refunded {$transaction->refunded_amount}, journal " . self::money($journaled));
+        InvoiceTransaction::query()
+            ->where(fn ($query) => $query->where('refunded_amount', '>', 0)->orWhereExists(fn (Builder $refund) => $refund
+                ->from('money_events')->where('kind', MoneyEventKind::Refund->value)
+                ->whereColumn('money_events.invoice_transaction_id', 'invoice_transactions.id')))
+            ->select(['id', 'invoice_id', 'refunded_amount'])
+            ->selectSub(self::liveEventsOf(MoneyEventKind::Refund)->selectRaw('COALESCE(SUM(amount), 0)'), 'journal_refunded')
+            ->chunkById(500, function ($transactions) {
+                foreach ($transactions as $transaction) {
+                    $journaled = RecordPaymentService::toCents($transaction->getAttribute('journal_refunded'));
+                    if ($journaled !== RecordPaymentService::toCents($transaction->refunded_amount)) {
+                        $this->add('refund_journal', "transaction #{$transaction->id} (invoice #{$transaction->invoice_id})",
+                            "refunded {$transaction->refunded_amount}, journal " . self::money($journaled));
+                    }
                 }
             });
     }
@@ -251,28 +323,34 @@ final class MoneyCheck
     private function overRefunded(): void
     {
         InvoiceTransaction::query()->where(fn ($query) => $query->where('refunded_amount', '>', 0)->orWhere('credited_amount', '>', 0))
-            ->orderBy('id')->get(['id', 'invoice_id', 'amount', 'refunded_amount', 'credited_amount'])
-            ->each(function (InvoiceTransaction $transaction) {
-                $out = RecordPaymentService::toCents($transaction->refunded_amount) + RecordPaymentService::toCents($transaction->credited_amount);
-                if ($out > RecordPaymentService::toCents($transaction->amount)) {
-                    $this->add('over_refunded', "transaction #{$transaction->id} (invoice #{$transaction->invoice_id})",
-                        "amount {$transaction->amount}, refunded {$transaction->refunded_amount}, to credit {$transaction->credited_amount}");
+            ->select(['id', 'invoice_id', 'amount', 'refunded_amount', 'credited_amount'])
+            ->chunkById(500, function ($transactions) {
+                foreach ($transactions as $transaction) {
+                    $out = RecordPaymentService::toCents($transaction->refunded_amount) + RecordPaymentService::toCents($transaction->credited_amount);
+                    if ($out > RecordPaymentService::toCents($transaction->amount)) {
+                        $this->add('over_refunded', "transaction #{$transaction->id} (invoice #{$transaction->invoice_id})",
+                            "amount {$transaction->amount}, refunded {$transaction->refunded_amount}, to credit {$transaction->credited_amount}");
+                    }
                 }
             });
     }
 
-    /** A gateway's payment id succeeded once: twice is money recorded twice. */
+    /**
+     * A payment id a gateway recorded (its journal entry keeps the provider's id) succeeded once: another succeeded
+     * payment with the same id, by a gateway or typed by staff on any customer, is the same money recorded twice. Ids
+     * that only staff typed (a «cash» reference) are not compared: they are not the provider's.
+     */
     private function duplicateGatewayId(): void
     {
         DB::table('invoice_transactions')->where('status', InvoiceTransactionStatus::Succeeded->value)
-            ->whereNotNull('gateway_id')->whereNotNull('transaction_id')->where('transaction_id', '!=', '')
-            ->select('gateway_id', 'transaction_id', DB::raw('COUNT(*) as times'))
-            ->groupBy('gateway_id', 'transaction_id')->havingRaw('COUNT(*) > 1')
-            ->orderBy('gateway_id')->orderBy('transaction_id')->get()
-            ->each(fn ($row) => $this->add('duplicate_gateway_id', "gateway #{$row->gateway_id}",
-                "one payment id succeeded {$row->times} times (" . InvoiceTransaction::query()->where('gateway_id', $row->gateway_id)
-                    ->where('transaction_id', $row->transaction_id)->where('status', InvoiceTransactionStatus::Succeeded->value)
-                    ->orderBy('id')->pluck('id')->map(fn ($id) => "#{$id}")->implode(', ') . ')'));
+            ->whereIn('transaction_id', self::livePaymentEvents()->whereNotNull('external_reference')->select('external_reference'))
+            ->select('transaction_id', DB::raw('COUNT(*) as times'))
+            ->groupBy('transaction_id')->havingRaw('COUNT(*) > 1')
+            ->orderBy('transaction_id')->get()
+            ->each(fn ($row) => $this->add('duplicate_gateway_id', "payment id {$row->transaction_id}",
+                "succeeded {$row->times} times (" . InvoiceTransaction::query()->where('transaction_id', $row->transaction_id)
+                    ->where('status', InvoiceTransactionStatus::Succeeded->value)->orderBy('id')->pluck('id')
+                    ->map(fn ($id) => "#{$id}")->implode(', ') . ')'));
     }
 
     /** A gateway request whose row never closed: the request died (a fatal error, a timeout) and its money is unknown. */

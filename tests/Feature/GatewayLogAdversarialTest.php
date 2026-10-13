@@ -246,10 +246,10 @@ class GatewayLogAdversarialTest extends TestCase
     /**
      * FINDING (low): a request to a gateway's URL that fails route matching (wrong method → 405) never fires
      * RouteMatched, so it leaves no trace; a gateway misconfigured to call with GET (or a probe) is invisible.
+     * Kept as is in MT-2a; fixed in MT-3 (GatewayLog::unmatched).
      */
     public function test_g1_a_wrong_method_on_a_webhook_url_leaves_a_row(): void
     {
-        $this->markTestIncomplete('Kept as is in MT-2a: a request that matches no route is not logged (documented; MT-3).');
         $this->stripe();
 
         $this->get('/extensions/stripe/webhook')->assertStatus(405);
