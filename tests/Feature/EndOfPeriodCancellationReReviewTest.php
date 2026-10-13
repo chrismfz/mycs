@@ -95,14 +95,14 @@ class EndOfPeriodCancellationReReviewTest extends TestCase
         (new RecordPaymentService)->handle($invoice, null, 4.00, transactionId: 'bank-r1');
 
         $this->cron();
-        $this->assertSame(Service::STATUS_CANCELLED, $service->fresh()->status);
+        $this->assertSame(Service::STATUS_TERMINATED, $service->fresh()->status);
 
         // Later the customer gets credit (overpayment elsewhere, staff, refund to credit).
         (new CreditLedger)->add($this->user->id, 'USD', 600, MoneyTrail::CAUSE_OPENING_BALANCE, MoneyTrail::SOURCE_SYSTEM);
         Carbon::setTestNow('2026-10-21 03:00:00');
         $this->cron();
 
-        $this->assertSame(Service::STATUS_CANCELLED, $service->fresh()->status);
+        $this->assertSame(Service::STATUS_TERMINATED, $service->fresh()->status);
         $this->assertEqualsWithDelta(6.00, $this->credit(), 0.001,
             "credit was swept into invoice #{$invoice->id} (now {$invoice->fresh()->status}) of a terminated service");
     }
@@ -134,7 +134,7 @@ class EndOfPeriodCancellationReReviewTest extends TestCase
 
         $this->cron();
 
-        $this->assertSame(Service::STATUS_CANCELLED, $good->fresh()->status,
+        $this->assertSame(Service::STATUS_TERMINATED, $good->fresh()->status,
             'an unrelated service was not terminated because another service\'s invoice could not be cancelled');
     }
 

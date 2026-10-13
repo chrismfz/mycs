@@ -325,7 +325,7 @@ class SubscriptionSyncAdversarialTest extends TestCase
             // the cron reports its failures; what matters is what reached Stripe
         }
 
-        $this->assertSame(Service::STATUS_CANCELLED, $b->fresh()->status);
+        $this->assertSame(Service::STATUS_TERMINATED, $b->fresh()->status);
         $this->assertSame(1, $this->stripeDeletes('sub_b'), 'service b is cancelled but its Stripe subscription keeps billing');
     }
 

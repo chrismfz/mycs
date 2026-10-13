@@ -195,7 +195,7 @@ class SuspensionRulesAdversarialTest extends TestCase
 
         $this->cron('2026-10-20 03:00:00'); // 12 days (14 - 2) after the day it was suspended
 
-        $this->assertSame('cancelled', $service->fresh()->status);
+        $this->assertSame('terminated', $service->fresh()->status);
     }
 
     /** A7 (pre-existing): a hold «until today» (the admin form allows today) holds nothing: it ends at midnight. */
@@ -240,7 +240,7 @@ class SuspensionRulesAdversarialTest extends TestCase
         $this->cron('2026-10-20 23:00:00');
         $this->assertSame('suspended', $service->fresh()->status);
         $this->cron('2026-10-21 03:00:01');
-        $this->assertSame('cancelled', $service->fresh()->status);
+        $this->assertSame('terminated', $service->fresh()->status);
     }
 
     public function test_holds_terminate_not_after_suspend_waits_one_day(): void
@@ -254,7 +254,7 @@ class SuspensionRulesAdversarialTest extends TestCase
         $this->cron('2026-10-20 23:00:00');
         $this->assertSame('suspended', $service->fresh()->status);
         $this->cron('2026-10-21 03:00:01');
-        $this->assertSame('cancelled', $service->fresh()->status);
+        $this->assertSame('terminated', $service->fresh()->status);
     }
 
     public function test_holds_hold_until_and_null_expiry_and_upgrade_or_draft_lines(): void

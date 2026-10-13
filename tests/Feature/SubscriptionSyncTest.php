@@ -88,7 +88,7 @@ class SubscriptionSyncTest extends TestCase
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
-        $this->assertSame(Service::STATUS_CANCELLED, $service->fresh()->status);
+        $this->assertSame(Service::STATUS_TERMINATED, $service->fresh()->status);
     }
 
     public function test_cron_termination_cancels_the_stripe_subscription(): void

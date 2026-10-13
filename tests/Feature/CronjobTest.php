@@ -263,7 +263,7 @@ class CronjobTest extends TestCase
         // Check if the service was terminated
         $this->assertDatabaseHas('services', [
             'id' => $service->id,
-            'status' => Service::STATUS_CANCELLED,
+            'status' => Service::STATUS_TERMINATED,
         ]);
 
         Queue::assertPushed(TerminateJob::class, function ($job) use ($service) {
@@ -342,7 +342,7 @@ class CronjobTest extends TestCase
         // Check if the service was terminated
         $this->assertDatabaseHas('services', [
             'id' => $service->id,
-            'status' => Service::STATUS_CANCELLED,
+            'status' => Service::STATUS_TERMINATED,
         ]);
 
         // Check if the product stock was incremented
@@ -375,7 +375,7 @@ class CronjobTest extends TestCase
         // Check if the service was terminated
         $this->assertDatabaseHas('services', [
             'id' => $service->id,
-            'status' => Service::STATUS_CANCELLED,
+            'status' => Service::STATUS_TERMINATED,
         ]);
     }
 
@@ -402,7 +402,7 @@ class CronjobTest extends TestCase
         // Check if the service was terminated
         $this->assertDatabaseHas('services', [
             'id' => $service->id,
-            'status' => Service::STATUS_CANCELLED,
+            'status' => Service::STATUS_TERMINATED,
         ]);
 
         // Check if the product stock was incremented

@@ -226,7 +226,7 @@ class BillingCursorFuzzTest extends TestCase
                 }
             }
 
-            if ($this->service->fresh()->status === 'cancelled' && ++$deadSteps > 8) {
+            if ($this->service->fresh()->isEnded() && ++$deadSteps > 8) {
                 break;
             }
         }
@@ -312,7 +312,7 @@ class BillingCursorFuzzTest extends TestCase
                 break;
             case 'staff_move':
                 $s = $this->service->fresh();
-                if ($s->status === 'cancelled' || $s->expires_at === null) {
+                if ($s->isEnded() || $s->expires_at === null) {
                     return null;
                 }
                 $delta = mt_rand(1, mt_rand(0, 3) ? 40 : 75) * (mt_rand(0, 1) ? 1 : -1);
@@ -355,8 +355,8 @@ class BillingCursorFuzzTest extends TestCase
                 break;
             case 'manual_line':
                 $inv = $this->invoiceFor(null, null, 'unpaid');
-                if ($this->service->fresh()->status === 'cancelled') {
-                    $this->staffLeft[$inv->id] = true; // staff bill a service already cancelled (I10)
+                if ($this->service->fresh()->isEnded()) {
+                    $this->staffLeft[$inv->id] = true; // staff bill a service already ended (I10)
                 }
                 $detail = "#{$inv->id} (no period)";
                 break;
@@ -395,9 +395,9 @@ class BillingCursorFuzzTest extends TestCase
         $revivedInvolved = fn (array $ids) => (bool) array_intersect_key($this->revived, array_flip($ids));
         $allRevivedIds = array_keys($this->revived);
 
-        // I5 a cancelled service is never set active by a payment
-        if ($before['status'] === 'cancelled' && $after['status'] !== 'cancelled') {
-            return "I5 cancelled service became {$after['status']} after $action";
+        // I5 an ended service (cancelled or terminated) is never set active by a payment
+        if (in_array($before['status'], Service::ENDED_STATUSES, true) && $after['status'] !== $before['status']) {
+            return "I5 {$before['status']} service became {$after['status']} after $action";
         }
 
         // I1 expires_at never decreases except by an explicit staff move back
@@ -435,7 +435,7 @@ class BillingCursorFuzzTest extends TestCase
 
         // I3b no paid days are lost: after a payment paid-until is a fixpoint of the paid chain (not after a
         // staff move back, which stays until a NEW payment, never a replay: decision A3)
-        if ($paid && $exp !== null && $after['status'] !== 'cancelled') {
+        if ($paid && $exp !== null && !in_array($after['status'], Service::ENDED_STATUSES, true)) {
             $chained = $this->chain($exp, $paidLines);
             if ($chained !== $exp) {
                 return "I3b paid lines chain from expires_at=$exp to $chained but expires_at stayed (after $action)";
