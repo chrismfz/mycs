@@ -24,6 +24,7 @@ use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
@@ -131,8 +132,11 @@ class InvoiceResource extends Resource
                             ->required()
                             ->numeric()
                             ->placeholder('Enter the quantity of the product'),
-                        TextInput::make('description')
+                        // Several lines, as WHMCS's (DATA-12: the column is text).
+                        Textarea::make('description')
                             ->label('Description')
+                            ->rows(1)
+                            ->autosize()
                             ->required()
                             ->hintAction(
                                 Action::make('View Service')

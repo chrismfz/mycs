@@ -13,7 +13,7 @@ class UpdateInvoiceItemRequest extends AdminApiRequest
     public function rules(): array
     {
         return [
-            'description' => 'sometimes|string|max:255',
+            'description' => 'sometimes|string|max:65535',
             'quantity' => 'sometimes|integer|min:1',
             'price' => 'sometimes|numeric|min:0',
             'reference_type' => 'sometimes|nullable',

@@ -39,6 +39,8 @@ class ServiceCancellationResource extends Resource
                     ->searchable()
                     ->preload()
                     ->disabledOn('edit')
+                    // One request per service, held by the database too (DATA-11): a message, not an error page.
+                    ->unique(ignoreRecord: true)
                     ->hint(fn ($get) => $get('service_id') ? new HtmlString('<a href="' . ServiceResource::getUrl('edit', ['record' => $get('service_id')]) . '" target="_blank">Go to Service</a>') : null)
                     ->required(),
                 TextInput::make('reason')

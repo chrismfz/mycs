@@ -10,6 +10,7 @@ use App\Models\Service;
 use App\Models\ServiceCancellation;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Queue;
@@ -142,7 +143,10 @@ class EndOfPeriodCancellationAdversarialTest extends TestCase
         $service = $this->service('2026-10-25', stock: 0);
 
         $this->request($service, 'immediate');
-        $this->request($service, 'immediate');
+        try {
+            $this->request($service, 'immediate'); // the double submit: refused by the database since DATA-11
+        } catch (UniqueConstraintViolationException) {
+        }
 
         $this->assertSame(1, $service->product->fresh()->stock);
     }
@@ -160,7 +164,10 @@ class EndOfPeriodCancellationAdversarialTest extends TestCase
         $this->assertSame(Service::STATUS_CANCELLED, $service->fresh()->status);
         $this->assertSame(1, $service->product->fresh()->stock);
 
-        $this->request($service->fresh(), 'immediate');
+        try {
+            $this->request($service->fresh(), 'immediate'); // a second request: refused by the database since DATA-11
+        } catch (UniqueConstraintViolationException) {
+        }
 
         $this->assertSame(1, $service->product->fresh()->stock, 'stock given back twice for one service');
     }
