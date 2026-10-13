@@ -89,8 +89,10 @@
 | WHMCS | myip | nixpal | MyCS |
 |---|---|---|---|
 | Τιμολόγιο πριν τη λήξη | 14 default· ανά κύκλο: μήνας 10, τρίμηνο 15, εξάμηνο/έτος 20· domains 15 | 7 | P~ `cronjob_invoice` (μία τιμή) → **Ν: ανά κύκλο** |
-| Auto suspend | 15 ημέρες | 8 | **P:** `cronjob_order_suspend` |
-| Auto terminate | 120 ημέρες | 60 | **P:** `cronjob_order_terminate` |
+| Auto suspend (Suspend Days, από την ημερομηνία λήξης) | 15 ημέρες | 8 | **P:** `cronjob_order_suspend` (από `expires_at`, όπως WHMCS) |
+| — μόνο με ληξιπρόθεσμο τιμολόγιο | (όχι στο WHMCS) | | **P:** `cronjob_suspend_requires_invoice`, default off· on: τιμολόγιο ληξιπρόθεσμο **και** εκδομένο πριν από Suspend Days, ειδοποίηση staff για «ληγμένη χωρίς τιμολόγιο» (BIL-5) |
+| Auto terminate (Termination Days, από την ημερομηνία λήξης) | 120 ημέρες | 60 | **P:** `cronjob_order_terminate` |
+| — ελάχιστες ημέρες σε αναστολή | (όχι στο WHMCS) | | **P:** `cronjob_terminate_min_suspended_days`, default 1· 0 = ακριβώς WHMCS (BIL-4) |
 | Auto unsuspend μετά την πληρωμή | on | on | P |
 | Υπενθύμιση πριν τη λήξη | 1 ημέρα | 6 | **Ν** (υπενθυμίσεις του Ekdosi) |
 | Ληξιπρόθεσμα | 1/3/5 | 1/2 | **Ν** (υπενθυμίσεις του Ekdosi) |

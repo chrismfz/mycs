@@ -100,7 +100,7 @@ class ServiceResource extends Resource
                     ->placeholder('Select the expiration date'),
                 DatePicker::make('suspend_hold_until')
                     ->label('Do Not Suspend Until')
-                    ->helperText('While set to a future date, the automatic suspension cronjob will skip this service, even if it is overdue. This does not affect manual suspension or termination.')
+                    ->helperText('While set to a future date, the cronjob neither suspends nor terminates this service, even if it is overdue (through that day). This does not affect manual suspension or termination.')
                     ->minDate(now())
                     ->nullable()
                     ->placeholder('Select a date to hold off suspension until'),
