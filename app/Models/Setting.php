@@ -7,7 +7,9 @@ use App\Events\Setting\Saved;
 use App\Events\Setting\Saving;
 use App\Redactors\RightRedactor;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Support\Facades\Crypt;
 use OwenIt\Auditing\Contracts\Auditable;
+use Throwable;
 
 class Setting extends Model implements Auditable
 {
@@ -36,6 +38,30 @@ class Setting extends Model implements Auditable
         'saving' => Saving::class,
         'saved' => Saved::class,
     ];
+
+    /**
+     * A stored value as the app uses it: decrypted, then cast by its type. Also used on the raw rows the settings
+     * cache keeps (SettingsProvider), so the cache never holds a secret in clear.
+     */
+    public static function decodeValue(mixed $value, ?string $type, bool $encrypted): mixed
+    {
+        if ($encrypted && $value) {
+            try {
+                $value = Crypt::decryptString($value);
+            } catch (Throwable $th) {
+                report($th);
+                $value = null;
+            }
+        }
+
+        return match ($type) {
+            'boolean' => (bool) $value,
+            'integer' => (int) $value,
+            'float' => (float) $value,
+            'array' => json_decode($value, true),
+            default => $value,
+        };
+    }
 
     public function getAttributeModifiers(): array
     {
