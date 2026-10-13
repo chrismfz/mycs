@@ -19,7 +19,6 @@ use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
-use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -199,14 +198,17 @@ class CreditLedgerTest extends TestCase
     public function test_staff_add_and_remove_credit_with_a_reason_in_the_admin(): void
     {
         $owner = $this->owner();
-        $page = Livewire::actingAs($owner)->test(ShowCredits::class, ['record' => $this->user->getKey()]);
+        // A fresh page per action: a refused action stays mounted (its modal open) on the same component.
+        $page = fn () => Livewire::actingAs($owner)->test(ShowCredits::class, ['record' => $this->user->getKey()]);
 
-        $page->callAction(TestAction::make('addCredit')->table(), ['currency_code' => 'USD', 'amount' => '20.00', 'reason' => ''])
-            ->assertHasActionErrors(['reason' => 'required']);
-        $page->callAction(TestAction::make('addCredit')->table(), ['currency_code' => 'USD', 'amount' => '20.00', 'reason' => 'Goodwill']);
-        $page->callAction(TestAction::make('removeCredit')->table(), ['currency_code' => 'USD', 'amount' => '50.00', 'reason' => 'Too much'])
+        $page()->callTableAction('addCredit', data: ['currency_code' => 'USD', 'amount' => '20.00', 'reason' => ''])
+            ->assertHasTableActionErrors(['reason' => 'required']);
+        $page()->callTableAction('addCredit', data: ['currency_code' => 'USD', 'amount' => '20.00', 'reason' => 'Goodwill'])
+            ->assertHasNoTableActionErrors();
+        $page()->callTableAction('removeCredit', data: ['currency_code' => 'USD', 'amount' => '50.00', 'reason' => 'Too much'])
             ->assertNotified();
-        $page->callAction(TestAction::make('removeCredit')->table(), ['currency_code' => 'USD', 'amount' => '5.00', 'reason' => 'Correction']);
+        $page()->callTableAction('removeCredit', data: ['currency_code' => 'USD', 'amount' => '5.00', 'reason' => 'Correction'])
+            ->assertHasNoTableActionErrors();
 
         $this->assertSame('15.00', $this->balance());
         $this->assertSame(['Goodwill', 'Correction'], MoneyEventNote::query()->orderBy('id')->pluck('note')->all());
