@@ -21,6 +21,12 @@ class Cancel extends Component
     {
         $this->authorize('view', $this->service);
 
+        // The form shows only for a cancellable service without a request: checked here too, a direct call skips the
+        // form (audit sweep SVC-12): a one-time or free service, or a second request.
+        if (!$this->service->cancellable) {
+            return $this->notify(__('services.cancellation_not_possible'), 'error');
+        }
+
         $this->validate();
 
         // Event hook will handle the cancellation (if its immediate or end of period)

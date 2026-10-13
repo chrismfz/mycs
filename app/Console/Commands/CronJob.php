@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Jobs\Server\SuspendJob;
@@ -14,6 +15,7 @@ use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Models\Setting;
 use App\Models\Ticket;
+use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Service\RenewServiceService;
 use Carbon\CarbonImmutable;
@@ -44,6 +46,9 @@ class CronJob extends Command
 
     /** @var array<string, Throwable> job (or job #service) => what failed */
     private array $failures = [];
+
+    /** @var array<string, Throwable> what staff must look at, though nothing failed (an invoice left open): mailed, the run succeeds */
+    private array $notices = [];
 
     /**
      * Execute the console command.
@@ -82,23 +87,34 @@ class CronJob extends Command
             }, transaction: false);
 
             $this->runCronJob('orders_cancelled', function ($number = 0) {
-                // Cancel services if first invoice is not paid after x days
-                Service::where('status', 'pending')->whereDoesntHave('invoices', function ($query) {
+                // Cancel services if first invoice is not paid after x days. One service per transaction: an invoice
+                // that cannot be cancelled rolls back its own service only, never the step (audit sweep BIL-10).
+                $ids = Service::where('status', 'pending')->whereDoesntHave('invoices', function ($query) {
                     $query->where('status', 'paid');
-                })->where('created_at', '<', now()->subDays((int) config('settings.cronjob_order_cancel', 7)))->get()->each(function ($service) use (&$number) {
-                    $this->cancelInvoices($service->invoices()->where('status', 'pending')->get());
+                })->where('created_at', '<', now()->subDays((int) config('settings.cronjob_order_cancel', 7)))->pluck('id');
+                foreach ($ids as $id) {
+                    try {
+                        $number += DB::transaction(function () use ($id) {
+                            $service = Service::query()->whereKey($id)->lockForUpdate()->first();
+                            if ($service === null || $service->status !== Service::STATUS_PENDING) {
+                                return 0;
+                            }
+                            $this->cancelInvoices($service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->get());
+                            $service->update(['status' => 'cancelled']);
+                            if ($service->product?->stock !== null) {
+                                $service->product->increment('stock', $service->quantity);
+                            }
 
-                    $service->update(['status' => 'cancelled']);
-
-                    if ($service->product->stock !== null) {
-                        $service->product->increment('stock', $service->quantity);
+                            return 1;
+                        });
+                    } catch (Throwable $e) {
+                        report($e);
+                        $this->failures["orders_cancelled #{$id}"] = $e;
                     }
-
-                    $number++;
-                });
+                }
 
                 return $number;
-            });
+            }, transaction: false);
 
             $this->runCronJob('upgrade_invoices_updated', function ($number = 0) {
                 // Update pending upgrade invoices
@@ -129,6 +145,27 @@ class CronJob extends Command
                 return $number;
             });
 
+            $this->runCronJob('cancellations_processed', function ($number = 0) {
+                // Cancellation requests «at the end of the billing period», on that day (WHMCS: Process Cancellation
+                // Requests): the service ends as the customer asked, before anything would suspend it as unpaid.
+                // Day-granular like WHMCS: due today ends at this run. A service without an expiry (one-time, free)
+                // has no end of period; its request waits for staff.
+                $ids = Service::whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
+                    ->where('expires_at', '<=', now()->endOfDay())
+                    ->whereHas('cancellation', fn ($query) => $query->where('type', 'end_of_period'))
+                    ->pluck('id');
+                foreach ($ids as $id) {
+                    try {
+                        $number += DB::transaction(fn () => $this->endAsRequested($id));
+                    } catch (Throwable $e) {
+                        report($e);
+                        $this->failures["cancellations_processed #{$id}"] = $e;
+                    }
+                }
+
+                return $number;
+            }, transaction: false);
+
             $this->runCronJob('services_suspended', function ($number = 0) {
                 // Suspend orders if due date is overdue for x days
                 Service::where('status', 'active')
@@ -147,23 +184,33 @@ class CronJob extends Command
             });
 
             $this->runCronJob('services_terminated', function ($number = 0) {
-                // Terminate orders if due date is overdue for x days
-                Service::where('status', 'suspended')->whereNotNull('dunning_suspended_at')->where('expires_at', '<', now()->subDays((int) config('settings.cronjob_order_terminate', 14)))->lockForUpdate()->get()->each(function ($service) use (&$number) {
-                    TerminateJob::dispatch($service);
+                // Terminate orders if due date is overdue for x days. One service per transaction (BIL-10).
+                $ids = Service::where('status', 'suspended')->whereNotNull('dunning_suspended_at')
+                    ->where('expires_at', '<', now()->subDays((int) config('settings.cronjob_order_terminate', 14)))->pluck('id');
+                foreach ($ids as $id) {
+                    try {
+                        $number += DB::transaction(function () use ($id) {
+                            $service = Service::query()->whereKey($id)->lockForUpdate()->first();
+                            if ($service === null || $service->status !== Service::STATUS_SUSPENDED || $service->dunning_suspended_at === null) {
+                                return 0;
+                            }
+                            TerminateJob::dispatch($service)->afterCommit();
+                            $service->update(['status' => 'cancelled']);
+                            $this->cancelInvoices($service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->get());
+                            if ($service->product?->stock !== null) {
+                                $service->product->increment('stock', $service->quantity);
+                            }
 
-                    $service->update(['status' => 'cancelled']);
-                    // Cancel outstanding invoices
-                    $this->cancelInvoices($service->invoices()->where('status', 'pending')->get());
-
-                    if ($service->product->stock !== null) {
-                        $service->product->increment('stock', $service->quantity);
+                            return 1;
+                        });
+                    } catch (Throwable $e) {
+                        report($e);
+                        $this->failures["services_terminated #{$id}"] = $e;
                     }
-
-                    $number++;
-                });
+                }
 
                 return $number;
-            });
+            }, transaction: false);
 
             $this->runCronJob('tickets_closed', function ($number = 0) {
                 // Close tickets if no response for x days
@@ -185,6 +232,14 @@ class CronJob extends Command
 
                 return $number;
             });
+
+            if ($this->notices !== []) {
+                $notices = e(implode("\n", array_map(fn ($key, $notice) => "{$key}: {$notice->getMessage()}", array_keys($this->notices), $this->notices)));
+                NotificationHelper::sendSystemEmailNotification('Cron Job: needs staff attention', <<<HTML
+                    The cron job left these for staff:<br>
+                    <pre>{$notices}</pre>
+                    HTML);
+            }
 
             if ($this->failures !== []) {
                 throw reset($this->failures);
@@ -215,6 +270,38 @@ class CronJob extends Command
 
         // Remove old debug logs
         DebugLog::where('created_at', '<', now()->subDays(30))->delete();
+    }
+
+    /**
+     * One service whose cancellation request falls due: terminated at the server, cancelled (no dunning marker: the
+     * customer did not fail to pay, they left), its open invoices cancelled, its stock back. Locked and re-read.
+     */
+    private function endAsRequested(int $id): int
+    {
+        $service = Service::query()->whereKey($id)->lockForUpdate()->first();
+        if ($service === null || !in_array($service->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true)
+            || !$service->cancellation()->where('type', 'end_of_period')->exists()) {
+            return 0;
+        }
+
+        // A later period already paid (it waits behind an unpaid one, docs/billing-cursor.md): ending the service now
+        // would keep that money without the period. Staff decide (deliver it, or refund/credit it).
+        $paidAhead = $service->invoiceItems()->where('period_start', '>=', $service->expires_at)
+            ->whereHas('invoice', fn ($query) => $query->where('status', Invoice::STATUS_PAID))->exists();
+        if ($paidAhead) {
+            $this->notices["cancellations_processed #{$id}"] = new DisplayException("Service #{$id} not ended: a later period is already paid.");
+
+            return 0;
+        }
+
+        TerminateJob::dispatch($service)->afterCommit();
+        $service->forceFill(['status' => Service::STATUS_CANCELLED])->save();
+        $this->leftOpen(CancelOpenInvoices::handle($service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->get(), onlyFor: $service));
+        if ($service->product?->stock !== null) {
+            $service->product->increment('stock', $service->quantity);
+        }
+
+        return 1;
     }
 
     /**
@@ -344,25 +431,28 @@ class CronJob extends Command
     }
 
     /**
-     * Cancel open invoices the cron gives up on; account credit paid on them goes back to the customer first (MT-1e:
-     * credit is also applied in part). An invoice whose credit cannot be given back stays open for staff. As before:
-     * an upgrade's invoice through the model (its cancellation note), the others by a plain update.
+     * Cancel open invoices the cron gives up on (CancelOpenInvoices: credit paid on them goes back first).
      *
      * @param  iterable<Invoice>  $invoices
      */
     private function cancelInvoices(iterable $invoices, bool $throughModel = false): void
     {
-        foreach ($invoices as $invoice) {
-            try {
-                DB::transaction(function () use ($invoice, $throughModel) {
-                    (new CreditAutoApply)->giveBack($invoice);
-                    $throughModel
-                        ? $invoice->refresh()->update(['status' => Invoice::STATUS_CANCELLED])
-                        : Invoice::query()->whereKey($invoice->id)->where('status', Invoice::STATUS_PENDING)->update(['status' => Invoice::STATUS_CANCELLED]);
-                });
-            } catch (Throwable $e) {
-                report($e);
-                $this->failures["invoice_cancelled #{$invoice->id}"] = $e;
+        $this->leftOpen(CancelOpenInvoices::handle($invoices, $throughModel));
+    }
+
+    /**
+     * What CancelOpenInvoices left: an invoice kept open for staff is a notice (mailed, the run succeeds), anything
+     * else a failure.
+     *
+     * @param  array<string, Throwable>  $left
+     */
+    private function leftOpen(array $left): void
+    {
+        foreach ($left as $key => $reason) {
+            if ($reason instanceof DisplayException) {
+                $this->notices[$key] = $reason;
+            } else {
+                $this->failures[$key] = $reason;
             }
         }
     }

@@ -7,6 +7,7 @@ return [
         'orders_cancelled' => 'Orders cancelled',
         'upgrade_invoices_updated' => 'Upgrade invoices updated',
         'credit_applied' => 'Account credit applied to open invoices',
+        'cancellations_processed' => 'Cancellation requests processed',
         'services_suspended' => 'Services suspended',
         'services_terminated' => 'Services terminated',
         'tickets_closed' => 'Tickets closed',

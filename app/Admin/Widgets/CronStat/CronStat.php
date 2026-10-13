@@ -27,6 +27,7 @@ class CronStat extends StatsOverviewWidget
         return [
             Stat::make('Invoices Created', \App\Models\CronStat::where('key', 'invoices_created')->where('date', $date)->sum('value'))
                 ->description('Total renewal invoices created on ' . Carbon::parse($date)->toFormattedDateString()),
+            Stat::make('Cancellation Requests Processed', \App\Models\CronStat::where('key', 'cancellations_processed')->where('date', $date)->sum('value')),
             Stat::make('Services Suspended', \App\Models\CronStat::where('key', 'services_suspended')->where('date', $date)->sum('value'))
                 ->description('Total overdue services suspended on ' . Carbon::parse($date)->toFormattedDateString()),
             Stat::make('Services Terminated', \App\Models\CronStat::where('key', 'services_terminated')->where('date', $date)->sum('value'))
