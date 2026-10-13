@@ -704,29 +704,25 @@ class Settings
     public static function tax(?User $user = null)
     {
         $user ??= Auth::user();
-        // Once per user and request/job (product pages build many prices). Keyed by the user's id: once() keyed
-        // by the object, whose id PHP reuses, so in the cron's loop one customer could get the previous one's rate.
-        $rates = app('settings.tax-rates');
-        $key = $user?->getKey() ?? 'guest';
-        if ($rates->offsetExists($key)) {
-            return $rates[$key];
+        // Get country from user properties
+        $country = $user?->properties->where('key', 'country')->value('value') ?? null;
+
+        // Change country to a two-letter country code if it's not already
+        if ($country) {
+            $country = array_search($country, config('app.countries')) ?: $country;
         }
 
-        return $rates[$key] = (function () use ($user) {
-            // Get country from user properties
-            $country = $user?->properties->where('key', 'country')->value('value') ?? null;
-
-            // Change country to a two-letter country code if it's not already
-            if ($country) {
-                $country = array_search($country, config('app.countries')) ?: $country;
-            }
-
-            $taxRate = TaxRate::whereIn('country', [$country, 'all'])
+        // Once per country and request/job (product pages build many prices); reset between requests and queued
+        // jobs. Per country, not per user: a customer whose country changes in the request gets the new rate.
+        $rates = app('settings.tax-rates');
+        $key = $country ?? '';
+        if (!$rates->offsetExists($key)) {
+            $rates[$key] = TaxRate::whereIn('country', [$country, 'all'])
                 ->orderByRaw('country = ? desc', [$country])
-                ->first();
+                ->first() ?: 0;
+        }
 
-            return $taxRate ?: 0;
-        })();
+        return $rates[$key];
     }
 
     public static function settingsObject()
