@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Admin\Pages\Settings;
+use App\Models\Invoice;
 use App\Models\Role;
 use App\Models\Setting;
 use App\Models\User;
@@ -41,6 +42,15 @@ class AdminSettingsCounterTest extends TestCase
         }
     }
 
+    /** An invoice with this number (the listener numbers it on create; the number under test is set after). */
+    private function issued(string $number): void
+    {
+        $counter = $this->value('invoice_number');
+        Invoice::factory()->create(['user_id' => $this->owner->id])->forceFill(['number' => $number])->saveQuietly();
+        Setting::query()->where('key', 'invoice_number')->whereNull('settingable_type')->update(['value' => $counter]);
+        config(['settings.invoice_number' => $counter]); // the listener's save moved config too
+    }
+
     private function value(string $key): ?string
     {
         return Setting::query()->where('key', $key)->whereNull('settingable_type')->value('value');
@@ -71,8 +81,10 @@ class AdminSettingsCounterTest extends TestCase
         $this->assertSame('32476', $this->value('invoice_number'));
     }
 
-    public function test_a_counter_cannot_go_below_the_last_number_used_and_nothing_is_saved(): void
+    public function test_a_counter_cannot_go_back_onto_numbers_already_used_and_nothing_is_saved(): void
     {
+        config(['settings.invoice_number_format' => 'INV-{number}', 'settings.invoice_number_padding' => 1]);
+        $this->issued('INV-102'); // 101..105 issued
         $page = Livewire::actingAs($this->owner)->test(Settings::class);
         Setting::query()->where('key', 'invoice_number')->update(['value' => 105]);
 
@@ -83,6 +95,34 @@ class AdminSettingsCounterTest extends TestCase
 
         $this->assertSame('105', $this->value('invoice_number'));
         $this->assertNotSame('el', $this->value('app_language'));
+    }
+
+    public function test_a_counter_may_restart_when_the_next_number_is_free(): void
+    {
+        // {YEAR}-{NUMBER} (nixpal): on 1 January the count restarts, 2027-1 is free although 2026-150 was the last.
+        config(['settings.invoice_number_format' => '{year}-{number}', 'settings.invoice_number_padding' => 1]);
+        $this->issued(now()->subYear()->format('Y') . '-150');
+        Setting::query()->where('key', 'invoice_number')->update(['value' => 150]);
+        config(['settings.invoice_number' => 150]);
+
+        Livewire::actingAs($this->owner)->test(Settings::class)
+            ->set('data.invoice_number', 0)
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertSame('0', $this->value('invoice_number'));
+    }
+
+    public function test_a_counter_is_a_whole_number_in_range(): void
+    {
+        foreach (['99999999999999999999', '12.5', '-1', 'abc'] as $bad) {
+            Livewire::actingAs($this->owner)->test(Settings::class)
+                ->set('data.invoice_number', $bad)
+                ->call('save')
+                ->assertHasErrors('data.invoice_number');
+        }
+
+        $this->assertSame('100', $this->value('invoice_number'));
     }
 
     public function test_a_second_save_from_the_same_page_keeps_the_staff_value_and_later_numbers(): void

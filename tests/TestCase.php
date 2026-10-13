@@ -8,10 +8,20 @@ use App\Models\Product;
 use App\Models\User;
 use App\Models\UserSession;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+use Illuminate\Support\Once;
 
 abstract class TestCase extends BaseTestCase
 {
     protected bool $seed = true;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // The seeder runs code that memoises with once() (e.g. the settings' currency list, read before the
+        // seeder creates USD): start every test from what the seeded database says.
+        Once::flush();
+    }
 
     //
     protected function createProduct(array $attributes = [])
