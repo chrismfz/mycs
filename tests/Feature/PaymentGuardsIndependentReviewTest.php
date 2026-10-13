@@ -62,7 +62,7 @@ class PaymentGuardsIndependentReviewTest extends TestCase
 
     private function invoiceFor(Service $service): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Renewal',
             'quantity' => 1, 'price' => 10.00, 'period_start' => '2026-10-15', 'period_end' => '2026-11-15',
@@ -186,7 +186,7 @@ class PaymentGuardsIndependentReviewTest extends TestCase
      */
     public function test_refunding_a_credit_purchase_does_not_leave_the_credit(): void
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Credit deposit', 'quantity' => 1, 'price' => 50.00]);
         $payment = ExtensionHelper::addPayment($invoice->id, 'Stripe', 50.00, null, 'pi_deposit', currency: 'usd');
         $this->assertSame('paid', $invoice->fresh()->status);

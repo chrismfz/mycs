@@ -155,7 +155,7 @@ class CronjobTest extends TestCase
             'created_at' => now()->subDays(8), // Set created_at to 8 days ago
         ]);
         // Its order's invoice, unpaid (BIL-12: a pending service without one is staff's, not an unpaid order).
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'pending', 'currency_code' => 'USD', 'due_at' => now()->subDays(8)]);
+        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => now()->subDays(8)]);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Order', 'quantity' => 1, 'price' => 10]);
 
         // Run the cron job

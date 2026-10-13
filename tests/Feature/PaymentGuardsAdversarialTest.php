@@ -72,9 +72,9 @@ class PaymentGuardsAdversarialTest extends TestCase
         ], $attributes));
     }
 
-    private function invoiceFor(Service $service, string $start, string $end, string $status = 'pending', float $price = 10.00, string $currency = 'USD'): Invoice
+    private function invoiceFor(Service $service, string $start, string $end, string $status = 'unpaid', float $price = 10.00, string $currency = 'USD'): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_PENDING : $status, 'currency_code' => $currency]);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => $currency]);
         $invoice->items()->create([
             'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Renewal',
             'quantity' => 1, 'price' => $price, 'period_start' => $start, 'period_end' => $end,
@@ -91,7 +91,7 @@ class PaymentGuardsAdversarialTest extends TestCase
 
     private function creditInvoice(float $amount): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Credit deposit', 'quantity' => 1, 'price' => $amount, 'reference_type' => Credit::class]);
 
         return $invoice->fresh();
@@ -276,10 +276,10 @@ class PaymentGuardsAdversarialTest extends TestCase
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 10.00, null, 'pi_late', currency: 'usd');
         $this->assertSame('10.00', $this->credit());
 
-        $invoice->fresh()->update(['status' => 'pending']); // staff reopen
+        $invoice->fresh()->update(['status' => 'unpaid']); // staff reopen
         ExtensionHelper::addFailedPayment($invoice->id, 'Stripe', 10.00, null, 'pi_declined', currency: 'usd');
 
-        $this->assertSame('pending', $invoice->fresh()->status);
+        $this->assertSame('unpaid', $invoice->fresh()->status);
         $this->assertSame('10.00', $this->credit());
         $this->assertSame('2026-10-15', $this->expires($service));
     }
@@ -328,7 +328,7 @@ class PaymentGuardsAdversarialTest extends TestCase
 
         $this->assertSame(1, InvoiceTransaction::query()->count());
         $this->assertSame('paid', $october->fresh()->status);
-        $this->assertSame('pending', $november->fresh()->status);
+        $this->assertSame('unpaid', $november->fresh()->status);
         $this->assertSame('0.00', $this->credit());
         $this->assertSame('2026-11-15', $this->expires($service));
     }
@@ -344,7 +344,7 @@ class PaymentGuardsAdversarialTest extends TestCase
         ExtensionHelper::addPayment($usd->id, 'Stripe', 10.00, null, 'pi_x', currency: 'usd');
 
         $this->assertSame(InvoiceTransactionStatus::Processing, InvoiceTransaction::query()->sole()->status);
-        $this->assertSame('pending', $eur->fresh()->status);
+        $this->assertSame('unpaid', $eur->fresh()->status);
     }
 
     public function test_failed_then_succeeded_is_one_payment_and_late_failed_is_ignored(): void
@@ -429,7 +429,7 @@ class PaymentGuardsAdversarialTest extends TestCase
         }
 
         $this->assertSame(0, InvoiceTransaction::query()->count());
-        $this->assertSame('pending', $invoice->fresh()->status);
+        $this->assertSame('unpaid', $invoice->fresh()->status);
         $this->assertSame('0.00', $this->credit());
     }
 
@@ -443,7 +443,7 @@ class PaymentGuardsAdversarialTest extends TestCase
         $this->assertNull(ExtensionHelper::addPayment($invoice->id, 'Stripe', 10.00, null, 'pi_1', currency: ''));
 
         $this->assertSame(InvoiceTransactionStatus::Processing, InvoiceTransaction::query()->sole()->status);
-        $this->assertSame('pending', $invoice->fresh()->status);
+        $this->assertSame('unpaid', $invoice->fresh()->status);
         $this->assertSame('0.00', $this->credit());
     }
 

@@ -48,7 +48,8 @@ class Invoice extends Model implements Auditable
 
     public const STATUS_DRAFT = 'draft';
 
-    public const STATUS_PENDING = 'pending';
+    /** Waiting for its payment: WHMCS's «Unpaid», the same word in the database and on every screen. */
+    public const STATUS_UNPAID = 'unpaid';
 
     public const STATUS_PAID = 'paid';
 
@@ -61,7 +62,7 @@ class Invoice extends Model implements Auditable
     public const FROZEN_STATUSES = [self::STATUS_PAID, self::STATUS_REFUNDED];
 
     /** Every status, in the order screens list them. */
-    public const STATUSES = [self::STATUS_DRAFT, self::STATUS_PENDING, self::STATUS_PAID, self::STATUS_CANCELLED, self::STATUS_REFUNDED];
+    public const STATUSES = [self::STATUS_DRAFT, self::STATUS_UNPAID, self::STATUS_PAID, self::STATUS_CANCELLED, self::STATUS_REFUNDED];
 
     /** What staff and customers read for a status: WHMCS's words (pending is «Unpaid»), lang/*\/invoices.php. */
     public static function statusLabel(?string $status): string
@@ -82,7 +83,7 @@ class Invoice extends Model implements Auditable
     {
         return match ($status) {
             self::STATUS_PAID => 'success',
-            self::STATUS_PENDING => 'warning',
+            self::STATUS_UNPAID => 'warning',
             self::STATUS_DRAFT => 'gray',
             self::STATUS_REFUNDED => 'info',
             default => 'danger',
@@ -90,7 +91,7 @@ class Invoice extends Model implements Auditable
     }
 
     /** Not settled yet: what a cancellation gives up on (a draft too: finalised later, it would bill it). */
-    public const OPEN_STATUSES = [self::STATUS_PENDING, self::STATUS_DRAFT];
+    public const OPEN_STATUSES = [self::STATUS_UNPAID, self::STATUS_DRAFT];
 
     protected $fillable = ['number', 'user_id', 'currency_code', 'due_at', 'status', 'cancellation_reason'];
 
@@ -109,7 +110,7 @@ class Invoice extends Model implements Auditable
     {
         if ($this->exists && (($this->isDirty('status') && (in_array($this->status, [self::STATUS_PAID, self::STATUS_CANCELLED, self::STATUS_REFUNDED], true)
             || ($this->getOriginal('status') === self::STATUS_CANCELLED
-                && in_array($this->status, [self::STATUS_PENDING, self::STATUS_DRAFT], true))))
+                && in_array($this->status, [self::STATUS_UNPAID, self::STATUS_DRAFT], true))))
             // Moving the invoice (customer, currency) is checked against its payments under the same locks.
             || $this->isDirty(['user_id', 'currency_code']))) {
             return DB::transaction(function () use ($options) {

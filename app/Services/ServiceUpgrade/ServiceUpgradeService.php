@@ -5,6 +5,7 @@ namespace App\Services\ServiceUpgrade;
 use App\Helpers\NotificationHelper;
 use App\Jobs\Server\UpgradeJob;
 use App\Models\ConfigOptionProduct;
+use App\Models\Invoice;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Services\Invoice\ChangeOpenLine;
@@ -98,7 +99,7 @@ class ServiceUpgradeService
             // Legacy manual lines without a period retain their whole-cycle allocation on payment. Under the payment
             // locks; an invoice with a payment on it keeps its line (R9).
             $service->invoiceItems()->where(fn ($query) => $query->whereNull('period_start')->orWhereNull('period_end'))
-                ->whereHas('invoice', fn ($query) => $query->whereIn('status', ['pending', 'draft']))
+                ->whereHas('invoice', fn ($query) => $query->whereIn('status', Invoice::OPEN_STATUSES))
                 ->get()
                 ->each(fn ($item) => ChangeOpenLine::handle($item, fn ($line) => $line->price = $service->price));
 

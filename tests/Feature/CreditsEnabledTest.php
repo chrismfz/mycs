@@ -23,7 +23,7 @@ class CreditsEnabledTest extends TestCase
     {
         $user = User::factory()->create();
         $user->credits()->create(['currency_code' => 'USD', 'amount' => 50.00]);
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'pending']);
+        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 20.00]);
 
         return [$user, $invoice->fresh()];
@@ -38,7 +38,7 @@ class CreditsEnabledTest extends TestCase
             ->set('selectedMethod', 'credit')
             ->call('processPayment');
 
-        $this->assertSame('pending', $invoice->fresh()->status);
+        $this->assertSame('unpaid', $invoice->fresh()->status);
         $this->assertEquals(50.00, $user->credits()->value('amount'));
     }
 
@@ -73,7 +73,7 @@ class CreditsEnabledTest extends TestCase
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
-        $this->assertDatabaseHas('invoices', ['user_id' => $user->id, 'status' => 'pending']);
+        $this->assertDatabaseHas('invoices', ['user_id' => $user->id, 'status' => 'unpaid']);
         $this->assertEquals(10.00, $user->credits()->value('amount'));
     }
 }

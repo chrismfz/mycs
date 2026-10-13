@@ -49,7 +49,7 @@ class MoneyCheckTest extends TestCase
         $this->user = User::factory()->create();
     }
 
-    private function invoice(float $price = 10, string $status = Invoice::STATUS_PENDING): Invoice
+    private function invoice(float $price = 10, string $status = Invoice::STATUS_UNPAID): Invoice
     {
         $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status, 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => $price]);
@@ -124,7 +124,7 @@ class MoneyCheckTest extends TestCase
         $product = $this->createProduct();
         $service = Service::factory()->create(['user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id, 'status' => Service::STATUS_CANCELLED, 'currency_code' => 'USD']);
         $other = Service::factory()->create(['user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id, 'status' => Service::STATUS_ACTIVE, 'currency_code' => 'USD']);
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_PENDING, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => 10]);
         $this->assertSame(['open_for_cancelled'], $this->rules(['open_for_cancelled']));
 
@@ -139,14 +139,14 @@ class MoneyCheckTest extends TestCase
         $line = fn (Invoice $invoice) => $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => 10]);
 
         // Imported history (paid in WHMCS, applied before MyCS kept applied_at): not a finding.
-        $imported = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_PENDING, 'currency_code' => 'USD']);
+        $imported = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $line($imported);
         $transaction = $imported->transactions()->create(['amount' => 10, 'status' => InvoiceTransactionStatus::Succeeded, 'transaction_id' => 'whmcs-1']);
         (new MoneyTrail)->payment($imported->fresh(), $transaction, MoneyTrail::SOURCE_IMPORT);
         DB::table('invoices')->where('id', $imported->id)->update(['status' => Invoice::STATUS_PAID]);
         $this->assertSame([], $this->rules(['paid_for_cancelled']), 'an imported paid invoice is history');
 
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_PENDING, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $line($invoice);
         (new RecordPaymentService)->handle($invoice->fresh(), null, 10.0, transactionId: 'wire-1');
         $this->assertSame(['paid_for_cancelled'], $this->rules(['paid_for_cancelled']));

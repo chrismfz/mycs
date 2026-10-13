@@ -67,9 +67,9 @@ class BillingCursorReview4Test extends TestCase
         ], $attributes));
     }
 
-    private function invoiceFor(Service $service, ?string $start, ?string $end, string $status = 'pending', float $price = 10.00): Invoice
+    private function invoiceFor(Service $service, ?string $start, ?string $end, string $status = 'unpaid', float $price = 10.00): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_PENDING : $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id,
             'reference_type' => Service::class,
@@ -111,7 +111,7 @@ class BillingCursorReview4Test extends TestCase
         $this->assertSame('2026-11-15', $service->fresh()->expires_at->toDateString());
 
         $service->fresh()->update(['status' => 'suspended']); // staff, e.g. abuse
-        $invoice->fresh()->update(['status' => 'pending']);
+        $invoice->fresh()->update(['status' => 'unpaid']);
         $invoice->fresh()->update(['status' => 'paid']);
 
         $this->assertSame('suspended', $service->fresh()->status);
@@ -149,7 +149,7 @@ class BillingCursorReview4Test extends TestCase
     public function test_two_upgrades_on_one_invoice_keep_their_own_prices(): void
     {
         $service = $this->service();
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $upgrades = collect([20.00, 40.00])->map(function ($price) use ($service, $invoice) {
             $product = $this->product($price);
             $upgrade = ServiceUpgrade::create([
@@ -185,7 +185,7 @@ class BillingCursorReview4Test extends TestCase
 
         $this->artisan('app:cron-job')->assertExitCode(0); // cycle 3: full price
 
-        $line = $service->invoices()->where('status', 'pending')->sole()->items()->sole();
+        $line = $service->invoices()->where('status', 'unpaid')->sole()->items()->sole();
         $this->assertSame('2026-10-15', $line->period_start->toDateString());
         $this->assertSame('10.00', (string) $line->price);
     }

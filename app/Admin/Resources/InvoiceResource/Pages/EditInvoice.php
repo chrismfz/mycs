@@ -157,7 +157,7 @@ class EditInvoice extends EditRecord
 
     protected function changeInvoiceStatusToPending(Invoice $invoice): void
     {
-        $invoice->status = Invoice::STATUS_PENDING;
+        $invoice->status = Invoice::STATUS_UNPAID;
         $invoice->save();
     }
 }

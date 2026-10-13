@@ -25,7 +25,7 @@ class CreditPurchaseMutationReviewTest extends TestCase
     {
         $oldOwner = User::factory()->create();
         $newOwner = User::factory()->create();
-        $invoice = Invoice::factory()->create(['user_id' => $oldOwner->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $oldOwner->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => 50]);
         $invoice->load('user');
 
@@ -45,7 +45,7 @@ class CreditPurchaseMutationReviewTest extends TestCase
         $oldOwner = User::factory()->create();
         $newOwner = User::factory()->create();
         Credit::create(['user_id' => $newOwner->id, 'currency_code' => 'USD', 'amount' => 10]);
-        $invoice = Invoice::factory()->create(['user_id' => $oldOwner->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $oldOwner->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => 50]);
         $invoice->load('user');
 
@@ -60,7 +60,7 @@ class CreditPurchaseMutationReviewTest extends TestCase
     public function test_overpaid_credit_purchase_refund_preserves_only_excess_credit(): void
     {
         $owner = User::factory()->create();
-        $invoice = Invoice::factory()->create(['user_id' => $owner->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $owner->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => 50]);
         $payment = ExtensionHelper::addPayment($invoice->id, null, 70, transactionId: 'REVIEW-OVERPAY');
         $this->assertSame('20.00', $payment->fresh()->credited_amount);
@@ -75,7 +75,7 @@ class CreditPurchaseMutationReviewTest extends TestCase
     public function test_deleting_overpaid_credit_purchase_removes_bought_and_excess_credit(): void
     {
         $owner = User::factory()->create();
-        $invoice = Invoice::factory()->create(['user_id' => $owner->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $owner->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => 50]);
         $payment = ExtensionHelper::addPayment($invoice->id, null, 70, transactionId: 'REVIEW-DELETE');
         (new RecordPaymentService)->deleteTransaction($payment);
@@ -88,7 +88,7 @@ class CreditPurchaseMutationReviewTest extends TestCase
     {
         $owner = User::factory()->create();
         Credit::create(['user_id' => $owner->id, 'currency_code' => 'USD', 'amount' => 60]);
-        $invoice = Invoice::factory()->create(['user_id' => $owner->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $owner->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => 50]);
         $payments = new RecordPaymentService;
         $payment = $payments->payWithCredit($invoice);
@@ -104,14 +104,14 @@ class CreditPurchaseMutationReviewTest extends TestCase
     public function test_multiple_credit_lines_are_granted_once_and_refunded_together(): void
     {
         $owner = User::factory()->create();
-        $invoice = Invoice::factory()->create(['user_id' => $owner->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $owner->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         foreach ([20, 30] as $price) {
             $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => $price]);
         }
         $payment = ExtensionHelper::addPayment($invoice->id, null, 50, transactionId: 'REVIEW-LINES');
         $this->assertSame('50.00', $this->balance($owner));
         $this->assertSame(2, $invoice->items()->whereNotNull('applied_at')->count());
-        $invoice->fresh()->update(['status' => 'pending']);
+        $invoice->fresh()->update(['status' => 'unpaid']);
         $invoice->fresh()->update(['status' => 'paid']);
         $this->assertSame('50.00', $this->balance($owner));
 

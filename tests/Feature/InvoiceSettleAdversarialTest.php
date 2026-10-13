@@ -70,7 +70,7 @@ class InvoiceSettleAdversarialTest extends TestCase
 
     private function invoice(float $price = 100, ?string $reference = null, ?int $referenceId = null, ?int $userId = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $userId ?? $this->user->id, 'status' => Invoice::STATUS_PENDING,
+        $invoice = Invoice::factory()->create(['user_id' => $userId ?? $this->user->id, 'status' => Invoice::STATUS_UNPAID,
             'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(array_filter(['description' => 'Line', 'quantity' => 1, 'price' => $price,
             'reference_type' => $reference, 'reference_id' => $referenceId], fn ($value) => $value !== null));
@@ -99,7 +99,7 @@ class InvoiceSettleAdversarialTest extends TestCase
         $invoice = $this->invoice(100);
         (new RecordPaymentService)->handle($invoice, $this->stripe(), 60.0, transactionId: 'pi_1', currency: 'USD');
         $invoice->items()->sole()->update(['price' => 50]);
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
         $this->assertSame(-1000, RecordPaymentService::toCents($invoice->fresh()->remaining));
 
         return $invoice->fresh();
@@ -153,7 +153,7 @@ class InvoiceSettleAdversarialTest extends TestCase
         } catch (DisplayException) {
             // refusing it (use «Close as paid») is a fix too. After the fix: refused, and staff close it with the action
             // (RecordPaymentService::settle), which credits the part over.
-            $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+            $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
             $this->assertTrue((new RecordPaymentService)->settle($invoice));
         }
 
@@ -183,10 +183,10 @@ class InvoiceSettleAdversarialTest extends TestCase
         // What the edit form's status select saves, twice.
         $this->actingAs($clerk);
         $invoice->update(['status' => Invoice::STATUS_DRAFT]);
-        $invoice->fresh()->update(['status' => Invoice::STATUS_PENDING]);
+        $invoice->fresh()->update(['status' => Invoice::STATUS_UNPAID]);
 
         $this->assertSame(0, $this->balanceCents(), 'S3: a staff role without payment permissions moved a payment to credit');
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status, 'S3: a staff edit closed it on its own');
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status, 'S3: a staff edit closed it on its own');
     }
 
     /**
@@ -225,7 +225,7 @@ class InvoiceSettleAdversarialTest extends TestCase
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
         $this->assertSame(10000, $this->balanceCents());
 
-        $invoice->fresh()->update(['status' => Invoice::STATUS_PENDING]);
+        $invoice->fresh()->update(['status' => Invoice::STATUS_UNPAID]);
         $invoice->items()->sole()->update(['price' => 70]);
 
         try {
@@ -255,7 +255,7 @@ class InvoiceSettleAdversarialTest extends TestCase
         // price at 0, see the guard below); a negative invoice made by hand is left to staff: «Close as paid» is not
         // offered (settleRefusal) and the money check says «by hand».
         $invoice = $invoice->fresh(['items', 'transactions', 'adjustmentNotes']);
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->status);
         $this->assertNotNull(RecordPaymentService::settleRefusal($invoice), 'S6: «Close as paid» is offered but cannot close it');
         $findings = (new MoneyCheck)->run(['open_settled']);
         $this->assertStringContainsString('by hand', $findings[0]['detail'] ?? '');
@@ -268,7 +268,7 @@ class InvoiceSettleAdversarialTest extends TestCase
         $service = Service::factory()->create(['user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => Service::STATUS_ACTIVE, 'currency_code' => 'USD', 'price' => 50, 'quantity' => 1, 'expires_at' => now()->addDays(20)]);
         $target = $this->createProduct();
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_PENDING, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $upgrade = ServiceUpgrade::query()->create(['service_id' => $service->id, 'plan_id' => $target->plan->id, 'product_id' => $target->product->id, 'invoice_id' => $invoice->id]);
         $invoice->items()->create(['reference_type' => ServiceUpgrade::class, 'reference_id' => $upgrade->id, 'description' => 'Upgrade', 'quantity' => 1, 'price' => 5]);
 
@@ -289,7 +289,7 @@ class InvoiceSettleAdversarialTest extends TestCase
         (new RecordPaymentService)->deleteTransaction($invoice->transactions()->sole());
 
         $this->assertSame(0, $this->balanceCents());
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
         $this->assertSame(5000, RecordPaymentService::toCents($invoice->fresh()->remaining));
         $this->assertBooksClean('guard delete:');
     }
@@ -321,7 +321,7 @@ class InvoiceSettleAdversarialTest extends TestCase
         $invoice = $this->invoice(100);
         (new RecordPaymentService)->handle($invoice, null, 60.0, transactionId: 'wire-1');
         (new RecordPaymentService)->payWithCredit($invoice->fresh());
-        $invoice->fresh()->update(['status' => Invoice::STATUS_PENDING]);
+        $invoice->fresh()->update(['status' => Invoice::STATUS_UNPAID]);
         $invoice->items()->sole()->update(['price' => 80]);
         $this->assertTrue((new RecordPaymentService)->settle($invoice));
         $this->assertSame(2000, $this->balanceCents(), '20.00 of the credit payment came back');
@@ -340,7 +340,7 @@ class InvoiceSettleAdversarialTest extends TestCase
         DB::table('invoices')->where('id', $invoice->id)->update(['user_id' => null]);
 
         $this->assertFalse((new RecordPaymentService)->settle($invoice->id));
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
         $this->assertSame(0, $this->balanceCents());
     }
 
@@ -379,6 +379,6 @@ class InvoiceSettleAdversarialTest extends TestCase
         $invoice = $this->invoice(100);
         (new RecordPaymentService)->handle($invoice, $this->stripe(), 100.0, transactionId: 'pi_sepa', status: InvoiceTransactionStatus::Processing, currency: 'USD');
         $this->assertFalse((new RecordPaymentService)->settle($invoice), 'nothing arrived yet');
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
     }
 }

@@ -18,7 +18,8 @@ return [
     ],
     'statuses' => [
         'draft' => 'draft',
-        'pending' => 'unpaid',
+        'unpaid' => 'unpaid',
+        'pending' => 'unpaid', // its name before 2026-10-13: older audit rows
         'paid' => 'paid',
         'cancelled' => 'cancelled',
         'refunded' => 'refunded',

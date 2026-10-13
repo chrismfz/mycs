@@ -52,9 +52,9 @@ class BillingCursorTest extends TestCase
         ], $attributes));
     }
 
-    private function invoiceFor(Service $service, ?string $start, ?string $end, string $status = 'pending'): Invoice
+    private function invoiceFor(Service $service, ?string $start, ?string $end, string $status = 'unpaid'): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_PENDING : $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id,
             'reference_type' => Service::class,
@@ -154,7 +154,7 @@ class BillingCursorTest extends TestCase
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
-        $live = $service->invoiceItems()->whereHas('invoice', fn ($q) => $q->where('status', 'pending'))->sole();
+        $live = $service->invoiceItems()->whereHas('invoice', fn ($q) => $q->where('status', 'unpaid'))->sole();
         $this->assertSame('2026-10-15', $live->period_start->toDateString());
     }
 
@@ -251,13 +251,13 @@ class BillingCursorTest extends TestCase
         $this->invoiceFor($service, '2026-12-31', '2027-01-31', 'paid'); // its first billed period
 
         $this->artisan('app:cron-job')->assertExitCode(0);
-        $feb = $service->invoices()->where('status', 'pending')->sole();
+        $feb = $service->invoices()->where('status', 'unpaid')->sole();
         $this->assertSame('2027-02-28', $feb->items()->sole()->period_end->toDateString());
         $this->pay($feb);
 
         Carbon::setTestNow('2027-02-25 10:00:00');
         $this->artisan('app:cron-job')->assertExitCode(0);
-        $mar = $service->invoices()->where('status', 'pending')->sole();
+        $mar = $service->invoices()->where('status', 'unpaid')->sole();
         $this->assertSame('2027-03-31', $mar->items()->sole()->period_end->toDateString());
     }
 
@@ -296,7 +296,7 @@ class BillingCursorTest extends TestCase
         Carbon::setTestNow('2026-10-28 10:00:00'); // the hole 10-31..11-15 is due
         $this->artisan('app:cron-job')->assertExitCode(0);
 
-        $line = $service->invoiceItems()->whereHas('invoice', fn ($q) => $q->where('status', 'pending'))->sole();
+        $line = $service->invoiceItems()->whereHas('invoice', fn ($q) => $q->where('status', 'unpaid'))->sole();
         $this->assertSame('2026-10-31', $line->period_start->toDateString());
         $this->assertSame('2026-11-15', $line->period_end->toDateString()); // not 11-30: no day billed twice
         $this->assertEquals(15.00, (float) $line->price); // 30 × 15/30 (the full period 10-31..11-30 has 30 days)
@@ -310,7 +310,7 @@ class BillingCursorTest extends TestCase
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
-        $line = $service->invoiceItems()->whereHas('invoice', fn ($q) => $q->where('status', 'pending'))->sole();
+        $line = $service->invoiceItems()->whereHas('invoice', fn ($q) => $q->where('status', 'unpaid'))->sole();
         $this->assertSame('2026-10-15', $line->period_start->toDateString());
     }
 
@@ -321,7 +321,7 @@ class BillingCursorTest extends TestCase
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
-        $this->assertSame(0, $service->invoices()->where('status', 'pending')->count()); // A2
+        $this->assertSame(0, $service->invoices()->where('status', 'unpaid')->count()); // A2
     }
 
     public function test_a_payment_never_unsuspends_a_one_time_service(): void

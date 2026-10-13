@@ -16,10 +16,10 @@ return [
     'bill_to' => 'Bill To',
     'issued_to' => 'Issued To',
     'paid' => 'Paid',
-    // An invoice's status as staff and customers read it: WHMCS's words (pending is «Unpaid»).
+    // An invoice's status as staff and customers read it: WHMCS's words, the same as in the database.
     'statuses' => [
         'draft' => 'Draft',
-        'pending' => 'Unpaid',
+        'unpaid' => 'Unpaid',
         'paid' => 'Paid',
         'cancelled' => 'Cancelled',
         'refunded' => 'Refunded',

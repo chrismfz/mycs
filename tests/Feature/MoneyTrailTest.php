@@ -39,9 +39,9 @@ class MoneyTrailTest extends TestCase
         Gateway::query()->firstOrCreate(['extension' => 'Stripe'], ['name' => 'Stripe', 'type' => 'gateway']);
     }
 
-    private function invoice(float $price = 100.00, string $status = 'pending'): Invoice
+    private function invoice(float $price = 100.00, string $status = 'unpaid'): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_PENDING : $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => $price]);
 
         // A paid fixture (a period paid in the past): stored paid, its lines added while it was open (MT-1c: a paid
@@ -55,7 +55,7 @@ class MoneyTrailTest extends TestCase
 
     private function creditInvoice(float $price): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => $price]);
 
         return $invoice->fresh();

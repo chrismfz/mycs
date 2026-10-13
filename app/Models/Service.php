@@ -355,7 +355,7 @@ class Service extends Model implements Auditable
         }
         $lines = $this->livePeriodLines();
         foreach ($lines as $line) {
-            if (!in_array($line->invoice?->status, ['pending', 'draft'], true)) {
+            if (!in_array($line->invoice?->status, Invoice::OPEN_STATUSES, true)) {
                 continue;
             }
             $end = $this->periodEnd($line->period_start, $lines);

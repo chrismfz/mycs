@@ -46,7 +46,7 @@ class CreditAutoApplyTest extends TestCase
 
     private function invoice(float $price = 100, string $due = '+7 days', ?string $reference = null, ?int $referenceId = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_PENDING, 'currency_code' => 'USD', 'due_at' => now()->modify($due)]);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->modify($due)]);
         $invoice->items()->create(array_filter(['description' => 'Line', 'quantity' => 1, 'price' => $price,
             'reference_type' => $reference, 'reference_id' => $referenceId], fn ($value) => $value !== null));
 
@@ -72,7 +72,7 @@ class CreditAutoApplyTest extends TestCase
 
         $this->assertSame('30.00', $transaction->amount);
         $this->assertSame(70.0, $invoice->fresh()->remaining);
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
         $this->assertSame('0.00', $this->balance());
         $note = Notification::query()->where('user_id', $this->user->id)->sole();
         $this->assertSame('Account credit applied', $note->title);
@@ -136,7 +136,7 @@ class CreditAutoApplyTest extends TestCase
 
         $this->assertNull((new CreditAutoApply)->toInvoice($invoice));
         $this->assertSame(0, (new CreditAutoApply)->sweep());
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
     }
 
     public function test_an_overpayment_pays_the_customers_other_open_invoices(): void
@@ -162,7 +162,7 @@ class CreditAutoApplyTest extends TestCase
 
         ExtensionHelper::addPayment($sale->id, 'Stripe', 80.00, null, 'pi_sub', currency: 'USD');
 
-        $this->assertSame(Invoice::STATUS_PENDING, $other->fresh()->status, 'the sale\'s credit was spent elsewhere');
+        $this->assertSame(Invoice::STATUS_UNPAID, $other->fresh()->status, 'the sale\'s credit was spent elsewhere');
         $this->assertSame('30.00', $this->balance());
     }
 

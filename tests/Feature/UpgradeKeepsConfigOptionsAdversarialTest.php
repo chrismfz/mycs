@@ -140,7 +140,7 @@ class UpgradeKeepsConfigOptionsAdversarialTest extends TestCase
         $ram = $this->option('RAM', upgradable: true, values: [['2 GB', 0], ['4 GB', 5]], productIds: [$p->product->id]);
         $ip = $this->option('Extra IP', upgradable: false, values: [['None', 0], ['1 IP', 3]], productIds: [$p->product->id]);
         $service = $this->service($p, [[$ram, 0], [$ip, 1]]);
-        $invoice = Invoice::create(['user_id' => $service->user_id, 'currency_code' => 'USD', 'status' => 'pending', 'due_at' => now()]);
+        $invoice = Invoice::create(['user_id' => $service->user_id, 'currency_code' => 'USD', 'status' => 'unpaid', 'due_at' => now()]);
         $line = $invoice->items()->create(['description' => 'renewal', 'price' => 13, 'quantity' => 1,
             'reference_type' => Service::class, 'reference_id' => $service->id]);
 

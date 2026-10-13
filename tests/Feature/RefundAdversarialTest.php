@@ -60,7 +60,7 @@ class RefundAdversarialTest extends TestCase
 
     private function invoice(float $price = 100, ?string $reference = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_PENDING, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(array_filter(['description' => 'Hosting', 'quantity' => 1, 'price' => $price,
             'reference_type' => $reference], fn ($value) => $value !== null));
 
@@ -220,7 +220,7 @@ class RefundAdversarialTest extends TestCase
         ExtensionHelper::refundLocally($invoice->transactions()->sole(), 40.0);
         $this->assertBooksClean();
 
-        $invoice->fresh()->update(['status' => Invoice::STATUS_PENDING]);
+        $invoice->fresh()->update(['status' => Invoice::STATUS_UNPAID]);
         $this->assertSame(10000, $this->cents($invoice->fresh()->remaining),
             'reopened with no money on it: the whole invoice is owed, the refund of money it no longer holds is no discount');
     }
@@ -232,7 +232,7 @@ class RefundAdversarialTest extends TestCase
 
         $html = view('pdf.invoice', ['invoice' => $invoice])->render();
 
-        $this->assertStringContainsString(Invoice::statusLabel(Invoice::STATUS_PENDING), $html);
+        $this->assertStringContainsString(Invoice::statusLabel(Invoice::STATUS_UNPAID), $html);
     }
 
     // ================================================================== guards (must keep holding)
@@ -268,7 +268,7 @@ class RefundAdversarialTest extends TestCase
         } catch (DisplayException) {
         }
         ExtensionHelper::refundLocally($invoice->transactions()->sole(), 50.0);
-        foreach ([Invoice::STATUS_CANCELLED, Invoice::STATUS_PENDING, Invoice::STATUS_PAID, Invoice::STATUS_DRAFT] as $status) {
+        foreach ([Invoice::STATUS_CANCELLED, Invoice::STATUS_UNPAID, Invoice::STATUS_PAID, Invoice::STATUS_DRAFT] as $status) {
             try {
                 $invoice->fresh()->update(['status' => $status, 'cancellation_reason' => 'x']);
                 $this->fail("a refunded invoice became {$status}");
@@ -355,7 +355,7 @@ class RefundAdversarialTest extends TestCase
         $payment = $invoice->transactions()->sole();
 
         ExtensionHelper::refundToCredit($payment, 25.0);
-        $this->assertSame([Invoice::STATUS_PENDING, 6500, 0], [$invoice->fresh()->status, $this->cents($invoice->fresh()->remaining), $invoice->adjustmentNotes()->count()]);
+        $this->assertSame([Invoice::STATUS_UNPAID, 6500, 0], [$invoice->fresh()->status, $this->cents($invoice->fresh()->remaining), $invoice->adjustmentNotes()->count()]);
         try {
             $invoice->fresh()->update(['status' => Invoice::STATUS_CANCELLED, 'cancellation_reason' => 'x']);
             $this->fail('cancelled with 35.00 on it');

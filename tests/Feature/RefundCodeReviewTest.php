@@ -42,7 +42,7 @@ class RefundCodeReviewTest extends TestCase
 
     private function invoice(float $price = 100, array $line = []): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_PENDING, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(array_merge(['description' => 'Hosting', 'quantity' => 1, 'price' => $price], $line));
 
         return $invoice->fresh();
@@ -114,7 +114,7 @@ class RefundCodeReviewTest extends TestCase
         }
 
         $invoice = $invoice->fresh();
-        $this->assertSame([Invoice::STATUS_PENDING, 10000], [$invoice->status, RecordPaymentService::toCents($invoice->remaining)],
+        $this->assertSame([Invoice::STATUS_UNPAID, 10000], [$invoice->status, RecordPaymentService::toCents($invoice->remaining)],
             'the payment never happened: the customer owes the whole invoice, not 60');
     }
 

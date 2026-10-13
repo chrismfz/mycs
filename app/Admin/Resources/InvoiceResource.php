@@ -54,7 +54,7 @@ class InvoiceResource extends Resource
 
     public static function getNavigationBadge(): ?string
     {
-        return static::getModel()::where('status', 'pending')->count() ?: null;
+        return static::getModel()::where('status', Invoice::STATUS_UNPAID)->count() ?: null;
     }
 
     public static function getNavigationBadgeColor(): ?string
@@ -96,7 +96,7 @@ class InvoiceResource extends Resource
                             || RecordPaymentService::toCents($record->remaining) !== 0))
                         || ($value === Invoice::STATUS_REFUNDED) !== ($record?->getOriginal('status') === Invoice::STATUS_REFUNDED)
                         || ($value === Invoice::STATUS_CANCELLED && $record?->getOriginal('status') === Invoice::STATUS_PAID))
-                    ->default(fn (): string => config('settings.immutable_invoices_enabled', false) ? Invoice::STATUS_DRAFT : Invoice::STATUS_PENDING)
+                    ->default(fn (): string => config('settings.immutable_invoices_enabled', false) ? Invoice::STATUS_DRAFT : Invoice::STATUS_UNPAID)
                     ->placeholder('Select the status of the invoice'),
                 Select::make('currency_code')
                     ->label('Currency')

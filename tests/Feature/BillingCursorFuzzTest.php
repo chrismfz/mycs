@@ -264,7 +264,7 @@ class BillingCursorFuzzTest extends TestCase
             case 'pay_oldest':
             case 'pay_random':
             case 'pay_twice':
-                $pending = $this->invoices('pending');
+                $pending = $this->invoices('unpaid');
                 if ($pending->isEmpty()) {
                     return null;
                 }
@@ -277,7 +277,7 @@ class BillingCursorFuzzTest extends TestCase
                 $detail = "#{$inv->id}";
                 break;
             case 'reverse_pay':
-                $pending = $this->invoices('pending');
+                $pending = $this->invoices('unpaid');
                 if ($pending->count() < 2) {
                     return null;
                 }
@@ -302,7 +302,7 @@ class BillingCursorFuzzTest extends TestCase
                 $detail = "#{$inv->id}";
                 break;
             case 'cancel':
-                $pending = $this->invoices('pending');
+                $pending = $this->invoices('unpaid');
                 if ($pending->isEmpty()) {
                     return null;
                 }
@@ -333,7 +333,7 @@ class BillingCursorFuzzTest extends TestCase
                 }
                 $inv = $this->pickOne($done);
                 $replay = $inv->items->every(fn ($item) => $item->applied_at !== null);
-                $inv->update(['status' => 'pending']);
+                $inv->update(['status' => 'unpaid']);
                 $inv->fresh()->update(['status' => 'paid']);
                 $paid = !$replay;
                 $detail = "#{$inv->id}";
@@ -354,7 +354,7 @@ class BillingCursorFuzzTest extends TestCase
                 $detail = "#{$inv->id} -> " . $inv->fresh()->status;
                 break;
             case 'manual_line':
-                $inv = $this->invoiceFor(null, null, 'pending');
+                $inv = $this->invoiceFor(null, null, 'unpaid');
                 if ($this->service->fresh()->status === 'cancelled') {
                     $this->staffLeft[$inv->id] = true; // staff bill a service already cancelled (I10)
                 }
@@ -625,10 +625,10 @@ class BillingCursorFuzzTest extends TestCase
         $this->log[] = $line;
     }
 
-    private function invoiceFor(?string $start, ?string $end, string $status = 'pending', ?Service $service = null): Invoice
+    private function invoiceFor(?string $start, ?string $end, string $status = 'unpaid', ?Service $service = null): Invoice
     {
         $service ??= $this->service;
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_PENDING : $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id,
             'reference_type' => Service::class,
@@ -691,7 +691,7 @@ class BillingCursorFuzzTest extends TestCase
     private function pendingLine(Service $service): InvoiceItem
     {
         return InvoiceItem::query()->where('reference_type', Service::class)->where('reference_id', $service->id)
-            ->whereHas('invoice', fn ($q) => $q->where('status', 'pending'))->sole();
+            ->whereHas('invoice', fn ($q) => $q->where('status', 'unpaid'))->sole();
     }
 
     /**
@@ -799,7 +799,7 @@ class BillingCursorFuzzTest extends TestCase
     {
         Carbon::setTestNow('2026-10-12 10:00:00');
         $service = $this->fixedService('2026-10-15');
-        $invoice = $this->invoiceFor('2026-10-15', '2026-11-15', 'pending', $service);
+        $invoice = $this->invoiceFor('2026-10-15', '2026-11-15', 'unpaid', $service);
         $invoice->update(['status' => 'cancelled']);
 
         $invoice->fresh()->transactions()->create(['amount' => 0]);

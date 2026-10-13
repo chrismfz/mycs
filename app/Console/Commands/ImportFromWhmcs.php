@@ -935,7 +935,7 @@ class ImportFromWhmcs extends Command
                         'Paid' => 'paid',
                         'Unpaid' => 'unpaid',
                         'Cancelled' => 'cancelled',
-                        'Refunded' => 'cancelled',
+                        'Refunded' => 'refunded',
                         default => 'unpaid',
                     },
                     'currency_code' => $user['code'],

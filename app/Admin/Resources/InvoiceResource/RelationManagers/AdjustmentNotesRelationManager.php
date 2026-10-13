@@ -23,7 +23,7 @@ class AdjustmentNotesRelationManager extends RelationManager
 
     protected function canModifyAdjustmentNotes(): bool
     {
-        return !config('settings.immutable_invoices_enabled') || $this->getOwnerRecord()->status === Invoice::STATUS_PENDING;
+        return !config('settings.immutable_invoices_enabled') || $this->getOwnerRecord()->status === Invoice::STATUS_UNPAID;
     }
 
     private function ownerIsPaid(): bool
@@ -105,7 +105,7 @@ class AdjustmentNotesRelationManager extends RelationManager
                     ->sortable(),
             ])
             ->headerActions([
-                // A paid invoice keeps its total (AdjustmentNoteObserver): set it back to pending first.
+                // A paid invoice keeps its total (AdjustmentNoteObserver): set it back to unpaid first.
                 CreateAction::make()
                     ->visible(fn (): bool => $this->canModifyAdjustmentNotes() && !$this->ownerIsPaid()),
             ])

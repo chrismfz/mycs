@@ -53,9 +53,9 @@ class StaffCorrectionsTest extends TestCase
         Gateway::query()->firstOrCreate(['extension' => 'Stripe'], ['name' => 'Stripe', 'type' => 'gateway']);
     }
 
-    private function invoice(float $price = 100, string $status = Invoice::STATUS_PENDING, ?string $reference = null): Invoice
+    private function invoice(float $price = 100, string $status = Invoice::STATUS_UNPAID, ?string $reference = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_PENDING : $status, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(array_filter(['description' => 'Hosting', 'quantity' => 1, 'price' => $price, 'reference_type' => $reference], fn ($value) => $value !== null));
 
         // A paid fixture (a period paid in the past): stored paid, its lines added while it was open (MT-1c: a paid
@@ -100,7 +100,7 @@ class StaffCorrectionsTest extends TestCase
             $this->assertStringContainsString('Mark Paid', $e->getMessage());
         }
 
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
     }
 
     public function test_an_invoice_with_nothing_to_pay_is_still_marked_paid_by_its_status(): void
@@ -112,7 +112,7 @@ class StaffCorrectionsTest extends TestCase
         // Paid, then set back to pending by staff (Mark Unpaid): its payment covers it, so it can be paid again.
         $paid = $this->invoice();
         ExtensionHelper::addPayment($paid->id, 'Stripe', 100.00, null, 'pi_paid', currency: 'USD');
-        $paid->fresh()->update(['status' => Invoice::STATUS_PENDING]);
+        $paid->fresh()->update(['status' => Invoice::STATUS_UNPAID]);
         $paid->fresh()->update(['status' => Invoice::STATUS_PAID]);
         $this->assertSame(Invoice::STATUS_PAID, $paid->fresh()->status);
     }
@@ -127,7 +127,7 @@ class StaffCorrectionsTest extends TestCase
             ->assertStatus(422)
             ->assertJsonPath('message', 'An invoice becomes paid when its payment is recorded: use Mark Paid instead.');
 
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
         $this->assertSame('0.00', $this->balance());
         $this->assertSame(0, MoneyEvent::query()->count());
     }
@@ -157,7 +157,7 @@ class StaffCorrectionsTest extends TestCase
             ->call('save')
             ->assertHasFormErrors(['status']); // a disabled option
 
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
         $this->assertSame(0, InvoiceTransaction::query()->count());
     }
 
@@ -182,7 +182,7 @@ class StaffCorrectionsTest extends TestCase
 
         (new RecordPaymentService)->recordByStaff($invoice, null, '40.00');
 
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
         $this->assertSame(60.0, $invoice->fresh()->remaining);
     }
 
@@ -259,7 +259,7 @@ class StaffCorrectionsTest extends TestCase
         }
 
         $this->assertSame(InvoiceTransactionStatus::Processing, $other->transactions()->sole()->status);
-        $this->assertSame(Invoice::STATUS_PENDING, $other->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $other->fresh()->status);
         $this->assertSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status);
     }
 

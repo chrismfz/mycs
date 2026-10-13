@@ -135,11 +135,11 @@ class CreditLedgerTest extends TestCase
     /** The payment paths (MT-1a) now go through the ledger: the journal still adds up to the balance. */
     public function test_payment_paths_still_add_up_through_the_ledger(): void
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 100]);
-        $other = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $other = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $other->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 30]);
-        $deposit = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $deposit = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $deposit->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => 50]);
 
         $payment = ExtensionHelper::addPayment($invoice->id, 'Stripe', 140.00, null, 'pi_l1', currency: 'USD'); // +40

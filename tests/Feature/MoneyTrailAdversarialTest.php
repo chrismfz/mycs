@@ -51,7 +51,7 @@ class MoneyTrailAdversarialTest extends TestCase
 
     private function invoiceFor(User $user, int $cents = 10000, bool $creditPurchase = false): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(array_filter([
             'reference_type' => $creditPurchase ? Credit::class : null,
             'description' => $creditPurchase ? 'Deposit' : 'Hosting',
@@ -245,7 +245,7 @@ class MoneyTrailAdversarialTest extends TestCase
                         $svc->deleteTransaction($t);
                     }
                 } else {
-                    if (in_array($invoice->status, ['pending', 'draft'], true)) {
+                    if (in_array($invoice->status, ['unpaid', 'draft'], true)) {
                         $invoice->update(['status' => 'cancelled']);
                         $op = "cancel #{$invoiceId}";
                     } else {

@@ -42,7 +42,7 @@ class MoneyTrailFinalReviewTest extends TestCase
 
     private function paidInvoice(): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 100]);
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 100.00, null, 'pi_' . $invoice->id, currency: 'USD');
 
@@ -134,7 +134,7 @@ class MoneyTrailFinalReviewTest extends TestCase
 
     private function unpaidInvoice(): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 100]);
 
         return $invoice->fresh();

@@ -32,8 +32,8 @@ class MarkInvoicePaid
             ->label(__('Mark Paid'))
             ->icon('heroicon-o-banknotes')
             ->color('success')
-            ->visible(fn (Invoice $record): bool => in_array($record->status, [Invoice::STATUS_PENDING, Invoice::STATUS_CANCELLED], true)
-                && (!config('settings.immutable_invoices_enabled') || $record->status === Invoice::STATUS_PENDING))
+            ->visible(fn (Invoice $record): bool => in_array($record->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_CANCELLED], true)
+                && (!config('settings.immutable_invoices_enabled') || $record->status === Invoice::STATUS_UNPAID))
             // It records a payment: the permission «Add Payment» needs too, not only the invoice's.
             ->authorize(function (Invoice $record): bool {
                 $user = auth()->user();

@@ -51,7 +51,7 @@ class SuspensionRulesReReviewTest extends TestCase
         ], $attributes));
     }
 
-    private function invoice(Service $service, ?string $due, string $status = 'pending'): Invoice
+    private function invoice(Service $service, ?string $due, string $status = 'unpaid'): Invoice
     {
         $issued = $due !== null && Carbon::parse($due)->isPast() ? Carbon::parse($due) : now();
         $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => $status, 'currency_code' => 'USD', 'due_at' => $due, 'created_at' => $issued]);
@@ -93,7 +93,7 @@ class SuspensionRulesReReviewTest extends TestCase
         $this->cron();
 
         $this->assertSame('suspended', $service->fresh()->status, 'the money is on its way: not terminated');
-        $this->assertSame('pending', $invoice->fresh()->status, 'the invoice the SEPA payment lands on stays open');
+        $this->assertSame('unpaid', $invoice->fresh()->status, 'the invoice the SEPA payment lands on stays open');
     }
 
     /**

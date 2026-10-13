@@ -40,7 +40,7 @@ class NotificationTemplateTest extends TestCase
     {
         MailFacade::fake();
         $user = User::factory()->create();
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'pending']);
+        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid']);
         $invoice->items()->create(['description' => 'Hosting <b>Pro</b>', 'quantity' => 2, 'price' => 10]);
         $invoice->items()->create(['description' => 'Domain', 'quantity' => 1, 'price' => 5]);
 

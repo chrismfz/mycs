@@ -47,7 +47,7 @@ class PaymentGuardsFifthReviewTest extends TestCase
 
     private function creditInvoice(float $price): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Credit deposit', 'quantity' => 1, 'price' => $price]);
 
         return $invoice->fresh();
@@ -61,7 +61,7 @@ class PaymentGuardsFifthReviewTest extends TestCase
             'user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'expires_at' => '2026-10-15', 'currency_code' => 'USD', 'price' => 10.00,
         ]);
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Renewal',
             'quantity' => 1, 'price' => 10.00, 'period_start' => '2026-10-15', 'period_end' => '2026-11-15',
@@ -81,7 +81,7 @@ class PaymentGuardsFifthReviewTest extends TestCase
         Credit::query()->create(['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 200.00]);
         $invoice = $this->creditInvoice(100.00);
         $payment = ExtensionHelper::addPayment($invoice->id, null, 50.00, null, 'wire-partial');
-        $this->assertSame('pending', $invoice->fresh()->status);
+        $this->assertSame('unpaid', $invoice->fresh()->status);
         $this->assertSame('200.00', $this->credit());
 
         ExtensionHelper::refundLocally($payment->fresh(), 50.00);
@@ -156,7 +156,7 @@ class PaymentGuardsFifthReviewTest extends TestCase
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 50.00, null, 'pi_once', currency: 'usd');
         $this->assertSame('50.00', $this->credit());
 
-        $invoice->fresh()->update(['status' => 'pending']);
+        $invoice->fresh()->update(['status' => 'unpaid']);
         $invoice->fresh()->update(['status' => 'paid']);
 
         $this->assertSame('50.00', $this->credit());

@@ -10,7 +10,7 @@ use App\Models\InvoiceItem;
 /**
  * A paid invoice keeps what it charged (docs/money-trail.md, MT-1c): no line is added, removed or repriced while it is
  * paid, else it stays paid with a balance (and a price lowered to zero just to mark it paid would be raised again).
- * Staff set it back to pending first. Descriptions, periods and applied_at still change.
+ * Staff set it back to unpaid first. Descriptions, periods and applied_at still change.
  */
 class InvoiceItemObserver
 {
@@ -19,7 +19,7 @@ class InvoiceItemObserver
     private static function refuseOnPaidInvoice(mixed $invoiceId): void
     {
         if ($invoiceId !== null && in_array(Invoice::query()->whereKey($invoiceId)->value('status'), Invoice::FROZEN_STATUSES, true)) {
-            throw new DisplayException(__('A paid invoice keeps its lines: set it back to pending (unpaid) first.'));
+            throw new DisplayException(__('A paid invoice keeps its lines: set it back to unpaid first.'));
         }
     }
 

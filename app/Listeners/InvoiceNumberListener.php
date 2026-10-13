@@ -19,7 +19,7 @@ class InvoiceNumberListener
     {
         if ($event instanceof Updating) {
             $isChangingToPendingOrPaid = $event->invoice->isDirty('status') &&
-                in_array($event->invoice->status, [Invoice::STATUS_PENDING, Invoice::STATUS_PAID]);
+                in_array($event->invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_PAID]);
 
             if ($isChangingToPendingOrPaid && !$event->invoice->number) {
                 $this->setNumber($event->invoice, 'invoice');

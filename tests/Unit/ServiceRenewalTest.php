@@ -31,7 +31,7 @@ class ServiceRenewalTest extends TestCase
         // Create an invoice for the service renewal
         $invoice = Invoice::factory()->create([
             'user_id' => $user->id,
-            'status' => 'pending',
+            'status' => 'unpaid',
             'currency_code' => 'USD',
         ]);
         $invoice->items()->create([
@@ -75,7 +75,7 @@ class ServiceRenewalTest extends TestCase
         // Create an invoice for the service renewal
         $invoice = Invoice::factory()->create([
             'user_id' => $user->id,
-            'status' => 'pending',
+            'status' => 'unpaid',
             'currency_code' => 'USD',
         ]);
 
@@ -123,7 +123,7 @@ class ServiceRenewalTest extends TestCase
         // Create an invoice for the service renewal
         $invoice = Invoice::factory()->create([
             'user_id' => $user->id,
-            'status' => 'pending',
+            'status' => 'unpaid',
             'currency_code' => 'USD',
         ]);
 

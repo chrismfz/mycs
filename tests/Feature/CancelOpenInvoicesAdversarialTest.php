@@ -58,7 +58,7 @@ class CancelOpenInvoicesAdversarialTest extends TestCase
         ], $attributes));
     }
 
-    private function emptyInvoice(string $status = 'pending'): Invoice
+    private function emptyInvoice(string $status = 'unpaid'): Invoice
     {
         return Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status, 'currency_code' => 'USD']);
     }
@@ -125,7 +125,7 @@ class CancelOpenInvoicesAdversarialTest extends TestCase
 
         $this->request($a);
 
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status, "B's renewal was cancelled with A's upgrade");
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status, "B's renewal was cancelled with A's upgrade");
         $this->assertTrue($this->bills($invoice, $b));
     }
 
@@ -144,7 +144,7 @@ class CancelOpenInvoicesAdversarialTest extends TestCase
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status, "B's renewal was cancelled because A's upgrade expired");
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status, "B's renewal was cancelled because A's upgrade expired");
         $this->assertTrue($this->bills($invoice, $b));
     }
 
@@ -244,12 +244,12 @@ class CancelOpenInvoicesAdversarialTest extends TestCase
         $upgrade = $this->upgrade($a, $invoice, 20.00); // the same-price product: calculatePrice() comes to 0.00
         Credit::query()->create(['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 15]);
         (new RecordPaymentService)->payWithCredit($invoice);
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
         $invoice->refresh();
-        $this->assertFalse($invoice->status === Invoice::STATUS_PENDING && $invoice->remaining < 0,
+        $this->assertFalse($invoice->status === Invoice::STATUS_UNPAID && $invoice->remaining < 0,
             "pending with remaining {$invoice->remaining}: paid in full, the upgrade is stuck");
         // Fixed by not repricing an invoice with payments: the customer owes the 5.00 left of the price they started paying.
         $this->assertEqualsWithDelta(5.0, $invoice->remaining, 0.001);
@@ -280,7 +280,7 @@ class CancelOpenInvoicesAdversarialTest extends TestCase
     {
         $a = $this->service();
         $invoice = $this->invoice([$a, $a]);
-        $open = $a->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->get(); // has-many-through: twice
+        $open = $a->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->get(); // has-many-through: twice
 
         $this->assertCount(2, $open);
         $this->assertSame([], CancelOpenInvoices::handle($open, 'Cancelled.', $a));

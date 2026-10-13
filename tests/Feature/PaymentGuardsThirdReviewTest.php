@@ -64,7 +64,7 @@ class PaymentGuardsThirdReviewTest extends TestCase
 
     private function invoiceFor(Service $service, string $start = '2026-10-15', string $end = '2026-11-15'): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Renewal',
             'quantity' => 1, 'price' => 10.00, 'period_start' => $start, 'period_end' => $end,
@@ -105,11 +105,11 @@ class PaymentGuardsThirdReviewTest extends TestCase
         $service = $this->service();
         $invoice = $this->invoiceFor($service);
         $invoice->update(['status' => 'cancelled']);
-        $invoice->fresh()->update(['status' => 'pending']);
+        $invoice->fresh()->update(['status' => 'unpaid']);
 
         ExtensionHelper::addFailedPayment($invoice->id, 'Stripe', 10.00, null, 'pi_declined', currency: 'usd');
 
-        $this->assertSame('pending', $invoice->fresh()->status);
+        $this->assertSame('unpaid', $invoice->fresh()->status);
         $this->assertSame('2026-10-15', $this->expires($service));
     }
 
@@ -119,7 +119,7 @@ class PaymentGuardsThirdReviewTest extends TestCase
         $service = $this->service();
         $invoice = $this->invoiceFor($service);
         $invoice->update(['status' => 'cancelled']);
-        $invoice->fresh()->update(['status' => 'pending']);
+        $invoice->fresh()->update(['status' => 'unpaid']);
         $this->assertEquals(10.00, $invoice->fresh()->remaining);
 
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 10.00, null, 'pi_ok', currency: 'usd');
@@ -138,11 +138,11 @@ class PaymentGuardsThirdReviewTest extends TestCase
         // invoice is paid, refunded in part, then set back to pending by staff before it is cancelled.
         $payment = ExtensionHelper::addPayment($invoice->id, 'Stripe', 10.00, null, 'pi_part', currency: 'usd');
         ExtensionHelper::refundLocally($payment->fresh(), 1.00);
-        $invoice->fresh()->update(['status' => 'pending']);
+        $invoice->fresh()->update(['status' => 'unpaid']);
         // Since 2c an invoice holding money is not cancelled: the 9.00 still on it goes back first.
         ExtensionHelper::refundLocally($payment->fresh(), 9.00);
         $invoice->fresh()->update(['status' => 'cancelled']);
-        $invoice->fresh()->update(['status' => 'pending']);
+        $invoice->fresh()->update(['status' => 'unpaid']);
 
         $notes = $invoice->fresh()->adjustmentNotes;
         $this->assertSame(AdjustmentNoteStatus::Voided, $notes->firstWhere('is_cancellation', true)->status);
@@ -258,7 +258,7 @@ class PaymentGuardsThirdReviewTest extends TestCase
     /** Credit bought with a card and already spent: the purchase cannot be refunded. */
     public function test_a_spent_credit_purchase_cannot_be_refunded(): void
     {
-        $purchase = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $purchase = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $purchase->items()->create(['reference_id' => null, 'reference_type' => Credit::class, 'description' => 'Credit', 'quantity' => 1, 'price' => 10.00]);
         $paid = ExtensionHelper::addPayment($purchase->id, 'Stripe', 10.00, null, 'pi_buy', currency: 'usd');
         $this->assertSame('10.00', $this->credit());
@@ -349,7 +349,7 @@ class PaymentGuardsThirdReviewTest extends TestCase
         (new PayPal([]))->recordSubscriptionSale($this->sale('SALE-30', '30.00'));
 
         $this->assertSame('paid', $octoberB->fresh()->status);
-        $this->assertSame('pending', $novemberB->fresh()->status);
+        $this->assertSame('unpaid', $novemberB->fresh()->status);
         $this->assertSame('10.00', $this->credit());
     }
 
@@ -367,7 +367,7 @@ class PaymentGuardsThirdReviewTest extends TestCase
         (new RecordPaymentService)->allocateFromTransaction($sale, $invoiceB);
 
         $this->assertSame('paid', $invoiceA->fresh()->status);
-        $this->assertSame('pending', $invoiceB->fresh()->status);
+        $this->assertSame('unpaid', $invoiceB->fresh()->status);
         $this->assertEquals(5.00, $invoiceB->fresh()->remaining);
         $this->assertSame('50.00', $this->credit(), 'the customer\'s own credit is untouched');
     }

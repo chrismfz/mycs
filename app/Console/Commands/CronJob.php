@@ -238,7 +238,7 @@ class CronJob extends Command
                 // hold that just committed).
                 $requiresInvoice = (bool) config('settings.cronjob_suspend_requires_invoice', false);
                 if ($requiresInvoice) {
-                    $notices = $this->suspendable()->whereDoesntHave('invoices', fn ($query) => $query->where('invoices.status', Invoice::STATUS_PENDING))->pluck('id');
+                    $notices = $this->suspendable()->whereDoesntHave('invoices', fn ($query) => $query->where('invoices.status', Invoice::STATUS_UNPAID))->pluck('id');
                     foreach ($notices as $id) {
                         $this->notices["services_suspended #{$id}"] = new DisplayException("Service #{$id} is past due with no open invoice: not suspended (bill it, or set its due date).");
                     }
@@ -378,7 +378,7 @@ class CronJob extends Command
     private function unpaidOrders(int $days): Builder
     {
         return Service::query()->where('status', Service::STATUS_PENDING)->where('created_at', '<', now()->subDays($days))
-            ->whereHas('invoices', fn ($invoices) => $invoices->whereIn('invoices.status', [Invoice::STATUS_PENDING, Invoice::STATUS_CANCELLED]))
+            ->whereHas('invoices', fn ($invoices) => $invoices->whereIn('invoices.status', [Invoice::STATUS_UNPAID, Invoice::STATUS_CANCELLED]))
             ->whereDoesntHave('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_PAID))
             ->whereDoesntHave('invoices', fn ($invoices) => $this->withRealMoney($invoices));
     }
@@ -418,7 +418,7 @@ class CronJob extends Command
             ->whereDoesntHave('plan', fn ($plan) => $plan->whereIn('type', ['free', 'one-time']));
 
         return !$overdueInvoice ? $query : $query->whereHas('invoices', fn ($invoices) => $invoices
-            ->where('invoices.status', Invoice::STATUS_PENDING)
+            ->where('invoices.status', Invoice::STATUS_UNPAID)
             ->whereRaw('DATE(COALESCE(invoices.due_at, invoices.created_at)) < ?', [$cutoff])
             ->whereDate('invoices.created_at', '<', $cutoff));
     }
@@ -449,7 +449,7 @@ class CronJob extends Command
     {
         // A service without a plan is never billed (staff are told, BIL-6): never suspended or terminated as unpaid.
         return $query->whereNotNull('plan_id')->where(fn ($hold) => $hold->whereNull('suspend_hold_until')->orWhereDate('suspend_hold_until', '<', today()))
-            ->whereDoesntHave('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_PENDING)
+            ->whereDoesntHave('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_UNPAID)
                 ->whereHas('transactions', fn ($payments) => $payments->where('status', InvoiceTransactionStatus::Processing)))
             ->whereNotExists(fn ($line) => $this->paidLineToApply($line));
     }
@@ -589,7 +589,7 @@ class CronJob extends Command
         }
 
         // Does the service have already an open (pending or draft) invoice?
-        if ($service->invoices()->whereIn('status', ['pending', 'draft'])->exists() || $service->cancellation()->exists()) {
+        if ($service->invoices()->whereIn('status', Invoice::OPEN_STATUSES)->exists() || $service->cancellation()->exists()) {
             return 0;
         }
         // A payment of it still to be applied (BIL-9): its date has not moved yet, billing now would ask for it twice.
@@ -646,7 +646,7 @@ class CronJob extends Command
         // Create invoice
         $invoice = $service->invoices()->make([
             'user_id' => $service->user_id,
-            'status' => 'pending',
+            'status' => Invoice::STATUS_UNPAID,
             'due_at' => $periodStart,
             'currency_code' => $service->currency_code,
         ]);
@@ -673,7 +673,7 @@ class CronJob extends Command
         }
 
         // Charge billing agreements
-        if ($service->billing_agreement_id && $invoice->fresh()->status === 'pending') {
+        if ($service->billing_agreement_id && $invoice->fresh()->status === Invoice::STATUS_UNPAID) {
             DB::afterCommit(function () use ($invoice, $service) {
                 try {
                     ExtensionHelper::charge(
