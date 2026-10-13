@@ -63,18 +63,45 @@ class AdminUserPermissionGuardTest extends TestCase
         $this->assertSame($this->staffRole->id, $this->staff->fresh()->role_id);
     }
 
-    public function test_staff_cannot_take_over_a_full_admin(): void
+    public function test_staff_cannot_change_a_full_admins_password(): void
     {
-        $key = $this->key($this->staff);
+        $this->withToken($this->key($this->staff))
+            ->putJson(route('api.v1.admin.users.update', $this->admin), ['password' => 'taken-over-123'])->assertForbidden();
 
-        $this->withToken($key)->putJson(route('api.v1.admin.users.update', $this->admin), ['password' => 'taken-over-123'])->assertForbidden();
-        $this->withToken($key)->putJson(route('api.v1.admin.users.update', $this->admin), ['email' => 'mine@example.test'])->assertForbidden();
-        $this->withToken($key)->deleteJson(route('api.v1.admin.users.destroy', $this->admin))->assertForbidden();
+        $this->assertFalse(Hash::check('taken-over-123', $this->admin->fresh()->password));
+    }
 
-        $admin = $this->admin->fresh();
-        $this->assertNotNull($admin);
-        $this->assertFalse(Hash::check('taken-over-123', $admin->password));
-        $this->assertNotSame('mine@example.test', $admin->email);
+    public function test_staff_cannot_change_a_full_admins_email(): void
+    {
+        $this->withToken($this->key($this->staff))
+            ->putJson(route('api.v1.admin.users.update', $this->admin), ['email' => 'mine@example.test'])->assertForbidden();
+
+        $this->assertNotSame('mine@example.test', $this->admin->fresh()->email);
+    }
+
+    public function test_staff_cannot_delete_a_full_admin(): void
+    {
+        $this->withToken($this->key($this->staff))
+            ->deleteJson(route('api.v1.admin.users.destroy', $this->admin))->assertForbidden();
+
+        $this->assertNotNull($this->admin->fresh());
+    }
+
+    public function test_staff_cannot_strip_a_full_admins_role(): void
+    {
+        $this->withToken($this->key($this->staff))
+            ->putJson(route('api.v1.admin.users.update', $this->admin), ['role_id' => null])->assertForbidden();
+
+        $this->assertSame($this->adminRole->id, $this->admin->fresh()->role_id);
+    }
+
+    public function test_a_role_id_that_is_not_an_id_is_refused_not_a_500(): void
+    {
+        $this->withToken($this->key($this->staff))
+            ->putJson(route('api.v1.admin.users.update', $this->customer), ['role_id' => [$this->adminRole->id]])
+            ->assertForbidden();
+
+        $this->assertNull($this->customer->fresh()->role_id);
     }
 
     public function test_staff_cannot_create_a_full_admin(): void
@@ -113,6 +140,7 @@ class AdminUserPermissionGuardTest extends TestCase
         $this->withToken($key)->putJson(route('api.v1.admin.users.update', $this->staff), ['first_name' => 'Renamed'])->assertForbidden();
         $this->withToken($key)->putJson(route('api.v1.admin.users.update', $this->customer), ['role_id' => $this->staffRole->id])->assertForbidden();
         $this->withToken($key)->deleteJson(route('api.v1.admin.users.destroy', $this->admin))->assertForbidden();
+        $this->withToken($key)->postJson(route('api.v1.admin.users.store'), ['email' => 'n@example.test', 'password' => 'password123', 'role_id' => $this->staffRole->id])->assertForbidden();
 
         $this->assertNull($this->customer->fresh()->role_id);
     }

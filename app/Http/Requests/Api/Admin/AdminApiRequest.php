@@ -36,6 +36,7 @@ abstract class AdminApiRequest extends FormRequest
      */
     protected function mayActOn(User $target): bool
     {
+        // No role (or a role that no longer exists) is a customer, as for PermissionGuard::outranks.
         $owner = $this->keyOwner();
 
         return $owner === null ? $target->role === null : PermissionGuard::outranks($owner, $target);
@@ -46,6 +47,9 @@ abstract class AdminApiRequest extends FormRequest
     {
         if ($roleId === null || $roleId === '') {
             return true;
+        }
+        if (!is_int($roleId) && !(is_string($roleId) && ctype_digit($roleId))) {
+            return false; // an array or anything else: never a role
         }
         $role = Role::query()->find($roleId);
 
