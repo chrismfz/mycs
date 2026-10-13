@@ -14,6 +14,8 @@ use App\Models\User;
 use Filament\Actions\DeleteAction;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -28,6 +30,10 @@ class MoneyTrailFinalReviewTest extends TestCase
     {
         parent::setUp();
         config(['settings.credits_enabled' => true]);
+        // The admin form validates the currency against Currency, whose queries are cached (CacheableBuilder): an
+        // earlier test can leave a list without USD behind.
+        DB::table('currencies')->insertOrIgnore(['code' => 'USD', 'name' => 'US Dollar', 'prefix' => '$', 'format' => '1,000.00']);
+        Cache::flush();
         $this->user = User::factory()->create();
         Gateway::query()->firstOrCreate(['extension' => 'Stripe'], ['name' => 'Stripe', 'type' => 'gateway']);
     }
