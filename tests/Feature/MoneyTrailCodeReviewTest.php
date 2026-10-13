@@ -135,6 +135,7 @@ class MoneyTrailCodeReviewTest extends TestCase
     /** Nit: one sale's credit paying other invoices is grouped under that sale. */
     public function test_an_allocation_from_one_sale_is_grouped_under_it(): void
     {
+        config(['settings.credits_auto_use' => false]); // else the overpayment's credit pays the second invoice itself (MT-1e)
         $first = $this->invoice(10.00);
         $second = $this->invoice(10.00);
         $sale = ExtensionHelper::addPayment($first->id, 'Stripe', 20.00, null, 'sale_g', currency: 'USD');
