@@ -3,6 +3,7 @@
 namespace App\Admin\Resources\InvoiceResource\RelationManagers;
 
 use App\Admin\Actions\DeleteInvoiceTransaction;
+use App\Enums\InvoiceTransactionStatus;
 use App\Helpers\ExtensionHelper;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -95,6 +96,7 @@ class TransactionsRelationManager extends RelationManager
                         $invoice = $this->getOwnerRecord();
                         $transaction = (new RecordPaymentService)->handle(
                             $invoice, $gateway, $data['amount'] ?? null, $data['fee'] ?? null, $data['transaction_id'] ?? null,
+                            enteredByStaff: true,
                         );
                         if ($transaction === null) {
                             Notification::make()->danger()->title(__('Payment not recorded'))
@@ -133,7 +135,7 @@ class TransactionsRelationManager extends RelationManager
                             ->required()
                             ->rules([
                                 fn (InvoiceTransaction $record): \Closure => function (string $attribute, $value, \Closure $fail) use ($record) {
-                                    if ((float) $value <= 0) {
+                                    if (RecordPaymentService::toCents($value) <= 0) {
                                         $fail(__('invoices.refund_amount_positive'));
                                     }
                                     if (RecordPaymentService::toCents($value) > RecordPaymentService::toCents($record->refundable_amount)) {
@@ -165,6 +167,7 @@ class TransactionsRelationManager extends RelationManager
                     })
                     ->visible(
                         fn (InvoiceTransaction $record): bool => !empty($record->transaction_id) &&
+                            $record->status === InvoiceTransactionStatus::Succeeded &&
                             $record->refundable_amount > 0 &&
                             Auth::user()->can('update', $record)
                     )

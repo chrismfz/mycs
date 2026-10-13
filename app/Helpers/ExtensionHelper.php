@@ -17,6 +17,7 @@ use App\Models\Server;
 use App\Models\Service;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Money\MoneyTrail;
 use Exception;
 use Filament\Forms\Components\Placeholder;
 use Illuminate\Database\Eloquent\Collection;
@@ -554,7 +555,7 @@ class ExtensionHelper
      */
     public static function refund(InvoiceTransaction $transaction, float $amount): bool
     {
-        if ($amount <= 0) {
+        if (RecordPaymentService::toCents($amount) <= 0) { // at least a cent: checked before the gateway is called
             throw new \InvalidArgumentException('Refund amount must be greater than 0.');
         }
 
@@ -577,14 +578,15 @@ class ExtensionHelper
                 // for a lock, deadlock, or be refused.
                 [$transaction, $credit] = self::prepareRefund($transaction, $amount);
 
-                $success = $gatewayInstance->refund($transaction, $amount);
+                // The rounded amount, the same the transaction, the note and the journal record.
+                $success = $gatewayInstance->refund($transaction, RecordPaymentService::toCents($amount) / 100);
 
                 if (!$success) {
                     throw new \RuntimeException('Gateway refund failed for transaction #' . $transaction->id);
                 }
                 $refundedAtGateway = true;
 
-                return self::recordRefund($transaction, $amount, $credit);
+                return self::recordRefund($transaction, $amount, $credit, MoneyTrail::sourceFor($transaction->gateway));
             });
         } catch (\Throwable $e) {
             if ($refundedAtGateway) { // recording or the commit failed after the money left
@@ -609,6 +611,10 @@ class ExtensionHelper
     {
         $invoice = (new RecordPaymentService)->lockInvoice($transaction->invoice_id);
         $transaction = InvoiceTransaction::whereKey($transaction->id)->lockForUpdate()->firstOrFail();
+        // Only money that arrived goes back: a failed or processing payment has nothing to refund.
+        if ($transaction->status !== InvoiceTransactionStatus::Succeeded) {
+            throw new \InvalidArgumentException('Only a succeeded payment can be refunded.');
+        }
 
         $refundable = $transaction->refundable_amount; // net of refunds and of what became account credit
         if (RecordPaymentService::toCents($amount) > RecordPaymentService::toCents($refundable)) {
@@ -637,32 +643,37 @@ class ExtensionHelper
      */
     public static function refundLocally(InvoiceTransaction $transaction, float $amount): void
     {
-        if ($amount <= 0) {
+        if (RecordPaymentService::toCents($amount) <= 0) {
             throw new \InvalidArgumentException('Refund amount must be greater than 0.');
         }
 
         DB::transaction(function () use ($transaction, $amount) {
             [$transaction, $credit] = self::prepareRefund($transaction, $amount);
 
-            self::recordRefund($transaction, $amount, $credit);
+            self::recordRefund($transaction, $amount, $credit, MoneyTrail::SOURCE_LOCAL);
         });
     }
 
     /**
      * Record a refund by updating the transaction and creating an adjustment note; a credit purchase also
-     * gives back the credit it bought.
+     * gives back the credit it bought. Both are journaled (docs/money-trail.md §1).
      */
-    private static function recordRefund(InvoiceTransaction $transaction, float $amount, ?Credit $credit = null): bool
+    private static function recordRefund(InvoiceTransaction $transaction, float $amount, ?Credit $credit, string $source): bool
     {
+        $cents = RecordPaymentService::toCents($amount);
+        $trail = new MoneyTrail;
         if ($credit !== null) {
-            $credit->amount = (RecordPaymentService::toCents($credit->amount) - RecordPaymentService::toCents($amount)) / 100;
+            $credit->amount = (RecordPaymentService::toCents($credit->amount) - $cents) / 100;
             $credit->save();
+            $trail->creditOut($credit, $cents, MoneyTrail::CAUSE_PURCHASE_REFUNDED, $source, $transaction->invoice, $transaction);
         }
-        $transaction->increment('refunded_amount', $amount);
+        // One rounded amount for the transaction, the note and the journal.
+        $transaction->increment('refunded_amount', $cents / 100);
+        $trail->refund($transaction, $transaction->invoice, $cents, $source);
 
         $transaction->invoice->adjustmentNotes()->create([
             'type' => AdjustmentNoteType::Credit->value,
-            'amount' => -1 * abs($amount),
+            'amount' => -1 * $cents / 100,
             'description' => 'Refund for transaction #' . $transaction->id . ' (' . ($transaction->transaction_id ?? 'manual') . ')',
         ]);
 

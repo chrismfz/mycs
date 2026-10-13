@@ -31,11 +31,14 @@ class SendMailListener
             $invoice = $event->invoice;
             NotificationHelper::invoiceCreatedNotification($invoice->user, $invoice);
         } elseif ($event instanceof InvoicePaid) {
-            NotificationHelper::invoicePaidNotification($event->invoice->user, $event->invoice);
+            // An invoice left without a customer (deleted before money-trail §8) still records its money; no one to mail.
+            if ($event->invoice->user !== null) {
+                NotificationHelper::invoicePaidNotification($event->invoice->user, $event->invoice);
+            }
         } elseif ($event instanceof InvoiceTransactionCreated || $event instanceof InvoiceTransactionUpdated) {
             // Check if status is failed
             $transaction = $event->invoiceTransaction;
-            if ($transaction->status === InvoiceTransactionStatus::Failed) {
+            if ($transaction->status === InvoiceTransactionStatus::Failed && $transaction->invoice?->user !== null) {
                 NotificationHelper::invoicePaymentFailedNotification($transaction->invoice->user, $transaction->invoice);
             }
         } elseif ($event instanceof UserCreated) {

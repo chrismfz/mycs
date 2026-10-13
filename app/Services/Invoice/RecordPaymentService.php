@@ -3,6 +3,7 @@
 namespace App\Services\Invoice;
 
 use App\Enums\InvoiceTransactionStatus;
+use App\Enums\MoneyEventKind;
 use App\Exceptions\DisplayException;
 use App\Helpers\NotificationHelper;
 use App\Models\Credit;
@@ -10,8 +11,10 @@ use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
+use App\Models\MoneyEvent;
 use App\Models\Service;
 use App\Models\User;
+use App\Services\Money\MoneyTrail;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -28,6 +31,7 @@ use Illuminate\Support\Facades\Log;
  * - Money the invoice cannot take (cancelled, already paid, or above what is left) is still recorded on
  *   the invoice (the money arrived); the part it cannot take becomes account credit and is kept on the
  *   transaction as credited_amount, so it never counts on the invoice as well (Τ7).
+ * - Every movement writes its money events in the same transaction (docs/money-trail.md §1, MT-1a).
  */
 class RecordPaymentService
 {
@@ -40,6 +44,7 @@ class RecordPaymentService
         InvoiceTransactionStatus $status = InvoiceTransactionStatus::Succeeded,
         bool $isCreditTransaction = false,
         ?string $currency = null,
+        bool $enteredByStaff = false,
     ): ?InvoiceTransaction {
         $invoiceId = $invoice instanceof Invoice ? $invoice->getKey() : $invoice;
         $transactionId = $transactionId === null || $transactionId === '' ? null : (string) $transactionId;
@@ -52,7 +57,7 @@ class RecordPaymentService
         }
 
         $notices = [];
-        $transaction = DB::transaction(function () use ($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, &$notices) {
+        $transaction = DB::transaction(function () use ($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, &$notices) {
             $invoice = $this->lockInvoice($invoiceId);
 
             // Same id on the same gateway, or recorded by staff without a gateway: the same money. Staff
@@ -91,6 +96,13 @@ class RecordPaymentService
             }
 
             $excess = $status === InvoiceTransactionStatus::Succeeded ? $this->excessCents($target, $cents) : 0;
+            // An invoice left without a customer (deleted before the journal): the money is still recorded, but
+            // there is no account to credit what it cannot take. Staff are told.
+            if ($excess > 0 && $target->user_id === null) {
+                $notices[] = sprintf('Invoice #%d has no customer: %s %s of a payment could not become account credit. Handle it by hand.',
+                    $target->id, number_format($excess / 100, 2, '.', ''), $target->currency_code);
+                $excess = 0;
+            }
             $values = array_filter([
                 'gateway_id' => $gateway?->id,
                 'amount' => $cents / 100,
@@ -107,7 +119,18 @@ class RecordPaymentService
             } else {
                 $transaction = $target->transactions()->create($values);
             }
-            $this->addCredit($target, $excess, $notices);
+            // Only money that arrived is journaled: a processing/failed payment is, once (and if) it succeeds.
+            if ($status === InvoiceTransactionStatus::Succeeded) {
+                // Staff completing a gateway's processing payment: the money still came through that gateway.
+                $source = MoneyTrail::sourceFor($gateway ?? $transaction->gateway, $isCreditTransaction || (bool) $transaction->is_credit_transaction);
+                // The provider's id only when the gateway recorded it; what staff type can name the payer (§9).
+                $reference = $enteredByStaff || $transaction->gateway_id === null ? null : $transaction->transaction_id;
+                (new MoneyTrail)->payment($target, $transaction, $source, reference: $reference);
+                $credit = $this->addCredit($target, $excess, $notices);
+                if ($credit !== null) {
+                    (new MoneyTrail)->creditIn($credit, $excess, MoneyTrail::CAUSE_OVERPAYMENT, $source, $target, $transaction);
+                }
+            }
 
             return $transaction;
         });
@@ -212,6 +235,14 @@ class RecordPaymentService
                 throw new DisplayException(__('This payment has refunds: it cannot be deleted (its refund history and gateway transaction id must stay).'));
             }
 
+            // Its journal entries not undone yet (none for a payment that never succeeded): each gets a reversal.
+            // Locked: read current, not the transaction's snapshot. Its gap locks can make two concurrent deletions
+            // of neighbouring transactions deadlock (InnoDB rolls one back; staff retry); events of a transaction
+            // are only written under that transaction's row lock, which is held here.
+            $events = MoneyEvent::query()->where('invoice_transaction_id', $transaction->id)
+                ->where('kind', '!=', MoneyEventKind::Reversal->value)->whereDoesntHave('reversal')
+                ->orderBy('id')->lockForUpdate()->get();
+
             // Credit to give back (+) or take back (-). A payment made with credit: what is still on the invoice
             // goes back (its credited part is already back). Any other payment: what became credit is taken back.
             // On a credit purchase that gave its credit, what is on the invoice bought credit: taken back too.
@@ -224,16 +255,42 @@ class RecordPaymentService
                     $change -= $onInvoice;
                 }
             }
-            if ($change !== 0) {
+            $credit = null;
+            $balance = 0;
+            if ($change !== 0 || $events->contains(fn (MoneyEvent $event) => $event->creditEffectCents() !== 0)) {
+                if ($invoice->user_id === null) {
+                    throw new DisplayException(__('This invoice has no customer, so the account credit this payment moved cannot be taken back: handle it by hand.'));
+                }
                 $credit = $this->lockCredit($invoice)
                     ?? $invoice->user->credits()->create(['currency_code' => $invoice->currency_code, 'amount' => 0]);
-                $available = self::toCents($credit->amount);
-                if ($available + $change < 0) {
+                $balance = self::toCents($credit->amount);
+                if ($balance + $change < 0) {
                     throw new DisplayException(__('Part of this payment became account credit and the customer has already used it: it cannot be deleted.'));
                 }
-                $credit->amount = ($available + $change) / 100;
-                $credit->save();
             }
+
+            // The journal follows the credit step by step (each event's balance after), then the row is saved once.
+            $trail = new MoneyTrail;
+            $journaled = 0;
+            foreach ($events as $event) {
+                $effect = -$event->creditEffectCents();
+                if ($effect !== 0) {
+                    $balance += $effect;
+                    $journaled += $effect;
+                    $credit->amount = $balance / 100;
+                }
+                $trail->reverse($event, MoneyTrail::CAUSE_TRANSACTION_DELETED, $effect !== 0 ? $credit : null);
+            }
+            // What the reversals do not cover: credit a credit purchase bought, or a payment from before the journal.
+            $rest = $change - $journaled;
+            if ($rest !== 0) {
+                $balance += $rest;
+                $credit->amount = $balance / 100;
+                $rest > 0
+                    ? $trail->creditIn($credit, $rest, MoneyTrail::CAUSE_TRANSACTION_DELETED, MoneyTrail::SOURCE_MANUAL, $invoice, $transaction)
+                    : $trail->creditOut($credit, -$rest, MoneyTrail::CAUSE_TRANSACTION_DELETED, MoneyTrail::SOURCE_MANUAL, $invoice, $transaction);
+            }
+            $credit?->save();
 
             $transaction->delete();
         });
@@ -242,6 +299,10 @@ class RecordPaymentService
     /**
      * Customer first, then the invoice. Every path that writes money (payments, credit, refunds, deletions)
      * takes them in this order before any transaction row: no deadlock.
+     *
+     * The owner is read before any lock: staff can move an unpaid invoice in between. Then the owner the locked
+     * invoice really has is locked too, so that customer's payment paths stay serialised. That one lock comes after
+     * the invoice's; the rare deadlock it can cause is detected by InnoDB and rolls one side back.
      */
     public function lockInvoice(mixed $invoiceId): Invoice
     {
@@ -250,7 +311,12 @@ class RecordPaymentService
             User::query()->whereKey($userId)->lockForUpdate()->first();
         }
 
-        return Invoice::query()->whereKey($invoiceId)->lockForUpdate()->firstOrFail();
+        $invoice = Invoice::query()->whereKey($invoiceId)->lockForUpdate()->firstOrFail();
+        if ($invoice->user_id !== null && (int) $invoice->user_id !== (int) $userId) {
+            User::query()->whereKey($invoice->user_id)->lockForUpdate()->first();
+        }
+
+        return $invoice;
     }
 
     /**
@@ -296,19 +362,30 @@ class RecordPaymentService
         $credit->amount = (self::toCents($credit->amount) - $cents) / 100;
         $credit->save();
 
-        return $invoice->transactions()->create(array_filter([
+        $transaction = $invoice->transactions()->create(array_filter([
             'amount' => $cents / 100,
             'status' => InvoiceTransactionStatus::Succeeded,
             'is_credit_transaction' => true,
             'source_transaction_id' => $sourceId,
         ], fn ($value) => $value !== null));
+
+        // Credit one sale left, paying other invoices: its events are grouped under that sale's transaction.
+        $group = $sourceId === null ? null : 'transaction:' . $sourceId;
+        $trail = new MoneyTrail;
+        $trail->creditOut($credit, $cents, MoneyTrail::CAUSE_CREDIT_PAYMENT, MoneyTrail::SOURCE_CREDIT, $invoice, $transaction, $group);
+        $trail->payment($invoice, $transaction, MoneyTrail::SOURCE_CREDIT, $group);
+
+        return $transaction;
     }
 
-    /** @param  list<string>  $notices */
-    private function addCredit(Invoice $invoice, int $cents, array &$notices): void
+    /**
+     * @param  list<string>  $notices
+     * @return ?Credit the saved credit row, null when nothing was added
+     */
+    private function addCredit(Invoice $invoice, int $cents, array &$notices): ?Credit
     {
         if ($cents <= 0) {
-            return;
+            return null;
         }
         $credit = $this->lockCredit($invoice)
             ?? $invoice->user->credits()->create(['currency_code' => $invoice->currency_code, 'amount' => 0]);
@@ -319,6 +396,8 @@ class RecordPaymentService
             'Invoice #%d (%s) could not take %s %s of a payment; it was added to the customer\'s account credit.',
             $invoice->id, $invoice->status, number_format($cents / 100, 2, '.', ''), $invoice->currency_code,
         );
+
+        return $credit;
     }
 
     /** Positive, finite amounts only, in cents; anything else is 0. */

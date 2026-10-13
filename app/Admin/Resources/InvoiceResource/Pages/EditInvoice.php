@@ -10,6 +10,7 @@ use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
+use Filament\Support\Exceptions\Halt;
 
 class EditInvoice extends EditRecord
 {
@@ -21,6 +22,21 @@ class EditInvoice extends EditRecord
 
         if (config('settings.immutable_invoices_enabled', false) && $this->record->status !== Invoice::STATUS_DRAFT) {
             redirect(InvoiceResource::getUrl('view', ['record' => $record]));
+        }
+    }
+
+    /** An invoice with payments keeps its customer and currency (docs/money-trail.md §8): say why, not an error page. */
+    protected function beforeSave(): void
+    {
+        /** @var Invoice $invoice */
+        $invoice = $this->record;
+        $moves = (array_key_exists('user_id', $this->data) && (int) $this->data['user_id'] !== (int) $invoice->user_id)
+            || (array_key_exists('currency_code', $this->data) && $this->data['currency_code'] !== $invoice->currency_code);
+        if ($moves && $invoice->hasPayments()) {
+            Notification::make()->danger()->title(__('Invoice not saved'))
+                ->body(__('An invoice with payments keeps its customer and currency: delete its payments first (a refunded payment keeps the invoice where it is).'))->send();
+
+            throw new Halt;
         }
     }
 

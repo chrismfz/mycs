@@ -2,9 +2,13 @@
 
 namespace App\Services\Invoice;
 
+use App\Helpers\NotificationHelper;
 use App\Models\Credit;
 use App\Models\Invoice;
+use App\Services\Money\MoneyTrail;
 use Brick\Math\BigDecimal;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class GrantBoughtCreditService
 {
@@ -16,6 +20,17 @@ class GrantBoughtCreditService
     public function handle(Invoice $invoice): void
     {
         $items = $invoice->items()->where('reference_type', Credit::class)->lockForUpdate()->get();
+        // An invoice left without a customer (deleted before money-trail §8): its payment is still recorded, but there
+        // is no account to give the credit to. The lines stay unapplied; staff are told.
+        if ($invoice->user_id === null) {
+            if ($items->contains(fn ($item) => $item->applied_at === null)) {
+                $message = "Credit purchase invoice #{$invoice->id} was paid but has no customer: its credit was NOT given. Handle it by hand.";
+                Log::warning($message, ['invoice_id' => $invoice->id]);
+                DB::afterCommit(fn () => NotificationHelper::sendSystemEmailNotification('Payment needs attention', e($message)));
+            }
+
+            return;
+        }
         foreach ($items as $item) {
             if ($item->applied_at !== null) {
                 continue;
@@ -28,11 +43,18 @@ class GrantBoughtCreditService
                 $credit->save();
             } else {
                 // A reassigned invoice can still have the previous owner cached in its user relation.
-                Credit::query()->create([
+                $credit = Credit::query()->create([
                     'user_id' => $invoice->user_id,
                     'currency_code' => $invoice->currency_code,
                     'amount' => $item->price,
                 ]);
+            }
+            // A line staff edited to a negative price takes credit away: journaled as such (toCents is positive-only).
+            $cents = (int) round((float) $item->price * 100);
+            if ($cents > 0) {
+                (new MoneyTrail)->creditIn($credit, $cents, MoneyTrail::CAUSE_PURCHASE, MoneyTrail::SOURCE_SYSTEM, $invoice);
+            } elseif ($cents < 0) {
+                (new MoneyTrail)->creditOut($credit, -$cents, MoneyTrail::CAUSE_PURCHASE, MoneyTrail::SOURCE_SYSTEM, $invoice);
             }
             $item->forceFill(['applied_at' => now()])->save();
         }
