@@ -112,5 +112,7 @@
     "A credit purchase becomes paid only when its payment covers the credit it buys.": "Μια αγορά πίστωσης γίνεται εξοφλημένη μόνο όταν η πληρωμή της καλύπτει την πίστωση που αγοράζει.",
     "A paid invoice keeps its lines: set it back to pending (unpaid) first.": "Ένα εξοφλημένο τιμολόγιο κρατά τις γραμμές του: γύρισέ το πρώτα σε pending (ανεξόφλητο).",
     "A paid invoice keeps its total: set it back to pending (unpaid) to change its adjustment notes.": "Ένα εξοφλημένο τιμολόγιο κρατά το σύνολό του: γύρισέ το σε pending (ανεξόφλητο) για να αλλάξεις τα adjustment notes του.",
+    "Credit pays open invoices automatically": "Το υπόλοιπο πληρώνει αυτόματα τα ανοιχτά τιμολόγια",
+    "Off: the credit is kept until the customer or staff use it.": "Απενεργοποιημένο: το υπόλοιπο μένει μέχρι να το χρησιμοποιήσει ο πελάτης ή το staff.",
     "This invoice renews services of its customer: it cannot move to another customer.": "Αυτό το τιμολόγιο ανανεώνει υπηρεσίες του πελάτη του: δεν μπορεί να μεταφερθεί σε άλλον πελάτη."
 }

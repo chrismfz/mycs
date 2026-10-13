@@ -3,10 +3,12 @@
 namespace App\Helpers;
 
 use App\Classes\PDF;
+use App\Classes\Price;
 use App\Mail\Mail;
 use App\Mail\SystemMail;
 use App\Models\EmailLog;
 use App\Models\Invoice;
+use App\Models\InvoiceTransaction;
 use App\Models\Notification;
 use App\Models\NotificationTemplate;
 use App\Models\Order;
@@ -183,6 +185,19 @@ class NotificationHelper
     public static function invoicePaidNotification(User $user, Invoice $invoice): void
     {
         self::invoiceNotification($user, $invoice, 'invoice_paid');
+    }
+
+    /** Account credit paid part of an invoice on its own (MT-1e): how much, and what is left to pay. */
+    public static function creditAppliedNotification(User $user, Invoice $invoice, InvoiceTransaction $transaction): void
+    {
+        $price = new Price(['price' => 0, 'currency' => $invoice->currency]);
+        self::sendNotification('credit_applied', [
+            'invoice' => $invoice,
+            'credit' => [
+                'applied' => $price->format((float) $transaction->amount),
+                'remaining' => $price->format(max(0, (float) $invoice->remaining)),
+            ],
+        ], $user);
     }
 
     public static function invoicePaymentFailedNotification(User $user, Invoice $invoice): void

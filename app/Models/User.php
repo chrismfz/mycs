@@ -49,6 +49,7 @@ class User extends Authenticatable implements Auditable, FilamentUser, HasAvatar
         'role_id',
         'tfa_secret',
         'email_verified_at',
+        'credit_auto_apply',
     ];
 
     /**
@@ -73,6 +74,7 @@ class User extends Authenticatable implements Auditable, FilamentUser, HasAvatar
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'tfa_secret' => 'encrypted',
+            'credit_auto_apply' => 'boolean',
         ];
     }
 

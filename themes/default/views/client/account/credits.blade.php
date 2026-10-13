@@ -15,6 +15,11 @@
         <p>{{ __('account.no_credit') }}</p>
         @endif
 
+        <div class="py-4">
+            <x-form.toggle :label="__('account.credit_auto_apply')" wire:model.live="autoApply" />
+            <p class="text-sm text-base/60 mt-1">{{ __('account.credit_auto_apply_help') }}</p>
+        </div>
+
         <h4 class="text-xl font-bold pb-3">{{ __('account.add_credit') }}</h4>
 
         <form wire:submit.prevent="addCredit">

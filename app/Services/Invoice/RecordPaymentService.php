@@ -14,6 +14,7 @@ use App\Models\InvoiceTransaction;
 use App\Models\MoneyEvent;
 use App\Models\Service;
 use App\Models\User;
+use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
 use Illuminate\Support\Carbon;
@@ -139,6 +140,20 @@ class RecordPaymentService
                 $reference = $enteredByStaff || $transaction->gateway_id === null ? null : $transaction->transaction_id;
                 (new MoneyTrail)->payment($target, $transaction, $source, reference: $reference);
                 $this->addCredit($target, $transaction, $excess, $source, $notices);
+                // Credit that came in pays the customer's other open invoices (decision 5, MT-1e), once this payment
+                // commits. Not a subscription sale's: what it left pays the subscription's other services
+                // (allocateFromTransaction), never something else first.
+                if ($excess > 0 && !$this->paysSubscription($target)) {
+                    $userId = (int) $target->user_id;
+                    $currency = (string) $target->currency_code;
+                    DB::afterCommit(function () use ($userId, $currency) {
+                        try {
+                            (new CreditAutoApply)->forCustomer($userId, $currency);
+                        } catch (\Throwable $e) {
+                            report($e); // the payment stands; the daily pass tries again
+                        }
+                    });
+                }
             }
 
             return $transaction;
@@ -154,15 +169,20 @@ class RecordPaymentService
     /**
      * Pay an open invoice from the customer's account credit, under the same locks: the credit is read
      * and spent in one place, so nothing can save a stale copy of it. Pays what is left, or as much as
-     * the credit covers ($onlyIfCovers: all of it or nothing, as the cron does). Null when nothing is paid.
+     * the credit covers ($onlyIfCovers: all of it or nothing). $eligible, when given, is asked with the locked invoice
+     * before anything is spent. Null when nothing is paid.
      */
-    public function payWithCredit(Invoice|int $invoice, bool $onlyIfCovers = false): ?InvoiceTransaction
+    public function payWithCredit(Invoice|int $invoice, bool $onlyIfCovers = false, ?\Closure $eligible = null): ?InvoiceTransaction
     {
         $invoiceId = $invoice instanceof Invoice ? $invoice->getKey() : $invoice;
 
-        return DB::transaction(function () use ($invoiceId, $onlyIfCovers) {
+        return DB::transaction(function () use ($invoiceId, $onlyIfCovers, $eligible) {
             $invoice = $this->lockInvoice($invoiceId);
             if (!in_array($invoice->status, [Invoice::STATUS_PENDING, Invoice::STATUS_DRAFT], true)) {
+                return null;
+            }
+            // The caller's own rule (CreditAutoApply's exclusions), read under the same locks as the payment.
+            if ($eligible !== null && !$eligible($invoice)) {
                 return null;
             }
             $credit = $this->lockCredit($invoice);
@@ -444,6 +464,13 @@ class RecordPaymentService
         (new MoneyTrail)->payment($invoice, $transaction, MoneyTrail::SOURCE_CREDIT, $group);
 
         return $transaction;
+    }
+
+    /** Whether the invoice bills a service with a gateway subscription (its sale pays the subscription's services). */
+    private function paysSubscription(Invoice $invoice): bool
+    {
+        return Service::query()->whereNotNull('subscription_id')->where('subscription_id', '!=', '')
+            ->whereIn('id', $invoice->items()->where('reference_type', Service::class)->select('reference_id'))->exists();
     }
 
     /** @param  list<string>  $notices */
