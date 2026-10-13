@@ -19,6 +19,7 @@ use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\GatewayLog;
 use App\Services\Money\MoneyTrail;
+use App\Services\Money\PaymentsLog;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -553,7 +554,7 @@ class RecordPaymentService
     /** Logged now; staff are mailed after the commit (never for a rolled-back payment). */
     private function notify(string $message, mixed $invoiceId, ?string $transactionId, ?Gateway $gateway): void
     {
-        Log::warning($message, ['invoice_id' => $invoiceId, 'transaction_id' => $transactionId, 'gateway' => $gateway?->extension]);
+        PaymentsLog::warning($message, ['invoice_id' => $invoiceId, 'transaction_id' => $transactionId, 'gateway' => $gateway?->extension]);
         DB::afterCommit(fn () => NotificationHelper::sendSystemEmailNotification('Payment needs attention', e($message)));
     }
 }

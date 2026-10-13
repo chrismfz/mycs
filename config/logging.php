@@ -73,6 +73,15 @@ return [
             'replace_placeholders' => true,
         ],
 
+        // Payments and the money trail (docs/money-trail.md §6): kept a year, the other logs 14 days.
+        'payments' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/payments.log'),
+            'level' => env('LOG_LEVEL', 'debug'),
+            'days' => env('LOG_PAYMENTS_DAYS', 365),
+            'replace_placeholders' => true,
+        ],
+
         'slack' => [
             'driver' => 'slack',
             'url' => env('LOG_SLACK_WEBHOOK_URL'),

@@ -2,11 +2,16 @@
 
 namespace Tests\Feature;
 
+use App\Enums\InvoiceTransactionStatus;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\InvoiceTransaction;
 use App\Models\Plan;
 use App\Models\Service;
 use App\Models\User;
+use App\Services\Invoice\RecordPaymentService;
+use App\Services\Money\MoneyCheck;
+use App\Services\Money\MoneyTrail;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -461,6 +466,15 @@ class BillingCursorFuzzTest extends TestCase
             }
         }
 
+        // I10 the money adds up after every step (MT-3): the daily money check's rules, but those about time (a row
+        // or a payment still waiting) and the negative credit staff may leave on purpose.
+        // The simulation's staff cancel invoices and services in the database (cancelled_applied, open_for_cancelled).
+        $money = (new MoneyCheck)->run(array_values(array_diff(MoneyCheck::RULES,
+            ['paid_not_applied', 'gateway_received', 'credit_negative', 'cancelled_applied', 'open_for_cancelled'])));
+        if ($money !== []) {
+            return "I10 money check after $action: {$money[0]['rule']} {$money[0]['subject']}: {$money[0]['detail']}";
+        }
+
         return null;
     }
 
@@ -604,14 +618,19 @@ class BillingCursorFuzzTest extends TestCase
         // invoice keeps its lines, and is never created paid).
         if ($status === Invoice::STATUS_PAID) {
             DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PAID]);
+            // Its payment, journaled (as the importer brings a paid past): the money check (I10) sees a whole book.
+            $transactionId = DB::table('invoice_transactions')->insertGetId(['invoice_id' => $invoice->id, 'amount' => 10.00,
+                'status' => InvoiceTransactionStatus::Succeeded->value, 'created_at' => now(), 'updated_at' => now()]);
+            (new MoneyTrail)->payment($invoice->fresh(), InvoiceTransaction::query()->findOrFail($transactionId), MoneyTrail::SOURCE_IMPORT);
         }
 
         return $invoice->fresh();
     }
 
+    /** A payment of what is left, through the app's payment path (journaled, MT-1a); nothing left, nothing paid. */
     private function pay(Invoice $invoice): void
     {
-        $invoice->transactions()->create(['amount' => $invoice->remaining]);
+        (new RecordPaymentService)->handle($invoice, null, $invoice->remaining, transactionId: 'sim-' . $invoice->id . '-' . mt_rand());
     }
 
     // =====================================================================================  minimized cases
