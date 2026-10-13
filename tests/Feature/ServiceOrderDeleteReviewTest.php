@@ -233,4 +233,52 @@ class ServiceOrderDeleteReviewTest extends TestCase
         $this->assertNotNull(Service::find($service->id));
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
     }
+
+    /**
+     * N1 (re-review). The message says «refund it or move it to credit first», but holdsMoney() counts any Succeeded
+     * gateway payment, whatever was refunded or moved to credit (a refund keeps the status Succeeded and raises
+     * refunded_amount / credited_amount). After staff do exactly that, the service still cannot be deleted.
+     */
+    public function test_n1_after_the_payment_is_moved_to_credit_the_service_can_be_deleted(): void
+    {
+        $service = $this->service();
+        $invoice = $this->renewal($service);
+        ExtensionHelper::addPayment($invoice->id, 'Stripe', 4.00, null, 'pi_n1', currency: 'usd');
+        ExtensionHelper::refundToCredit($invoice->transactions()->firstOrFail(), 4.00);
+
+        (new DeleteService)->handle($service->fresh());
+
+        $this->assertNull(Service::find($service->id));
+        $this->assertSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status);
+    }
+
+    /**
+     * N2 (re-review). The refusal under the lock ($left !== []) comes after the server account was terminated and the
+     * gateway subscription cancelled. CancelOpenInvoices leaves an invoice open for reasons other than money (an
+     * imported WHMCS line whose item is not known, a period already delivered, other services plus loose lines, a rest
+     * of nothing), which holdsMoney() does not pre-check: the service is refused with «holds a payment» (not true),
+     * stays active, and its subscription (and, with $terminate, its account) is already gone.
+     */
+    public function test_n2_a_refused_delete_has_not_cancelled_the_subscription_first(): void
+    {
+        Http::preventStrayRequests();
+        Http::fake(['https://api.stripe.com/*' => Http::response(['id' => 'sub_n2'])]);
+        (new Stripe(['stripe_secret_key' => 'sk_test']))->boot();
+        $service = $this->service(['subscription_id' => 'sub_n2']);
+        $service->properties()->create(['key' => 'has_stripe_subscription', 'name' => 'Subscription', 'value' => '1']);
+        $invoice = $this->renewal($service);
+        // An imported WHMCS line (a domain) the importer could not type: CancelOpenInvoices leaves the invoice open.
+        $invoice->items()->create(['reference_type' => null, 'reference_id' => 999999, 'description' => 'Domain renewal', 'quantity' => 1, 'price' => 12]);
+
+        try {
+            (new DeleteService)->handle($service->fresh());
+        } catch (DisplayException) {
+            $this->assertNotNull(Service::find($service->id));
+            Http::assertNotSent(fn (Request $request) => $request->method() === 'DELETE' && str_contains($request->url(), '/subscriptions/sub_n2'));
+            $this->assertSame('sub_n2', $service->fresh()->subscription_id, 'refused, but its subscription is cancelled already');
+
+            return;
+        }
+        $this->assertNull(Service::find($service->id));
+    }
 }

@@ -2,13 +2,12 @@
 
 namespace App\Services\Service;
 
-use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\Invoice;
 use App\Models\Service;
-use App\Models\ServiceUpgrade;
 use App\Services\Invoice\CancelOpenInvoices;
+use App\Services\Money\PaymentsLog;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use Illuminate\Support\Facades\DB;
 
@@ -18,9 +17,10 @@ use Illuminate\Support\Facades\DB;
  * terminated on the server (WHM): with $terminate the server's account goes first (not for a pending one: it was
  * never created), and if the server refuses nothing is deleted (the username would be lost with a live account).
  *
- * Not while an open invoice of it (or of its pending upgrades) holds money a gateway or a transfer paid: staff refund
- * it or move it to credit first, or it would bill a service that is gone (R4/R5 of #82). Its gateway subscription is
- * cancelled first (it would keep charging, and its payments would find no service).
+ * Not while the cancellation of its open invoices would leave one open (money a gateway or a transfer paid on it, net of
+ * refunds and credit; a line it cannot judge): staff settle it first, or it would bill a service that is gone (R4/R5,
+ * N1/N2 of #82). Checked before anything outside the database. Its gateway subscription is cancelled first (it would
+ * keep charging, and its payments would find no service).
  *
  * Then, under the service's lock (service → upgrade → customer → invoice, docs/money-trail.md §2): its unpaid lines and
  * pending upgrades are cancelled, also one the cron billed a moment ago; its options and properties go; a service that
@@ -30,27 +30,28 @@ class DeleteService
 {
     public function handle(Service $service, bool $terminate = false): void
     {
-        if ($this->holdsMoney($service)) {
-            throw new DisplayException(__('An open invoice of this service holds a payment: refund it or move it to credit first.'));
+        // Before anything outside the database (the server, the gateway): what the cancellation would leave open, with
+        // its own rules and net amounts, run once and rolled back (N1/N2 of #82). Nothing is touched when it refuses.
+        $left = $this->dryRun($service);
+        if ($left !== []) {
+            throw new DisplayException(__('This service cannot be deleted yet: :reasons', [
+                'reasons' => implode(' ', array_map(fn (\Throwable $reason) => $reason->getMessage(), $left)),
+            ]));
         }
         if ($terminate && !$service->isEnded() && $service->status !== Service::STATUS_PENDING && $service->product?->server_id !== null) {
             ExtensionHelper::terminateServer($service); // throws when the server refuses: nothing is deleted
         }
-        if ($service->subscription_id && !$service->isEnded()) {
-            ExtensionHelper::cancelSubscription($service); // throws when no gateway cancels it: nothing is deleted
+        if ($service->subscription_id && !$service->isEnded() && !ExtensionHelper::cancelSubscription($service)) {
+            // No gateway knows the id (an imported or legacy one): deleted anyway, staff check it at the gateway.
+            PaymentsLog::warning('Service deleted with a subscription no gateway cancelled: check it at the gateway.', [
+                'service_id' => $service->id, 'subscription_id' => $service->subscription_id,
+            ]);
         }
 
-        $reason = __('invoices.cancellation_reasons.service_deleted');
-        DB::transaction(function () use ($service, $reason) {
-            $locked = Service::query()->whereKey($service->id)->lockForUpdate()->first();
+        DB::transaction(function () use ($service) {
+            $locked = $this->cancelUnderLock($service);
             if ($locked === null) {
                 return;
-            }
-            $left = CancelPendingUpgrades::forService($locked, $reason);
-            $left += CancelOpenInvoices::handle($locked->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), $reason, $locked);
-            if ($left !== []) {
-                // Money landed meanwhile: nothing is deleted.
-                throw new DisplayException(__('An open invoice of this service holds a payment: refund it or move it to credit first.'));
             }
             if (!$locked->isEnded() && $locked->product?->stock !== null) {
                 $locked->product->increment('stock', $locked->quantity);
@@ -60,15 +61,43 @@ class DeleteService
         });
     }
 
-    /** An open invoice of it, or of a pending upgrade of it, with money from a gateway or a transfer (processing too). */
-    private function holdsMoney(Service $service): bool
+    /** @return array<string, \Throwable> what the cancellation would leave open, nothing kept */
+    private function dryRun(Service $service): array
     {
-        $money = fn ($invoices) => $invoices->whereIn('invoices.status', Invoice::OPEN_STATUSES)->whereHas('transactions', fn ($payments) => $payments
-            ->where(fn ($paid) => $paid->where('status', InvoiceTransactionStatus::Succeeded)->where('is_credit_transaction', false))
-            ->orWhere('status', InvoiceTransactionStatus::Processing));
-        $upgradeInvoices = ServiceUpgrade::query()->where('service_id', $service->id)->where('status', ServiceUpgrade::STATUS_PENDING)->pluck('invoice_id');
+        $left = [];
+        DB::beginTransaction();
+        try {
+            $this->cancelUnderLock($service, $left);
+        } finally {
+            DB::rollBack();
+        }
 
-        return $service->invoices()->where(fn ($invoices) => $money($invoices))->exists()
-            || Invoice::query()->whereIn('id', $upgradeInvoices)->where(fn ($invoices) => $money($invoices))->exists();
+        return $left;
+    }
+
+    /**
+     * Under the service's lock (service → upgrade → customer → invoice): its pending upgrades and unpaid lines cancelled,
+     * also one the cron billed a moment ago. Anything left open (money on it, a line it cannot judge) refuses the delete.
+     *
+     * @param  array<string, \Throwable>|null  $left  filled instead of refusing (the dry run)
+     */
+    private function cancelUnderLock(Service $service, ?array &$left = null): ?Service
+    {
+        $locked = Service::query()->whereKey($service->id)->lockForUpdate()->first();
+        if ($locked === null) {
+            return null;
+        }
+        $reason = __('invoices.cancellation_reasons.service_deleted');
+        $kept = CancelPendingUpgrades::forService($locked, $reason);
+        $kept += CancelOpenInvoices::handle($locked->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), $reason, $locked);
+        if ($left !== null) {
+            $left = $kept;
+        } elseif ($kept !== []) {
+            throw new DisplayException(__('This service cannot be deleted yet: :reasons', [
+                'reasons' => implode(' ', array_map(fn (\Throwable $reason) => $reason->getMessage(), $kept)),
+            ]));
+        }
+
+        return $locked;
     }
 }

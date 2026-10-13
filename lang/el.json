@@ -171,8 +171,8 @@
     "This option value is used by services: move them to another value first.": "Η τιμή χρησιμοποιείται από υπηρεσίες: μεταφέρετέ τες πρώτα σε άλλη τιμή.",
     "Option not saved": "Η επιλογή δεν αποθηκεύτηκε",
     "This order has services: delete them first.": "Η παραγγελία έχει υπηρεσίες: διαγράψτε τες πρώτα.",
-    "An open invoice of this service holds a payment: refund it or move it to credit first.": "Ανοιχτό τιμολόγιο της υπηρεσίας έχει πληρωμή: επιστρέψτε την ή μεταφέρετέ τη σε πίστωση πρώτα.",
     "This customer has services: delete them first.": "Ο πελάτης έχει υπηρεσίες: διαγράψτε τες πρώτα.",
     "Service not deleted": "Η υπηρεσία δεν διαγράφηκε",
-    "Not deleted": "Δεν διαγράφηκαν"
+    "Not deleted": "Δεν διαγράφηκαν",
+    "This service cannot be deleted yet: :reasons": "Η υπηρεσία δεν μπορεί να διαγραφεί ακόμη: :reasons"
 }
