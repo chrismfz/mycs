@@ -199,7 +199,8 @@ invoices»). Και στο WHMCS η ακύρωση τιμολογίου σταμ
 cancelled/pending, και τα pending τα ακυρώνει το cron)· τιμολόγια χωρίς Refunded/Collections· παραγγελίες **χωρίς
 status** (Accept Order = 449/έτος στη myip). Enums με casts + CHECK, και ορισμός πριν τον importer. Κόστος M.
 *Πρόοδος (2026-10-13):* τιμολόγια `unpaid` (όχι `pending`) και `refunded`· υπηρεσίες `terminated` ≠ `cancelled`·
-guards στους observers για άγνωστα status (`importer.md`). Μένουν Fraud/Completed και το status παραγγελιών.
+guards στους observers για άγνωστα status (`importer.md`). Fraud: όχι status υπηρεσίας (απόφαση 2026-10-13)· η εκτίμηση απάτης ανήκει στην παραγγελία (IP, PTR, ίσως GeoIP/mmdb), μαζί
+με το status παραγγελιών. Μένουν το Completed και το status παραγγελιών.
 
 Μικρότερες αποφάσεις:
 - **Δ5** Πίστωση: μερική αυτόματη εφαρμογή όπως το WHMCS (σήμερα μόνο αν καλύπτει όλο το τιμολόγιο). BIL-14, PAY-12 → στο MT-1c (βλ. «Κατανομή»).

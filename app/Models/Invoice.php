@@ -90,6 +90,13 @@ class Invoice extends Model implements Auditable
         };
     }
 
+    /** It bills a service that has ended (cancelled or terminated): its open lines buy nothing any more. */
+    public function billsEndedService(): bool
+    {
+        return $this->items()->where('reference_type', Service::class)
+            ->whereIn('reference_id', Service::query()->whereIn('status', Service::ENDED_STATUSES)->select('id'))->exists();
+    }
+
     /** Not settled yet: what a cancellation gives up on (a draft too: finalised later, it would bill it). */
     public const OPEN_STATUSES = [self::STATUS_UNPAID, self::STATUS_DRAFT];
 

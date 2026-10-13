@@ -10,6 +10,7 @@ use App\Models\InvoiceTransaction;
 use App\Models\MoneyEvent;
 use App\Models\PaymentGatewayEvent;
 use App\Models\Service;
+use App\Models\ServiceUpgrade;
 use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
@@ -166,15 +167,19 @@ final class MoneyCheck
     }
 
     /**
-     * A paid invoice that renews an ended service (cancelled or terminated): the payment bought nothing (never revived)
-     * and its money stays on the invoice. Staff refund it or move it to credit. Only money MyCS took (a payment event
+     * A paid invoice that renews an ended service (cancelled or terminated), or pays an upgrade cancelled before it was
+     * applied (its service ended, or it expired): the payment bought nothing (never revived, never applied) and its
+     * money stays on the invoice. Staff refund it or move it to credit. Only money MyCS took (a payment event
      * that is not an import) and still on it: an imported paid invoice, applied before MyCS kept applied_at, is history.
      */
     private function paidForCancelled(): void
     {
         Invoice::query()->where('status', Invoice::STATUS_PAID)
-            ->whereHas('items', fn ($query) => $query->where('reference_type', Service::class)->whereNull('applied_at')
-                ->whereIn('reference_id', Service::query()->whereIn('status', Service::ENDED_STATUSES)->select('id')))
+            ->whereHas('items', fn ($query) => $query->whereNull('applied_at')->where(fn ($line) => $line
+                ->where(fn ($renewal) => $renewal->where('reference_type', Service::class)
+                    ->whereIn('reference_id', Service::query()->whereIn('status', Service::ENDED_STATUSES)->select('id')))
+                ->orWhere(fn ($upgrade) => $upgrade->where('reference_type', ServiceUpgrade::class)
+                    ->whereIn('reference_id', ServiceUpgrade::query()->where('status', ServiceUpgrade::STATUS_CANCELLED)->select('id')))))
             ->whereHas('transactions', fn ($query) => $query->where('status', InvoiceTransactionStatus::Succeeded->value)
                 ->whereExists(self::liveEventsOf(MoneyEventKind::Payment)->where('source', '!=', MoneyTrail::SOURCE_IMPORT)))
             ->with('transactions')
@@ -184,7 +189,7 @@ final class MoneyCheck
                         ->sum(fn ($payment) => RecordPaymentService::toCents($payment->amount) - RecordPaymentService::toCents($payment->refunded_amount)
                             - RecordPaymentService::toCents($payment->credited_amount));
                     if ($kept !== 0) {
-                        $this->add('paid_for_cancelled', "invoice #{$invoice->id}", 'paid, for a service already cancelled: the payment renewed nothing, '
+                        $this->add('paid_for_cancelled', "invoice #{$invoice->id}", 'paid, for a service that has ended or an upgrade cancelled: the payment bought nothing, '
                             . self::money($kept) . " {$invoice->currency_code} still on it (refund it or move it to credit)");
                     }
                 }

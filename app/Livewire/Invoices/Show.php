@@ -95,6 +95,10 @@ class Show extends Component
         if ($this->invoice->status !== Invoice::STATUS_UNPAID) {
             return $this->notify(__('This invoice cannot be paid.'), 'error');
         }
+        // Left open for staff (it holds gateway money): paying it would buy nothing, so neither credit nor a gateway.
+        if ($this->invoice->billsEndedService()) {
+            return $this->notify(__('This invoice bills a service that has ended: please contact us.'), 'error');
+        }
 
         if (is_null($this->selectedMethod)) {
             return;
