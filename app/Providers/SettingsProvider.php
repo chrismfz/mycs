@@ -16,6 +16,8 @@ use Qirolab\Theme\Theme;
 
 class SettingsProvider extends ServiceProvider
 {
+    private const CACHE_KEY = 'settings.rows';
+
     /**
      * Register services.
      */
@@ -40,12 +42,18 @@ class SettingsProvider extends ServiceProvider
             return;
         }
         try {
-            // Load settings from cache
-            $settings = Cache::get('settings', []);
-            if (empty($settings)) {
-                $settings = Setting::where('settingable_type', null)->get()->pluck('value', 'key');
-                Cache::put('settings', $settings);
+            // The cache keeps the rows as stored (secrets still encrypted, it lands in storage/ and its backups);
+            // decrypted only into this process's config.
+            $rows = Cache::get(self::CACHE_KEY);
+            if (!is_array($rows) || $rows === []) { // empty: the table may have been empty at the first boot
+                Cache::forget('settings'); // the old cache held decrypted values
+                $rows = Setting::query()->whereNull('settingable_type')->toBase()->get(['key', 'value', 'type', 'encrypted'])
+                    ->map(fn ($row) => (array) $row)->all();
+                Cache::put(self::CACHE_KEY, $rows);
             }
+            $settings = collect($rows)->mapWithKeys(fn (array $row) => [
+                $row['key'] => Setting::decodeValue($row['value'], $row['type'], (bool) $row['encrypted']),
+            ]);
             // Is the current command a config:cache command?
             if (isset($_SERVER['argv']) && (in_array('config:cache', $_SERVER['argv']) || in_array('optimize', $_SERVER['argv']) || in_array('app:optimize', $_SERVER['argv']))) {
                 return;
@@ -84,6 +92,7 @@ class SettingsProvider extends ServiceProvider
 
     public static function flushCache()
     {
+        Cache::forget(self::CACHE_KEY);
         Cache::forget('settings');
         // Restart queue worker
         Artisan::call('queue:restart');

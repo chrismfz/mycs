@@ -53,6 +53,7 @@ return new class extends Migration
         }
 
         Cache::forget('settings');
+        Cache::forget('settings.rows'); // SettingsProvider's cache since KR-7
     }
 
     private function isBlade(?string $value): bool
