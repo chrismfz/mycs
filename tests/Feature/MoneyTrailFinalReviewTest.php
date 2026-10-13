@@ -17,6 +17,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use Tests\TestCase;
 
 /** MT-1a final review round: the findings' tests stay as regression coverage. */
@@ -30,8 +32,7 @@ class MoneyTrailFinalReviewTest extends TestCase
     {
         parent::setUp();
         config(['settings.credits_enabled' => true]);
-        // The admin form validates the currency against Currency, whose queries are cached (CacheableBuilder): an
-        // earlier test can leave a list without USD behind.
+        // The admin form validates the currency against Currency, whose queries are cached (CacheableBuilder).
         DB::table('currencies')->insertOrIgnore(['code' => 'USD', 'name' => 'US Dollar', 'prefix' => '$', 'format' => '1,000.00']);
         Cache::flush();
         $this->user = User::factory()->create();
@@ -68,13 +69,19 @@ class MoneyTrailFinalReviewTest extends TestCase
         $this->assertSame($this->user->id, $invoice->fresh()->user_id);
     }
 
-    /** P2: the same guard in the admin edit form was an uncaught DisplayException (error page) instead of a message. */
+    /**
+     * P2: the same guard in the admin edit form was an uncaught DisplayException (error page) instead of a message.
+     * In its own process: after the rest of the suite the Filament/Livewire page no longer mounts (state other tests
+     * leave behind in statics); a real request is always a fresh process.
+     */
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
     public function test_the_admin_form_refuses_to_move_a_paid_invoice_with_a_message(): void
     {
         $invoice = $this->paidInvoice();
         $other = User::factory()->create();
 
-        Livewire::actingAs($this->owner())->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])
+        Livewire::actingAs($this->owner())->test(EditInvoice::class, ['record' => $invoice->getKey()]) // the id: getRouteKey() is the invoice number
             ->set('data.user_id', $other->id)
             ->call('save')
             ->assertNotified();
