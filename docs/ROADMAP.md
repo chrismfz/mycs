@@ -69,6 +69,31 @@
       μεταφέρεται σχεδόν αυτούσιος· εξαρτάται από το «ανανέωση δεμένη με περίοδο» της Φάσης 1. Live μεταφορά του
       nixpal.com CNIC → Openprovider: ολοκληρώθηκε, βρήκε και διόρθωσε 3 bugs του driver (2026-10-11).
 
+## Φάση 1a: Σταθεροποίηση του κληρονομημένου κώδικα (audit sweep 2026-10-13)
+Μετά τα MT-x, **πριν** από τα υπόλοιπα της Φάσης 1. Λεπτομέρειες, IDs και σειρά: `docs/audit-sweep.md`.
+- [ ] **Κρίσιμα ΚΡ-1..ΚΡ-8** (μικρά PRs, failing test πρώτα): regression `afterCommit` → δεν ακυρώνονται συνδρομές
+      Stripe/PayPal· PayPal API χωρίς έλεγχο σφαλμάτων (refund «πετυχαίνει» χωρίς χρήματα)· cPanel create πάντα
+      `true`· η σελίδα Settings γυρίζει πίσω τους μετρητές αρίθμησης· admin API χωρίς PermissionGuard (κλιμάκωση σε
+      `*`)· `Settings::tax()` memoised ανά object· secrets σε καθαρό στο cache· σιωπηλά `catch` στο boot.
+- [ ] **Αποφάσεις Δ1–Δ4** στο `decisions.md`: καθαρά ποσά και ΦΠΑ ανά γραμμή· αρίθμηση (number = id, proforma μόνο
+      στο paid, `sequences`)· ένα τιμολόγιο ανά πελάτη/ημερομηνία και τι σημαίνει «ακύρωση τιμολογίου»· status
+      υπηρεσιών/τιμολογίων/παραγγελιών. Και Δ5–Δ8 (μερική πίστωση, θέσεις στο schema, ζώνη ώρας, ownership helper).
+- [ ] Σ1 Contract των server adapters και provisioning (Module Log, status μόνο μετά την επιτυχία, idempotent create).
+- [ ] Σ2 Κύκλος ζωής: ακύρωση «end of period» (δεν εκτελείται σήμερα), ακυρώσεις ανά γραμμή αντί για ολόκληρα
+      τιμολόγια, αναστολή μόνο με ληξιπρόθεσμο τιμολόγιο, όχι αναστολή+τερματισμός στο ίδιο run, upgrades.
+- [ ] Σ3 Gateways: idempotency keys, refund μόνο σε succeeded, ιδιοκτησία αποθηκευμένης μεθόδου, webhooks κοινού
+      λογαριασμού με το WHMCS, πληρωμές χωρίς τιμολόγιο.
+- [ ] Σ4 Ειδοποιήσεις μετά το commit (όχι `afterResponse`), PDF εκτός ροής πληρωμής, retries στο mail.
+- [ ] Σ5 Δικαιώματα staff: ονόματα permissions που δεν υπάρχουν, Filament «χωρίς μέθοδο = allow», upgrade/invoice
+      items χωρίς validation, drafts ορατά στον πελάτη.
+- [ ] Σ6 Ακεραιότητα: cascade deletes (παραγγελία → υπηρεσίες, staff → απαντήσεις tickets, config value), unique στη
+      βάση, κρυπτογραφημένα credentials υπηρεσιών.
+- [ ] Σ7 Ένα `PlaceOrderService` (τιμολόγηση σε 5 σημεία που διαφωνούν· κουπόνια, admin Create Order, διπλό checkout).
+- [ ] Σ8 Τιμολόγιο ως έγγραφο: Mark Paid με συναλλαγή, κλείδωμα πελάτη/νομίσματος, adjustment notes append-only, PDF.
+- [ ] Parity για το go-live της nixpal (στα αντίστοιχα items παρακάτω): auto-charge στη λήξη με retries, refunds/
+      chargebacks από τα gateways, υπενθυμίσεις, `FetchEmails` και ειδοποιήσεις staff για tickets, cPanel adapter,
+      requirements του importer.
+
 ## Φάση 1: nixpal (3–5 εβδομάδες)
 **Πυρήνας χρημάτων και ανανεώσεων**
 - [ ] `addPayment`: guards για ποσό, νόμισμα, status τιμολογίου, ιδιοκτησία, μεταβάσεις μόνο προς τα εμπρός· unique
