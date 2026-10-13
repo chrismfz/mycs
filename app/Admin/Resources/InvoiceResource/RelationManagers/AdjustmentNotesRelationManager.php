@@ -2,15 +2,11 @@
 
 namespace App\Admin\Resources\InvoiceResource\RelationManagers;
 
+use App\Admin\Actions\VoidAdjustmentNote;
 use App\Enums\AdjustmentNoteStatus;
 use App\Models\Invoice;
-use Filament\Actions\BulkActionGroup;
 use Filament\Actions\CreateAction;
-use Filament\Actions\DeleteAction;
-use Filament\Actions\DeleteBulkAction;
-use Filament\Actions\EditAction;
 use Filament\Forms\Components\Hidden;
-use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\RelationManagers\RelationManager;
@@ -28,6 +24,13 @@ class AdjustmentNotesRelationManager extends RelationManager
     protected function canModifyAdjustmentNotes(): bool
     {
         return !config('settings.immutable_invoices_enabled') || $this->getOwnerRecord()->status === Invoice::STATUS_PENDING;
+    }
+
+    private function ownerIsPaid(): bool
+    {
+        $invoice = $this->getOwnerRecord();
+
+        return $invoice instanceof Invoice && $invoice->status === Invoice::STATUS_PAID;
     }
 
     public function form(Schema $schema): Schema
@@ -58,12 +61,8 @@ class AdjustmentNotesRelationManager extends RelationManager
                     ->placeholder('Enter the amount (negative = credit, positive = debit)'),
                 Textarea::make('description')
                     ->label('Description')
+                    ->required()
                     ->placeholder('Enter a description'),
-                Select::make('status')
-                    ->label('Status')
-                    ->options(AdjustmentNoteStatus::class)
-                    ->default(AdjustmentNoteStatus::Active->value)
-                    ->required(),
             ]);
     }
 
@@ -106,20 +105,14 @@ class AdjustmentNotesRelationManager extends RelationManager
                     ->sortable(),
             ])
             ->headerActions([
+                // A paid invoice keeps its total (AdjustmentNoteObserver): set it back to pending first.
                 CreateAction::make()
-                    ->visible(fn (): bool => $this->canModifyAdjustmentNotes()),
+                    ->visible(fn (): bool => $this->canModifyAdjustmentNotes() && !$this->ownerIsPaid()),
             ])
+            // Append-only (docs/money-trail.md, MT-1c): never edited or deleted; a wrong note is voided and a new one
+            // written.
             ->recordActions([
-                EditAction::make()
-                    ->visible(fn (): bool => $this->canModifyAdjustmentNotes()),
-                DeleteAction::make()
-                    ->visible(fn (): bool => $this->canModifyAdjustmentNotes()),
-            ])
-            ->toolbarActions([
-                BulkActionGroup::make([
-                    DeleteBulkAction::make()
-                        ->visible(fn (): bool => $this->canModifyAdjustmentNotes()),
-                ]),
+                VoidAdjustmentNote::make(), // its own rule: VoidAdjustmentNote::allowed
             ])
             ->defaultSort('created_at', 'desc');
     }

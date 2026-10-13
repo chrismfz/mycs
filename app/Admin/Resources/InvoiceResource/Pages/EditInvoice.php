@@ -3,9 +3,12 @@
 namespace App\Admin\Resources\InvoiceResource\Pages;
 
 use App\Admin\Actions\AuditAction;
+use App\Admin\Actions\MarkInvoicePaid;
 use App\Admin\Resources\InvoiceResource;
 use App\Classes\PDF;
+use App\Exceptions\DisplayException;
 use App\Models\Invoice;
+use App\Services\Invoice\RecordPaymentService;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
@@ -15,6 +18,22 @@ use Filament\Support\Exceptions\Halt;
 class EditInvoice extends EditRecord
 {
     protected static string $resource = InvoiceResource::class;
+
+    /** The lines are saved before the invoice: a refusal of the money rules undoes them too (MT-1c). */
+    protected ?bool $hasDatabaseTransactions = true;
+
+    /**
+     * The model's money rules (InvoiceObserver, InvoiceItemObserver: paid only without a balance, a paid invoice keeps
+     * its lines) refuse with a message, not an error page; the whole save is rolled back.
+     */
+    public function save(bool $shouldRedirect = true, bool $shouldSendSavedNotification = true): void
+    {
+        try {
+            parent::save($shouldRedirect, $shouldSendSavedNotification);
+        } catch (DisplayException $e) {
+            Notification::make()->danger()->title(__('Invoice not saved'))->body($e->getMessage())->send();
+        }
+    }
 
     public function mount(int|string $record): void
     {
@@ -38,11 +57,20 @@ class EditInvoice extends EditRecord
 
             throw new Halt;
         }
+        // Paid only by recording its payment (MT-1c; InvoiceObserver::updating refuses it too): say why.
+        if (($this->data['status'] ?? null) === Invoice::STATUS_PAID && $invoice->getOriginal('status') !== Invoice::STATUS_PAID
+            && RecordPaymentService::toCents($invoice->fresh()->remaining) > 0) {
+            Notification::make()->danger()->title(__('Invoice not saved'))
+                ->body(__('An invoice becomes paid when its payment is recorded: use Mark Paid instead.'))->send();
+
+            throw new Halt;
+        }
     }
 
     protected function getHeaderActions(): array
     {
         return [
+            MarkInvoicePaid::make(),
             Action::make('publish')
                 ->label('Publish')
                 ->action(function (Invoice $record) {

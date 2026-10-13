@@ -3,13 +3,18 @@
 namespace App\Observers;
 
 use App\Enums\AdjustmentNoteStatus;
+use App\Enums\InvoiceTransactionStatus;
 use App\Events\Invoice as InvoiceEvent;
 use App\Exceptions\DisplayException;
 use App\Models\AdjustmentNote;
+use App\Models\Credit;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
+use App\Models\InvoiceTransaction;
 use App\Services\Invoice\CreateInvoiceSnapshotService;
 use App\Services\Invoice\GrantBoughtCreditService;
 use App\Services\Invoice\ProcessPaidInvoiceService;
+use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Support\Facades\DB;
 
 class InvoiceObserver
@@ -19,6 +24,10 @@ class InvoiceObserver
      */
     public function creating(Invoice $invoice): void
     {
+        // Created unpaid (MT-1c): paid follows a recorded payment. The WHMCS importer writes its rows directly.
+        if ($invoice->status === Invoice::STATUS_PAID) {
+            throw new DisplayException(__('An invoice is created unpaid: it becomes paid when its payment is recorded.'));
+        }
         event(new InvoiceEvent\Creating($invoice));
     }
 
@@ -55,6 +64,21 @@ class InvoiceObserver
             && $invoice->status === Invoice::STATUS_PAID) {
             throw new DisplayException(__('A cancelled invoice cannot be marked paid: reopen it (pending) and record the payment.'));
         }
+        // Paid only when nothing is left to pay (docs/money-trail.md, MT-1c; audit B1): staff record the payment (Mark
+        // Paid, Add Payment) and the invoice follows, through RecordPaymentService. Marking it paid by its status alone
+        // would renew its services and give the credit it sells without any money. Read locked: Invoice::save holds the
+        // payment locks for this change.
+        if ($invoice->isDirty('status') && $invoice->status === Invoice::STATUS_PAID
+            && $invoice->getOriginal('status') !== Invoice::STATUS_PAID) {
+            if (RecordPaymentService::toCents($invoice->withLockedBalance()->remaining) > 0) {
+                throw new DisplayException(__('An invoice becomes paid when its payment is recorded: use Mark Paid instead.'));
+            }
+            // The credit it sells is given on paid: only for money that arrived, whatever discount (a note, a negative
+            // line) brought its balance to zero.
+            if (self::creditToGiveCents($invoice) > self::receivedCents($invoice)) {
+                throw new DisplayException(__('A credit purchase becomes paid only when its payment covers the credit it buys.'));
+            }
+        }
         // Its money belongs to its customer and currency (credit, journal, docs/money-trail.md §8): an invoice with a
         // payment (processing too) keeps both. Staff delete the payment first, then move the invoice. Read locked:
         // Invoice::save holds the payment locks for this change, so a webhook cannot land in between.
@@ -62,6 +86,21 @@ class InvoiceObserver
             throw new DisplayException(__('An invoice with payments keeps its customer and currency: delete its payments first (a refunded payment keeps the invoice where it is).'));
         }
         event(new InvoiceEvent\Updating($invoice));
+    }
+
+    /** The credit its lines still have to give (applied lines gave theirs already). Lines read locked. */
+    private static function creditToGiveCents(Invoice $invoice): int
+    {
+        return (int) $invoice->items->where('reference_type', Credit::class)->whereNull('applied_at')
+            ->sum(fn (InvoiceItem $item) => max(0, RecordPaymentService::toCents($item->price) * (int) $item->quantity));
+    }
+
+    /** Money that arrived on the invoice and stays on it: succeeded payments less refunds and what became credit. */
+    private static function receivedCents(Invoice $invoice): int
+    {
+        return (int) $invoice->transactions->where('status', InvoiceTransactionStatus::Succeeded)
+            ->sum(fn (InvoiceTransaction $transaction) => RecordPaymentService::toCents($transaction->amount)
+                - RecordPaymentService::toCents($transaction->refunded_amount) - RecordPaymentService::toCents($transaction->credited_amount));
     }
 
     /**

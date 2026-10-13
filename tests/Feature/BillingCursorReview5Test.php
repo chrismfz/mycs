@@ -13,6 +13,7 @@ use App\Models\ServiceUpgrade;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\Group;
 use Tests\TestCase;
@@ -73,7 +74,7 @@ class BillingCursorReview5Test extends TestCase
 
     private function invoiceFor(Service $service, ?string $start, ?string $end, string $status = 'pending', float $price = 10.00): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_PENDING : $status, 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id,
             'reference_type' => Service::class,
@@ -83,6 +84,12 @@ class BillingCursorReview5Test extends TestCase
             'period_start' => $start,
             'period_end' => $end,
         ]);
+
+        // A paid fixture (a period paid in the past): stored paid, its lines added while it was open (MT-1c: a paid
+        // invoice keeps its lines, and is never created paid).
+        if ($status === Invoice::STATUS_PAID) {
+            DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PAID]);
+        }
 
         return $invoice->fresh();
     }

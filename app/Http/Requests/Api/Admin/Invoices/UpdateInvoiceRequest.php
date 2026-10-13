@@ -34,9 +34,12 @@ class UpdateInvoiceRequest extends AdminApiRequest
             'currency_code' => 'sometimes|required|string|exists:currencies,code',
             'due_at' => 'sometimes|nullable|date',
             /**
+             * `paid` only when nothing is left to pay (a zero or fully paid invoice): otherwise 422, the payment is
+             * recorded instead (docs/money-trail.md, MT-1c).
+             *
              * @default pending
              */
-            'status' => 'sometimes|required|string|in:pending,paid,cancelled', // Status can be one of these values
+            'status' => 'sometimes|required|string|in:pending,paid,cancelled',
         ];
     }
 }

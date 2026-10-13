@@ -16,6 +16,7 @@ use App\Models\Service;
 use App\Models\User;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -46,6 +47,7 @@ class RecordPaymentService
         bool $isCreditTransaction = false,
         ?string $currency = null,
         bool $enteredByStaff = false,
+        ?\DateTimeInterface $paidAt = null,
     ): ?InvoiceTransaction {
         $invoiceId = $invoice instanceof Invoice ? $invoice->getKey() : $invoice;
         $transactionId = $transactionId === null || $transactionId === '' ? null : (string) $transactionId;
@@ -58,7 +60,7 @@ class RecordPaymentService
         }
 
         $notices = [];
-        $transaction = DB::transaction(function () use ($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, &$notices) {
+        $transaction = DB::transaction(function () use ($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, $paidAt, &$notices) {
             $invoice = $this->lockInvoice($invoiceId);
 
             // Same id on the same gateway, or recorded by staff without a gateway: the same money. Staff
@@ -115,10 +117,19 @@ class RecordPaymentService
             ], fn ($value) => $value !== null);
             if ($existing !== null) {
                 unset($values['gateway_id'], $values['transaction_id'], $values['is_credit_transaction']);
+                // Staff completing a processing payment by hand: the day the money arrived, as for a new one.
+                if ($paidAt !== null) {
+                    $existing->created_at = Carbon::instance($paidAt);
+                }
                 $existing->update($values);
                 $transaction = $existing;
             } else {
-                $transaction = $target->transactions()->create($values);
+                $transaction = $target->transactions()->make($values);
+                // The day the money arrived, when staff record it later (a bank transfer): the transaction's date.
+                if ($paidAt !== null) {
+                    $transaction->created_at = Carbon::instance($paidAt);
+                }
+                $transaction->save();
             }
             // Only money that arrived is journaled: a processing/failed payment is, once (and if) it succeeds.
             if ($status === InvoiceTransactionStatus::Succeeded) {
@@ -209,16 +220,69 @@ class RecordPaymentService
     }
 
     /**
+     * Staff recording a payment by hand, as in WHMCS (docs/money-trail.md MT-1c): «Mark Paid» (what is left) and «Add
+     * Payment» (any part), through handle() like any payment. The invoice becomes paid only when the payment covers
+     * it; its status is never set on its own. On a cancelled invoice the payment would only become credit: with
+     * $reopen staff confirm reopening it (pending, its cancellation note voided) and the payment lands on it, both in
+     * one transaction.
+     *
+     * $upToRemaining («Mark Paid»): more than what is left is refused, read under the locks. A double submit or two
+     * staff at once would otherwise turn the second payment into account credit silently; a real overpayment is
+     * recorded with «Add Payment».
+     *
+     * @throws DisplayException nothing recorded: not a positive amount, a cancelled invoice without $reopen, more than
+     *                          what is left, or a transaction id already recorded or belonging to another invoice
+     */
+    public function recordByStaff(Invoice $invoice, ?Gateway $gateway, mixed $amount, ?string $transactionId = null, mixed $fee = null, ?\DateTimeInterface $paidAt = null, bool $reopen = false, bool $upToRemaining = false): InvoiceTransaction
+    {
+        if (self::toCents($amount) <= 0) {
+            throw new DisplayException(__('The amount must be positive.'));
+        }
+
+        return DB::transaction(function () use ($invoice, $gateway, $amount, $transactionId, $fee, $paidAt, $reopen, $upToRemaining) {
+            $locked = $this->lockInvoice($invoice->getKey());
+            if ($locked->status === Invoice::STATUS_CANCELLED) {
+                if (!$reopen) {
+                    throw new DisplayException(__('This invoice is cancelled: reopen it to record the payment on it.'));
+                }
+                $locked->status = Invoice::STATUS_PENDING;
+                $locked->save();
+            }
+            $remaining = self::toCents($locked->withLockedBalance()->remaining);
+            if ($upToRemaining && self::toCents($amount) > $remaining) {
+                throw new DisplayException(__('More than what is left to pay (:remaining): record an overpayment with Add Payment.', [
+                    'remaining' => number_format(max(0, $remaining) / 100, 2, '.', ''),
+                ]));
+            }
+
+            $transaction = $this->handle($locked, $gateway, $amount, $fee, $transactionId, enteredByStaff: true, paidAt: $paidAt);
+            if ($transaction === null) {
+                throw new DisplayException(__('Payment not recorded: see the log for details.'));
+            }
+            if (!$transaction->wasRecentlyCreated && !$transaction->wasChanged('status')) {
+                throw new DisplayException(__('This gateway transaction is already recorded (invoice #:invoice): nothing was added.', ['invoice' => $transaction->invoice_id]));
+            }
+            // A typed id matching another invoice's processing payment: the money would land there, not here.
+            if ((int) $transaction->invoice_id !== (int) $locked->getKey()) {
+                throw new DisplayException(__('This transaction id belongs to a payment on invoice #:invoice: nothing was recorded here.', ['invoice' => $transaction->invoice_id]));
+            }
+
+            return $transaction;
+        });
+    }
+
+    /**
      * Delete a transaction (staff correcting a mistake) without leaving money behind: the part that became
      * account credit is taken back (and the credit it bought, on a credit purchase), and a payment made with
-     * credit gives it back. Refused when that credit was already spent, when it paid other invoices, or when
-     * the payment has refunds.
+     * credit gives it back. Refused when it paid other invoices, or when the payment has refunds. When that credit
+     * was already spent, staff confirm it ($allowNegativeCredit, decision 1): the credit goes negative, the customer
+     * owes it (docs/money-trail.md §1, MT-1c).
      *
      * @throws DisplayException
      */
-    public function deleteTransaction(InvoiceTransaction $transaction): void
+    public function deleteTransaction(InvoiceTransaction $transaction, bool $allowNegativeCredit = false): void
     {
-        DB::transaction(function () use ($transaction) {
+        DB::transaction(function () use ($transaction, $allowNegativeCredit) {
             $invoice = $this->lockInvoice($transaction->invoice_id);
             $transaction = InvoiceTransaction::query()->whereKey($transaction->getKey())->lockForUpdate()->first();
             if ($transaction === null) {
@@ -262,8 +326,8 @@ class RecordPaymentService
                 $credit = $this->lockCredit($invoice)
                     ?? $invoice->user->credits()->create(['currency_code' => $invoice->currency_code, 'amount' => 0]);
                 $balance = CreditLedger::cents($credit);
-                if ($balance + $change < 0) {
-                    throw new DisplayException(__('Part of this payment became account credit and the customer has already used it: it cannot be deleted.'));
+                if ($balance + $change < 0 && !$allowNegativeCredit) {
+                    throw new DisplayException(__('Part of this payment became account credit and the customer has already used it: delete it on its own and confirm that their credit goes negative (they owe it).'));
                 }
             }
 
@@ -291,6 +355,14 @@ class RecordPaymentService
             $credit?->save();
 
             $transaction->delete();
+
+            // The invoice follows (decision 1): a paid invoice its payments no longer cover is open again. Its services
+            // stay renewed, as in WHMCS: staff decide (docs/money-trail.md §1, 2c).
+            $invoice->refresh();
+            if ($invoice->status === Invoice::STATUS_PAID && self::toCents($invoice->withLockedBalance()->remaining) > 0) {
+                $invoice->status = Invoice::STATUS_PENDING;
+                $invoice->save();
+            }
         });
     }
 

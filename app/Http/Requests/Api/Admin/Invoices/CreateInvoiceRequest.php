@@ -18,9 +18,11 @@ class CreateInvoiceRequest extends AdminApiRequest
             'currency_code' => 'required|string|exists:currencies,code',
             'due_at' => 'nullable|date',
             /**
+             * An invoice is created unpaid: it becomes paid when its payment is recorded (docs/money-trail.md, MT-1c).
+             *
              * @default pending
              */
-            'status' => 'required|string|in:draft,pending,paid,cancelled', // Status can be one of these values
+            'status' => 'required|string|in:draft,pending,cancelled',
         ];
     }
 

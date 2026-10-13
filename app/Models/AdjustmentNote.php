@@ -28,13 +28,24 @@ class AdjustmentNote extends Model implements Auditable
         'description',
         'status',
         'is_cancellation',
+        'is_refund',
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
         'status' => AdjustmentNoteStatus::class,
         'is_cancellation' => 'boolean',
+        'is_refund' => 'boolean',
     ];
+
+    /**
+     * Staff void or unvoid only the notes they wrote: a refund's note follows its transaction, a cancellation's the
+     * invoice's status (docs/money-trail.md, MT-1c).
+     */
+    public function isVoidableByStaff(): bool
+    {
+        return !$this->is_refund && !$this->is_cancellation;
+    }
 
     /** @return BelongsTo<Invoice, $this> */
     public function invoice(): BelongsTo

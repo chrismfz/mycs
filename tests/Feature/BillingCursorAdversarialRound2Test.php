@@ -63,7 +63,7 @@ class BillingCursorAdversarialRound2Test extends TestCase
     /** @param array<int, array{0: ?string, 1: ?string}> $periods */
     private function invoiceWith(Service $service, array $periods, string $status = 'pending'): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_PENDING : $status, 'currency_code' => 'USD']);
         foreach ($periods as [$start, $end]) {
             $invoice->items()->create([
                 'reference_id' => $service->id,
@@ -74,6 +74,12 @@ class BillingCursorAdversarialRound2Test extends TestCase
                 'period_start' => $start,
                 'period_end' => $end,
             ]);
+        }
+
+        // A paid fixture (a period paid in the past): stored paid, its lines added while it was open (MT-1c: a paid
+        // invoice keeps its lines, and is never created paid).
+        if ($status === Invoice::STATUS_PAID) {
+            DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PAID]);
         }
 
         return $invoice->fresh();

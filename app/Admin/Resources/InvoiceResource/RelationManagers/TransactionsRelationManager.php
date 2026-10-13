@@ -14,6 +14,7 @@ use Filament\Actions\BulkActionGroup;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -24,6 +25,7 @@ use Filament\Support\Exceptions\Halt;
 use Filament\Support\RawJs;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 
@@ -48,6 +50,11 @@ class TransactionsRelationManager extends RelationManager
                     ->placeholder('Select the gateway'),
                 TextInput::make('transaction_id')
                     ->label('Transaction ID'),
+                // The day the money arrived (a bank transfer recorded later): the transaction's date (MT-1c).
+                DatePicker::make('paid_at')
+                    ->label(__('Payment date'))
+                    ->default(fn () => now()->toDateString())
+                    ->maxDate(now()),
                 TextInput::make('amount')
                     ->label('Amount')
                     ->numeric()
@@ -97,6 +104,7 @@ class TransactionsRelationManager extends RelationManager
                         $transaction = (new RecordPaymentService)->handle(
                             $invoice, $gateway, $data['amount'] ?? null, $data['fee'] ?? null, $data['transaction_id'] ?? null,
                             enteredByStaff: true,
+                            paidAt: filled($data['paid_at'] ?? null) ? Carbon::parse($data['paid_at'])->setTimeFrom(now()) : null,
                         );
                         if ($transaction === null) {
                             Notification::make()->danger()->title(__('Payment not recorded'))
@@ -174,7 +182,8 @@ class TransactionsRelationManager extends RelationManager
                     ->modalSubmitAction(fn (Action $action) => $action->label(__('invoices.refund'))),
                 DeleteAction::make()
                     ->visible(fn (): bool => $this->canModifyTransactions())
-                    ->using(fn (InvoiceTransaction $record): bool => DeleteInvoiceTransaction::run($record)),
+                    ->schema([DeleteInvoiceTransaction::negativeCreditField()])
+                    ->using(fn (InvoiceTransaction $record, array $data): bool => DeleteInvoiceTransaction::run($record, (bool) ($data['allow_negative_credit'] ?? false))),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([

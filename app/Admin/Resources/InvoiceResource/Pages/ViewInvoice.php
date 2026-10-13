@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\InvoiceResource\Pages;
 
+use App\Admin\Actions\MarkInvoicePaid;
 use App\Admin\Resources\InvoiceResource;
 use App\Admin\Resources\InvoiceResource\RelationManagers\AdjustmentNotesRelationManager;
 use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationManager;
@@ -90,6 +91,7 @@ class ViewInvoice extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
+            MarkInvoicePaid::make(),
             Action::make('cancel')
                 ->label('Cancel Invoice')
                 ->icon('heroicon-o-x-circle')
