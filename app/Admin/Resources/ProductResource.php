@@ -193,10 +193,10 @@ class ProductResource extends Resource
                         return;
                     }
                     $plan = $record->plans()->find($state[$key]['id']);
-                    if ($plan->services()->count() > 0) {
+                    if ($plan?->inUse()) {
                         Notification::make()
                             ->title('Whoops!')
-                            ->body('You cannot delete this plan because it is being used by one or more services.')
+                            ->body(__('This plan is used by services or upgrades: hide it instead of deleting it.'))
                             ->danger()
                             ->send();
                         $action->cancel();

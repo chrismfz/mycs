@@ -158,5 +158,8 @@
     "Its notes take off more than its lines and payments: fix the notes.": "Τα σημειώματά του αφαιρούν περισσότερα από τις γραμμές και τις πληρωμές του: διόρθωσε τα σημειώματα.",
     "It has no customer to credit the part over to: handle it by hand.": "Δεν έχει πελάτη για να πάει το περίσσευμα σε πίστωση: χειρίσου το με το χέρι.",
     "It buys account credit: lower or take back the credit by hand.": "Αγοράζει πίστωση λογαριασμού: μείωσε ή πάρε πίσω την πίστωση με το χέρι.",
-    "Its status changed meanwhile: reload it.": "Το status του άλλαξε στο μεταξύ: φόρτωσέ το ξανά."
+    "Its status changed meanwhile: reload it.": "Το status του άλλαξε στο μεταξύ: φόρτωσέ το ξανά.",
+    "This plan is used by services or upgrades: hide it instead of deleting it.": "Το πλάνο χρησιμοποιείται από υπηρεσίες ή αλλαγές πακέτου: κρύψτε το αντί να το διαγράψετε.",
+    "This product is used by services or upgrades: hide it instead of deleting it.": "Το προϊόν χρησιμοποιείται από υπηρεσίες ή αλλαγές πακέτου: κρύψτε το αντί να το διαγράψετε.",
+    "Product not saved": "Το προϊόν δεν αποθηκεύτηκε"
 }

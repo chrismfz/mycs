@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Exceptions\DisplayException;
 use App\Models\Traits\HasPlans;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -56,6 +57,24 @@ class Product extends Model implements Auditable
     public function services(): HasMany
     {
         return $this->hasMany(Service::class);
+    }
+
+    /**
+     * Used by a service or an upgrade (any status: their history keeps it): never deleted (audit sweep BIL-6, as WHMCS).
+     * Staff hide it instead.
+     */
+    public function inUse(): bool
+    {
+        return $this->services()->exists() || ServiceUpgrade::query()->where('product_id', $this->id)->exists();
+    }
+
+    protected static function booted(): void
+    {
+        static::deleting(function (self $model) {
+            if ($model->inUse()) {
+                throw new DisplayException(__('This product is used by services or upgrades: hide it instead of deleting it.'));
+            }
+        });
     }
 
     /**

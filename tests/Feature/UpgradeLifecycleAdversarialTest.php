@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\InvoiceTransactionStatus;
 use App\Events\ServiceCancellation\Created;
+use App\Exceptions\DisplayException;
 use App\Listeners\CancellationCreatedListener;
 use App\Models\EmailLog;
 use App\Models\Invoice;
@@ -23,6 +24,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 /**
@@ -158,11 +160,14 @@ class UpgradeLifecycleAdversarialTest extends TestCase
      */
     public function test_a4_an_upgrade_invoice_does_not_outlive_its_deleted_upgrade(): void
     {
-        $this->markTestIncomplete('Pre-existing (cascade delete of the upgrade with its plan/product): audit sweep Σ6, deletions and data integrity.');
+        // Fixed by BIL-6: a plan (or product) an upgrade uses is not deleted, so the upgrade and its invoice stay together.
         $service = $this->service(['status' => 'suspended', 'expires_at' => '2026-09-01', 'dunning_suspended_at' => '2026-09-05']);
         $upgrade = $this->upgrade($service);
-        Plan::query()->whereKey($upgrade->plan_id)->delete();
-        $this->assertNull(ServiceUpgrade::find($upgrade->id), 'cascade');
+        try {
+            Plan::query()->whereKey($upgrade->plan_id)->first()->delete();
+        } catch (DisplayException) {
+        }
+        $this->assertNotNull(ServiceUpgrade::find($upgrade->id), 'no cascade');
 
         $this->artisan('app:cron-job');
 
@@ -180,7 +185,8 @@ class UpgradeLifecycleAdversarialTest extends TestCase
     {
         $service = $this->service();
         $upgrade = $this->upgrade($service);
-        Plan::query()->whereKey($service->plan_id)->delete();
+        // As a delete before BIL-6 left it (the foreign key now refuses the delete).
+        Schema::withoutForeignKeyConstraints(fn () => DB::table('services')->where('id', $service->id)->update(['plan_id' => null]));
         $this->assertNull($service->fresh()->plan_id);
 
         $this->artisan('app:cron-job')->assertExitCode(0);

@@ -381,14 +381,16 @@ class CronJob extends Command
 
     /**
      * No hold (a hold holds through its last day), no open invoice of theirs with a processing payment (PAY-9), and no
-     * paid invoice of theirs still to be applied (BIL-9): its customer paid, the renewal is on its way.
+     * paid invoice of theirs still to be applied (BIL-9): its customer paid, the renewal is on its way. And a plan: one
+     * without is never billed (BIL-6), so never dunned either.
      *
      * @param  Builder<Service>  $query
      * @return Builder<Service>
      */
     private function unheldWithNoPaymentOnItsWay(Builder $query): Builder
     {
-        return $query->where(fn ($hold) => $hold->whereNull('suspend_hold_until')->orWhereDate('suspend_hold_until', '<', today()))
+        // A service without a plan is never billed (staff are told, BIL-6): never suspended or terminated as unpaid.
+        return $query->whereNotNull('plan_id')->where(fn ($hold) => $hold->whereNull('suspend_hold_until')->orWhereDate('suspend_hold_until', '<', today()))
             ->whereDoesntHave('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_PENDING)
                 ->whereHas('transactions', fn ($payments) => $payments->where('status', InvoiceTransactionStatus::Processing)))
             ->whereNotExists(fn ($line) => $this->paidLineToApply($line));
@@ -519,6 +521,12 @@ class CronJob extends Command
     {
         $service = Service::query()->whereKey($id)->lockForUpdate()->first();
         if (!$service || !in_array($service->status, ['active', 'suspended'], true)) {
+            return 0;
+        }
+        // No plan (deleted before BIL-6, or an import with none): nothing to price a period with. Staff set one.
+        if ($service->plan === null) {
+            $this->notices["invoices_created #{$id}"] = new DisplayException("Service #{$id} has no plan: not billed (set its plan).");
+
             return 0;
         }
 

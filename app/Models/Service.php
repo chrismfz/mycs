@@ -144,9 +144,10 @@ class Service extends Model implements Auditable
      */
     public function description(): Attribute
     {
-        if ($this->plan->type == 'free' || $this->plan->type == 'one-time') {
+        // No plan (deleted before BIL-6, an import with none): no period to describe until staff set one.
+        if ($this->plan === null || $this->plan->type == 'free' || $this->plan->type == 'one-time') {
             return Attribute::make(
-                get: fn () => $this->product->name
+                get: fn () => $this->product->name ?? ''
             );
         }
 
@@ -163,13 +164,13 @@ class Service extends Model implements Auditable
     public function describePeriod(CarbonInterface $start, ?CarbonInterface $end): string
     {
         if ($end === null) {
-            return $this->product->name;
+            return $this->product->name ?? '';
         }
 
         $format = __('services.invoice_period_date_format');
 
         return __('services.invoice_period', [
-            'product' => $this->product->name,
+            'product' => $this->product->name ?? '',
             'start' => $start->format($format),
             'end' => $end->format($format),
         ]);
@@ -200,7 +201,7 @@ class Service extends Model implements Auditable
      */
     public function periodEnd(CarbonInterface $start, ?Collection $lines = null): ?CarbonImmutable
     {
-        if ($this->plan->type == 'one-time' || $this->plan->type == 'free') {
+        if ($this->plan === null || $this->plan->type == 'one-time' || $this->plan->type == 'free') {
             return null;
         }
 
@@ -539,7 +540,7 @@ class Service extends Model implements Auditable
     public function cancellable(): Attribute
     {
         return Attribute::make(
-            get: fn () => $this->status !== 'cancelled' && $this->plan->type != 'free' && $this->plan->type != 'one-time' && !$this->cancellation?->exists()
+            get: fn () => $this->status !== 'cancelled' && $this->plan !== null && $this->plan->type != 'free' && $this->plan->type != 'one-time' && !$this->cancellation?->exists()
         );
     }
 
@@ -547,12 +548,19 @@ class Service extends Model implements Auditable
     public function upgradable(): Attribute
     {
         return Attribute::make(
-            get: fn () => ($this->productUpgrades()->count() > 0 || $this->product->upgradableConfigOptions()->count() > 0) && $this->status == 'active' && $this->upgrade->where('status', ServiceUpgrade::STATUS_PENDING)->count() == 0
+            // Not without a plan or product (nothing to compare with), nor once a cancellation is asked for (an upgrade
+            // of a service about to end would only be refunded, CR-10).
+            get: fn () => $this->plan !== null && $this->product !== null && $this->cancellation === null
+                && ($this->productUpgrades()->count() > 0 || $this->product->upgradableConfigOptions()->count() > 0) && $this->status == 'active' && $this->upgrade->where('status', ServiceUpgrade::STATUS_PENDING)->count() == 0
         );
     }
 
     public function productUpgrades()
     {
+        if ($this->product === null || $this->plan === null) {
+            return collect();
+        }
+
         return $this->product->upgrades->filter(function ($product): bool {
             // Check stock
             if ($product->stock !== null && ($product->stock - $this->quantity) < 0) {
@@ -572,6 +580,10 @@ class Service extends Model implements Auditable
 
     public function calculatePrice(bool $applyCoupon = true)
     {
+        // No plan: the price it has (nothing to compute it from until staff set one).
+        if ($this->plan === null) {
+            return number_format((float) $this->price, 2, '.', '');
+        }
         // Calculate the price based on the plan and config options
         $price = $this->plan->price($this->currency_code)->price;
 

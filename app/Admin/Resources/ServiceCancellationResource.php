@@ -35,7 +35,7 @@ class ServiceCancellationResource extends Resource
             ->components([
                 Select::make('service_id')
                     ->relationship('service', 'id', fn (Builder $query) => $query->where('status', 'active'))
-                    ->getOptionLabelFromRecordUsing(fn ($record) => $record->product->name . ' - ' . $record->plan->name . '  #' . $record->id . ($record->user ? ' (' . $record->user->email . ')' : ''))
+                    ->getOptionLabelFromRecordUsing(fn ($record) => ($record->product->name ?? '—') . ' - ' . ($record->plan->name ?? '—') . '  #' . $record->id . ($record->user ? ' (' . $record->user->email . ')' : ''))
                     ->searchable()
                     ->preload()
                     ->disabledOn('edit')

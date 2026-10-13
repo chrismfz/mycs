@@ -11,6 +11,7 @@ use App\Services\Service\RenewServiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 /**
@@ -305,7 +306,8 @@ class BillingCursorAdversarialRound2Test extends TestCase
     {
         $service = $this->service();
         $this->invoiceFor($service, '2026-11-15', '2026-12-15', 'paid');
-        Plan::query()->whereKey($service->plan_id)->delete();
+        // As a delete before BIL-6 left it (the foreign key now refuses the delete).
+        Schema::withoutForeignKeyConstraints(fn () => DB::table('services')->where('id', $service->id)->update(['plan_id' => null]));
 
         $service->fresh()->update(['expires_at' => '2026-11-15']);
 
