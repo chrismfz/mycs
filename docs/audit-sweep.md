@@ -21,6 +21,17 @@
 - **Τέσσερις αποφάσεις μοντέλου** (§Δ) πρέπει να παρθούν πριν το EU VAT, το bridge και τον importer, γιατί αλλάζουν τι
   σημαίνουν τα αποθηκευμένα ποσά και οι αριθμοί.
 
+## Κατανομή με το money trail (2026-10-13, μετά το merge του #42)
+- **Μένουν στο money trail, όχι στη σταθεροποίηση:** INV-4/PAY-13 (Mark Paid μέσω `RecordPaymentService`) και INV-9
+  (adjustment notes append-only) στο MT-1c· PAY-5 (refunds/chargebacks από το dashboard του gateway) στο 2c· Δ5
+  (μερική αυτόματη εφαρμογή πίστωσης) στο MT-1c, μόλις αποφασιστεί αν αφορά μόνο νέα ή και ήδη ανοιχτά τιμολόγια.
+- **Έγιναν στο #42:** unique `credits(user_id, currency_code)` (τα υπόλοιπα unique του DATA-11 μένουν)· η πίστωση από
+  downgrade περνά από το `CreditLedger` (από το AUTH-5/SVC-14 μένουν ο έλεγχος `credits_enabled` και το validation των
+  config values).
+- **Κανόνας για κάθε διόρθωση σε ροή χρημάτων:** μέσω `RecordPaymentService`/`CreditLedger`, κίνηση στο `money_events`
+  μέσω `MoneyTrail`, σειρά locks πελάτης → τιμολόγιο → συναλλαγή → γραμμές → πίστωση (`money-trail.md` §2). Και
+  adversarial review (`CLAUDE.md`).
+
 ## Κρίσιμα: τώρα, μικρά PRs, πριν από οτιδήποτε άλλο
 
 | # | Τι | IDs | Κόστος |
@@ -156,7 +167,7 @@ cancelled/pending, και τα pending τα ακυρώνει το cron)· τιμ
 status** (Accept Order = 449/έτος στη myip). Enums με casts + CHECK, και ορισμός πριν τον importer. Κόστος M.
 
 Μικρότερες αποφάσεις:
-- **Δ5** Πίστωση: μερική αυτόματη εφαρμογή όπως το WHMCS (σήμερα μόνο αν καλύπτει όλο το τιμολόγιο). BIL-14, PAY-12 → με το MT-1b.
+- **Δ5** Πίστωση: μερική αυτόματη εφαρμογή όπως το WHMCS (σήμερα μόνο αν καλύπτει όλο το τιμολόγιο). BIL-14, PAY-12 → στο MT-1c (βλ. «Κατανομή»).
 - **Δ6** Θέση στο schema για: γλώσσα πελάτη (emails/PDF), status πελάτη (Closed δεν κάνει login), admin-only custom fields («δύσκολος πελάτης»), domain/username/IP υπηρεσίας ως στήλες με index, `nextinvoicedate`, line type/taxed, staff vs πελάτες στον ίδιο πίνακα `users`. DATA-15, AUTH-10, AUTH-11, EVT-8, DATA-14
 - **Δ7** Ζώνη ώρας: κλείδωμα μετά την εγκατάσταση, ένα σημείο αλήθειας (σήμερα setting πάνω από `APP_TIMEZONE`, σιωπηλό fallback σε UTC). BIL-21, DATA-18, EVT-20
 - **Δ8** Ownership helper (`ClientAccess::owns()`) πριν τα νέα features, ώστε το multi-user της Φάσης 3 να μη θέλει ξαναγράψιμο όλων των policies. AUTH-13
