@@ -37,7 +37,8 @@ class CancelOpenInvoicesTest extends TestCase
         parent::setUp();
         Carbon::setTestNow('2026-10-20 03:00:00');
         $this->user = User::factory()->create();
-        config(['settings.credits_enabled' => true, 'settings.credits_auto_use' => true]);
+        config(['settings.credits_enabled' => true, 'settings.credits_auto_use' => true,
+            'settings.cronjob_order_suspend' => 2, 'settings.cronjob_order_terminate' => 14]); // the days these fixtures assume
     }
 
     protected function tearDown(): void
