@@ -16,6 +16,12 @@ class CronjobTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        config(['settings.cronjob_order_suspend' => 2, 'settings.cronjob_order_terminate' => 14]); // the days these tests assume
+    }
+
     /**
      * A basic unit test example.
      */

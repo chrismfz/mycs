@@ -16,6 +16,7 @@ use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Actions;
 use Filament\Schemas\Components\Form;
+use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Tabs;
 use Filament\Schemas\Components\Tabs\Tab;
 use Filament\Schemas\Schema;
@@ -53,6 +54,9 @@ class Settings extends Page implements HasForms
 
     private const COUNTER_MAX = 999_999_999_999;
 
+    /** Tabs named otherwise than their group key (the query string keeps the key). */
+    private const TAB_LABELS = ['cronjob' => 'Automation'];
+
     public function mount(): void
     {
         $setting_values = [];
@@ -76,19 +80,30 @@ class Settings extends Page implements HasForms
 
         foreach (ClassesSettings::settings() as $key => $categories) {
             $tab = Tab::make($key)
-                ->label(ucwords(str_replace('-', ' ', $key)))
+                ->label(self::TAB_LABELS[$key] ?? ucwords(str_replace('-', ' ', $key)))
+                ->key("{$key}::data::tab") // Filament keys a tab by its label: keep the group key (links, bookmarks)
                 ->schema(function () use ($categories) {
+                    // Settings with a 'section' are grouped under its heading (the Automation tab, as WHMCS).
                     $inputs = [];
+                    $sections = [];
                     foreach ($categories as $setting) {
                         $input = FilamentInput::convert($setting);
                         if (self::isEncrypted($setting['name']) && self::hasStoredValue($setting['name'])) {
                             // Empty means "keep the stored one", so it is not required again.
                             $input->required(false)->placeholder(__('Stored: leave empty to keep it'));
                         }
-                        $inputs[] = $input;
+                        if (isset($setting['section'])) {
+                            if (!isset($sections[$setting['section']])) {
+                                $sections[$setting['section']] = [];
+                                $inputs[] = $setting['section']; // its place, filled in below
+                            }
+                            $sections[$setting['section']][] = $input;
+                        } else {
+                            $inputs[] = $input;
+                        }
                     }
 
-                    return $inputs;
+                    return array_map(fn ($input) => is_string($input) ? Section::make($input)->schema($sections[$input]) : $input, $inputs);
                 });
 
             $tabs[] = $tab;
