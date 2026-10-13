@@ -181,7 +181,7 @@ class MoneyTrailAdversarialTest extends TestCase
             $roll = mt_rand(1, 100);
             $invoiceId = $invoices[array_rand($invoices)];
             $invoice = Invoice::query()->find($invoiceId);
-            $transactions = InvoiceTransaction::query()->get();
+            $transactions = InvoiceTransaction::query()->orderBy('id')->get();
             try {
                 if ($roll <= 8) {
                     $invoices[] = $this->invoiceFor($users[mt_rand(0, 1)], mt_rand(100, 20000), mt_rand(0, 2) === 0)->id;
@@ -650,11 +650,5 @@ class MoneyTrailAdversarialTest extends TestCase
 
         $this->assertNotNull(User::query()->find($this->user->id));
         $this->assertSame(1, MoneyEvent::query()->count());
-    }
-
-    /** One of $items with mt_rand: Collection::random() uses a CSPRNG that mt_srand() does not seed (a seed must replay). */
-    private function pickOne($items)
-    {
-        return $items->values()->get(mt_rand(0, $items->count() - 1));
     }
 }

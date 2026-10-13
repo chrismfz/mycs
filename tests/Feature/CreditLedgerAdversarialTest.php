@@ -181,7 +181,7 @@ class CreditLedgerAdversarialTest extends TestCase
             $roll = mt_rand(1, 100);
             $invoiceId = $invoices[array_rand($invoices)];
             $invoice = Invoice::query()->find($invoiceId);
-            $transactions = InvoiceTransaction::query()->get();
+            $transactions = InvoiceTransaction::query()->orderBy('id')->get();
             $user = $users[mt_rand(0, 1)];
             $currency = $currencies[mt_rand(0, 1)];
             $op = 'op';
@@ -584,11 +584,5 @@ class CreditLedgerAdversarialTest extends TestCase
         $this->assertSame(250, $this->balanceCents($this->user, 'EUR'));
         $this->assertSame(['ok'], MoneyEventNote::query()->pluck('note')->all());
         $this->assertCreditsMatchJournal();
-    }
-
-    /** One of $items with mt_rand: Collection::random() uses a CSPRNG that mt_srand() does not seed (a seed must replay). */
-    private function pickOne($items)
-    {
-        return $items->values()->get(mt_rand(0, $items->count() - 1));
     }
 }
