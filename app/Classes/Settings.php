@@ -526,7 +526,7 @@ class Settings
                     'default' => 7,
                     'required' => true,
                     'min_value' => 0,
-                    'description' => 'Days after which a new order that was never paid is cancelled, with its invoice.',
+                    'description' => 'Days after which a new order that was never paid is cancelled, with its invoice (0 to disable).',
                 ],
                 [
                     'name' => 'cronjob_close_ticket',
@@ -546,7 +546,7 @@ class Settings
                     'default' => 90,
                     'required' => true,
                     'min_value' => 0,
-                    'description' => 'Days the sent email log is kept.',
+                    'description' => 'Days the sent email log is kept (0 keeps it forever).',
                 ],
             ],
             'credits' => [

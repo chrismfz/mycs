@@ -91,9 +91,11 @@ class CronJob extends Command
             $this->runCronJob('orders_cancelled', function ($number = 0) {
                 // Cancel services if first invoice is not paid after x days. One service per transaction: an invoice
                 // that cannot be cancelled rolls back its own service only, never the step (audit sweep BIL-10).
-                $ids = Service::where('status', 'pending')->whereDoesntHave('invoices', function ($query) {
+                // 0 disables (an order placed a minute ago would go, with the invoice its customer may be paying).
+                $days = (int) config('settings.cronjob_order_cancel', 7);
+                $ids = $days <= 0 ? collect() : Service::where('status', 'pending')->whereDoesntHave('invoices', function ($query) {
                     $query->where('status', 'paid');
-                })->where('created_at', '<', now()->subDays((int) config('settings.cronjob_order_cancel', 7)))->pluck('id');
+                })->where('created_at', '<', now()->subDays($days))->pluck('id');
                 foreach ($ids as $id) {
                     try {
                         $number += DB::transaction(function () use ($id) {
@@ -256,11 +258,13 @@ class CronJob extends Command
             });
 
             $this->runCronJob('email_logs_deleted', function ($number = 0) {
-                $number = EmailLog::where('created_at', '<', now()->subDays((int) config('settings.cronjob_delete_email_logs', 90)))->count();
-                // Delete email logs older then x
-                EmailLog::where('created_at', '<', now()->subDays((int) config('settings.cronjob_delete_email_logs', 90)))->delete();
+                // Delete email logs older than x days; 0 keeps them (it would wipe the whole log).
+                $days = (int) config('settings.cronjob_delete_email_logs', 90);
+                if ($days <= 0) {
+                    return 0;
+                }
 
-                return $number;
+                return EmailLog::where('created_at', '<', now()->subDays($days))->delete();
             });
 
             if ($this->notices !== []) {

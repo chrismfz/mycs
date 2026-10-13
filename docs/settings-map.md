@@ -102,7 +102,7 @@ nixpal (pilot). Τιμές από το `tblconfiguration` των δύο WHMCS, 2
 | Termination Days (`AutoTerminationDays`), από την ημερομηνία λήξης | 120 | 60 | **P:** `cronjob_order_terminate` (default 60) |
 | — ελάχιστες ημέρες σε αναστολή | (όχι στο WHMCS) | | **P:** `cronjob_terminate_min_suspended_days`, default 1· 0 = ακριβώς WHMCS (BIL-4) |
 | Invoice Generation (`CreateInvoiceDaysBefore`) | 14· ανά κύκλο: μήνας 10, τρίμηνο 15, εξάμηνο/έτος 20· domains 15 | 7 | P~ `cronjob_invoice` (default 7, μία τιμή) → **Ν: ανά κύκλο** |
-| Order Days Grace (`OrderDaysGrace`) | 8 | 0 | **Ν** (προθεσμία πληρωμής του πρώτου τιμολογίου)· το `cronjob_order_cancel` (default 7) ακυρώνει παραγγελίες που δεν πληρώθηκαν ποτέ |
+| Order Days Grace (`OrderDaysGrace`) | 8 | 0 | **Ν** (προθεσμία πληρωμής του πρώτου τιμολογίου)· το `cronjob_order_cancel` (default 7, 0 = ποτέ) ακυρώνει παραγγελίες που δεν πληρώθηκαν ποτέ |
 | Payment Reminder Emails, Invoice Unpaid Reminder | on, 1 | on, 6 | **Ν** (υπενθυμίσεις του Ekdosi)· το παλιό `cronjob_invoice_reminder` δεν το διάβαζε κανείς και αφαιρέθηκε |
 | First/Second/Third Overdue Reminder | 1/3/5 | 1/2/— | **Ν** (υπενθυμίσεις του Ekdosi) |
 | Add Late Fee Days (`AddLateFeeDays`) | 5 (Percentage, ποσό κενό) | 0 | **Ν** (δεν χρησιμοποιείται στην πράξη) |
@@ -113,7 +113,7 @@ nixpal (pilot). Τιμές από το `tblconfiguration` των δύο WHMCS, 2
 | Client Status Update (`AutoClientStatusChange`) | 2 | 2 | **Ν** |
 | Domain Sync (`DomainSyncEnabled`) | on | on | Ν (domains, EPP) |
 | Update Usage Statistics | on | on | — |
-| Email log retention | — | — | **P:** `cronjob_delete_email_logs` (90) |
+| Email log retention | — | — | **P:** `cronjob_delete_email_logs` (90, 0 = για πάντα) |
 
 Στο cut-over ο importer γράφει τις τιμές του WHMCS της εταιρείας στις αντίστοιχες ρυθμίσεις (`docs/importer.md`).
 

@@ -54,7 +54,7 @@ class Settings extends Page implements HasForms
 
     private const COUNTER_MAX = 999_999_999_999;
 
-    /** Tabs named otherwise than their group key (the key stays: it is in the query string). */
+    /** Tabs named otherwise than their group key (the query string keeps the key). */
     private const TAB_LABELS = ['cronjob' => 'Automation'];
 
     public function mount(): void
@@ -81,6 +81,7 @@ class Settings extends Page implements HasForms
         foreach (ClassesSettings::settings() as $key => $categories) {
             $tab = Tab::make($key)
                 ->label(self::TAB_LABELS[$key] ?? ucwords(str_replace('-', ' ', $key)))
+                ->key("{$key}::data::tab") // Filament keys a tab by its label: keep the group key (links, bookmarks)
                 ->schema(function () use ($categories) {
                     // Settings with a 'section' are grouped under its heading (the Automation tab, as WHMCS).
                     $inputs = [];
