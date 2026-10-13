@@ -134,8 +134,10 @@ class InvoiceResource extends Resource
                                     ->hidden(fn (Get $get): bool => !in_array($get('reference_type'), [Service::class, ServiceUpgrade::class]))
                             )
                             ->placeholder('Enter the description of the product'),
-                        Hidden::make('reference_type'),
-                        Hidden::make('reference_id'),
+                        // Shown for the link only, never written from the form: a browser could otherwise point a line at a
+                        // Credit or at another customer's service (audit sweep AUTH-8).
+                        Hidden::make('reference_type')->dehydrated(false),
+                        Hidden::make('reference_id')->dehydrated(false),
                     ]),
 
             ]);
