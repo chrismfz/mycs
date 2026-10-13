@@ -9,6 +9,7 @@ return [
         'purchase' => 'credit purchase',
         'purchase_refunded' => 'credit purchase refunded',
         'transaction_deleted' => 'transaction deleted',
+        'cancellation' => 'invoice cancelled',
         'staff_adjustment' => 'staff adjustment',
         'downgrade' => 'downgrade',
         'affiliate_reward' => 'affiliate reward',

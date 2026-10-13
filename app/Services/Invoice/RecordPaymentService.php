@@ -300,9 +300,9 @@ class RecordPaymentService
      *
      * @throws DisplayException
      */
-    public function deleteTransaction(InvoiceTransaction $transaction, bool $allowNegativeCredit = false): void
+    public function deleteTransaction(InvoiceTransaction $transaction, bool $allowNegativeCredit = false, string $cause = MoneyTrail::CAUSE_TRANSACTION_DELETED): void
     {
-        DB::transaction(function () use ($transaction, $allowNegativeCredit) {
+        DB::transaction(function () use ($transaction, $allowNegativeCredit, $cause) {
             $invoice = $this->lockInvoice($transaction->invoice_id);
             $transaction = InvoiceTransaction::query()->whereKey($transaction->getKey())->lockForUpdate()->first();
             if ($transaction === null) {
@@ -361,7 +361,7 @@ class RecordPaymentService
                     $journaled += $effect;
                     $credit->amount = $balance / 100;
                 }
-                $trail->reverse($event, MoneyTrail::CAUSE_TRANSACTION_DELETED, $effect !== 0 ? $credit : null);
+                $trail->reverse($event, $cause, $effect !== 0 ? $credit : null);
             }
             // What the reversals do not cover: credit a credit purchase bought, or a payment from before the journal.
             $rest = $change - $journaled;
@@ -369,8 +369,8 @@ class RecordPaymentService
                 $balance += $rest;
                 $credit->amount = $balance / 100;
                 $rest > 0
-                    ? $trail->creditIn($credit, $rest, MoneyTrail::CAUSE_TRANSACTION_DELETED, MoneyTrail::SOURCE_MANUAL, $invoice, $transaction)
-                    : $trail->creditOut($credit, -$rest, MoneyTrail::CAUSE_TRANSACTION_DELETED, MoneyTrail::SOURCE_MANUAL, $invoice, $transaction);
+                    ? $trail->creditIn($credit, $rest, $cause, MoneyTrail::SOURCE_MANUAL, $invoice, $transaction)
+                    : $trail->creditOut($credit, -$rest, $cause, MoneyTrail::SOURCE_MANUAL, $invoice, $transaction);
             }
             $credit?->save();
 

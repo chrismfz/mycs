@@ -69,6 +69,7 @@ return [
         'purchase' => 'Προσθήκη υπολοίπου',
         'purchase_refunded' => 'Επιστροφή αγοράς υπολοίπου',
         'correction' => 'Διόρθωση πληρωμής',
+        'cancellation' => 'Επιστροφή από ακυρωμένο τιμολόγιο',
         'adjustment' => 'Προσαρμογή',
         'downgrade' => 'Υποβάθμιση πακέτου',
         'affiliate_reward' => 'Αμοιβή συνεργάτη',

@@ -187,6 +187,21 @@ class AppServiceProvider extends ServiceProvider
                 ]);
             }
         });
+        // The audit is off in the console (config/audit.php): seeding and the WHMCS importer write no audit rows. A
+        // queued job is the app at work (a cancellation request, provisioning), audited like a web request
+        // (docs/money-trail.md §3, MT-2b). Put back after the job: a command that runs a job inline stays as it was.
+        $auditing = [];
+        Queue::before(function () use (&$auditing) {
+            $auditing[] = config('audit.console');
+            config(['audit.console' => true]);
+        });
+        $restore = function () use (&$auditing) {
+            if ($auditing !== []) {
+                config(['audit.console' => array_pop($auditing)]);
+            }
+        };
+        Queue::after($restore);
+        Queue::exceptionOccurred($restore);
 
         Str::macro('markdown', function ($markdown) {
             return Str::markdown($markdown, extensions: [

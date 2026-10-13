@@ -48,6 +48,9 @@ class MoneyTrail
 
     public const CAUSE_TRANSACTION_DELETED = 'transaction_deleted';
 
+    /** Credit paid on an invoice the app gave up on (CancelOpenInvoices) went back to the customer (MT-2b). */
+    public const CAUSE_CANCELLATION = 'cancellation';
+
     public const CAUSE_OPENING_BALANCE = 'opening_balance';
 
     public const CAUSE_STAFF_ADJUSTMENT = 'staff_adjustment';

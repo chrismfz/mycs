@@ -12,6 +12,7 @@ use App\Models\CronStat;
 use App\Models\DebugLog;
 use App\Models\EmailLog;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Models\Setting;
@@ -101,7 +102,8 @@ class CronJob extends Command
                             if ($service === null || $service->status !== Service::STATUS_PENDING) {
                                 return 0;
                             }
-                            $this->cancelInvoices($service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->get());
+                            // The order's invoice: its other services are the same unpaid order, cancelled by this rule too.
+                            $this->cancelInvoices($service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->get(), __('invoices.cancellation_reasons.unpaid_order'));
                             $service->update(['status' => 'cancelled']);
                             if ($service->product?->stock !== null) {
                                 $service->product->increment('stock', $service->quantity);
@@ -125,21 +127,23 @@ class CronJob extends Command
                         $upgrade->update(['status' => 'cancelled']);
                         // Somehow people manage to have an upgrade without an invoice
                         if ($upgrade->invoice) {
-                            $this->cancelInvoices([$upgrade->invoice], throughModel: true);
+                            $this->cancelInvoices([$upgrade->invoice], __('invoices.cancellation_reasons.upgrade_expired'));
                         }
 
                         $number++;
 
                         return;
                     }
-                    if (!$upgrade->invoice) {
+                    // A paid invoice keeps its total (InvoiceItemObserver): only an open one follows the price.
+                    if (!$upgrade->invoice || $upgrade->invoice->status !== Invoice::STATUS_PENDING) {
                         return;
                     }
 
-                    // Only this upgrade's own line: a renewal line, or another upgrade, on the same invoice keeps its price.
-                    $upgrade->invoice->items()->where('reference_type', ServiceUpgrade::class)->where('reference_id', $upgrade->id)->update([
-                        'price' => $upgrade->calculatePrice()->price,
-                    ]);
+                    // Only this upgrade's own line: a renewal line, or another upgrade, on the same invoice keeps its
+                    // price. Line by line (MT-2b): a change of price is in the audit.
+                    $price = $upgrade->calculatePrice()->price;
+                    $upgrade->invoice->items()->where('reference_type', ServiceUpgrade::class)->where('reference_id', $upgrade->id)
+                        ->get()->each(fn (InvoiceItem $line) => $line->update(['price' => $price]));
 
                     $number++;
                 });
@@ -216,7 +220,8 @@ class CronJob extends Command
                             }
                             TerminateJob::dispatch($service)->afterCommit();
                             $service->update(['status' => 'cancelled']);
-                            $this->cancelInvoices($service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->get());
+                            // Only its own lines: an invoice imported from WHMCS bills every service due that day.
+                            $this->cancelInvoices($service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->get(), __('invoices.cancellation_reasons.service_terminated'), $service);
                             if ($service->product?->stock !== null) {
                                 $service->product->increment('stock', $service->quantity);
                             }
@@ -369,7 +374,7 @@ class CronJob extends Command
 
         TerminateJob::dispatch($service)->afterCommit();
         $service->forceFill(['status' => Service::STATUS_CANCELLED])->save();
-        $this->leftOpen(CancelOpenInvoices::handle($service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->get(), onlyFor: $service));
+        $this->cancelInvoices($service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->get(), __('invoices.cancellation_reasons.cancellation_request'), $service);
         if ($service->product?->stock !== null) {
             $service->product->increment('stock', $service->quantity);
         }
@@ -508,9 +513,9 @@ class CronJob extends Command
      *
      * @param  iterable<Invoice>  $invoices
      */
-    private function cancelInvoices(iterable $invoices, bool $throughModel = false): void
+    private function cancelInvoices(iterable $invoices, string $reason, ?Service $onlyFor = null): void
     {
-        $this->leftOpen(CancelOpenInvoices::handle($invoices, $throughModel));
+        $this->leftOpen(CancelOpenInvoices::handle($invoices, $reason, $onlyFor));
     }
 
     /**
