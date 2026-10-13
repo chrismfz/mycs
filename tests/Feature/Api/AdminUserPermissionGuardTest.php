@@ -36,8 +36,8 @@ class AdminUserPermissionGuardTest extends TestCase
     {
         parent::setUp();
 
-        $this->adminRole = Role::create(['name' => 'Admin', 'permissions' => ['*']]);
-        $this->staffRole = Role::create(['name' => 'Staff', 'permissions' => self::STAFF_PERMISSIONS]);
+        $this->adminRole = Role::create(['name' => 'Test full admin', 'permissions' => ['*']]);
+        $this->staffRole = Role::create(['name' => 'Test staff', 'permissions' => self::STAFF_PERMISSIONS]);
         $this->admin = User::factory()->create(['role_id' => $this->adminRole->id]);
         $this->staff = User::factory()->create(['role_id' => $this->staffRole->id]);
         $this->customer = User::factory()->create(['role_id' => null]);
