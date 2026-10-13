@@ -92,7 +92,7 @@ nixpal (pilot). Τιμές από το `tblconfiguration` των δύο WHMCS, 2
 
 | WHMCS (`tblconfiguration`) | myip | nixpal | MyCS |
 |---|---|---|---|
-| Time of Day (`DailyCronExecutionHour`) | 10 | 09 | **P:** `cronjob_time` (default 09:00) |
+| Time of Day (`DailyCronExecutionHour`) | 10 | 09 | **P:** `cronjob_time` (default 09:00· όχι 03:xx, αλλαγή ώρας, BIL-16) |
 | Enable Suspension (`AutoSuspension`) | on | on | **P:** `cronjob_suspend_enabled` (default on) |
 | Suspend Days (`AutoSuspensionDays`), από την ημερομηνία λήξης | 15 | 8 | **P:** `cronjob_order_suspend` (default 8) |
 | — μόνο με ληξιπρόθεσμο τιμολόγιο | (όχι στο WHMCS) | | **P:** `cronjob_suspend_requires_invoice`, default off· on: τιμολόγιο ληξιπρόθεσμο **και** εκδομένο πριν από Suspend Days, ειδοποίηση staff για «ληγμένη χωρίς τιμολόγιο» (BIL-5) |
@@ -102,7 +102,7 @@ nixpal (pilot). Τιμές από το `tblconfiguration` των δύο WHMCS, 2
 | Termination Days (`AutoTerminationDays`), από την ημερομηνία λήξης | 120 | 60 | **P:** `cronjob_order_terminate` (default 60) |
 | — ελάχιστες ημέρες σε αναστολή | (όχι στο WHMCS) | | **P:** `cronjob_terminate_min_suspended_days`, default 1· 0 = ακριβώς WHMCS (BIL-4) |
 | Invoice Generation (`CreateInvoiceDaysBefore`) | 14· ανά κύκλο: μήνας 10, τρίμηνο 15, εξάμηνο/έτος 20· domains 15 | 7 | P~ `cronjob_invoice` (default 7, μία τιμή) → **Ν: ανά κύκλο** |
-| Order Days Grace (`OrderDaysGrace`) | 8 | 0 | **Ν** (προθεσμία πληρωμής του πρώτου τιμολογίου)· το `cronjob_order_cancel` (default 7, 0 = ποτέ) ακυρώνει παραγγελίες που δεν πληρώθηκαν ποτέ |
+| Order Days Grace (`OrderDaysGrace`) | 8 | 0 | **Ν** (προθεσμία πληρωμής του πρώτου τιμολογίου)· το `cronjob_order_cancel` (default 7, 0 = ποτέ) ακυρώνει παραγγελίες με απλήρωτο τιμολόγιο χωρίς καμία πληρωμή (BIL-12) |
 | Payment Reminder Emails, Invoice Unpaid Reminder | on, 1 | on, 6 | **Ν** (υπενθυμίσεις του Ekdosi)· το παλιό `cronjob_invoice_reminder` δεν το διάβαζε κανείς και αφαιρέθηκε |
 | First/Second/Third Overdue Reminder | 1/3/5 | 1/2/— | **Ν** (υπενθυμίσεις του Ekdosi) |
 | Add Late Fee Days (`AddLateFeeDays`) | 5 (Percentage, ποσό κενό) | 0 | **Ν** (δεν χρησιμοποιείται στην πράξη) |

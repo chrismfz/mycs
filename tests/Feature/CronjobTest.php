@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Jobs\Server\SuspendJob;
 use App\Jobs\Server\TerminateJob;
+use App\Models\Invoice;
 use App\Models\Service;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
@@ -153,6 +154,9 @@ class CronjobTest extends TestCase
             'price' => 10.00,
             'created_at' => now()->subDays(8), // Set created_at to 8 days ago
         ]);
+        // Its order's invoice, unpaid (BIL-12: a pending service without one is staff's, not an unpaid order).
+        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'pending', 'currency_code' => 'USD', 'due_at' => now()->subDays(8)]);
+        $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Order', 'quantity' => 1, 'price' => 10]);
 
         // Run the cron job
         $this->artisan('app:cron-job')

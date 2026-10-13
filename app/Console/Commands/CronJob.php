@@ -31,6 +31,7 @@ use Carbon\CarbonInterface;
 use Exception;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -63,6 +64,23 @@ class CronJob extends Command
      * Execute the console command.
      */
     public function handle()
+    {
+        // One run at a time (audit sweep BIL-16): a manual run overlapping the scheduled one would cancel orders and give
+        // stock back twice. The lock outlives a crashed run by 2 hours at most.
+        $lock = Cache::lock('app:cron-job', 7200);
+        if (!$lock->get()) {
+            $this->error('Another cron run is in progress: not started.');
+
+            return self::FAILURE;
+        }
+        try {
+            return $this->runSteps();
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function runSteps()
     {
         Config::set('audit.console', true);
 
@@ -142,14 +160,12 @@ class CronJob extends Command
                 // that cannot be cancelled rolls back its own service only, never the step (audit sweep BIL-10).
                 // 0 disables (an order placed a minute ago would go, with the invoice its customer may be paying).
                 $days = (int) config('settings.cronjob_order_cancel', 7);
-                $ids = $days <= 0 ? collect() : Service::where('status', 'pending')->whereDoesntHave('invoices', function ($query) {
-                    $query->where('status', 'paid');
-                })->where('created_at', '<', now()->subDays($days))->pluck('id');
+                $ids = $days <= 0 ? collect() : $this->unpaidOrders($days)->pluck('id');
                 foreach ($ids as $id) {
                     try {
-                        $number += DB::transaction(function () use ($id) {
-                            $service = Service::query()->whereKey($id)->lockForUpdate()->first();
-                            if ($service === null || $service->status !== Service::STATUS_PENDING) {
+                        $number += DB::transaction(function () use ($id, $days) {
+                            $service = $this->unpaidOrders($days)->whereKey($id)->lockForUpdate()->first();
+                            if ($service === null) {
                                 return 0;
                             }
                             $this->cancelOrderInvoices($service);
@@ -343,6 +359,23 @@ class CronJob extends Command
 
         // Remove old debug logs
         DebugLog::where('created_at', '<', now()->subDays(30))->delete();
+    }
+
+    /**
+     * Orders never paid (audit sweep BIL-12): a pending service placed $days ago, with an open invoice of its own and no
+     * money on any (a payment, processing too, or credit: staff decide on a part paid), and none paid. A pending service
+     * staff created without an invoice is not an order waiting for payment: left alone.
+     *
+     * @return Builder<Service>
+     */
+    private function unpaidOrders(int $days): Builder
+    {
+        $money = fn ($payments) => $payments->whereIn('status', [InvoiceTransactionStatus::Succeeded, InvoiceTransactionStatus::Processing]);
+
+        return Service::query()->where('status', Service::STATUS_PENDING)->where('created_at', '<', now()->subDays($days))
+            ->whereHas('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_PENDING))
+            ->whereDoesntHave('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_PAID))
+            ->whereDoesntHave('invoices', fn ($invoices) => $invoices->whereIn('invoices.status', Invoice::OPEN_STATUSES)->whereHas('transactions', $money));
     }
 
     /**
