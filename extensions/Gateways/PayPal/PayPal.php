@@ -16,6 +16,7 @@ use App\Models\InvoiceTransaction;
 use App\Models\Service;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Money\GatewayLog;
 use Exception;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
@@ -476,7 +477,9 @@ class PayPal extends Gateway
             $verification = null;
         }
 
-        if (($verification->verification_status ?? null) !== 'SUCCESS') {
+        $verified = ($verification->verification_status ?? null) === 'SUCCESS';
+        GatewayLog::current()->signature($verified);
+        if (!$verified) {
             return response()->json(['status' => 'error'], 400);
         }
 
@@ -519,9 +522,9 @@ class PayPal extends Gateway
             }
 
             if (isset($order->purchase_units[0]->invoice_id)) {
-                // Verify that the currency is the same as the invoice
+                // A capture in another currency is refused by RecordPaymentService (logged, staff told), not skipped here.
                 $invoice = Invoice::find($order->purchase_units[0]->invoice_id);
-                if ($invoice && $invoice->currency_code === $order->purchase_units[0]->payments->captures[0]->amount->currency_code) {
+                if ($invoice) {
                     ExtensionHelper::addPayment($order->purchase_units[0]->invoice_id, 'PayPal', $order->purchase_units[0]->payments->captures[0]->amount->value, $order->purchase_units[0]->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value ?? null, $body['resource']['id'], currency: $order->purchase_units[0]->payments->captures[0]->amount->currency_code);
                 }
             }

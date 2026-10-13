@@ -6,6 +6,7 @@ use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Gateway;
 use App\Helpers\ExtensionHelper;
 use App\Models\Invoice;
+use App\Services\Money\GatewayLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 
@@ -89,6 +90,7 @@ class PayPal_IPN extends Gateway
         ] + $request->all());
 
         // Check if the response is verified
+        GatewayLog::current()->signature($response->body() == 'VERIFIED');
         if ($response->body() == 'VERIFIED') {
             // Validate owner and amount
             if (strtolower($request->receiver_email) !== strtolower($this->config('email'))) {
@@ -97,9 +99,9 @@ class PayPal_IPN extends Gateway
             if ($request->payment_status !== 'Completed') {
                 return;
             }
-            // Validate currency and amount
+            // Another currency is refused by RecordPaymentService (logged, staff told), not skipped here.
             $invoice = Invoice::find($request->item_number);
-            if (!$invoice || $request->mc_currency !== $invoice->currency_code) {
+            if (!$invoice) {
                 return;
             }
             ExtensionHelper::addPayment($request->item_number, 'PayPal', $request->mc_gross, $request->mc_fee, transactionId: $request->txn_id, currency: $request->mc_currency);

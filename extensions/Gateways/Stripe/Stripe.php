@@ -15,6 +15,7 @@ use App\Models\InvoiceTransaction;
 use App\Models\Service;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Money\GatewayLog;
 use Carbon\Carbon;
 use Exception;
 use Filament\Notifications\Notification;
@@ -206,7 +207,9 @@ class Stripe extends Gateway
 
     public function webhook(Request $request)
     {
-        if (!$this->isValidSignature($request->getContent(), $request->header('Stripe-Signature'), $this->config('stripe_webhook_secret'))) {
+        $verified = $this->isValidSignature($request->getContent(), $request->header('Stripe-Signature'), $this->config('stripe_webhook_secret'));
+        GatewayLog::current()->signature($verified);
+        if (!$verified) {
             return response()->json(['error' => 'Invalid signature'], 400);
         }
 
