@@ -144,4 +144,46 @@ class ConfigValuesReviewTest extends TestCase
 
         $this->assertSame(0, ConfigOption::query()->count());
     }
+
+    /**
+     * F4 (round 2). The deleting hook checks, then deletes every row pointing at the value, without a lock: a service that
+     * takes the value in between (an order checked out meanwhile) loses it silently, and the foreign key, which would have
+     * refused the delete, is bypassed. Only the dead rows should go, so a live one left makes the foreign key refuse.
+     */
+    public function test_a_service_that_takes_the_value_meanwhile_keeps_it(): void
+    {
+        [$option, $value] = $this->option();
+        $service = $this->service();
+        $fired = false;
+        DB::listen(function ($query) use (&$fired, $service, $option, $value) {
+            if (!$fired && str_contains($query->sql, 'exists') && str_contains($query->sql, 'service_configs')) {
+                $fired = true; // the check has run: the order is placed now
+                DB::table('service_configs')->insert(['configurable_type' => Service::class, 'configurable_id' => $service->id,
+                    'config_option_id' => $option->id, 'config_value_id' => $value->id, 'created_at' => now(), 'updated_at' => now()]);
+            }
+        });
+
+        try {
+            $value->delete();
+        } catch (\Throwable) {
+            // refused: right
+        }
+
+        $this->assertTrue($fired);
+        $this->assertSame(1, $service->configs()->count(), 'the service keeps its value');
+        $this->assertNotNull(ConfigOption::find($value->id));
+    }
+
+    /** Probe (round 2): a cancelled service that still exists, and a pending upgrade, keep the value. */
+    public function test_a_cancelled_service_and_a_pending_upgrade_keep_the_value(): void
+    {
+        [$option, $a, $b] = $this->option();
+        $service = $this->service(['status' => 'cancelled']);
+        $service->configs()->create(['config_option_id' => $option->id, 'config_value_id' => $a->id]);
+        $upgrade = ServiceUpgrade::query()->create(['service_id' => $service->id, 'product_id' => $service->product_id, 'plan_id' => $service->plan_id, 'status' => ServiceUpgrade::STATUS_PENDING]);
+        $upgrade->configs()->create(['config_option_id' => $option->id, 'config_value_id' => $b->id]);
+
+        $this->assertTrue($a->fresh()->valueInUse());
+        $this->assertTrue($b->fresh()->valueInUse());
+    }
 }

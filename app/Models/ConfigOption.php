@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Exceptions\DisplayException;
 use App\Models\Traits\HasPlans;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -73,16 +74,21 @@ class ConfigOption extends Model implements Auditable
      */
     public function valueInUse(): bool
     {
-        if ($this->parent_id === null) {
-            return false;
-        }
+        return $this->parent_id !== null && $this->rowsHolding()->exists();
+    }
 
-        return ServiceConfig::query()->where('config_value_id', $this->id)->where(fn ($query) => $query
-            ->where(fn ($services) => $services->where('configurable_type', (new Service)->getMorphClass())
-                ->whereIn('configurable_id', Service::query()->select('id')))
+    /** The rows of this value that hold it: of an existing service, or of a pending upgrade. */
+    private function rowsHolding(): Builder
+    {
+        return ServiceConfig::query()->where('config_value_id', $this->id)->where(fn ($query) => self::holding($query));
+    }
+
+    private static function holding($query): void
+    {
+        $query->where(fn ($services) => $services->where('configurable_type', (new Service)->getMorphClass())
+            ->whereIn('configurable_id', Service::query()->select('id')))
             ->orWhere(fn ($upgrades) => $upgrades->where('configurable_type', (new ServiceUpgrade)->getMorphClass())
-                ->whereIn('configurable_id', ServiceUpgrade::query()->where('status', ServiceUpgrade::STATUS_PENDING)->select('id'))))
-            ->exists();
+                ->whereIn('configurable_id', ServiceUpgrade::query()->where('status', ServiceUpgrade::STATUS_PENDING)->select('id')));
     }
 
     protected static function booted(): void
@@ -91,10 +97,10 @@ class ConfigOption extends Model implements Auditable
             if ($option->valueInUse()) {
                 throw new DisplayException(__('This option value is used by services: move them to another value first.'));
             }
-            // The rows that hold nothing (finished upgrades, services long gone) go first: the foreign key refuses the
-            // delete while any row points at the value.
+            // Only the rows that hold nothing (finished upgrades, services long gone) go first. A row a service takes
+            // meanwhile stays, and the foreign key then refuses the delete (F4 of #79): never taken off a service.
             if ($option->parent_id !== null) {
-                ServiceConfig::query()->where('config_value_id', $option->id)->delete();
+                ServiceConfig::query()->where('config_value_id', $option->id)->whereNot(fn ($query) => self::holding($query))->delete();
             }
         });
     }
