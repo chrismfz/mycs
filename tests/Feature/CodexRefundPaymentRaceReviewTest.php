@@ -75,7 +75,8 @@ class CodexRefundPaymentRaceReviewTest extends TestCase
 
         $this->assertEquals(10.00, (float) $txn->fresh()->refunded_amount);
         $this->assertSame(1, InvoiceTransaction::query()->where('transaction_id', 'NEXT')->count());
-        $this->assertEquals(30.00, $invoice->fresh()->remaining, '100 - 10 refunded = 90 due; 60 - 10 + 10 paid');
+        // MT-1c: a refund on an open invoice is not forgiven (no refund note): 100 still due, 60 - 10 + 10 paid.
+        $this->assertEquals(40.00, $invoice->fresh()->remaining, '100 due; 60 - 10 refunded + 10 paid');
         $this->assertEquals(0.0, (float) Credit::query()->where('user_id', $user->id)->value('amount'));
     }
 
