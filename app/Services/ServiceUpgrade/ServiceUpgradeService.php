@@ -6,23 +6,45 @@ use App\Jobs\Server\UpgradeJob;
 use App\Models\ConfigOptionProduct;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
+use App\Services\Invoice\ChangeOpenLine;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class ServiceUpgradeService
 {
     /**
      * Apply a paid upgrade: the new product/plan, the options it changed, the new recurring amount, the server.
+     *
+     * Locked service, then upgrade (docs/money-trail.md §2: service, customer, invoice, lines), and read again under
+     * them: applied once, whoever calls it twice (the payment, the cron's paid_applied). A service that no longer runs
+     * (cancelled, or never started) is not upgraded (audit sweep SVC-6): the upgrade is cancelled and its money is the
+     * staff's to refund or credit.
      */
     public function handle(ServiceUpgrade $serviceUpgrade): void
     {
         DB::transaction(function () use ($serviceUpgrade) {
+            $serviceId = ServiceUpgrade::query()->whereKey($serviceUpgrade->getKey())->value('service_id');
+            $service = $serviceId === null ? null : Service::query()->whereKey($serviceId)->lockForUpdate()->first();
+            $locked = ServiceUpgrade::query()->whereKey($serviceUpgrade->getKey())->lockForUpdate()->first();
+            if ($locked === null || $locked->status !== ServiceUpgrade::STATUS_PENDING) {
+                return;
+            }
+            if ($service === null || !in_array($service->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true)) {
+                $locked->update(['status' => ServiceUpgrade::STATUS_CANCELLED]);
+                $serviceUpgrade->setRawAttributes($locked->getAttributes(), true);
+                Log::warning('Paid upgrade of a service that no longer runs: not applied (refund or credit it).', [
+                    'service_upgrade_id' => $locked->id, 'service_id' => $serviceId, 'invoice_id' => $locked->invoice_id,
+                ]);
+
+                return;
+            }
+            $serviceUpgrade = $locked;
             $serviceUpgrade->status = ServiceUpgrade::STATUS_COMPLETED;
             $serviceUpgrade->save();
 
             // Check if old product stock should be increased
-            $service = $serviceUpgrade->service;
             if ($service->product->stock !== null) {
-                $serviceUpgrade->service->product->increment('stock', $serviceUpgrade->service->quantity);
+                $service->product->increment('stock', $service->quantity);
             }
 
             $productChanged = (int) $service->product_id !== (int) $serviceUpgrade->product_id;
@@ -66,12 +88,12 @@ class ServiceUpgradeService
 
             // Reprice all open renewal lines (drafts too) after the new recurring amount is saved.
             $service->refreshOpenPeriods();
-            // Legacy manual lines without a period retain their whole-cycle allocation on payment.
+            // Legacy manual lines without a period retain their whole-cycle allocation on payment. Under the payment
+            // locks; an invoice with a payment on it keeps its line (R9).
             $service->invoiceItems()->where(fn ($query) => $query->whereNull('period_start')->orWhereNull('period_end'))
                 ->whereHas('invoice', fn ($query) => $query->whereIn('status', ['pending', 'draft']))
-                ->each(function ($item) use ($service) {
-                    $item->update(['price' => $service->price]);
-                });
+                ->get()
+                ->each(fn ($item) => ChangeOpenLine::handle($item, fn ($line) => $line->price = $service->price));
 
             if ($service->product->server) {
                 UpgradeJob::dispatch($service);

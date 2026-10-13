@@ -7,8 +7,8 @@ use App\Helpers\NotificationHelper;
 use App\Jobs\Server\TerminateJob;
 use App\Models\Invoice;
 use App\Models\Service;
-use App\Models\ServiceUpgrade;
 use App\Services\Invoice\CancelOpenInvoices;
+use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use Illuminate\Contracts\Queue\ShouldQueue;
 
 class CancellationCreatedListener implements ShouldQueue
@@ -41,13 +41,7 @@ class CancellationCreatedListener implements ShouldQueue
             // Its pending upgrades end with it: paid later, an upgrade would change a cancelled service (and give
             // stock back a second time). Their lines go with the service's (an invoice that bills another service too
             // keeps the rest).
-            $upgrades = ServiceUpgrade::query()->where('service_id', $service->id)->where('status', ServiceUpgrade::STATUS_PENDING)->get();
-            foreach ($upgrades as $upgrade) {
-                $upgrade->update(['status' => 'cancelled']);
-                if ($upgrade->invoice !== null && in_array($upgrade->invoice->status, Invoice::OPEN_STATUSES, true)) {
-                    self::report(CancelOpenInvoices::handle([$upgrade->invoice], __('invoices.cancellation_reasons.cancellation_request'), $service));
-                }
-            }
+            self::report(CancelPendingUpgrades::forService($service, __('invoices.cancellation_reasons.cancellation_request')));
 
             self::report(CancelOpenInvoices::handle($open, __('invoices.cancellation_reasons.cancellation_request'), $service));
 

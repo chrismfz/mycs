@@ -6,6 +6,7 @@ use App\Classes\Price;
 use App\Classes\Settings;
 use App\Models\Traits\HasProperties;
 use App\Observers\ServiceObserver;
+use App\Services\Invoice\ChangeOpenLine;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
@@ -362,14 +363,12 @@ class Service extends Model implements Auditable
                 $end = $next;
             }
             if ($end !== null) {
-                $line->forceFill([
+                // Under the payment locks; an invoice with a payment on it keeps its line (R9 of #68).
+                ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->forceFill([
                     'period_end' => $end,
-                    'description' => $this->describePeriod($line->period_start, $end),
-                    'price' => $this->priceForPeriod($line->period_start, $end),
-                ]);
-                if ($line->isDirty()) {
-                    $line->save();
-                }
+                    'description' => $this->describePeriod($locked->period_start, $end),
+                    'price' => $this->priceForPeriod($locked->period_start, $end),
+                ]));
             }
         }
     }

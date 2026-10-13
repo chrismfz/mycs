@@ -7,7 +7,6 @@ use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Services\Service\RenewServiceService;
 use App\Services\ServiceUpgrade\ServiceUpgradeService;
-use Illuminate\Support\Facades\DB;
 use Throwable;
 
 class ProcessPaidInvoiceService
@@ -30,15 +29,12 @@ class ProcessPaidInvoiceService
                     }
                     (new RenewServiceService)->handle($service, $item);
                 } elseif ($item->reference_type == ServiceUpgrade::class) {
-                    // Read under its lock: the cron may apply the same invoice again (BIL-9); an upgrade is done once.
-                    DB::transaction(function () use ($item) {
-                        $serviceUpgrade = ServiceUpgrade::query()->whereKey($item->reference_id)->lockForUpdate()->first();
-                        if ($serviceUpgrade === null || $serviceUpgrade->status !== ServiceUpgrade::STATUS_PENDING) {
-                            return;
-                        }
-
+                    // ServiceUpgradeService locks the service and the upgrade and reads it again: the cron may apply the
+                    // same invoice again (BIL-9); an upgrade is done once, and never on a service that no longer runs.
+                    $serviceUpgrade = ServiceUpgrade::query()->find($item->reference_id);
+                    if ($serviceUpgrade !== null) {
                         (new ServiceUpgradeService)->handle($serviceUpgrade);
-                    });
+                    }
                 }
             } catch (Throwable $e) {
                 report($e);
