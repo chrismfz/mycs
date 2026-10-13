@@ -93,7 +93,7 @@ class UpgradeLifecycleReReviewTest extends TestCase
         $paid = false;
         DB::listen(function ($query) use (&$paid, $invoice) {
             // first statement of phase 2 (the open invoices' cancellation): the customer pays the upgrade right then
-            if (!$paid && str_contains($query->sql, 'update "services"')) {
+            if (!$paid && preg_match('/update [`"]services[`"]/', $query->sql)) {
                 $paid = true;
                 DB::afterCommit(fn () => (new RecordPaymentService)->handle($invoice->id, null, 5, transactionId: 'between'));
             }
