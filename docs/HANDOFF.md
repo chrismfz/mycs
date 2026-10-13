@@ -85,6 +85,8 @@ Fixtures του zlic και η λογική του: `history/blesta-modules/lice
   δοκιμές EPP.
 - **2026-10-11:** απόφαση για hard fork· σύγκριση με Ekdosi· απογραφή χρήσης του WHMCS· triage του upstream· χάρτης
   ρυθμίσεων· repo `chrismfz/mycs` (fork + docs).
+- **2026-10-13:** audit sweep όλου του κληρονομημένου κώδικα (8 reviewers, ~165 ευρήματα) → `audit-sweep.md` και
+  «Φάση 1a: Σταθεροποίηση» στο ROADMAP, μετά τα MT-x. 8 κρίσιμα (ένα regression δικό μας: `afterCommit` και συνδρομές).
 
 
 ### PR #32 — διορθώσεις δεύτερου εξωτερικού review (2026-10-12)
