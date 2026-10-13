@@ -9,6 +9,7 @@ use App\Models\EmailLog;
 use App\Models\Extension;
 use App\Models\OauthClient;
 use App\Models\User;
+use App\Support\BootFailure;
 use App\Support\Passport\ScopeRegistry;
 use Closure;
 use Dedoc\Scramble\Scramble;
@@ -160,7 +161,9 @@ class AppServiceProvider extends ServiceProvider
                 ExtensionHelper::call($extension, 'boot', mayFail: true);
             }
         } catch (Exception $e) {
-            // Fail silently
+            // The extension list itself (one extension failing to boot is reported by ExtensionHelper::call): no
+            // gateway listeners at all, so fatal where it matters (BootFailure).
+            BootFailure::handle($e);
         }
 
         Queue::after(function (JobProcessed $event) {
