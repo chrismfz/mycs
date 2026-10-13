@@ -325,3 +325,25 @@ context του συγγραφέα), οκτώ ευρήματα, όλα επιβε
   προεπιλογή), όπως το «Send Email» του WHMCS· οι επιστροφές από το dashboard του gateway το στέλνουν πάντα.
 - **Μένει για το 2c-2b:** chargebacks/disputes (Stripe `charge.dispute.*`, PayPal `CUSTOMER.DISPUTE.*` /
   `PAYMENT.CAPTURE.REVERSED`): θέλει απόφαση για το τι παθαίνουν τιμολόγιο και υπηρεσίες.
+
+## PR 2c-2b: chargebacks (2026-10-14)
+Απόφαση (2026-10-14): **καταγραφή, και το staff αποφασίζει.** Το dunning λειτουργεί κανονικά.
+- **Dispute ανοίγει** (Stripe `charge.dispute.created`, PayPal `CUSTOMER.DISPUTE.CREATED`): τίποτα δεν κινείται· email
+  στο staff μία φορά, να απαντήσει στο gateway.
+- **Τα χρήματα φεύγουν** (Stripe `charge.dispute.funds_withdrawn`, PayPal `PAYMENT.CAPTURE.REVERSED`): καταγράφεται στην
+  πληρωμή, μία φορά ανά id (`gateway_refunds`, origin `chargeback`):
+  - βγαίνει από την πληρωμή (`refunded_amount`, κίνηση `refund` με cause `chargeback`), όσο μένει πάνω της·
+  - το τιμολόγιο **κρατά το σύνολό του** (όχι σημείωμα επιστροφής: δεν είναι επιστροφή) και, αν ήταν paid, γίνεται
+    **unpaid**: χρωστιέται ξανά, και ο cron το χειρίζεται όπως κάθε απλήρωτο (υπενθυμίσεις, αναστολή, τερματισμός κατά
+    τις ρυθμίσεις του Automation)·
+  - οι υπηρεσίες **δεν αγγίζονται**· email στο staff με το τι έγινε· για να περιμένει την έκβαση του dispute βάζει hold
+    στην υπηρεσία·
+  - αγορά πίστωσης: παίρνει πίσω όση πίστωση έχει μείνει (το υπόλοιπο στο staff).
+- **Κερδίσαμε** (Stripe `charge.dispute.funds_reinstated`, PayPal `CUSTOMER.DISPUTE.RESOLVED` με
+  `RESOLVED_SELLER_FAVOUR` ή `CANCELED_BY_BUYER`): το chargeback αναιρείται (η κίνησή του αντιστρέφεται με cause
+  `chargeback_won`, τα χρήματα ξαναμπαίνουν στην πληρωμή) και το τιμολόγιο, αν καλύπτεται πάλι, ξαναγίνεται paid
+  (`settle`). Αν ο πελάτης είχε πληρώσει στο μεταξύ, το επιπλέον γίνεται πίστωση. Σε αγορά πίστωσης, την πίστωση που
+  πήρε το chargeback την ξαναδίνει το staff.
+- **Χάσαμε**: τίποτα άλλο· η καταγραφή του chargeback μένει.
+- **Webhooks:** Stripe: τα τρία `charge.dispute.*` (το endpoint που φτιάχνει το extension τα ζητά). PayPal:
+  `PAYMENT.CAPTURE.REVERSED`, `CUSTOMER.DISPUTE.CREATED`, `CUSTOMER.DISPUTE.RESOLVED` στο webhook της εφαρμογής.

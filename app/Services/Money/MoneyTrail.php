@@ -65,6 +65,12 @@ class MoneyTrail
     /** Staff refunded a payment to the customer's account credit instead of back to them (PR 2c). */
     public const CAUSE_REFUND_TO_CREDIT = 'refund_to_credit';
 
+    /** The gateway took a payment back for a dispute (chargeback, PR 2c-2b): money out, the invoice owed again. */
+    public const CAUSE_CHARGEBACK = 'chargeback';
+
+    /** The dispute was won and the gateway gave the money back: the chargeback reversed (PR 2c-2b). */
+    public const CAUSE_CHARGEBACK_WON = 'chargeback_won';
+
     public const SOURCE_STAFF = 'staff';
 
     public const SOURCE_API = 'api';
@@ -113,9 +119,10 @@ class MoneyTrail
     }
 
     /** Money back to the customer from $transaction (through its gateway, or recorded locally). */
-    public function refund(InvoiceTransaction $transaction, Invoice $invoice, int $cents, string $source): MoneyEvent
+    public function refund(InvoiceTransaction $transaction, Invoice $invoice, int $cents, string $source, ?string $cause = null): MoneyEvent
     {
         return $this->write([
+            'cause' => $cause,
             'kind' => MoneyEventKind::Refund,
             'amount' => $cents / 100,
             'currency_code' => $invoice->currency_code,

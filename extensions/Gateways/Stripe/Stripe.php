@@ -162,6 +162,9 @@ class Stripe extends Gateway
                 'refund.created',
                 'refund.updated',
                 'refund.failed',
+                'charge.dispute.created',
+                'charge.dispute.funds_withdrawn',
+                'charge.dispute.funds_reinstated',
             ],
             'api_version' => self::API_VERSION,
         ]);
@@ -272,6 +275,22 @@ class Stripe extends Gateway
                 } elseif (in_array($refund->status ?? null, ['failed', 'canceled'], true)) {
                     ExtensionHelper::refundFailedAtGateway('Stripe', $refund->id, $refund->payment_intent, $refund->amount / 100, $refund->currency ?? null);
                 }
+                break;
+            case 'charge.dispute.created':
+            case 'charge.dispute.funds_withdrawn':
+            case 'charge.dispute.funds_reinstated':
+                // A dispute (PR 2c-2b): opened = staff told; funds withdrawn = a chargeback, the invoice owed again;
+                // funds reinstated = won, the chargeback undone. Recorded once, by the dispute's id.
+                $dispute = $event->data->object; // contains a StripeDispute
+                if (!isset($dispute->id, $dispute->payment_intent)) {
+                    break;
+                }
+                $paymentIntent = is_string($dispute->payment_intent) ? $dispute->payment_intent : ($dispute->payment_intent->id ?? '');
+                match ($event->type) {
+                    'charge.dispute.created' => ExtensionHelper::chargebackOpened('Stripe', $paymentIntent, $dispute->id, $dispute->amount / 100, $dispute->currency ?? null),
+                    'charge.dispute.funds_withdrawn' => ExtensionHelper::chargebackAtGateway('Stripe', $paymentIntent, $dispute->id, $dispute->amount / 100, $dispute->currency ?? null),
+                    default => ExtensionHelper::chargebackReversedAtGateway('Stripe', $paymentIntent, $dispute->id, $dispute->amount / 100, $dispute->currency ?? null),
+                };
                 break;
             case 'setup_intent.succeeded':
                 $setupIntent = $event->data->object; // contains a StripeSetupIntent

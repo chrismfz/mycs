@@ -22,6 +22,12 @@ class GatewayRefund extends Model
     /** Reported failed by the gateway before anything was recorded: a late «created» records nothing. */
     public const ORIGIN_FAILED = 'failed';
 
+    /** The gateway took the payment back for a dispute (PR 2c-2b); money_event_id is its journal event. */
+    public const ORIGIN_CHARGEBACK = 'chargeback';
+
+    /** A chargeback whose dispute was won: its money came back and its journal event is reversed. */
+    public const ORIGIN_CHARGEBACK_WON = 'chargeback_won';
+
     /**
      * What MyCS itself refunded on a payment through its gateway, in cents: the gateways' idempotency key for a refund
      * (a retry of an attempt whose answer was lost keeps its key, whatever the webhook recorded meanwhile).
@@ -41,6 +47,7 @@ class GatewayRefund extends Model
         'currency_code',
         'recorded_amount',
         'origin',
+        'money_event_id',
     ];
 
     protected $casts = [

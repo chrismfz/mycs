@@ -15,6 +15,8 @@ return [
         'affiliate_reward' => 'affiliate reward',
         'invoice_reduced' => 'invoice reduced',
         'refund_to_credit' => 'refund to credit',
+        'chargeback' => 'chargeback',
+        'chargeback_won' => 'chargeback reversed (dispute won)',
     ],
     'statuses' => [
         'draft' => 'draft',
