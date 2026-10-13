@@ -174,12 +174,13 @@ class Stripe extends Gateway
             ->send();
     }
 
-    private function request($method, $url, $data = [])
+    private function request($method, $url, $data = [], ?string $idempotencyKey = null)
     {
-        return Http::withHeaders([
+        return Http::withHeaders(array_filter([
             'Authorization' => 'Bearer ' . $this->config('stripe_secret_key'),
             'Stripe-Version' => self::API_VERSION,
-        ])->asForm()->$method('https://api.stripe.com/v1' . $url, $data)->throw()->object();
+            'Idempotency-Key' => $idempotencyKey,
+        ]))->asForm()->$method('https://api.stripe.com/v1' . $url, $data)->throw()->object();
     }
 
     public function pay($invoice, $total)
@@ -895,7 +896,10 @@ class Stripe extends Gateway
             'amount' => (int) round($amount * 100),
         ];
 
-        $refund = $this->request('post', '/refunds', $refundData);
+        // The same refund (transaction, what was refunded before, amount) keeps the same key: a retry after a timeout gets
+        // Stripe's first answer instead of a second refund (as PayPal's request id).
+        $key = 'refund-' . $transaction->id . '-' . RecordPaymentService::toCents($transaction->refunded_amount) . '-' . RecordPaymentService::toCents($amount);
+        $refund = $this->request('post', '/refunds', $refundData, $key);
 
         return (string) $refund->id;
     }

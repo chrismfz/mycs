@@ -515,7 +515,8 @@ class PayPal extends Gateway
                 ExtensionHelper::refundedAtGateway('PayPal', $captureId, (string) $body['resource']['id'],
                     (float) ($body['resource']['amount']['value'] ?? 0), $body['resource']['amount']['currency_code'] ?? null);
             }
-        } elseif ($body['event_type'] === 'PAYMENT.SALE.REFUNDED' && isset($body['resource']['id'], $body['resource']['sale_id'])) {
+        } elseif ($body['event_type'] === 'PAYMENT.SALE.REFUNDED' && isset($body['resource']['id'], $body['resource']['sale_id'])
+            && in_array($body['resource']['state'] ?? 'completed', ['completed', 'pending'], true)) {
             // A subscription sale refunded (PR 2c-2). The total is negative in some payloads: its size is the refund.
             ExtensionHelper::refundedAtGateway('PayPal', (string) $body['resource']['sale_id'], (string) $body['resource']['id'],
                 abs((float) ($body['resource']['amount']['total'] ?? 0)), $body['resource']['amount']['currency'] ?? null);
