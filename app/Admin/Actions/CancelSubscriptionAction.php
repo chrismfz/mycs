@@ -10,7 +10,9 @@ use Filament\Schemas\Components\Component;
 use Throwable;
 
 /**
- * Staff "Cancel Subscription" on a service's subscription id (the service page and the order page's services).
+ * Staff "Cancel Subscription" on a service's subscription id: a hint action of the subscription_id field on the
+ * service page and in the order page's services repeater (getRecord() is the item's Service for a saved item; null,
+ * so hidden, for one not saved yet).
  * The id is cleared only when a gateway confirmed the cancellation: otherwise the gateway may still be billing it,
  * and the id is what a retry needs.
  */
@@ -26,9 +28,13 @@ class CancelSubscriptionAction
                 }
 
                 $error = self::cancel($record);
+                if ($error === null) {
+                    // The form still holds the id: a later Save (the order page's repeater) would write it back.
+                    $component->state(null);
+                }
                 $error === null
                     ? Notification::make('Subscription Cancelled')->title('The subscription has been successfully cancelled')->success()->send()
-                    : Notification::make('Subscription Not Cancelled')->title('The subscription could not be cancelled')->body($error ?: null)->danger()->send();
+                    : Notification::make('Subscription Not Cancelled')->title('The subscription could not be cancelled')->body($error ?: 'No gateway recognised this subscription id.')->danger()->send();
             })
             ->requiresConfirmation()
             ->label('Cancel Subscription')

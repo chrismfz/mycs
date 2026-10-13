@@ -539,8 +539,11 @@ class Stripe extends Gateway
 
     public function cancelSubscription(Service $service)
     {
-        if (!$service->subscription_id && !$service->properties->where('key', 'has_stripe_subscription')->first()) {
-            return;
+        // Not a Stripe subscription: false lets ExtensionHelper::cancelSubscription try the other gateways. The marker,
+        // or a Stripe subscription id (sub_...) when staff cancel one whose marker was lost.
+        if (!$service->subscription_id
+            || ($service->properties()->where('key', 'has_stripe_subscription')->value('value') !== '1' && !str_starts_with($service->subscription_id, 'sub_'))) {
+            return false;
         }
         $this->request('delete', '/subscriptions/' . $service->subscription_id);
 

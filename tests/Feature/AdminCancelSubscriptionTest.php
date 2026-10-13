@@ -3,12 +3,18 @@
 namespace Tests\Feature;
 
 use App\Admin\Actions\CancelSubscriptionAction;
+use App\Admin\Resources\OrderResource\Pages\EditOrder;
 use App\Models\Gateway;
+use App\Models\Order;
+use App\Models\Role;
 use App\Models\Service;
 use App\Models\User;
+use Filament\Actions\Testing\TestAction;
+use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
@@ -79,5 +85,54 @@ class AdminCancelSubscriptionTest extends TestCase
 
         $this->assertSame('', CancelSubscriptionAction::cancel($this->service->fresh()));
         $this->assertSame('unknown-1', $this->service->fresh()->subscription_id);
+    }
+
+    private function orderPage()
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $admin = User::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        $order = Order::query()->create(['user_id' => $this->service->user_id, 'currency_code' => 'USD']);
+        $this->service->update(['order_id' => $order->id]);
+
+        return Livewire::actingAs($admin)->test(EditOrder::class, ['record' => $order->getRouteKey()]);
+    }
+
+    private function cancelOnOrderPage($page)
+    {
+        return $page->callAction(TestAction::make('Cancel Subscription ID')->schemaComponent('services.record-' . $this->service->id . '.subscription_id', 'form'));
+    }
+
+    public function test_order_page_failed_cancellation_keeps_the_id(): void
+    {
+        $this->fakeCancel(500);
+
+        $this->cancelOnOrderPage($this->orderPage())->assertNotified('The subscription could not be cancelled');
+
+        $this->assertSame('I-SUB1', $this->service->fresh()->subscription_id);
+    }
+
+    public function test_order_page_cancel_then_save_does_not_write_the_id_back(): void
+    {
+        $this->fakeCancel(204);
+        $page = $this->orderPage();
+
+        $this->cancelOnOrderPage($page)->assertNotified('The subscription has been successfully cancelled');
+        $page->call('save')->assertHasNoErrors();
+
+        $this->assertNull($this->service->fresh()->subscription_id);
+    }
+
+    public function test_a_stripe_gateway_listed_first_does_not_block_cancelling_a_paypal_subscription(): void
+    {
+        Gateway::query()->where('extension', 'PayPal')->delete();
+        Gateway::query()->create(['extension' => 'Stripe', 'name' => 'Stripe', 'type' => 'gateway']);
+        $paypal = Gateway::query()->create(['extension' => 'PayPal', 'name' => 'PayPal', 'type' => 'gateway']);
+        foreach (['test_mode' => '1', 'client_id' => 'id', 'client_secret' => 'secret'] as $key => $value) {
+            $paypal->settings()->create(['key' => $key, 'value' => $value]);
+        }
+        $this->fakeCancel(204);
+
+        $this->assertNull(CancelSubscriptionAction::cancel($this->service));
+        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), 'api.stripe.com'));
     }
 }
