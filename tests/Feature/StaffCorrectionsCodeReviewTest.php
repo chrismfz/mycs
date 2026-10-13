@@ -84,7 +84,7 @@ class StaffCorrectionsCodeReviewTest extends TestCase
             ->call('save');
 
         $this->assertSame(1, InvoiceTransaction::query()->count());
-        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status, 'Saving the edit page after Mark Paid set the paid invoice back to pending.');
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status, 'Saving the edit page after Mark Paid set the paid invoice back to unpaid.');
     }
 
     /**

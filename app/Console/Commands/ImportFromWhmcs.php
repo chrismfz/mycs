@@ -932,6 +932,7 @@ class ImportFromWhmcs extends Command
                     'number' => $invoiceNumber,
                     'user_id' => $record['userid'],
                     'status' => match ($record['status']) {
+                        'Draft' => 'draft',
                         'Paid' => 'paid',
                         'Unpaid' => 'unpaid',
                         'Cancelled' => 'cancelled',

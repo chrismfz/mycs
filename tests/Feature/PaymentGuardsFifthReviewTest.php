@@ -149,7 +149,7 @@ class PaymentGuardsFifthReviewTest extends TestCase
 
     // The fixes' own tests (the credit a line gave marks it: applied_at).
 
-    /** A credit line gives its credit once: paid, back to pending by staff, paid again -> still 50. */
+    /** A credit line gives its credit once: paid, back to unpaid by staff, paid again -> still 50. */
     public function test_a_credit_purchase_gives_its_credit_once(): void
     {
         $invoice = $this->creditInvoice(50.00);

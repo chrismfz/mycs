@@ -135,7 +135,7 @@ class PaymentGuardsThirdReviewTest extends TestCase
         $service = $this->service();
         $invoice = $this->invoiceFor($service);
         // MT-1c: a refund writes its note on a settled invoice only (on an open one it is still to pay in full): the
-        // invoice is paid, refunded in part, then set back to pending by staff before it is cancelled.
+        // invoice is paid, refunded in part, then set back to unpaid by staff before it is cancelled.
         $payment = ExtensionHelper::addPayment($invoice->id, 'Stripe', 10.00, null, 'pi_part', currency: 'usd');
         ExtensionHelper::refundLocally($payment->fresh(), 1.00);
         $invoice->fresh()->update(['status' => 'unpaid']);

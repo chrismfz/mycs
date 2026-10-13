@@ -40,7 +40,7 @@ use Tests\TestCase;
  *  S2 High   Staff (or the admin API) set «paid» on such an invoice by its status (the form allows it, remaining ≤ 0):
  *            same result, the part over is stranded on a paid invoice and «Close as paid» is gone.
  *  S3 Medium Staff without admin.invoice_transactions.create (no «Close as paid», no «Add Payment») move a payment to
- *            account credit by saving the invoice as draft and back to pending: finalising settles it.
+ *            account credit by saving the invoice as draft and back to unpaid: finalising settles it.
  *  S4 High   A mixed credit purchase with a discount: settle marks it paid while the part over is still on it, so the
  *            «credit only for money that stays» guard passes, the full credit is granted AND the part over is credited.
  *  S5 High   A paid credit purchase reopened and its (applied) credit line lowered: settle credits the difference while
@@ -214,7 +214,7 @@ class InvoiceSettleAdversarialTest extends TestCase
 
     /**
      * S5 (High). Scenario: a credit purchase of 100.00, paid: 100.00 of credit given (its line applied). Staff set it
-     * back to pending to correct it («Τα paid τιμολόγια ... το staff τα γυρίζει σε pending»), lower the credit line to
+     * back to unpaid to correct it («Τα paid τιμολόγια ... το staff τα γυρίζει σε pending»), lower the credit line to
      * 70.00 and «Close as paid». settle credits the 30.00 over; the 100.00 the applied line gave stays. 100.00 paid, 130.00
      * of credit.
      */

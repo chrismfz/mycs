@@ -64,7 +64,7 @@ class Invoice extends Model implements Auditable
     /** Every status, in the order screens list them. */
     public const STATUSES = [self::STATUS_DRAFT, self::STATUS_UNPAID, self::STATUS_PAID, self::STATUS_CANCELLED, self::STATUS_REFUNDED];
 
-    /** What staff and customers read for a status: WHMCS's words (pending is «Unpaid»), lang/*\/invoices.php. */
+    /** What staff and customers read for a status: WHMCS's words (Unpaid, Paid…), lang/*\/invoices.php. */
     public static function statusLabel(?string $status): string
     {
         $key = 'invoices.statuses.' . $status;

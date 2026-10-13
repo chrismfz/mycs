@@ -251,6 +251,8 @@ context του συγγραφέα), οκτώ ευρήματα, όλα επιβε
 - **Ετικέτες σαν του WHMCS:** οι οθόνες γράφουν Unpaid / Paid / Cancelled / Refunded / Draft (στα ελληνικά Απλήρωτο,
   Εξοφλημένο, Ακυρωμένο, Επιστράφηκε, Πρόχειρο). Από το 2026-10-13 η βάση γράφει κι αυτή `unpaid` (μετονομασία από το `pending` του Paymenter, migration
   `rename_invoice_status_pending_to_unpaid`)· άγνωστο status τιμολογίου το απορρίπτει το `InvoiceObserver`.
+  Στο deploy κώδικας και δεδομένα αλλάζουν μαζί: `migrate` μέσα σε `artisan down`, με τον cron σε παύση και
+  `queue:restart` (αλλιώς ο cron δεν βλέπει τα ανοιχτά `pending` ως ανοιχτά και ξαναχρεώνει).
 - **Έλεγχος:** το `paid_balance` κοιτά και τα refunded, και το `cancelled_holds_money` κοιτά ακυρωμένα και refunded
   που κρατούν χρήματα (π.χ. όσα ακυρώθηκαν πριν το 2c, ή ήρθαν από το WHMCS).
 - **Από τα reviews (code + adversarial):**

@@ -140,7 +140,7 @@ class InvoiceObserver
      */
     private static function refuseUnknownStatus(Invoice $invoice): void
     {
-        // Not set on create: the column default (unpaid) fills it.
+        // Not set on create: the column default (draft) fills it.
         $status = $invoice->getAttributes()['status'] ?? null;
         if ($status !== null && !in_array($status, Invoice::STATUSES, true)) {
             throw new \LogicException("Unknown invoice status «{$status}»: one of " . implode(', ', Invoice::STATUSES) . '.');

@@ -302,7 +302,7 @@ class BillingCursorAdversarialTest extends TestCase
         $service = $this->service(['status' => 'pending', 'expires_at' => null]);
         $invoice = $this->invoiceFor($service, null, null);
         $this->pay($invoice);
-        // admin flips it back to pending and it gets paid again
+        // admin flips it back to unpaid and it gets paid again
         $invoice->fresh()->update(['status' => 'unpaid']);
         $invoice->fresh()->update(['status' => 'paid']);
 

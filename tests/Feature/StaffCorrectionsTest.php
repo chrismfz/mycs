@@ -109,7 +109,7 @@ class StaffCorrectionsTest extends TestCase
         $zero->update(['status' => Invoice::STATUS_PAID]);
         $this->assertSame(Invoice::STATUS_PAID, $zero->fresh()->status);
 
-        // Paid, then set back to pending by staff (Mark Unpaid): its payment covers it, so it can be paid again.
+        // Paid, then set back to unpaid by staff (Mark Unpaid): its payment covers it, so it can be paid again.
         $paid = $this->invoice();
         ExtensionHelper::addPayment($paid->id, 'Stripe', 100.00, null, 'pi_paid', currency: 'USD');
         $paid->fresh()->update(['status' => Invoice::STATUS_UNPAID]);
