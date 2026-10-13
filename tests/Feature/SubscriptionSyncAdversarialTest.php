@@ -228,7 +228,8 @@ class SubscriptionSyncAdversarialTest extends TestCase
         $values = Http::recorded()->map(fn ($pair) => collect($pair[0]['embeds'][0]['fields'])->pluck('value')->all())->flatten()->all();
         $this->assertContains('active -> cancelled', $values);
         // The new value is the raw attribute as set (12.0 -> "12"): cosmetic, and the same as before the PR.
-        $this->assertContains('10.00 -> 12', $values);
+        // The old value is raw too: "10.00" on MariaDB, "10" on SQLite (no decimal type).
+        $this->assertNotEmpty(preg_grep('/^10(\.00)? -> 12$/', $values), implode(', ', $values));
     }
 
     public function test_holds_stripe_expires_at_sync_with_pre_basil_response_shape(): void
