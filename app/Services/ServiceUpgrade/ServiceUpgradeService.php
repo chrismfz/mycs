@@ -3,6 +3,7 @@
 namespace App\Services\ServiceUpgrade;
 
 use App\Jobs\Server\UpgradeJob;
+use App\Models\ConfigOptionProduct;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use Illuminate\Support\Facades\DB;
@@ -10,8 +11,7 @@ use Illuminate\Support\Facades\DB;
 class ServiceUpgradeService
 {
     /**
-     * Handle the uploaded extension file.
-     * The added file is always a zip file.
+     * Apply a paid upgrade: the new product/plan, the options it changed, the new recurring amount, the server.
      */
     public function handle(ServiceUpgrade $serviceUpgrade): void
     {
@@ -25,6 +25,7 @@ class ServiceUpgradeService
                 $serviceUpgrade->service->product->increment('stock', $serviceUpgrade->service->quantity);
             }
 
+            $productChanged = (int) $service->product_id !== (int) $serviceUpgrade->product_id;
             $service->plan_id = $serviceUpgrade->plan_id;
             $service->product_id = $serviceUpgrade->product_id;
             $service->save();
@@ -36,13 +37,19 @@ class ServiceUpgradeService
                 $service->product->decrement('stock', $service->quantity);
             }
 
-            // Update service configurations - remove old configs and add new ones
-            $newConfigOptionIds = $serviceUpgrade->configs->pluck('config_option_id')->toArray();
-
-            // Delete configs that are no longer applicable
-            $service->configs()
-                ->whereNotIn('config_option_id', $newConfigOptionIds)
-                ->delete();
+            // The service keeps every option the (new) product still has: the upgrade only offers the upgradable ones,
+            // and deleting the rest (OS, location, extra IPs, hidden ones staff set) dropped their price from the
+            // recurring amount and their values from provisioning (audit sweep SVC-3). On a product change, options the
+            // new product does not have go; on the same product nothing goes, also an option staff unlinked since (an
+            // imported WHMCS option): an upgrade never lowers the recurring amount by the back door. The upgrade's own
+            // options are kept too (an upgrade made by staff or the API may carry one the product no longer links).
+            if ($productChanged) {
+                $keep = ConfigOptionProduct::query()->where('product_id', $service->product_id)->pluck('config_option_id')
+                    ->merge($serviceUpgrade->configs->pluck('config_option_id'))->unique()->all();
+                $service->configs()
+                    ->whereNotIn('config_option_id', $keep)
+                    ->delete();
+            }
 
             // Update or create new configs
             foreach ($serviceUpgrade->configs as $config) {
