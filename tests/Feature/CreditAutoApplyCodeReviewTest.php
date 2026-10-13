@@ -45,7 +45,7 @@ class CreditAutoApplyCodeReviewTest extends TestCase
 
     private function invoice(float $price, string $due, ?Service $service = null, ?string $start = null, ?string $end = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_PENDING,
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID,
             'currency_code' => 'USD', 'due_at' => now()->modify($due)]);
         $invoice->items()->create(array_filter(['description' => 'Line', 'quantity' => 1, 'price' => $price,
             'reference_type' => $service ? Service::class : null, 'reference_id' => $service?->id,

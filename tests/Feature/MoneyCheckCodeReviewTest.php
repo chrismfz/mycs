@@ -37,7 +37,7 @@ class MoneyCheckCodeReviewTest extends TestCase
         $this->user = User::factory()->create();
     }
 
-    private function invoice(float $price = 10, string $status = Invoice::STATUS_PENDING): Invoice
+    private function invoice(float $price = 10, string $status = Invoice::STATUS_UNPAID): Invoice
     {
         $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status, 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => $price]);

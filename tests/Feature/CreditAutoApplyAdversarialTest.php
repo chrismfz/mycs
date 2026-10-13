@@ -63,7 +63,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
 
     private function invoice(float $price = 100, string $due = '+7 days', ?string $reference = null, ?int $referenceId = null, ?User $user = null, string $currency = 'USD'): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => ($user ?? $this->user)->id, 'status' => Invoice::STATUS_PENDING, 'currency_code' => $currency, 'due_at' => now()->modify($due)]);
+        $invoice = Invoice::factory()->create(['user_id' => ($user ?? $this->user)->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => $currency, 'due_at' => now()->modify($due)]);
         $invoice->items()->create(array_filter(['description' => 'Line', 'quantity' => 1, 'price' => $price,
             'reference_type' => $reference, 'reference_id' => $referenceId], fn ($value) => $value !== null));
 
@@ -116,7 +116,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
             if (!config('settings.credits_enabled') || !config('settings.credits_auto_use', true)) {
                 $why[] = 'settings off';
             }
-            if ($invoice->status !== Invoice::STATUS_PENDING) {
+            if ($invoice->status !== Invoice::STATUS_UNPAID) {
                 $why[] = 'status ' . $invoice->status;
             }
             if (!(bool) User::query()->whereKey($invoice->user_id)->value('credit_auto_apply')) {
@@ -194,7 +194,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
         $this->artisan('app:cron-job')->assertExitCode(0);
 
         $invoice = Invoice::query()->where('user_id', $this->user->id)->sole();
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->status);
         $this->assertSame(6.0, $invoice->remaining);
         $this->assertSame($expires, $service->fresh()->expires_at->toDateString());
         $this->assertSame(1, $this->creditAppliedNotes());
@@ -237,7 +237,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
 
         (new CreditAutoApply)->sweep();
 
-        $this->assertSame(Invoice::STATUS_PENDING, $broken->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $broken->fresh()->status);
         $this->assertSame(1000, $this->balanceCents(), 'the failed payment rolled back');
         $this->assertSame(Invoice::STATUS_PAID, $fine->fresh()->status);
         $this->assertJournalHolds();
@@ -608,7 +608,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
 
         (new RecordPaymentService)->deleteTransaction($transaction);
 
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
         $this->assertSame(10000, $this->balanceCents());
         $this->assertJournalHolds();
     }
@@ -741,7 +741,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
                 if ($this->balanceCents($user, $currency) <= 0) {
                     continue;
                 }
-                $open = Invoice::query()->where('user_id', $user->id)->where('currency_code', $currency)->where('status', Invoice::STATUS_PENDING)->get()
+                $open = Invoice::query()->where('user_id', $user->id)->where('currency_code', $currency)->where('status', Invoice::STATUS_UNPAID)->get()
                     ->filter(fn (Invoice $invoice) => $invoice->remaining > 0 && CreditAutoApply::eligible($invoice));
                 $this->assertSame([], $open->pluck('id')->all(), "credit left unused for user {$user->id} {$currency}\n" . implode("\n", array_slice($log, -12)));
             }

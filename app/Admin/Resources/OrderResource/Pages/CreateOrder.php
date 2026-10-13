@@ -17,7 +17,7 @@ class CreateOrder extends CreateRecord
             'user_id' => $this->record->user_id,
             'currency_code' => $this->record->currency_code,
             'due_at' => now()->addDays(7),
-            'status' => config('settings.immutable_invoices_enabled', false) ? Invoice::STATUS_DRAFT : Invoice::STATUS_PENDING,
+            'status' => config('settings.immutable_invoices_enabled', false) ? Invoice::STATUS_DRAFT : Invoice::STATUS_UNPAID,
         ]);
         $invoice->save();
 

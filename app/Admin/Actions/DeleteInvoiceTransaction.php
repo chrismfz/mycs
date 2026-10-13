@@ -20,7 +20,7 @@ class DeleteInvoiceTransaction
     /** Immutable invoices: transactions change only while the invoice is pending. */
     public static function allowed(?Invoice $invoice): bool
     {
-        return !config('settings.immutable_invoices_enabled') || $invoice?->status === Invoice::STATUS_PENDING;
+        return !config('settings.immutable_invoices_enabled') || $invoice?->status === Invoice::STATUS_UNPAID;
     }
 
     /** The confirmation a single deletion asks for when the credit this payment gave is already spent (MT-1c). */

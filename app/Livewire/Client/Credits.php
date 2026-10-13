@@ -94,7 +94,7 @@ class Credits extends Component
             }
 
             // Check if the user has any unpaid invoice items referencing credits
-            $unpaidInvoiceItems = Auth::user()->invoices()->where('status', Invoice::STATUS_PENDING)->whereHas('items', function ($query) {
+            $unpaidInvoiceItems = Auth::user()->invoices()->where('status', Invoice::STATUS_UNPAID)->whereHas('items', function ($query) {
                 $query->where('reference_type', Credit::class);
             })->exists();
 
@@ -106,7 +106,7 @@ class Credits extends Component
                 'user_id' => Auth::id(),
                 'currency_code' => $this->currency,
                 'due_at' => now(),
-                'status' => Invoice::STATUS_PENDING,
+                'status' => Invoice::STATUS_UNPAID,
             ]);
 
             $invoice->items()->create([

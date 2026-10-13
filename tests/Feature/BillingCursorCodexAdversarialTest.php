@@ -77,10 +77,10 @@ class BillingCursorCodexAdversarialTest extends TestCase
         ], $attributes));
     }
 
-    private function invoiceFor(Service $service, ?string $start, ?string $end, string $status = 'pending', float $price = 10.00): Invoice
+    private function invoiceFor(Service $service, ?string $start, ?string $end, string $status = 'unpaid', float $price = 10.00): Invoice
     {
         // Due when its period starts, as the cron's renewal invoices (suspension needs an overdue invoice, BIL-5).
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_PENDING : $status, 'currency_code' => 'USD', 'due_at' => $start ?? now()]);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD', 'due_at' => $start ?? now()]);
         $invoice->items()->create([
             'reference_id' => $service->id,
             'reference_type' => Service::class,
@@ -107,7 +107,7 @@ class BillingCursorCodexAdversarialTest extends TestCase
 
     private function payPending(Service $service): Invoice
     {
-        $invoice = $service->invoices()->where('invoices.status', 'pending')->orderByDesc('invoices.id')->firstOrFail();
+        $invoice = $service->invoices()->where('invoices.status', 'unpaid')->orderByDesc('invoices.id')->firstOrFail();
         $this->pay($invoice);
 
         return $invoice;
@@ -235,7 +235,7 @@ class BillingCursorCodexAdversarialTest extends TestCase
         $this->pay($paid);
         $this->cronOn('2026-10-12 10:00:00');
         $this->assertSame('suspended', $service->fresh()->status);
-        $paid->fresh()->update(['status' => 'pending']);
+        $paid->fresh()->update(['status' => 'unpaid']);
         $paid->fresh()->update(['status' => 'paid']);
         $this->assertSame('suspended', $service->fresh()->status);
         $this->assertSame('2026-10-08', $this->expires($service));
@@ -246,7 +246,7 @@ class BillingCursorCodexAdversarialTest extends TestCase
         $service = $this->service(['expires_at' => '2026-10-08']);
         $this->cronOn('2026-10-12 10:00:00');
         $this->assertSame('suspended', $service->fresh()->status);
-        $gap = $service->invoices()->where('invoices.status', 'pending')->sole();
+        $gap = $service->invoices()->where('invoices.status', 'unpaid')->sole();
         $ahead = $this->invoiceFor($service, '2026-11-08', '2026-12-08');
         $this->pay($ahead);
         $this->assertSame('suspended', $service->fresh()->status);
@@ -359,7 +359,7 @@ class BillingCursorCodexAdversarialTest extends TestCase
         $service->forceFill(['coupon_started_at' => '2026-10-12'])->saveQuietly();
         $this->invoiceFor($service, '2026-10-12', '2026-11-12', 'paid', 5);
         $target = $this->product(20);
-        $upgradeInvoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $upgradeInvoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $upgrade = ServiceUpgrade::create(['service_id' => $service->id, 'plan_id' => $target->plan->id, 'product_id' => $target->product->id, 'status' => 'pending', 'invoice_id' => $upgradeInvoice->id]);
         $upgradeInvoice->items()->create(['reference_id' => $upgrade->id, 'reference_type' => ServiceUpgrade::class, 'description' => 'Upgrade', 'quantity' => 1, 'price' => 1]);
         $this->pay($upgradeInvoice->fresh());
@@ -394,7 +394,7 @@ class BillingCursorCodexAdversarialTest extends TestCase
         $future = $this->invoiceFor($service, '2026-10-20', '2026-11-20');
         $this->pay($future);
         $target = $this->product(20);
-        $upgradeInvoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $upgradeInvoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $upgrade = ServiceUpgrade::create(['service_id' => $service->id, 'plan_id' => $target->plan->id, 'product_id' => $target->product->id, 'status' => 'pending', 'invoice_id' => $upgradeInvoice->id]);
         $upgradeInvoice->items()->create(['reference_id' => $upgrade->id, 'reference_type' => ServiceUpgrade::class, 'description' => 'Upgrade', 'quantity' => 1, 'price' => 1]);
         $this->pay($upgradeInvoice->fresh());

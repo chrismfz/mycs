@@ -66,7 +66,7 @@ class UpgradeLifecycleReReviewTest extends TestCase
         Service::updating(function (Service $changed) use ($service, &$late) {
             if ($late === null && $changed->id === $service->id && $changed->status === Service::STATUS_CANCELLED) {
                 // billRenewal committed just before the listener got the lock (after it read $open)
-                $late = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'pending', 'currency_code' => 'USD', 'due_at' => '2026-11-15']);
+                $late = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-11-15']);
                 $late->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal',
                     'quantity' => 1, 'price' => 10, 'period_start' => '2026-11-15', 'period_end' => '2026-12-15']);
             }
@@ -84,7 +84,7 @@ class UpgradeLifecycleReReviewTest extends TestCase
     {
         $service = $this->service();
         $target = $this->createProduct(['stock' => 5]);
-        $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'pending', 'currency_code' => 'USD', 'due_at' => '2026-10-20']);
+        $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-20']);
         $upgrade = ServiceUpgrade::query()->create(['service_id' => $service->id, 'plan_id' => $target->plan->id, 'product_id' => $target->product->id,
             'invoice_id' => $invoice->id]);
         $invoice->items()->create(['reference_type' => ServiceUpgrade::class, 'reference_id' => $upgrade->id, 'description' => 'Upgrade', 'quantity' => 1, 'price' => 5]);
@@ -115,7 +115,7 @@ class UpgradeLifecycleReReviewTest extends TestCase
     {
         $service = $this->service(['status' => 'cancelled']);
         $target = $this->createProduct(['stock' => 5]);
-        $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'pending', 'currency_code' => 'USD', 'due_at' => '2026-10-20']);
+        $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-20']);
         $upgrade = ServiceUpgrade::query()->create(['service_id' => $service->id, 'plan_id' => $target->plan->id, 'product_id' => $target->product->id,
             'invoice_id' => $invoice->id]);
         $invoice->items()->create(['reference_type' => ServiceUpgrade::class, 'reference_id' => $upgrade->id, 'description' => 'Upgrade', 'quantity' => 1, 'price' => 5]);

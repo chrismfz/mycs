@@ -33,7 +33,7 @@ class InvoiceTransactionCreatedListener
                 return;
             }
             $invoice = (new RecordPaymentService)->lockInvoice($invoiceId);
-            if (!in_array($invoice->status, [Invoice::STATUS_PENDING, Invoice::STATUS_DRAFT], true)) {
+            if (!in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true)) {
                 return;
             }
             $remaining = RecordPaymentService::toCents($invoice->withLockedBalance()->remaining);

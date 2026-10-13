@@ -50,7 +50,7 @@ class CronOverlapAndOrderCancelTest extends TestCase
         ]);
         $invoice = null;
         if ($withInvoice) {
-            $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'pending', 'currency_code' => 'USD', 'due_at' => '2026-10-01']);
+            $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-01']);
             $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Order', 'quantity' => 1, 'price' => 10]);
         }
 
@@ -93,7 +93,7 @@ class CronOverlapAndOrderCancelTest extends TestCase
         $this->artisan('app:cron-job')->assertExitCode(0);
 
         $this->assertSame(Service::STATUS_PENDING, $partly->fresh()->status, 'part paid');
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
         $this->assertSame(Service::STATUS_PENDING, $processing->fresh()->status, 'a payment on its way');
     }
 

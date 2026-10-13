@@ -53,7 +53,7 @@ class CodexReopenPaymentRaceReviewTest extends TestCase
             'user_id' => $user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'expires_at' => '2026-10-15', 'currency_code' => 'USD', 'price' => 10.00,
         ]);
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Renewal',
             'quantity' => 1, 'price' => 10.00, 'period_start' => '2026-10-15', 'period_end' => '2026-11-15',
@@ -65,14 +65,14 @@ class CodexReopenPaymentRaceReviewTest extends TestCase
             function (string $dir) use ($invoice) {
                 $paused = false;
                 DB::listen(function ($query) use (&$paused, $dir) {
-                    if (!$paused && str_starts_with($query->sql, 'update `invoices`') && in_array('pending', $query->bindings, true)) {
+                    if (!$paused && str_starts_with($query->sql, 'update `invoices`') && in_array('unpaid', $query->bindings, true)) {
                         $paused = true;
                         touch("$dir/reopen-updated");
                         $this->waitFor("$dir/payment-started");
                         usleep(300000); // the payment is now running (or waiting for the reopening's locks)
                     }
                 });
-                Invoice::query()->findOrFail($invoice->id)->update(['status' => 'pending']);
+                Invoice::query()->findOrFail($invoice->id)->update(['status' => 'unpaid']);
             },
             // B: the customer's payment, right after the UPDATE.
             function (string $dir) use ($invoice) {

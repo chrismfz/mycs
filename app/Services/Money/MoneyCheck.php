@@ -120,7 +120,7 @@ final class MoneyCheck
         Invoice::query()->whereIn('status', Invoice::OPEN_STATUSES)
             ->where(fn ($query) => $query
                 ->whereHas('transactions', fn ($query) => $query->where('status', InvoiceTransactionStatus::Succeeded->value))
-                ->orWhere(fn ($query) => $query->where('status', Invoice::STATUS_PENDING)->whereHas('items')))
+                ->orWhere(fn ($query) => $query->where('status', Invoice::STATUS_UNPAID)->whereHas('items')))
             ->with(['items', 'adjustmentNotes', 'transactions'])
             ->chunkById(500, function ($invoices) {
                 foreach ($invoices as $invoice) {

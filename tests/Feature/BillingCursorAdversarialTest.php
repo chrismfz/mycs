@@ -59,9 +59,9 @@ class BillingCursorAdversarialTest extends TestCase
     }
 
     /** @param array<int, array{0: ?string, 1: ?string}> $periods */
-    private function invoiceWith(Service $service, array $periods, string $status = 'pending'): Invoice
+    private function invoiceWith(Service $service, array $periods, string $status = 'unpaid'): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_PENDING : $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
         foreach ($periods as [$start, $end]) {
             $invoice->items()->create([
                 'reference_id' => $service->id,
@@ -83,7 +83,7 @@ class BillingCursorAdversarialTest extends TestCase
         return $invoice->fresh();
     }
 
-    private function invoiceFor(Service $service, ?string $start, ?string $end, string $status = 'pending'): Invoice
+    private function invoiceFor(Service $service, ?string $start, ?string $end, string $status = 'unpaid'): Invoice
     {
         return $this->invoiceWith($service, [[$start, $end]], $status);
     }
@@ -102,7 +102,7 @@ class BillingCursorAdversarialTest extends TestCase
     {
         return InvoiceItem::query()
             ->where('reference_type', Service::class)->where('reference_id', $service->id)
-            ->whereHas('invoice', fn ($q) => $q->where('status', 'pending'))
+            ->whereHas('invoice', fn ($q) => $q->where('status', 'unpaid'))
             ->get();
     }
 
@@ -208,7 +208,7 @@ class BillingCursorAdversarialTest extends TestCase
 
         Carbon::setTestNow('2026-11-08 10:00:00');
         $this->artisan('app:cron-job')->assertExitCode(0);
-        $this->pay($service->invoices()->where('status', 'pending')->sole());
+        $this->pay($service->invoices()->where('status', 'unpaid')->sole());
 
         $service->refresh();
         $this->assertSame('active', $service->status, 'customer paid the only open invoice, still suspended');
@@ -260,7 +260,7 @@ class BillingCursorAdversarialTest extends TestCase
         $first = $service->invoices()->sole();
         $first->update(['status' => 'cancelled']);
         $this->artisan('app:cron-job')->assertExitCode(0);
-        $second = $service->invoices()->where('status', 'pending')->sole();
+        $second = $service->invoices()->where('status', 'unpaid')->sole();
 
         $this->pay($second);
         $this->pay($first->fresh()); // late gateway callback on the cancelled one
@@ -277,7 +277,7 @@ class BillingCursorAdversarialTest extends TestCase
 
         Carbon::setTestNow('2027-02-25 10:00:00');
         $this->artisan('app:cron-job')->assertExitCode(0);
-        $feb = $service->invoices()->where('status', 'pending')->sole();
+        $feb = $service->invoices()->where('status', 'unpaid')->sole();
         $this->assertSame('2027-03-31', $feb->items()->sole()->period_end->toDateString());
         $this->pay($feb);
         $this->assertSame('2027-03-31', $this->expires($service));
@@ -302,8 +302,8 @@ class BillingCursorAdversarialTest extends TestCase
         $service = $this->service(['status' => 'pending', 'expires_at' => null]);
         $invoice = $this->invoiceFor($service, null, null);
         $this->pay($invoice);
-        // admin flips it back to pending and it gets paid again
-        $invoice->fresh()->update(['status' => 'pending']);
+        // admin flips it back to unpaid and it gets paid again
+        $invoice->fresh()->update(['status' => 'unpaid']);
         $invoice->fresh()->update(['status' => 'paid']);
 
         $this->assertSame('2026-11-12', $this->expires($service));

@@ -73,9 +73,9 @@ class BillingCursorReview5Test extends TestCase
         ], $attributes));
     }
 
-    private function invoiceFor(Service $service, ?string $start, ?string $end, string $status = 'pending', float $price = 10.00): Invoice
+    private function invoiceFor(Service $service, ?string $start, ?string $end, string $status = 'unpaid', float $price = 10.00): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_PENDING : $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id,
             'reference_type' => Service::class,
@@ -126,7 +126,7 @@ class BillingCursorReview5Test extends TestCase
         $this->pay($invoice);
         $this->assertNotNull($invoice->items()->sole()->applied_at);
         $service->fresh()->update(['expires_at' => '2026-10-20', 'status' => 'suspended']);
-        $invoice->fresh()->update(['status' => 'pending']);
+        $invoice->fresh()->update(['status' => 'unpaid']);
         $invoice->fresh()->update(['status' => 'paid']);
         $this->assertSame(['2026-10-20', 'suspended'], [$this->expires($service), $service->fresh()->status]);
     }
@@ -137,10 +137,10 @@ class BillingCursorReview5Test extends TestCase
         $future = $this->invoiceFor($service, '2026-11-01', '2026-12-01');
         $this->pay($future);
         $this->artisan('app:cron-job')->assertExitCode(0);
-        $open = $service->invoices()->where('status', 'pending')->sole();
+        $open = $service->invoices()->where('status', 'unpaid')->sole();
         $this->assertSame('5.48', (string) $open->items()->sole()->price);
         $target = $this->product(20);
-        $upgradeInvoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $upgradeInvoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $upgrade = ServiceUpgrade::create(['service_id' => $service->id, 'plan_id' => $target->plan->id, 'product_id' => $target->product->id, 'status' => 'pending', 'invoice_id' => $upgradeInvoice->id]);
         $upgradeInvoice->items()->create(['reference_id' => $upgrade->id, 'reference_type' => ServiceUpgrade::class, 'description' => 'Monthly product upgrade', 'quantity' => 1, 'price' => 1]);
         $this->pay($upgradeInvoice->fresh());
@@ -154,12 +154,12 @@ class BillingCursorReview5Test extends TestCase
         $service = $this->service(['created_at' => '2026-10-12', 'expires_at' => '2026-11-12', 'price' => 0, 'coupon_id' => $this->coupon(100, 2)->id]);
         $this->cronOn('2026-11-08 10:00:00');
         $this->cronOn('2026-12-08 10:00:00');
-        $this->pay($service->invoices()->where('status', 'pending')->sole());
+        $this->pay($service->invoices()->where('status', 'unpaid')->sole());
         $service->fresh()->update(['price' => 7]);
         $this->cronOn('2027-01-08 10:00:00');
-        $this->pay($service->invoices()->where('status', 'pending')->sole());
+        $this->pay($service->invoices()->where('status', 'unpaid')->sole());
         $this->cronOn('2027-02-08 10:00:00');
-        $this->assertSame('7.00', (string) $service->invoices()->where('status', 'pending')->sole()->items()->sole()->price);
+        $this->assertSame('7.00', (string) $service->invoices()->where('status', 'unpaid')->sole()->items()->sole()->price);
     }
 
     public function test_coupon_expires_even_if_staff_moves_due_date_past_expiry_cycle(): void
@@ -168,7 +168,7 @@ class BillingCursorReview5Test extends TestCase
         $this->invoiceFor($service, '2026-08-15', '2026-09-15', 'paid', 5);
         $service->update(['expires_at' => '2026-11-15']);
         $this->cronOn('2026-11-12 10:00:00');
-        $this->assertSame('10.00', (string) $service->invoices()->where('status', 'pending')->sole()->items()->sole()->price);
+        $this->assertSame('10.00', (string) $service->invoices()->where('status', 'unpaid')->sole()->items()->sole()->price);
     }
 
     public function test_periodless_payment_does_not_overlap_a_paid_future_period(): void
@@ -214,13 +214,13 @@ class BillingCursorReview5Test extends TestCase
         $this->assertSame('10.00', (string) $line->price);
         $this->assertSame('2026-10-15', $this->expires($service));
         $this->artisan('app:cron-job')->assertExitCode(0);
-        $gap = $service->invoices()->where('status', 'pending')->sole();
+        $gap = $service->invoices()->where('status', 'unpaid')->sole();
         $this->assertSame('5.48', (string) $gap->items()->sole()->price);
         $this->pay($gap);
         $this->assertSame('2027-01-01', $this->expires($service));
         // A replay of the earlier waiting payment does not undo staff's subsequent correction.
         $service->fresh()->update(['expires_at' => '2026-12-15', 'status' => 'suspended']);
-        $manual->fresh()->update(['status' => 'pending']);
+        $manual->fresh()->update(['status' => 'unpaid']);
         $manual->fresh()->update(['status' => 'paid']);
         $this->assertSame('2026-12-15', $this->expires($service));
         $this->assertSame('suspended', $service->fresh()->status);
@@ -234,11 +234,11 @@ class BillingCursorReview5Test extends TestCase
         $this->cronOn('2026-12-08 10:00:00');
         $this->assertNotNull($service->fresh()->coupon_expired_at);
         $this->assertSame('10.00', $service->fresh()->calculatePrice());
-        $invoice = $service->invoices()->where('status', 'pending')->sole();
+        $invoice = $service->invoices()->where('status', 'unpaid')->sole();
         $invoice->update(['status' => 'cancelled']);
         $service->fresh()->update(['price' => 7]);
         $this->cronOn('2026-12-08 11:00:00');
-        $this->assertSame('7.00', (string) $service->invoices()->where('status', 'pending')->sole()->items()->sole()->price);
+        $this->assertSame('7.00', (string) $service->invoices()->where('status', 'unpaid')->sole()->items()->sole()->price);
     }
 
     public function test_yearly_plan_change_prices_a_clipped_line_proportionally(): void

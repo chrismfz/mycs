@@ -233,7 +233,7 @@ class Upgrade extends Component
 
             $invoice = new Invoice([
                 'currency_code' => $service->currency_code,
-                'status' => Invoice::STATUS_PENDING,
+                'status' => Invoice::STATUS_UNPAID,
                 'due_at' => Carbon::now()->addDays(7),
                 'user_id' => $service->user_id,
             ]);

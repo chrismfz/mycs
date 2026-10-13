@@ -82,7 +82,7 @@ class PayPalApiErrorsAdversarialTest extends TestCase
 
     private function invoice(?Service $service = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(array_filter([
             'description' => 'Hosting', 'quantity' => 1, 'price' => 20.00,
             'reference_type' => $service ? Service::class : null, 'reference_id' => $service?->id,

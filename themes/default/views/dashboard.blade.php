@@ -71,7 +71,7 @@
                         <h2 class="text-xl font-semibold">{{ __('dashboard.unpaid_invoices') }}</h2>
                     </div>
                     <span class="bg-primary flex items-center justify-center font-semibold rounded-md size-5 text-sm text-white">
-                        {{ Auth::user()->invoices()->where('status', 'pending')->count() }}
+                        {{ Auth::user()->invoices()->where('status', 'unpaid')->count() }}
                     </span>
                 </div>
                 <div class="space-y-4">

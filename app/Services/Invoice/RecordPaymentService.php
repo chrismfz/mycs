@@ -223,7 +223,7 @@ class RecordPaymentService
 
         return DB::transaction(function () use ($invoiceId, $onlyIfCovers, $eligible, $upToCents) {
             $invoice = $this->lockInvoice($invoiceId);
-            if (!in_array($invoice->status, [Invoice::STATUS_PENDING, Invoice::STATUS_DRAFT], true)) {
+            if (!in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true)) {
                 return null;
             }
             // The caller's own rule (CreditAutoApply's exclusions), read under the same locks as the payment.
@@ -259,7 +259,7 @@ class RecordPaymentService
             $sourceInvoice = $source === null ? null : Invoice::query()->whereKey($source->invoice_id)->first();
             if ($source === null || $sourceInvoice === null || $source->status !== InvoiceTransactionStatus::Succeeded
                 || $sourceInvoice->user_id !== $invoice->user_id || $sourceInvoice->currency_code !== $invoice->currency_code
-                || !in_array($invoice->status, [Invoice::STATUS_PENDING, Invoice::STATUS_DRAFT], true)) {
+                || !in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true)) {
                 return null;
             }
 
@@ -288,7 +288,7 @@ class RecordPaymentService
      * Staff recording a payment by hand, as in WHMCS (docs/money-trail.md MT-1c): «Mark Paid» (what is left) and «Add
      * Payment» (any part), through handle() like any payment. The invoice becomes paid only when the payment covers
      * it; its status is never set on its own. On a cancelled invoice the payment would only become credit: with
-     * $reopen staff confirm reopening it (pending, its cancellation note voided) and the payment lands on it, both in
+     * $reopen staff confirm reopening it (unpaid, its cancellation note voided) and the payment lands on it, both in
      * one transaction.
      *
      * $upToRemaining («Mark Paid»): more than what is left is refused, read under the locks. A double submit or two
@@ -310,7 +310,7 @@ class RecordPaymentService
                 if (!$reopen) {
                     throw new DisplayException(__('This invoice is cancelled: reopen it to record the payment on it.'));
                 }
-                $locked->status = Invoice::STATUS_PENDING;
+                $locked->status = Invoice::STATUS_UNPAID;
                 $locked->save();
             }
             $remaining = self::toCents($locked->withLockedBalance()->remaining);
@@ -433,7 +433,7 @@ class RecordPaymentService
             // stay renewed, as in WHMCS: staff decide (docs/money-trail.md §1, 2c).
             $invoice->refresh();
             if ($invoice->status === Invoice::STATUS_PAID && self::toCents($invoice->withLockedBalance()->remaining) > 0) {
-                $invoice->status = Invoice::STATUS_PENDING;
+                $invoice->status = Invoice::STATUS_UNPAID;
                 $invoice->save();
             }
         });
@@ -456,7 +456,7 @@ class RecordPaymentService
 
         return DB::transaction(function () use ($id, $withoutCredit) {
             $locked = $this->lockInvoice($id);
-            if ($locked->status !== Invoice::STATUS_PENDING) {
+            if ($locked->status !== Invoice::STATUS_UNPAID) {
                 return false;
             }
             $locked->withLockedBalance();
@@ -610,7 +610,7 @@ class RecordPaymentService
     /** The part of a payment the invoice cannot take: all of it unless pending/draft, else what exceeds the balance. */
     private function excessCents(Invoice $invoice, int $cents): int
     {
-        if (!in_array($invoice->status, [Invoice::STATUS_PENDING, Invoice::STATUS_DRAFT], true)) {
+        if (!in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true)) {
             return $cents;
         }
 

@@ -37,7 +37,7 @@ class Show extends Component
 
     public function mount()
     {
-        if (Request::has('checkPayment') && $this->invoice->status === 'pending') {
+        if (Request::has('checkPayment') && $this->invoice->status === Invoice::STATUS_UNPAID) {
             $this->checkPayment = true;
         }
         if ($this->invoice->transactions()->where('status', InvoiceTransactionStatus::Processing)->exists()) {
@@ -47,7 +47,7 @@ class Show extends Component
         // Load relations
         $this->invoice->load('transactions', 'transactions.gateway', 'transactions.invoice', 'adjustmentNotes');
 
-        if ($this->showPayModal && $this->invoice->status !== 'pending') {
+        if ($this->showPayModal && $this->invoice->status !== Invoice::STATUS_UNPAID) {
             $this->showPayModal = false;
         }
     }
@@ -85,14 +85,14 @@ class Show extends Component
 
     public function updatedShowPayModal($value)
     {
-        if ($value && $this->invoice->status !== 'pending') {
+        if ($value && $this->invoice->status !== Invoice::STATUS_UNPAID) {
             $this->showPayModal = false;
         }
     }
 
     public function processPayment()
     {
-        if ($this->invoice->status !== 'pending') {
+        if ($this->invoice->status !== Invoice::STATUS_UNPAID) {
             return $this->notify(__('This invoice cannot be paid.'), 'error');
         }
 

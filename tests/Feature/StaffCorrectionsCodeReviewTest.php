@@ -42,9 +42,9 @@ class StaffCorrectionsCodeReviewTest extends TestCase
         Gateway::query()->firstOrCreate(['extension' => 'Stripe'], ['name' => 'Stripe', 'type' => 'gateway']);
     }
 
-    private function invoice(float $price = 100, string $status = Invoice::STATUS_PENDING): Invoice
+    private function invoice(float $price = 100, string $status = Invoice::STATUS_UNPAID): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_PENDING : $status, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => $price]);
 
         // A paid fixture (a period paid in the past): stored paid, its lines added while it was open (MT-1c: a paid
@@ -84,7 +84,7 @@ class StaffCorrectionsCodeReviewTest extends TestCase
             ->call('save');
 
         $this->assertSame(1, InvoiceTransaction::query()->count());
-        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status, 'Saving the edit page after Mark Paid set the paid invoice back to pending.');
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status, 'Saving the edit page after Mark Paid set the paid invoice back to unpaid.');
     }
 
     /**

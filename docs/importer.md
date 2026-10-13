@@ -39,21 +39,22 @@
 - **Ό,τι άλλο βγάλει η απογραφή χρήσης του WHMCS** (`whmcs-usage.md`): mass pay/merge, πιστώσεις, promotions και εκπτώσεις ομάδων, κανόνες ΦΠΑ/VIES, custom fields, suspend overrides, guest tickets.
 
 ## Status τιμολογίων (2026-10-13)
-Το WHMCS και το MyCS λένε τα ίδια με άλλες λέξεις. Στη βάση του MyCS το «Unpaid» είναι `pending` (λέξη του Paymenter)·
-οι οθόνες γράφουν «Unpaid» / «Απλήρωτο» (`Invoice::statusLabel`). Αντιστοίχιση για τον importer:
+Το MyCS λέει ό,τι και το WHMCS, στη βάση και στις οθόνες: το «Unpaid» είναι `unpaid` (μέχρι 2026-10-13 ήταν `pending`,
+λέξη του Paymenter· το migration `rename_invoice_status_pending_to_unpaid` μετέτρεψε τα παλιά). Οι οθόνες γράφουν
+«Unpaid» / «Απλήρωτο» (`Invoice::statusLabel`). Status εκτός `Invoice::STATUSES` απορρίπτεται από το `InvoiceObserver`.
+Αντιστοίχιση για τον importer:
 
 | WHMCS | MyCS |
 |---|---|
 | Draft | `draft` |
-| Unpaid, Payment Pending | `pending` (το «Payment Pending» είναι συναλλαγή `processing`, όχι status τιμολογίου) |
+| Unpaid, Payment Pending | `unpaid` (το «Payment Pending» είναι συναλλαγή `processing`, όχι status τιμολογίου) |
 | Paid | `paid` |
 | Cancelled | `cancelled` |
 | Refunded | `refunded` (PR 2c) |
-| Collections | να αποφασιστεί (δεν χρησιμοποιείται σήμερα· πρόταση: `pending` με σημείωση) |
+| Collections | να αποφασιστεί (δεν χρησιμοποιείται σήμερα· πρόταση: `unpaid` με σημείωση) |
 
-Ο importer του Paymenter (`ImportFromWhmcs.php`) γράφει `unpaid`, status που δεν υπάρχει στο MyCS: τα απλήρωτα θα
-χάνονταν από τις λίστες, τις πληρωμές και τον cron (adversarial review του 2b). Δεν χρησιμοποιείται· ο νέος importer
-ακολουθεί τον πίνακα.
+Ο importer του Paymenter (`ImportFromWhmcs.php`) γράφει πλέον τις λέξεις του πίνακα για τα τιμολόγια. Δεν
+χρησιμοποιείται· ο νέος importer ακολουθεί τον πίνακα. Οι υπηρεσίες (Terminated ≠ Cancelled) ακολουθούν σε ξεχωριστό PR.
 
 ## Έλεγχος
 - Κάθε αριθμός της λίστας parity βγαίνει **και από τις δύο πλευρές** με μία εντολή (π.χ. `mycs:parity --whmcs-copy=…`)

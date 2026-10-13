@@ -17,7 +17,7 @@ class InvoicePaymentProcessingTest extends TestCase
     private function createInvoiceWithItem($total = 100.00)
     {
         $user = User::factory()->create();
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'pending']);
+        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid']);
 
         $invoice->items()->create([
             'description' => 'Test Item',
@@ -52,7 +52,7 @@ class InvoicePaymentProcessingTest extends TestCase
         $user = User::factory()->create();
         $invoice = Invoice::factory()->create([
             'user_id' => $user->id,
-            'status' => Invoice::STATUS_PENDING,
+            'status' => Invoice::STATUS_UNPAID,
         ]);
 
         $this->assertSame($user->name, $invoice->fresh()->snapshot->name);
@@ -146,7 +146,7 @@ class InvoicePaymentProcessingTest extends TestCase
 
         $invoice->refresh();
 
-        $this->assertEquals('pending', $invoice->status);
+        $this->assertEquals('unpaid', $invoice->status);
         $this->assertEquals(40.00, $invoice->remaining);
     }
 
@@ -173,7 +173,7 @@ class InvoicePaymentProcessingTest extends TestCase
         $service = Service::factory()->create(['status' => 'pending', 'user_id' => $user->id, 'product_id' => $product->product->id, 'plan_id' => $product->plan->id]);
         $invoice = Invoice::factory()->create([
             'user_id' => $service->user_id,
-            'status' => 'pending',
+            'status' => 'unpaid',
             'due_at' => now()->addDays(7),
             'currency_code' => $service->currency_code,
         ]);

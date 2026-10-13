@@ -26,7 +26,7 @@ class AdjustmentNoteObserver
     private static function refuseStaffNoteOnPaidInvoice(AdjustmentNote $note): void
     {
         if ($note->isVoidableByStaff() && in_array(Invoice::query()->whereKey($note->invoice_id)->value('status'), Invoice::FROZEN_STATUSES, true)) {
-            throw new DisplayException(__('A paid invoice keeps its total: set it back to pending (unpaid) to change its adjustment notes.'));
+            throw new DisplayException(__('A paid invoice keeps its total: set it back to unpaid to change its adjustment notes.'));
         }
     }
 

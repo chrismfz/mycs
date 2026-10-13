@@ -43,7 +43,7 @@ class InvoiceItemController extends ApiController
     /**
      * Create a new invoice item
      *
-     * @response 422 {"message": "A paid invoice keeps its lines: set it back to pending (unpaid) first."}
+     * @response 422 {"message": "A paid invoice keeps its lines: set it back to unpaid first."}
      */
     public function store(CreateInvoiceItemRequest $request)
     {
@@ -70,7 +70,7 @@ class InvoiceItemController extends ApiController
     /**
      * Update a specific invoice item
      *
-     * @response 422 {"message": "A paid invoice keeps its lines: set it back to pending (unpaid) first."}
+     * @response 422 {"message": "A paid invoice keeps its lines: set it back to unpaid first."}
      */
     public function update(UpdateInvoiceItemRequest $request, InvoiceItem $invoiceItem)
     {
@@ -84,7 +84,7 @@ class InvoiceItemController extends ApiController
     /**
      * Delete a specific invoice item
      *
-     * @response 422 {"message": "A paid invoice keeps its lines: set it back to pending (unpaid) first."}
+     * @response 422 {"message": "A paid invoice keeps its lines: set it back to unpaid first."}
      */
     public function destroy(DeleteInvoiceItemRequest $request, InvoiceItem $invoiceItem)
     {

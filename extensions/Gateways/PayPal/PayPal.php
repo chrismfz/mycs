@@ -416,7 +416,7 @@ class PayPal extends Gateway
     {
         $services = Service::where('subscription_id', $resource['billing_agreement_id'])->orderBy('id')->get();
         $targets = $services
-            ->map(fn (Service $service) => $service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)
+            ->map(fn (Service $service) => $service->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)
                 ->orderBy('invoices.created_at')->orderBy('invoices.id')->first())
             ->filter()->unique('id')->values();
         // No open invoice at all: the sale goes to the first service's latest invoice and becomes credit.

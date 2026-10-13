@@ -60,7 +60,7 @@ class SettingsTaxRateAdversarialTest extends TestCase
             'user_id' => $fresh->id,
             'currency_code' => 'USD',
             'due_at' => now()->addDays(7),
-            'status' => Invoice::STATUS_PENDING,
+            'status' => Invoice::STATUS_UNPAID,
         ]);
 
         $this->assertEquals(19, (float) $invoice->fresh()->snapshot->tax_rate, 'snapshot keeps the old country\'s VAT');
@@ -152,7 +152,7 @@ class SettingsTaxRateAdversarialTest extends TestCase
         $expected = [];
         foreach (['GR', 'DE', 'GR', 'DE'] as $c) {
             $u = $this->customer($c);
-            $inv = Invoice::create(['user_id' => $u->id, 'currency_code' => 'USD', 'due_at' => now(), 'status' => Invoice::STATUS_PENDING]);
+            $inv = Invoice::create(['user_id' => $u->id, 'currency_code' => 'USD', 'due_at' => now(), 'status' => Invoice::STATUS_UNPAID]);
             $expected[$inv->id] = $c === 'GR' ? 24.0 : 19.0;
             unset($u, $inv);
         }

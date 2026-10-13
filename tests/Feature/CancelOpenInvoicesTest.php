@@ -61,7 +61,7 @@ class CancelOpenInvoicesTest extends TestCase
     /** @param  array<int, Service|float>  $lines  a service's renewal line, or a line with no reference (its price) */
     private function invoice(array $lines, ?string $periodStart = null, ?string $periodEnd = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         foreach ($lines as $line) {
             $invoice->items()->create($line instanceof Service
                 ? ['reference_type' => Service::class, 'reference_id' => $line->id, 'description' => 'Renewal', 'quantity' => 1,
@@ -119,7 +119,7 @@ class CancelOpenInvoicesTest extends TestCase
         $this->request($a);
 
         $invoice->refresh();
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->status);
         $this->assertSame([$b->id], $this->servicesBilled($invoice));
         $this->assertEqualsWithDelta(10.0, $invoice->total, 0.001);
         $this->assertSame(0, $invoice->adjustmentNotes()->count());
@@ -163,7 +163,7 @@ class CancelOpenInvoicesTest extends TestCase
 
         $this->request($a);
 
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
         $this->assertEqualsWithDelta(6.0, $invoice->fresh()->remaining, 0.001);
         $this->assertEqualsWithDelta(0.0, $this->credit(), 0.001);
         $this->assertSame(0, MoneyEvent::query()->where('cause', MoneyTrail::CAUSE_CANCELLATION)->count());
@@ -180,7 +180,7 @@ class CancelOpenInvoicesTest extends TestCase
 
         $this->assertStringContainsString('lines that belong to neither', $left["invoice_cancelled #{$invoice->id}"]->getMessage());
         $this->assertSame(3, $invoice->items()->count());
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
     }
 
     public function test_an_imported_promotion_goes_with_the_hosting_it_names(): void
@@ -218,7 +218,7 @@ class CancelOpenInvoicesTest extends TestCase
         $this->artisan('app:cron-job')->assertExitCode(0);
 
         $this->assertSame(Service::STATUS_CANCELLED, $a->fresh()->status);
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
         $this->assertSame([$b->id], $this->servicesBilled($invoice));
     }
 
@@ -235,7 +235,7 @@ class CancelOpenInvoicesTest extends TestCase
         $this->artisan('app:cron-job')->assertExitCode(0);
 
         $this->assertSame(Service::STATUS_ACTIVE, $a->fresh()->status);
-        $this->assertTrue($a->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->exists(), 'its period is billed again');
+        $this->assertTrue($a->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->exists(), 'its period is billed again');
     }
 
     public function test_paying_the_rest_does_not_renew_the_service_taken_off(): void
@@ -262,7 +262,7 @@ class CancelOpenInvoicesTest extends TestCase
         CancelOpenInvoices::handle([$invoice], 'Cancelled.', $a);
         CancelOpenInvoices::handle([$invoice], 'Cancelled.', $a);
 
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
         $this->assertSame([$b->id], $this->servicesBilled($invoice));
     }
 
@@ -289,7 +289,7 @@ class CancelOpenInvoicesTest extends TestCase
         $left = CancelOpenInvoices::handle([$paid, $processing], 'Cancelled.');
 
         $this->assertSame(["invoice_cancelled #{$paid->id}"], array_keys($left));
-        $this->assertSame(Invoice::STATUS_PENDING, $paid->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $paid->fresh()->status);
         $this->assertSame(Invoice::STATUS_CANCELLED, $processing->fresh()->status);
     }
 

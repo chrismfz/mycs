@@ -86,7 +86,7 @@ class CreditLedgerAdversarialTest extends TestCase
 
     private function invoiceFor(User $user, int $cents, string $currency = 'USD', bool $creditPurchase = false): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'pending', 'currency_code' => $currency]);
+        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => $currency]);
         $invoice->items()->create(array_filter([
             'reference_type' => $creditPurchase ? Credit::class : null,
             'description' => $creditPurchase ? 'Deposit' : 'Hosting',
@@ -292,7 +292,7 @@ class CreditLedgerAdversarialTest extends TestCase
                         "C5 the check changed balances that matched. {$op}");
                 } else {
                     $op = "cancel #{$invoiceId}: not open";
-                    if (in_array($invoice->status, ['pending', 'draft'], true)) {
+                    if (in_array($invoice->status, ['unpaid', 'draft'], true)) {
                         $invoice->update(['status' => 'cancelled']);
                         $op = "cancel #{$invoiceId}";
                     }
@@ -546,7 +546,7 @@ class CreditLedgerAdversarialTest extends TestCase
             'plan_id' => $product->plan->id, 'status' => 'active', 'price' => 33.33, 'currency_code' => 'USD']);
         AffiliateOrder::query()->create(['order_id' => $order->id, 'affiliate_id' => $affiliate->id]);
         // Stored paid, its line added while it was open (MT-1c: never created paid, a paid invoice keeps its lines).
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 33.33, 'reference_type' => Service::class, 'reference_id' => $service->id]);
         DB::table('invoices')->where('id', $invoice->id)->update(['status' => 'paid']);
 

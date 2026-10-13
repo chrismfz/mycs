@@ -29,7 +29,7 @@ class CloseInvoiceAsPaid
             ->visible(function (Invoice $record): bool {
                 $fresh = $record->fresh(['items', 'transactions', 'adjustmentNotes']);
 
-                return $fresh !== null && $fresh->status === Invoice::STATUS_PENDING && RecordPaymentService::settleRefusal($fresh) === null;
+                return $fresh !== null && $fresh->status === Invoice::STATUS_UNPAID && RecordPaymentService::settleRefusal($fresh) === null;
             })
             // It can move money to credit: the permission «Add Payment» needs too, not only the invoice's.
             ->authorize(function (Invoice $record): bool {
@@ -58,7 +58,7 @@ class CloseInvoiceAsPaid
                 if (!$closed) {
                     $fresh = $record->fresh(['items', 'transactions', 'adjustmentNotes']);
                     Notification::make()->danger()->title(__('Invoice not closed'))
-                        ->body($fresh === null || $fresh->status !== Invoice::STATUS_PENDING ? __('Its status changed meanwhile: reload it.')
+                        ->body($fresh === null || $fresh->status !== Invoice::STATUS_UNPAID ? __('Its status changed meanwhile: reload it.')
                             : (RecordPaymentService::settleRefusal($fresh) ?? __('Its status changed meanwhile: reload it.')))->send();
 
                     throw new Halt;
