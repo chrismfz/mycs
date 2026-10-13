@@ -166,7 +166,7 @@ final class MoneyCheck
     }
 
     /**
-     * A paid invoice that renews a cancelled service: the payment bought nothing (a cancelled service is never revived)
+     * A paid invoice that renews an ended service (cancelled or terminated): the payment bought nothing (never revived)
      * and its money stays on the invoice. Staff refund it or move it to credit. Only money MyCS took (a payment event
      * that is not an import) and still on it: an imported paid invoice, applied before MyCS kept applied_at, is history.
      */
@@ -174,7 +174,7 @@ final class MoneyCheck
     {
         Invoice::query()->where('status', Invoice::STATUS_PAID)
             ->whereHas('items', fn ($query) => $query->where('reference_type', Service::class)->whereNull('applied_at')
-                ->whereIn('reference_id', Service::query()->where('status', Service::STATUS_CANCELLED)->select('id')))
+                ->whereIn('reference_id', Service::query()->whereIn('status', Service::ENDED_STATUSES)->select('id')))
             ->whereHas('transactions', fn ($query) => $query->where('status', InvoiceTransactionStatus::Succeeded->value)
                 ->whereExists(self::liveEventsOf(MoneyEventKind::Payment)->where('source', '!=', MoneyTrail::SOURCE_IMPORT)))
             ->with('transactions')
@@ -202,7 +202,7 @@ final class MoneyCheck
     }
 
     /**
-     * An open invoice that bills nothing but cancelled services: a cancellation that stopped before its invoices, or
+     * An open invoice that bills nothing but ended services (cancelled or terminated): a cancellation that stopped before its invoices, or
      * one left open for staff (gateway money on it) and not yet handled.
      */
     private function openForCancelled(): void
@@ -211,9 +211,9 @@ final class MoneyCheck
             ->whereHas('items', fn ($query) => $query->where('reference_type', Service::class))
             ->whereDoesntHave('items', fn ($query) => $query->where(fn ($line) => $line->whereNull('reference_type')
                 ->orWhere('reference_type', '!=', Service::class)->orWhereNotIn('reference_id',
-                    Service::query()->where('status', Service::STATUS_CANCELLED)->select('id'))))
+                    Service::query()->whereIn('status', Service::ENDED_STATUSES)->select('id'))))
             ->orderBy('id')->pluck('id')
-            ->each(fn ($id) => $this->add('open_for_cancelled', "invoice #{$id}", 'open, and every service it bills is cancelled'));
+            ->each(fn ($id) => $this->add('open_for_cancelled', "invoice #{$id}", 'open, and every service it bills has ended (cancelled or terminated)'));
     }
 
     /** Every credit balance is what the journal adds up to. */

@@ -174,7 +174,7 @@ class CronJob extends Command
                                 return 0;
                             }
                             $this->cancelOrderInvoices($service);
-                            $service->update(['status' => 'cancelled']);
+                            $service->update(['status' => Service::STATUS_CANCELLED]);
                             if ($service->product?->stock !== null) {
                                 $service->product->increment('stock', $service->quantity);
                             }
@@ -280,7 +280,7 @@ class CronJob extends Command
                                 return 0;
                             }
                             TerminateJob::dispatch($service)->afterCommit();
-                            $service->update(['status' => 'cancelled']);
+                            $service->update(['status' => Service::STATUS_TERMINATED]); // as WHMCS: not cancelled, the customer did not ask
                             // Only its own lines: an invoice imported from WHMCS bills every service due that day.
                             // Upgrades first: service, upgrade, then invoices (the order ServiceUpgradeService takes).
                             $this->leftOpen(CancelPendingUpgrades::forService($service, __('invoices.cancellation_reasons.service_terminated')));

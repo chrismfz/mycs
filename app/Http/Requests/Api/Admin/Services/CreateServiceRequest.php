@@ -33,7 +33,7 @@ class CreateServiceRequest extends AdminApiRequest
             /**
              * @default pending
              */
-            'status' => 'required|in:pending,active,cancelled,suspended',
+            'status' => 'required|in:pending,active,suspended,terminated,cancelled',
             'expires_at' => 'nullable|date|after_or_equal:today',
             'suspend_hold_until' => 'nullable|date|after_or_equal:today',
             /**

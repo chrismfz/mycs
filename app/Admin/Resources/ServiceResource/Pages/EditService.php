@@ -48,7 +48,7 @@ class EditService extends EditRecord
         return [
             DeleteAction::make()
                 ->form(function (DeleteAction $action) use ($record) {
-                    $status = !in_array($record->status, [Service::STATUS_PENDING, Service::STATUS_CANCELLED]) && $record->product->server_id !== null;
+                    $status = !in_array($record->status, [Service::STATUS_PENDING, ...Service::ENDED_STATUSES], true) && $record->product->server_id !== null;
                     if (!$status) {
                         return [];
                     }
@@ -119,6 +119,7 @@ class EditService extends EditRecord
                                 break;
                             case 'terminate':
                                 $sdata = ExtensionHelper::terminateServer($record);
+                                $record->markTerminated(); // only once the server is gone (it threw otherwise)
                                 break;
                             case 'upgrade':
                                 $sdata = ExtensionHelper::upgradeServer($record);

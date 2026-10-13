@@ -854,7 +854,7 @@ class ImportFromWhmcs extends Command
                     'status' => match ($record['domainstatus']) {
                         'Active' => 'active',
                         'Suspended' => 'suspended',
-                        'Terminated' => 'cancelled',
+                        'Terminated' => 'terminated',
                         'Cancelled' => 'cancelled',
                         'Fraud' => 'cancelled',
                         'Pending' => 'pending',

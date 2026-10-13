@@ -58,7 +58,7 @@ class Stripe extends Gateway
                 }
             }
             // Check if the service is canceled (by this save, and still is at commit)
-            if ($event->cancelledBySave()) {
+            if ($event->endedBySave()) {
                 try {
                     $this->cancelSubscription($event->service);
                 } catch (Exception $e) {

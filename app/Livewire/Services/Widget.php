@@ -3,6 +3,7 @@
 namespace App\Livewire\Services;
 
 use App\Livewire\Component;
+use App\Models\Service;
 use Illuminate\Support\Facades\Auth;
 use Livewire\WithPagination;
 
@@ -19,7 +20,7 @@ class Widget extends Component
         if ($this->status) {
             $query->where('status', $this->status);
         } else {
-            $query->where('status', '!=', 'cancelled');
+            $query->whereNotIn('status', Service::ENDED_STATUSES);
         }
 
         return view('services.widget', [

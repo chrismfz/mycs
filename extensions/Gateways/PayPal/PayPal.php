@@ -192,7 +192,7 @@ class PayPal extends Gateway
                     report($e);
                 }
             }
-            if ($event->cancelledBySave()) {
+            if ($event->endedBySave()) {
                 try {
                     $this->cancelSubscription($event->service);
                 } catch (Exception $e) {

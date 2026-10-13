@@ -19,6 +19,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Lang;
 use MyCS\BillingPeriod\BillingPeriod;
 use OwenIt\Auditing\Contracts\Auditable;
 
@@ -41,9 +42,48 @@ class Service extends Model implements Auditable
 
     public const STATUS_ACTIVE = 'active';
 
+    /** Ended because the customer asked (a cancellation request) or an unpaid order was given up on: WHMCS's «Cancelled». */
     public const STATUS_CANCELLED = 'cancelled';
 
     public const STATUS_SUSPENDED = 'suspended';
+
+    /** Ended for non-payment by the cron, or by staff's «Terminate»: WHMCS's «Terminated». */
+    public const STATUS_TERMINATED = 'terminated';
+
+    public const STATUSES = [self::STATUS_PENDING, self::STATUS_ACTIVE, self::STATUS_SUSPENDED, self::STATUS_TERMINATED, self::STATUS_CANCELLED];
+
+    /** Over, whichever way it ended: never billed, renewed or revived. */
+    public const ENDED_STATUSES = [self::STATUS_CANCELLED, self::STATUS_TERMINATED];
+
+    /** What staff and customers read for a status: WHMCS's words, lang/*\/services.php. */
+    public static function statusLabel(?string $status): string
+    {
+        $key = 'services.statuses.' . $status;
+
+        return $status !== null && Lang::has($key) ? __($key) : ucfirst((string) $status);
+    }
+
+    /** @return array<string, string> status => label, for selects and filters */
+    public static function statusOptions(): array
+    {
+        return array_combine(self::STATUSES, array_map(self::statusLabel(...), self::STATUSES));
+    }
+
+    /** The badge color of a status in the admin. */
+    public static function statusColor(?string $status): string
+    {
+        return match ($status) {
+            self::STATUS_ACTIVE => 'success',
+            self::STATUS_SUSPENDED => 'warning',
+            self::STATUS_PENDING, self::STATUS_CANCELLED => 'gray',
+            default => 'danger',
+        };
+    }
+
+    public function isEnded(): bool
+    {
+        return in_array($this->status, self::ENDED_STATUSES, true);
+    }
 
     protected $fillable = [
         'order_id',
@@ -347,6 +387,24 @@ class Service extends Model implements Auditable
         });
     }
 
+    /**
+     * Staff's «Terminate» (the server action) succeeded: terminated, as WHMCS's module Terminate. A running service
+     * only; pending and ended ones keep their status. Its open invoices stay for staff (money-check reports them).
+     */
+    public function markTerminated(): void
+    {
+        DB::transaction(function () {
+            $locked = self::query()->whereKey($this->getKey())->lockForUpdate()->firstOrFail();
+            if (!in_array($locked->status, [self::STATUS_ACTIVE, self::STATUS_SUSPENDED], true)) {
+                return;
+            }
+            $locked->status = self::STATUS_TERMINATED;
+            $locked->save();
+            $this->setRawAttributes($locked->getAttributes(), true);
+            $this->unsetRelations();
+        });
+    }
+
     /** Rebuild open renewal periods and prices from the current recurring amount. */
     public function refreshOpenPeriods(): void
     {
@@ -541,7 +599,7 @@ class Service extends Model implements Auditable
     public function cancellable(): Attribute
     {
         return Attribute::make(
-            get: fn () => $this->status !== 'cancelled' && $this->plan !== null && $this->plan->type != 'free' && $this->plan->type != 'one-time' && !$this->cancellation?->exists()
+            get: fn () => !$this->isEnded() && $this->plan !== null && $this->plan->type != 'free' && $this->plan->type != 'one-time' && !$this->cancellation?->exists()
         );
     }
 

@@ -50,7 +50,7 @@
                         </span>
                         @else
                         <span
-                            class="font-semibold @if ($service->status == 'active') text-green-500 @elseif($service->status == 'cancelled') text-red-500  @else text-orange-500 @endif">
+                            class="font-semibold @if ($service->status == 'active') text-green-500 @elseif($service->isEnded()) text-red-500  @else text-orange-500 @endif">
                             {{ __('services.statuses.' . $service->status) }}
                         </span>
                         @endif

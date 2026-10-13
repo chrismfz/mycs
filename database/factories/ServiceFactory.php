@@ -25,6 +25,7 @@ class ServiceFactory extends Factory
                 Service::STATUS_ACTIVE,
                 Service::STATUS_CANCELLED,
                 Service::STATUS_SUSPENDED,
+                Service::STATUS_TERMINATED,
             ]),
         ];
     }

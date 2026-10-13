@@ -41,7 +41,7 @@ class CancellationCreatedListener implements ShouldQueue
                 if (in_array($locked->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true)) {
                     TerminateJob::dispatch($locked)->afterCommit();
                 }
-                $locked->update(['status' => 'cancelled']);
+                $locked->update(['status' => Service::STATUS_CANCELLED]);
                 if ($locked->product?->stock !== null) {
                     $locked->product->increment('stock', $locked->quantity);
                 }
