@@ -169,6 +169,9 @@ class CronJob extends Command
             }, transaction: false);
 
             $this->runCronJob('services_suspended', function ($number = 0) {
+                if (!config('settings.cronjob_suspend_enabled', true)) {
+                    return 0; // Enable Suspension off (as WHMCS)
+                }
                 // Suspend services Suspend Days past their next due date (as WHMCS). With «suspend only with an overdue
                 // invoice» (audit sweep BIL-5, off by default) an open invoice of the service must be overdue too,
                 // and a service past due with no open invoice is reported instead. Never while a payment is on its
@@ -204,6 +207,9 @@ class CronJob extends Command
             }, transaction: false);
 
             $this->runCronJob('services_terminated', function ($number = 0) {
+                if (!config('settings.cronjob_terminate_enabled', true)) {
+                    return 0; // Enable Termination off (as WHMCS)
+                }
                 // Terminate services Termination Days past due (as WHMCS), suspended for non-payment, and suspended at
                 // least «minimum days suspended» ago (1 by default: never on the day of the suspension, audit sweep
                 // BIL-4). One service per transaction (BIL-10), the rule read again under its lock.
@@ -233,10 +239,14 @@ class CronJob extends Command
             }, transaction: false);
 
             $this->runCronJob('tickets_closed', function ($number = 0) {
-                // Close tickets if no response for x days
-                Ticket::where('status', 'replied')->each(function ($ticket) use (&$number) {
+                // Close tickets with no response for x days (0 disables, as WHMCS)
+                $days = (int) config('settings.cronjob_close_ticket', 5);
+                if ($days <= 0) {
+                    return 0;
+                }
+                Ticket::where('status', 'replied')->each(function ($ticket) use (&$number, $days) {
                     $lastMessage = $ticket->messages()->latest('created_at')->first();
-                    if ($lastMessage && $lastMessage->created_at < now()->subDays((int) config('settings.cronjob_close_ticket', 7))) {
+                    if ($lastMessage && $lastMessage->created_at < now()->subDays($days)) {
                         $ticket->update(['status' => 'closed']);
                         $number++;
                     }
@@ -301,7 +311,7 @@ class CronJob extends Command
      */
     private function suspendable(bool $overdueInvoice = false): Builder
     {
-        $cutoff = today()->subDays(self::days('cronjob_order_suspend', 2))->toDateString();
+        $cutoff = today()->subDays(self::days('cronjob_order_suspend', 8))->toDateString();
         $query = $this->unheldWithNoPaymentOnItsWay(Service::query()->where('status', Service::STATUS_ACTIVE))
             ->whereDate('expires_at', '<', $cutoff)
             ->whereDoesntHave('plan', fn ($plan) => $plan->whereIn('type', ['free', 'one-time']));
@@ -322,7 +332,7 @@ class CronJob extends Command
     {
         return $this->unheldWithNoPaymentOnItsWay(Service::query()->where('status', Service::STATUS_SUSPENDED))
             ->whereNotNull('dunning_suspended_at')
-            ->whereDate('expires_at', '<', today()->subDays(self::days('cronjob_order_terminate', 14))->toDateString())
+            ->whereDate('expires_at', '<', today()->subDays(self::days('cronjob_order_terminate', 60))->toDateString())
             ->whereDate('dunning_suspended_at', '<=', today()->subDays(self::days('cronjob_terminate_min_suspended_days', 1))->toDateString());
     }
 

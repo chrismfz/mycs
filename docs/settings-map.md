@@ -85,18 +85,40 @@
 | Merge, σημειώσεις staff | 72 / 227 | E |
 | Auto-close | 48 ώρες | E? / P (`cronjob_close_ticket`) |
 
-## Αυτοματισμοί (από `whmcs-usage.md`)
-| WHMCS | myip | nixpal | MyCS |
+## Αυτοματισμοί (Automation Settings)
+Η καρτέλα **Automation** των ρυθμίσεων (key `cronjob`) ακολουθεί τις ενότητες και τη διατύπωση της σελίδας Automation
+Settings του WHMCS. Κάθε εταιρεία έχει τις δικές της τιμές στη βάση του instance της· τα defaults του κώδικα είναι της
+nixpal (pilot). Τιμές από το `tblconfiguration` των δύο WHMCS, 2026-10-13 (read-only).
+
+| WHMCS (`tblconfiguration`) | myip | nixpal | MyCS |
 |---|---|---|---|
-| Τιμολόγιο πριν τη λήξη | 14 default· ανά κύκλο: μήνας 10, τρίμηνο 15, εξάμηνο/έτος 20· domains 15 | 7 | P~ `cronjob_invoice` (μία τιμή) → **Ν: ανά κύκλο** |
-| Auto suspend (Suspend Days, από την ημερομηνία λήξης) | 15 ημέρες | 8 | **P:** `cronjob_order_suspend` (από `expires_at`, όπως WHMCS) |
+| Time of Day (`DailyCronExecutionHour`) | 10 | 09 | **P:** `cronjob_time` (default 09:00) |
+| Enable Suspension (`AutoSuspension`) | on | on | **P:** `cronjob_suspend_enabled` (default on) |
+| Suspend Days (`AutoSuspensionDays`), από την ημερομηνία λήξης | 15 | 8 | **P:** `cronjob_order_suspend` (default 8) |
 | — μόνο με ληξιπρόθεσμο τιμολόγιο | (όχι στο WHMCS) | | **P:** `cronjob_suspend_requires_invoice`, default off· on: τιμολόγιο ληξιπρόθεσμο **και** εκδομένο πριν από Suspend Days, ειδοποίηση staff για «ληγμένη χωρίς τιμολόγιο» (BIL-5) |
-| Auto terminate (Termination Days, από την ημερομηνία λήξης) | 120 ημέρες | 60 | **P:** `cronjob_order_terminate` |
+| Send Suspension Email | on | on | **Ν** (διακόπτης) |
+| Enable Unsuspension (`AutoUnsuspend`) | on | on | P, πάντα on (η ανανέωση με την πληρωμή, `RenewServiceService`)· διακόπτης **Ν** |
+| Enable Termination (`AutoTermination`) | on | on | **P:** `cronjob_terminate_enabled` (default on) |
+| Termination Days (`AutoTerminationDays`), από την ημερομηνία λήξης | 120 | 60 | **P:** `cronjob_order_terminate` (default 60) |
 | — ελάχιστες ημέρες σε αναστολή | (όχι στο WHMCS) | | **P:** `cronjob_terminate_min_suspended_days`, default 1· 0 = ακριβώς WHMCS (BIL-4) |
-| Auto unsuspend μετά την πληρωμή | on | on | P |
-| Υπενθύμιση πριν τη λήξη | 1 ημέρα | 6 | **Ν** (υπενθυμίσεις του Ekdosi) |
-| Ληξιπρόθεσμα | 1/3/5 | 1/2 | **Ν** (υπενθυμίσεις του Ekdosi) |
-| Auto-close tickets | 48 ώρες | — | **P:** `cronjob_close_ticket` (σε ημέρες → Ν: ώρες) |
+| Invoice Generation (`CreateInvoiceDaysBefore`) | 14· ανά κύκλο: μήνας 10, τρίμηνο 15, εξάμηνο/έτος 20· domains 15 | 7 | P~ `cronjob_invoice` (default 7, μία τιμή) → **Ν: ανά κύκλο** |
+| Order Days Grace (`OrderDaysGrace`) | 8 | 0 | **Ν** (προθεσμία πληρωμής του πρώτου τιμολογίου)· το `cronjob_order_cancel` (default 7) ακυρώνει παραγγελίες που δεν πληρώθηκαν ποτέ |
+| Payment Reminder Emails, Invoice Unpaid Reminder | on, 1 | on, 6 | **Ν** (υπενθυμίσεις του Ekdosi)· το παλιό `cronjob_invoice_reminder` δεν το διάβαζε κανείς και αφαιρέθηκε |
+| First/Second/Third Overdue Reminder | 1/3/5 | 1/2/— | **Ν** (υπενθυμίσεις του Ekdosi) |
+| Add Late Fee Days (`AddLateFeeDays`) | 5 (Percentage, ποσό κενό) | 0 | **Ν** (δεν χρησιμοποιείται στην πράξη) |
+| Enable Auto Cancellation (unpaid invoices) | off | off | — |
+| Cancellation Requests (`AutoCancellationRequests`) | on | on | **M** (#61), πάντα on |
+| Credit card capture (Process Days Before, Attempt Only Once, Retry) | 0 / off / 0 | 0 / off / 0 | — (vaults στα gateways) |
+| Close Inactive Tickets (`CloseInactiveTickets`, ώρες) | 48 | 120 | P~ `cronjob_close_ticket` σε **ημέρες** (default 5, 0 = ποτέ) → **Ν: ώρες** |
+| Client Status Update (`AutoClientStatusChange`) | 2 | 2 | **Ν** |
+| Domain Sync (`DomainSyncEnabled`) | on | on | Ν (domains, EPP) |
+| Update Usage Statistics | on | on | — |
+| Email log retention | — | — | **P:** `cronjob_delete_email_logs` (90) |
+
+Στο cut-over ο importer γράφει τις τιμές του WHMCS της εταιρείας στις αντίστοιχες ρυθμίσεις (`docs/importer.md`).
+
+| Άλλο | myip | nixpal | MyCS |
+|---|---|---|---|
 | Αυτόματη εφαρμογή πίστωσης | **off** (`NoAutoApplyCredit`) | on | **P:** `credits_auto_use` |
 | Add funds | on | on (με παραγγελία) | **P:** `credits_enabled`, min/max |
 | Φόρος | 24% exclusive, ένας κανόνας | EU VAT 27 χώρες, VIES, reverse charge | P~ `tax_enabled`, `tax_type` → **Ν** (`whmcs-usage.md`) |

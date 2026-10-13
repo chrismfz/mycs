@@ -18,7 +18,7 @@ class CronOverview extends StatsOverviewWidget
         $lastRun = Setting::where('key', 'last_scheduler_run')->first()?->value;
         $lastCronRun = Setting::where('key', 'last_cron_run')->first()?->value;
 
-        $cronTime = config('settings.cronjob_time', '00:00');
+        $cronTime = config('settings.cronjob_time', '09:00');
         $now = Carbon::now();
         $nextRun = $now->copy()->setTimeFromTimeString($cronTime);
 
