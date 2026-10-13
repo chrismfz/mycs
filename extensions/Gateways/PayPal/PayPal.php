@@ -10,6 +10,7 @@ use App\Events\ServiceCancellation\Created;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\BillingAgreement;
+use App\Models\GatewayRefund;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
@@ -617,7 +618,8 @@ class PayPal extends Gateway
 
         // The same refund (transaction, what was refunded before, amount) keeps the same request id: a retry after
         // a timeout gets PayPal's first answer instead of a second refund.
-        $requestId = 'refund-' . $transaction->id . '-' . RecordPaymentService::toCents($transaction->refunded_amount) . '-' . RecordPaymentService::toCents($amount);
+        // Counted from MyCS's own refunds only: one the webhook recorded meanwhile does not change it (F4 of 2c-2a).
+        $requestId = 'refund-' . $transaction->id . '-' . GatewayRefund::refundedByMycsCents($transaction) . '-' . RecordPaymentService::toCents($amount);
         try {
             $refund = $this->request('post', $url . '/v2/payments/captures/' . $captureId . '/refund', [
                 'amount' => [

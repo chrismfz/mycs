@@ -188,7 +188,7 @@ class GatewayRefundTest extends TestCase
 
         $this->stripeWebhook($this->stripeRefund('re_other', 'pi_not_ours', 500))->assertOk();
 
-        $this->assertSame(0, GatewayRefund::query()->count());
+        $this->assertSame(GatewayRefund::ORIGIN_WAITING, GatewayRefund::query()->sole()->origin, 'kept until its payment, if ever');
         $this->assertSame(['ignored', 'refund_unknown_payment'], [PaymentGatewayEvent::query()->sole()->outcome, PaymentGatewayEvent::query()->sole()->reason]);
     }
 

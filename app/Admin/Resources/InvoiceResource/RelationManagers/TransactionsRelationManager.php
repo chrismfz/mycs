@@ -157,6 +157,8 @@ class TransactionsRelationManager extends RelationManager
                         Radio::make('method')
                             ->label(__('invoices.refund_method'))
                             ->options(fn (InvoiceTransaction $record): array => self::refundMethods($record))
+                            // A refund made in the gateway's dashboard arrives on its own (PR 2c-2): «by hand» is other money.
+                            ->descriptions(['manual' => __('invoices.refund_method_manual_help')])
                             ->default(fn (InvoiceTransaction $record): string => array_key_first(self::refundMethods($record)))
                             ->required(),
                         // WHMCS's «Send Email» on a refund: the customer's «Invoice Refund Confirmation» (PR 2c-2).

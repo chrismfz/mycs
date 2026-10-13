@@ -18,17 +18,22 @@ return new class extends Migration
     {
         Schema::create('gateway_refunds', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('invoice_transaction_id')->constrained()->restrictOnDelete();
+            // Null while it waits for its payment (not recorded here yet).
+            $table->foreignId('invoice_transaction_id')->nullable()->constrained()->restrictOnDelete();
             $table->string('gateway', 50);
             $table->string('reference', 191);
+            $table->string('payment_reference', 191)->nullable();
             $table->decimal('amount', 17, 2);
             $table->string('currency_code', 3);
             // What was recorded on the payment: less than amount when the gateway gave back more than was left on it.
             $table->decimal('recorded_amount', 17, 2);
-            $table->string('origin', 20); // mycs: asked for here; gateway: made in the gateway's dashboard
+            // mycs: asked for here; gateway: made in the gateway's dashboard; hand: the refund staff recorded by hand;
+            // waiting: for a payment not recorded here yet; failed: the gateway reported it failed first.
+            $table->string('origin', 20);
             $table->timestamps();
 
             $table->unique(['gateway', 'reference']);
+            $table->index(['gateway', 'payment_reference']);
         });
 
         DB::table('notification_templates')->insertOrIgnore(

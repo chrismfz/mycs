@@ -10,6 +10,7 @@ use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\BillingAgreement;
 use App\Models\Extension;
+use App\Models\GatewayRefund;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\Service;
@@ -269,7 +270,7 @@ class Stripe extends Gateway
                 if (in_array($refund->status ?? null, ['succeeded', 'pending'], true)) {
                     ExtensionHelper::refundedAtGateway('Stripe', $refund->payment_intent, $refund->id, $refund->amount / 100, $refund->currency ?? null);
                 } elseif (in_array($refund->status ?? null, ['failed', 'canceled'], true)) {
-                    ExtensionHelper::refundFailedAtGateway('Stripe', $refund->id);
+                    ExtensionHelper::refundFailedAtGateway('Stripe', $refund->id, $refund->payment_intent, $refund->amount / 100, $refund->currency ?? null);
                 }
                 break;
             case 'setup_intent.succeeded':
@@ -898,7 +899,8 @@ class Stripe extends Gateway
 
         // The same refund (transaction, what was refunded before, amount) keeps the same key: a retry after a timeout gets
         // Stripe's first answer instead of a second refund (as PayPal's request id).
-        $key = 'refund-' . $transaction->id . '-' . RecordPaymentService::toCents($transaction->refunded_amount) . '-' . RecordPaymentService::toCents($amount);
+        // Counted from MyCS's own refunds only: one the webhook recorded meanwhile does not change it (F4 of 2c-2a).
+        $key = 'refund-' . $transaction->id . '-' . GatewayRefund::refundedByMycsCents($transaction) . '-' . RecordPaymentService::toCents($amount);
         $refund = $this->request('post', '/refunds', $refundData, $key);
 
         return (string) $refund->id;
