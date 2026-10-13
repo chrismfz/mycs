@@ -6,6 +6,7 @@ use App\Events\Service as ServiceEvent;
 use App\Models\Service;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 class ServiceObserver
 {
@@ -75,7 +76,18 @@ class ServiceObserver
 
         // After commit: listeners (Stripe, Discord, ...) call out over the network; they must not run
         // inside a renewal's row lock, nor roll a committed renewal back by failing.
-        DB::afterCommit(fn () => event(new ServiceEvent\Updated($service)));
+        // The changes are captured now: at commit isDirty() is false and a later save has replaced getChanges().
+        $changes = $service->getChanges();
+        $original = array_intersect_key($service->getRawOriginal(), $changes);
+        DB::afterCommit(function () use ($service, $changes, $original) {
+            // The callbacks of one commit run in a row: a listener that throws would skip the other services'
+            // (e.g. their subscription cancellation, cron termination). Reported, never propagated.
+            try {
+                event(new ServiceEvent\Updated($service, $changes, $original));
+            } catch (Throwable $e) {
+                report($e);
+            }
+        });
     }
 
     /**

@@ -14,6 +14,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\Service;
 use App\Models\User;
+use App\Services\Invoice\RecordPaymentService;
 use Carbon\Carbon;
 use Exception;
 use Filament\Notifications\Notification;
@@ -49,14 +50,14 @@ class Stripe extends Gateway
                 // If the service is not a stripe subscription, skip
                 return;
             }
-            if ($event->service->isDirty('price') || $event->service->isDirty('expires_at')) {
+            if ($event->changed('price', 'expires_at')) {
                 try {
-                    $this->updateSubscription($event->service);
+                    $this->updateSubscription($event->service, $event->changes);
                 } catch (Exception $e) {
                 }
             }
-            // Check if the service is canceled
-            if ($event->service->isDirty('status') && $event->service->status === Service::STATUS_CANCELLED) {
+            // Check if the service is canceled (by this save, and still is at commit)
+            if ($event->cancelledBySave()) {
                 try {
                     $this->cancelSubscription($event->service);
                 } catch (Exception $e) {
@@ -409,12 +410,17 @@ class Stripe extends Gateway
         }
     }
 
-    public function updateSubscription(Service $service)
+    /**
+     * @param  array<string, mixed>|null  $changes  what the save changed (Service\Updated::$changes); null = the dirty attributes
+     */
+    public function updateSubscription(Service $service, ?array $changes = null)
     {
+        $changes ??= $service->getDirty();
+
         // Grab the schedule from Stripe
         $scheduleId = $this->request('get', '/subscriptions/' . $service->subscription_id);
 
-        if ($service->isDirty('price')) {
+        if (array_key_exists('price', $changes)) {
             if ($scheduleId->schedule) {
 
                 $oldPhases = $this->request('get', '/subscription_schedules/' . $scheduleId->schedule)->phases;
@@ -445,7 +451,7 @@ class Stripe extends Gateway
                 $key = count($phases) - 1;
                 $phases[$key]['items'][0]->price_data = [
                     'currency' => $service->currency->code,
-                    'unit_amount' => $service->price * 100,
+                    'unit_amount' => $this->recurringAmount($service),
                     'product' => $stripeProduct->id,
                     'recurring' => [
                         'interval' => $service->plan->billing_unit,
@@ -469,7 +475,7 @@ class Stripe extends Gateway
                 $this->request('post', '/subscription_items/' . $item->id, [
                     'price_data' => [
                         'currency' => $service->currency->code,
-                        'unit_amount' => $service->price * 100,
+                        'unit_amount' => $this->recurringAmount($service),
                         'product' => $item->price->product,
                         'recurring' => [
                             'interval' => $service->plan->billing_unit,
@@ -481,8 +487,13 @@ class Stripe extends Gateway
             }
         }
 
-        if ($service->isDirty('expires_at')) {
-            $subDate = Carbon::createFromTimestamp($scheduleId->current_period_end)->startOfDay();
+        if (array_key_exists('expires_at', $changes)) {
+            // API 2025-03-31.basil+ (pinned here) has the period on the item, older versions on the subscription.
+            $periodEnd = $scheduleId->items->data[0]->current_period_end ?? $scheduleId->current_period_end ?? null;
+            if ($periodEnd === null) {
+                throw new Exception('Stripe subscription ' . $service->subscription_id . ' has no current_period_end.');
+            }
+            $subDate = Carbon::createFromTimestamp($periodEnd)->startOfDay();
             // Check if current date is before the end date of the subscription
             if ($subDate == $service->expires_at || $service->expires_at <= $subDate) {
                 return;
@@ -500,7 +511,7 @@ class Stripe extends Gateway
                 $this->request('post', '/subscription_items/' . $item->id, [
                     'price_data' => [
                         'currency' => $service->currency->code,
-                        'unit_amount' => $service->price * 100,
+                        'unit_amount' => $this->recurringAmount($service),
                         'product' => $item->price->product,
                         'recurring' => [
                             'interval' => $service->plan->billing_unit,
@@ -516,6 +527,14 @@ class Stripe extends Gateway
                 'proration_behavior' => 'none',
             ]);
         }
+    }
+
+    /**
+     * What the subscription bills per cycle, in cents: price is per unit (setupSubscription bills price * quantity).
+     */
+    private function recurringAmount(Service $service): int
+    {
+        return RecordPaymentService::toCents($service->price) * max(1, (int) $service->quantity);
     }
 
     public function cancelSubscription(Service $service)
