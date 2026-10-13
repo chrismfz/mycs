@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\PaymentGatewayEventResource;
 use App\Admin\Resources\PaymentGatewayEventResource\Pages\ListPaymentGatewayEvents;
 use App\Helpers\ExtensionHelper;
 use App\Models\EmailLog;
@@ -172,7 +173,7 @@ class GatewayLogTest extends TestCase
     {
         $this->stripe();
         ExtensionHelper::addPayment($this->invoice(100)->id, 'Stripe', 100.00, null, 'pi_direct', currency: 'USD');
-        $this->get('/')->assertSuccessful();
+        $this->getJson('/api/v1/admin/invoices')->assertUnauthorized(); // any other route
 
         $this->assertSame(0, PaymentGatewayEvent::query()->count());
     }
@@ -187,7 +188,7 @@ class GatewayLogTest extends TestCase
         $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
         $this->actingAs($clerk);
-        $this->assertFalse(ListPaymentGatewayEvents::canAccess());
+        $this->assertFalse(PaymentGatewayEventResource::canAccess());
 
         $this->actingAs($owner);
         $this->assertFalse($owner->can('update', $row));
