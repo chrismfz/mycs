@@ -46,7 +46,7 @@ class Stripe extends Gateway
         View::addNamespace('gateways.stripe', __DIR__ . '/resources/views');
 
         Event::listen(Updated::class, function (Updated $event) {
-            if ($event->service->properties->where('key', 'has_stripe_subscription')->first()?->value !== '1' || !$event->service->subscription_id) {
+            if (!$this->ownsSubscription($event->service)) {
                 // If the service is not a stripe subscription, skip
                 return;
             }
@@ -68,7 +68,7 @@ class Stripe extends Gateway
 
         Event::listen(Created::class, function (Created $event) {
             $service = $event->cancellation->service;
-            if ($service->properties->where('key', 'has_stripe_subscription')->first()?->value !== '1' || !$service->subscription_id) {
+            if (!$this->ownsSubscription($service)) {
                 // If the service is not a stripe subscription, skip
                 return;
             }
@@ -537,12 +537,30 @@ class Stripe extends Gateway
         return RecordPaymentService::toCents($service->price) * max(1, (int) $service->quantity);
     }
 
+    /**
+     * A Stripe subscription: the marker, or a Stripe id (sub_...) whose marker was lost (staff-entered, legacy).
+     */
+    private function ownsSubscription(Service $service): bool
+    {
+        return $service->subscription_id
+            && ($service->properties()->where('key', 'has_stripe_subscription')->value('value') === '1'
+                || str_starts_with($service->subscription_id, 'sub_'));
+    }
+
     public function cancelSubscription(Service $service)
     {
-        if (!$service->subscription_id && !$service->properties->where('key', 'has_stripe_subscription')->first()) {
-            return;
+        // Not a Stripe subscription: false lets ExtensionHelper::cancelSubscription try the other gateways.
+        if (!$this->ownsSubscription($service)) {
+            return false;
         }
-        $this->request('delete', '/subscriptions/' . $service->subscription_id);
+        try {
+            $this->request('delete', '/subscriptions/' . $service->subscription_id);
+        } catch (RequestException $e) {
+            // Already gone at Stripe (cancelled or deleted): nothing left to cancel. Anything else is a failure.
+            if ($e->response->status() !== 404 || $e->response->json('error.code') !== 'resource_missing') {
+                throw $e;
+            }
+        }
 
         // Remove subscription id from service
         $service->update(['subscription_id' => null]);

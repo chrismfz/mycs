@@ -535,14 +535,27 @@ class ExtensionHelper
     /**
      * Cancel subscription
      */
+    /**
+     * Asks each gateway in turn; one that fails does not stop the others (the subscription may be another's). True
+     * when one cancelled it; the first failure is rethrown when none did; false when none took it.
+     */
     public static function cancelSubscription(Service $service)
     {
+        $failure = null;
         foreach (Gateway::all() as $gateway) {
             if (self::hasFunction($gateway, 'cancelSubscription')) {
-                if (self::getExtension('gateway', $gateway->extension, $gateway->settings)->cancelSubscription($service)) {
-                    return true;
+                try {
+                    if (self::getExtension('gateway', $gateway->extension, $gateway->settings)->cancelSubscription($service)) {
+                        return true;
+                    }
+                } catch (\Throwable $e) { // an Error too: the subscription may still be another gateway's
+                    $failure ??= $e;
                 }
             }
+        }
+
+        if ($failure !== null) {
+            throw $failure;
         }
 
         return false;

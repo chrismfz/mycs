@@ -251,7 +251,7 @@ class PayPalApiErrorsAdversarialTest extends TestCase
      * ADV-6: staff "Cancel Subscription" (ServiceResource/OrderResource) on a PayPal subscription id without the
      * has_paypal_subscription marker (id typed in by staff, or the marker lost). Before the PR PayPal was asked
      * to cancel; now cancelSubscription returns false without calling PayPal, the action says "could not be
-     * cancelled" and then nulls subscription_id anyway: the id is lost and PayPal keeps billing.
+     * cancelled" and then nulled subscription_id anyway (fixed in #46/#52: the id is kept): the id was lost and PayPal kept billing.
      */
     public function test_staff_cancel_of_a_paypal_subscription_without_the_marker_still_cancels_at_paypal(): void
     {

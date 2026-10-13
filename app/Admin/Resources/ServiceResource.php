@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources;
 
+use App\Admin\Actions\CancelSubscriptionAction;
 use App\Admin\Clusters\Services;
 use App\Admin\Components\UserComponent;
 use App\Admin\Resources\Common\RelationManagers\PropertiesRelationManager;
@@ -10,7 +11,6 @@ use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Admin\Resources\ServiceResource\Pages\ListService;
 use App\Admin\Resources\ServiceResource\RelationManagers\ConfigOptionsRelationManager;
 use App\Admin\Resources\ServiceResource\RelationManagers\InvoicesRelationManager;
-use App\Helpers\ExtensionHelper;
 use App\Models\Currency;
 use App\Models\Product;
 use App\Models\Service;
@@ -167,34 +167,7 @@ class ServiceResource extends Resource
                     ->nullable()
                     ->placeholder('Enter the subscription ID')
                     ->hintAction(
-                        Action::make('Cancel Subscription ID')
-                            ->action(function (Component $component) {
-                                try {
-                                    $cancelled = ExtensionHelper::cancelSubscription($component->getRecord());
-                                } catch (\Throwable $e) {
-                                    report($e);
-                                    $cancelled = false;
-                                }
-                                if (!$cancelled) {
-                                    // The id stays: the gateway may still be billing it, and it is what a retry needs.
-                                    Notification::make('Subscription Not Cancelled')
-                                        ->title('The subscription could not be cancelled')
-                                        ->body(isset($e) ? $e->getMessage() : null)
-                                        ->danger()
-                                        ->send();
-
-                                    return;
-                                }
-                                Notification::make('Subscription Cancelled')
-                                    ->title('The subscription has been successfully cancelled')
-                                    ->success()
-                                    ->send();
-                                // Update the record to remove the subscription ID
-                                $component->getRecord()->update(['subscription_id' => null]);
-                            })
-                            ->requiresConfirmation()
-                            ->label('Cancel Subscription')
-                            ->hidden(fn (Component $component) => !$component->getRecord()?->subscription_id),
+                        CancelSubscriptionAction::make(),
                     ),
             ]);
     }
