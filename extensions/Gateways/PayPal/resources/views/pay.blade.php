@@ -1,4 +1,5 @@
 <div id="paypal-button-container"></div>
+<p id="paypal-result-message" class="mt-2 text-sm text-red-600" role="alert"></p>
 
 @script
     <script>
@@ -52,9 +53,9 @@
                             }
                         } catch (error) {
                             console.error(error);
-                            resultMessage(
-                                `Sorry, your transaction could not be processed...<br><br>${error}`
-                            );
+                            // Text, never HTML: the message can carry PayPal's own error description.
+                            document.getElementById('paypal-result-message').textContent =
+                                `Sorry, your transaction could not be processed. ${error.message ?? error}`;
                         }
                     },
                 }).render("#paypal-button-container")

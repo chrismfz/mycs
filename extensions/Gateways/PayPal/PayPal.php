@@ -7,6 +7,7 @@ use App\Classes\Extension\Gateway;
 use App\Enums\InvoiceTransactionStatus;
 use App\Events\Service\Updated;
 use App\Events\ServiceCancellation\Created;
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\BillingAgreement;
 use App\Models\Invoice;
@@ -16,12 +17,15 @@ use App\Models\Service;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use Exception;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\HtmlString;
+use Illuminate\Support\Str;
 use Throwable;
 
 #[ExtensionMeta(
@@ -70,7 +74,15 @@ class PayPal extends Gateway
     public function cancelBillingAgreement(BillingAgreement $billingAgreement): bool
     {
         $url = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
-        $this->request('delete', $url . '/v3/vault/payment-tokens/' . $billingAgreement->external_reference);
+        try {
+            $this->request('delete', $url . '/v3/vault/payment-tokens/' . $billingAgreement->external_reference);
+        } catch (PayPalApiException $e) {
+            if ($e->status !== 404) { // 404: already deleted at PayPal, nothing left to cancel
+                report($e);
+
+                return false; // kept locally: PayPal still holds the token
+            }
+        }
 
         return true;
     }
@@ -109,23 +121,53 @@ class PayPal extends Gateway
     public function charge(Invoice $invoice, $total, BillingAgreement $billingAgreement)
     {
         $url = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
-        $result = $this->request('post', $url . '/v2/checkout/orders', [
-            'intent' => 'CAPTURE',
-            'purchase_units' => [
-                [
-                    'invoice_id' => $invoice->id,
-                    'amount' => [
-                        'currency_code' => $invoice->currency_code,
-                        'value' => $total,
+        try {
+            $result = $this->request('post', $url . '/v2/checkout/orders', [
+                'intent' => 'CAPTURE',
+                'purchase_units' => [
+                    [
+                        'invoice_id' => $invoice->id,
+                        'amount' => [
+                            'currency_code' => $invoice->currency_code,
+                            'value' => $total,
+                        ],
                     ],
                 ],
-            ],
-            'payment_source' => [
-                'paypal' => [
-                    'vault_id' => $billingAgreement->external_reference,
+                'payment_source' => [
+                    'paypal' => [
+                        'vault_id' => $billingAgreement->external_reference,
+                    ],
                 ],
-            ],
-        ]);
+            ]);
+        } catch (PayPalApiException $e) {
+            report($e);
+
+            throw new DisplayException(__('Could not process payment. Please try again or use a different payment method.'), 0, $e);
+        }
+
+        $capture = $result->purchase_units[0]->payments->captures[0] ?? null;
+        if (($result->status ?? null) !== 'COMPLETED' || !in_array($capture->status ?? null, ['COMPLETED', 'PENDING'], true)) {
+            report(new Exception('PayPal did not capture the payment for invoice #' . $invoice->id . ' (order ' . ($result->status ?? 'unknown') . ', capture ' . ($capture->status ?? 'none') . ').'));
+
+            throw new DisplayException(__('Could not process payment. Please try again or use a different payment method.'));
+        }
+
+        // Recorded now (a PENDING capture as processing, like capture()); the PAYMENT.CAPTURE.COMPLETED webhook
+        // carries the same capture id, so it completes or repeats this idempotently. The money is taken: a
+        // recording failure is reported, not shown as a failed charge (the webhook records it).
+        try {
+            ExtensionHelper::addPayment(
+                $invoice->id,
+                'PayPal',
+                $capture->amount->value,
+                $capture->seller_receivable_breakdown->paypal_fee->value ?? null,
+                $capture->id,
+                $capture->status === 'PENDING' ? InvoiceTransactionStatus::Processing : InvoiceTransactionStatus::Succeeded,
+                currency: $capture->amount->currency_code ?? null,
+            );
+        } catch (Throwable $e) {
+            report($e);
+        }
 
         return true;
     }
@@ -141,16 +183,19 @@ class PayPal extends Gateway
             if ($event->service->properties()->where('key', 'has_paypal_subscription')->value('value') !== '1') {
                 return;
             }
+            // A failure is reported, never thrown: the service change is committed; a failed cancel keeps the marker.
             if ($event->changed('price')) {
                 try {
                     $this->updateSubscription($event->service);
                 } catch (Exception $e) {
+                    report($e);
                 }
             }
             if ($event->cancelledBySave()) {
                 try {
                     $this->cancelSubscription($event->service);
                 } catch (Exception $e) {
+                    report($e);
                 }
             }
         });
@@ -163,7 +208,7 @@ class PayPal extends Gateway
             try {
                 $this->cancelSubscription($service);
             } catch (Exception $e) {
-                // Log the error or handle it as needed
+                report($e);
             }
         });
     }
@@ -210,33 +255,59 @@ class PayPal extends Gateway
         ];
     }
 
-    private function generateAccessToken()
+    private ?string $accessToken = null;
+
+    /**
+     * Cached on the instance; request() drops it on a 401 (a long-lived worker outlives the ~9h token).
+     */
+    private function generateAccessToken(): string
     {
-        return once(function () {
-            $url = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
+        if ($this->accessToken !== null) {
+            return $this->accessToken;
+        }
 
-            $result = Http::withHeaders([
-                'Accept' => 'application/json',
-                'Authorization' => 'Basic ' . base64_encode($this->config('client_id') . ':' . $this->config('client_secret')),
-            ])->asForm()->post($url . '/v1/oauth2/token', [
-                'grant_type' => 'client_credentials',
-            ]);
+        $url = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
 
-            if ($result->failed()) {
-                throw new Exception('Failed to generate access token: ' . $result->body());
-            }
+        $result = Http::withHeaders([
+            'Accept' => 'application/json',
+            'Authorization' => 'Basic ' . base64_encode($this->config('client_id') . ':' . $this->config('client_secret')),
+        ])->asForm()->post($url . '/v1/oauth2/token', [
+            'grant_type' => 'client_credentials',
+        ]);
 
-            return $result->json()['access_token'];
-        });
+        if ($result->failed()) {
+            throw PayPalApiException::fromResponse($result);
+        }
+
+        return $this->accessToken = $result->json()['access_token'];
     }
 
-    public function request($method, $url, $data = [])
+    /**
+     * @param  string|null  $requestId  PayPal-Request-Id: the same id for a retry of the same operation lets PayPal
+     *                                  answer the first result instead of doing it twice (refunds); null = a new one
+     *
+     * @throws PayPalApiException when PayPal does not answer 2xx: an error body must never read as success
+     */
+    public function request($method, $url, $data = [], ?string $requestId = null)
     {
-        return Http::withHeaders([
+        $requestId ??= (string) Str::uuid();
+        $send = fn () => Http::withHeaders([
             'Content-Type' => 'application/json',
             'Authorization' => 'Bearer ' . $this->generateAccessToken(),
-            'PayPal-Request-Id' => uniqid(),
-        ])->$method($url, $data)->object();
+            'PayPal-Request-Id' => $requestId,
+        ])->$method($url, $data);
+
+        $response = $send();
+        if ($response->status() === 401) { // expired token: a new one, same request id
+            $this->accessToken = null;
+            $response = $send();
+        }
+
+        if (!$response->successful()) {
+            throw PayPalApiException::fromResponse($response);
+        }
+
+        return $response->object();
     }
 
     public function pay($invoice, $total)
@@ -273,7 +344,14 @@ class PayPal extends Gateway
         $url = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
 
         // First check if the order is already captured
-        $order = $this->request('get', $url . '/v2/checkout/orders/' . $orderID);
+        try {
+            $order = $this->request('get', $url . '/v2/checkout/orders/' . $orderID);
+        } catch (PayPalApiException $e) {
+            if (!in_array($e->status, [404, 422], true)) {
+                throw $e; // PayPal unavailable or our credentials: not the buyer's request
+            }
+            abort(400, 'PayPal order not found');
+        }
 
         // Verify if the invoice id matches the one from the order
         if (!isset($order->purchase_units[0]->invoice_id) || $order->purchase_units[0]->invoice_id != $invoice->id) {
@@ -293,15 +371,30 @@ class PayPal extends Gateway
             abort(400, 'PayPal order currency does not match invoice currency');
         }
 
-        $response = $this->request('post', $url . '/v2/checkout/orders/' . $orderID . '/capture', [
-            'intent' => 'CAPTURE',
-        ]);
+        try {
+            $response = $this->request('post', $url . '/v2/checkout/orders/' . $orderID . '/capture', [
+                'intent' => 'CAPTURE',
+            ]);
+        } catch (PayPalApiException $e) {
+            // PayPal's error as the JS SDK reads it: INSTRUMENT_DECLINED lets the buyer pick another funding source.
+            return response()->json($e->toClientArray(), 422);
+        }
 
-        if (($response->status ?? null) !== 'COMPLETED' || !isset($response->purchase_units[0]->payments->captures[0])) {
+        $capture = $response->purchase_units[0]->payments->captures[0] ?? null;
+        if (($response->status ?? null) !== 'COMPLETED' || !in_array($capture->status ?? null, ['COMPLETED', 'PENDING'], true)) {
             abort(400, 'Failed to capture PayPal order');
         }
 
-        ExtensionHelper::addPayment($order->purchase_units[0]->invoice_id, 'PayPal', $response->purchase_units[0]->payments->captures[0]->amount->value, $response->purchase_units[0]->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value, $response->purchase_units[0]->payments->captures[0]->id, currency: $response->purchase_units[0]->payments->captures[0]->amount->currency_code ?? null);
+        // A PENDING capture (review, eCheck, unheld currency) is not money yet: processing until PAYMENT.CAPTURE.COMPLETED.
+        ExtensionHelper::addPayment(
+            $order->purchase_units[0]->invoice_id,
+            'PayPal',
+            $capture->amount->value,
+            $capture->seller_receivable_breakdown->paypal_fee->value ?? null,
+            $capture->id,
+            $capture->status === 'PENDING' ? InvoiceTransactionStatus::Processing : InvoiceTransactionStatus::Succeeded,
+            currency: $capture->amount->currency_code ?? null,
+        );
 
         return $response;
     }
@@ -366,15 +459,22 @@ class PayPal extends Gateway
     public function webhook(Request $request)
     {
         $body = $request->getContent();
-        $verification = $this->request('post', ($this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com') . '/v1/notifications/verify-webhook-signature', [
-            'auth_algo' => $request->header('PAYPAL-AUTH-ALGO'),
-            'cert_url' => $request->header('PAYPAL-CERT-URL'),
-            'transmission_id' => $request->header('PAYPAL-TRANSMISSION-ID'),
-            'transmission_sig' => $request->header('PAYPAL-TRANSMISSION-SIG'),
-            'transmission_time' => $request->header('PAYPAL-TRANSMISSION-TIME'),
-            'webhook_id' => $this->config('webhook_id'),
-            'webhook_event' => json_decode($body, true),
-        ]);
+        try {
+            $verification = $this->request('post', ($this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com') . '/v1/notifications/verify-webhook-signature', [
+                'auth_algo' => $request->header('PAYPAL-AUTH-ALGO'),
+                'cert_url' => $request->header('PAYPAL-CERT-URL'),
+                'transmission_id' => $request->header('PAYPAL-TRANSMISSION-ID'),
+                'transmission_sig' => $request->header('PAYPAL-TRANSMISSION-SIG'),
+                'transmission_time' => $request->header('PAYPAL-TRANSMISSION-TIME'),
+                'webhook_id' => $this->config('webhook_id'),
+                'webhook_event' => json_decode($body, true),
+            ]);
+        } catch (PayPalApiException $e) {
+            if ($e->status >= 500) {
+                throw $e; // PayPal unavailable: a 500 here makes PayPal retry the webhook
+            }
+            $verification = null;
+        }
 
         if (($verification->verification_status ?? null) !== 'SUCCESS') {
             return response()->json(['status' => 'error'], 400);
@@ -406,13 +506,23 @@ class PayPal extends Gateway
             }
         } elseif ($body['event_type'] === 'PAYMENT.CAPTURE.COMPLETED' && isset($body['resource']['supplementary_data']['related_ids']['order_id'])) {
             $orderID = $body['resource']['supplementary_data']['related_ids']['order_id'];
-            $order = $this->request('get', ($this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com') . '/v2/checkout/orders/' . $orderID);
+            try {
+                $order = $this->request('get', ($this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com') . '/v2/checkout/orders/' . $orderID);
+            } catch (PayPalApiException $e) {
+                if ($e->status >= 500) {
+                    throw $e; // PayPal unavailable: retried
+                }
+                // An order this app cannot read (another app on the same account, a deleted order): retrying never helps.
+                Log::warning('PayPal capture webhook for an order this app cannot read', ['order_id' => $orderID, 'error' => $e->getMessage()]);
+
+                return response()->json(['status' => 'ignored']);
+            }
 
             if (isset($order->purchase_units[0]->invoice_id)) {
                 // Verify that the currency is the same as the invoice
                 $invoice = Invoice::find($order->purchase_units[0]->invoice_id);
                 if ($invoice && $invoice->currency_code === $order->purchase_units[0]->payments->captures[0]->amount->currency_code) {
-                    ExtensionHelper::addPayment($order->purchase_units[0]->invoice_id, 'PayPal', $order->purchase_units[0]->payments->captures[0]->amount->value, $order->purchase_units[0]->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value, $body['resource']['id'], currency: $order->purchase_units[0]->payments->captures[0]->amount->currency_code);
+                    ExtensionHelper::addPayment($order->purchase_units[0]->invoice_id, 'PayPal', $order->purchase_units[0]->payments->captures[0]->amount->value, $order->purchase_units[0]->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value ?? null, $body['resource']['id'], currency: $order->purchase_units[0]->payments->captures[0]->amount->currency_code);
                 }
             }
         }
@@ -448,11 +558,24 @@ class PayPal extends Gateway
 
     public function cancelSubscription(Service $service)
     {
+        // Not a PayPal subscription: false lets ExtensionHelper::cancelSubscription try the other gateways. The
+        // marker, or a PayPal subscription id (I-...) when staff cancel one whose marker was lost.
+        if (!$service->subscription_id
+            || ($service->properties()->where('key', 'has_paypal_subscription')->value('value') !== '1' && !str_starts_with($service->subscription_id, 'I-'))) {
+            return false;
+        }
+
         // Cancel subscription
         $url = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
-        $this->request('post', $url . '/v1/billing/subscriptions/' . $service->subscription_id . '/cancel', [
-            'reason' => 'User canceled',
-        ]);
+        try {
+            $this->request('post', $url . '/v1/billing/subscriptions/' . $service->subscription_id . '/cancel', [
+                'reason' => 'User canceled',
+            ]);
+        } catch (PayPalApiException $e) {
+            if ($e->issue !== 'SUBSCRIPTION_STATUS_INVALID') { // already cancelled or expired at PayPal
+                throw $e;
+            }
+        }
 
         $service->properties()->where('key', 'has_paypal_subscription')->delete();
         $service->unsetRelation('properties');
@@ -475,12 +598,27 @@ class PayPal extends Gateway
 
         $url = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
 
-        $this->request('post', $url . '/v2/payments/captures/' . $captureId . '/refund', [
-            'amount' => [
-                'currency_code' => $transaction->invoice->currency_code,
-                'value' => number_format($amount, 2, '.', ''),
-            ],
-        ]);
+        // The same refund (transaction, what was refunded before, amount) keeps the same request id: a retry after
+        // a timeout gets PayPal's first answer instead of a second refund.
+        $requestId = 'refund-' . $transaction->id . '-' . RecordPaymentService::toCents($transaction->refunded_amount) . '-' . RecordPaymentService::toCents($amount);
+        try {
+            $refund = $this->request('post', $url . '/v2/payments/captures/' . $captureId . '/refund', [
+                'amount' => [
+                    'currency_code' => $transaction->invoice->currency_code,
+                    'value' => number_format($amount, 2, '.', ''),
+                ],
+            ], $requestId);
+        } catch (ConnectionException $e) {
+            Log::critical('PayPal refund outcome unknown (no answer): check PayPal before retrying; a retry reuses the request id.', [
+                'transaction_id' => $transaction->id, 'capture_id' => $captureId, 'amount' => $amount, 'request_id' => $requestId,
+            ]);
+
+            throw $e;
+        }
+
+        if (!in_array($refund->status ?? null, ['COMPLETED', 'PENDING'], true)) {
+            throw new Exception('PayPal did not refund capture ' . $captureId . ' (status ' . ($refund->status ?? 'none') . ').');
+        }
 
         return true;
     }
