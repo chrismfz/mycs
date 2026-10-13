@@ -440,10 +440,12 @@ class StaffCorrectionsAdversarialTest extends TestCase
         (new RecordPaymentService)->deleteTransaction($overpaid->transactions()->sole(), allowNegativeCredit: true);
         $this->assertSame(-5000, $this->balanceCents());
 
-        $this->assertNull((new RecordPaymentService)->payWithCredit($this->invoice(10)), 'negative credit paid an invoice');
+        $this->assertNull((new RecordPaymentService)->payWithCredit($open = $this->invoice(10)), 'negative credit paid an invoice');
         (new RecordPaymentService)->recordByStaff($this->invoice(10), null, '80.00', 'TRANSFER-80'); // +70 credit
 
-        $this->assertSame(2000, $this->balanceCents());
+        // MT-1e: what is left after the debt (20) pays the invoice the negative credit could not
+        $this->assertSame(Invoice::STATUS_PAID, $open->fresh()->status);
+        $this->assertSame(1000, $this->balanceCents());
         $this->assertSame(0, Artisan::call('mycs:credits-check'));
     }
 
