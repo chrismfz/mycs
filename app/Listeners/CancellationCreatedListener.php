@@ -27,7 +27,7 @@ class CancellationCreatedListener implements ShouldQueue
         // Its open invoices, or its lines on an invoice that also bills other services (CancelOpenInvoices). One
         // holding gateway money stays open for staff: the reason is mailed.
         // Queued: the worker keeps the audit on (AppServiceProvider), so these changes are in it too.
-        $open = $service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->get();
+        $open = $service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get();
 
         if ($event->cancellation->type == 'immediate') {
             if (in_array($service->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true)) {
@@ -39,12 +39,13 @@ class CancellationCreatedListener implements ShouldQueue
             ]);
 
             // Its pending upgrades end with it: paid later, an upgrade would change a cancelled service (and give
-            // stock back a second time). Their invoices only bill the upgrade.
+            // stock back a second time). Their lines go with the service's (an invoice that bills another service too
+            // keeps the rest).
             $upgrades = ServiceUpgrade::query()->where('service_id', $service->id)->where('status', ServiceUpgrade::STATUS_PENDING)->get();
             foreach ($upgrades as $upgrade) {
                 $upgrade->update(['status' => 'cancelled']);
-                if ($upgrade->invoice !== null && $upgrade->invoice->status === Invoice::STATUS_PENDING) {
-                    self::report(CancelOpenInvoices::handle([$upgrade->invoice], __('invoices.cancellation_reasons.cancellation_request')));
+                if ($upgrade->invoice !== null && in_array($upgrade->invoice->status, Invoice::OPEN_STATUSES, true)) {
+                    self::report(CancelOpenInvoices::handle([$upgrade->invoice], __('invoices.cancellation_reasons.cancellation_request'), $service));
                 }
             }
 

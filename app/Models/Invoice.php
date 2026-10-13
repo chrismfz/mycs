@@ -53,6 +53,9 @@ class Invoice extends Model implements Auditable
 
     public const STATUS_CANCELLED = 'cancelled';
 
+    /** Not settled yet: what a cancellation gives up on (a draft too: finalised later, it would bill it). */
+    public const OPEN_STATUSES = [self::STATUS_PENDING, self::STATUS_DRAFT];
+
     protected $fillable = ['number', 'user_id', 'currency_code', 'due_at', 'status', 'cancellation_reason'];
 
     protected $casts = [

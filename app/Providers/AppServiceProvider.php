@@ -19,6 +19,7 @@ use Exception;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Foundation\Exceptions\Handler;
 use Illuminate\Http\Request;
+use Illuminate\Queue\Events\JobAttempted;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Routing\UrlGenerator;
@@ -200,8 +201,7 @@ class AppServiceProvider extends ServiceProvider
                 config(['audit.console' => array_pop($auditing)]);
             }
         };
-        Queue::after($restore);
-        Queue::exceptionOccurred($restore);
+        Event::listen(JobAttempted::class, $restore); // after every attempt, whatever happened (finally)
 
         Str::macro('markdown', function ($markdown) {
             return Str::markdown($markdown, extensions: [

@@ -132,30 +132,41 @@ class CancelOpenInvoicesTest extends TestCase
         $this->assertFalse(config('audit.console'));
     }
 
-    public function test_credit_on_a_mixed_invoice_comes_back_and_pays_the_rest_again(): void
+    public function test_credit_on_a_mixed_invoice_keeps_paying_the_rest_and_only_the_part_over_comes_back(): void
     {
         Queue::fake([TerminateJob::class]);
         $a = $this->service();
         $b = $this->service();
-        $invoice = $this->invoice([$a, $b]);
+        $invoice = $this->invoice([$a, $b], '2026-11-30', '2026-12-30');
         Credit::query()->create(['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 15]);
         (new RecordPaymentService)->payWithCredit($invoice);
         $this->assertEqualsWithDelta(0.0, $this->credit(), 0.001);
 
         $this->request($a);
 
-        $this->assertEqualsWithDelta(15.0, $this->credit(), 0.001);
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
-        $this->assertSame(0, $invoice->transactions()->count());
-        $back = MoneyEvent::query()->where('invoice_id', $invoice->id)->where('cause', MoneyTrail::CAUSE_CANCELLATION)->get();
-        $this->assertNotEmpty($back);
-
-        // Not a staff deletion: the daily sweep pays what is left with the same credit.
-        Queue::fake();
-        $this->artisan('app:cron-job')->assertExitCode(0);
-
+        // All of it back (cause «cancellation», not a staff deletion), then B's 10.00 paid again from it: 5.00 left.
+        $this->assertSame([$b->id], $this->servicesBilled($invoice));
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
         $this->assertEqualsWithDelta(5.0, $this->credit(), 0.001);
+        $this->assertNotEmpty(MoneyEvent::query()->where('invoice_id', $invoice->id)->where('cause', MoneyTrail::CAUSE_CANCELLATION)->get());
+        $this->assertSame('2026-12-30', $b->fresh()->expires_at->toDateString(), 'B renewed by what the credit paid');
+    }
+
+    public function test_credit_on_a_mixed_invoice_below_the_rest_stays_on_it(): void
+    {
+        Queue::fake([TerminateJob::class]);
+        $a = $this->service();
+        $b = $this->service();
+        $invoice = $this->invoice([$a, $b]);
+        Credit::query()->create(['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 4]);
+        (new RecordPaymentService)->payWithCredit($invoice);
+
+        $this->request($a);
+
+        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+        $this->assertEqualsWithDelta(6.0, $invoice->fresh()->remaining, 0.001);
+        $this->assertEqualsWithDelta(0.0, $this->credit(), 0.001);
+        $this->assertSame(0, MoneyEvent::query()->where('cause', MoneyTrail::CAUSE_CANCELLATION)->count());
     }
 
     public function test_a_line_that_belongs_to_no_one_keeps_a_mixed_invoice_open_for_staff(): void
@@ -170,6 +181,20 @@ class CancelOpenInvoicesTest extends TestCase
         $this->assertStringContainsString('lines that belong to neither', $left["invoice_cancelled #{$invoice->id}"]->getMessage());
         $this->assertSame(3, $invoice->items()->count());
         $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+    }
+
+    public function test_an_imported_promotion_goes_with_the_hosting_it_names(): void
+    {
+        $a = $this->service();
+        $b = $this->service();
+        $invoice = $this->invoice([$a, $b]);
+        // As the WHMCS importer writes a PromoHosting/Setup line: no type, relid = the hosting (services keep WHMCS ids).
+        $invoice->items()->create(['reference_type' => null, 'reference_id' => $a->id, 'description' => 'Promo', 'quantity' => 1, 'price' => -2]);
+
+        $this->assertSame([], CancelOpenInvoices::handle([$invoice], 'Cancelled.', $a));
+
+        $this->assertSame([$b->id], $this->servicesBilled($invoice));
+        $this->assertEqualsWithDelta(10.0, $invoice->fresh()->total, 0.001);
     }
 
     public function test_a_promotion_on_an_invoice_of_one_service_goes_with_it(): void

@@ -170,13 +170,13 @@ class RecordPaymentService
      * Pay an open invoice from the customer's account credit, under the same locks: the credit is read
      * and spent in one place, so nothing can save a stale copy of it. Pays what is left, or as much as
      * the credit covers ($onlyIfCovers: all of it or nothing). $eligible, when given, is asked with the locked invoice
-     * before anything is spent. Null when nothing is paid.
+     * before anything is spent; $upToCents caps what is spent. Null when nothing is paid.
      */
-    public function payWithCredit(Invoice|int $invoice, bool $onlyIfCovers = false, ?\Closure $eligible = null): ?InvoiceTransaction
+    public function payWithCredit(Invoice|int $invoice, bool $onlyIfCovers = false, ?\Closure $eligible = null, ?int $upToCents = null): ?InvoiceTransaction
     {
         $invoiceId = $invoice instanceof Invoice ? $invoice->getKey() : $invoice;
 
-        return DB::transaction(function () use ($invoiceId, $onlyIfCovers, $eligible) {
+        return DB::transaction(function () use ($invoiceId, $onlyIfCovers, $eligible, $upToCents) {
             $invoice = $this->lockInvoice($invoiceId);
             if (!in_array($invoice->status, [Invoice::STATUS_PENDING, Invoice::STATUS_DRAFT], true)) {
                 return null;
@@ -188,7 +188,7 @@ class RecordPaymentService
             $credit = $this->lockCredit($invoice);
             $available = $credit === null ? 0 : CreditLedger::cents($credit);
             $remaining = max(0, self::toCents($invoice->withLockedBalance()->remaining));
-            $cents = min($available, $remaining);
+            $cents = min($available, $remaining, $upToCents ?? PHP_INT_MAX);
             if ($credit === null || $cents <= 0 || ($onlyIfCovers && $available < $remaining)) {
                 return null;
             }

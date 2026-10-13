@@ -69,7 +69,7 @@ return [
         'purchase' => 'Credit added',
         'purchase_refunded' => 'Credit purchase refunded',
         'correction' => 'Payment correction',
-        'cancellation' => 'Returned from a cancelled invoice',
+        'cancellation' => 'Returned after a cancellation',
         'adjustment' => 'Adjustment',
         'downgrade' => 'Plan downgrade',
         'affiliate_reward' => 'Affiliate reward',
