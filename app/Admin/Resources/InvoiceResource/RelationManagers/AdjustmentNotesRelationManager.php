@@ -30,7 +30,7 @@ class AdjustmentNotesRelationManager extends RelationManager
     {
         $invoice = $this->getOwnerRecord();
 
-        return $invoice instanceof Invoice && $invoice->status === Invoice::STATUS_PAID;
+        return $invoice instanceof Invoice && in_array($invoice->status, Invoice::FROZEN_STATUSES, true);
     }
 
     public function form(Schema $schema): Schema

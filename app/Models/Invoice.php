@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Lang;
 use OwenIt\Auditing\Contracts\Auditable;
 
 /**
@@ -53,6 +54,41 @@ class Invoice extends Model implements Auditable
 
     public const STATUS_CANCELLED = 'cancelled';
 
+    /** All its money went back, to the customer or to their credit (PR 2c, as WHMCS). Final: it holds nothing. */
+    public const STATUS_REFUNDED = 'refunded';
+
+    /** Settled: they keep their lines and staff notes (MT-1c; refunded too, PR 2c). */
+    public const FROZEN_STATUSES = [self::STATUS_PAID, self::STATUS_REFUNDED];
+
+    /** Every status, in the order screens list them. */
+    public const STATUSES = [self::STATUS_DRAFT, self::STATUS_PENDING, self::STATUS_PAID, self::STATUS_CANCELLED, self::STATUS_REFUNDED];
+
+    /** What staff and customers read for a status: WHMCS's words (pending is «Unpaid»), lang/*\/invoices.php. */
+    public static function statusLabel(?string $status): string
+    {
+        $key = 'invoices.statuses.' . $status;
+
+        return $status !== null && Lang::has($key) ? __($key) : ucfirst((string) $status);
+    }
+
+    /** @return array<string, string> status => label, for selects and filters */
+    public static function statusOptions(): array
+    {
+        return array_combine(self::STATUSES, array_map(self::statusLabel(...), self::STATUSES));
+    }
+
+    /** The badge color of a status in the admin. */
+    public static function statusColor(?string $status): string
+    {
+        return match ($status) {
+            self::STATUS_PAID => 'success',
+            self::STATUS_PENDING => 'warning',
+            self::STATUS_DRAFT => 'gray',
+            self::STATUS_REFUNDED => 'info',
+            default => 'danger',
+        };
+    }
+
     /** Not settled yet: what a cancellation gives up on (a draft too: finalised later, it would bill it). */
     public const OPEN_STATUSES = [self::STATUS_PENDING, self::STATUS_DRAFT];
 
@@ -71,7 +107,7 @@ class Invoice extends Model implements Auditable
      */
     public function save(array $options = []): bool
     {
-        if ($this->exists && (($this->isDirty('status') && ($this->status === self::STATUS_PAID
+        if ($this->exists && (($this->isDirty('status') && (in_array($this->status, [self::STATUS_PAID, self::STATUS_CANCELLED, self::STATUS_REFUNDED], true)
             || ($this->getOriginal('status') === self::STATUS_CANCELLED
                 && in_array($this->status, [self::STATUS_PENDING, self::STATUS_DRAFT], true))))
             // Moving the invoice (customer, currency) is checked against its payments under the same locks.

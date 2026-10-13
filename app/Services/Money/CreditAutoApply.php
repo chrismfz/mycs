@@ -162,6 +162,11 @@ class CreditAutoApply
             ->where('cause', MoneyTrail::CAUSE_TRANSACTION_DELETED)->where('source', MoneyTrail::SOURCE_CREDIT)->exists()) {
             return false;
         }
+        // Staff refunded money of this invoice to credit (PR 2c): paid straight back into it, the refund would be undone
+        // and the invoice could never be cancelled (code review and adversarial review of 2c).
+        if (MoneyEvent::query()->where('invoice_id', $invoice->id)->where('cause', MoneyTrail::CAUSE_REFUND_TO_CREDIT)->exists()) {
+            return false;
+        }
         $services = $items->where('reference_type', Service::class)->pluck('reference_id')->filter();
         if ($services->isEmpty()) {
             return true;

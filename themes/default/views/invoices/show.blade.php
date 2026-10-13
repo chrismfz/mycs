@@ -52,6 +52,10 @@
                     <div class="text-green-500 mt-6 text-lg text-center font-semibold">
                         {{ __('invoices.paid') }}
                     </div>
+                    @elseif ($invoice->status == 'refunded')
+                    <div class="text-sky-500 mt-6 text-lg text-center font-semibold">
+                        {{ __('invoices.statuses.refunded') }}
+                    </div>
                     @elseif ($invoice->status == 'pending')
                     @if($checkPayment || $invoice->transactions->where('status', \App\Enums\InvoiceTransactionStatus::Processing)->where('created_at', '>=', now()->subDays(1))->count() > 0)
                     <div class="text-yellow-500 mb-6 text-lg text-center flex items-center justify-center">

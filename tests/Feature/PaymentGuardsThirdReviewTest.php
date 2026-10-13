@@ -139,13 +139,14 @@ class PaymentGuardsThirdReviewTest extends TestCase
         $payment = ExtensionHelper::addPayment($invoice->id, 'Stripe', 10.00, null, 'pi_part', currency: 'usd');
         ExtensionHelper::refundLocally($payment->fresh(), 1.00);
         $invoice->fresh()->update(['status' => 'pending']);
+        // Since 2c an invoice holding money is not cancelled: the 9.00 still on it goes back first.
+        ExtensionHelper::refundLocally($payment->fresh(), 9.00);
         $invoice->fresh()->update(['status' => 'cancelled']);
         $invoice->fresh()->update(['status' => 'pending']);
 
         $notes = $invoice->fresh()->adjustmentNotes;
         $this->assertSame(AdjustmentNoteStatus::Voided, $notes->firstWhere('is_cancellation', true)->status);
         $this->assertSame(AdjustmentNoteStatus::Active, $notes->firstWhere('is_cancellation', false)->status, 'the refund note stays');
-        $this->assertEquals(0.00, $invoice->fresh()->remaining, '10 - 1 refunded, less 9 still paid');
 
         $invoice->fresh()->update(['status' => 'cancelled']);
         $this->assertSame(1, $invoice->fresh()->adjustmentNotes()->where('is_cancellation', true)->where('status', 'active')->count());

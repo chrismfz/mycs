@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\InvoiceTransactionStatus;
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\Credit;
 use App\Models\Gateway;
@@ -114,6 +115,21 @@ class MoneyCheckAdversarialTest extends TestCase
     // =====================================================================  false negatives: money wrong, nothing said
 
     /**
+     * Since 2c (INV-16) the app refuses to cancel an invoice holding money: staff refund it first. The state these
+     * tests check the money check against still exists (cancelled before 2c, or imported from WHMCS): made by hand.
+     */
+    private function cancelledBefore2c(Invoice $invoice, ?string $reason): void
+    {
+        try {
+            $invoice->fresh()->update(['status' => Invoice::STATUS_CANCELLED, 'cancellation_reason' => $reason]);
+            $this->fail('An invoice holding money was cancelled (2c refuses it).');
+        } catch (DisplayException) {
+        }
+        DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_CANCELLED, 'cancellation_reason' => $reason]);
+        $invoice->fresh()->createCancellationCreditNote($reason);
+    }
+
+    /**
      * F1. Staff «Cancel» (InvoiceResource / ViewInvoice: $invoice->update(['status' => cancelled])) on an invoice that
      * a gateway paid in part: the 4.00 stays on a cancelled invoice, neither credited nor refunded (the very state
      * CancelOpenInvoices refuses to create). No rule looks at money held by a cancelled invoice.
@@ -122,7 +138,7 @@ class MoneyCheckAdversarialTest extends TestCase
     {
         $invoice = $this->invoice(10);
         (new RecordPaymentService)->handle($invoice, null, 4.0, transactionId: 'wire-001');
-        $invoice->fresh()->update(['status' => Invoice::STATUS_CANCELLED, 'cancellation_reason' => 'Customer asked']);
+        $this->cancelledBefore2c($invoice, 'Customer asked');
 
         $this->assertSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status);
         $this->assertSame(0, (int) round((float) (Credit::query()->where('user_id', $this->user->id)->value('amount') ?? 0) * 100), 'no credit given');
@@ -135,7 +151,7 @@ class MoneyCheckAdversarialTest extends TestCase
         $invoice = $this->invoice(10);
         (new RecordPaymentService)->handle($invoice, null, 10.0, transactionId: 'wire-002');
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
-        $invoice->fresh()->update(['status' => Invoice::STATUS_CANCELLED, 'cancellation_reason' => 'Wrong invoice']);
+        $this->cancelledBefore2c($invoice, 'Wrong invoice');
 
         $this->assertNotSame([], (new MoneyCheck)->run(), 'the 10.00 sits on a cancelled invoice and nothing is reported');
     }
@@ -146,7 +162,7 @@ class MoneyCheckAdversarialTest extends TestCase
         (new CreditLedger)->add($this->user->id, 'USD', 600, 'staff_adjustment', 'staff', note: 'Goodwill');
         $invoice = $this->invoice(10);
         (new RecordPaymentService)->payWithCredit($invoice);
-        $invoice->fresh()->update(['status' => Invoice::STATUS_CANCELLED, 'cancellation_reason' => 'Duplicate']);
+        $this->cancelledBefore2c($invoice, 'Duplicate');
 
         $this->assertSame(0, (int) round((float) Credit::query()->where('user_id', $this->user->id)->value('amount') * 100));
         $this->assertNotSame([], (new MoneyCheck)->run(), '6.00 of credit sits on a cancelled invoice and nothing is reported');
@@ -332,7 +348,7 @@ class MoneyCheckAdversarialTest extends TestCase
         $invoice = $this->serviceInvoice($service);
         (new RecordPaymentService)->handle($invoice, null, 10.0, transactionId: 'wire-006');
         $this->assertNotNull($invoice->items()->sole()->applied_at, 'the period was delivered');
-        $invoice->fresh()->update(['status' => Invoice::STATUS_CANCELLED]); // cancel_paid / «Cancel Invoice»
+        $this->cancelledBefore2c($invoice, null); // cancel_paid / «Cancel Invoice», before 2c
 
         $this->assertContains('cancelled_applied', $this->rules(), 'the daily check sees it');
         $simulation = (new MoneyCheck)->run(array_values(array_diff(MoneyCheck::RULES, self::SIMULATION_RULES_EXCLUDED)));

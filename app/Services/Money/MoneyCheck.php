@@ -99,7 +99,7 @@ final class MoneyCheck
     /** A paid invoice owes nothing and holds nothing over (an overpayment becomes credit). */
     private function paidBalance(): void
     {
-        Invoice::query()->where('status', Invoice::STATUS_PAID)->with(['items', 'adjustmentNotes', 'transactions'])
+        Invoice::query()->whereIn('status', [Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED])->with(['items', 'adjustmentNotes', 'transactions'])
             ->chunkById(500, function ($invoices) {
                 foreach ($invoices as $invoice) {
                     $remaining = self::remainingCents($invoice);
@@ -143,12 +143,13 @@ final class MoneyCheck
     }
 
     /**
-     * A cancelled invoice keeps money: payments on it, less refunds and what became credit, not zero. The customer's
-     * money stuck on a cancelled invoice (staff cancelled it with its payment on it): refund it or move it to credit.
+     * A cancelled or refunded invoice keeps money: payments on it, less refunds and what became credit, not zero. The
+     * customer's money stuck on a closed invoice (cancelled before 2c refused it, or imported): refund it, back or to
+     * credit.
      */
     private function cancelledHoldsMoney(): void
     {
-        Invoice::query()->where('status', Invoice::STATUS_CANCELLED)
+        Invoice::query()->whereIn('status', [Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED])
             ->whereHas('transactions', fn ($query) => $query->where('status', InvoiceTransactionStatus::Succeeded->value))
             ->with('transactions')
             ->chunkById(500, function ($invoices) {
@@ -157,7 +158,7 @@ final class MoneyCheck
                         ->sum(fn ($payment) => RecordPaymentService::toCents($payment->amount) - RecordPaymentService::toCents($payment->refunded_amount)
                             - RecordPaymentService::toCents($payment->credited_amount));
                     if ($kept !== 0) {
-                        $this->add('cancelled_holds_money', "invoice #{$invoice->id}", 'cancelled, with ' . self::money($kept)
+                        $this->add('cancelled_holds_money', "invoice #{$invoice->id}", "{$invoice->status}, with " . self::money($kept)
                             . " {$invoice->currency_code} of payments still on it (refund it or move it to credit)");
                     }
                 }

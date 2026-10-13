@@ -66,6 +66,31 @@ class InvoiceObserver
             && $invoice->status === Invoice::STATUS_PAID) {
             throw new DisplayException(__('A cancelled invoice cannot be marked paid: reopen it (pending) and record the payment.'));
         }
+        // Refunded (PR 2c, as WHMCS): all its money went back, to the customer or to their credit. Final: it holds
+        // nothing to pay or to apply, and a later payment on it becomes credit (RecordPaymentService).
+        if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_REFUNDED) {
+            throw new DisplayException(__('A refunded invoice stays refunded: bill the customer on a new invoice.'));
+        }
+        // Read locked: Invoice::save holds the payment locks for a change to cancelled or refunded.
+        if ($invoice->isDirty('status') && $invoice->status === Invoice::STATUS_REFUNDED) {
+            $invoice->withLockedBalance();
+            $back = (int) $invoice->transactions->where('status', InvoiceTransactionStatus::Succeeded)
+                ->sum(fn (InvoiceTransaction $transaction) => RecordPaymentService::toCents($transaction->refunded_amount)
+                    + RecordPaymentService::toCents($transaction->credited_amount));
+            if ($invoice->getOriginal('status') !== Invoice::STATUS_PAID || self::receivedCents($invoice) !== 0 || $back <= 0) {
+                throw new DisplayException(__('An invoice becomes refunded when all its payments were refunded: use Refund on its transactions.'));
+            }
+        }
+        // A cancelled invoice holds no money (audit sweep INV-16, PR 2c): a paid one, or an open one with payments on
+        // it, is refunded first (back to the customer, or to their account credit), as the money check expects.
+        if ($invoice->isDirty('status') && $invoice->status === Invoice::STATUS_CANCELLED) {
+            if ($invoice->getOriginal('status') === Invoice::STATUS_PAID) {
+                throw new DisplayException(__('A paid invoice is not cancelled: refund its payments (back, or to account credit).'));
+            }
+            if (self::receivedCents($invoice->withLockedBalance()) > 0) {
+                throw new DisplayException(__('This invoice holds payments: refund them (back, or to account credit) before cancelling it.'));
+            }
+        }
         // Paid only when nothing is left to pay (docs/money-trail.md, MT-1c; audit B1): staff record the payment (Mark
         // Paid, Add Payment) and the invoice follows, through RecordPaymentService. Marking it paid by its status alone
         // would renew its services and give the credit it sells without any money. Read locked: Invoice::save holds the

@@ -18,7 +18,7 @@ class InvoiceItemObserver
 
     private static function refuseOnPaidInvoice(mixed $invoiceId): void
     {
-        if ($invoiceId !== null && Invoice::query()->whereKey($invoiceId)->value('status') === Invoice::STATUS_PAID) {
+        if ($invoiceId !== null && in_array(Invoice::query()->whereKey($invoiceId)->value('status'), Invoice::FROZEN_STATUSES, true)) {
             throw new DisplayException(__('A paid invoice keeps its lines: set it back to pending (unpaid) first.'));
         }
     }

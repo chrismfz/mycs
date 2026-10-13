@@ -17,13 +17,15 @@
             </div>
             <div class="size-5 rounded-md p-0.5
                 @if ($invoice->status == 'paid') text-success bg-success/20
-                @elseif($invoice->status == 'cancelled') text-info bg-info/20
+                @elseif(in_array($invoice->status, ['cancelled', 'refunded'])) text-info bg-info/20
                 @else text-warning bg-warning/20
                 @endif">
                 @if ($invoice->status == 'paid')
                     <x-ri-checkbox-circle-fill />
                 @elseif($invoice->status == 'cancelled')
                     <x-ri-forbid-fill />
+                @elseif($invoice->status == 'refunded')
+                    <x-ri-arrow-go-back-fill />
                 @elseif($invoice->status == 'pending')
                     <x-ri-error-warning-fill />
                 @endif

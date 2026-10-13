@@ -4,6 +4,7 @@ namespace App\Admin\Resources\UserResource\Pages;
 
 use App\Admin\Resources\InvoiceResource;
 use App\Admin\Resources\UserResource;
+use App\Models\Invoice;
 use Filament\Actions\ViewAction;
 use Filament\Resources\Pages\ManageRelatedRecords;
 use Filament\Tables\Columns\TextColumn;
@@ -32,23 +33,14 @@ class ShowInvoices extends ManageRelatedRecords
                 TextColumn::make('formattedTotal')->label('Total'),
                 TextColumn::make('status')
                     ->label('Status')
-                    // Make first letter uppercase
-                    ->formatStateUsing(fn (string $state): string => ucfirst($state))
+                    ->formatStateUsing(fn (string $state): string => Invoice::statusLabel($state))
                     ->badge()
-                    ->color(fn (string $state): string => match ($state) {
-                        'paid' => 'success',
-                        'pending' => 'warning',
-                        default => 'danger',
-                    }),
+                    ->color(fn (string $state): string => Invoice::statusColor($state)),
             ])
             ->filters([
                 SelectFilter::make('status')
                     ->label('Status')
-                    ->options([
-                        'paid' => 'Paid',
-                        'pending' => 'Pending',
-                        'cancelled' => 'Cancelled',
-                    ]),
+                    ->options(Invoice::statusOptions()),
             ])
             ->recordActions([
                 ViewAction::make()->url(fn ($record) => InvoiceResource::getUrl(config('settings.immutable_invoices_enabled', false) ? 'view' : 'edit', ['record' => $record])),

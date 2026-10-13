@@ -303,12 +303,14 @@ class PaymentGuardsAdversarialTest extends TestCase
         $service = $this->service();
         $invoice = $this->invoiceFor($service, '2026-10-15', '2026-11-15');
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 4.00, null, 'pi_1', currency: 'usd');
+        // Since 2c an invoice holding money is refunded before it is cancelled: the 4.00 to credit first.
+        ExtensionHelper::refundToCredit($invoice->transactions()->sole(), 4.00);
         $invoice->fresh()->update(['status' => 'cancelled']);
 
         ExtensionHelper::addPayment($invoice->id, 'PayPal', 6.00, null, 'cap_2', currency: 'USD');
 
         $this->assertSame('cancelled', $invoice->fresh()->status);
-        $this->assertSame('6.00', $this->credit());
+        $this->assertSame('10.00', $this->credit(), 'the 4.00 refunded to credit, then the 6.00 that landed on a cancelled invoice');
         $this->assertSame('2026-10-15', $this->expires($service));
     }
 

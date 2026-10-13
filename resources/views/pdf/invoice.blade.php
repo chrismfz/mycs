@@ -122,8 +122,8 @@
     <!-- Invoice status -->
     <div style="margin-bottom: 20px;font-size: 20px">
         <strong>{{ __('invoices.status') }}:</strong><span
-            style="@if($invoice->status == 'paid') color: green; @else color: orange; @endif">
-            {{ ucfirst($invoice->status) }}
+            style="@if($invoice->status == 'paid') color: green; @elseif(in_array($invoice->status, ['refunded', 'cancelled'])) color: gray; @else color: orange; @endif">
+            {{ \App\Models\Invoice::statusLabel($invoice->status) }}
         </span>
     </div>
 

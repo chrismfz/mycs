@@ -93,7 +93,7 @@ class MoneyTrailAdversarialTest extends TestCase
         return match ($event->kind) {
             MoneyEventKind::Payment => $cents,
             MoneyEventKind::Refund => -$cents,
-            MoneyEventKind::CreditIn => in_array($event->cause, [MoneyTrail::CAUSE_OVERPAYMENT, MoneyTrail::CAUSE_INVOICE_REDUCED], true) ? -$cents : 0, // 2b
+            MoneyEventKind::CreditIn => in_array($event->cause, [MoneyTrail::CAUSE_OVERPAYMENT, MoneyTrail::CAUSE_INVOICE_REDUCED, MoneyTrail::CAUSE_REFUND_TO_CREDIT], true) ? -$cents : 0, // 2b
             MoneyEventKind::Reversal => -self::invoiceEffect($event->reverses),
             default => 0,
         };

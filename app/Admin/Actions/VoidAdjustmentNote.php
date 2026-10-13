@@ -26,7 +26,7 @@ class VoidAdjustmentNote
     public static function allowed(AdjustmentNote $note): bool
     {
         $status = $note->invoice?->status;
-        $byStaff = ($note->isVoidableByStaff() && $status !== Invoice::STATUS_PAID)
+        $byStaff = ($note->isVoidableByStaff() && !in_array($status, Invoice::FROZEN_STATUSES, true))
             || ($note->is_refund && $note->status === AdjustmentNoteStatus::Voided);
 
         return $byStaff

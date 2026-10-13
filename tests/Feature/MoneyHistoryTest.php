@@ -72,7 +72,7 @@ class MoneyHistoryTest extends TestCase
         $this->assertContains('Payment', $whats);
         $this->assertContains('Credit in (overpayment)', $whats);
         $this->assertContains('Refund', $whats);
-        $this->assertContains('Status: pending → paid', $whats);
+        $this->assertContains('Status: unpaid → paid', $whats); // WHMCS's words for staff (2c)
         $payments = array_values(array_filter($rows, fn (array $row) => $row['what'] === 'Payment'));
         $this->assertSame('$120.00', $payments[0]['amount']);
         $this->assertSame($payment->id, $payments[0]['transaction']);

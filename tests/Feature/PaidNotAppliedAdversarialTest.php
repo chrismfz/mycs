@@ -201,7 +201,7 @@ class PaidNotAppliedAdversarialTest extends TestCase
         $invoice = $this->renewal([$service]);
         $this->payFailingAfterCommit($invoice);
         ExtensionHelper::refundLocally($invoice->transactions()->firstOrFail(), 10);
-        $this->assertSame('paid', $invoice->fresh()->status, 'precondition: a refunded invoice stays paid');
+        $this->assertSame('refunded', $invoice->fresh()->status, 'precondition: all of it went back: refunded (2c)');
 
         Carbon::setTestNow('2026-10-20 03:30:00');
         $this->cron();

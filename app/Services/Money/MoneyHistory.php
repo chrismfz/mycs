@@ -114,6 +114,7 @@ class MoneyHistory
             MoneyTrail::CAUSE_DOWNGRADE => 'downgrade',
             MoneyTrail::CAUSE_AFFILIATE_REWARD => 'affiliate_reward',
             MoneyTrail::CAUSE_INVOICE_REDUCED => 'invoice_reduced',
+            MoneyTrail::CAUSE_REFUND_TO_CREDIT => 'refund_to_credit',
             default => $event->kind === MoneyEventKind::Reversal ? 'correction'
                 : ($event->creditEffectCents() >= 0 ? 'credit_added' : 'credit_used'),
         };

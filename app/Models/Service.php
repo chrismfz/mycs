@@ -470,7 +470,8 @@ class Service extends Model implements Auditable
         return $this->invoiceItems()
             ->whereNotNull('period_start')
             ->whereNotNull('period_end')
-            ->whereHas('invoice', fn ($q) => $q->where('status', '!=', Invoice::STATUS_CANCELLED))
+            // A cancelled or refunded invoice bills nothing: its period is a hole to bill again (code review of 2c).
+            ->whereHas('invoice', fn ($q) => $q->whereNotIn('status', [Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED]))
             ->with('invoice:id,status')
             ->get()
             ->sortBy(fn (InvoiceItem $line) => $line->period_start->timestamp)
