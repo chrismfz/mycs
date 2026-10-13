@@ -82,6 +82,7 @@ return [
     'refund_method_gateway' => 'The customer, through the payment gateway',
     'refund_method_manual' => 'The customer, by hand (a transfer: recorded here only)',
     'refund_method_credit' => 'The customer\'s account credit',
+    'refund_notify' => 'Email the customer about the refund',
     'deleted_user' => 'Deleted User',
 
     // The credit note of an invoice the app cancels (CancelOpenInvoices), written in the app's language.

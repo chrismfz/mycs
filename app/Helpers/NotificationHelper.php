@@ -200,6 +200,23 @@ class NotificationHelper
         ], $user);
     }
 
+    /**
+     * A payment of the customer's went back (PR 2c-2, WHMCS's «Invoice Refund Confirmation»): to them (through the
+     * gateway, or by hand) or to their account credit.
+     */
+    public static function invoiceRefundedNotification(User $user, Invoice $invoice, int $cents, bool $toCredit, bool $byGateway): void
+    {
+        $price = new Price(['price' => 0, 'currency' => $invoice->currency]);
+        self::sendNotification('invoice_refunded', [
+            'invoice' => $invoice,
+            'refund' => [
+                'amount' => $price->format($cents / 100),
+                'to_credit' => $toCredit,
+                'by_gateway' => $byGateway,
+            ],
+        ], $user);
+    }
+
     public static function invoicePaymentFailedNotification(User $user, Invoice $invoice): void
     {
         self::invoiceNotification($user, $invoice, 'invoice_payment_failed');

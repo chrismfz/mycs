@@ -38,6 +38,8 @@ tests) **διαβάζει μόνο δεδομένα**: δεν καλεί συν�
 | `new_ticket_message` | `ticketMessage`, `message_html` (το μήνυμα σε ασφαλές HTML) |
 | `email_verification`, `password_reset` | `url` |
 | `service_cancellation_received` | `cancellation`, `service` |
+| `credit_applied` | `invoice`, `credit.applied`, `credit.remaining` |
+| `invoice_refunded` | `invoice`, `refund.amount`, `refund.to_credit`, `refund.by_gateway` |
 | `new_login_detected` | `ip`, `device`, `time` |
 | `mail_header` / `mail_footer` | `app.*`, `mail_css` (στο header, με `\|raw`) |
 

@@ -6,11 +6,14 @@ use App\Attributes\ExtensionMeta;
 use App\Classes\FilamentInput;
 use App\Enums\AdjustmentNoteType;
 use App\Enums\InvoiceTransactionStatus;
+use App\Exceptions\DisplayException;
 use App\Models\BillingAgreement;
 use App\Models\Credit;
 use App\Models\Extension;
 use App\Models\Gateway;
+use App\Models\GatewayRefund;
 use App\Models\Invoice;
+use App\Models\PaymentGatewayEvent;
 use App\Models\InvoiceTransaction;
 use App\Models\Product;
 use App\Models\Server;
@@ -19,6 +22,7 @@ use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
+use App\Services\Money\GatewayLog;
 use App\Services\Money\MoneyTrail;
 use Exception;
 use Filament\Forms\Components\Placeholder;
@@ -568,7 +572,7 @@ class ExtensionHelper
      * @throws \InvalidArgumentException If amount is invalid.
      * @throws \RuntimeException If the gateway does not support refunds or the refund fails.
      */
-    public static function refund(InvoiceTransaction $transaction, float $amount): bool
+    public static function refund(InvoiceTransaction $transaction, float $amount, bool $notify = true): bool
     {
         if (RecordPaymentService::toCents($amount) <= 0) { // at least a cent: checked before the gateway is called
             throw new \InvalidArgumentException('Refund amount must be greater than 0.');
@@ -599,12 +603,27 @@ class ExtensionHelper
                 // The rounded amount, the same the transaction, the note and the journal record.
                 $success = $gatewayInstance->refund($transaction, RecordPaymentService::toCents($amount) / 100);
 
-                if (!$success) {
+                if ($success === false || $success === null || $success === '') {
                     throw new \RuntimeException('Gateway refund failed for transaction #' . $transaction->id);
                 }
                 $refundedAtGateway = true;
 
-                return self::recordRefund($transaction, $amount, $credit, MoneyTrail::sourceFor($transaction->gateway));
+                self::recordRefund($transaction, $amount, $credit, MoneyTrail::sourceFor($transaction->gateway));
+                // The gateway's own id for it (PR 2c-2): its webhook telling the same refund is not recorded twice.
+                // The webhook waits on the locks held here, so it reads this row.
+                if (is_string($success)) {
+                    GatewayRefund::create([
+                        'invoice_transaction_id' => $transaction->id, 'gateway' => $transaction->gateway->extension,
+                        'reference' => $success, 'amount' => RecordPaymentService::toCents($amount) / 100,
+                        'currency_code' => $transaction->invoice->currency_code,
+                        'recorded_amount' => RecordPaymentService::toCents($amount) / 100, 'origin' => GatewayRefund::ORIGIN_MYCS,
+                    ]);
+                }
+                if ($notify) {
+                    self::notifyRefund($transaction, RecordPaymentService::toCents($amount), toCredit: false, byGateway: true);
+                }
+
+                return true;
             });
         } catch (\Throwable $e) {
             if ($refundedAtGateway) { // recording or the commit failed after the money left
@@ -661,7 +680,7 @@ class ExtensionHelper
      *
      * @throws \InvalidArgumentException If amount is invalid.
      */
-    public static function refundLocally(InvoiceTransaction $transaction, float $amount): void
+    public static function refundLocally(InvoiceTransaction $transaction, float $amount, bool $notify = true): void
     {
         if (RecordPaymentService::toCents($amount) <= 0) {
             throw new \InvalidArgumentException('Refund amount must be greater than 0.');
@@ -675,6 +694,9 @@ class ExtensionHelper
             [$transaction, $credit] = self::prepareRefund($transaction, $amount);
 
             self::recordRefund($transaction, $amount, $credit, MoneyTrail::SOURCE_LOCAL);
+            if ($notify) {
+                self::notifyRefund($transaction, RecordPaymentService::toCents($amount), toCredit: false, byGateway: false);
+            }
         });
     }
 
@@ -687,7 +709,7 @@ class ExtensionHelper
      *
      * @throws \InvalidArgumentException If amount is invalid or the invoice cannot take it.
      */
-    public static function refundToCredit(InvoiceTransaction $transaction, float $amount): void
+    public static function refundToCredit(InvoiceTransaction $transaction, float $amount, bool $notify = true): void
     {
         $cents = RecordPaymentService::toCents($amount);
         if ($cents <= 0) {
@@ -711,6 +733,9 @@ class ExtensionHelper
                 MoneyTrail::sourceFor($transaction->gateway, (bool) $transaction->is_credit_transaction), $invoice, $transaction);
             self::afterRefund($transaction, $cents, 'Refund to account credit for transaction #' . $transaction->id);
             [$userId, $currency] = [(int) $invoice->user_id, (string) $invoice->currency_code];
+            if ($notify) {
+                self::notifyRefund($transaction, $cents, toCredit: true, byGateway: false);
+            }
         });
 
         // The credit pays the customer's other open invoices (decision 5, MT-1e), as an overpayment's does.
@@ -752,15 +777,144 @@ class ExtensionHelper
     }
 
     /**
+     * A refund the gateway made on its own (its dashboard; PR 2c-2, PAY-5), told by its webhook: the money already left,
+     * so it is recorded, never refused. Once per refund id: MyCS's own refund (written when the gateway answered) and a
+     * retried webhook change nothing. Recorded up to what is left on the payment; more than that (part became account
+     * credit, or was refunded by hand already) is staff's to settle, and they are told. A credit purchase gives back the
+     * credit it bought, as much as is left of it. The customer is told, as for any refund.
+     *
+     * @return bool whether this call recorded it (false: already known, or no payment of ours)
+     */
+    public static function refundedAtGateway(string $gateway, string $paymentReference, string $refundReference, float $amount, ?string $currency = null): bool
+    {
+        $cents = RecordPaymentService::toCents($amount);
+        $payment = InvoiceTransaction::query()->where('transaction_id', $paymentReference)->where('is_credit_transaction', false)
+            ->whereHas('gateway', fn ($query) => $query->where('extension', $gateway))->orderBy('id')->first();
+        $log = fn (string $outcome, string $reason, ?InvoiceTransaction $on = null) => GatewayLog::current()->result($outcome, $reason, [
+            'amount' => $cents / 100, 'currency_code' => $currency !== null ? strtoupper($currency) : null, 'external_id' => $refundReference,
+            'invoice_id' => $on?->invoice_id, 'invoice_transaction_id' => $on?->id,
+        ]);
+        if ($payment === null || $cents <= 0 || $refundReference === '') {
+            Log::warning('Gateway refund for no payment of ours: ignored.', ['gateway' => $gateway, 'payment' => $paymentReference, 'refund' => $refundReference]);
+            $log(PaymentGatewayEvent::OUTCOME_IGNORED, 'refund_unknown_payment');
+
+            return false;
+        }
+        $known = fn () => GatewayRefund::query()->where('gateway', $gateway)->where('reference', $refundReference)->exists();
+        if ($known()) {
+            $log(PaymentGatewayEvent::OUTCOME_IGNORED, 'replay', $payment);
+
+            return false;
+        }
+
+        $staff = null;
+        $recorded = DB::transaction(function () use ($payment, $gateway, $refundReference, $cents, $currency, $known, $log, &$staff) {
+            $invoice = (new RecordPaymentService)->lockInvoice($payment->invoice_id);
+            $invoice->transactions()->lockForUpdate()->get(['id']);
+            $payment = InvoiceTransaction::whereKey($payment->id)->lockForUpdate()->firstOrFail();
+            if ($known()) { // MyCS's own refund, committed while this waited for the locks
+                $log(PaymentGatewayEvent::OUTCOME_IGNORED, 'replay', $payment);
+
+                return 0;
+            }
+            if ($currency !== null && strtoupper($currency) !== strtoupper((string) $invoice->currency_code)) {
+                $staff = "{$gateway} refund {$refundReference} is in {$currency}, the invoice #{$invoice->id} in {$invoice->currency_code}: not recorded, record it by hand.";
+                GatewayRefund::create(['invoice_transaction_id' => $payment->id, 'gateway' => $gateway, 'reference' => $refundReference,
+                    'amount' => $cents / 100, 'currency_code' => strtoupper($currency), 'recorded_amount' => 0, 'origin' => GatewayRefund::ORIGIN_GATEWAY]);
+                $log(PaymentGatewayEvent::OUTCOME_REJECTED, 'currency_mismatch', $payment);
+
+                return 0;
+            }
+
+            $left = $payment->status === InvoiceTransactionStatus::Succeeded ? max(0, RecordPaymentService::toCents($payment->refundable_amount)) : 0;
+            $record = min($cents, $left);
+            $credit = null;
+            $creditCents = 0;
+            try {
+                $boughtCredit = $record > 0 && (new RecordPaymentService)->lockBoughtCredit($invoice);
+            } catch (DisplayException $e) { // credit bought together with other items: staff decide what to take back
+                $boughtCredit = false;
+                $staff = "{$gateway} refunded {$refundReference} on invoice #{$invoice->id}: " . $e->getMessage();
+            }
+            if ($boughtCredit) {
+                $credit = Credit::query()->where('user_id', $invoice->user_id)->where('currency_code', $invoice->currency_code)->lockForUpdate()->first();
+                $creditCents = min($record, max(0, RecordPaymentService::toCents($credit === null ? 0 : $credit->amount)));
+                if ($creditCents < $record) {
+                    $staff = "{$gateway} refunded {$refundReference} for a credit purchase whose credit was spent: " . self::cents($record - $creditCents)
+                        . " {$invoice->currency_code} of it could not be taken back from the customer's credit (invoice #{$invoice->id}).";
+                }
+            }
+            if ($record > 0) {
+                self::recordRefund($payment, $record / 100, $credit, MoneyTrail::sourceFor($payment->gateway), $creditCents);
+            }
+            if ($record < $cents) {
+                $staff = trim(($staff ?? '') . " {$gateway} refunded " . self::cents($cents) . " {$invoice->currency_code} ({$refundReference}) on payment #{$payment->id}"
+                    . " of invoice #{$invoice->id}, but only " . self::cents($left) . ' was left on it (the rest became account credit or was refunded by hand):'
+                    . ' ' . self::cents($cents - $record) . ' recorded nowhere, settle it by hand (e.g. take it from the customer\'s credit).');
+            }
+            GatewayRefund::create(['invoice_transaction_id' => $payment->id, 'gateway' => $gateway, 'reference' => $refundReference,
+                'amount' => $cents / 100, 'currency_code' => $invoice->currency_code, 'recorded_amount' => $record / 100, 'origin' => GatewayRefund::ORIGIN_GATEWAY]);
+            if ($record > 0) {
+                self::notifyRefund($payment, $record, toCredit: false, byGateway: true);
+            }
+            $log($record > 0 ? PaymentGatewayEvent::OUTCOME_RECORDED : PaymentGatewayEvent::OUTCOME_IGNORED, $record > 0 ? 'refund' : 'refund_nothing_left', $payment);
+
+            return $record;
+        });
+
+        if ($staff !== null) {
+            Log::warning($staff);
+            DB::afterCommit(fn () => NotificationHelper::sendSystemEmailNotification('Gateway refund needs staff attention', e($staff)));
+        }
+
+        return $recorded > 0;
+    }
+
+    /** A refund the gateway reports as failed after all: if MyCS recorded it, staff check it (the money may not have left). */
+    public static function refundFailedAtGateway(string $gateway, string $refundReference): void
+    {
+        $refund = GatewayRefund::query()->where('gateway', $gateway)->where('reference', $refundReference)->first();
+        if ($refund === null || (float) $refund->recorded_amount <= 0) {
+            return;
+        }
+        $message = "{$gateway} reports refund {$refundReference} ({$refund->amount} {$refund->currency_code}, payment #{$refund->invoice_transaction_id}) as failed,"
+            . ' but it is recorded as refunded: check it at the gateway and correct it by hand.';
+        Log::warning($message);
+        NotificationHelper::sendSystemEmailNotification('Gateway refund failed after it was recorded', e($message));
+    }
+
+    /** The customer is told of a refund, after the commit; a failing notification never undoes the refund. */
+    private static function notifyRefund(InvoiceTransaction $transaction, int $cents, bool $toCredit, bool $byGateway): void
+    {
+        $invoice = $transaction->invoice;
+        if ($invoice === null || $invoice->user === null) {
+            return;
+        }
+        DB::afterCommit(function () use ($invoice, $cents, $toCredit, $byGateway) {
+            try {
+                NotificationHelper::invoiceRefundedNotification($invoice->user, $invoice->fresh(), $cents, $toCredit, $byGateway);
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        });
+    }
+
+    private static function cents(int $cents): string
+    {
+        return number_format($cents / 100, 2, '.', '');
+    }
+
+    /**
      * Record a refund by updating the transaction and creating an adjustment note; a credit purchase also
      * gives back the credit it bought. Both are journaled (docs/money-trail.md §1).
      */
-    private static function recordRefund(InvoiceTransaction $transaction, float $amount, ?Credit $credit, string $source): bool
+    private static function recordRefund(InvoiceTransaction $transaction, float $amount, ?Credit $credit, string $source, ?int $creditCents = null): bool
     {
         $cents = RecordPaymentService::toCents($amount);
+        $creditCents ??= $cents;
         $trail = new MoneyTrail;
-        if ($credit !== null) { // checked in prepareRefund, under the same locks
-            (new CreditLedger)->remove((int) $credit->user_id, $credit->currency_code, $cents, MoneyTrail::CAUSE_PURCHASE_REFUNDED,
+        if ($credit !== null && $creditCents > 0) { // checked in prepareRefund (or refundedAtGateway), under the same locks
+            (new CreditLedger)->remove((int) $credit->user_id, $credit->currency_code, $creditCents, MoneyTrail::CAUSE_PURCHASE_REFUNDED,
                 $source, $transaction->invoice, $transaction);
         }
         // One rounded amount for the transaction, the note and the journal.

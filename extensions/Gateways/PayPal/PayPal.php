@@ -507,6 +507,18 @@ class PayPal extends Gateway
             if ($billingAgreement) {
                 $billingAgreement->delete();
             }
+        } elseif ($body['event_type'] === 'PAYMENT.CAPTURE.REFUNDED' && isset($body['resource']['id'])) {
+            // A refund made here or in PayPal's dashboard (PR 2c-2): recorded once, by its id. Its capture is the «up» link.
+            $capture = collect($body['resource']['links'] ?? [])->firstWhere('rel', 'up')['href'] ?? '';
+            $captureId = basename((string) parse_url($capture, PHP_URL_PATH));
+            if ($captureId !== '' && in_array($body['resource']['status'] ?? null, ['COMPLETED', 'PENDING'], true)) {
+                ExtensionHelper::refundedAtGateway('PayPal', $captureId, (string) $body['resource']['id'],
+                    (float) ($body['resource']['amount']['value'] ?? 0), $body['resource']['amount']['currency_code'] ?? null);
+            }
+        } elseif ($body['event_type'] === 'PAYMENT.SALE.REFUNDED' && isset($body['resource']['id'], $body['resource']['sale_id'])) {
+            // A subscription sale refunded (PR 2c-2). The total is negative in some payloads: its size is the refund.
+            ExtensionHelper::refundedAtGateway('PayPal', (string) $body['resource']['sale_id'], (string) $body['resource']['id'],
+                abs((float) ($body['resource']['amount']['total'] ?? 0)), $body['resource']['amount']['currency'] ?? null);
         } elseif ($body['event_type'] === 'PAYMENT.CAPTURE.COMPLETED' && isset($body['resource']['supplementary_data']['related_ids']['order_id'])) {
             $orderID = $body['resource']['supplementary_data']['related_ids']['order_id'];
             try {
@@ -591,7 +603,8 @@ class PayPal extends Gateway
         return true;
     }
 
-    public function refund(InvoiceTransaction $transaction, $amount): bool
+    /** @return string|bool PayPal's id of the refund (its PAYMENT.CAPTURE.REFUNDED webhook is then recognised) */
+    public function refund(InvoiceTransaction $transaction, $amount): string|bool
     {
         $captureId = $transaction->transaction_id;
 
@@ -623,6 +636,6 @@ class PayPal extends Gateway
             throw new Exception('PayPal did not refund capture ' . $captureId . ' (status ' . ($refund->status ?? 'none') . ').');
         }
 
-        return true;
+        return (string) ($refund->id ?? '') ?: true;
     }
 }

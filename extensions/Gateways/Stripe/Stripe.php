@@ -158,6 +158,9 @@ class Stripe extends Gateway
                 'invoice.created',
                 'invoice.payment_succeeded',
                 'charge.updated',
+                'refund.created',
+                'refund.updated',
+                'refund.failed',
             ],
             'api_version' => self::API_VERSION,
         ]);
@@ -253,6 +256,20 @@ class Stripe extends Gateway
                 }
                 ExtensionHelper::addPaymentFee($charge->payment_intent, $fee);
 
+                break;
+            case 'refund.created':
+            case 'refund.updated':
+            case 'refund.failed':
+                // A refund made here or in Stripe's dashboard (PR 2c-2): recorded once, by its id.
+                $refund = $event->data->object; // contains a StripeRefund
+                if (!isset($refund->payment_intent, $refund->id)) {
+                    break;
+                }
+                if (in_array($refund->status ?? null, ['succeeded', 'pending'], true)) {
+                    ExtensionHelper::refundedAtGateway('Stripe', $refund->payment_intent, $refund->id, $refund->amount / 100, $refund->currency ?? null);
+                } elseif (in_array($refund->status ?? null, ['failed', 'canceled'], true)) {
+                    ExtensionHelper::refundFailedAtGateway('Stripe', $refund->id);
+                }
                 break;
             case 'setup_intent.succeeded':
                 $setupIntent = $event->data->object; // contains a StripeSetupIntent
@@ -864,7 +881,8 @@ class Stripe extends Gateway
         return true;
     }
 
-    public function refund(InvoiceTransaction $transaction, $amount): bool
+    /** @return string Stripe's id of the refund (its refund.* webhooks are then recognised) */
+    public function refund(InvoiceTransaction $transaction, $amount): string
     {
         $paymentIntentId = $transaction->transaction_id;
 
@@ -877,8 +895,8 @@ class Stripe extends Gateway
             'amount' => (int) round($amount * 100),
         ];
 
-        $this->request('post', '/refunds', $refundData);
+        $refund = $this->request('post', '/refunds', $refundData);
 
-        return true;
+        return (string) $refund->id;
     }
 }
