@@ -31,6 +31,7 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 use Livewire\Livewire;
 use Paymenter\Extensions\Gateways\PayPal\PayPal;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use Tests\TestCase;
@@ -618,7 +619,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
         return ['seed 7' => [7], 'seed 42' => [42], 'seed 1337' => [1337]];
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('seeds')]
+    #[DataProvider('seeds')]
     public function test_fuzz(int $seed): void
     {
         mt_srand($seed);
