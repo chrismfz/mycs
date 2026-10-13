@@ -79,8 +79,15 @@
       στο paid, `sequences`)· ένα τιμολόγιο ανά πελάτη/ημερομηνία και τι σημαίνει «ακύρωση τιμολογίου»· status
       υπηρεσιών/τιμολογίων/παραγγελιών. Και Δ5–Δ8 (μερική πίστωση, θέσεις στο schema, ζώνη ώρας, ownership helper).
 - [ ] Σ1 Contract των server adapters και provisioning (Module Log, status μόνο μετά την επιτυχία, idempotent create).
+      **Pending Module Actions / Module Queue όπως στο WHMCS** (ζητήθηκε 2026-10-13· SVC-2, EVT-9): λίστα ενεργειών
+      server/registrar που απέτυχαν (create, suspend, unsuspend, terminate, **domain renew** όταν π.χ. ο λογαριασμός στο
+      Openprovider/FORTH δεν έχει υπόλοιπο), με Retry και μετρητή στο dashboard. Να δείχνει και τα «πληρωμένα που δεν
+      εφαρμόστηκαν» του BIL-9 (`paid_applied`, σήμερα μόνο email). Απαραίτητο πριν από τα domains.
 - [ ] Σ2 Κύκλος ζωής: ακύρωση «end of period» (δεν εκτελείται σήμερα), ακυρώσεις ανά γραμμή αντί για ολόκληρα
       τιμολόγια, αναστολή μόνο με ληξιπρόθεσμο τιμολόγιο, όχι αναστολή+τερματισμός στο ίδιο run, upgrades.
+      Έγιναν: end of period (#61), αναστολή/τερματισμός «the WHMCS way» με ρυθμίσεις (#63), καρτέλα Automation (#66),
+      πληρωμένο χωρίς εφαρμογή BIL-9 (#68). Μένουν: SVC-6, BIL-11, BIL-6, BIL-16, BIL-12. Με τον scheduler: οι 30 ημέρες
+      προστασίας του BIL-9 (`PAID_NOT_APPLIED_DAYS`) γίνονται ρύθμιση, και το `paid_applied` τρέχει πιο συχνά.
 - [ ] Σ3 Gateways: idempotency keys, refund μόνο σε succeeded, ιδιοκτησία αποθηκευμένης μεθόδου, webhooks κοινού
       λογαριασμού με το WHMCS, πληρωμές χωρίς τιμολόγιο.
 - [ ] Σ4 Ειδοποιήσεις μετά το commit (όχι `afterResponse`), PDF εκτός ροής πληρωμής, retries στο mail.
