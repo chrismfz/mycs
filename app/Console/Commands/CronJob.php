@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
@@ -22,6 +23,7 @@ use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Exception;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -167,31 +169,49 @@ class CronJob extends Command
             }, transaction: false);
 
             $this->runCronJob('services_suspended', function ($number = 0) {
-                // Suspend orders if due date is overdue for x days
-                Service::where('status', 'active')
-                    ->where('expires_at', '<', now()->subDays((int) config('settings.cronjob_order_suspend', 2)))
-                    ->where(function ($query) {
-                        $query->whereNull('suspend_hold_until')->orWhere('suspend_hold_until', '<', now());
-                    })
-                    ->lockForUpdate()->get()->each(function ($service) use (&$number) {
-                        // Register before Service Updated listeners, but execute only after the status commits.
-                        SuspendJob::dispatch($service)->afterCommit();
-                        $service->forceFill(['status' => 'suspended', 'dunning_suspended_at' => now()])->save();
-                        $number++;
-                    });
+                // Suspend services Suspend Days past their next due date (as WHMCS). With «suspend only with an overdue
+                // invoice» (audit sweep BIL-5, off by default) an open invoice of the service must be overdue too,
+                // and a service past due with no open invoice is reported instead. Never while a payment is on its
+                // way (SEPA, PAY-9). One service per transaction, the rule read again under its lock (a payment or a
+                // hold that just committed).
+                $requiresInvoice = (bool) config('settings.cronjob_suspend_requires_invoice', false);
+                if ($requiresInvoice) {
+                    $notices = $this->suspendable()->whereDoesntHave('invoices', fn ($query) => $query->where('invoices.status', Invoice::STATUS_PENDING))->pluck('id');
+                    foreach ($notices as $id) {
+                        $this->notices["services_suspended #{$id}"] = new DisplayException("Service #{$id} is past due with no open invoice: not suspended (bill it, or set its due date).");
+                    }
+                }
+                foreach ($this->suspendable(overdueInvoice: $requiresInvoice)->pluck('id') as $id) {
+                    try {
+                        $number += DB::transaction(function () use ($id, $requiresInvoice) {
+                            $service = $this->suspendable(overdueInvoice: $requiresInvoice)->whereKey($id)->lockForUpdate()->first();
+                            if ($service === null) {
+                                return 0;
+                            }
+                            // Register before Service Updated listeners, but execute only after the status commits.
+                            SuspendJob::dispatch($service)->afterCommit();
+                            $service->forceFill(['status' => 'suspended', 'dunning_suspended_at' => now()])->save();
+
+                            return 1;
+                        });
+                    } catch (Throwable $e) {
+                        report($e);
+                        $this->failures["services_suspended #{$id}"] = $e;
+                    }
+                }
 
                 return $number;
-            });
+            }, transaction: false);
 
             $this->runCronJob('services_terminated', function ($number = 0) {
-                // Terminate orders if due date is overdue for x days. One service per transaction (BIL-10).
-                $ids = Service::where('status', 'suspended')->whereNotNull('dunning_suspended_at')
-                    ->where('expires_at', '<', now()->subDays((int) config('settings.cronjob_order_terminate', 14)))->pluck('id');
-                foreach ($ids as $id) {
+                // Terminate services Termination Days past due (as WHMCS), suspended for non-payment, and suspended at
+                // least «minimum days suspended» ago (1 by default: never on the day of the suspension, audit sweep
+                // BIL-4). One service per transaction (BIL-10), the rule read again under its lock.
+                foreach ($this->terminable()->pluck('id') as $id) {
                     try {
                         $number += DB::transaction(function () use ($id) {
-                            $service = Service::query()->whereKey($id)->lockForUpdate()->first();
-                            if ($service === null || $service->status !== Service::STATUS_SUSPENDED || $service->dunning_suspended_at === null) {
+                            $service = $this->terminable()->whereKey($id)->lockForUpdate()->first();
+                            if ($service === null) {
                                 return 0;
                             }
                             TerminateJob::dispatch($service)->afterCommit();
@@ -270,6 +290,59 @@ class CronJob extends Command
 
         // Remove old debug logs
         DebugLog::where('created_at', '<', now()->subDays(30))->delete();
+    }
+
+    /**
+     * Active services past Suspend Days, not held, not on a free or one-time plan (no period to pay; a service whose
+     * plan is gone is not exempt), with no payment on its way. With $overdueInvoice: and an open invoice of theirs due
+     * and issued Suspend Days ago (a missing due date counts from its issue).
+     *
+     * @return Builder<Service>
+     */
+    private function suspendable(bool $overdueInvoice = false): Builder
+    {
+        $cutoff = today()->subDays(self::days('cronjob_order_suspend', 2))->toDateString();
+        $query = $this->unheldWithNoPaymentOnItsWay(Service::query()->where('status', Service::STATUS_ACTIVE))
+            ->whereDate('expires_at', '<', $cutoff)
+            ->whereDoesntHave('plan', fn ($plan) => $plan->whereIn('type', ['free', 'one-time']));
+
+        return !$overdueInvoice ? $query : $query->whereHas('invoices', fn ($invoices) => $invoices
+            ->where('invoices.status', Invoice::STATUS_PENDING)
+            ->whereRaw('DATE(COALESCE(invoices.due_at, invoices.created_at)) < ?', [$cutoff])
+            ->whereDate('invoices.created_at', '<', $cutoff));
+    }
+
+    /**
+     * Suspended for non-payment, past Termination Days, suspended at least «minimum days suspended» ago, not held,
+     * with no payment on its way (a SEPA payment would land on the invoices the termination cancels).
+     *
+     * @return Builder<Service>
+     */
+    private function terminable(): Builder
+    {
+        return $this->unheldWithNoPaymentOnItsWay(Service::query()->where('status', Service::STATUS_SUSPENDED))
+            ->whereNotNull('dunning_suspended_at')
+            ->whereDate('expires_at', '<', today()->subDays(self::days('cronjob_order_terminate', 14))->toDateString())
+            ->whereDate('dunning_suspended_at', '<=', today()->subDays(self::days('cronjob_terminate_min_suspended_days', 1))->toDateString());
+    }
+
+    /**
+     * No hold (a hold holds through its last day), and no open invoice of theirs with a processing payment (PAY-9).
+     *
+     * @param  Builder<Service>  $query
+     * @return Builder<Service>
+     */
+    private function unheldWithNoPaymentOnItsWay(Builder $query): Builder
+    {
+        return $query->where(fn ($hold) => $hold->whereNull('suspend_hold_until')->orWhereDate('suspend_hold_until', '<', today()))
+            ->whereDoesntHave('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_PENDING)
+                ->whereHas('transactions', fn ($payments) => $payments->where('status', InvoiceTransactionStatus::Processing)));
+    }
+
+    /** A day count setting; never negative (a negative count would act before the due date). */
+    private static function days(string $setting, int $default): int
+    {
+        return max(0, (int) config("settings.{$setting}", $default));
     }
 
     /**
