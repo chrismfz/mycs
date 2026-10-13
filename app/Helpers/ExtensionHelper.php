@@ -1206,6 +1206,16 @@ class ExtensionHelper
                 (new MoneyTrail)->reverse($event, MoneyTrail::CAUSE_CHARGEBACK_WON);
             }
             $row->update(['origin' => GatewayRefund::ORIGIN_CHARGEBACK_WON]);
+            // Paid again in the meantime (the customer paid once more): the money back is over the invoice and becomes
+            // the customer's credit, from this payment, as settle() credits a part over.
+            $invoice->refresh();
+            $over = -RecordPaymentService::toCents($invoice->remaining);
+            if ($recorded > 0 && $invoice->status === Invoice::STATUS_PAID && $over > 0 && $invoice->user_id !== null) {
+                $over = min($over, $recorded);
+                $payment->increment('credited_amount', $over / 100);
+                (new CreditLedger)->add((int) $invoice->user_id, $invoice->currency_code, $over, MoneyTrail::CAUSE_CHARGEBACK_WON,
+                    MoneyTrail::sourceFor($payment->gateway), $invoice, $payment);
+            }
             $invoiceId = $invoice->id;
             $log(PaymentGatewayEvent::OUTCOME_RECORDED, 'chargeback_won', $row);
 
