@@ -2,7 +2,9 @@
 
 namespace App\Console\Commands;
 
+use App\Enums\AdjustmentNoteStatus;
 use App\Enums\InvoiceTransactionStatus;
+use App\Events\Invoice as InvoiceEvent;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
@@ -18,6 +20,7 @@ use App\Models\ServiceUpgrade;
 use App\Models\Setting;
 use App\Models\Ticket;
 use App\Services\Invoice\CancelOpenInvoices;
+use App\Services\Invoice\ProcessPaidInvoiceService;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Service\RenewServiceService;
@@ -66,6 +69,48 @@ class CronJob extends Command
         // ones committed (docs/billing-cursor.md).
         try {
             // Send invoices if due date is x days away
+            // Paid invoices whose lines were not applied (the work after the payment's commit failed: a crash, a
+            // server error): applied again, and their Paid event fired then (audit sweep BIL-9). Only those MyCS marked
+            // paid; a few minutes old, so a payment being applied right now is left to finish. Until applied (for
+            // PAID_NOT_APPLIED_DAYS at most), the services of its lines not applied are neither billed again, suspended
+            // nor terminated. One invoice at a time; one that fails again is reported and tried again on the next run.
+            $this->runCronJob('paid_applied', function ($number = 0) {
+                $ids = Invoice::query()->where('status', Invoice::STATUS_PAID)->whereNotNull('apply_pending_since')
+                    ->where('apply_pending_since', '<', now()->subMinutes(10))->orderBy('id')->pluck('id');
+                foreach ($ids as $id) {
+                    $invoice = null;
+                    try {
+                        $invoice = Invoice::query()->whereKey($id)->where('status', Invoice::STATUS_PAID)->first();
+                        if ($invoice === null || $invoice->apply_pending_since === null) {
+                            continue;
+                        }
+                        if (!$this->keepsItsMoney($invoice)) {
+                            // Refunded (it stays paid) or its money moved to credit: staff decide, nothing is renewed.
+                            Invoice::query()->whereKey($id)->update(['apply_pending_since' => null]);
+                            $this->notices["paid_applied #{$id}"] = new DisplayException("Invoice #{$id} was paid but not applied, and its money was refunded or moved to credit since: not applied.");
+
+                            continue;
+                        }
+                        (new ProcessPaidInvoiceService)->handle($invoice);
+                        $number++;
+                    } catch (Throwable $e) {
+                        report($e);
+                        $until = $invoice?->apply_pending_since?->addDays(self::PAID_NOT_APPLIED_DAYS)->toDateString();
+                        $this->notices["paid_applied #{$id}"] = new DisplayException("Invoice #{$id} is paid but its lines could not be applied: {$e->getMessage()}. Tried again on the next run; the services of the lines not applied are neither billed nor suspended until {$until}.");
+
+                        continue;
+                    }
+                    try {
+                        event(new InvoiceEvent\Paid($invoice)); // the one its failed application never reached
+                    } catch (Throwable $e) {
+                        report($e);
+                        $this->notices["paid_applied #{$id} paid event"] = new DisplayException("Invoice #{$id} was applied, but its paid notifications failed: {$e->getMessage()}");
+                    }
+                }
+
+                return $number;
+            }, transaction: false);
+
             // Credit pays what is open, oldest due first, before new renewals take it and before anything is suspended
             // (decision 5, MT-1e): a customer with credit is not suspended while it sits unused. Each invoice in its own
             // transaction, under the payment locks.
@@ -349,7 +394,8 @@ class CronJob extends Command
     }
 
     /**
-     * No hold (a hold holds through its last day), and no open invoice of theirs with a processing payment (PAY-9).
+     * No hold (a hold holds through its last day), no open invoice of theirs with a processing payment (PAY-9), and no
+     * paid invoice of theirs still to be applied (BIL-9): its customer paid, the renewal is on its way.
      *
      * @param  Builder<Service>  $query
      * @return Builder<Service>
@@ -358,7 +404,42 @@ class CronJob extends Command
     {
         return $query->where(fn ($hold) => $hold->whereNull('suspend_hold_until')->orWhereDate('suspend_hold_until', '<', today()))
             ->whereDoesntHave('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_PENDING)
-                ->whereHas('transactions', fn ($payments) => $payments->where('status', InvoiceTransactionStatus::Processing)));
+                ->whereHas('transactions', fn ($payments) => $payments->where('status', InvoiceTransactionStatus::Processing)))
+            ->whereNotExists(fn ($line) => $this->paidLineToApply($line));
+    }
+
+    /** Protected this long by a paid line that is not applied (then the usual rules, after a notice every day). */
+    private const PAID_NOT_APPLIED_DAYS = 30;
+
+    /**
+     * A line of the service (services.id in the outer query) on a paid invoice still to be applied (BIL-9), its own line
+     * not applied yet: another service of the same invoice, applied, is not protected by it. For PAID_NOT_APPLIED_DAYS.
+     *
+     * @param  \Illuminate\Database\Query\Builder  $line
+     */
+    private function paidLineToApply($line): void
+    {
+        $line->from('invoice_items')->join('invoices', 'invoices.id', '=', 'invoice_items.invoice_id')
+            ->where('invoice_items.reference_type', Service::class)->whereColumn('invoice_items.reference_id', 'services.id')
+            ->whereNull('invoice_items.applied_at')
+            ->where('invoices.status', Invoice::STATUS_PAID)
+            ->where('invoices.apply_pending_since', '>=', now()->subDays(self::PAID_NOT_APPLIED_DAYS));
+    }
+
+    /**
+     * The money that paid it is still on it: succeeded payments, less refunds and what moved to credit, cover what was
+     * due (its lines and the notes other than refunds). A refund leaves the invoice paid (its note lowers the total).
+     */
+    private function keepsItsMoney(Invoice $invoice): bool
+    {
+        $due = $invoice->items->sum(fn ($item) => RecordPaymentService::toCents($item->price) * (int) $item->quantity)
+            + $invoice->adjustmentNotes->where('status', AdjustmentNoteStatus::Active->value)->where('is_refund', false)
+                ->sum(fn ($note) => RecordPaymentService::toCents($note->amount));
+        $kept = $invoice->transactions->where('status', InvoiceTransactionStatus::Succeeded)
+            ->sum(fn ($payment) => RecordPaymentService::toCents($payment->amount) - RecordPaymentService::toCents($payment->refunded_amount)
+                - RecordPaymentService::toCents($payment->credited_amount));
+
+        return $kept >= $due;
     }
 
     /** A day count setting; never negative (a negative count would act before the due date). */
@@ -413,6 +494,10 @@ class CronJob extends Command
 
         // Does the service have already an open (pending or draft) invoice?
         if ($service->invoices()->whereIn('status', ['pending', 'draft'])->exists() || $service->cancellation()->exists()) {
+            return 0;
+        }
+        // A payment of it still to be applied (BIL-9): its date has not moved yet, billing now would ask for it twice.
+        if (Service::query()->whereKey($service->id)->whereExists(fn ($line) => $this->paidLineToApply($line))->exists()) {
             return 0;
         }
 
