@@ -21,6 +21,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Mail;
 use Livewire\Livewire;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use Tests\TestCase;
 
 /**
@@ -199,6 +201,9 @@ class CreditAutoApplyTest extends TestCase
         $this->assertSame(1, InvoiceTransaction::query()->where('is_credit_transaction', true)->count());
     }
 
+    /** In its own process: the theme's breadcrumb declares a function, so the page renders once per process. */
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
     public function test_the_customer_switches_it_off_on_the_credits_page(): void
     {
         Setting::query()->updateOrCreate(['key' => 'credits_enabled', 'settingable_type' => null], ['value' => true, 'type' => 'boolean']);
