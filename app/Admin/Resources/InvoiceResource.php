@@ -30,6 +30,7 @@ use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Support\RawJs;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -196,6 +197,11 @@ class InvoiceResource extends Resource
                         'pending' => 'Pending',
                         'cancelled' => 'Cancelled',
                     ]),
+                // Paid, its services not renewed yet (BIL-9): the cron's paid_applied tries again; the money check
+                // reports one still waiting after a day (MT-3).
+                Filter::make('paid_not_applied')
+                    ->label(__('Paid, not applied'))
+                    ->query(fn (Builder $query) => $query->where('status', Invoice::STATUS_PAID)->whereNotNull('apply_pending_since')),
             ])
             ->recordActions([
                 ViewAction::make()

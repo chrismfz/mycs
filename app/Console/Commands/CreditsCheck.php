@@ -2,10 +2,9 @@
 
 namespace App\Console\Commands;
 
-use App\Enums\MoneyEventKind;
 use App\Models\Credit;
-use App\Models\MoneyEvent;
 use App\Services\Money\CreditLedger;
+use App\Services\Money\MoneyCheck;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -26,7 +25,7 @@ class CreditsCheck extends Command
         // One snapshot for both reads (REPEATABLE READ): a move between them would show as a false mismatch. Balances
         // are read exactly, any size (not through toCents, which reads a huge amount as zero), so they show here.
         [$journal, $balances] = DB::transaction(fn () => [
-            $this->journalCents(),
+            MoneyCheck::journalCredits(),
             Credit::query()->get(['user_id', 'currency_code', 'amount'])
                 ->mapWithKeys(fn (Credit $credit) => [$credit->user_id . '|' . $credit->currency_code => (int) round((float) $credit->amount * 100)]),
         ]);
@@ -58,7 +57,7 @@ class CreditsCheck extends Command
             DB::transaction(function () use ($userId, $currency) {
                 // Under the ledger's locks, recomputed: the journal may have moved since the read above.
                 $credit = (new CreditLedger)->lock((int) $userId, $currency);
-                $expected = $this->journalCents((int) $userId, $currency)[$userId . '|' . $currency] ?? 0;
+                $expected = MoneyCheck::journalCredits((int) $userId, $currency)[$userId . '|' . $currency] ?? 0;
                 if ($credit === null) {
                     Credit::query()->create(['user_id' => (int) $userId, 'currency_code' => $currency, 'amount' => $expected / 100]);
                 } else {
@@ -70,26 +69,6 @@ class CreditsCheck extends Command
         $this->info(count($rows) . ' balance(s) rebuilt from the journal.');
 
         return self::SUCCESS;
-    }
-
-    /** @return array<string, int> "user|currency" => Σ credit effect in cents */
-    private function journalCents(?int $userId = null, ?string $currency = null): array
-    {
-        $totals = [];
-        MoneyEvent::query()->with('reverses')
-            ->whereIn('kind', [MoneyEventKind::CreditIn->value, MoneyEventKind::CreditOut->value, MoneyEventKind::Reversal->value])
-            ->whereNotNull('user_id')
-            ->when($userId !== null, fn ($query) => $query->where('user_id', $userId)->where('currency_code', $currency))
-            ->orderBy('id')
-            ->each(function (MoneyEvent $event) use (&$totals) {
-                $effect = $event->creditEffectCents();
-                if ($effect !== 0) {
-                    $key = $event->user_id . '|' . $event->currency_code;
-                    $totals[$key] = ($totals[$key] ?? 0) + $effect;
-                }
-            });
-
-        return $totals;
     }
 
     private static function money(int $cents): string

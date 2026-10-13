@@ -8,8 +8,8 @@ use App\Models\ConfigOptionProduct;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Services\Invoice\ChangeOpenLine;
+use App\Services\Money\PaymentsLog;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 class ServiceUpgradeService
 {
@@ -36,7 +36,7 @@ class ServiceUpgradeService
                 $locked->update(['status' => ServiceUpgrade::STATUS_CANCELLED]);
                 $original->setRawAttributes($locked->getAttributes(), true);
                 $context = ['service_upgrade_id' => $locked->id, 'service_id' => $serviceId, 'invoice_id' => $locked->invoice_id];
-                Log::warning('Paid upgrade of a service that no longer runs: not applied (refund or credit it).', $context);
+                PaymentsLog::warning('Paid upgrade of a service that no longer runs: not applied (refund or credit it).', $context);
                 DB::afterCommit(fn () => NotificationHelper::sendSystemEmailNotification('Paid upgrade not applied: needs staff attention', e(
                     "Upgrade #{$locked->id} of service #{$serviceId} (invoice #{$locked->invoice_id}) was paid, but the service no longer runs: "
                     . 'it was not applied. Refund the payment or move it to credit.'

@@ -2,11 +2,16 @@
 
 namespace Tests\Feature;
 
+use App\Enums\InvoiceTransactionStatus;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\InvoiceTransaction;
 use App\Models\Plan;
 use App\Models\Service;
 use App\Models\User;
+use App\Services\Invoice\RecordPaymentService;
+use App\Services\Money\MoneyCheck;
+use App\Services\Money\MoneyTrail;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -33,6 +38,15 @@ use Throwable;
 class BillingCursorFuzzTest extends TestCase
 {
     use RefreshDatabase;
+
+    /** I10: the money check's rules but those about time (a row or a payment still waiting) and a negative credit. */
+    public const I10_EXCLUDED = ['paid_not_applied', 'gateway_received', 'credit_negative'];
+
+    /** I10: the rules about what staff do next with an invoice; one the simulation's staff left as it is is excused. */
+    private const I10_STAFF_LEFT = ['cancelled_applied', 'cancelled_holds_money', 'open_for_cancelled', 'paid_for_cancelled'];
+
+    /** @var array<int, true> invoices the simulation's staff left as they are (I10) */
+    private array $staffLeft = [];
 
     private User $user;
 
@@ -218,8 +232,11 @@ class BillingCursorFuzzTest extends TestCase
 
         // Retire the service so later seeds' cron runs ignore it.
         DB::table('services')->where('id', $this->service->id)->update(['status' => 'cancelled', 'expires_at' => null]);
-        DB::table('invoices')->whereIn('id', InvoiceItem::query()->where('reference_type', Service::class)
-            ->where('reference_id', $this->service->id)->pluck('invoice_id'))->update(['status' => 'cancelled']);
+        $retired = InvoiceItem::query()->where('reference_type', Service::class)->where('reference_id', $this->service->id)->pluck('invoice_id');
+        DB::table('invoices')->whereIn('id', $retired)->update(['status' => 'cancelled']);
+        foreach ($retired as $id) {
+            $this->staffLeft[(int) $id] = true; // cancelled in the database, money and all (I10)
+        }
 
         if ($failure === null) {
             return [null, $n];
@@ -251,9 +268,9 @@ class BillingCursorFuzzTest extends TestCase
                     return null;
                 }
                 $inv = $action === 'pay_oldest' ? $pending->first() : $this->pickOne($pending);
-                $this->pay($inv);
+                $id = $this->pay($inv);
                 if ($action === 'pay_twice') {
-                    $this->pay($inv->fresh());
+                    $this->pay($inv->fresh(), $id); // the same payment again (a replayed webhook)
                 }
                 $paid = true;
                 $detail = "#{$inv->id}";
@@ -327,10 +344,14 @@ class BillingCursorFuzzTest extends TestCase
                 }
                 $inv = $this->pickOne($done);
                 $inv->update(['status' => 'cancelled']);
+                $this->staffLeft[$inv->id] = true; // its money stays on it, as the money check says (I10)
                 $detail = "#{$inv->id}";
                 break;
             case 'manual_line':
                 $inv = $this->invoiceFor(null, null, 'pending');
+                if ($this->service->fresh()->status === 'cancelled') {
+                    $this->staffLeft[$inv->id] = true; // staff bill a service already cancelled (I10)
+                }
                 $detail = "#{$inv->id} (no period)";
                 break;
             case 'price_toggle':
@@ -459,6 +480,18 @@ class BillingCursorFuzzTest extends TestCase
             if ($bad !== null) {
                 return "I6 free renewal [$fs,$fe) $bad";
             }
+        }
+
+        // I10 the money adds up after every step (MT-3): the daily money check's rules, but those about time (a row
+        // or a payment still waiting) and the negative credit staff may leave on purpose.
+        // Every rule but those about time and the negative credit staff may leave. An invoice the simulation's staff left
+        // as it is on purpose (a paid one cancelled, A6; a service billed after it ended; the seeds retired in the
+        // database) is excused, that one invoice only, from the rules about what staff should then do with it.
+        $money = array_values(array_filter((new MoneyCheck)->run(array_values(array_diff(MoneyCheck::RULES, self::I10_EXCLUDED))),
+            fn (array $finding) => !(in_array($finding['rule'], self::I10_STAFF_LEFT, true)
+                && preg_match('/^invoice #(\d+)/', $finding['subject'], $m) === 1 && isset($this->staffLeft[(int) $m[1]]))));
+        if ($money !== []) {
+            return "I10 money check after $action: {$money[0]['rule']} {$money[0]['subject']}: {$money[0]['detail']}";
         }
 
         return null;
@@ -604,14 +637,30 @@ class BillingCursorFuzzTest extends TestCase
         // invoice keeps its lines, and is never created paid).
         if ($status === Invoice::STATUS_PAID) {
             DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PAID]);
+            // Its payment, journaled (as the importer brings a paid past): the money check (I10) sees a whole book.
+            $transactionId = DB::table('invoice_transactions')->insertGetId(['invoice_id' => $invoice->id, 'amount' => 10.00,
+                'status' => InvoiceTransactionStatus::Succeeded->value, 'created_at' => now(), 'updated_at' => now()]);
+            (new MoneyTrail)->payment($invoice->fresh(), InvoiceTransaction::query()->findOrFail($transactionId), MoneyTrail::SOURCE_IMPORT);
         }
 
         return $invoice->fresh();
     }
 
-    private function pay(Invoice $invoice): void
+    private int $payments = 0;
+
+    /**
+     * A payment through the app's payment path (journaled, MT-1a): what is left, or, on an invoice with nothing left (a
+     * cancelled one), its lines' total: that money becomes credit and the invoice stays as it is (pay_cancelled). Ids
+     * from a counter, not from mt_rand, so a recorded seed replays the same random sequence. Returns the payment's id.
+     */
+    private function pay(Invoice $invoice, ?string $id = null): string
     {
-        $invoice->transactions()->create(['amount' => $invoice->remaining]);
+        $id ??= 'sim-' . ++$this->payments;
+        $amount = $invoice->remaining > 0 ? $invoice->remaining
+            : $invoice->items->sum(fn (InvoiceItem $line) => (float) $line->price * (int) $line->quantity);
+        (new RecordPaymentService)->handle($invoice, null, $amount, transactionId: $id);
+
+        return $id;
     }
 
     // =====================================================================================  minimized cases

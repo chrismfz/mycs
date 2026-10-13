@@ -50,6 +50,12 @@
   όπως το Ekdosi), `migrate --seed`, `storage:link`, `app:init` (σήμερα: `mycs:install`, `docs/install.md`).
 - **Cron:** `* * * * * php artisan schedule:run` (crontab του `mycs`). **Queue:** `mycs-queue.service` (systemd, όπως
   το `ekdosi-queue.service`).
+- **Ποτέ tests ή branches στον φάκελο που σερβίρει το site (`/var/www/mycs`).** Μετά το `deploy/update.sh` το config
+  είναι cached (`bootstrap/cache/config.php`): τα env vars (`DB_CONNECTION=sqlite` κ.λπ.) αγνοούνται και ένα test με
+  `RefreshDatabase` γράφει στη βάση του site (2026-10-13: έσβησε χρήστη, ρόλους, ρυθμίσεις· επαναφορά από το snapshot
+  του deploy). Και ένα `git checkout` εκεί αλλάζει αμέσως τον κώδικα που τρέχει. Δουλειά και tests σε ξεχωριστό clone
+  ή worktree (π.χ. `git worktree add /root/mycs-dev <branch>`, `cp -a vendor`, SQLite με `APP_KEY`)· στο site μόνο
+  `deploy/update.sh`.
 - **Tests:** βάση `mycs_test` (ίδιος χρήστης)· `set -a; . ./.db-credentials; DB_DATABASE=mycs_test; set +a; php artisan test`
   → 66 passed· `vendor/bin/pint --test` → καθαρό (2026-10-11, μετά το PR #2).
 - **Ενημέρωση:** `su - mycs -c 'cd /var/www/mycs && deploy/update.sh'` (χωρίς `git pull` πριν· το script κάνει fetch/checkout) (το `main`· ή `deploy/update.sh <branch|tag>`).

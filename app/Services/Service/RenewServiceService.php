@@ -9,10 +9,10 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Observers\ServiceObserver;
+use App\Services\Money\PaymentsLog;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 /**
  * Renew a service after an invoice line is paid (docs/billing-cursor.md).
@@ -46,7 +46,7 @@ class RenewServiceService
             }
 
             if ($locked->status === Service::STATUS_CANCELLED) {
-                Log::warning('Payment for a cancelled service: not revived.', ['service_id' => $locked->id, 'invoice_item_id' => $item?->id]);
+                PaymentsLog::warning('Payment for a cancelled service: not revived.', ['service_id' => $locked->id, 'invoice_item_id' => $item?->id]);
                 if ($item !== null && $item->applied_at === null) {
                     // A payment, not the cron: the money is the staff's to refund or credit (as for an upgrade, SVC-6).
                     DB::afterCommit(fn () => NotificationHelper::sendSystemEmailNotification('Payment for a cancelled service: needs staff attention', e(

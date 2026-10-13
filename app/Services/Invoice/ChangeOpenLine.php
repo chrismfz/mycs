@@ -4,9 +4,9 @@ namespace App\Services\Invoice;
 
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Services\Money\PaymentsLog;
 use Closure;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 /**
  * A change to a line of an open invoice made by the app (a new recurring amount, an upgrade's price), under the
@@ -26,7 +26,7 @@ class ChangeOpenLine
             }
             if ($invoice->hasPayments(lock: true)) {
                 // Kept at its price: staff decide (a note, or a refund of the part over).
-                Log::warning('A line of an invoice with a payment on it keeps its price: the app would have changed it.', [
+                PaymentsLog::warning('A line of an invoice with a payment on it keeps its price: the app would have changed it.', [
                     'invoice_id' => $invoice->id, 'invoice_item_id' => $line->getKey(),
                 ]);
 

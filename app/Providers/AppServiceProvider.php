@@ -165,7 +165,13 @@ class AppServiceProvider extends ServiceProvider
             }
         });
         Event::listen(function (RequestHandled $event) {
-            GatewayLog::current()->finish($event->response);
+            $log = GatewayLog::current();
+            // A request to a gateway's URLs that matched no route (a wrong method or path) shows too (MT-3).
+            if (!$log->active() && in_array($event->response->getStatusCode(), [404, 405], true)
+                && ($gateway = self::gatewayOfPath($event->request)) !== null) {
+                $log->unmatched($event->request, $event->response, $gateway);
+            }
+            $log->finish($event->response);
         });
 
         Gate::defaultDenialResponse(Response::denyAsNotFound());
@@ -242,5 +248,24 @@ class AppServiceProvider extends ServiceProvider
                     );
                 });
         }
+    }
+
+    /**
+     * The gateway extension a URL belongs to: /extensions/{gateway}/… or /extensions/gateways/{gateway}/…, the paths the
+     * gateways register their routes under. Null for anything else.
+     */
+    private static function gatewayOfPath(Request $request): ?string
+    {
+        if ($request->segment(1) !== 'extensions') {
+            return null;
+        }
+        $name = strtolower((string) ($request->segment(2) === 'gateways' ? $request->segment(3) : $request->segment(2)));
+        try {
+            $gateways = Extension::query()->where('type', 'gateway')->pluck('extension')->map(fn ($extension) => strtolower((string) $extension));
+        } catch (\Throwable $e) {
+            return null;
+        }
+
+        return $name !== '' && $gateways->contains($name) ? $name : null;
     }
 }

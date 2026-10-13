@@ -17,6 +17,7 @@ use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
 use App\Services\ServiceUpgrade\ServiceUpgradeService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -218,18 +219,18 @@ class UpgradeLifecycleAdversarialTest extends TestCase
         (new RecordPaymentService)->handle($renewal, null, 4, transactionId: 'part');
         $upgrade = $this->upgrade($service, price: 0);
         $upgrade->product->plans()->first()->prices()->update(['price' => 2]); // a downgrade to 2/month
-        Log::spy();
+        $warnings = [];
+        Log::listen(function (MessageLogged $event) use (&$warnings) {
+            if ($event->level === 'warning') {
+                $warnings[] = $event->message;
+            }
+        });
 
         (new ServiceUpgradeService)->handle($upgrade);
 
         $this->assertSame('2.00', self::money($service->fresh()->price));
         $this->assertSame('10.00', self::money($line->fresh()->price));
-        $logged = false;
-        try {
-            Log::shouldHaveReceived('warning')->atLeast()->once();
-            $logged = true;
-        } catch (\Throwable) {
-        }
+        $logged = collect($warnings)->contains(fn ($message) => str_contains($message, 'keeps its price')); // through PaymentsLog
         $this->assertTrue($logged || $this->staffNotices() > 0, 'renewal billed at the old plan price after a downgrade, silently');
     }
 
