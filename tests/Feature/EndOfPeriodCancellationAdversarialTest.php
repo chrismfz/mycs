@@ -207,6 +207,11 @@ class EndOfPeriodCancellationAdversarialTest extends TestCase
 
     public function test_holds_timezone_boundary_late_evening_before_the_due_date(): void
     {
+        // The app's zone, as in production (APP_TIMEZONE=Europe/Athens): CI has no .env and would run it in UTC.
+        $zone = date_default_timezone_get();
+        date_default_timezone_set('Europe/Athens');
+        config(['app.timezone' => 'Europe/Athens']);
+        $this->beforeApplicationDestroyed(fn () => date_default_timezone_set($zone));
         Queue::fake();
         Carbon::setTestNow(Carbon::parse('2026-10-19 23:55:00', 'Europe/Athens'));
         $service = $this->service('2026-10-20');
