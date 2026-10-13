@@ -12,6 +12,7 @@ use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\Role;
+use App\Models\Setting;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -137,6 +138,8 @@ class StaffCorrectionsCodeReviewTest extends TestCase
         $note = $invoice->adjustmentNotes()->create(['type' => AdjustmentNoteType::Credit->value, 'amount' => -10, 'description' => 'Goodwill']);
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 90.00, null, 'pi_imm', currency: 'USD');
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
+        // Stored, not only in config: each Livewire request reloads the settings from the database.
+        Setting::updateOrCreate(['key' => 'immutable_invoices_enabled'], ['value' => true, 'type' => 'boolean']);
         config(['settings.immutable_invoices_enabled' => true]);
 
         try {

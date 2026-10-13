@@ -35,8 +35,11 @@ class MarkInvoicePaid
             ->visible(fn (Invoice $record): bool => in_array($record->status, [Invoice::STATUS_PENDING, Invoice::STATUS_CANCELLED], true)
                 && (!config('settings.immutable_invoices_enabled') || $record->status === Invoice::STATUS_PENDING))
             // It records a payment: the permission «Add Payment» needs too, not only the invoice's.
-            ->authorize(fn (Invoice $record): bool => (bool) auth()->user()?->can('update', $record)
-                && (bool) auth()->user()?->can('create', InvoiceTransaction::class))
+            ->authorize(function (Invoice $record): bool {
+                $user = auth()->user();
+
+                return $user !== null && $user->can('update', $record) && $user->can('create', InvoiceTransaction::class);
+            })
             ->fillForm(fn (Invoice $record): array => [
                 'amount' => number_format(max(0, RecordPaymentService::toCents($record->remaining)
                     + ($record->status === Invoice::STATUS_CANCELLED ? self::cancellationCreditCents($record) : 0)) / 100, 2, '.', ''),

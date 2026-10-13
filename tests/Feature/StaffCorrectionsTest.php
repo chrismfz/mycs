@@ -340,7 +340,7 @@ class StaffCorrectionsTest extends TestCase
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 100.00, null, 'pi_old_void', currency: 'USD');
         ExtensionHelper::refundLocally($invoice->transactions()->sole(), 30.00);
         $note = AdjustmentNote::query()->sole();
-        DB::table('adjustment_notes')->whereKey($note->id)->update(['status' => AdjustmentNoteStatus::Voided->value]);
+        DB::table('adjustment_notes')->where('id', $note->id)->update(['status' => AdjustmentNoteStatus::Voided->value]);
         $this->actingAs($this->owner());
 
         $this->assertTrue(VoidAdjustmentNote::allowed($note->fresh()));
