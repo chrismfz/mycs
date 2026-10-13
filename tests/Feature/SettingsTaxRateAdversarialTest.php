@@ -170,7 +170,8 @@ class SettingsTaxRateAdversarialTest extends TestCase
 
         TaxProbeJob::dispatch($user->id, $rate->id, 13);
         TaxProbeJob::dispatch($user->id, null, null);
-        $this->artisan('queue:work', ['connection' => 'database', '--stop-when-empty' => true, '--sleep' => 0, '--tries' => 1])->assertExitCode(0);
+        // --memory: the whole test process counts; past the 128MB default the worker stops with exit code 12.
+        $this->artisan('queue:work', ['connection' => 'database', '--stop-when-empty' => true, '--sleep' => 0, '--tries' => 1, '--memory' => 4096])->assertExitCode(0);
 
         $this->assertEquals([24.0, 13.0], TaxProbeJob::$seen);
     }
