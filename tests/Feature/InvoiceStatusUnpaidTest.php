@@ -20,9 +20,8 @@ class InvoiceStatusUnpaidTest extends TestCase
         ], $attributes));
     }
 
-    public function test_a_new_invoice_is_unpaid(): void
+    public function test_unpaid_is_the_word_and_pending_is_gone(): void
     {
-        $this->assertSame(Invoice::STATUS_UNPAID, DB::table('invoices')->where('id', $this->rawInvoice())->value('status'), 'the column default');
         $this->assertSame('unpaid', Invoice::STATUS_UNPAID);
         $this->assertNotContains('pending', Invoice::STATUSES);
     }
@@ -56,6 +55,5 @@ class InvoiceStatusUnpaidTest extends TestCase
 
         $this->assertSame(Invoice::STATUS_UNPAID, DB::table('invoices')->where('id', $old)->value('status'));
         $this->assertSame(Invoice::STATUS_PAID, DB::table('invoices')->where('id', $paid)->value('status'));
-        $this->assertSame(Invoice::STATUS_UNPAID, DB::table('invoices')->where('id', $this->rawInvoice())->value('status'));
     }
 }

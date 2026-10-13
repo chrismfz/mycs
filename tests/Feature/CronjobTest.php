@@ -55,7 +55,7 @@ class CronjobTest extends TestCase
         // Check if an invoice was created
         $this->assertDatabaseHas('invoices', [
             'user_id' => $user->id,
-            'status' => 'pending',
+            'status' => 'unpaid',
             'due_at' => $service->expires_at,
             'currency_code' => 'USD',
         ]);
@@ -199,7 +199,7 @@ class CronjobTest extends TestCase
         // Check if an invoice was created
         $this->assertDatabaseHas('invoices', [
             'user_id' => $user->id,
-            'status' => 'pending',
+            'status' => 'unpaid',
             'due_at' => $service->expires_at,
             'currency_code' => 'USD',
         ]);
@@ -244,7 +244,7 @@ class CronjobTest extends TestCase
         // Now it should have generated an invoice
         $this->assertDatabaseHas('invoices', [
             'user_id' => $user->id,
-            'status' => 'pending',
+            'status' => 'unpaid',
             'due_at' => $service->expires_at,
             'currency_code' => 'USD',
         ]);
