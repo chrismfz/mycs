@@ -4,7 +4,6 @@ namespace App\Admin\Resources\InvoiceResource\RelationManagers;
 
 use App\Admin\Actions\VoidAdjustmentNote;
 use App\Enums\AdjustmentNoteStatus;
-use App\Models\AdjustmentNote;
 use App\Models\Invoice;
 use Filament\Actions\CreateAction;
 use Filament\Forms\Components\Hidden;
@@ -105,8 +104,7 @@ class AdjustmentNotesRelationManager extends RelationManager
             // Append-only (docs/money-trail.md, MT-1c): never edited or deleted; a wrong note is voided and a new one
             // written.
             ->recordActions([
-                VoidAdjustmentNote::make()
-                    ->visible(fn (AdjustmentNote $record): bool => $this->canModifyAdjustmentNotes() && $record->isVoidableByStaff()),
+                VoidAdjustmentNote::make(), // its own rule: VoidAdjustmentNote::allowed
             ])
             ->defaultSort('created_at', 'desc');
     }

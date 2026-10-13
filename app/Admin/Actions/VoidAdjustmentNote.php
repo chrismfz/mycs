@@ -5,6 +5,7 @@ namespace App\Admin\Actions;
 use App\Enums\AdjustmentNoteStatus;
 use App\Exceptions\DisplayException;
 use App\Models\AdjustmentNote;
+use App\Models\Invoice;
 use App\Services\Invoice\RecordPaymentService;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
@@ -17,9 +18,24 @@ use Illuminate\Support\Facades\DB;
  */
 class VoidAdjustmentNote
 {
+    /**
+     * Who may void or unvoid this note, from any admin page: staff with the notes' update permission, on a note they
+     * wrote (a refund's note only back to active: one voided before MT-1c by mistake), and with immutable invoices
+     * only while the invoice is pending.
+     */
+    public static function allowed(AdjustmentNote $note): bool
+    {
+        $byStaff = $note->isVoidableByStaff() || ($note->is_refund && $note->status === AdjustmentNoteStatus::Voided);
+
+        return $byStaff
+            && (bool) auth()->user()?->can('update', $note)
+            && (!config('settings.immutable_invoices_enabled') || $note->invoice?->status === Invoice::STATUS_PENDING);
+    }
+
     public static function make(): Action
     {
         return Action::make('void')
+            ->visible(fn (AdjustmentNote $record): bool => self::allowed($record))
             ->label(fn (AdjustmentNote $record): string => $record->status === AdjustmentNoteStatus::Voided ? __('Unvoid') : __('Void'))
             ->color(fn (AdjustmentNote $record): string => $record->status === AdjustmentNoteStatus::Voided ? 'success' : 'danger')
             ->icon(fn (AdjustmentNote $record): string => $record->status === AdjustmentNoteStatus::Voided ? 'heroicon-o-arrow-uturn-left' : 'heroicon-o-x-circle')
@@ -32,8 +48,8 @@ class VoidAdjustmentNote
                     DB::transaction(function () use ($record) {
                         (new RecordPaymentService)->lockInvoice($record->invoice_id);
                         $note = AdjustmentNote::query()->whereKey($record->getKey())->lockForUpdate()->firstOrFail();
-                        if (!$note->isVoidableByStaff()) {
-                            throw new DisplayException(__('This note follows a refund or a cancellation: it is not voided by hand.'));
+                        if (!self::allowed($note)) {
+                            throw new DisplayException(__('This note follows a refund or a cancellation, or its invoice is finalized: it is not voided by hand.'));
                         }
                         $note->update(['status' => $note->status === AdjustmentNoteStatus::Voided
                             ? AdjustmentNoteStatus::Active : AdjustmentNoteStatus::Voided]);

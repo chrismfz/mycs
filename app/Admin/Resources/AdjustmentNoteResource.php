@@ -127,8 +127,7 @@ class AdjustmentNoteResource extends Resource
             // Append-only (docs/money-trail.md, MT-1c): never edited or deleted; a wrong note is voided and a new one
             // written.
             ->recordActions([
-                VoidAdjustmentNote::make()
-                    ->visible(fn (AdjustmentNote $record): bool => $record->isVoidableByStaff()),
+                VoidAdjustmentNote::make(), // its own rule: VoidAdjustmentNote::allowed
             ]);
     }
 

@@ -2,9 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Actions\VoidAdjustmentNote;
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Enums\AdjustmentNoteStatus;
 use App\Enums\AdjustmentNoteType;
+use App\Enums\InvoiceTransactionStatus;
 use App\Enums\MoneyEventKind;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
@@ -217,6 +219,44 @@ class StaffCorrectionsTest extends TestCase
         $this->assertSame(1, InvoiceTransaction::query()->count());
     }
 
+    /** Code review: Mark Paid is «what is left»; more (a double submit, two staff at once) is refused, read locked. */
+    public function test_mark_paid_refuses_more_than_what_is_left(): void
+    {
+        $invoice = $this->invoice();
+        (new RecordPaymentService)->recordByStaff($invoice, null, '60.00', upToRemaining: true);
+
+        try {
+            (new RecordPaymentService)->recordByStaff($invoice, null, '60.00', upToRemaining: true);
+            $this->fail('Mark Paid recorded more than what was left.');
+        } catch (DisplayException $e) {
+            $this->assertStringContainsString('Add Payment', $e->getMessage());
+        }
+
+        $this->assertSame(1, InvoiceTransaction::query()->count());
+        $this->assertSame('0.00', $this->balance());
+    }
+
+    /** Code review: a typed id matching another invoice's processing payment would land there; nothing is recorded. */
+    public function test_mark_paid_with_another_invoices_transaction_id_records_nothing(): void
+    {
+        $other = $this->invoice();
+        $gateway = Gateway::query()->where('extension', 'Stripe')->sole();
+        (new RecordPaymentService)->handle($other, $gateway, '100.00', transactionId: 'pi_processing', status: InvoiceTransactionStatus::Processing);
+        $invoice = $this->invoice();
+        $invoice->update(['status' => Invoice::STATUS_CANCELLED, 'cancellation_reason' => 'Overdue']);
+
+        try {
+            (new RecordPaymentService)->recordByStaff($invoice, null, '100.00', 'pi_processing', reopen: true);
+            $this->fail('A payment was recorded on another invoice.');
+        } catch (DisplayException $e) {
+            $this->assertStringContainsString('#' . $other->id, $e->getMessage());
+        }
+
+        $this->assertSame(InvoiceTransactionStatus::Processing, $other->transactions()->sole()->status);
+        $this->assertSame(Invoice::STATUS_PENDING, $other->fresh()->status);
+        $this->assertSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status);
+    }
+
     #[RunInSeparateProcess]
     #[PreserveGlobalState(false)]
     public function test_the_admin_mark_paid_action_records_the_payment(): void
@@ -291,6 +331,21 @@ class StaffCorrectionsTest extends TestCase
         $this->assertFalse($note->isVoidableByStaff());
         $this->expectException(DisplayException::class);
         $note->update(['status' => AdjustmentNoteStatus::Voided]);
+    }
+
+    /** Code review: a refund note voided before MT-1c (by mistake) can be set back to active, never voided again. */
+    public function test_a_refund_note_voided_before_can_only_be_unvoided(): void
+    {
+        $invoice = $this->invoice();
+        ExtensionHelper::addPayment($invoice->id, 'Stripe', 100.00, null, 'pi_old_void', currency: 'USD');
+        ExtensionHelper::refundLocally($invoice->transactions()->sole(), 30.00);
+        $note = AdjustmentNote::query()->sole();
+        DB::table('adjustment_notes')->whereKey($note->id)->update(['status' => AdjustmentNoteStatus::Voided->value]);
+        $this->actingAs($this->owner());
+
+        $this->assertTrue(VoidAdjustmentNote::allowed($note->fresh()));
+        $note->fresh()->update(['status' => AdjustmentNoteStatus::Active]);
+        $this->assertFalse(VoidAdjustmentNote::allowed($note->fresh()));
     }
 
     public function test_the_migration_marks_the_refund_notes_written_before_it(): void

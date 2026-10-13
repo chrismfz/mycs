@@ -222,16 +222,20 @@ class RecordPaymentService
      * $reopen staff confirm reopening it (pending, its cancellation note voided) and the payment lands on it, both in
      * one transaction.
      *
-     * @throws DisplayException nothing recorded: not a positive amount, a cancelled invoice without $reopen, or the
-     *                          same gateway transaction already recorded
+     * $upToRemaining («Mark Paid»): more than what is left is refused, read under the locks. A double submit or two
+     * staff at once would otherwise turn the second payment into account credit silently; a real overpayment is
+     * recorded with «Add Payment».
+     *
+     * @throws DisplayException nothing recorded: not a positive amount, a cancelled invoice without $reopen, more than
+     *                          what is left, or a transaction id already recorded or belonging to another invoice
      */
-    public function recordByStaff(Invoice $invoice, ?Gateway $gateway, mixed $amount, ?string $transactionId = null, mixed $fee = null, ?\DateTimeInterface $paidAt = null, bool $reopen = false): InvoiceTransaction
+    public function recordByStaff(Invoice $invoice, ?Gateway $gateway, mixed $amount, ?string $transactionId = null, mixed $fee = null, ?\DateTimeInterface $paidAt = null, bool $reopen = false, bool $upToRemaining = false): InvoiceTransaction
     {
         if (self::toCents($amount) <= 0) {
             throw new DisplayException(__('The amount must be positive.'));
         }
 
-        return DB::transaction(function () use ($invoice, $gateway, $amount, $transactionId, $fee, $paidAt, $reopen) {
+        return DB::transaction(function () use ($invoice, $gateway, $amount, $transactionId, $fee, $paidAt, $reopen, $upToRemaining) {
             $locked = $this->lockInvoice($invoice->getKey());
             if ($locked->status === Invoice::STATUS_CANCELLED) {
                 if (!$reopen) {
@@ -240,6 +244,12 @@ class RecordPaymentService
                 $locked->status = Invoice::STATUS_PENDING;
                 $locked->save();
             }
+            $remaining = self::toCents($locked->withLockedBalance()->remaining);
+            if ($upToRemaining && self::toCents($amount) > $remaining) {
+                throw new DisplayException(__('More than what is left to pay (:remaining): record an overpayment with Add Payment.', [
+                    'remaining' => number_format(max(0, $remaining) / 100, 2, '.', ''),
+                ]));
+            }
 
             $transaction = $this->handle($locked, $gateway, $amount, $fee, $transactionId, enteredByStaff: true, paidAt: $paidAt);
             if ($transaction === null) {
@@ -247,6 +257,10 @@ class RecordPaymentService
             }
             if (!$transaction->wasRecentlyCreated && !$transaction->wasChanged('status')) {
                 throw new DisplayException(__('This gateway transaction is already recorded (invoice #:invoice): nothing was added.', ['invoice' => $transaction->invoice_id]));
+            }
+            // A typed id matching another invoice's processing payment: the money would land there, not here.
+            if ((int) $transaction->invoice_id !== (int) $locked->getKey()) {
+                throw new DisplayException(__('This transaction id belongs to a payment on invoice #:invoice: nothing was recorded here.', ['invoice' => $transaction->invoice_id]));
             }
 
             return $transaction;
@@ -309,7 +323,7 @@ class RecordPaymentService
                     ?? $invoice->user->credits()->create(['currency_code' => $invoice->currency_code, 'amount' => 0]);
                 $balance = CreditLedger::cents($credit);
                 if ($balance + $change < 0 && !$allowNegativeCredit) {
-                    throw new DisplayException(__('Part of this payment became account credit and the customer has already used it: delete it anyway to leave their credit negative (they owe it).'));
+                    throw new DisplayException(__('Part of this payment became account credit and the customer has already used it: delete it on its own and confirm that their credit goes negative (they owe it).'));
                 }
             }
 
