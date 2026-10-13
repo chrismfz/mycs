@@ -2,15 +2,12 @@
 
 namespace App\Admin\Resources;
 
+use App\Admin\Actions\VoidAdjustmentNote;
 use App\Admin\Clusters\InvoiceCluster;
 use App\Admin\Resources\AdjustmentNoteResource\Pages\CreateAdjustmentNote;
-use App\Admin\Resources\AdjustmentNoteResource\Pages\EditAdjustmentNote;
 use App\Admin\Resources\AdjustmentNoteResource\Pages\ListAdjustmentNotes;
 use App\Enums\AdjustmentNoteStatus;
 use App\Models\AdjustmentNote;
-use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
-use Filament\Actions\EditAction;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -74,12 +71,8 @@ class AdjustmentNoteResource extends Resource
                     ->placeholder('Enter the amount (negative = credit, positive = debit)'),
                 Textarea::make('description')
                     ->label('Description')
+                    ->required()
                     ->placeholder('Enter a description'),
-                Select::make('status')
-                    ->label('Status')
-                    ->options(AdjustmentNoteStatus::class)
-                    ->default(AdjustmentNoteStatus::Active->value)
-                    ->required(),
             ]);
     }
 
@@ -131,13 +124,11 @@ class AdjustmentNoteResource extends Resource
             ->defaultSort(function (Builder $query): Builder {
                 return $query->orderBy('id', 'desc');
             })
+            // Append-only (docs/money-trail.md, MT-1c): never edited or deleted; a wrong note is voided and a new one
+            // written.
             ->recordActions([
-                EditAction::make(),
-            ])
-            ->toolbarActions([
-                BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                ]),
+                VoidAdjustmentNote::make()
+                    ->visible(fn (AdjustmentNote $record): bool => $record->isVoidableByStaff()),
             ]);
     }
 
@@ -151,7 +142,6 @@ class AdjustmentNoteResource extends Resource
         return [
             'index' => ListAdjustmentNotes::route('/'),
             'create' => CreateAdjustmentNote::route('/create'),
-            'edit' => EditAdjustmentNote::route('/{record:id}/edit'),
         ];
     }
 }

@@ -14,6 +14,7 @@ use App\Models\Currency;
 use App\Models\Invoice;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
+use App\Services\Invoice\RecordPaymentService;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
@@ -80,8 +81,12 @@ class InvoiceResource extends Resource
                         'draft' => 'Draft',
                         'cancelled' => 'Cancelled',
                     ])
-                    // A cancelled invoice is reopened (pending) before it can be paid (docs/payments.md).
-                    ->disableOptionWhen(fn (string $value, ?Invoice $record): bool => $value === Invoice::STATUS_PAID && $record?->getOriginal('status') === Invoice::STATUS_CANCELLED)
+                    // Paid only by recording its payment (Mark Paid, docs/money-trail.md MT-1c): never on a new invoice,
+                    // and on an existing one only when nothing is left to pay. A cancelled invoice is reopened first.
+                    ->disableOptionWhen(fn (string $value, ?Invoice $record): bool => $value === Invoice::STATUS_PAID
+                        && $record?->getOriginal('status') !== Invoice::STATUS_PAID
+                        && ($record === null || $record->getOriginal('status') === Invoice::STATUS_CANCELLED
+                            || RecordPaymentService::toCents($record->remaining) > 0))
                     ->default(fn (): string => config('settings.immutable_invoices_enabled', false) ? Invoice::STATUS_DRAFT : Invoice::STATUS_PENDING)
                     ->placeholder('Select the status of the invoice'),
                 Select::make('currency_code')

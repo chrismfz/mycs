@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Exceptions\DisplayException;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\Admin\Invoices\CreateInvoiceRequest;
 use App\Http\Requests\Api\Admin\Invoices\DeleteInvoiceRequest;
@@ -67,6 +68,8 @@ class InvoiceController extends ApiController
 
     /**
      * Update a specific invoice
+     *
+     * @response 422 {"message": "An invoice becomes paid when its payment is recorded: use Mark Paid instead."}
      */
     public function update(UpdateInvoiceRequest $request, Invoice $invoice)
     {
@@ -77,7 +80,13 @@ class InvoiceController extends ApiController
         if ($moves && $invoice->hasPayments()) {
             abort(422, 'An invoice with payments keeps its customer and currency: delete its payments first (a refunded payment keeps the invoice where it is).');
         }
-        $invoice->update($data);
+        try {
+            $invoice->update($data);
+        } catch (DisplayException $e) {
+            // The model's money rules (InvoiceObserver::updating): paid only without a balance, a cancelled invoice is
+            // reopened before it is paid, an invoice with payments keeps its customer and currency.
+            abort(422, $e->getMessage());
+        }
 
         // Return the updated invoice as a JSON response
         return new InvoiceResource($this->loadAllowedIncludes($invoice, self::INCLUDES));

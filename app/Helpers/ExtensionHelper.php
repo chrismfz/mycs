@@ -675,6 +675,7 @@ class ExtensionHelper
             'type' => AdjustmentNoteType::Credit->value,
             'amount' => -1 * $cents / 100,
             'description' => 'Refund for transaction #' . $transaction->id . ' (' . ($transaction->transaction_id ?? 'manual') . ')',
+            'is_refund' => true, // follows refunded_amount: never voided by hand (MT-1c)
         ]);
 
         return true;

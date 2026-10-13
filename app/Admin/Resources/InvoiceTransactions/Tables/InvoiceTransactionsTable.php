@@ -60,7 +60,8 @@ class InvoiceTransactionsTable
             ->recordActions([
                 DeleteAction::make()
                     ->visible(fn (InvoiceTransaction $record): bool => DeleteInvoiceTransaction::allowed($record->invoice))
-                    ->using(fn (InvoiceTransaction $record): bool => DeleteInvoiceTransaction::run($record)),
+                    ->schema([DeleteInvoiceTransaction::negativeCreditField()])
+                    ->using(fn (InvoiceTransaction $record, array $data): bool => DeleteInvoiceTransaction::run($record, (bool) ($data['allow_negative_credit'] ?? false))),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([

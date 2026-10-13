@@ -46,6 +46,7 @@ class RecordPaymentService
         bool $isCreditTransaction = false,
         ?string $currency = null,
         bool $enteredByStaff = false,
+        ?\DateTimeInterface $paidAt = null,
     ): ?InvoiceTransaction {
         $invoiceId = $invoice instanceof Invoice ? $invoice->getKey() : $invoice;
         $transactionId = $transactionId === null || $transactionId === '' ? null : (string) $transactionId;
@@ -58,7 +59,7 @@ class RecordPaymentService
         }
 
         $notices = [];
-        $transaction = DB::transaction(function () use ($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, &$notices) {
+        $transaction = DB::transaction(function () use ($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, $paidAt, &$notices) {
             $invoice = $this->lockInvoice($invoiceId);
 
             // Same id on the same gateway, or recorded by staff without a gateway: the same money. Staff
@@ -118,7 +119,12 @@ class RecordPaymentService
                 $existing->update($values);
                 $transaction = $existing;
             } else {
-                $transaction = $target->transactions()->create($values);
+                $transaction = $target->transactions()->make($values);
+                // The day the money arrived, when staff record it later (a bank transfer): the transaction's date.
+                if ($paidAt !== null) {
+                    $transaction->created_at = $paidAt;
+                }
+                $transaction->save();
             }
             // Only money that arrived is journaled: a processing/failed payment is, once (and if) it succeeds.
             if ($status === InvoiceTransactionStatus::Succeeded) {
@@ -209,16 +215,55 @@ class RecordPaymentService
     }
 
     /**
+     * Staff recording a payment by hand, as in WHMCS (docs/money-trail.md MT-1c): «Mark Paid» (what is left) and «Add
+     * Payment» (any part), through handle() like any payment. The invoice becomes paid only when the payment covers
+     * it; its status is never set on its own. On a cancelled invoice the payment would only become credit: with
+     * $reopen staff confirm reopening it (pending, its cancellation note voided) and the payment lands on it, both in
+     * one transaction.
+     *
+     * @throws DisplayException nothing recorded: not a positive amount, a cancelled invoice without $reopen, or the
+     *                          same gateway transaction already recorded
+     */
+    public function recordByStaff(Invoice $invoice, ?Gateway $gateway, mixed $amount, ?string $transactionId = null, mixed $fee = null, ?\DateTimeInterface $paidAt = null, bool $reopen = false): InvoiceTransaction
+    {
+        if (self::toCents($amount) <= 0) {
+            throw new DisplayException(__('The amount must be positive.'));
+        }
+
+        return DB::transaction(function () use ($invoice, $gateway, $amount, $transactionId, $fee, $paidAt, $reopen) {
+            $locked = $this->lockInvoice($invoice->getKey());
+            if ($locked->status === Invoice::STATUS_CANCELLED) {
+                if (!$reopen) {
+                    throw new DisplayException(__('This invoice is cancelled: reopen it to record the payment on it.'));
+                }
+                $locked->status = Invoice::STATUS_PENDING;
+                $locked->save();
+            }
+
+            $transaction = $this->handle($locked, $gateway, $amount, $fee, $transactionId, enteredByStaff: true, paidAt: $paidAt);
+            if ($transaction === null) {
+                throw new DisplayException(__('Payment not recorded: see the log for details.'));
+            }
+            if (!$transaction->wasRecentlyCreated && !$transaction->wasChanged('status')) {
+                throw new DisplayException(__('This gateway transaction is already recorded (invoice #:invoice): nothing was added.', ['invoice' => $transaction->invoice_id]));
+            }
+
+            return $transaction;
+        });
+    }
+
+    /**
      * Delete a transaction (staff correcting a mistake) without leaving money behind: the part that became
      * account credit is taken back (and the credit it bought, on a credit purchase), and a payment made with
-     * credit gives it back. Refused when that credit was already spent, when it paid other invoices, or when
-     * the payment has refunds.
+     * credit gives it back. Refused when it paid other invoices, or when the payment has refunds. When that credit
+     * was already spent, staff confirm it ($allowNegativeCredit, decision 1): the credit goes negative, the customer
+     * owes it (docs/money-trail.md §1, MT-1c).
      *
      * @throws DisplayException
      */
-    public function deleteTransaction(InvoiceTransaction $transaction): void
+    public function deleteTransaction(InvoiceTransaction $transaction, bool $allowNegativeCredit = false): void
     {
-        DB::transaction(function () use ($transaction) {
+        DB::transaction(function () use ($transaction, $allowNegativeCredit) {
             $invoice = $this->lockInvoice($transaction->invoice_id);
             $transaction = InvoiceTransaction::query()->whereKey($transaction->getKey())->lockForUpdate()->first();
             if ($transaction === null) {
@@ -262,8 +307,8 @@ class RecordPaymentService
                 $credit = $this->lockCredit($invoice)
                     ?? $invoice->user->credits()->create(['currency_code' => $invoice->currency_code, 'amount' => 0]);
                 $balance = CreditLedger::cents($credit);
-                if ($balance + $change < 0) {
-                    throw new DisplayException(__('Part of this payment became account credit and the customer has already used it: it cannot be deleted.'));
+                if ($balance + $change < 0 && !$allowNegativeCredit) {
+                    throw new DisplayException(__('Part of this payment became account credit and the customer has already used it: delete it anyway to leave their credit negative (they owe it).'));
                 }
             }
 

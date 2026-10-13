@@ -2,15 +2,12 @@
 
 namespace App\Admin\Resources\InvoiceResource\RelationManagers;
 
+use App\Admin\Actions\VoidAdjustmentNote;
 use App\Enums\AdjustmentNoteStatus;
+use App\Models\AdjustmentNote;
 use App\Models\Invoice;
-use Filament\Actions\BulkActionGroup;
 use Filament\Actions\CreateAction;
-use Filament\Actions\DeleteAction;
-use Filament\Actions\DeleteBulkAction;
-use Filament\Actions\EditAction;
 use Filament\Forms\Components\Hidden;
-use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\RelationManagers\RelationManager;
@@ -58,12 +55,8 @@ class AdjustmentNotesRelationManager extends RelationManager
                     ->placeholder('Enter the amount (negative = credit, positive = debit)'),
                 Textarea::make('description')
                     ->label('Description')
+                    ->required()
                     ->placeholder('Enter a description'),
-                Select::make('status')
-                    ->label('Status')
-                    ->options(AdjustmentNoteStatus::class)
-                    ->default(AdjustmentNoteStatus::Active->value)
-                    ->required(),
             ]);
     }
 
@@ -109,17 +102,11 @@ class AdjustmentNotesRelationManager extends RelationManager
                 CreateAction::make()
                     ->visible(fn (): bool => $this->canModifyAdjustmentNotes()),
             ])
+            // Append-only (docs/money-trail.md, MT-1c): never edited or deleted; a wrong note is voided and a new one
+            // written.
             ->recordActions([
-                EditAction::make()
-                    ->visible(fn (): bool => $this->canModifyAdjustmentNotes()),
-                DeleteAction::make()
-                    ->visible(fn (): bool => $this->canModifyAdjustmentNotes()),
-            ])
-            ->toolbarActions([
-                BulkActionGroup::make([
-                    DeleteBulkAction::make()
-                        ->visible(fn (): bool => $this->canModifyAdjustmentNotes()),
-                ]),
+                VoidAdjustmentNote::make()
+                    ->visible(fn (AdjustmentNote $record): bool => $this->canModifyAdjustmentNotes() && $record->isVoidableByStaff()),
             ])
             ->defaultSort('created_at', 'desc');
     }

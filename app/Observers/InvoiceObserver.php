@@ -10,6 +10,7 @@ use App\Models\Invoice;
 use App\Services\Invoice\CreateInvoiceSnapshotService;
 use App\Services\Invoice\GrantBoughtCreditService;
 use App\Services\Invoice\ProcessPaidInvoiceService;
+use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Support\Facades\DB;
 
 class InvoiceObserver
@@ -54,6 +55,15 @@ class InvoiceObserver
         if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_CANCELLED
             && $invoice->status === Invoice::STATUS_PAID) {
             throw new DisplayException(__('A cancelled invoice cannot be marked paid: reopen it (pending) and record the payment.'));
+        }
+        // Paid only when nothing is left to pay (docs/money-trail.md, MT-1c; audit B1): staff record the payment (Mark
+        // Paid, Add Payment) and the invoice follows, through RecordPaymentService. Marking it paid by its status alone
+        // would renew its services and give the credit it sells without any money. Read locked: Invoice::save holds the
+        // payment locks for this change.
+        if ($invoice->isDirty('status') && $invoice->status === Invoice::STATUS_PAID
+            && $invoice->getOriginal('status') !== Invoice::STATUS_PAID
+            && RecordPaymentService::toCents($invoice->withLockedBalance()->remaining) > 0) {
+            throw new DisplayException(__('An invoice becomes paid when its payment is recorded: use Mark Paid instead.'));
         }
         // Its money belongs to its customer and currency (credit, journal, docs/money-trail.md §8): an invoice with a
         // payment (processing too) keeps both. Staff delete the payment first, then move the invoice. Read locked:
