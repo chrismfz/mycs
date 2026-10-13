@@ -122,7 +122,8 @@ class CreditLedger
                 ?? Credit::query()->create(['user_id' => $userId, 'currency_code' => $currency, 'amount' => 0]);
             $before = self::cents($credit);
             $balance = $before + $sign * $cents;
-            if ($balance < 0 && !$mayGoNegative) {
+            // Adding is always allowed: on a negative balance (decision 1) it repays part of what the customer owes.
+            if ($sign < 0 && $balance < 0 && !$mayGoNegative) {
                 throw new DisplayException(__('Not enough account credit: the balance is :balance.', [
                     'balance' => number_format($before / 100, 2, '.', '') . ' ' . $currency,
                 ]));

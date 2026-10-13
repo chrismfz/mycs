@@ -6,6 +6,7 @@ return [
         'invoices_created' => 'Invoices created',
         'orders_cancelled' => 'Orders cancelled',
         'upgrade_invoices_updated' => 'Upgrade invoices updated',
+        'credit_applied' => 'Account credit applied to open invoices',
         'services_suspended' => 'Services suspended',
         'services_terminated' => 'Services terminated',
         'tickets_closed' => 'Tickets closed',

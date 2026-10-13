@@ -57,6 +57,13 @@ class CronJob extends Command
         // ones committed (docs/billing-cursor.md).
         try {
             // Send invoices if due date is x days away
+            // Credit pays what is open, oldest due first, before new renewals take it and before anything is suspended
+            // (decision 5, MT-1e): a customer with credit is not suspended while it sits unused. Each invoice in its own
+            // transaction, under the payment locks.
+            $this->runCronJob('credit_applied', fn () => (new CreditAutoApply)->sweep(function (int $userId, Throwable $e) {
+                $this->failures["credit_applied user #{$userId}"] = $e;
+            }), transaction: false);
+
             $this->runCronJob('invoices_created', function ($number = 0) {
                 $billUntil = now()->addDays((int) config('settings.cronjob_invoice', 7));
                 $ids = Service::whereIn('status', ['active', 'suspended'])->where('expires_at', '<', $billUntil)->pluck('id');
@@ -79,7 +86,7 @@ class CronJob extends Command
                 Service::where('status', 'pending')->whereDoesntHave('invoices', function ($query) {
                     $query->where('status', 'paid');
                 })->where('created_at', '<', now()->subDays((int) config('settings.cronjob_order_cancel', 7)))->get()->each(function ($service) use (&$number) {
-                    $service->invoices()->where('status', 'pending')->update(['status' => 'cancelled']);
+                    $this->cancelInvoices($service->invoices()->where('status', 'pending')->get());
 
                     $service->update(['status' => 'cancelled']);
 
@@ -100,7 +107,7 @@ class CronJob extends Command
                         $upgrade->update(['status' => 'cancelled']);
                         // Somehow people manage to have an upgrade without an invoice
                         if ($upgrade->invoice) {
-                            $upgrade->invoice->update(['status' => 'cancelled']);
+                            $this->cancelInvoices([$upgrade->invoice], throughModel: true);
                         }
 
                         $number++;
@@ -121,10 +128,6 @@ class CronJob extends Command
 
                 return $number;
             });
-
-            // Credit pays what is open before anything is suspended (decision 5, MT-1e): a customer with credit is not
-            // suspended while it sits unused. Each invoice in its own transaction, under the payment locks.
-            $this->runCronJob('credit_applied', fn () => (new CreditAutoApply)->sweep(), transaction: false);
 
             $this->runCronJob('services_suspended', function ($number = 0) {
                 // Suspend orders if due date is overdue for x days
@@ -150,7 +153,7 @@ class CronJob extends Command
 
                     $service->update(['status' => 'cancelled']);
                     // Cancel outstanding invoices
-                    $service->invoices()->where('status', 'pending')->update(['status' => 'cancelled']);
+                    $this->cancelInvoices($service->invoices()->where('status', 'pending')->get());
 
                     if ($service->product->stock !== null) {
                         $service->product->increment('stock', $service->quantity);
@@ -303,7 +306,7 @@ class CronJob extends Command
         if ($invoice->total <= 0) {
             $invoice->update(['status' => Invoice::STATUS_PAID]);
         } else {
-            $this->payInvoiceWithCredits($invoice);
+            $this->payInvoiceWithCredits($invoice, $service);
         }
 
         // Charge billing agreements
@@ -327,11 +330,41 @@ class CronJob extends Command
         return 1;
     }
 
-    private function payInvoiceWithCredits(Invoice $invoice): void
+    private function payInvoiceWithCredits(Invoice $invoice, Service $service): void
     {
         // As much as the credit covers, also in part (decision 5, MT-1e); read and spent under the payment locks.
         // Off with credits, or with "Automatically use credits", or for the invoices CreditAutoApply leaves alone.
-        (new CreditAutoApply)->toInvoice($invoice);
+        // A gateway subscription's renewal only in full: a subscription sale that became credit pays it.
+        if ((string) $service->subscription_id !== '') {
+            (new CreditAutoApply)->toSubscriptionRenewal($invoice);
+
+            return;
+        }
+        (new CreditAutoApply)->toInvoice($invoice, notify: !$service->billing_agreement_id);
+    }
+
+    /**
+     * Cancel open invoices the cron gives up on; account credit paid on them goes back to the customer first (MT-1e:
+     * credit is also applied in part). An invoice whose credit cannot be given back stays open for staff. As before:
+     * an upgrade's invoice through the model (its cancellation note), the others by a plain update.
+     *
+     * @param  iterable<Invoice>  $invoices
+     */
+    private function cancelInvoices(iterable $invoices, bool $throughModel = false): void
+    {
+        foreach ($invoices as $invoice) {
+            try {
+                DB::transaction(function () use ($invoice, $throughModel) {
+                    (new CreditAutoApply)->giveBack($invoice);
+                    $throughModel
+                        ? $invoice->refresh()->update(['status' => Invoice::STATUS_CANCELLED])
+                        : Invoice::query()->whereKey($invoice->id)->where('status', Invoice::STATUS_PENDING)->update(['status' => Invoice::STATUS_CANCELLED]);
+                });
+            } catch (Throwable $e) {
+                report($e);
+                $this->failures["invoice_cancelled #{$invoice->id}"] = $e;
+            }
+        }
     }
 
     /**
