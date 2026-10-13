@@ -449,7 +449,9 @@ class Settings
                     'type' => 'time',
                     'default' => '09:00',
                     'required' => true,
-                    'description' => 'The time of day the daily automated actions run.',
+                    'description' => 'The time of day the daily automated actions run. Not between 03:00 and 04:00: on the days the clock changes that hour is skipped or repeated.',
+                    // Europe/Athens changes the clock at 03:00/04:00 (audit sweep BIL-16).
+                    'validation' => ['not_regex:/^03:/'],
                 ],
                 [
                     'name' => 'cronjob_suspend_enabled',

@@ -31,6 +31,7 @@ use Carbon\CarbonInterface;
 use Exception;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -63,6 +64,23 @@ class CronJob extends Command
      * Execute the console command.
      */
     public function handle()
+    {
+        // One run at a time (audit sweep BIL-16): a manual run overlapping the scheduled one would cancel orders and give
+        // stock back twice. The lock outlives a crashed run by 2 hours at most.
+        $lock = Cache::lock('app:cron-job', 7200);
+        if (!$lock->get()) {
+            $this->error('Another cron run is in progress: not started.');
+
+            return self::FAILURE;
+        }
+        try {
+            return $this->runSteps();
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function runSteps()
     {
         Config::set('audit.console', true);
 
@@ -142,14 +160,17 @@ class CronJob extends Command
                 // that cannot be cancelled rolls back its own service only, never the step (audit sweep BIL-10).
                 // 0 disables (an order placed a minute ago would go, with the invoice its customer may be paying).
                 $days = (int) config('settings.cronjob_order_cancel', 7);
-                $ids = $days <= 0 ? collect() : Service::where('status', 'pending')->whereDoesntHave('invoices', function ($query) {
-                    $query->where('status', 'paid');
-                })->where('created_at', '<', now()->subDays($days))->pluck('id');
+                $ids = $days <= 0 ? collect() : $this->unpaidOrders($days)->pluck('id');
+                if ($days > 0) {
+                    foreach ($this->orderPartPaid($days)->pluck('id') as $partPaid) {
+                        $this->notices["orders_cancelled #{$partPaid}"] = new DisplayException("Service #{$partPaid} is an order part paid and not started: not cancelled (refund it, or take the rest and start it).");
+                    }
+                }
                 foreach ($ids as $id) {
                     try {
-                        $number += DB::transaction(function () use ($id) {
-                            $service = Service::query()->whereKey($id)->lockForUpdate()->first();
-                            if ($service === null || $service->status !== Service::STATUS_PENDING) {
+                        $number += DB::transaction(function () use ($id, $days) {
+                            $service = $this->unpaidOrders($days)->whereKey($id)->lockForUpdate()->first();
+                            if ($service === null) {
                                 return 0;
                             }
                             $this->cancelOrderInvoices($service);
@@ -343,6 +364,43 @@ class CronJob extends Command
 
         // Remove old debug logs
         DebugLog::where('created_at', '<', now()->subDays(30))->delete();
+    }
+
+    /**
+     * Orders never paid (audit sweep BIL-12): a pending service placed $days ago, billed (an invoice of its own, open or
+     * already cancelled as unpaid with another service of the same order), never paid, and with no money on an open one:
+     * a payment from a gateway or a transfer (processing too) leaves it to staff (orderPartPaid). Credit alone does not:
+     * cancelling gives it back (CancelOpenInvoices), as WHMCS cancels an order part paid by credit. A pending service
+     * staff created without an invoice is not an order waiting for payment: left alone.
+     *
+     * @return Builder<Service>
+     */
+    private function unpaidOrders(int $days): Builder
+    {
+        return Service::query()->where('status', Service::STATUS_PENDING)->where('created_at', '<', now()->subDays($days))
+            ->whereHas('invoices', fn ($invoices) => $invoices->whereIn('invoices.status', [Invoice::STATUS_PENDING, Invoice::STATUS_CANCELLED]))
+            ->whereDoesntHave('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_PAID))
+            ->whereDoesntHave('invoices', fn ($invoices) => $this->withRealMoney($invoices));
+    }
+
+    /**
+     * Pending services placed $days ago with money from a gateway or a transfer on an open invoice: not cancelled,
+     * reported to staff (refund it, or take the rest and start it).
+     *
+     * @return Builder<Service>
+     */
+    private function orderPartPaid(int $days): Builder
+    {
+        return Service::query()->where('status', Service::STATUS_PENDING)->where('created_at', '<', now()->subDays($days))
+            ->whereHas('invoices', fn ($invoices) => $this->withRealMoney($invoices));
+    }
+
+    /** Open invoices with a payment that is not credit (succeeded), or one on its way. */
+    private function withRealMoney($invoices)
+    {
+        return $invoices->whereIn('invoices.status', Invoice::OPEN_STATUSES)->whereHas('transactions', fn ($payments) => $payments
+            ->where(fn ($money) => $money->where(fn ($paid) => $paid->where('status', InvoiceTransactionStatus::Succeeded)->where('is_credit_transaction', false))
+                ->orWhere('status', InvoiceTransactionStatus::Processing)));
     }
 
     /**

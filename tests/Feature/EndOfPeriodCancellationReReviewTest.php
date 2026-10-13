@@ -116,22 +116,12 @@ class EndOfPeriodCancellationReReviewTest extends TestCase
         (new RecordPaymentService)->handle($invoice, null, 4.00, transactionId: 'bank-r1b');
 
         $this->cron();
-        $this->assertSame(Service::STATUS_CANCELLED, $service->fresh()->status);
-
-        (new CreditLedger)->add($this->user->id, 'USD', 600, MoneyTrail::CAUSE_OPENING_BALANCE, MoneyTrail::SOURCE_SYSTEM);
-        Carbon::setTestNow('2026-10-21 03:00:00');
-        $this->cron();
-
-        $this->assertEqualsWithDelta(6.00, $this->credit(), 0.001,
-            "credit was swept into invoice #{$invoice->id} (now {$invoice->fresh()->status}) of a cancelled order");
+        // BIL-12: an order with money on it is no longer cancelled (staff decide on a part paid), so its invoice is never
+        // a left-open invoice of a cancelled service that credit could be swept into.
+        $this->assertSame(Service::STATUS_PENDING, $service->fresh()->status);
+        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
     }
 
-    /**
-     * R2 (medium, regression of the nested rethrow): services_terminated runs inside runCronJob's transaction, so
-     * CancelOpenInvoices now rethrows: ONE invoice whose credit cannot be given back (here a refunded credit payment,
-     * deleteTransaction refuses) rolls back the termination of EVERY service in the step, and again every day.
-     * At 53580e2 the savepoint rolled back that invoice only and the others were terminated.
-     */
     public function test_one_bad_invoice_does_not_block_every_dunning_termination(): void
     {
         Queue::fake([TerminateJob::class]);
