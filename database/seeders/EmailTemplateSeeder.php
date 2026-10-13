@@ -116,6 +116,34 @@ class EmailTemplateSeeder extends Seeder
             'edit_preference_message' => 'Notify me when my account credit pays part of an invoice',
             'in_app_url' => '{{ urls.invoice }}',
         ],
+        'invoice_refunded' => [
+            'subject' => 'Refund for invoice #{{ invoice.id }}',
+            'body' => <<<'HTML'
+                # Refund for invoice #{{ invoice.id }}
+
+                {% if refund.to_credit %}
+                **{{ refund.amount }}** of your payment for invoice #{{ invoice.id }} was added to your account credit.
+                {% else %}
+                **{{ refund.amount }}** of your payment for invoice #{{ invoice.id }} was refunded to you.
+                {% endif %}
+
+                {% if refund.by_gateway %}
+                It goes back to the card or account you paid with; your bank may take a few days to show it.
+                {% endif %}
+
+                <div class="action">
+                	<a class="button button-blue" href="{{ urls.invoice }}">
+                		View Invoice
+                	</a>
+                </div>
+                HTML,
+            'in_app_title' => 'Refund for invoice #{{ invoice.id }}',
+            'in_app_body' => '{% if refund.to_credit %}{{ refund.amount }} of your payment was added to your account credit.{% else %}{{ refund.amount }} of your payment was refunded to you.{% endif %}',
+            'mail_enabled' => 'choice_on',
+            'in_app_enabled' => 'choice_on',
+            'edit_preference_message' => 'Notify me when a payment of mine is refunded',
+            'in_app_url' => '{{ urls.invoice }}',
+        ],
         'invoice_payment_failed' => [
             'subject' => 'Invoice payment failed',
             'body' => <<<'HTML'

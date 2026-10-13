@@ -270,3 +270,58 @@ context του συγγραφέα), οκτώ ευρήματα, όλα επιβε
   - Το PDF γράφει το status με τις λέξεις του WHMCS.
 - **Μένει για το 2c-2:** επιστροφές και chargebacks που ξεκινούν από το dashboard του gateway (PAY-5, webhooks
   Stripe/PayPal), και email στον πελάτη για την επιστροφή («Invoice Refund Confirmation» του WHMCS).
+
+## PR 2c-2a: επιστροφές από το gateway (2026-10-14)
+- **Μία φορά ανά επιστροφή:** κάθε επιστροφή που έκανε ένα gateway γράφεται στον πίνακα `gateway_refunds` με το δικό του
+  id (μοναδικό ανά gateway). Το `refund()` του gateway επιστρέφει πλέον αυτό το id (Stripe `re_…`, PayPal, Mollie).
+  - Επιστροφή από το MyCS: γράφεται μαζί με την καταγραφή, μέσα στα ίδια locks. Το webhook που τη λέει ξανά περιμένει
+    τα locks και διαβάζει το id με **locking read** (ένα απλό read κρατά το snapshot πριν την αναμονή στο repeatable read
+    της MariaDB). Δύο webhooks για την ίδια επιστροφή ταυτόχρονα: το unique κλειδί κόβει το δεύτερο, που γράφεται ως
+    `replay` (όχι 500 και retries).
+  - Το Stripe refund στέλνει `Idempotency-Key` (όπως το request id του PayPal): retry μετά από timeout δεν κάνει δεύτερη
+    επιστροφή.
+  - Επιστροφή από το dashboard του gateway: έρχεται με webhook και καταγράφεται στην πληρωμή όπως μια επιστροφή από
+    εδώ (`refunded_amount`, κίνηση `refund`, σημείωμα σε paid τιμολόγιο, refunded όταν δεν μένει τίποτα).
+  - Αν το gateway επέστρεψε αλλά η εγγραφή εδώ απέτυχε (το commit), το webhook τη γράφει: η «χαμένη» επιστροφή του 2c-1
+    διορθώνεται μόνη της, και το Log::critical λέει πια στο staff να **μην** την καταγράψει και με το χέρι (δείχνει το id).
+  - Gateway που δεν δίνει id (μόνο `true`): warning στο log, γιατί το webhook του δεν μπορεί να την αναγνωρίσει.
+- **Τα χρήματα έφυγαν ήδη:** το webhook δεν αρνείται. Καταγράφει μέχρι όσο μένει στην πληρωμή· ό,τι περισσεύει (μέρος
+  έγινε πίστωση ή επιστράφηκε με το χέρι) πάει στο staff με email. Σε αγορά πίστωσης παίρνει πίσω όση πίστωση έχει
+  μείνει· το υπόλοιπο, πάλι στο staff. Επιστροφή σε άλλο νόμισμα δεν καταγράφεται (staff).
+- **Pending:** επιστροφή σε `pending` (Stripe, PayPal) καταγράφεται και ο πελάτης ενημερώνεται τότε· αν αποτύχει μετά,
+  διορθώνει το staff.
+- **Αποτυχία μετά:** Stripe `refund.failed` (ή status `failed`/`canceled`) για επιστροφή που καταγράψαμε: email στο
+  staff να το ελέγξει, μία φορά (το Stripe το λέει δύο φορές)· δεν αναιρείται αυτόματα.
+- **Από το adversarial review:**
+  - **Καταγραφή «με το χέρι» μιας επιστροφής του dashboard** (η συνήθεια του WHMCS): το webhook την ταιριάζει με την
+    καταγραφή αυτή (origin `hand`) και δεν την ξαναγράφει· email στο staff να ελέγξει. Ταιριάζει μόνο ολόκληρη· αν
+    υπάρχει καταγραφή με το χέρι που δεν ταιριάζει, η επιστροφή γράφεται και το staff ειδοποιείται. Η φόρμα λέει πια
+    ότι το «με το χέρι» είναι για χρήματα που επιστράφηκαν αλλιώς.
+  - **Επιστροφή πριν από την πληρωμή της** (webhook πληρωμής που καθυστέρησε) ή σε πληρωμή σε processing: κρατιέται σε
+    αναμονή (origin `waiting`) και καταγράφεται μόλις η πληρωμή ολοκληρωθεί εδώ (`addPayment` → `applyWaitingRefunds`).
+    Επιστροφές άλλης εφαρμογής στον ίδιο λογαριασμό gateway (π.χ. του WHMCS όσο τρέχουν μαζί) μένουν σε αναμονή χωρίς
+    να γράφουν τίποτα.
+  - **Αποτυχία πριν από το «created»** (Stripe, εκτός σειράς): γράφεται ως `failed` και ένα αργότερο «created» δεν την
+    καταγράφει.
+  - **Retry μετά από χαμένη απάντηση:** το κλειδί idempotency (Stripe) / request id (PayPal) μετρά μόνο τις δικές μας
+    επιστροφές, άρα μένει ίδιο ακόμα κι αν το webhook κατέγραψε στο μεταξύ την πρώτη· αν το gateway απαντήσει με
+    επιστροφή που ήδη καταγράφηκε, δεν ξαναγράφεται.
+  - **Πληρωμή καταχωρημένη από το staff** με το id του gateway (χωρίς gateway εδώ, π.χ. όταν το webhook απέτυχε, ή από
+    import): η επιστροφή της ταιριάζει κανονικά.
+- **Νομίσματα χωρίς δεκαδικά** (π.χ. JPY): τα ποσά του Stripe διαιρούνται με 100 παντού (πληρωμές και επιστροφές),
+  όπως πριν· να διορθωθεί αν ενεργοποιηθεί τέτοιο νόμισμα.
+- **Webhooks:**
+  - Stripe: `refund.created`, `refund.updated`, `refund.failed` (status `succeeded` ή `pending` = καταγραφή). Το
+    endpoint που φτιάχνει το extension τα ζητά· ένα υπάρχον χρειάζεται τα τρία events στο dashboard του Stripe (ή
+    άδειασμα του webhook secret και αποθήκευση, ώστε να ξαναφτιαχτεί).
+  - PayPal: `PAYMENT.CAPTURE.REFUNDED` (η πληρωμή από το link `up`) και `PAYMENT.SALE.REFUNDED` (συνδρομές). Να
+    προστεθούν στο webhook της εφαρμογής στο PayPal.
+  - Mollie: μόνο το id της δικής μας επιστροφής· το webhook του δεν φέρνει επιστροφές ακόμα.
+  - Στο log των gateways: `recorded`/`refund`, `ignored`/`replay`, `ignored`/`refund_unknown_payment`,
+    `ignored`/`refund_nothing_left`, `ignored`/`refund_payment_not_succeeded`, `ignored`/`refund_failed`,
+    `ignored`/`refund_matched_by_hand`, `rejected`/`currency_mismatch`.
+- **Email στον πελάτη** (`invoice_refunded`, «Invoice Refund Confirmation» του WHMCS): σε κάθε επιστροφή, πίσω (gateway ή
+  με το χέρι) ή σε πίστωση, μετά το commit. Στη φόρμα του staff υπάρχει διακόπτης «Email the customer» (ναι από
+  προεπιλογή), όπως το «Send Email» του WHMCS· οι επιστροφές από το dashboard του gateway το στέλνουν πάντα.
+- **Μένει για το 2c-2b:** chargebacks/disputes (Stripe `charge.dispute.*`, PayPal `CUSTOMER.DISPUTE.*` /
+  `PAYMENT.CAPTURE.REVERSED`): θέλει απόφαση για το τι παθαίνουν τιμολόγιο και υπηρεσίες.

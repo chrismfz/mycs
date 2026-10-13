@@ -112,7 +112,8 @@ class Mollie extends Gateway
         return true;
     }
 
-    public function refund(InvoiceTransaction $transaction, $amount): bool
+    /** @return string|bool Mollie's id of the refund, when it gives one */
+    public function refund(InvoiceTransaction $transaction, $amount): string|bool
     {
         $paymentId = $transaction->transaction_id;
 
@@ -127,8 +128,8 @@ class Mollie extends Gateway
             ],
         ];
 
-        $this->request('/v2/payments/' . $paymentId . '/refunds', 'post', $data);
+        $refund = $this->request('/v2/payments/' . $paymentId . '/refunds', 'post', $data);
 
-        return true;
+        return (string) ($refund['id'] ?? '') ?: true;
     }
 }

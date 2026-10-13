@@ -10,6 +10,7 @@ use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\BillingAgreement;
 use App\Models\Extension;
+use App\Models\GatewayRefund;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\Service;
@@ -158,6 +159,9 @@ class Stripe extends Gateway
                 'invoice.created',
                 'invoice.payment_succeeded',
                 'charge.updated',
+                'refund.created',
+                'refund.updated',
+                'refund.failed',
             ],
             'api_version' => self::API_VERSION,
         ]);
@@ -171,12 +175,13 @@ class Stripe extends Gateway
             ->send();
     }
 
-    private function request($method, $url, $data = [])
+    private function request($method, $url, $data = [], ?string $idempotencyKey = null)
     {
-        return Http::withHeaders([
+        return Http::withHeaders(array_filter([
             'Authorization' => 'Bearer ' . $this->config('stripe_secret_key'),
             'Stripe-Version' => self::API_VERSION,
-        ])->asForm()->$method('https://api.stripe.com/v1' . $url, $data)->throw()->object();
+            'Idempotency-Key' => $idempotencyKey,
+        ]))->asForm()->$method('https://api.stripe.com/v1' . $url, $data)->throw()->object();
     }
 
     public function pay($invoice, $total)
@@ -253,6 +258,20 @@ class Stripe extends Gateway
                 }
                 ExtensionHelper::addPaymentFee($charge->payment_intent, $fee);
 
+                break;
+            case 'refund.created':
+            case 'refund.updated':
+            case 'refund.failed':
+                // A refund made here or in Stripe's dashboard (PR 2c-2): recorded once, by its id.
+                $refund = $event->data->object; // contains a StripeRefund
+                if (!isset($refund->payment_intent, $refund->id)) {
+                    break;
+                }
+                if (in_array($refund->status ?? null, ['succeeded', 'pending'], true)) {
+                    ExtensionHelper::refundedAtGateway('Stripe', $refund->payment_intent, $refund->id, $refund->amount / 100, $refund->currency ?? null);
+                } elseif (in_array($refund->status ?? null, ['failed', 'canceled'], true)) {
+                    ExtensionHelper::refundFailedAtGateway('Stripe', $refund->id, $refund->payment_intent, $refund->amount / 100, $refund->currency ?? null);
+                }
                 break;
             case 'setup_intent.succeeded':
                 $setupIntent = $event->data->object; // contains a StripeSetupIntent
@@ -864,7 +883,8 @@ class Stripe extends Gateway
         return true;
     }
 
-    public function refund(InvoiceTransaction $transaction, $amount): bool
+    /** @return string Stripe's id of the refund (its refund.* webhooks are then recognised) */
+    public function refund(InvoiceTransaction $transaction, $amount): string
     {
         $paymentIntentId = $transaction->transaction_id;
 
@@ -877,8 +897,12 @@ class Stripe extends Gateway
             'amount' => (int) round($amount * 100),
         ];
 
-        $this->request('post', '/refunds', $refundData);
+        // The same refund (transaction, what was refunded before, amount) keeps the same key: a retry after a timeout gets
+        // Stripe's first answer instead of a second refund (as PayPal's request id).
+        // Counted from MyCS's own refunds only: one the webhook recorded meanwhile does not change it (F4 of 2c-2a).
+        $key = 'refund-' . $transaction->id . '-' . GatewayRefund::refundedByMycsCents($transaction) . '-' . RecordPaymentService::toCents($amount);
+        $refund = $this->request('post', '/refunds', $refundData, $key);
 
-        return true;
+        return (string) $refund->id;
     }
 }

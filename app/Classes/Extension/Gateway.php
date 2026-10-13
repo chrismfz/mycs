@@ -71,10 +71,11 @@ abstract class Gateway extends Extension
     }
 
     /**
-     * Refund the given transaction for the given amount.
+     * Refund the given transaction for the given amount: true, or better the gateway's id of the refund (PR 2c-2), so its
+     * webhook telling the same refund is recognised; false (or an exception) when it was not refunded.
      *
      * @param  float  $amount
-     * @return bool
+     * @return string|bool
      */
     public function refund(InvoiceTransaction $transaction, $amount)
     {

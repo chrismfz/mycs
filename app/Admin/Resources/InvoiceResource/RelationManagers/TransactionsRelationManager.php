@@ -18,6 +18,7 @@ use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
@@ -156,15 +157,19 @@ class TransactionsRelationManager extends RelationManager
                         Radio::make('method')
                             ->label(__('invoices.refund_method'))
                             ->options(fn (InvoiceTransaction $record): array => self::refundMethods($record))
+                            // A refund made in the gateway's dashboard arrives on its own (PR 2c-2): «by hand» is other money.
+                            ->descriptions(['manual' => __('invoices.refund_method_manual_help')])
                             ->default(fn (InvoiceTransaction $record): string => array_key_first(self::refundMethods($record)))
                             ->required(),
+                        // WHMCS's «Send Email» on a refund: the customer's «Invoice Refund Confirmation» (PR 2c-2).
+                        Toggle::make('notify')->label(__('invoices.refund_notify'))->default(true),
                     ])
                     ->action(function (InvoiceTransaction $record, array $data, Action $action): void {
                         try {
                             match ($data['method'] ?? null) {
-                                'gateway' => ExtensionHelper::refund($record, (float) $data['amount']),
-                                'manual' => ExtensionHelper::refundLocally($record, (float) $data['amount']),
-                                'credit' => ExtensionHelper::refundToCredit($record, (float) $data['amount']),
+                                'gateway' => ExtensionHelper::refund($record, (float) $data['amount'], (bool) ($data['notify'] ?? true)),
+                                'manual' => ExtensionHelper::refundLocally($record, (float) $data['amount'], (bool) ($data['notify'] ?? true)),
+                                'credit' => ExtensionHelper::refundToCredit($record, (float) $data['amount'], (bool) ($data['notify'] ?? true)),
                                 default => throw new \InvalidArgumentException('Choose how the money goes back.'),
                             };
 

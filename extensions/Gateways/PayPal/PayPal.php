@@ -10,6 +10,7 @@ use App\Events\ServiceCancellation\Created;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\BillingAgreement;
+use App\Models\GatewayRefund;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
@@ -507,6 +508,19 @@ class PayPal extends Gateway
             if ($billingAgreement) {
                 $billingAgreement->delete();
             }
+        } elseif ($body['event_type'] === 'PAYMENT.CAPTURE.REFUNDED' && isset($body['resource']['id'])) {
+            // A refund made here or in PayPal's dashboard (PR 2c-2): recorded once, by its id. Its capture is the «up» link.
+            $capture = collect($body['resource']['links'] ?? [])->firstWhere('rel', 'up')['href'] ?? '';
+            $captureId = basename((string) parse_url($capture, PHP_URL_PATH));
+            if ($captureId !== '' && in_array($body['resource']['status'] ?? null, ['COMPLETED', 'PENDING'], true)) {
+                ExtensionHelper::refundedAtGateway('PayPal', $captureId, (string) $body['resource']['id'],
+                    (float) ($body['resource']['amount']['value'] ?? 0), $body['resource']['amount']['currency_code'] ?? null);
+            }
+        } elseif ($body['event_type'] === 'PAYMENT.SALE.REFUNDED' && isset($body['resource']['id'], $body['resource']['sale_id'])
+            && in_array($body['resource']['state'] ?? 'completed', ['completed', 'pending'], true)) {
+            // A subscription sale refunded (PR 2c-2). The total is negative in some payloads: its size is the refund.
+            ExtensionHelper::refundedAtGateway('PayPal', (string) $body['resource']['sale_id'], (string) $body['resource']['id'],
+                abs((float) ($body['resource']['amount']['total'] ?? 0)), $body['resource']['amount']['currency'] ?? null);
         } elseif ($body['event_type'] === 'PAYMENT.CAPTURE.COMPLETED' && isset($body['resource']['supplementary_data']['related_ids']['order_id'])) {
             $orderID = $body['resource']['supplementary_data']['related_ids']['order_id'];
             try {
@@ -591,7 +605,8 @@ class PayPal extends Gateway
         return true;
     }
 
-    public function refund(InvoiceTransaction $transaction, $amount): bool
+    /** @return string|bool PayPal's id of the refund (its PAYMENT.CAPTURE.REFUNDED webhook is then recognised) */
+    public function refund(InvoiceTransaction $transaction, $amount): string|bool
     {
         $captureId = $transaction->transaction_id;
 
@@ -603,7 +618,8 @@ class PayPal extends Gateway
 
         // The same refund (transaction, what was refunded before, amount) keeps the same request id: a retry after
         // a timeout gets PayPal's first answer instead of a second refund.
-        $requestId = 'refund-' . $transaction->id . '-' . RecordPaymentService::toCents($transaction->refunded_amount) . '-' . RecordPaymentService::toCents($amount);
+        // Counted from MyCS's own refunds only: one the webhook recorded meanwhile does not change it (F4 of 2c-2a).
+        $requestId = 'refund-' . $transaction->id . '-' . GatewayRefund::refundedByMycsCents($transaction) . '-' . RecordPaymentService::toCents($amount);
         try {
             $refund = $this->request('post', $url . '/v2/payments/captures/' . $captureId . '/refund', [
                 'amount' => [
@@ -623,6 +639,6 @@ class PayPal extends Gateway
             throw new Exception('PayPal did not refund capture ' . $captureId . ' (status ' . ($refund->status ?? 'none') . ').');
         }
 
-        return true;
+        return (string) ($refund->id ?? '') ?: true;
     }
 }
