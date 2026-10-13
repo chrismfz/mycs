@@ -93,16 +93,23 @@ class CreditLedgerTest extends TestCase
 
     public function test_remove_is_refused_below_zero_and_changes_nothing(): void
     {
-        (new CreditLedger)->add($this->user->id, 'USD', 500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF);
+        (new CreditLedger)->add($this->user->id, 'USD', 500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
 
         try {
-            (new CreditLedger)->remove($this->user->id, 'USD', 600, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF);
+            (new CreditLedger)->remove($this->user->id, 'USD', 600, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
             $this->fail('Credit went below zero.');
         } catch (DisplayException) {
         }
 
         $this->assertSame('5.00', $this->balance());
         $this->assertSame(1, MoneyEvent::query()->count());
+    }
+
+    /** Decision 2: a staff adjustment without a reason is refused by the ledger itself, not only by the forms. */
+    public function test_a_staff_adjustment_needs_a_reason(): void
+    {
+        $this->expectException(\LogicException::class);
+        (new CreditLedger)->add($this->user->id, 'USD', 500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: '  ');
     }
 
     public function test_set_balance_journals_only_the_difference(): void
@@ -219,7 +226,7 @@ class CreditLedgerTest extends TestCase
 
     public function test_the_check_finds_a_balance_that_differs_and_rebuilds_it_only_with_write(): void
     {
-        (new CreditLedger)->add($this->user->id, 'USD', 1000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF);
+        (new CreditLedger)->add($this->user->id, 'USD', 1000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
         $this->assertSame(0, Artisan::call('mycs:credits-check'));
 
         DB::table('credits')->where('user_id', $this->user->id)->update(['amount' => 99]); // a write that skipped the ledger

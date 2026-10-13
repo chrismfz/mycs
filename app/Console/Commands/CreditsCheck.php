@@ -24,9 +24,12 @@ class CreditsCheck extends Command
 
     public function handle(): int
     {
-        $journal = $this->journalCents();
-        $balances = Credit::query()->get(['user_id', 'currency_code', 'amount'])
-            ->mapWithKeys(fn (Credit $credit) => [$credit->user_id . '|' . $credit->currency_code => RecordPaymentService::toCents($credit->amount)]);
+        // One snapshot for both reads (REPEATABLE READ): a move between them would show as a false mismatch.
+        [$journal, $balances] = DB::transaction(fn () => [
+            $this->journalCents(),
+            Credit::query()->get(['user_id', 'currency_code', 'amount'])
+                ->mapWithKeys(fn (Credit $credit) => [$credit->user_id . '|' . $credit->currency_code => RecordPaymentService::toCents($credit->amount)]),
+        ]);
 
         $rows = [];
         foreach ($balances->keys()->merge(array_keys($journal))->unique() as $key) {

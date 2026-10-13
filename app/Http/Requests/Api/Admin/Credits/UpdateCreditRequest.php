@@ -24,7 +24,7 @@ class UpdateCreditRequest extends AdminApiRequest
             /**
              * The new balance: the difference is journaled as a staff adjustment (docs/money-trail.md §2).
              */
-            'amount' => 'sometimes|required|numeric|min:0',
+            'amount' => 'sometimes|required|numeric|min:0|max:9999999999.99',
             /**
              * Why the balance changes (kept with the credit history, staff only). Required with amount.
              */

@@ -57,6 +57,7 @@ class CreditLedger
         if ($targetCents < 0) {
             throw new LogicException('A balance is set to zero or more.');
         }
+        self::requireReason($cause, $note);
 
         return DB::transaction(function () use ($userId, $currency, $targetCents, $cause, $source, $note) {
             $credit = $this->lock($userId, $currency);
@@ -71,6 +72,14 @@ class CreditLedger
         });
     }
 
+    /** Staff adjust credit only with a reason (decision 2): the form and the API ask for it, the ledger makes sure. */
+    private static function requireReason(string $cause, ?string $note): void
+    {
+        if ($cause === MoneyTrail::CAUSE_STAFF_ADJUSTMENT && trim((string) $note) === '') {
+            throw new LogicException('A staff credit adjustment needs a reason.');
+        }
+    }
+
     /** The balance in cents (no lock: for display and checks). */
     public function balanceCents(int $userId, string $currency): int
     {
@@ -82,6 +91,7 @@ class CreditLedger
         if ($cents <= 0) {
             throw new LogicException('A credit move has a positive amount in cents.');
         }
+        self::requireReason($cause, $note);
 
         return DB::transaction(function () use ($sign, $userId, $currency, $cents, $cause, $source, $invoice, $transaction, $note, $group, $mayGoNegative) {
             $credit = $this->lock($userId, $currency)

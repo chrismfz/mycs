@@ -42,6 +42,9 @@ return new class extends Migration
     {
         Schema::dropIfExists('money_event_notes');
         Schema::table('credits', function (Blueprint $table) {
+            // MariaDB/MySQL use the unique key for the user_id foreign key (it replaced the FK's own index): give the
+            // foreign key an index of its own first, or the unique key cannot be dropped.
+            $table->index('user_id');
             $table->dropUnique(['user_id', 'currency_code']);
         });
     }

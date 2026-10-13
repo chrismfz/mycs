@@ -10,6 +10,7 @@ use App\Models\Service;
 use App\Models\Setting;
 use App\Models\User;
 use App\Providers\SettingsProvider;
+use App\Services\Money\MoneyTrail;
 use Closure;
 use DB;
 use Illuminate\Console\Command;
@@ -324,8 +325,8 @@ class ImportFromWhmcs extends Command
                     'currency_code' => $credit['currency_code'],
                     'user_id' => $credit['user_id'],
                     'credit_balance_after' => $credit['amount'],
-                    'source' => 'import',
-                    'cause' => 'opening_balance',
+                    'source' => MoneyTrail::SOURCE_IMPORT,
+                    'cause' => MoneyTrail::CAUSE_OPENING_BALANCE,
                     'occurred_at' => now(),
                 ], $credits));
             }

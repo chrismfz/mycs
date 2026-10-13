@@ -13,6 +13,7 @@ use App\Models\Credit;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
+use Illuminate\Support\Facades\DB;
 use Dedoc\Scramble\Attributes\Group;
 use Dedoc\Scramble\Attributes\QueryParameter;
 use Spatie\QueryBuilder\QueryBuilder;
@@ -77,15 +78,22 @@ class CreditController extends ApiController
      *
      * A new amount is applied as a staff adjustment of the difference, with its reason. The currency changes only
      * while the balance is zero.
+     *
+     * @response 422 {"message": "The currency of a credit changes only while its balance is zero."}
      */
     public function update(UpdateCreditRequest $request, Credit $credit)
     {
         $data = $request->validated();
         if (array_key_exists('currency_code', $data) && $data['currency_code'] !== $credit->currency_code) {
-            if (RecordPaymentService::toCents($credit->amount) !== 0) {
-                abort(422, 'The currency of a credit changes only while its balance is zero.');
-            }
-            $credit->update(['currency_code' => $data['currency_code']]);
+            // Checked and changed under the ledger's lock: a payment can move this balance in between.
+            DB::transaction(function () use ($credit, $data) {
+                $locked = (new CreditLedger)->lock((int) $credit->user_id, $credit->currency_code);
+                if ($locked === null || RecordPaymentService::toCents($locked->amount) !== 0) {
+                    abort(422, 'The currency of a credit changes only while its balance is zero.');
+                }
+                $locked->update(['currency_code' => $data['currency_code']]);
+            });
+            $credit->refresh();
         }
         if (array_key_exists('amount', $data)) {
             (new CreditLedger)->setBalance((int) $credit->user_id, $credit->currency_code, RecordPaymentService::toCents($data['amount']),
@@ -101,13 +109,19 @@ class CreditController extends ApiController
      * Delete a specific credit
      *
      * Only a zero balance: set the amount to 0 first (with a reason), so the change is journaled.
+     *
+     * @response 422 {"message": "A credit with a balance cannot be deleted: set its amount to 0 first (with a reason)."}
      */
     public function destroy(DeleteCreditRequest $request, Credit $credit)
     {
-        if (RecordPaymentService::toCents($credit->amount) !== 0) {
-            abort(422, 'A credit with a balance cannot be deleted: set its amount to 0 first (with a reason).');
-        }
-        $credit->delete();
+        // Checked and deleted under the ledger's lock: a payment can move this balance in between.
+        DB::transaction(function () use ($credit) {
+            $locked = (new CreditLedger)->lock((int) $credit->user_id, $credit->currency_code);
+            if ($locked !== null && RecordPaymentService::toCents($locked->amount) !== 0) {
+                abort(422, 'A credit with a balance cannot be deleted: set its amount to 0 first (with a reason).');
+            }
+            $locked?->delete();
+        });
 
         return $this->returnNoContent();
     }

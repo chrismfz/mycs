@@ -61,7 +61,7 @@ class ShowCredits extends ManageRelatedRecords
             ->label($label)
             ->color($add ? 'success' : 'danger')
             ->visible(fn (): bool => (bool) auth()->user()?->hasPermission('admin.credits.update'))
-            ->form([
+            ->schema([
                 Select::make('currency_code')
                     ->label(__('Currency'))
                     ->options(fn () => Currency::query()->pluck('code', 'code'))
