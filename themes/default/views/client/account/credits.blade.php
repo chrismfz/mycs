@@ -65,7 +65,7 @@
                 <tbody>
                     @foreach ($history as $event)
                     <tr class="border-t border-neutral" wire:key="credit-event-{{ $event->id }}">
-                        <td class="px-4 py-2 whitespace-nowrap">{{ $event->occurred_at?->format('d M Y H:i') }}</td>
+                        <td class="px-4 py-2 whitespace-nowrap">{{ $event->occurred_at?->translatedFormat('d M Y H:i') }}</td>
                         <td class="px-4 py-2">{{ \App\Services\Money\MoneyHistory::customerLabel($event) }}</td>
                         <td class="px-4 py-2">
                             @if ($event->invoice && (int) $event->invoice->user_id === (int) Auth::id())

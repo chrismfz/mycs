@@ -22,6 +22,12 @@ class MoneyEventsRelationManager extends RelationManager
         return __('Movements');
     }
 
+    /** Like the Transactions tab: payments, credit balances, who and the staff reasons. */
+    public static function canViewForRecord(Model $ownerRecord, string $pageClass): bool
+    {
+        return (bool) auth()->user()?->hasPermission('admin.invoice_transactions.viewAny') && parent::canViewForRecord($ownerRecord, $pageClass);
+    }
+
     public function isReadOnly(): bool
     {
         return true;

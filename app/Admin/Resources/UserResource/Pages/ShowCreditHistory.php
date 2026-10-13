@@ -31,6 +31,12 @@ class ShowCreditHistory extends ManageRelatedRecords
         return __('Credit history');
     }
 
+    /** The same permission as the Credits page next to it: balances, who and the staff reasons. */
+    public static function canAccess(array $parameters = []): bool
+    {
+        return (bool) auth()->user()?->hasPermission('admin.credits.viewAny') && parent::canAccess($parameters);
+    }
+
     public function table(Table $table): Table
     {
         return $table
@@ -46,12 +52,12 @@ class ShowCreditHistory extends ManageRelatedRecords
                 TextColumn::make('credit_balance_after')->label(__('Balance after'))
                     ->formatStateUsing(fn (MoneyEvent $record): string => MoneyHistory::money($record->credit_balance_after, $record->currency_code)),
                 TextColumn::make('invoice_id')->label(__('Invoice'))->prefix('#')
-                    ->url(fn (MoneyEvent $record): ?string => $record->invoice_id !== null
+                    ->url(fn (MoneyEvent $record): ?string => $record->invoice_id !== null && auth()->user()?->hasPermission('admin.invoices.view')
                         ? InvoiceResource::getUrl(config('settings.immutable_invoices_enabled', false) ? 'view' : 'edit', ['record' => $record->invoice_id])
                         : null),
                 TextColumn::make('source')->label(__('Source')),
                 TextColumn::make('by')->label(__('By'))
-                    ->state(fn (MoneyEvent $record): string => MoneyHistory::actorName($record->actor)),
+                    ->state(fn (MoneyEvent $record): string => MoneyHistory::actorName($record->actor, $record->actor_type, $record->actor_id)),
                 TextColumn::make('note')->label(__('Reason'))->wrap()
                     ->state(fn (MoneyEvent $record): ?string => MoneyHistory::staffNote($record)),
             ])

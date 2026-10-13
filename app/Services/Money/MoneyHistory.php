@@ -10,6 +10,7 @@ use App\Models\MoneyEvent;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Lang;
 use OwenIt\Auditing\Models\Audit;
 
 /**
@@ -28,6 +29,7 @@ class MoneyHistory
 
     /**
      * An invoice's movements for staff, oldest first: every journal event on it and every status change in its audit.
+     * Both keep whole seconds: within the same second the journal's rows come before the audit's (kept as is in MT-1d).
      *
      * @return array<string, array{at: ?Carbon, what: string, amount: ?string, credit: ?string, source: ?string, transaction: ?int, by: ?string, note: ?string}>
      */
@@ -43,7 +45,7 @@ class MoneyHistory
                 'credit' => $event->credit_balance_after !== null ? self::money($event->credit_balance_after, $event->currency_code) : null,
                 'source' => $event->source,
                 'transaction' => $event->invoice_transaction_id,
-                'by' => self::actorName($event->actor),
+                'by' => self::actorName($event->actor, $event->actor_type, $event->actor_id),
                 'note' => self::staffNote($event),
             ];
         }
@@ -59,13 +61,13 @@ class MoneyHistory
             $rows['a' . $audit->id] = [
                 'at' => $audit->created_at,
                 'what' => isset($old['status'])
-                    ? __('Status: :from → :to', ['from' => $old['status'], 'to' => $new['status']])
-                    : __('Status: :to', ['to' => $new['status']]),
+                    ? __('Status: :from → :to', ['from' => self::word('statuses', $old['status']), 'to' => self::word('statuses', $new['status'])])
+                    : __('Status: :to', ['to' => self::word('statuses', $new['status'])]),
                 'amount' => null,
                 'credit' => null,
                 'source' => null,
                 'transaction' => null,
-                'by' => self::actorName($audit->user),
+                'by' => self::actorName($audit->user, $audit->user_type, $audit->user_id),
                 'note' => null,
             ];
         }
@@ -86,7 +88,15 @@ class MoneyHistory
             MoneyEventKind::Reversal => __('Reversal of #:id', ['id' => $event->reverses_id]),
         };
 
-        return $event->cause !== null ? $kind . ' (' . $event->cause . ')' : $kind;
+        return $event->cause !== null ? $kind . ' (' . self::word('causes', $event->cause) . ')' : $kind;
+    }
+
+    /** A cause or status in words for staff (lang/*\/money.php), or as stored when there is none. */
+    private static function word(string $group, mixed $value): string
+    {
+        $key = 'money.' . $group . '.' . $value;
+
+        return Lang::has($key) ? __($key) : (string) $value;
     }
 
     /** What an event did to the customer's credit, in words for the customer (lang/*\/account.php). */
@@ -136,13 +146,18 @@ class MoneyHistory
         return $parts === [] ? null : implode(' — ', $parts);
     }
 
-    /** Who did it: a user by name and id, anything else by type and id, nobody as «System». */
-    public static function actorName(mixed $actor): string
+    /**
+     * Who did it: a user by name and id, anything else by type and id, a deleted one by its id, nobody as «System».
+     */
+    public static function actorName(mixed $actor, ?string $type = null, mixed $id = null): string
     {
         if ($actor instanceof User) {
             return trim($actor->first_name . ' ' . $actor->last_name) . ' (#' . $actor->id . ')';
         }
+        if ($actor !== null) {
+            return class_basename($actor) . ' #' . $actor->getKey();
+        }
 
-        return $actor === null ? __('System') : class_basename($actor) . ' #' . $actor->getKey();
+        return $id !== null ? __('Deleted :type #:id', ['type' => class_basename((string) $type), 'id' => $id]) : __('System');
     }
 }

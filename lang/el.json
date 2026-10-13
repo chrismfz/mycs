@@ -134,5 +134,6 @@
     "Reversal of #:id": "Αντιλογισμός της #:id",
     "Status: :from → :to": "Κατάσταση: :from → :to",
     "Status: :to": "Κατάσταση: :to",
-    "System": "Σύστημα"
+    "System": "Σύστημα",
+    "Deleted :type #:id": "Διαγραμμένος :type #:id"
 }
