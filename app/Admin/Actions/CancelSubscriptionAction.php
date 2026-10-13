@@ -36,6 +36,8 @@ class CancelSubscriptionAction
                     ? Notification::make('Subscription Cancelled')->title('The subscription has been successfully cancelled')->success()->send()
                     : Notification::make('Subscription Not Cancelled')->title('The subscription could not be cancelled')->body($error ?: 'No gateway recognised this subscription id.')->danger()->send();
             })
+            // Its own permission: the order page's form must not let staff without services.update cancel one.
+            ->authorize(fn () => (bool) auth()->user()?->hasPermission('admin.services.update'))
             ->requiresConfirmation()
             ->label('Cancel Subscription')
             ->hidden(fn (Component $component) => !(($record = $component->getRecord()) instanceof Service && $record->subscription_id));

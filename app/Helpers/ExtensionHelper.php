@@ -548,7 +548,7 @@ class ExtensionHelper
                     if (self::getExtension('gateway', $gateway->extension, $gateway->settings)->cancelSubscription($service)) {
                         return true;
                     }
-                } catch (Exception $e) {
+                } catch (\Throwable $e) { // an Error too: the subscription may still be another gateway's
                     $failure ??= $e;
                 }
             }
