@@ -859,7 +859,10 @@ class ExtensionHelper
 
         $staff = null;
         try {
-            $recorded = DB::transaction(fn () => self::recordGatewayRefund($payment, $gateway, $refundReference, $cents, $currency, $log, $staff));
+            // A closure by reference: an arrow function would fill a copy of $staff.
+            $recorded = DB::transaction(function () use ($payment, $gateway, $refundReference, $cents, $currency, $log, &$staff) {
+                return self::recordGatewayRefund($payment, $gateway, $refundReference, $cents, $currency, $log, $staff);
+            });
         } catch (UniqueConstraintViolationException) { // the same refund, recorded by another request in the meantime
             $log(PaymentGatewayEvent::OUTCOME_IGNORED, 'replay', $payment);
 
