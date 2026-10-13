@@ -129,7 +129,7 @@ class GatewayLogTest extends TestCase
         $row = PaymentGatewayEvent::query()->sole();
         $this->assertFalse($row->signature_verified);
         $this->assertSame([PaymentGatewayEvent::OUTCOME_REJECTED, 'http_400', 400], [$row->outcome, $row->reason, $row->http_status]);
-        $this->assertContains('card_number', $row->fields);
+        $this->assertNull($row->fields, 'a refused request keeps not even the names');
         $this->assertStringNotContainsString('4111111111111111', json_encode($row->getAttributes()));
         $this->assertSame(0, $invoice->transactions()->count());
     }

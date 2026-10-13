@@ -49,6 +49,7 @@ class PaymentGatewayEventResource extends Resource
                 TextColumn::make('event_type')->label(__('Event'))->placeholder('—')->searchable(),
                 IconColumn::make('signature_verified')->label(__('Signature'))->boolean(),
                 TextColumn::make('outcome')->label(__('Outcome'))->badge()
+                    ->formatStateUsing(fn (string $state): string => __('money.outcomes.' . $state))
                     ->color(fn (string $state): string => match ($state) {
                         PaymentGatewayEvent::OUTCOME_RECORDED => 'success',
                         PaymentGatewayEvent::OUTCOME_IGNORED => 'gray',
@@ -70,13 +71,10 @@ class PaymentGatewayEventResource extends Resource
                     ->formatStateUsing(fn ($state): string => is_array($state) ? implode(', ', $state) : (string) $state)->wrap(),
             ])
             ->filters([
-                SelectFilter::make('outcome')->label(__('Outcome'))->options([
-                    PaymentGatewayEvent::OUTCOME_RECORDED => 'recorded',
-                    PaymentGatewayEvent::OUTCOME_IGNORED => 'ignored',
-                    PaymentGatewayEvent::OUTCOME_REJECTED => 'rejected',
-                    PaymentGatewayEvent::OUTCOME_ERROR => 'error',
-                    PaymentGatewayEvent::OUTCOME_RECEIVED => 'received',
-                ]),
+                SelectFilter::make('outcome')->label(__('Outcome'))->options(fn (): array => collect([
+                    PaymentGatewayEvent::OUTCOME_RECORDED, PaymentGatewayEvent::OUTCOME_IGNORED, PaymentGatewayEvent::OUTCOME_REJECTED,
+                    PaymentGatewayEvent::OUTCOME_ERROR, PaymentGatewayEvent::OUTCOME_RECEIVED,
+                ])->mapWithKeys(fn (string $outcome) => [$outcome => __('money.outcomes.' . $outcome)])->all()),
                 SelectFilter::make('gateway')->label(__('Gateway'))
                     ->options(fn () => PaymentGatewayEvent::query()->distinct()->orderBy('gateway')->pluck('gateway', 'gateway')),
             ])

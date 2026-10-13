@@ -522,9 +522,9 @@ class PayPal extends Gateway
             }
 
             if (isset($order->purchase_units[0]->invoice_id)) {
-                // Verify that the currency is the same as the invoice
+                // A capture in another currency is refused by RecordPaymentService (logged, staff told), not skipped here.
                 $invoice = Invoice::find($order->purchase_units[0]->invoice_id);
-                if ($invoice && $invoice->currency_code === $order->purchase_units[0]->payments->captures[0]->amount->currency_code) {
+                if ($invoice) {
                     ExtensionHelper::addPayment($order->purchase_units[0]->invoice_id, 'PayPal', $order->purchase_units[0]->payments->captures[0]->amount->value, $order->purchase_units[0]->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value ?? null, $body['resource']['id'], currency: $order->purchase_units[0]->payments->captures[0]->amount->currency_code);
                 }
             }

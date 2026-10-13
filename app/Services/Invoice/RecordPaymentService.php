@@ -174,7 +174,7 @@ class RecordPaymentService
                 }
             }
 
-            // The gateway log (MT-2a): what this request did with the money, once it commits.
+            // The gateway log (MT-2a): what this request did with the money (a rolled-back one is dropped at the end).
             GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_RECORDED,
                 $status === InvoiceTransactionStatus::Succeeded ? null : $status->value, [
                     'amount' => $cents / 100, 'currency_code' => $target->currency_code, 'external_id' => $transactionId,

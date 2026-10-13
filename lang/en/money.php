@@ -19,4 +19,11 @@ return [
         'paid' => 'paid',
         'cancelled' => 'cancelled',
     ],
+    'outcomes' => [
+        'received' => 'received',
+        'recorded' => 'recorded',
+        'ignored' => 'ignored',
+        'rejected' => 'rejected',
+        'error' => 'error',
+    ],
 ];

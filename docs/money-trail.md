@@ -151,9 +151,15 @@ admin και API (`cause=staff_adjustment`, `source=staff`/`api`). Εξαίρε�
 τιμολόγιο, συναλλαγή· `reason` = `processing`/`failed` όταν δεν πέτυχε ακόμη), `ignored`/`replay`,
 `rejected`/`currency_mismatch` ή `amount_not_positive`. Ό,τι δεν πέρασε από εκεί: 2xx → `ignored`/`nothing_recorded`,
 4xx → `rejected`/`http_4xx`, 5xx → `error`. Κρατιούνται μόνο τα **ονόματα** των πεδίων και ο τύπος γεγονότος
-(`type`/`event_type`/`txn_type`, μόνο αν είναι σύντομος κωδικός)· ποτέ τιμές, tokens ή υπογραφές. Stripe και PayPal
-λένε αν η υπογραφή επαληθεύτηκε (μία γραμμή το καθένα). Σε 5xx το staff παίρνει email, το πολύ μία φορά την ώρα ανά
-gateway και endpoint (το gateway ξαναστέλνει). Οθόνη «Gateway log» στο admin, μόνο ανάγνωση, permission
+(`type`/`event_type`/`txn_type`, μόνο αν είναι σύντομος κωδικός)· ποτέ τιμές, tokens ή υπογραφές· ένα αίτημα που
+απορρίφθηκε (4xx: πλαστό, άγνωστο) δεν κρατά ούτε τα ονόματα. Stripe, PayPal και PayPal IPN λένε αν η υπογραφή
+επαληθεύτηκε (μία γραμμή το καθένα). Το αποτέλεσμα κρατιέται αμέσως και στο κλείσιμο ελέγχεται ότι η συναλλαγή υπάρχει:
+ένα callback που αποτυγχάνει μετά το commit (ανανέωση) δεν κρύβει χρήματα που γράφτηκαν, και ένα rollback δεν μένει
+«recorded». Σε 5xx το staff παίρνει email (λέει αν τα χρήματα γράφτηκαν ή όχι), το πολύ μία φορά την ώρα ανά gateway
+και endpoint (το gateway ξαναστέλνει)· ποτέ για αίτημα με υπογραφή που δεν επαληθεύτηκε. Mollie: id που δεν γνωρίζει η
+Mollie (ο καθένας μπορεί να στείλει ένα) είναι 404, όχι σφάλμα. PayPal capture και IPN σε άλλο νόμισμα: τα απορρίπτει
+το `RecordPaymentService` (log `currency_mismatch`, email στο staff), όχι σιωπηλά το gateway. Γραμμές που έμειναν
+`received` (fatal error, timeout) τις πιάνει ο έλεγχος του MT-3. Οθόνη «Gateway log» στο admin, μόνο ανάγνωση, permission
 `admin.gateway_events.viewAny`.
 
 ### 5. Καθημερινός έλεγχος συνέπειας (`mycs:money-check`)

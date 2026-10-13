@@ -3,10 +3,10 @@
 namespace App\Services\Money;
 
 use App\Helpers\NotificationHelper;
+use App\Models\InvoiceTransaction;
 use App\Models\PaymentGatewayEvent;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -16,8 +16,8 @@ use Symfony\Component\HttpFoundation\Response;
  * closes with the response. No code in the gateways (Stripe and PayPal also say whether the signature held).
  *
  * Only names are kept: the request's field names and an event type such as «payment_intent.succeeded», never a value,
- * token or signature. When a gateway's request fails (5xx) staff are mailed, at most once an hour per endpoint: the
- * gateway says it charged and retries, while the money is not recorded.
+ * token or signature; a refused request (4xx) keeps not even the names. When a gateway's request fails (5xx) staff are
+ * mailed, at most once an hour per endpoint, saying whether the money was recorded: the gateway retries either way.
  */
 class GatewayLog
 {
@@ -50,6 +50,9 @@ class GatewayLog
     /** A gateway route matched: open its row (outside any transaction, so it stays whatever happens next). */
     public function start(Request $request, string $routeName): void
     {
+        if ($this->event !== null) {
+            $this->finish(null); // a second gateway route in one request: the first is closed as an error
+        }
         $parts = explode('.', $routeName, 4); // extensions.gateways.{gateway}.{endpoint}
         try {
             $this->event = PaymentGatewayEvent::query()->create([
@@ -73,7 +76,9 @@ class GatewayLog
     }
 
     /**
-     * What came of the money (RecordPaymentService), once it commits: a rolled-back payment reports nothing.
+     * What came of the money (RecordPaymentService). Kept at once, not after commit: a callback that fails after the
+     * commit (a renewal) must not hide money that was recorded. finish() checks that a recorded transaction exists, so a
+     * rolled-back payment is never logged as recorded.
      *
      * @param  array{amount?: mixed, currency_code?: ?string, external_id?: ?string, invoice_id?: mixed, invoice_transaction_id?: mixed}  $details
      */
@@ -82,17 +87,18 @@ class GatewayLog
         if ($this->event === null) {
             return;
         }
-        DB::afterCommit(function () use ($outcome, $reason, $details) {
-            if ($this->result !== null && (self::RANK[$this->result['outcome']] ?? 0) > (self::RANK[$outcome] ?? 0)) {
-                return;
-            }
-            $this->result = ['outcome' => $outcome, 'reason' => $reason] + array_intersect_key($details, array_flip([
-                'amount', 'currency_code', 'external_id', 'invoice_id', 'invoice_transaction_id',
-            ]));
-        });
+        if ($this->result !== null && (self::RANK[$this->result['outcome']] ?? 0) > (self::RANK[$outcome] ?? 0)) {
+            return;
+        }
+        $this->result = ['outcome' => $outcome, 'reason' => $reason] + array_intersect_key($details, array_flip([
+            'amount', 'currency_code', 'external_id', 'invoice_id', 'invoice_transaction_id',
+        ]));
     }
 
-    /** The response went out: close the row. Nothing recorded on a success is «ignored», a 4xx «rejected», a 5xx an error. */
+    /**
+     * The response went out: close the row. Nothing recorded on a success is «ignored», a 4xx «rejected», a 5xx an error.
+     * Never throws: the log must not change a gateway's response.
+     */
     public function finish(?Response $response): void
     {
         if ($this->event === null) {
@@ -100,8 +106,27 @@ class GatewayLog
         }
         $event = $this->event;
         $this->event = null;
-        $status = $response?->getStatusCode() ?? 500;
-        $values = $this->result ?? match (true) {
+        $result = $this->result;
+        $this->result = null;
+        try {
+            $this->close($event, $result, $response?->getStatusCode() ?? 500);
+            if ($event->outcome === PaymentGatewayEvent::OUTCOME_ERROR && $event->signature_verified !== false) {
+                $this->alert($event);
+            }
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
+
+    /** @param  array<string, mixed>|null  $result */
+    private function close(PaymentGatewayEvent $event, ?array $result, int $status): void
+    {
+        // A payment reported as recorded that rolled back afterwards left no transaction: it was not recorded.
+        if (($result['outcome'] ?? null) === PaymentGatewayEvent::OUTCOME_RECORDED
+            && !InvoiceTransaction::query()->whereKey(self::id($result['invoice_transaction_id'] ?? null))->exists()) {
+            $result = null;
+        }
+        $values = $result ?? match (true) {
             $status >= 500 => ['outcome' => PaymentGatewayEvent::OUTCOME_ERROR, 'reason' => 'http_' . $status],
             $status >= 400 => ['outcome' => PaymentGatewayEvent::OUTCOME_REJECTED, 'reason' => 'http_' . $status],
             default => ['outcome' => PaymentGatewayEvent::OUTCOME_IGNORED, 'reason' => 'nothing_recorded'],
@@ -111,34 +136,41 @@ class GatewayLog
             $values['outcome'] = PaymentGatewayEvent::OUTCOME_ERROR;
             $values['reason'] ??= 'http_' . $status;
         }
+        if ($result === null && $status >= 400 && $status < 500) {
+            $values['fields'] = null; // a refused request (forged, unknown) keeps no names from its sender
+        }
         $values['currency_code'] = isset($values['currency_code']) ? strtoupper(substr((string) $values['currency_code'], 0, 3)) : null;
         $values['external_id'] = isset($values['external_id']) ? substr((string) $values['external_id'], 0, 255) : null;
-        try {
-            $event->forceFill($values + ['http_status' => $status])->save();
-        } catch (\Throwable $e) {
-            report($e);
-        }
-        $this->result = null;
+        $values['invoice_id'] = self::id($values['invoice_id'] ?? null);
+        $values['invoice_transaction_id'] = self::id($values['invoice_transaction_id'] ?? null);
+        $values['amount'] = isset($values['amount']) && is_numeric($values['amount']) ? $values['amount'] : null;
+        $event->forceFill($values + ['http_status' => $status])->save();
+    }
 
-        if ($event->outcome === PaymentGatewayEvent::OUTCOME_ERROR) {
-            $this->alert($event);
-        }
+    private static function id(mixed $value): ?int
+    {
+        return is_numeric($value) && (int) $value > 0 ? (int) $value : null;
     }
 
     private function alert(PaymentGatewayEvent $event): void
     {
         $key = 'gateway-log-alert:' . $event->gateway . ':' . $event->endpoint;
-        if (!Cache::add($key, true, self::ALERT_COOLDOWN_SECONDS)) {
-            return;
-        }
-        $message = sprintf('A request from the %s gateway (%s) failed with HTTP %d: if it was a payment, it is NOT recorded and the gateway will retry. Gateway log #%d.',
-            $event->gateway, $event->endpoint, (int) $event->http_status, $event->id);
-        Log::warning($message, ['gateway_event_id' => $event->id]);
         try {
-            NotificationHelper::sendSystemEmailNotification('Gateway request failed', e($message));
+            $first = Cache::add($key, true, self::ALERT_COOLDOWN_SECONDS);
         } catch (\Throwable $e) {
             report($e);
+            $first = true; // no cache: better a mail too many than none
         }
+        if (!$first) {
+            return;
+        }
+        $message = $event->invoice_transaction_id !== null
+            ? sprintf('A request from the %s gateway (%s) failed with HTTP %d after its payment WAS recorded (transaction #%d): what follows the payment (renewal, provisioning) failed, and the gateway will retry. Gateway log #%d.',
+                $event->gateway, $event->endpoint, (int) $event->http_status, $event->invoice_transaction_id, $event->id)
+            : sprintf('A request from the %s gateway (%s) failed with HTTP %d: if it was a payment, it is NOT recorded and the gateway will retry. Gateway log #%d.',
+                $event->gateway, $event->endpoint, (int) $event->http_status, $event->id);
+        Log::warning($message, ['gateway_event_id' => $event->id]);
+        NotificationHelper::sendSystemEmailNotification('Gateway request failed', e($message));
     }
 
     /** @return list<string> The request's field names (query and body), never their values. */
