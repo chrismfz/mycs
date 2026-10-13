@@ -127,7 +127,8 @@ class PaymentMutationAtomicityTest extends TestCase
         $invoice = $this->creditInvoice();
         DB::beginTransaction();
         try {
-            $invoice->update(['status' => 'paid']);
+            // MT-1c: staff mark it paid by recording the payment (Mark Paid); its status alone no longer does.
+            (new RecordPaymentService)->recordByStaff($invoice, null, '50.00');
             $this->assertSame('50.00', $this->credit());
             $this->assertNotNull($invoice->items()->sole()->applied_at);
         } finally {
@@ -137,7 +138,8 @@ class PaymentMutationAtomicityTest extends TestCase
         $this->assertSame('pending', $invoice->fresh()->status);
         $this->assertNull($invoice->items()->sole()->applied_at);
         $this->assertSame('0.00', $this->credit());
-        $invoice->fresh()->update(['status' => 'paid']);
+        $this->assertSame(0, $invoice->transactions()->count());
+        (new RecordPaymentService)->recordByStaff($invoice->fresh(), null, '50.00');
         $this->assertSame('50.00', $this->credit());
     }
 

@@ -305,7 +305,9 @@ class BillingCursorFuzzTest extends TestCase
                 $detail = "{$delta}d to $target (stored $after)";
                 break;
             case 'repay': // admin flips a paid invoice back to pending and to paid again
-                $done = $this->invoices('paid');
+                // Only one its payments still cover: with a balance (a price changed since) staff record the payment,
+                // its status alone no longer makes it paid (MT-1c).
+                $done = $this->invoices('paid')->filter(fn (Invoice $invoice) => $invoice->remaining <= 0)->values();
                 if ($done->isEmpty()) {
                     return null;
                 }

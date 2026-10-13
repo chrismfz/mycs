@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
-use App\Admin\Resources\InvoiceResource\Pages\ViewInvoice;
 use App\Enums\AdjustmentNoteStatus;
 use App\Enums\AdjustmentNoteType;
 use App\Enums\MoneyEventKind;
@@ -55,7 +54,7 @@ class StaffCorrectionsTest extends TestCase
     private function invoice(float $price = 100, string $status = Invoice::STATUS_PENDING, ?string $reference = null): Invoice
     {
         $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
-        $invoice->items()->create(array_filter(['description' => 'Hosting', 'quantity' => 1, 'price' => $price, 'reference_type' => $reference]));
+        $invoice->items()->create(array_filter(['description' => 'Hosting', 'quantity' => 1, 'price' => $price, 'reference_type' => $reference], fn ($value) => $value !== null));
 
         return $invoice->fresh();
     }
@@ -136,8 +135,8 @@ class StaffCorrectionsTest extends TestCase
     }
 
     /**
-     * The admin form: «Paid» is no option while something is left to pay, and a save that sends it anyway is refused
-     * with a message. In its own process: after some earlier test in the suite, Livewire's update route is gone.
+     * The admin form: «Paid» is no option while something is left to pay (EditInvoice::beforeSave and the model refuse
+     * it too). In its own process: after some earlier test in the suite, Livewire's update route is gone.
      */
     #[RunInSeparateProcess]
     #[PreserveGlobalState(false)]
@@ -148,7 +147,7 @@ class StaffCorrectionsTest extends TestCase
         Livewire::actingAs($this->owner())->test(EditInvoice::class, ['record' => $invoice->getKey()])
             ->set('data.status', Invoice::STATUS_PAID)
             ->call('save')
-            ->assertNotified();
+            ->assertHasFormErrors(['status']); // a disabled option
 
         $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
         $this->assertSame(0, InvoiceTransaction::query()->count());
@@ -224,7 +223,8 @@ class StaffCorrectionsTest extends TestCase
     {
         $invoice = $this->invoice();
 
-        Livewire::actingAs($this->owner())->test(ViewInvoice::class, ['record' => $invoice->getKey()])
+        // On the edit page: the view page opens it while invoices are not immutable.
+        Livewire::actingAs($this->owner())->test(EditInvoice::class, ['record' => $invoice->getKey()])
             ->callAction('markPaid', data: ['amount' => '100.00', 'paid_at' => '2026-10-02', 'gateway_id' => null, 'transaction_id' => 'TRANSFER-2'])
             ->assertHasNoActionErrors();
 

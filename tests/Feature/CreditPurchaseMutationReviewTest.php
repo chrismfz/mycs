@@ -29,7 +29,9 @@ class CreditPurchaseMutationReviewTest extends TestCase
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => 50]);
         $invoice->load('user');
 
-        $invoice->update(['user_id' => $newOwner->id, 'status' => 'paid']);
+        // MT-1c: staff mark it paid by recording the payment (its status alone no longer does), after moving it.
+        $invoice->update(['user_id' => $newOwner->id]);
+        (new RecordPaymentService)->recordByStaff($invoice, null, '50.00');
 
         $this->assertSame($newOwner->id, $invoice->fresh()->user_id);
         $this->assertSame(['old_owner' => '0.00', 'new_owner' => '50.00'], [
@@ -47,7 +49,9 @@ class CreditPurchaseMutationReviewTest extends TestCase
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => 50]);
         $invoice->load('user');
 
-        $invoice->update(['user_id' => $newOwner->id, 'status' => 'paid']);
+        // MT-1c: staff mark it paid by recording the payment (its status alone no longer does), after moving it.
+        $invoice->update(['user_id' => $newOwner->id]);
+        (new RecordPaymentService)->recordByStaff($invoice, null, '50.00');
 
         $this->assertSame('60.00', number_format((float) Credit::where('user_id', $newOwner->id)->where('currency_code', 'USD')->sum('amount'), 2, '.', ''));
         $this->assertSame(0, Credit::where('user_id', $oldOwner->id)->count());

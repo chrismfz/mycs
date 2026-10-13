@@ -16,6 +16,7 @@ use App\Models\Service;
 use App\Models\User;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -122,7 +123,7 @@ class RecordPaymentService
                 $transaction = $target->transactions()->make($values);
                 // The day the money arrived, when staff record it later (a bank transfer): the transaction's date.
                 if ($paidAt !== null) {
-                    $transaction->created_at = $paidAt;
+                    $transaction->created_at = Carbon::instance($paidAt);
                 }
                 $transaction->save();
             }
