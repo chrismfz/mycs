@@ -199,7 +199,13 @@ class Upgrade extends Component
             $price = $upgrade->calculatePrice();
 
             if ($price->price <= 0) {
-                (new ServiceUpgradeService)->handle($upgrade);
+                // Refused when the service stopped running meanwhile: no credit for a downgrade that did not happen.
+                if (!(new ServiceUpgradeService)->handle($upgrade)) {
+                    DB::rollBack();
+                    $this->notify(__('This service cannot be upgraded right now.'), 'error');
+
+                    return;
+                }
 
                 if (!config('settings.credits_on_downgrade', true)) {
                     DB::commit();

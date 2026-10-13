@@ -20,6 +20,8 @@ class ServiceUpgrade extends Model implements Auditable
 
     public const STATUS_COMPLETED = 'completed';
 
+    public const STATUS_CANCELLED = 'cancelled';
+
     public $guarded = [];
 
     /** @return BelongsTo<Service, $this> */
