@@ -3,6 +3,7 @@
 namespace App\Services\ServiceUpgrade;
 
 use App\Jobs\Server\UpgradeJob;
+use App\Models\ConfigOptionProduct;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use Illuminate\Support\Facades\DB;
@@ -36,12 +37,14 @@ class ServiceUpgradeService
                 $service->product->decrement('stock', $service->quantity);
             }
 
-            // Update service configurations - remove old configs and add new ones
-            $newConfigOptionIds = $serviceUpgrade->configs->pluck('config_option_id')->toArray();
-
-            // Delete configs that are no longer applicable
+            // The service keeps every option the (new) product still has: the upgrade only offers the upgradable ones,
+            // and deleting the rest (OS, location, extra IPs, hidden ones staff set) dropped their price from the
+            // recurring amount and their values from provisioning (audit sweep SVC-3). Only options the new product
+            // does not have go.
+            $keep = ConfigOptionProduct::query()->where('product_id', $service->product_id)->pluck('config_option_id')
+                ->merge($serviceUpgrade->configs->pluck('config_option_id'))->unique()->all();
             $service->configs()
-                ->whereNotIn('config_option_id', $newConfigOptionIds)
+                ->whereNotIn('config_option_id', $keep)
                 ->delete();
 
             // Update or create new configs
