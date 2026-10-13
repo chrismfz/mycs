@@ -965,7 +965,7 @@ class ImportFromWhmcs extends Command
                 $data[] = [
                     'id' => $record['id'],
                     'invoice_id' => $record['invoiceid'],
-                    'description' => mb_substr($record['description'], 0, 255),
+                    'description' => $record['description'], // text (DATA-12): kept whole
                     'price' => $record['amount'],
                     'created_at' => now(),
                     'updated_at' => now(),

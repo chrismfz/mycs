@@ -5,6 +5,7 @@ namespace App\Livewire\Services;
 use App\Livewire\Component;
 use App\Models\Service;
 use App\Models\ServiceCancellation;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Livewire\Attributes\Validate;
 
 class Cancel extends Component
@@ -29,12 +30,17 @@ class Cancel extends Component
 
         $this->validate();
 
-        // Event hook will handle the cancellation (if its immediate or end of period)
-        ServiceCancellation::create([
-            'service_id' => $this->service->id,
-            'type' => $this->type,
-            'reason' => $this->reason,
-        ]);
+        // Event hook will handle the cancellation (if its immediate or end of period). One request per service, held by
+        // the database too (DATA-11): a double submit gets the message, not an error page.
+        try {
+            ServiceCancellation::create([
+                'service_id' => $this->service->id,
+                'type' => $this->type,
+                'reason' => $this->reason,
+            ]);
+        } catch (UniqueConstraintViolationException) {
+            return $this->notify(__('services.cancellation_not_possible'), 'error');
+        }
 
         $this->notify(__('services.cancellation_requested'), 'success', true);
 

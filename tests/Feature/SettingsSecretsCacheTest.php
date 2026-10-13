@@ -21,7 +21,7 @@ class SettingsSecretsCacheTest extends TestCase
     public function test_secrets_are_cached_encrypted_and_decrypted_into_config_only(): void
     {
         Setting::query()->create(['key' => 'mail_password', 'value' => 's3cret-smtp', 'type' => 'string', 'encrypted' => true]);
-        Setting::query()->create(['key' => 'cronjob_order_suspend', 'value' => 9, 'type' => 'integer', 'encrypted' => false]);
+        Setting::query()->updateOrCreate(['key' => 'cronjob_order_suspend', 'settingable_type' => null], ['value' => 9, 'type' => 'integer', 'encrypted' => false]);
         Cache::put('settings', collect(['mail_password' => 's3cret-smtp'])); // what the old code cached
 
         SettingsProvider::flushCache();
