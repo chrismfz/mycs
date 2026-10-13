@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Models\User;
 use App\Models\UserSession;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Once;
 
 abstract class TestCase extends BaseTestCase
@@ -21,6 +22,15 @@ abstract class TestCase extends BaseTestCase
         // The seeder runs code that memoises with once() (e.g. the settings' currency list, read before the
         // seeder creates USD): start every test from what the seeded database says.
         Once::flush();
+    }
+
+    /**
+     * One of $items, picked with mt_rand (seeded simulations): Collection::random() uses Random\Randomizer, a CSPRNG
+     * that mt_srand() does not seed, so a seed did not replay the same run.
+     */
+    protected function pickOne(Collection $items): mixed
+    {
+        return $items->values()->get(mt_rand(0, $items->count() - 1));
     }
 
     //

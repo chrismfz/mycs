@@ -25,6 +25,8 @@ use Throwable;
  * customers (suspend/terminate), zero-price months. Invariants I1..I7 are checked after every step.
  *
  * FUZZ_SEEDS="1,2,3" or FUZZ_SEEDS="1-200" overrides the seed list. On failure the seed and event log print.
+ * A seed replays the same run (choices use mt_rand, TestCase::pickOne), given the same FUZZ_SEEDS list: the
+ * factories' Faker unique() keeps state from the seeds run before it.
  * A payment on a cancelled invoice no longer revives it (PR 2a, docs/payments.md), so every violation fails
  * the run; FUZZ_LENIENT=1 counts those that involve one as KNOWN instead (the pre-2a behaviour).
  */
@@ -248,7 +250,7 @@ class BillingCursorFuzzTest extends TestCase
                 if ($pending->isEmpty()) {
                     return null;
                 }
-                $inv = $action === 'pay_oldest' ? $pending->first() : $pending->random();
+                $inv = $action === 'pay_oldest' ? $pending->first() : $this->pickOne($pending);
                 $this->pay($inv);
                 if ($action === 'pay_twice') {
                     $this->pay($inv->fresh());
@@ -271,14 +273,14 @@ class BillingCursorFuzzTest extends TestCase
                 if ($cancelled->isEmpty()) {
                     return null;
                 }
-                $inv = $cancelled->random();
+                $inv = $this->pickOne($cancelled);
                 $this->pay($inv);
+                // PR 2a: a payment on a cancelled invoice is refused (no new payment, I3b, decision A3); it never
+                // becomes paid (payments.md §6).
                 if ($inv->fresh()->status === 'paid') {
-                    foreach ($inv->items as $item) {
-                        $this->revived[$item->id] = true;
-                    }
+                    return "PR 2a: cancelled invoice #{$inv->id} became paid (after pay_cancelled)";
                 }
-                $paid = true;
+                $paid = false;
                 $detail = "#{$inv->id}";
                 break;
             case 'cancel':
@@ -286,7 +288,7 @@ class BillingCursorFuzzTest extends TestCase
                 if ($pending->isEmpty()) {
                     return null;
                 }
-                $inv = $pending->random();
+                $inv = $this->pickOne($pending);
                 $inv->update(['status' => 'cancelled']);
                 $detail = "#{$inv->id}";
                 break;
@@ -311,7 +313,7 @@ class BillingCursorFuzzTest extends TestCase
                 if ($done->isEmpty()) {
                     return null;
                 }
-                $inv = $done->random();
+                $inv = $this->pickOne($done);
                 $replay = $inv->items->every(fn ($item) => $item->applied_at !== null);
                 $inv->update(['status' => 'pending']);
                 $inv->fresh()->update(['status' => 'paid']);
@@ -323,7 +325,7 @@ class BillingCursorFuzzTest extends TestCase
                 if ($done->isEmpty()) {
                     return null;
                 }
-                $inv = $done->random();
+                $inv = $this->pickOne($done);
                 $inv->update(['status' => 'cancelled']);
                 $detail = "#{$inv->id}";
                 break;
@@ -446,7 +448,14 @@ class BillingCursorFuzzTest extends TestCase
         }
         if ($freeCron && $this->free && end($this->free)[1] === $exp && $before['expires'] !== $exp) {
             [$fs, $fe] = end($this->free);
-            $bad = $this->badPeriod($fs, $fe, false);
+            // As the hole rule for lines: a free renewal into a hole shorter than a cycle before a paid period ends
+            // where that paid chain ends.
+            // The app's own rule: one free cycle from $fs, then the paid periods that follow (a paid period that
+            // starts inside that cycle carries the expiry past its end; one shorter than the cycle does not cut it).
+            $cycleEnd = CarbonImmutable::parse($fs)->addMonthsNoOverflow($this->months)->toDateString();
+            $next = collect($paidLines)->pluck('s')->filter(fn ($start) => $start > $fs && $start < $cycleEnd)->min();
+            $holeOk = $next !== null && $fe === $this->chain($cycleEnd, $paidLines);
+            $bad = $holeOk ? null : $this->badPeriod($fs, $fe, false);
             if ($bad !== null) {
                 return "I6 free renewal [$fs,$fe) $bad";
             }
@@ -644,6 +653,26 @@ class BillingCursorFuzzTest extends TestCase
         Artisan::call('app:cron-job');
 
         $this->assertSame('2027-05-31', $this->pendingLine($service)->period_end->toDateString());
+    }
+
+    /**
+     * I6 (the CI failure of 2026-10-13, seed 1): staff move the due date back before a paid period and the price goes
+     * to 0; the free renewal of the hole extends over the paid period, as the paid path would. Not a bug: the
+     * checker now allows it as it does for a billed hole.
+     */
+    public function test_min_free_renewal_into_a_hole_before_a_paid_period(): void
+    {
+        Carbon::setTestNow('2028-08-12 10:00:00');
+        $service = $this->fixedService('2028-08-17');
+        Artisan::call('app:cron-job'); // bills [08-17, 09-17)
+        $this->pay($this->pendingLine($service)->invoice); // paid until 09-17
+
+        Carbon::setTestNow('2028-09-12 10:00:00');
+        $service->fresh()->update(['expires_at' => '2028-08-14', 'price' => 0]);
+        Carbon::setTestNow('2028-09-19 10:00:00');
+        Artisan::call('app:cron-job');
+
+        $this->assertSame('2028-09-17', $service->fresh()->expires_at->toDateString());
     }
 
     /** I6 (free renewals write no line): a zero-price service on the 31st drifts to the 28th after February. */
