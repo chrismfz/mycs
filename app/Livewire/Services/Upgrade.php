@@ -14,7 +14,6 @@ use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
 use App\Services\ServiceUpgrade\ServiceUpgradeService;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;

@@ -4,6 +4,7 @@ namespace App\Admin\Resources\UserResource\Pages;
 
 use App\Admin\Resources\UserResource;
 use App\Exceptions\DisplayException;
+use App\Models\Credit;
 use App\Models\Currency;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
@@ -64,7 +65,7 @@ class ShowCredits extends ManageRelatedRecords
                 Select::make('currency_code')
                     ->label(__('Currency'))
                     ->options(fn () => Currency::query()->pluck('code', 'code'))
-                    ->default(fn () => $this->getOwnerRecord()->credits()->value('currency_code') ?? config('settings.default_currency'))
+                    ->default(fn () => Credit::query()->where('user_id', $this->getOwnerRecord()->getKey())->value('currency_code') ?? config('settings.default_currency'))
                     ->live()
                     ->required(),
                 TextInput::make('amount')

@@ -60,7 +60,7 @@ class CreditLedger
 
         return DB::transaction(function () use ($userId, $currency, $targetCents, $cause, $source, $note) {
             $credit = $this->lock($userId, $currency);
-            $difference = $targetCents - RecordPaymentService::toCents($credit?->amount ?? 0);
+            $difference = $targetCents - RecordPaymentService::toCents($credit === null ? 0 : $credit->amount);
             if ($difference === 0) {
                 return $credit;
             }
