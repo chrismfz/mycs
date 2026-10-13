@@ -27,6 +27,9 @@ class Updated
     /**
      * Create a new event instance.
      *
+     * Without $changes/$original the event reads them from the model, which is right only while the save is running
+     * (inside the observer's updated()); ServiceObserver always passes them.
+     *
      * @param  array<string, mixed>|null  $changes
      * @param  array<string, mixed>|null  $original
      */
@@ -34,6 +37,16 @@ class Updated
     {
         $this->changes = $changes ?? $service->getChanges();
         $this->original = $original ?? array_intersect_key($service->getRawOriginal(), $this->changes);
+    }
+
+    /**
+     * This save cancelled the service and it is still cancelled in the database. The row, not this model: another
+     * instance may have reactivated it in the same transaction.
+     */
+    public function cancelledBySave(): bool
+    {
+        return ($this->changes['status'] ?? null) === Service::STATUS_CANCELLED
+            && Service::query()->whereKey($this->service->getKey())->value('status') === Service::STATUS_CANCELLED;
     }
 
     public function changed(string ...$keys): bool

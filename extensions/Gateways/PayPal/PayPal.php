@@ -136,8 +136,9 @@ class PayPal extends Gateway
         // Register webhook route
         View::addNamespace('gateways.paypal', __DIR__ . '/resources/views');
 
-        Event::listen(Updated::class, function ($event) {
-            if ($event->service->properties->where('key', 'has_paypal_subscription')->first()?->value !== '1') {
+        Event::listen(Updated::class, function (Updated $event) {
+            // From the database: an earlier event of the same commit may have cancelled and removed the marker.
+            if ($event->service->properties()->where('key', 'has_paypal_subscription')->value('value') !== '1') {
                 return;
             }
             if ($event->changed('price')) {
@@ -146,7 +147,7 @@ class PayPal extends Gateway
                 } catch (Exception $e) {
                 }
             }
-            if (($event->changes['status'] ?? null) === Service::STATUS_CANCELLED && $event->service->status === Service::STATUS_CANCELLED) {
+            if ($event->cancelledBySave()) {
                 try {
                     $this->cancelSubscription($event->service);
                 } catch (Exception $e) {
@@ -424,16 +425,14 @@ class PayPal extends Gateway
         if ($service->properties->where('key', 'has_paypal_subscription')->first()?->value !== '1') {
             return false;
         }
-        // This instance: a new PayPal would lose the configuration (sandbox, credentials) it was booted with.
-        $paypal = $this;
         // Update subscription price
         $newPrice = Service::where('subscription_id', $service->subscription_id)->sum('price');
         // Grab currenct subscription ID
         $subscriptionId = $service->subscription_id;
-        $url = $paypal->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
+        $url = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
 
         // Update subscription price
-        $paypal->request('PATCH', $url . '/v1/billing/subscriptions/' . $subscriptionId, [
+        $this->request('PATCH', $url . '/v1/billing/subscriptions/' . $subscriptionId, [
             [
                 'op' => 'replace',
                 'path' => '/plan/billing_cycles/@sequence==2/pricing_scheme/fixed_price',
@@ -456,6 +455,7 @@ class PayPal extends Gateway
         ]);
 
         $service->properties()->where('key', 'has_paypal_subscription')->delete();
+        $service->unsetRelation('properties');
 
         return true;
     }
