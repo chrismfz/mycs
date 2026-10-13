@@ -6,6 +6,7 @@ use App\Enums\AdjustmentNoteStatus;
 use App\Events\AdjustmentNote as AdjustmentNoteEvent;
 use App\Exceptions\DisplayException;
 use App\Models\AdjustmentNote;
+use App\Models\Invoice;
 
 class AdjustmentNoteObserver
 {
@@ -14,7 +15,19 @@ class AdjustmentNoteObserver
      */
     public function creating(AdjustmentNote $adjustmentNote): void
     {
+        self::refuseStaffNoteOnPaidInvoice($adjustmentNote);
         event(new AdjustmentNoteEvent\Creating($adjustmentNote));
+    }
+
+    /**
+     * A paid invoice keeps its total (MT-1c): staff notes are written or voided while it is open, else it stays paid
+     * with a balance (or with money owed back). A refund's and a cancellation's notes follow their own events.
+     */
+    private static function refuseStaffNoteOnPaidInvoice(AdjustmentNote $note): void
+    {
+        if ($note->isVoidableByStaff() && Invoice::query()->whereKey($note->invoice_id)->value('status') === Invoice::STATUS_PAID) {
+            throw new DisplayException(__('A paid invoice keeps its total: set it back to pending (unpaid) to change its adjustment notes.'));
+        }
     }
 
     /**
@@ -29,6 +42,9 @@ class AdjustmentNoteObserver
         if ($adjustmentNote->isDirty('status') && $adjustmentNote->is_refund
             && $adjustmentNote->status !== AdjustmentNoteStatus::Active) {
             throw new DisplayException(__('A refund\'s adjustment note follows its refund: it is never voided.'));
+        }
+        if ($adjustmentNote->isDirty('status')) {
+            self::refuseStaffNoteOnPaidInvoice($adjustmentNote);
         }
     }
 

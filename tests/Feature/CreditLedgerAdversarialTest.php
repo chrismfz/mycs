@@ -545,8 +545,10 @@ class CreditLedgerAdversarialTest extends TestCase
         $service = Service::factory()->create(['user_id' => $this->user->id, 'order_id' => $order->id, 'product_id' => $product->product->id,
             'plan_id' => $product->plan->id, 'status' => 'active', 'price' => 33.33, 'currency_code' => 'USD']);
         AffiliateOrder::query()->create(['order_id' => $order->id, 'affiliate_id' => $affiliate->id]);
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'paid', 'currency_code' => 'USD']);
+        // Stored paid, its line added while it was open (MT-1c: never created paid, a paid invoice keeps its lines).
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 33.33, 'reference_type' => Service::class, 'reference_id' => $service->id]);
+        DB::table('invoices')->where('id', $invoice->id)->update(['status' => 'paid']);
 
         (new RewardAffiliate)->handle((object) ['invoice' => $invoice->fresh()]);
 

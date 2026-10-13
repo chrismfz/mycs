@@ -44,8 +44,14 @@ class StaffCorrectionsCodeReviewTest extends TestCase
 
     private function invoice(float $price = 100, string $status = Invoice::STATUS_PENDING): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_PENDING : $status, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => $price]);
+
+        // A paid fixture (a period paid in the past): stored paid, its lines added while it was open (MT-1c: a paid
+        // invoice keeps its lines, and is never created paid).
+        if ($status === Invoice::STATUS_PAID) {
+            DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PAID]);
+        }
 
         return $invoice->fresh();
     }

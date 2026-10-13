@@ -19,6 +19,7 @@ use App\Services\Invoice\RecordPaymentService;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\View;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -73,11 +74,17 @@ class PaymentGuardsAdversarialTest extends TestCase
 
     private function invoiceFor(Service $service, string $start, string $end, string $status = 'pending', float $price = 10.00, string $currency = 'USD'): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status, 'currency_code' => $currency]);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_PENDING : $status, 'currency_code' => $currency]);
         $invoice->items()->create([
             'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Renewal',
             'quantity' => 1, 'price' => $price, 'period_start' => $start, 'period_end' => $end,
         ]);
+
+        // A paid fixture (a period paid in the past): stored paid, its lines added while it was open (MT-1c: a paid
+        // invoice keeps its lines, and is never created paid).
+        if ($status === Invoice::STATUS_PAID) {
+            DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PAID]);
+        }
 
         return $invoice->fresh();
     }

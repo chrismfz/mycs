@@ -117,6 +117,10 @@ class RecordPaymentService
             ], fn ($value) => $value !== null);
             if ($existing !== null) {
                 unset($values['gateway_id'], $values['transaction_id'], $values['is_credit_transaction']);
+                // Staff completing a processing payment by hand: the day the money arrived, as for a new one.
+                if ($paidAt !== null) {
+                    $existing->created_at = Carbon::instance($paidAt);
+                }
                 $existing->update($values);
                 $transaction = $existing;
             } else {
@@ -351,6 +355,14 @@ class RecordPaymentService
             $credit?->save();
 
             $transaction->delete();
+
+            // The invoice follows (decision 1): a paid invoice its payments no longer cover is open again. Its services
+            // stay renewed, as in WHMCS: staff decide (docs/money-trail.md §1, 2c).
+            $invoice->refresh();
+            if ($invoice->status === Invoice::STATUS_PAID && self::toCents($invoice->withLockedBalance()->remaining) > 0) {
+                $invoice->status = Invoice::STATUS_PENDING;
+                $invoice->save();
+            }
         });
     }
 

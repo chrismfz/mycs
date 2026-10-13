@@ -107,5 +107,9 @@
     "Less than what is left records a part of it: the invoice stays unpaid. More is refused: an overpayment is recorded with Add Payment.": "Ποσό μικρότερο από το υπόλοιπο καταγράφεται ως μερική πληρωμή: το τιμολόγιο μένει ανεξόφλητο. Μεγαλύτερο ποσό απορρίπτεται: μια υπερπληρωμή καταγράφεται με το «Add Payment».",
     "More than what is left to pay (:remaining): record an overpayment with Add Payment.": "Περισσότερα από όσα μένουν να πληρωθούν (:remaining): κατάγραψε την υπερπληρωμή με το «Add Payment».",
     "This transaction id belongs to a payment on invoice #:invoice: nothing was recorded here.": "Αυτό το transaction id ανήκει σε πληρωμή του τιμολογίου #:invoice: δεν καταγράφηκε τίποτα εδώ.",
-    "This note follows a refund or a cancellation, or its invoice is finalized: it is not voided by hand.": "Αυτό το note ακολουθεί μια επιστροφή ή μια ακύρωση, ή το τιμολόγιό του είναι οριστικοποιημένο: δεν ακυρώνεται με το χέρι."
+    "This note follows a refund or a cancellation, or its invoice is finalized: it is not voided by hand.": "Αυτό το note ακολουθεί μια επιστροφή ή μια ακύρωση, ή το τιμολόγιό του είναι οριστικοποιημένο: δεν ακυρώνεται με το χέρι.",
+    "An invoice is created unpaid: it becomes paid when its payment is recorded.": "Ένα τιμολόγιο δημιουργείται ανεξόφλητο: γίνεται εξοφλημένο όταν καταγραφεί η πληρωμή του.",
+    "A credit purchase becomes paid only when its payment covers the credit it buys.": "Μια αγορά πίστωσης γίνεται εξοφλημένη μόνο όταν η πληρωμή της καλύπτει την πίστωση που αγοράζει.",
+    "A paid invoice keeps its lines: set it back to pending (unpaid) first.": "Ένα εξοφλημένο τιμολόγιο κρατά τις γραμμές του: γύρισέ το πρώτα σε pending (ανεξόφλητο).",
+    "A paid invoice keeps its total: set it back to pending (unpaid) to change its adjustment notes.": "Ένα εξοφλημένο τιμολόγιο κρατά το σύνολό του: γύρισέ το σε pending (ανεξόφλητο) για να αλλάξεις τα adjustment notes του."
 }

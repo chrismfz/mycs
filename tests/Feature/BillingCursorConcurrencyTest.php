@@ -46,11 +46,13 @@ class BillingCursorConcurrencyTest extends TestCase
                 ]);
                 $items = [];
                 for ($i = 0; $i < ($sameLine ? 1 : 2); $i++) {
-                    $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'paid', 'currency_code' => 'USD']);
+                    // Stored paid, its line added while it was open (MT-1c: never created paid, a paid invoice keeps its lines).
+                    $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'pending', 'currency_code' => 'USD']);
                     $items[] = $invoice->items()->create([
                         'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Concurrent callback',
                         'price' => 10, 'quantity' => 1,
                     ])->id;
+                    DB::table('invoices')->where('id', $invoice->id)->update(['status' => 'paid']);
                 }
                 $this->race($service->id, [$items[0], $items[$sameLine ? 0 : 1]]);
                 $this->assertSame($sameLine ? '2026-11-15' : '2026-12-15', $service->fresh()->expires_at->toDateString());
@@ -77,11 +79,12 @@ class BillingCursorConcurrencyTest extends TestCase
                 'plan_id' => $product->plan->id, 'status' => 'suspended', 'dunning_suspended_at' => now(),
                 'expires_at' => '2026-10-15', 'currency_code' => 'USD', 'price' => 10,
             ]);
-            $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'paid', 'currency_code' => 'USD']);
+            $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'pending', 'currency_code' => 'USD']);
             $item = $invoice->items()->create([
                 'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Concurrent staff hold',
                 'price' => 10, 'quantity' => 1, 'period_start' => '2026-10-15', 'period_end' => '2026-11-15',
             ]);
+            DB::table('invoices')->where('id', $invoice->id)->update(['status' => 'paid']); // stored paid (MT-1c)
             $this->race($service->id, [$item->id, $item->id], staffHold: true);
             $service->refresh();
             $this->assertSame('2026-11-15', $service->expires_at->toDateString());

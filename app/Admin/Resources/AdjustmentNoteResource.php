@@ -8,6 +8,7 @@ use App\Admin\Resources\AdjustmentNoteResource\Pages\CreateAdjustmentNote;
 use App\Admin\Resources\AdjustmentNoteResource\Pages\ListAdjustmentNotes;
 use App\Enums\AdjustmentNoteStatus;
 use App\Models\AdjustmentNote;
+use App\Models\Invoice;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -40,7 +41,8 @@ class AdjustmentNoteResource extends Resource
             ->components([
                 Select::make('invoice_id')
                     ->label('Invoice')
-                    ->relationship('invoice', modifyQueryUsing: fn (Builder $query) => $query->with('user')->orderByDesc('id'))
+                    // Not a paid invoice: it keeps its total (AdjustmentNoteObserver).
+                    ->relationship('invoice', modifyQueryUsing: fn (Builder $query) => $query->with('user')->where('status', '!=', Invoice::STATUS_PAID)->orderByDesc('id'))
                     ->getOptionLabelFromRecordUsing(fn (Model $record) => ($record->number ? "#$record->number" : $record->id) . ' (' . ($record->user->email ?? __('invoices.deleted_user')) . ')')
                     ->required()
                     ->searchable()

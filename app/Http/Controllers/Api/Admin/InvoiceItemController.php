@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Exceptions\DisplayException;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\Admin\InvoiceItems\CreateInvoiceItemRequest;
 use App\Http\Requests\Api\Admin\InvoiceItems\DeleteInvoiceItemRequest;
@@ -41,11 +42,13 @@ class InvoiceItemController extends ApiController
 
     /**
      * Create a new invoice item
+     *
+     * @response 422 {"message": "A paid invoice keeps its lines: set it back to pending (unpaid) first."}
      */
     public function store(CreateInvoiceItemRequest $request)
     {
         // Validate and create the invoice item
-        $invoiceItem = InvoiceItem::create($request->validated());
+        $invoiceItem = $this->guarded(fn () => InvoiceItem::create($request->validated()));
 
         // Return the created invoice as a JSON response
         return new InvoiceItemResource($this->loadAllowedIncludes($invoiceItem, self::INCLUDES));
@@ -66,11 +69,13 @@ class InvoiceItemController extends ApiController
 
     /**
      * Update a specific invoice item
+     *
+     * @response 422 {"message": "A paid invoice keeps its lines: set it back to pending (unpaid) first."}
      */
     public function update(UpdateInvoiceItemRequest $request, InvoiceItem $invoiceItem)
     {
         // Validate and update the invoice item
-        $invoiceItem->update($request->validated());
+        $this->guarded(fn () => $invoiceItem->update($request->validated()));
 
         // Return the updated invoice item as a JSON response
         return new InvoiceItemResource($this->loadAllowedIncludes($invoiceItem, self::INCLUDES));
@@ -78,12 +83,24 @@ class InvoiceItemController extends ApiController
 
     /**
      * Delete a specific invoice item
+     *
+     * @response 422 {"message": "A paid invoice keeps its lines: set it back to pending (unpaid) first."}
      */
     public function destroy(DeleteInvoiceItemRequest $request, InvoiceItem $invoiceItem)
     {
         // Delete the invoice item
-        $invoiceItem->delete();
+        $this->guarded(fn () => $invoiceItem->delete());
 
         return $this->returnNoContent();
+    }
+
+    /** The model's money rules (a paid invoice keeps its lines, InvoiceItemObserver) answer 422, not 500. */
+    private function guarded(\Closure $change): mixed
+    {
+        try {
+            return $change();
+        } catch (DisplayException $e) {
+            abort(422, $e->getMessage());
+        }
     }
 }

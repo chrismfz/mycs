@@ -20,16 +20,18 @@ class VoidAdjustmentNote
 {
     /**
      * Who may void or unvoid this note, from any admin page: staff with the notes' update permission, on a note they
-     * wrote (a refund's note only back to active: one voided before MT-1c by mistake), and with immutable invoices
-     * only while the invoice is pending.
+     * wrote while its invoice is not paid (a paid invoice keeps its total), or a refund's note back to active (one
+     * voided before MT-1c by mistake); with immutable invoices only while the invoice is pending.
      */
     public static function allowed(AdjustmentNote $note): bool
     {
-        $byStaff = $note->isVoidableByStaff() || ($note->is_refund && $note->status === AdjustmentNoteStatus::Voided);
+        $status = $note->invoice?->status;
+        $byStaff = ($note->isVoidableByStaff() && $status !== Invoice::STATUS_PAID)
+            || ($note->is_refund && $note->status === AdjustmentNoteStatus::Voided);
 
         return $byStaff
             && (bool) auth()->user()?->can('update', $note)
-            && (!config('settings.immutable_invoices_enabled') || $note->invoice?->status === Invoice::STATUS_PENDING);
+            && (!config('settings.immutable_invoices_enabled') || $status === Invoice::STATUS_PENDING);
     }
 
     public static function make(): Action

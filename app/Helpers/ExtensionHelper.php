@@ -671,12 +671,16 @@ class ExtensionHelper
         $transaction->increment('refunded_amount', $cents / 100);
         $trail->refund($transaction, $transaction->invoice, $cents, $source);
 
-        $transaction->invoice->adjustmentNotes()->create([
-            'type' => AdjustmentNoteType::Credit->value,
-            'amount' => -1 * $cents / 100,
-            'description' => 'Refund for transaction #' . $transaction->id . ' (' . ($transaction->transaction_id ?? 'manual') . ')',
-            'is_refund' => true, // follows refunded_amount: never voided by hand (MT-1c)
-        ]);
+        // A paid (or cancelled) invoice stays settled: the note takes the refund off its total. An open invoice is
+        // still to pay in full: the refund only lowers what it received, its balance grows back (MT-1c).
+        if (!in_array($transaction->invoice->status, [Invoice::STATUS_PENDING, Invoice::STATUS_DRAFT], true)) {
+            $transaction->invoice->adjustmentNotes()->create([
+                'type' => AdjustmentNoteType::Credit->value,
+                'amount' => -1 * $cents / 100,
+                'description' => 'Refund for transaction #' . $transaction->id . ' (' . ($transaction->transaction_id ?? 'manual') . ')',
+                'is_refund' => true, // follows refunded_amount: never voided by hand (MT-1c)
+            ]);
+        }
 
         return true;
     }

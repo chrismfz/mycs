@@ -26,6 +26,13 @@ class AdjustmentNotesRelationManager extends RelationManager
         return !config('settings.immutable_invoices_enabled') || $this->getOwnerRecord()->status === Invoice::STATUS_PENDING;
     }
 
+    private function ownerIsPaid(): bool
+    {
+        $invoice = $this->getOwnerRecord();
+
+        return $invoice instanceof Invoice && $invoice->status === Invoice::STATUS_PAID;
+    }
+
     public function form(Schema $schema): Schema
     {
         return $schema
@@ -98,8 +105,9 @@ class AdjustmentNotesRelationManager extends RelationManager
                     ->sortable(),
             ])
             ->headerActions([
+                // A paid invoice keeps its total (AdjustmentNoteObserver): set it back to pending first.
                 CreateAction::make()
-                    ->visible(fn (): bool => $this->canModifyAdjustmentNotes()),
+                    ->visible(fn (): bool => $this->canModifyAdjustmentNotes() && !$this->ownerIsPaid()),
             ])
             // Append-only (docs/money-trail.md, MT-1c): never edited or deleted; a wrong note is voided and a new one
             // written.
