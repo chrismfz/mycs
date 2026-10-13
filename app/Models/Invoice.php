@@ -377,8 +377,12 @@ class Invoice extends Model implements Auditable
         return $this->whereKey(ctype_digit((string) $value) ? (int) $value : 0)->firstOrFail();
     }
 
+    /**
+     * A number is the URL key only when it is not purely numeric (that is an id) and is safe in a URL path as it is:
+     * Laravel does not encode «/», «?» or «#» in route parameters, so «INV/2026/15» would match no route.
+     */
     private static function numberIsKey(mixed $number): bool
     {
-        return is_string($number) && $number !== '' && !ctype_digit($number);
+        return is_string($number) && preg_match('/^[A-Za-z0-9._~-]+$/', $number) === 1 && !ctype_digit($number);
     }
 }
