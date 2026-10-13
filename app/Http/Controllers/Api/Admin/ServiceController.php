@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Exceptions\DisplayException;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\Admin\Services\CreateServiceRequest;
 use App\Http\Requests\Api\Admin\Services\DeleteServiceRequest;
@@ -93,7 +94,11 @@ class ServiceController extends ApiController
     public function destroy(DeleteServiceRequest $request, Service $service)
     {
         // One way for every path (DATA-2, SVC-7, AUTH-9): ?terminate=1 deletes the account on the server first.
-        (new DeleteService)->handle($service, $request->boolean('terminate'));
+        try {
+            (new DeleteService)->handle($service, $request->boolean('terminate'));
+        } catch (DisplayException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
         return $this->returnNoContent();
     }

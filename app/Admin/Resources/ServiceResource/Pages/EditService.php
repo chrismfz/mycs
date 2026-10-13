@@ -4,6 +4,7 @@ namespace App\Admin\Resources\ServiceResource\Pages;
 
 use App\Admin\Actions\AuditAction;
 use App\Admin\Resources\ServiceResource;
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Models\Service;
@@ -62,7 +63,11 @@ class EditService extends EditRecord
                 })
                 ->action(function (array $data, Service $record): void {
                     try {
-                        $left = (new DeleteService)->handle($record, (bool) ($data['deleteExtensionServer'] ?? false));
+                        (new DeleteService)->handle($record, (bool) ($data['deleteExtensionServer'] ?? false));
+                    } catch (DisplayException $e) {
+                        Notification::make('Error')->title(__('Service not deleted'))->body($e->getMessage())->danger()->send();
+
+                        return;
                     } catch (Exception $e) {
                         report($e);
 
@@ -75,7 +80,6 @@ class EditService extends EditRecord
                         // Kept: deleting it would orphan the account on the server and lose its username.
                         return;
                     }
-                    ServiceResource::notifyLeftOpen($left);
                     $this->redirect(ServiceResource::getUrl());
                 }),
             Action::make('changeStatus')

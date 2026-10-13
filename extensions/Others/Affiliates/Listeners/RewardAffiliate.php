@@ -34,7 +34,7 @@ class RewardAffiliate
         if ($invoice->items()->first()->reference_type !== Service::class) {
             return;
         }
-        $order = $invoice->items()->first()->reference->order;
+        $order = $invoice->items()->first()->reference?->order; // a service deleted since: no order to reward
         if (!$order) {
             return;
         }

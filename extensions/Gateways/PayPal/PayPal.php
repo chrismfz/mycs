@@ -490,6 +490,9 @@ class PayPal extends Gateway
             // Its activated so we can now add the subscription to the user (custom is the order id)
             Invoice::findOrFail($body['resource']['custom_id'])->items()->where('reference_type', Service::class)->each(function (InvoiceItem $item) use ($body) {
                 $service = $item->reference;
+                if ($service === null) {
+                    return; // a service deleted since
+                }
                 $service->subscription_id = $body['resource']['id'];
                 $service->save();
                 $service->properties()->updateOrCreate([

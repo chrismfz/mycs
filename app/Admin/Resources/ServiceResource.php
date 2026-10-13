@@ -11,6 +11,7 @@ use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Admin\Resources\ServiceResource\Pages\ListService;
 use App\Admin\Resources\ServiceResource\RelationManagers\ConfigOptionsRelationManager;
 use App\Admin\Resources\ServiceResource\RelationManagers\InvoicesRelationManager;
+use App\Exceptions\DisplayException;
 use App\Models\Currency;
 use App\Models\Product;
 use App\Models\Service;
@@ -277,31 +278,22 @@ class ServiceResource extends Resource
                 Checkbox::make('deleteExtensionServer')->label('Also trigger deletion of server (running services)')->default(true),
             ])
             ->action(function (Collection $records, array $data): void {
-                $left = [];
                 $kept = [];
                 foreach ($records as $service) {
                     /** @var Service $service */
                     try {
-                        $left += (new DeleteService)->handle($service, (bool) ($data['deleteExtensionServer'] ?? false));
+                        (new DeleteService)->handle($service, (bool) ($data['deleteExtensionServer'] ?? false));
                     } catch (Throwable $e) {
-                        report($e);
+                        if (!$e instanceof DisplayException) {
+                            report($e);
+                        }
                         $kept[] = "#{$service->id}: {$e->getMessage()}";
                     }
                 }
                 if ($kept !== []) {
-                    Notification::make()->danger()->title('Not deleted (the server refused)')->body(implode("\n", $kept))->send();
+                    Notification::make()->danger()->title(__('Not deleted'))->body(implode("\n", $kept))->persistent()->send();
                 }
-                self::notifyLeftOpen($left);
             })
             ->deselectRecordsAfterCompletion();
-    }
-
-    /** @param  array<string, Throwable>  $left  invoices CancelOpenInvoices kept open for staff (money on them) */
-    public static function notifyLeftOpen(array $left): void
-    {
-        if ($left !== []) {
-            Notification::make()->warning()->title('Invoices left open for staff')
-                ->body(implode("\n", array_map(fn (Throwable $reason) => $reason->getMessage(), $left)))->persistent()->send();
-        }
     }
 }

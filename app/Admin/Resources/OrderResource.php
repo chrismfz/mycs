@@ -27,7 +27,6 @@ use Filament\Support\RawJs;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Collection;
 
 class OrderResource extends Resource
 {
@@ -163,10 +162,8 @@ class OrderResource extends Resource
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    // Orders with services are skipped (DATA-2): their services are deleted first, one way.
-                    DeleteBulkAction::make()->using(function (Collection $records) {
-                        $records->reject(fn ($order) => $order->services()->exists())->each->delete();
-                    }),
+                    // An order with services is refused by its guard (DATA-2) and counted as not deleted (R6 of #82).
+                    DeleteBulkAction::make(),
                 ]),
             ]);
     }
