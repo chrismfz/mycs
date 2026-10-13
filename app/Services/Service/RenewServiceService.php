@@ -2,6 +2,7 @@
 
 namespace App\Services\Service;
 
+use App\Helpers\NotificationHelper;
 use App\Jobs\Server\CreateJob;
 use App\Jobs\Server\UnsuspendJob;
 use App\Models\Invoice;
@@ -46,6 +47,12 @@ class RenewServiceService
 
             if ($locked->status === Service::STATUS_CANCELLED) {
                 Log::warning('Payment for a cancelled service: not revived.', ['service_id' => $locked->id, 'invoice_item_id' => $item?->id]);
+                if ($item !== null && $item->applied_at === null) {
+                    // A payment, not the cron: the money is the staff's to refund or credit (as for an upgrade, SVC-6).
+                    DB::afterCommit(fn () => NotificationHelper::sendSystemEmailNotification('Payment for a cancelled service: needs staff attention', e(
+                        "Invoice #{$item->invoice_id} paid a renewal of service #{$locked->id}, which is cancelled: it was not revived. Refund the payment or move it to credit."
+                    )));
+                }
 
                 return;
             }

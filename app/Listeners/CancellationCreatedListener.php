@@ -54,7 +54,9 @@ class CancellationCreatedListener implements ShouldQueue
             }
 
             // Its invoices first (their upgrade lines go with the service's, as in the cron), then its pending upgrades
-            // and their own invoices: paid later, an upgrade would change a cancelled service.
+            // and their own invoices: paid later, an upgrade would change a cancelled service. Read after the lock: a
+            // renewal the cron billed while this waited for it is cancelled too.
+            $open = $service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get();
             self::report(CancelOpenInvoices::handle($open, __('invoices.cancellation_reasons.cancellation_request'), $service));
             self::report(CancelPendingUpgrades::forService($service, __('invoices.cancellation_reasons.cancellation_request')));
 
