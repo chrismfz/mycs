@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Classes\Settings;
 use App\Models\Setting;
+use App\Support\BootFailure;
 use Exception;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
@@ -86,7 +87,7 @@ class SettingsProvider extends ServiceProvider
 
             Config::set('filesystems.disks.public.url', config('app.url') . '/storage');
         } catch (Exception $e) {
-            // Do nothing
+            BootFailure::handle($e); // reported; fatal for web requests and workers (no running on defaults)
         }
     }
 

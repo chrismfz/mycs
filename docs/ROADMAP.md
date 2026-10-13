@@ -71,7 +71,7 @@
 
 ## Φάση 1a: Σταθεροποίηση του κληρονομημένου κώδικα (audit sweep 2026-10-13)
 Μετά τα MT-x, **πριν** από τα υπόλοιπα της Φάσης 1. Λεπτομέρειες, IDs και σειρά: `docs/audit-sweep.md`.
-- [ ] **Κρίσιμα ΚΡ-1..ΚΡ-8** (μικρά PRs, failing test πρώτα): regression `afterCommit` → δεν ακυρώνονται συνδρομές
+- [x] **Κρίσιμα ΚΡ-1..ΚΡ-8** (2026-10-13: #45–#52, #57· μένει το AUTH-12, `audit-sweep.md` → «Πρόοδος») (μικρά PRs, failing test πρώτα): regression `afterCommit` → δεν ακυρώνονται συνδρομές
       Stripe/PayPal· PayPal API χωρίς έλεγχο σφαλμάτων (refund «πετυχαίνει» χωρίς χρήματα)· cPanel create πάντα
       `true`· η σελίδα Settings γυρίζει πίσω τους μετρητές αρίθμησης· admin API χωρίς PermissionGuard (κλιμάκωση σε
       `*`)· `Settings::tax()` memoised ανά object· secrets σε καθαρό στο cache· σιωπηλά `catch` στο boot.
