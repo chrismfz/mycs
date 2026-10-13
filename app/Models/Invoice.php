@@ -335,6 +335,12 @@ class Invoice extends Model implements Auditable
         return $this->hasMany(AdjustmentNote::class);
     }
 
+    /** @return HasMany<MoneyEvent, $this> The invoice's money journal (docs/money-trail.md §1): read only. */
+    public function moneyEvents(): HasMany
+    {
+        return $this->hasMany(MoneyEvent::class);
+    }
+
     /** @return HasOne<InvoiceSnapshot, $this> */
     public function snapshot(): HasOne
     {

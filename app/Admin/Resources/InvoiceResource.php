@@ -9,6 +9,7 @@ use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Admin\Resources\InvoiceResource\Pages\ListInvoices;
 use App\Admin\Resources\InvoiceResource\Pages\ViewInvoice;
 use App\Admin\Resources\InvoiceResource\RelationManagers\AdjustmentNotesRelationManager;
+use App\Admin\Resources\InvoiceResource\RelationManagers\MoneyEventsRelationManager;
 use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationManager;
 use App\Models\Currency;
 use App\Models\Invoice;
@@ -223,6 +224,7 @@ class InvoiceResource extends Resource
         ];
 
         $relations[] = AdjustmentNotesRelationManager::class;
+        $relations[] = MoneyEventsRelationManager::class;
 
         return $relations;
     }
