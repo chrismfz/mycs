@@ -45,6 +45,7 @@ return [
         'active' => 'Ενεργή',
         'cancelled' => 'Ακυρωμένη',
         'suspended' => 'Σε αναστολή',
+        'terminated' => 'Τερματισμένη',
         'cancellation_pending' => 'Ακυρώνεται',
     ],
     'billing_cycles' => [

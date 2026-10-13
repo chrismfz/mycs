@@ -233,7 +233,7 @@ class AdminCancelSubscriptionAdversarialTest extends TestCase
         config(['settings.cronjob_order_terminate' => 14]);
         Queue::fake();
         $this->artisan('app:cron-job')->assertExitCode(0);
-        $this->assertSame(Service::STATUS_CANCELLED, $service->fresh()->status);
+        $this->assertSame(Service::STATUS_TERMINATED, $service->fresh()->status);
 
         Http::assertSent(fn (Request $request) => $request->method() === 'DELETE' && $request->url() === self::STRIPE . '/subscriptions/sub_legacy');
     }

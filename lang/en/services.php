@@ -45,6 +45,7 @@ return [
         'active' => 'Active',
         'cancelled' => 'Cancelled',
         'suspended' => 'Suspended',
+        'terminated' => 'Terminated',
         'cancellation_pending' => 'Cancellation Pending',
     ],
     'billing_cycles' => [

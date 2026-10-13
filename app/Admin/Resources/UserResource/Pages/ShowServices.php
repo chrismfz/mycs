@@ -4,6 +4,7 @@ namespace App\Admin\Resources\UserResource\Pages;
 
 use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\UserResource;
+use App\Models\Service;
 use Filament\Actions\ViewAction;
 use Filament\Resources\Pages\ManageRelatedRecords;
 use Filament\Tables\Columns\TextColumn;
@@ -35,14 +36,8 @@ class ShowServices extends ManageRelatedRecords
                 TextColumn::make('formattedPrice')->label('Price'),
                 TextColumn::make('status')
                     ->badge()
-                    ->formatStateUsing(fn (string $state) => ucfirst($state))
-                    ->color(fn (string $state): string => match ($state) {
-                        'active' => 'success',
-                        'pending' => 'warning',
-                        'suspended' => 'danger',
-                        'cancelled' => 'gray',
-                        default => 'gray',
-                    }),
+                    ->formatStateUsing(fn (string $state) => Service::statusLabel($state))
+                    ->color(fn (string $state): string => Service::statusColor($state)),
             ])
             ->filters([
                 //

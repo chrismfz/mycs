@@ -107,7 +107,7 @@ class SuspensionRulesTest extends TestCase
 
         Carbon::setTestNow('2026-10-21 03:00:00'); // the next day: Termination Days are long past (as WHMCS)
         $this->artisan('app:cron-job')->assertExitCode(0);
-        $this->assertSame(Service::STATUS_CANCELLED, $service->fresh()->status);
+        $this->assertSame(Service::STATUS_TERMINATED, $service->fresh()->status);
     }
 
     public function test_a_renewal_billed_late_gets_suspend_days_from_its_issue(): void
@@ -131,7 +131,7 @@ class SuspensionRulesTest extends TestCase
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
-        $this->assertSame(Service::STATUS_CANCELLED, $service->fresh()->status);
+        $this->assertSame(Service::STATUS_TERMINATED, $service->fresh()->status);
     }
 
     public function test_minimum_days_suspended_waits_as_set(): void
@@ -144,6 +144,6 @@ class SuspensionRulesTest extends TestCase
 
         Carbon::setTestNow('2026-10-21 03:00:00');
         $this->artisan('app:cron-job')->assertExitCode(0);
-        $this->assertSame(Service::STATUS_CANCELLED, $service->fresh()->status);
+        $this->assertSame(Service::STATUS_TERMINATED, $service->fresh()->status);
     }
 }

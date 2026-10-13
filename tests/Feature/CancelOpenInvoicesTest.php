@@ -217,7 +217,7 @@ class CancelOpenInvoicesTest extends TestCase
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
-        $this->assertSame(Service::STATUS_CANCELLED, $a->fresh()->status);
+        $this->assertSame(Service::STATUS_TERMINATED, $a->fresh()->status);
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
         $this->assertSame([$b->id], $this->servicesBilled($invoice));
     }

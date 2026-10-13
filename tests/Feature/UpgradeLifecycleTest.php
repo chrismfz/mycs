@@ -99,7 +99,7 @@ class UpgradeLifecycleTest extends TestCase
 
         $this->artisan('app:cron-job');
 
-        $this->assertSame(Service::STATUS_CANCELLED, $service->fresh()->status);
+        $this->assertSame(Service::STATUS_TERMINATED, $service->fresh()->status);
         $this->assertSame(ServiceUpgrade::STATUS_CANCELLED, $upgrade->fresh()->status);
         $this->assertSame(Invoice::STATUS_CANCELLED, $upgrade->invoice->fresh()->status);
     }

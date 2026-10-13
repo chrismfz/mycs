@@ -142,7 +142,7 @@ class UpgradeLifecycleAdversarialTest extends TestCase
         (new RecordPaymentService)->handle($upgrade->invoice, null, 2, transactionId: 'part-gw');
 
         $this->artisan('app:cron-job');
-        $this->assertSame(Service::STATUS_CANCELLED, $service->fresh()->status);
+        $this->assertSame(Service::STATUS_TERMINATED, $service->fresh()->status);
         (new RecordPaymentService)->handle($upgrade->invoice->fresh(), null, 3, transactionId: 'rest');
 
         $invoice = $upgrade->invoice->fresh();
@@ -171,7 +171,7 @@ class UpgradeLifecycleAdversarialTest extends TestCase
 
         $this->artisan('app:cron-job');
 
-        $this->assertSame(Service::STATUS_CANCELLED, $service->fresh()->status);
+        $this->assertSame(Service::STATUS_TERMINATED, $service->fresh()->status);
         $this->assertNotSame(Invoice::STATUS_UNPAID, Invoice::find($upgrade->invoice_id)->status,
             'an upgrade invoice of a terminated service is still payable');
     }

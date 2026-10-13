@@ -40,13 +40,13 @@ class Updated
     }
 
     /**
-     * This save cancelled the service and it is still cancelled in the database. The row, not this model: another
-     * instance may have reactivated it in the same transaction.
+     * This save ended the service (cancelled or terminated) and it is still ended in the database. The row, not this
+     * model: another instance may have reactivated it in the same transaction.
      */
-    public function cancelledBySave(): bool
+    public function endedBySave(): bool
     {
-        return ($this->changes['status'] ?? null) === Service::STATUS_CANCELLED
-            && Service::query()->whereKey($this->service->getKey())->value('status') === Service::STATUS_CANCELLED;
+        return in_array($this->changes['status'] ?? null, Service::ENDED_STATUSES, true)
+            && in_array(Service::query()->whereKey($this->service->getKey())->value('status'), Service::ENDED_STATUSES, true);
     }
 
     public function changed(string ...$keys): bool

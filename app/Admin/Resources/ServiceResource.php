@@ -82,14 +82,8 @@ class ServiceResource extends Resource
                 Select::make('status')
                     ->label('Status')
                     ->required()
-                    ->options([
-                        // active, pending, suspended, cancelled
-                        'active' => 'Active',
-                        'pending' => 'Pending',
-                        'suspended' => 'Suspended',
-                        'cancelled' => 'Cancelled',
-                    ])
-                    ->default('pending'),
+                    ->options(Service::statusOptions())
+                    ->default(Service::STATUS_PENDING),
                 TextInput::make('quantity')
                     ->label('Quantity')
                     ->required()
@@ -189,13 +183,8 @@ class ServiceResource extends Resource
                     ->sortable(),
                 TextColumn::make('status')
                     ->badge()
-                    ->color(fn (Service $record) => match ($record->status) {
-                        'pending' => 'gray',
-                        'active' => 'success',
-                        'cancelled' => 'danger',
-                        'suspended' => 'warning',
-                    })
-                    ->formatStateUsing(fn (string $state) => ucfirst($state))
+                    ->color(fn (Service $record) => Service::statusColor($record->status))
+                    ->formatStateUsing(fn (string $state) => Service::statusLabel($state))
                     ->label('Status')
                     ->searchable()
                     ->sortable(),
@@ -208,12 +197,7 @@ class ServiceResource extends Resource
             ->filters([
                 SelectFilter::make('status')
                     ->label('Status')
-                    ->options([
-                        'active' => 'Active',
-                        'pending' => 'Pending',
-                        'suspended' => 'Suspended',
-                        'cancelled' => 'Cancelled',
-                    ]),
+                    ->options(Service::statusOptions()),
                 SelectFilter::make('user')
                     ->label('User')
                     ->relationship('user', 'id')

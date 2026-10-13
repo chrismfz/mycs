@@ -29,7 +29,7 @@ use Illuminate\Support\Facades\DB;
  * another line), a replay of a line already applied (applied_at), or ahead of an unpaid period, so
  * it never unsuspends a service suspended for another reason. On its first processing it does
  * activate a service whose date staff already moved over that period (grace given before the
- * payment arrived). A cancelled service is never revived by a payment:
+ * payment arrived). An ended service (cancelled or terminated) is never revived by a payment:
  * staff decide (docs/billing-cursor.md, PR 3).
  */
 class RenewServiceService
@@ -46,12 +46,12 @@ class RenewServiceService
                 return;
             }
 
-            if ($locked->status === Service::STATUS_CANCELLED) {
-                PaymentsLog::warning('Payment for a cancelled service: not revived.', ['service_id' => $locked->id, 'invoice_item_id' => $item?->id]);
+            if ($locked->isEnded()) {
+                PaymentsLog::warning('Payment for an ended service: not revived.', ['service_id' => $locked->id, 'invoice_item_id' => $item?->id]);
                 if ($item !== null && $item->applied_at === null) {
                     // A payment, not the cron: the money is the staff's to refund or credit (as for an upgrade, SVC-6).
-                    DB::afterCommit(fn () => NotificationHelper::sendSystemEmailNotification('Payment for a cancelled service: needs staff attention', e(
-                        "Invoice #{$item->invoice_id} paid a renewal of service #{$locked->id}, which is cancelled: it was not revived. Refund the payment or move it to credit."
+                    DB::afterCommit(fn () => NotificationHelper::sendSystemEmailNotification('Payment for an ended service: needs staff attention', e(
+                        "Invoice #{$item->invoice_id} paid a renewal of service #{$locked->id}, which is {$locked->status}: it was not revived. Refund the payment or move it to credit."
                     )));
                 }
 

@@ -10,6 +10,11 @@ use Throwable;
 
 class ServiceObserver
 {
+    public function creating(Service $service): void
+    {
+        self::refuseUnknownStatus($service);
+    }
+
     /**
      * Handle the Service "created" event.
      */
@@ -28,6 +33,9 @@ class ServiceObserver
      */
     public function updating(Service $service): void
     {
+        if ($service->isDirty('status')) {
+            self::refuseUnknownStatus($service); // a row that already holds one stays editable otherwise
+        }
         if ($service->isDirty('status') && $service->status !== Service::STATUS_SUSPENDED) {
             $service->dunning_suspended_at = null;
         }
@@ -88,6 +96,19 @@ class ServiceObserver
                 report($e);
             }
         });
+    }
+
+    /**
+     * Only the statuses MyCS knows (Service::STATUSES). One it does not know (a typo, WHMCS's «Fraud» not mapped)
+     * would leave the service out of every step that looks for running or ended ones.
+     */
+    private static function refuseUnknownStatus(Service $service): void
+    {
+        // Not set on create: the column default (pending) fills it.
+        $status = $service->getAttributes()['status'] ?? null;
+        if ($status !== null && !in_array($status, Service::STATUSES, true)) {
+            throw new \LogicException("Unknown service status «{$status}»: one of " . implode(', ', Service::STATUSES) . '.');
+        }
     }
 
     /**
