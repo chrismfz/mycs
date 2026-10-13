@@ -7,12 +7,14 @@ use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Services\Service\RenewServiceService;
 use App\Services\ServiceUpgrade\ServiceUpgradeService;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 class ProcessPaidInvoiceService
 {
     /**
-     * Handle the processing of a paid invoice.
+     * Apply a paid invoice: renew its services, do its upgrades. Each line is idempotent (applied_at, the upgrade's
+     * status, read under locks), so the cron may run it again on an invoice whose apply_pending_since is still set.
      */
     public function handle(Invoice $invoice): void
     {
@@ -27,13 +29,15 @@ class ProcessPaidInvoiceService
                     }
                     (new RenewServiceService)->handle($service, $item);
                 } elseif ($item->reference_type == ServiceUpgrade::class) {
-                    $serviceUpgrade = $item->reference;
-                    if (!($serviceUpgrade instanceof ServiceUpgrade) || $serviceUpgrade->status !== ServiceUpgrade::STATUS_PENDING) {
-                        return;
-                    }
+                    // Read under its lock: the cron may apply the same invoice again (BIL-9); an upgrade is done once.
+                    DB::transaction(function () use ($item) {
+                        $serviceUpgrade = ServiceUpgrade::query()->whereKey($item->reference_id)->lockForUpdate()->first();
+                        if ($serviceUpgrade === null || $serviceUpgrade->status !== ServiceUpgrade::STATUS_PENDING) {
+                            return;
+                        }
 
-                    // Handle the upgrade
-                    (new ServiceUpgradeService)->handle($serviceUpgrade);
+                        (new ServiceUpgradeService)->handle($serviceUpgrade);
+                    });
                 }
             } catch (Throwable $e) {
                 report($e);
@@ -43,5 +47,8 @@ class ProcessPaidInvoiceService
         if ($failures !== []) {
             throw $failures[0];
         }
+        // Applied (a line with nothing to apply counts too: a cancelled service, a one-time plan). Quietly: no invoice event.
+        Invoice::query()->whereKey($invoice->getKey())->update(['apply_pending_since' => null]);
+        $invoice->setRawAttributes(array_merge($invoice->getAttributes(), ['apply_pending_since' => null]), true);
     }
 }

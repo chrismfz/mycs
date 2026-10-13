@@ -74,6 +74,8 @@ class InvoiceObserver
             if (RecordPaymentService::toCents($invoice->withLockedBalance()->remaining) > 0) {
                 throw new DisplayException(__('An invoice becomes paid when its payment is recorded: use Mark Paid instead.'));
             }
+            // Its lines are applied after commit; until then (and after a failure there) the cron sees it (BIL-9).
+            $invoice->apply_pending_since = now()->toImmutable();
             // The credit it sells is given on paid: only for money that arrived, whatever discount (a note, a negative
             // line) brought its balance to zero.
             if (self::creditToGiveCents($invoice) > self::receivedCents($invoice)) {
@@ -144,6 +146,7 @@ class InvoiceObserver
             app(GrantBoughtCreditService::class)->handle($invoice);
 
             DB::afterCommit(function () use ($invoice) {
+                // Clears apply_pending_since once applied; a failure leaves it for the cron (BIL-9).
                 app(ProcessPaidInvoiceService::class)->handle($invoice);
                 event(new InvoiceEvent\Paid($invoice));
             });

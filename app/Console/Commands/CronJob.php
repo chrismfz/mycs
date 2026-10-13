@@ -17,6 +17,7 @@ use App\Models\ServiceUpgrade;
 use App\Models\Setting;
 use App\Models\Ticket;
 use App\Services\Invoice\CancelOpenInvoices;
+use App\Services\Invoice\ProcessPaidInvoiceService;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Service\RenewServiceService;
 use Carbon\CarbonImmutable;
@@ -64,6 +65,29 @@ class CronJob extends Command
         // ones committed (docs/billing-cursor.md).
         try {
             // Send invoices if due date is x days away
+            // Paid invoices whose lines were not applied (the work after the payment's commit failed: a crash, a
+            // server error): applied again, before anything is suspended (audit sweep BIL-9). Only those MyCS marked
+            // paid; a few minutes old, so a payment being applied right now is left to finish. One invoice at a time.
+            $this->runCronJob('paid_applied', function ($number = 0) {
+                $ids = Invoice::query()->where('status', Invoice::STATUS_PAID)->whereNotNull('apply_pending_since')
+                    ->where('apply_pending_since', '<', now()->subMinutes(10))->orderBy('id')->pluck('id');
+                foreach ($ids as $id) {
+                    try {
+                        $invoice = Invoice::query()->whereKey($id)->where('status', Invoice::STATUS_PAID)->first();
+                        if ($invoice === null) {
+                            continue;
+                        }
+                        (new ProcessPaidInvoiceService)->handle($invoice);
+                        $number++;
+                    } catch (Throwable $e) {
+                        report($e);
+                        $this->failures["paid_applied #{$id}"] = $e;
+                    }
+                }
+
+                return $number;
+            }, transaction: false);
+
             // Credit pays what is open, oldest due first, before new renewals take it and before anything is suspended
             // (decision 5, MT-1e): a customer with credit is not suspended while it sits unused. Each invoice in its own
             // transaction, under the payment locks.

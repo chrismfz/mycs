@@ -57,6 +57,7 @@ class Invoice extends Model implements Auditable
 
     protected $casts = [
         'due_at' => 'date',
+        'apply_pending_since' => 'immutable_datetime',
     ];
 
     public bool $send_create_email = true;

@@ -8,6 +8,7 @@ return [
         'upgrade_invoices_updated' => 'Τιμολόγια αλλαγής πακέτου που ενημερώθηκαν',
         'credit_applied' => 'Πίστωση σε ανοιχτά τιμολόγια',
         'cancellations_processed' => 'Αιτήματα ακύρωσης που εκτελέστηκαν',
+        'paid_applied' => 'Πληρωμένα τιμολόγια που εφαρμόστηκαν ξανά',
         'services_suspended' => 'Υπηρεσίες σε αναστολή',
         'services_terminated' => 'Υπηρεσίες που τερματίστηκαν',
         'tickets_closed' => 'Tickets που έκλεισαν',
