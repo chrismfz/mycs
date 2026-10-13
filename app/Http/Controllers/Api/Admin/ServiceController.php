@@ -10,6 +10,7 @@ use App\Http\Requests\Api\Admin\Services\GetServicesRequest;
 use App\Http\Requests\Api\Admin\Services\UpdateServiceRequest;
 use App\Http\Resources\ServiceResource;
 use App\Models\Service;
+use App\Services\Service\DeleteService;
 use Dedoc\Scramble\Attributes\Group;
 use Dedoc\Scramble\Attributes\QueryParameter;
 use Spatie\QueryBuilder\QueryBuilder;
@@ -91,8 +92,8 @@ class ServiceController extends ApiController
      */
     public function destroy(DeleteServiceRequest $request, Service $service)
     {
-        // Delete the service
-        $service->delete();
+        // One way for every path (DATA-2, SVC-7, AUTH-9): ?terminate=1 deletes the account on the server first.
+        (new DeleteService)->handle($service, $request->boolean('terminate'));
 
         return $this->returnNoContent();
     }

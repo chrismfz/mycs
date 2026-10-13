@@ -169,5 +169,6 @@
     "A paid invoice is not cancelled: refund its payments (back, or to account credit).": "Ένα εξοφλημένο τιμολόγιο δεν ακυρώνεται: επίστρεψε τις πληρωμές του (πίσω στον πελάτη ή σε πίστωση).",
     "This invoice holds payments: refund them (back, or to account credit) before cancelling it.": "Το τιμολόγιο έχει πληρωμές: επίστρεψέ τες (πίσω στον πελάτη ή σε πίστωση) πριν το ακυρώσεις.",
     "This option value is used by services: move them to another value first.": "Η τιμή χρησιμοποιείται από υπηρεσίες: μεταφέρετέ τες πρώτα σε άλλη τιμή.",
-    "Option not saved": "Η επιλογή δεν αποθηκεύτηκε"
+    "Option not saved": "Η επιλογή δεν αποθηκεύτηκε",
+    "This order has services: delete them first.": "Η παραγγελία έχει υπηρεσίες: διαγράψτε τες πρώτα."
 }
