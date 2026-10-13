@@ -77,4 +77,36 @@ class AdminSettingsSecretsTest extends TestCase
         $this->assertNotSame('n3w-pass', $raw);
         $this->assertSame('n3w-pass', Crypt::decryptString($raw));
     }
+
+    public function test_after_a_save_the_secret_is_not_in_the_page_either(): void
+    {
+        $page = Livewire::actingAs($this->staff(['*']))->test(Settings::class)
+            ->set('data.app_language', 'el')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertStringNotContainsString('s3cret-smtp', json_encode($page->snapshot));
+    }
+
+    public function test_a_secret_typed_in_leaves_the_page_once_saved(): void
+    {
+        $page = Livewire::actingAs($this->staff(['*']))->test(Settings::class)
+            ->set('data.mail_password', 'n3w-pass')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertSame('n3w-pass', $this->stored());
+        $this->assertStringNotContainsString('n3w-pass', json_encode($page->snapshot));
+    }
+
+    public function test_a_secret_is_still_required_while_none_is_stored(): void
+    {
+        Setting::query()->where('key', 'mail_password')->delete();
+        config(['settings.mail_password' => null]);
+
+        Livewire::actingAs($this->staff(['*']))->test(Settings::class)
+            ->set('data.app_language', 'el')
+            ->call('save')
+            ->assertHasErrors('data.mail_password');
+    }
 }

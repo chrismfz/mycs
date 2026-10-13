@@ -60,7 +60,7 @@ class Settings extends Page implements HasForms
             foreach ($settings as $setting) {
                 // A secret never goes to the browser (audit sweep AUTH-12): staff with settings.view could read it in the
                 // page state. The field stays empty; left empty on save, the stored value is kept.
-                $setting_values[$setting['name']] = ($setting['encrypted'] ?? false)
+                $setting_values[$setting['name']] = self::isEncrypted($setting['name'])
                     ? null
                     : config("settings.{$setting['name']}", $setting['default'] ?? null);
             }
@@ -81,7 +81,7 @@ class Settings extends Page implements HasForms
                     $inputs = [];
                     foreach ($categories as $setting) {
                         $input = FilamentInput::convert($setting);
-                        if (($setting['encrypted'] ?? false) && self::hasStoredValue($setting['name'])) {
+                        if (self::isEncrypted($setting['name']) && self::hasStoredValue($setting['name'])) {
                             // Empty means "keep the stored one", so it is not required again.
                             $input->required(false)->placeholder(__('Stored: leave empty to keep it'));
                         }
@@ -124,6 +124,13 @@ class Settings extends Page implements HasForms
             $this->write($data); // normalises the counters in $data
         });
         $this->loaded = array_merge($this->loaded, $data); // a second save from the same page compares with this one
+        // A secret typed in leaves the page state once saved (AUTH-12): empty again, the stored one is kept.
+        foreach (array_keys($data) as $key) {
+            if (self::isEncrypted($key)) {
+                $this->loaded[$key] = null;
+                $this->data[$key] = null;
+            }
+        }
         $moved = $this->refreshMoved(array_keys($data));
 
         Notification::make()
@@ -147,7 +154,8 @@ class Settings extends Page implements HasForms
             ->mapWithKeys(fn (Setting $setting) => [$setting->key => $setting->value]); // models: decrypted and cast
         $moved = [];
         foreach ($stored as $key => $value) {
-            if (in_array($key, $saved, true) || self::same($value, $this->loaded[$key])) {
+            // Never a secret back into the page (AUTH-12): its field stays empty whatever is stored.
+            if (self::isEncrypted($key) || in_array($key, $saved, true) || self::same($value, $this->loaded[$key])) {
                 continue;
             }
             $this->loaded[$key] = $value;
@@ -219,6 +227,16 @@ class Settings extends Page implements HasForms
         return $prefix === 'invoice'
             ? Invoice::query()->where('number', $number)->exists()
             : AdjustmentNote::query()->where('number', $number)->exists();
+    }
+
+    /** Settings stored encrypted: never sent to the browser. */
+    private static function isEncrypted(string $key): bool
+    {
+        static $encrypted = null;
+        $encrypted ??= collect(ClassesSettings::settings())->flatten(1)->filter(fn ($setting) => $setting['encrypted'] ?? false)
+            ->pluck('name')->all();
+
+        return in_array($key, $encrypted, true);
     }
 
     private static function hasStoredValue(string $key): bool
