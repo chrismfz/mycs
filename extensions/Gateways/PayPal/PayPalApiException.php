@@ -11,19 +11,17 @@ use Illuminate\Http\Client\Response;
  */
 class PayPalApiException extends Exception
 {
-    /** @var array<int, array<string, mixed>> */
-    public readonly array $details;
-
+    /**
+     * @param  array<int, array<string, mixed>>  $details
+     */
     public function __construct(
         public readonly int $status,
         public readonly ?string $name,
         public readonly ?string $issue,
         public readonly ?string $debugId,
-        array $details = [],
+        public readonly array $details = [],
         ?string $message = null,
     ) {
-        $this->details = $details;
-
         parent::__construct(sprintf(
             'PayPal API error %d%s%s%s',
             $status,
@@ -37,16 +35,17 @@ class PayPalApiException extends Exception
     {
         $body = $response->json();
         $body = is_array($body) ? $body : [];
+        $string = fn ($value) => is_string($value) ? $value : null;
         // OAuth errors use error/error_description, REST errors name/message/details.
         $details = is_array($body['details'] ?? null) ? array_values(array_filter($body['details'], 'is_array')) : [];
 
         return new self(
             $response->status(),
-            is_string($body['name'] ?? null) ? $body['name'] : (is_string($body['error'] ?? null) ? $body['error'] : null),
-            is_string($details[0]['issue'] ?? null) ? $details[0]['issue'] : null,
-            is_string($body['debug_id'] ?? null) ? $body['debug_id'] : null,
+            $string($body['name'] ?? null) ?? $string($body['error'] ?? null),
+            $string($details[0]['issue'] ?? null),
+            $string($body['debug_id'] ?? null),
             $details,
-            is_string($body['message'] ?? null) ? $body['message'] : (is_string($body['error_description'] ?? null) ? $body['error_description'] : null),
+            $string($body['message'] ?? null) ?? $string($body['error_description'] ?? null),
         );
     }
 

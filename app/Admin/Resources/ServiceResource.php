@@ -169,17 +169,26 @@ class ServiceResource extends Resource
                     ->hintAction(
                         Action::make('Cancel Subscription ID')
                             ->action(function (Component $component) {
-                                if (ExtensionHelper::cancelSubscription($component->getRecord())) {
-                                    Notification::make('Subscription Cancelled')
-                                        ->title('The subscription has been successfully cancelled')
-                                        ->success()
-                                        ->send();
-                                } else {
+                                try {
+                                    $cancelled = ExtensionHelper::cancelSubscription($component->getRecord());
+                                } catch (\Throwable $e) {
+                                    report($e);
+                                    $cancelled = false;
+                                }
+                                if (!$cancelled) {
+                                    // The id stays: the gateway may still be billing it, and it is what a retry needs.
                                     Notification::make('Subscription Not Cancelled')
                                         ->title('The subscription could not be cancelled')
+                                        ->body(isset($e) ? $e->getMessage() : null)
                                         ->danger()
                                         ->send();
+
+                                    return;
                                 }
+                                Notification::make('Subscription Cancelled')
+                                    ->title('The subscription has been successfully cancelled')
+                                    ->success()
+                                    ->send();
                                 // Update the record to remove the subscription ID
                                 $component->getRecord()->update(['subscription_id' => null]);
                             })

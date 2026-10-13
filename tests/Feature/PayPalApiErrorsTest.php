@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\InvoiceTransactionStatus;
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\BillingAgreement;
 use App\Models\Gateway;
@@ -146,7 +147,8 @@ class PayPalApiErrorsTest extends TestCase
     {
         $this->fakePayPal(['/v2/checkout/orders' => $this->declined()]);
 
-        $this->expectException(PayPalApiException::class);
+        // A DisplayException: the customer sees "could not process", the cron sends the failed-payment email.
+        $this->expectException(DisplayException::class);
         ExtensionHelper::charge($this->gateway, $this->unpaidInvoice(), $this->agreement());
     }
 
@@ -157,18 +159,43 @@ class PayPalApiErrorsTest extends TestCase
             'purchase_units' => [['payments' => ['captures' => [['id' => 'C1', 'status' => 'DECLINED']]]]],
         ], 201)]);
 
-        $this->expectExceptionMessage('PayPal did not capture the payment');
+        $this->expectException(DisplayException::class);
         ExtensionHelper::charge($this->gateway, $this->unpaidInvoice(), $this->agreement());
     }
 
-    public function test_a_completed_vault_charge_succeeds(): void
+    public function test_a_completed_vault_charge_succeeds_and_is_recorded(): void
     {
         $this->fakePayPal(['/v2/checkout/orders' => Http::response([
             'id' => 'ORDER-1', 'status' => 'COMPLETED',
-            'purchase_units' => [['payments' => ['captures' => [['id' => 'C1', 'status' => 'COMPLETED']]]]],
+            'purchase_units' => [['payments' => ['captures' => [[
+                'id' => 'C1', 'status' => 'COMPLETED', 'amount' => ['value' => '20.00', 'currency_code' => 'USD'],
+            ]]]]],
         ], 201)]);
+        $invoice = $this->unpaidInvoice();
 
-        $this->assertTrue(ExtensionHelper::charge($this->gateway, $this->unpaidInvoice(), $this->agreement()));
+        $this->assertTrue(ExtensionHelper::charge($this->gateway, $invoice, $this->agreement()));
+        $this->assertSame(InvoiceTransactionStatus::Succeeded, $invoice->transactions()->sole()->status);
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
+    }
+
+    public function test_an_expired_token_is_renewed_once_with_the_same_request_id(): void
+    {
+        $ids = [];
+        Http::fake([
+            self::API . '/v1/oauth2/token' => Http::sequence()->push(['access_token' => 'old'])->push(['access_token' => 'new']),
+            self::API . '/v2/payments/captures/CAPTURE-1/refund' => function (Request $request) use (&$ids) {
+                $ids[] = $request->header('PayPal-Request-Id')[0];
+
+                return $request->header('Authorization')[0] === 'Bearer old'
+                    ? Http::response(['name' => 'AUTHENTICATION_FAILURE'], 401)
+                    : Http::response(['id' => 'R1', 'status' => 'COMPLETED'], 201);
+            },
+        ]);
+
+        ExtensionHelper::refund($this->paidInvoice(), 5.00);
+
+        $this->assertCount(2, $ids);
+        $this->assertSame($ids[0], $ids[1]);
     }
 
     private function subscribedService(bool $paypal = true): Service
@@ -190,7 +217,10 @@ class PayPalApiErrorsTest extends TestCase
     {
         $this->fakePayPal([]);
 
-        $this->assertFalse($this->paypal()->cancelSubscription($this->subscribedService(paypal: false)));
+        $service = $this->subscribedService(paypal: false);
+        $service->update(['subscription_id' => 'sub_stripe1']); // a Stripe subscription: no marker, not an I- id
+
+        $this->assertFalse($this->paypal()->cancelSubscription($service));
         Http::assertNothingSent();
     }
 
@@ -243,12 +273,12 @@ class PayPalApiErrorsTest extends TestCase
         $this->assertTrue($this->paypal()->cancelBillingAgreement($this->agreement()));
     }
 
-    public function test_cancel_billing_agreement_failure_throws(): void
+    public function test_cancel_billing_agreement_failure_is_reported_and_answers_false(): void
     {
         $this->fakePayPal(['/v3/vault/payment-tokens/VAULT-1' => Http::response(['name' => 'INTERNAL_SERVER_ERROR'], 500)]);
 
-        $this->expectException(PayPalApiException::class);
-        $this->paypal()->cancelBillingAgreement($this->agreement());
+        // false: the customer sees "Failed to remove payment method" and the agreement stays (PayPal still has it).
+        $this->assertFalse($this->paypal()->cancelBillingAgreement($this->agreement()));
     }
 
     private function approvedOrder(Invoice $invoice): array
