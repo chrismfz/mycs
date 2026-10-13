@@ -1,8 +1,10 @@
 <div class="fi-widget-wrapper rounded-lg shadow col-span-full p-4 flex justify-between items-center">
     <div class="flex  gap-2 items-center">
         <x-ri-error-warning-line class="size-5 text-yellow-500" />
-        @if($record->isEnded())
-        <p class="text-sm text-gray-950 dark:text-white">This service is {{ strtolower(\App\Models\Service::statusLabel($record->status)) }}. Reason: <span class="font-medium">{{$record->cancellation->reason }}</span></p>
+        @if($record->status === \App\Models\Service::STATUS_TERMINATED)
+        <p class="text-sm text-gray-950 dark:text-white">This service was terminated while a cancellation was requested. Requested reason: <span class="font-medium">{{$record->cancellation->reason }}</span></p>
+        @elseif($record->status === \App\Models\Service::STATUS_CANCELLED)
+        <p class="text-sm text-gray-950 dark:text-white">This service is cancelled. Reason: <span class="font-medium">{{$record->cancellation->reason }}</span></p>
         @else
         <p class="text-sm text-gray-950 dark:text-white">This service is pending cancellation{{ $record->expires_at ? ' on ' .
             $record->expires_at->translatedFormat('M j, Y') : '' }}. Reason: <span class="font-medium">{{

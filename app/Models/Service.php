@@ -6,7 +6,9 @@ use App\Classes\Price;
 use App\Classes\Settings;
 use App\Models\Traits\HasProperties;
 use App\Observers\ServiceObserver;
+use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\Invoice\ChangeOpenLine;
+use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
@@ -388,20 +390,32 @@ class Service extends Model implements Auditable
     }
 
     /**
-     * Staff's «Terminate» (the server action) succeeded: terminated, as WHMCS's module Terminate. A running service
-     * only; pending and ended ones keep their status. Its open invoices stay for staff (money-check reports them).
+     * Staff's «Terminate» (the server action) succeeded: terminated, as WHMCS's module Terminate, and the rest as the
+     * cron's termination does: pending upgrades and open invoices cancelled (one holding gateway money stays open for
+     * staff), stock back. A running service only; pending and ended ones keep their status.
+     *
+     * @return array<string, \Throwable> what was left open, as CancelOpenInvoices reports it
      */
-    public function markTerminated(): void
+    public function markTerminated(): array
     {
-        DB::transaction(function () {
+        return DB::transaction(function () {
             $locked = self::query()->whereKey($this->getKey())->lockForUpdate()->firstOrFail();
             if (!in_array($locked->status, [self::STATUS_ACTIVE, self::STATUS_SUSPENDED], true)) {
-                return;
+                return [];
             }
             $locked->status = self::STATUS_TERMINATED;
             $locked->save();
+            // Service, upgrades, then invoices: the order ServiceUpgradeService and the cron take.
+            $reason = __('invoices.cancellation_reasons.service_terminated');
+            $left = CancelPendingUpgrades::forService($locked, $reason);
+            $left += CancelOpenInvoices::handle($locked->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), $reason, $locked);
+            if ($locked->product?->stock !== null) {
+                $locked->product->increment('stock', $locked->quantity);
+            }
             $this->setRawAttributes($locked->getAttributes(), true);
             $this->unsetRelations();
+
+            return $left;
         });
     }
 

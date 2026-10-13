@@ -33,7 +33,9 @@ class ServiceObserver
      */
     public function updating(Service $service): void
     {
-        self::refuseUnknownStatus($service);
+        if ($service->isDirty('status')) {
+            self::refuseUnknownStatus($service); // a row that already holds one stays editable otherwise
+        }
         if ($service->isDirty('status') && $service->status !== Service::STATUS_SUSPENDED) {
             $service->dunning_suspended_at = null;
         }

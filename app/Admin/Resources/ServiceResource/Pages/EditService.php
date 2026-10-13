@@ -119,7 +119,10 @@ class EditService extends EditRecord
                                 break;
                             case 'terminate':
                                 $sdata = ExtensionHelper::terminateServer($record);
-                                $record->markTerminated(); // only once the server is gone (it threw otherwise)
+                                // Only once the server is gone (it threw otherwise).
+                                foreach ($record->markTerminated() as $left) {
+                                    Notification::make()->title('Left open for staff')->body($left->getMessage())->warning()->persistent()->send();
+                                }
                                 break;
                             case 'upgrade':
                                 $sdata = ExtensionHelper::upgradeServer($record);

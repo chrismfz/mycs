@@ -90,6 +90,19 @@ class ServiceStatusTerminatedTest extends TestCase
         $this->assertSame(Service::STATUS_CANCELLED, $cancelled->fresh()->status, 'how it ended stays as it was');
     }
 
+    public function test_staff_terminate_cancels_its_open_invoice_as_the_cron_does(): void
+    {
+        $service = $this->service();
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $invoice->items()->create(['reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Renewal',
+            'quantity' => 1, 'price' => 10, 'period_start' => '2026-10-15', 'period_end' => '2026-11-15']);
+
+        $this->assertSame([], $service->markTerminated());
+
+        $this->assertSame(Service::STATUS_TERMINATED, $service->fresh()->status);
+        $this->assertSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status, 'not left payable for a service that is gone');
+    }
+
     public function test_a_payment_never_revives_a_terminated_service(): void
     {
         $service = $this->service(['status' => Service::STATUS_TERMINATED]);
