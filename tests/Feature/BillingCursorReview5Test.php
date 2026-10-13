@@ -260,13 +260,13 @@ class BillingCursorReview5Test extends TestCase
         $a->plan->update(['billing_unit' => 'hour']);
         $invoice = $this->invoiceFor($a, null, null);
         $invoice->items()->create(['reference_id' => $b->id, 'reference_type' => Service::class, 'description' => 'Second service', 'quantity' => 1, 'price' => 10, 'period_start' => '2026-10-15', 'period_end' => '2026-11-15']);
-        $raised = false;
-        try {
-            $this->pay($invoice);
-        } catch (\InvalidArgumentException $e) {
-            $raised = true;
-        }
-        $this->assertTrue($raised, 'A real failed renewal must still surface as an error');
+        $reported = [];
+        $this->app->make(\Illuminate\Contracts\Debug\ExceptionHandler::class)->reportable(function (\InvalidArgumentException $e) use (&$reported) {
+            $reported[] = $e;
+        });
+        $this->pay($invoice); // the payment is recorded: whoever paid is not told it failed (BIL-9)
+        $this->assertNotEmpty($reported, 'A real failed renewal must still surface as an error (reported)');
+        $this->assertNotNull($invoice->fresh()->apply_pending_since, 'and left for the cron to apply again');
         $this->assertSame('2026-11-15', $this->expires($b));
         $this->assertSame('2026-10-15', $this->expires($a));
         $this->assertNull($invoice->items()->where('reference_id', $a->id)->sole()->applied_at);

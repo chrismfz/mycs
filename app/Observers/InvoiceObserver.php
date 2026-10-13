@@ -17,6 +17,7 @@ use App\Services\Invoice\InvoiceItemReference;
 use App\Services\Invoice\ProcessPaidInvoiceService;
 use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 class InvoiceObserver
 {
@@ -69,6 +70,10 @@ class InvoiceObserver
         // Paid, Add Payment) and the invoice follows, through RecordPaymentService. Marking it paid by its status alone
         // would renew its services and give the credit it sells without any money. Read locked: Invoice::save holds the
         // payment locks for this change.
+        // No longer paid: nothing left to apply (BIL-9); paid again, it is marked again.
+        if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_PAID && $invoice->status !== Invoice::STATUS_PAID) {
+            $invoice->apply_pending_since = null;
+        }
         if ($invoice->isDirty('status') && $invoice->status === Invoice::STATUS_PAID
             && $invoice->getOriginal('status') !== Invoice::STATUS_PAID) {
             if (RecordPaymentService::toCents($invoice->withLockedBalance()->remaining) > 0) {
@@ -146,8 +151,16 @@ class InvoiceObserver
             app(GrantBoughtCreditService::class)->handle($invoice);
 
             DB::afterCommit(function () use ($invoice) {
-                // Clears apply_pending_since once applied; a failure leaves it for the cron (BIL-9).
-                app(ProcessPaidInvoiceService::class)->handle($invoice);
+                // Clears apply_pending_since once applied. A failure leaves it for the cron (BIL-9), which applies it
+                // again and fires Paid then: the payment is recorded, so whoever paid (a webhook, staff) is not told
+                // it failed and does not pay again.
+                try {
+                    app(ProcessPaidInvoiceService::class)->handle($invoice);
+                } catch (Throwable $e) {
+                    report($e);
+
+                    return;
+                }
                 event(new InvoiceEvent\Paid($invoice));
             });
         }

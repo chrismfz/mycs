@@ -18,7 +18,8 @@ class ProcessPaidInvoiceService
      */
     public function handle(Invoice $invoice): void
     {
-        // Update services if invoice is paid (suspended -> active etc.)
+        // The marker this run applies: a newer one (paid -> pending -> paid meanwhile) is left for its own run.
+        $marker = Invoice::query()->whereKey($invoice->getKey())->value('apply_pending_since');
         $failures = [];
         $invoice->items->each(function ($item) use (&$failures) {
             try {
@@ -48,7 +49,10 @@ class ProcessPaidInvoiceService
             throw $failures[0];
         }
         // Applied (a line with nothing to apply counts too: a cancelled service, a one-time plan). Quietly: no invoice event.
-        Invoice::query()->whereKey($invoice->getKey())->update(['apply_pending_since' => null]);
-        $invoice->setRawAttributes(array_merge($invoice->getAttributes(), ['apply_pending_since' => null]), true);
+        if ($marker !== null) {
+            Invoice::query()->whereKey($invoice->getKey())->where('apply_pending_since', $marker)->update(['apply_pending_since' => null]);
+        }
+        $invoice->apply_pending_since = null;
+        $invoice->syncOriginalAttribute('apply_pending_since');
     }
 }

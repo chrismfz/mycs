@@ -172,6 +172,8 @@ class PaidNotAppliedTest extends TestCase
             'due_at' => '2026-10-19', 'created_at' => '2026-10-19', 'updated_at' => '2026-10-19', 'apply_pending_since' => '2026-10-19 12:00:00']);
         DB::table('invoice_items')->insert(['invoice_id' => $id, 'reference_type' => ServiceUpgrade::class, 'reference_id' => $upgrade->id,
             'description' => 'Upgrade', 'quantity' => 1, 'price' => 5, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('invoice_transactions')->insert(['invoice_id' => $id, 'amount' => 5, 'status' => 'succeeded', 'transaction_id' => 'up-1',
+            'created_at' => now(), 'updated_at' => now()]);
 
         $this->artisan('app:cron-job')->assertExitCode(0);
         $this->artisan('app:cron-job')->assertExitCode(0);

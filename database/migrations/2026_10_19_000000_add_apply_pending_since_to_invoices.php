@@ -22,6 +22,9 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('invoices', function (Blueprint $table) {
+            $table->dropIndex(['apply_pending_since']); // first: SQLite cannot drop an indexed column
+        });
+        Schema::table('invoices', function (Blueprint $table) {
             $table->dropColumn('apply_pending_since');
         });
     }
