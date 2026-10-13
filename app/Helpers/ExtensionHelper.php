@@ -726,15 +726,30 @@ class ExtensionHelper
     }
 
     /**
+     * Runs a server action. An adapter fails by throwing; `false` (the old cPanel convention) is turned into an
+     * exception too, so no caller mistakes a refused action for a done one.
+     */
+    protected static function serverAction(Service $service, string $action, string $audit)
+    {
+        $server = self::checkServer($service, $action);
+
+        self::recordAudit($service, 'extension_action', [], ['action' => $audit]);
+
+        $result = self::getExtension('server', $server->extension, $server->settings)->$action($service, self::settingsToArray($service->product->settings), self::getServiceProperties($service));
+
+        if ($result === false) {
+            throw new Exception('Server action ' . $action . ' failed for service #' . $service->id . ' (' . $server->extension . ')');
+        }
+
+        return $result;
+    }
+
+    /**
      * Create server
      */
     public static function createServer(Service $service)
     {
-        $server = self::checkServer($service, 'createServer');
-
-        self::recordAudit($service, 'extension_action', [], ['action' => 'create_server']);
-
-        return self::getExtension('server', $server->extension, $server->settings)->createServer($service, self::settingsToArray($service->product->settings), self::getServiceProperties($service));
+        return self::serverAction($service, 'createServer', 'create_server');
     }
 
     /**
@@ -742,11 +757,7 @@ class ExtensionHelper
      */
     public static function suspendServer(Service $service)
     {
-        $server = self::checkServer($service, 'suspendServer');
-
-        self::recordAudit($service, 'extension_action', [], ['action' => 'suspend_server']);
-
-        return self::getExtension('server', $server->extension, $server->settings)->suspendServer($service, self::settingsToArray($service->product->settings), self::getServiceProperties($service));
+        return self::serverAction($service, 'suspendServer', 'suspend_server');
     }
 
     /**
@@ -754,11 +765,7 @@ class ExtensionHelper
      */
     public static function unsuspendServer(Service $service)
     {
-        $server = self::checkServer($service, 'unsuspendServer');
-
-        self::recordAudit($service, 'extension_action', [], ['action' => 'unsuspend_server']);
-
-        return self::getExtension('server', $server->extension, $server->settings)->unsuspendServer($service, self::settingsToArray($service->product->settings), self::getServiceProperties($service));
+        return self::serverAction($service, 'unsuspendServer', 'unsuspend_server');
     }
 
     /**
@@ -766,11 +773,7 @@ class ExtensionHelper
      */
     public static function terminateServer(Service $service)
     {
-        $server = self::checkServer($service, 'terminateServer');
-
-        self::recordAudit($service, 'extension_action', [], ['action' => 'terminate_server']);
-
-        return self::getExtension('server', $server->extension, $server->settings)->terminateServer($service, self::settingsToArray($service->product->settings), self::getServiceProperties($service));
+        return self::serverAction($service, 'terminateServer', 'terminate_server');
     }
 
     /**
@@ -778,11 +781,7 @@ class ExtensionHelper
      */
     public static function upgradeServer(Service $service)
     {
-        $server = self::checkServer($service, 'upgradeServer');
-
-        self::recordAudit($service, 'extension_action', [], ['action' => 'upgrade_server']);
-
-        return self::getExtension('server', $server->extension, $server->settings)->upgradeServer($service, self::settingsToArray($service->product->settings), self::getServiceProperties($service));
+        return self::serverAction($service, 'upgradeServer', 'upgrade_server');
     }
 
     /**

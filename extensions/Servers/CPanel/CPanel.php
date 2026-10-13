@@ -31,6 +31,23 @@ class CPanel extends Server
     }
 
     /**
+     * A WHM API 1 call that must succeed: WHM refuses with HTTP 200 and metadata.result = 0, so the HTTP status
+     * alone says nothing. Throws with WHM's reason.
+     *
+     * @return array<string, mixed>
+     */
+    private function whm(string $endpoint, array $data, string $method = 'get'): array
+    {
+        $json = $this->request($endpoint, $method, ['api.version' => 1, ...$data])->json();
+
+        if (($json['metadata']['result'] ?? null) !== 1) {
+            throw new Exception('cPanel ' . ltrim($endpoint, '/') . ' failed: ' . ($json['metadata']['reason'] ?? 'no reason given'));
+        }
+
+        return $json;
+    }
+
+    /**
      * Get all the configuration for the extension
      *
      * @param  array  $values
@@ -134,25 +151,19 @@ class CPanel extends Server
             $username = 'a' . substr($username, 1);
         }
 
-        $response = $this->request(
-            '/createacct',
-            data: [
-                'api.version' => 1,
-                'username' => $username,
-                'contactemail' => $service->user->email,
-                'domain' => $properties['domain'],
-                'plan' => $properties['package'] ?? $settings['package'],
-            ]
-        );
+        $this->whm('/createacct', [
+            'username' => $username,
+            'contactemail' => $service->user->email,
+            'domain' => $properties['domain'],
+            'plan' => $properties['package'] ?? $settings['package'],
+        ]);
 
-        if ($response->json()['metadata']['result'] === 1) {
-            $service->properties()->updateOrCreate([
-                'key' => 'cpanel_username',
-            ], [
-                'name' => 'cPanel username',
-                'value' => strtolower($username),
-            ]);
-        }
+        $service->properties()->updateOrCreate([
+            'key' => 'cpanel_username',
+        ], [
+            'name' => 'cPanel username',
+            'value' => strtolower($username),
+        ]);
 
         return true;
     }
@@ -170,19 +181,11 @@ class CPanel extends Server
             throw new Exception('Service has not been created');
         }
 
-        $response = $this->request(
-            '/suspendacct',
-            data: [
-                'api.version' => 1,
-                'user' => $properties['cpanel_username'],
-            ]
-        );
+        $this->whm('/suspendacct', [
+            'user' => $properties['cpanel_username'],
+        ]);
 
-        if ($response->json()['metadata']['result'] === 1) {
-            return true;
-        }
-
-        return false;
+        return true;
     }
 
     /**
@@ -198,19 +201,11 @@ class CPanel extends Server
             throw new Exception('Service has not been created');
         }
 
-        $response = $this->request(
-            '/unsuspendacct',
-            data: [
-                'api.version' => 1,
-                'user' => $properties['cpanel_username'],
-            ]
-        );
+        $this->whm('/unsuspendacct', [
+            'user' => $properties['cpanel_username'],
+        ]);
 
-        if ($response->json()['metadata']['result'] === 1) {
-            return true;
-        }
-
-        return false;
+        return true;
     }
 
     /**
@@ -226,22 +221,14 @@ class CPanel extends Server
             throw new Exception('Service has not been created');
         }
 
-        $response = $this->request(
-            '/removeacct',
-            data: [
-                'api.version' => 1,
-                'user' => $properties['cpanel_username'],
-            ]
-        );
+        $this->whm('/removeacct', [
+            'user' => $properties['cpanel_username'],
+        ]);
 
-        if ($response->json()['metadata']['result'] === 1) {
-            // Delete the properties
-            $service->properties()->where('key', 'cpanel_username')->delete();
+        // Delete the properties
+        $service->properties()->where('key', 'cpanel_username')->delete();
 
-            return true;
-        }
-
-        return false;
+        return true;
     }
 
     public function upgradeServer(Service $service, $settings, $properties)
@@ -250,20 +237,12 @@ class CPanel extends Server
             throw new Exception('Service has not been created');
         }
 
-        $response = $this->request(
-            '/modifyacct',
-            data: [
-                'api.version' => 1,
-                'user' => $properties['cpanel_username'],
-                'plan' => $settings['package'],
-            ]
-        );
+        $this->whm('/modifyacct', [
+            'user' => $properties['cpanel_username'],
+            'plan' => $settings['package'],
+        ]);
 
-        if ($response->json()['metadata']['result'] === 1) {
-            return true;
-        }
-
-        return false;
+        return true;
     }
 
     public function getLoginUrl(Service $service, $settings, $properties): string
