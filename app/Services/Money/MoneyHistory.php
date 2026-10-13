@@ -49,7 +49,7 @@ class MoneyHistory
         }
 
         $audits = Audit::query()->where('auditable_type', $invoice->getMorphClass())->where('auditable_id', $invoice->id)
-            ->whereIn('event', ['created', 'updated'])->with('user')->orderBy('id')->get();
+            ->whereIn('event', ['created', 'updated'])->orderBy('id')->get(); // few rows: each audit's user is read on its own
         foreach ($audits as $audit) {
             $new = (array) $audit->new_values;
             if (!array_key_exists('status', $new)) {
