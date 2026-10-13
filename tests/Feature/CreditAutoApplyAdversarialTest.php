@@ -520,10 +520,12 @@ class CreditAutoApplyAdversarialTest extends TestCase
         (new CreditAutoApply)->toInvoice($invoice);
         $this->assertNull($invoice->fresh()->number, 'a partly paid proforma got a number');
 
+        // The counter as it is: on MariaDB an earlier test's DDL commits implicitly and can leave it above zero.
+        $counter = (int) (Setting::query()->where('key', 'invoice_number')->whereNull('settingable_type')->value('value') ?? 0);
         $this->giveCredit(7000);
         (new CreditAutoApply)->toInvoice($invoice);
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
-        $this->assertSame(now()->format('Y') . '-1', $invoice->fresh()->number);
+        $this->assertSame(now()->format('Y') . '-' . ($counter + 1), $invoice->fresh()->number);
     }
 
     // ---------------------------------------------------------------- J7: the toggle, the migration
