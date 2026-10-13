@@ -110,7 +110,7 @@ class GatewayLog
         $this->result = null;
         try {
             $this->close($event, $result, $response?->getStatusCode() ?? 500);
-            if ($event->outcome === PaymentGatewayEvent::OUTCOME_ERROR && $event->signature_verified !== false) {
+            if (self::alarming($event)) {
                 $this->alert($event);
             }
         } catch (\Throwable $e) {
@@ -137,7 +137,8 @@ class GatewayLog
             $values['reason'] ??= 'http_' . $status;
         }
         if ($result === null && $status >= 400 && $status < 500) {
-            $values['fields'] = null; // a refused request (forged, unknown) keeps no names from its sender
+            $values['fields'] = null; // a refused request (forged, unknown) keeps nothing its sender wrote
+            $values['event_type'] = null;
         }
         $values['currency_code'] = isset($values['currency_code']) ? strtoupper(substr((string) $values['currency_code'], 0, 3)) : null;
         $values['external_id'] = isset($values['external_id']) ? substr((string) $values['external_id'], 0, 255) : null;
@@ -145,6 +146,20 @@ class GatewayLog
         $values['invoice_transaction_id'] = self::id($values['invoice_transaction_id'] ?? null);
         $values['amount'] = isset($values['amount']) && is_numeric($values['amount']) ? $values['amount'] : null;
         $event->forceFill($values + ['http_status' => $status])->save();
+    }
+
+    /**
+     * Staff hear of a failure (5xx) unless the request failed its signature, and of an authentic request (signature
+     * verified) refused for no money reason RecordPaymentService already mails: the gateway charged, nothing recorded.
+     */
+    private static function alarming(PaymentGatewayEvent $event): bool
+    {
+        if ($event->outcome === PaymentGatewayEvent::OUTCOME_ERROR) {
+            return $event->signature_verified !== false;
+        }
+
+        return $event->outcome === PaymentGatewayEvent::OUTCOME_REJECTED && $event->signature_verified === true
+            && ($event->reason === 'invoice_not_found' || str_starts_with((string) $event->reason, 'http_'));
     }
 
     private static function id(mixed $value): ?int
@@ -164,20 +179,34 @@ class GatewayLog
         if (!$first) {
             return;
         }
-        $message = $event->invoice_transaction_id !== null
+        $message = $event->outcome === PaymentGatewayEvent::OUTCOME_REJECTED
+            ? sprintf('A verified request from the %s gateway (%s) was refused (HTTP %d, %s): the gateway charged and the money is NOT recorded. Gateway log #%d.',
+                $event->gateway, $event->endpoint, (int) $event->http_status, $event->reason, $event->id)
+            : ($event->invoice_transaction_id !== null
             ? sprintf('A request from the %s gateway (%s) failed with HTTP %d after its payment WAS recorded (transaction #%d): what follows the payment (renewal, provisioning) failed, and the gateway will retry. Gateway log #%d.',
                 $event->gateway, $event->endpoint, (int) $event->http_status, $event->invoice_transaction_id, $event->id)
             : sprintf('A request from the %s gateway (%s) failed with HTTP %d: if it was a payment, it is NOT recorded and the gateway will retry. Gateway log #%d.',
-                $event->gateway, $event->endpoint, (int) $event->http_status, $event->id);
+                $event->gateway, $event->endpoint, (int) $event->http_status, $event->id));
         Log::warning($message, ['gateway_event_id' => $event->id]);
         NotificationHelper::sendSystemEmailNotification('Gateway request failed', e($message));
+    }
+
+    /**
+     * A name, not a value: starts with a letter, letters, digits and $extra only, no run of 5 digits (a card number,
+     * an account), and no dot before a short ending (a domain such as «shop.gr»).
+     */
+    private static function looksLikeAName(string $value, int $max, string $extra): bool
+    {
+        return preg_match('/^[A-Za-z][A-Za-z0-9' . preg_quote($extra, '/') . ']{0,' . ($max - 1) . '}$/', $value) === 1
+            && preg_match('/\d{5,}/', $value) !== 1
+            && preg_match('/\.[A-Za-z]{2,3}$/', $value) !== 1;
     }
 
     /** @return list<string> The request's field names (query and body), never their values. */
     private static function fieldNames(Request $request): array
     {
         $names = array_filter(array_map('strval', array_keys($request->all())),
-            fn (string $name) => preg_match('/^[A-Za-z0-9_.\-]{1,64}$/', $name) === 1);
+            fn (string $name) => self::looksLikeAName($name, 64, '_\-'));
 
         return array_slice(array_values($names), 0, self::MAX_FIELDS);
     }
@@ -187,7 +216,7 @@ class GatewayLog
     {
         foreach (['type', 'event_type', 'txn_type'] as $field) {
             $value = $request->input($field);
-            if (is_string($value) && preg_match('/^[A-Za-z0-9_.\-]{1,100}$/', $value) === 1) {
+            if (is_string($value) && self::looksLikeAName($value, 100, '_.')) {
                 return $value;
             }
         }

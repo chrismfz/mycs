@@ -19,6 +19,7 @@ use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\GatewayLog;
 use App\Services\Money\MoneyTrail;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -67,7 +68,31 @@ class RecordPaymentService
         }
 
         $notices = [];
-        $transaction = DB::transaction(function () use ($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, $paidAt, &$notices) {
+        try {
+            $transaction = $this->record($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, $paidAt, $notices);
+        } catch (ModelNotFoundException $e) {
+            // A gateway paid an invoice that does not exist (deleted, or another app's): the gateway log keeps what it
+            // charged and staff hear of it (MT-2a). Still thrown: the gateway is told it failed.
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_REJECTED, 'invoice_not_found', [
+                'amount' => $cents / 100, 'currency_code' => $currency, 'external_id' => $transactionId, 'invoice_id' => $invoiceId,
+            ]);
+
+            throw $e;
+        }
+
+        foreach ($notices as $notice) {
+            $this->notify($notice, $invoiceId, $transactionId, $gateway);
+        }
+
+        return $transaction;
+    }
+
+    /**
+     * @param  list<string>  $notices
+     */
+    private function record(mixed $invoiceId, ?Gateway $gateway, int $cents, mixed $fee, ?string $transactionId, InvoiceTransactionStatus $status, bool $isCreditTransaction, ?string $currency, bool $enteredByStaff, ?\DateTimeInterface $paidAt, array &$notices): ?InvoiceTransaction
+    {
+        return DB::transaction(function () use ($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, $paidAt, &$notices) {
             $invoice = $this->lockInvoice($invoiceId);
 
             // Same id on the same gateway, or recorded by staff without a gateway: the same money. Staff
@@ -183,12 +208,6 @@ class RecordPaymentService
 
             return $transaction;
         });
-
-        foreach ($notices as $notice) {
-            $this->notify($notice, $invoiceId, $transactionId, $gateway);
-        }
-
-        return $transaction;
     }
 
     /**
