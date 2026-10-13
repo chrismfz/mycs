@@ -199,6 +199,23 @@
       promotions/ομάδες, κάρτες Stripe, vault tokens, άδειες, ρυθμίσεις από το `tblconfiguration`· re-runnable, id map.
 - [ ] `mycs:parity` με μηδενικό diff.
 - [ ] Export εσόδων/εξόδων ανά έτος (CSV/XLSX) για τον λογιστή.
+- [ ] **Login links από την κονσόλα** (για δοκιμές και support): `mycs:login-link {user} [--ttl=15]` βγάζει link που
+      συνδέει ως πελάτης ή ως staff (με τον ρόλο του). Το link είναι μιας χρήσης και λήγει σύντομα: token σε hash στη
+      βάση, ποτέ σε log. Κάθε έκδοση και χρήση γράφεται στο audit (ποιος, πότε, από κονσόλα). Μόνο από CLI: όποιος την
+      τρέχει έχει ήδη πρόσβαση στον server. Κλειστό εξ ορισμού, ανοίγει ανά instance από το `.env`. Βάση το υπάρχον
+      «Login as Client» (`ImpersonateMiddleware`). Ανοιχτή απόφαση: αν το link παρακάμπτει το 2FA (χρειάζεται για
+      αυτοματοποιημένο browser), μόνο σε devbox/staging.
+- [ ] **Έλεγχος σε πραγματικό browser πριν το cut-over** (money trail, παραδείγματα χρημάτων, edge cases), με το Chrome
+      extension ή τα browser tools, πάνω στα login links. Σκοπός: να ξέρουμε ότι ό,τι περνά στα tests ισχύει και στην
+      πράξη. Μόνο στο devbox/staging (`mycs.myip.gr`), με συνθετικούς πελάτες, gateways σε test mode (Stripe test,
+      PayPal sandbox) και email σε mail catcher. Ποτέ σε παραγωγή ή με πραγματικά δεδομένα.
+      - Σενάρια από πελάτη και staff: πληρωμή, μερική πληρωμή, υπερπληρωμή → πίστωση, πληρωμή με πίστωση, refund
+        (μερικό και ολικό), Mark Paid / Add Payment, διαγραφή συναλλαγής, ακύρωση τιμολογίου και υπηρεσίας με χρήματα
+        πάνω τους, ανανέωση, webhook που ξαναστέλνεται, λάθος νόμισμα ή ποσό.
+      - Μετά από κάθε σενάριο: `mycs:money-check` χωρίς ευρήματα· καρτέλα «Movements», Log πύλης, κανάλι `payments`
+        και emails συμφωνούν με αυτό που έγινε· τι βλέπει ο πελάτης και τι το staff.
+      - Τα αποτελέσματα σε `docs/audit-browser.md` (σενάριο, αναμενόμενο, αποτέλεσμα, PR διόρθωσης)· screenshots
+        χωρίς προσωπικά δεδομένα. Ό,τι βρεθεί γίνεται failing test πριν διορθωθεί.
 - [ ] **Υπενθύμιση πριν το cut-over: πέρασμα UI/UX «σαν WHMCS»** (admin και client area, για nixpal και myip). Το
       Paymenter έχει έτοιμη λειτουργικότητα αλλά γυμνό UI. Πρώτα λίστα από ό,τι χρησιμοποιούμε καθημερινά στο WHMCS
       (screenshots, `whmcs-usage.md`), μετά αποφασίζουμε τι μπαίνει πριν και τι μετά. Ενδεικτικά: σελίδα πελάτη με
