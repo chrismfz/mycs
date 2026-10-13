@@ -65,7 +65,7 @@ class CreditLedgerCodeReviewTest extends TestCase
     public function test_paying_a_credit_purchase_with_credit_keeps_the_journal_consistent(): void
     {
         (new CreditLedger)->add($this->user->id, 'USD', 5000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'seed');
-        $deposit = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $deposit = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $deposit->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => 20]);
 
         $paid = (new RecordPaymentService)->payWithCredit($deposit);
@@ -79,7 +79,7 @@ class CreditLedgerCodeReviewTest extends TestCase
 
     public function test_the_check_counts_reversals_of_a_deleted_overpayment(): void
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 10]);
         $payment = ExtensionHelper::addPayment($invoice->id, 'Stripe', 25.00, null, 'pi_rv1', currency: 'USD');
         (new RecordPaymentService)->deleteTransaction($payment);

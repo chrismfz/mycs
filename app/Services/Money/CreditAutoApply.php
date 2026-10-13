@@ -77,7 +77,7 @@ class CreditAutoApply
         $ledger = new CreditLedger;
         $paid = 0;
         $invoices = Invoice::query()->where('user_id', $userId)->where('currency_code', $currency)
-            ->where('status', Invoice::STATUS_PENDING)->orderBy('due_at')->orderBy('id')->pluck('id');
+            ->where('status', Invoice::STATUS_UNPAID)->orderBy('due_at')->orderBy('id')->pluck('id');
         foreach ($invoices as $invoiceId) {
             if ($ledger->balanceCents($userId, $currency) <= 0) {
                 break;
@@ -105,7 +105,7 @@ class CreditAutoApply
         Credit::query()->where('amount', '>', 0)
             ->whereExists(fn ($query) => $query->selectRaw('1')->from('invoices')
                 ->whereColumn('invoices.user_id', 'credits.user_id')->whereColumn('invoices.currency_code', 'credits.currency_code')
-                ->where('invoices.status', Invoice::STATUS_PENDING))
+                ->where('invoices.status', Invoice::STATUS_UNPAID))
             ->whereExists(fn ($query) => $query->selectRaw('1')->from('users')
                 ->whereColumn('users.id', 'credits.user_id')->where('users.credit_auto_apply', true))
             ->orderBy('id')->get(['user_id', 'currency_code'])
@@ -143,7 +143,7 @@ class CreditAutoApply
      */
     public static function eligible(Invoice $invoice, bool $subscriptionRenewal = false): bool
     {
-        if ($invoice->status !== Invoice::STATUS_PENDING || $invoice->user_id === null) {
+        if ($invoice->status !== Invoice::STATUS_UNPAID || $invoice->user_id === null) {
             return false;
         }
         // The customer's row is locked by the payment already (lockInvoice): this reads it as of now.

@@ -26,7 +26,7 @@
                     <x-ri-forbid-fill />
                 @elseif($invoice->status == 'refunded')
                     <x-ri-arrow-go-back-fill />
-                @elseif($invoice->status == 'pending')
+                @elseif($invoice->status == 'unpaid')
                     <x-ri-error-warning-fill />
                 @endif
             </div>

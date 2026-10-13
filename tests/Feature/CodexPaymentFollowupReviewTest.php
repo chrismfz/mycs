@@ -58,9 +58,9 @@ class CodexPaymentFollowupReviewTest extends TestCase
         ], $attributes));
     }
 
-    private function invoiceFor(Service $service, string $start, string $end, string $status = 'pending', float $price = 10.00): Invoice
+    private function invoiceFor(Service $service, string $start, string $end, string $status = 'unpaid', float $price = 10.00): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_PENDING : $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Renewal',
             'quantity' => 1, 'price' => $price, 'period_start' => $start, 'period_end' => $end,
@@ -117,7 +117,7 @@ class CodexPaymentFollowupReviewTest extends TestCase
         $novA = $this->invoiceFor($a, '2026-11-15', '2026-12-15');
         (new PayPal([]))->recordSubscriptionSale(['id' => 'SALE-OLDEST', 'billing_agreement_id' => 'I-OLDEST', 'amount' => ['total' => '20.00', 'currency' => 'USD']]);
         $this->assertSame('paid', $octA->fresh()->status, 'The first service must not skip its oldest unpaid cycle');
-        $this->assertSame('pending', $novA->fresh()->status, 'First service October=' . $octA->fresh()->status . ', November=' . $novA->fresh()->status . '; second service October=' . $octB->fresh()->status);
+        $this->assertSame('unpaid', $novA->fresh()->status, 'First service October=' . $octA->fresh()->status . ', November=' . $novA->fresh()->status . '; second service October=' . $octB->fresh()->status);
         $this->assertSame('paid', $octB->fresh()->status);
     }
 
@@ -126,7 +126,7 @@ class CodexPaymentFollowupReviewTest extends TestCase
         $service = $this->service();
         $invoice = $this->invoiceFor($service, '2026-10-15', '2026-11-15');
         $invoice->update(['status' => 'cancelled']);
-        $invoice->fresh()->update(['status' => 'pending']);
+        $invoice->fresh()->update(['status' => 'unpaid']);
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 10, transactionId: 'REOPENED', currency: 'USD');
         $this->assertSame('paid', $invoice->fresh()->status);
         $this->assertSame('2026-11-15', $service->fresh()->expires_at->toDateString());

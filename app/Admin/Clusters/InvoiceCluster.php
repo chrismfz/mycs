@@ -17,7 +17,7 @@ class InvoiceCluster extends Cluster
 
     public static function getNavigationBadge(): ?string
     {
-        return Invoice::where('status', 'pending')->count() ?: null;
+        return Invoice::where('status', Invoice::STATUS_UNPAID)->count() ?: null;
     }
 
     public static function getNavigationBadgeColor(): ?string

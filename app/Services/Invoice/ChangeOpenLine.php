@@ -22,7 +22,7 @@ class ChangeOpenLine
     {
         return DB::transaction(function () use ($line, $change) {
             $invoice = (new RecordPaymentService)->lockInvoice($line->invoice_id);
-            if (!in_array($invoice->status, [Invoice::STATUS_PENDING, Invoice::STATUS_DRAFT], true)) {
+            if (!in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true)) {
                 return false;
             }
             if ($invoice->hasPayments(lock: true)) {

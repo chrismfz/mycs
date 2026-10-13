@@ -65,7 +65,7 @@ class EndOfPeriodCancellationReReviewTest extends TestCase
 
     private function openInvoiceFor(Service $service, float $price = 10): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal',
             'quantity' => 1, 'price' => $price,
@@ -119,7 +119,7 @@ class EndOfPeriodCancellationReReviewTest extends TestCase
         // BIL-12: an order with money on it is no longer cancelled (staff decide on a part paid), so its invoice is never
         // a left-open invoice of a cancelled service that credit could be swept into.
         $this->assertSame(Service::STATUS_PENDING, $service->fresh()->status);
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
     }
 
     public function test_one_bad_invoice_does_not_block_every_dunning_termination(): void
@@ -148,14 +148,14 @@ class EndOfPeriodCancellationReReviewTest extends TestCase
         Queue::fake([TerminateJob::class]);
         $service = $this->service('2026-11-15', stock: 5);
         $target = $this->createProduct();
-        $upgradeInvoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $upgradeInvoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $upgrade = ServiceUpgrade::create(['service_id' => $service->id, 'plan_id' => $target->plan->id, 'product_id' => $target->product->id, 'status' => 'pending', 'invoice_id' => $upgradeInvoice->id]);
         $upgradeInvoice->items()->create(['reference_id' => $upgrade->id, 'reference_type' => ServiceUpgrade::class, 'description' => 'Upgrade', 'quantity' => 1, 'price' => 3]);
 
         ServiceCancellation::query()->create(['service_id' => $service->id, 'type' => 'immediate', 'reason' => 'Leaving']);
         $this->assertSame(Service::STATUS_CANCELLED, $service->fresh()->status);
 
-        $this->assertNotSame(Invoice::STATUS_PENDING, $upgradeInvoice->fresh()->status,
+        $this->assertNotSame(Invoice::STATUS_UNPAID, $upgradeInvoice->fresh()->status,
             'the upgrade invoice of an immediately cancelled service is still payable');
     }
 
@@ -210,7 +210,7 @@ class EndOfPeriodCancellationReReviewTest extends TestCase
 
         $this->assertSame(Service::STATUS_CANCELLED, $good->fresh()->status);
         $this->assertSame(Service::STATUS_ACTIVE, $bad->fresh()->status);
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
     }
 
     /** End-of-period request on a pending (never paid) order: the listener cancels its first invoice. */
@@ -228,7 +228,7 @@ class EndOfPeriodCancellationReReviewTest extends TestCase
     {
         Queue::fake();
         $service = $this->service('2026-10-20');
-        $paid = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $paid = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $paid->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'R', 'quantity' => 1, 'price' => 10, 'period_start' => '2026-09-20', 'period_end' => '2026-10-20']);
         Invoice::query()->whereKey($paid->id)->update(['status' => 'paid']);
         ServiceCancellation::query()->create(['service_id' => $service->id, 'type' => 'end_of_period', 'reason' => 'Leaving']);
@@ -245,7 +245,7 @@ class EndOfPeriodCancellationReReviewTest extends TestCase
     {
         Queue::fake();
         $service = $this->service('2026-10-20 12:00:00');
-        $paid = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $paid = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $paid->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'R', 'quantity' => 1, 'price' => 10, 'period_start' => '2026-10-20', 'period_end' => '2026-11-20']);
         Invoice::query()->whereKey($paid->id)->update(['status' => 'paid']);
         ServiceCancellation::query()->create(['service_id' => $service->id, 'type' => 'end_of_period', 'reason' => 'Leaving']);

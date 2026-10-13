@@ -20,7 +20,7 @@ class InvoiceRouteBindingTest extends TestCase
 
     private function invoice(?string $number): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => User::factory()->create()->id, 'status' => Invoice::STATUS_PENDING, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => User::factory()->create()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         DB::table('invoices')->where('id', $invoice->id)->update(['number' => $number]);
 
         return $invoice->fresh();

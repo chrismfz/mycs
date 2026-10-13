@@ -61,9 +61,9 @@ class PaymentGuardsCodeReviewTest extends TestCase
         ], $attributes));
     }
 
-    private function invoiceFor(Service $service, string $start, string $end, string $status = 'pending', float $price = 10.00): Invoice
+    private function invoiceFor(Service $service, string $start, string $end, string $status = 'unpaid', float $price = 10.00): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_PENDING : $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Renewal',
             'quantity' => 1, 'price' => $price, 'period_start' => $start, 'period_end' => $end,

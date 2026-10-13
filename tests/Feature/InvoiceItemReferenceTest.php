@@ -37,7 +37,7 @@ class InvoiceItemReferenceTest extends TestCase
         DB::table('currencies')->insertOrIgnore(['code' => 'USD', 'name' => 'US Dollar', 'prefix' => '$', 'format' => '1,000.00']);
         Cache::flush();
         $this->customer = User::factory()->create();
-        $this->invoice = Invoice::factory()->create(['user_id' => $this->customer->id, 'status' => 'pending', 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $this->invoice = Invoice::factory()->create(['user_id' => $this->customer->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
     }
 
     private function token(): string

@@ -70,9 +70,9 @@ class BillingCursorReferenceFixTest extends TestCase
         ], $attributes));
     }
 
-    private function invoiceFor(Service $service, ?string $start, ?string $end, string $status = 'pending', float $price = 10.00): Invoice
+    private function invoiceFor(Service $service, ?string $start, ?string $end, string $status = 'unpaid', float $price = 10.00): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_PENDING : $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id,
             'reference_type' => Service::class,
@@ -168,7 +168,7 @@ class BillingCursorReferenceFixTest extends TestCase
         $future = $this->invoiceFor($service, '2026-11-01', '2026-12-01');
         $this->pay($future);
         $target = $this->product(20);
-        $upgradeInvoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $upgradeInvoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $upgrade = ServiceUpgrade::create(['service_id' => $service->id, 'plan_id' => $target->plan->id, 'product_id' => $target->product->id, 'status' => 'pending', 'invoice_id' => $upgradeInvoice->id]);
         $upgradeInvoice->items()->create(['reference_id' => $upgrade->id, 'reference_type' => ServiceUpgrade::class, 'description' => 'Upgrade', 'quantity' => 1, 'price' => 1]);
         $this->pay($upgradeInvoice->fresh());
@@ -194,7 +194,7 @@ class BillingCursorReferenceFixTest extends TestCase
         $this->artisan('app:cron-job')->assertExitCode(0);
         $this->assertSame('suspended', $service->fresh()->status);
         $this->assertNotNull($service->fresh()->dunning_suspended_at);
-        $invoice = $service->invoices()->where('status', 'pending')->sole();
+        $invoice = $service->invoices()->where('status', 'unpaid')->sole();
         $this->pay($invoice);
         $this->assertSame('2026-11-08', $this->expires($service));
         $this->assertSame('active', $service->fresh()->status);

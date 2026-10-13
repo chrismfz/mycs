@@ -52,7 +52,7 @@ class RefundTest extends TestCase
 
     private function invoice(float $price = 100, ?string $reference = null, ?int $referenceId = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_PENDING, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(array_filter(['description' => 'Hosting', 'quantity' => 1, 'price' => $price,
             'reference_type' => $reference, 'reference_id' => $referenceId], fn ($value) => $value !== null));
 
@@ -123,7 +123,7 @@ class RefundTest extends TestCase
 
         ExtensionHelper::refundLocally($paid->transactions()->sole(), 50.0);
         try {
-            $paid->fresh()->update(['status' => Invoice::STATUS_PENDING]);
+            $paid->fresh()->update(['status' => Invoice::STATUS_UNPAID]);
             $this->fail('a refunded invoice was reopened');
         } catch (DisplayException) {
         }
@@ -259,7 +259,7 @@ class RefundTest extends TestCase
 
     public function test_statuses_read_as_in_whmcs(): void
     {
-        $this->assertSame(['draft' => 'Draft', 'pending' => 'Unpaid', 'paid' => 'Paid', 'cancelled' => 'Cancelled', 'refunded' => 'Refunded'],
+        $this->assertSame(['draft' => 'Draft', 'unpaid' => 'Unpaid', 'paid' => 'Paid', 'cancelled' => 'Cancelled', 'refunded' => 'Refunded'],
             Invoice::statusOptions());
         $this->assertSame('info', Invoice::statusColor(Invoice::STATUS_REFUNDED));
     }

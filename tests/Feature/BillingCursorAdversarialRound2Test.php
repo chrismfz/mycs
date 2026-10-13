@@ -62,9 +62,9 @@ class BillingCursorAdversarialRound2Test extends TestCase
     }
 
     /** @param array<int, array{0: ?string, 1: ?string}> $periods */
-    private function invoiceWith(Service $service, array $periods, string $status = 'pending'): Invoice
+    private function invoiceWith(Service $service, array $periods, string $status = 'unpaid'): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_PENDING : $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
         foreach ($periods as [$start, $end]) {
             $invoice->items()->create([
                 'reference_id' => $service->id,
@@ -86,7 +86,7 @@ class BillingCursorAdversarialRound2Test extends TestCase
         return $invoice->fresh();
     }
 
-    private function invoiceFor(Service $service, ?string $start, ?string $end, string $status = 'pending'): Invoice
+    private function invoiceFor(Service $service, ?string $start, ?string $end, string $status = 'unpaid'): Invoice
     {
         return $this->invoiceWith($service, [[$start, $end]], $status);
     }
@@ -105,7 +105,7 @@ class BillingCursorAdversarialRound2Test extends TestCase
     {
         return InvoiceItem::query()
             ->where('reference_type', Service::class)->where('reference_id', $service->id)
-            ->whereHas('invoice', fn ($q) => $q->where('status', 'pending'))
+            ->whereHas('invoice', fn ($q) => $q->where('status', 'unpaid'))
             ->get();
     }
 

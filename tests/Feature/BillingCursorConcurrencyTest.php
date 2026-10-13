@@ -47,7 +47,7 @@ class BillingCursorConcurrencyTest extends TestCase
                 $items = [];
                 for ($i = 0; $i < ($sameLine ? 1 : 2); $i++) {
                     // Stored paid, its line added while it was open (MT-1c: never created paid, a paid invoice keeps its lines).
-                    $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+                    $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
                     $items[] = $invoice->items()->create([
                         'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Concurrent callback',
                         'price' => 10, 'quantity' => 1,
@@ -79,7 +79,7 @@ class BillingCursorConcurrencyTest extends TestCase
                 'plan_id' => $product->plan->id, 'status' => 'suspended', 'dunning_suspended_at' => now(),
                 'expires_at' => '2026-10-15', 'currency_code' => 'USD', 'price' => 10,
             ]);
-            $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'pending', 'currency_code' => 'USD']);
+            $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'unpaid', 'currency_code' => 'USD']);
             $item = $invoice->items()->create([
                 'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Concurrent staff hold',
                 'price' => 10, 'quantity' => 1, 'period_start' => '2026-10-15', 'period_end' => '2026-11-15',

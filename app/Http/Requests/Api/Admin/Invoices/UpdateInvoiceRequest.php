@@ -37,9 +37,9 @@ class UpdateInvoiceRequest extends AdminApiRequest
              * `paid` only when nothing is left to pay (a zero or fully paid invoice): otherwise 422, the payment is
              * recorded instead (docs/money-trail.md, MT-1c).
              *
-             * @default pending
+             * @default unpaid
              */
-            'status' => 'sometimes|required|string|in:pending,paid,cancelled',
+            'status' => 'sometimes|required|string|in:unpaid,paid,cancelled',
         ];
     }
 }

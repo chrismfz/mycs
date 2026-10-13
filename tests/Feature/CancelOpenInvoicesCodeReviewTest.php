@@ -54,7 +54,7 @@ class CancelOpenInvoicesCodeReviewTest extends TestCase
     /** @param  array<int, Service>  $services */
     private function invoice(array $services, ?string $periodStart = null, ?string $periodEnd = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         foreach ($services as $service) {
             $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal',
                 'quantity' => 1, 'price' => 10, 'period_start' => $periodStart, 'period_end' => $periodEnd]);
@@ -135,7 +135,7 @@ class CancelOpenInvoicesCodeReviewTest extends TestCase
         (new RecordPaymentService)->handle($invoice, null, 20.00, transactionId: 'bank-bounced');
         $this->assertSame('2026-11-25', $a->fresh()->expires_at->toDateString());
         (new RecordPaymentService)->deleteTransaction($invoice->transactions()->sole()); // the transfer bounced
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
 
         $this->request($a, 'end_of_period');
 
@@ -164,7 +164,7 @@ class CancelOpenInvoicesCodeReviewTest extends TestCase
 
         $this->request($a);
 
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status, "B's renewal was cancelled with A's upgrade");
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status, "B's renewal was cancelled with A's upgrade");
         $this->assertSame([$b->id], $this->servicesBilled($invoice));
     }
 }

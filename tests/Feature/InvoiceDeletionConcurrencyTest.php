@@ -36,7 +36,7 @@ class InvoiceDeletionConcurrencyTest extends TestCase
 
     private function invoice(): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => User::factory()->create()->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => User::factory()->create()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Test item', 'price' => 10, 'quantity' => 1]);
 
         return $invoice;

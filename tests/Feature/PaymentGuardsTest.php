@@ -61,9 +61,9 @@ class PaymentGuardsTest extends TestCase
         ], $attributes));
     }
 
-    private function invoiceFor(Service $service, string $start, string $end, string $status = 'pending', float $price = 10.00): Invoice
+    private function invoiceFor(Service $service, string $start, string $end, string $status = 'unpaid', float $price = 10.00): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_PENDING : $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Renewal',
             'quantity' => 1, 'price' => $price, 'period_start' => $start, 'period_end' => $end,
@@ -111,7 +111,7 @@ class PaymentGuardsTest extends TestCase
         $this->assertNull(ExtensionHelper::addPayment($invoice->id, 'Stripe', 'abc', null, 'pi_text'));
 
         $this->assertSame(0, InvoiceTransaction::query()->count());
-        $this->assertSame('pending', $invoice->fresh()->status);
+        $this->assertSame('unpaid', $invoice->fresh()->status);
     }
 
     public function test_a_payment_in_another_currency_writes_nothing(): void
@@ -122,7 +122,7 @@ class PaymentGuardsTest extends TestCase
         $this->assertNull(ExtensionHelper::addPayment($invoice->id, 'PayPal', 10.00, null, 'cap_1', currency: 'EUR'));
 
         $this->assertSame(0, InvoiceTransaction::query()->count());
-        $this->assertSame('pending', $invoice->fresh()->status);
+        $this->assertSame('unpaid', $invoice->fresh()->status);
         $this->assertSame('2026-10-15', $this->expires($service));
     }
 
@@ -150,7 +150,7 @@ class PaymentGuardsTest extends TestCase
         ExtensionHelper::addPayment($november->id, 'PayPal', 10.00, null, 'SALE-1');
 
         $this->assertSame(1, InvoiceTransaction::query()->count());
-        $this->assertSame('pending', $november->fresh()->status);
+        $this->assertSame('unpaid', $november->fresh()->status);
         $this->assertSame('2026-11-15', $this->expires($service));
     }
 
@@ -173,7 +173,7 @@ class PaymentGuardsTest extends TestCase
         $invoice = $this->invoiceFor($service, '2026-10-15', '2026-11-15');
 
         ExtensionHelper::addProcessingPayment($invoice->id, 'Stripe', 10.00, null, 'pi_1');
-        $this->assertSame('pending', $invoice->fresh()->status);
+        $this->assertSame('unpaid', $invoice->fresh()->status);
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 10.00, null, 'pi_1');
 
         $this->assertSame(1, InvoiceTransaction::query()->count());
@@ -258,7 +258,7 @@ class PaymentGuardsTest extends TestCase
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 10.00, null, 'shared-id');
 
         $other = User::factory()->create();
-        $otherInvoice = Invoice::factory()->create(['user_id' => $other->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $otherInvoice = Invoice::factory()->create(['user_id' => $other->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $otherInvoice->items()->create(['description' => 'Other', 'quantity' => 1, 'price' => 5.00]);
 
         $this->assertNotNull(ExtensionHelper::addPayment($otherInvoice->id, 'Stripe', 5.00, null, 'shared-id'));
@@ -279,13 +279,13 @@ class PaymentGuardsTest extends TestCase
 
         // refused: wrong currency, nothing recorded, nothing spent
         $paypal->recordSubscriptionSale(['id' => 'SALE-X', 'billing_agreement_id' => 'I-SUB', 'amount' => ['total' => '20.00', 'currency' => 'EUR'], 'transaction_fee' => ['value' => '1.00']]);
-        $this->assertSame('pending', $invoiceB->fresh()->status);
+        $this->assertSame('unpaid', $invoiceB->fresh()->status);
         $this->assertSame('50.00', $this->credit());
 
         // an old sale replayed after it was recorded: nothing spent
         ExtensionHelper::addPayment($invoiceB->id, 'PayPal', 5.00, null, 'SALE-OLD');
         $paypal->recordSubscriptionSale(['id' => 'SALE-OLD', 'billing_agreement_id' => 'I-SUB', 'amount' => ['total' => '20.00', 'currency' => 'USD'], 'transaction_fee' => ['value' => '1.00']]);
-        $this->assertSame('pending', $invoiceB->fresh()->status);
+        $this->assertSame('unpaid', $invoiceB->fresh()->status);
         $this->assertSame('50.00', $this->credit());
     }
 
@@ -304,7 +304,7 @@ class PaymentGuardsTest extends TestCase
 
         $this->assertSame('paid', $invoiceA->fresh()->status);
         $this->assertSame('paid', $octoberB->fresh()->status);
-        $this->assertSame('pending', $novemberB->fresh()->status, 'the next cycle is not paid from the customer\'s own credit');
+        $this->assertSame('unpaid', $novemberB->fresh()->status, 'the next cycle is not paid from the customer\'s own credit');
         $this->assertSame('50.00', $this->credit());
     }
 

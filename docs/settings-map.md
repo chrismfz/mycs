@@ -11,7 +11,7 @@
 |---|---|---|---|
 | Αριθμός τιμολογίου | = invoice ID· «Invoice Starting #» ελάχιστο **32.477** σήμερα | Sequential paid numbering **`{YEAR}-{NUMBER}`**, επόμενο **6819**· τα IDs των proforma φτάνουν το 7.214 | **P:** `invoice_number`, `invoice_number_format` (`{number}{year}{month}{day}`), `invoice_number_padding`, `invoice_proforma` (αριθμός μόνο στην πληρωμή, ξεχωριστός από το id). Ο μετρητής κρατάει τον **τελευταίο** αριθμό (myip: 32.476, nixpal: 6818). Τα IDs του WHMCS κρατιούνται και στα δύο instances |
 | Enable Proforma Invoicing | off | **on** | **P:** `invoice_proforma` |
-| Continuous Invoice Generation | off | off | **Ν** (default off = συμπεριφορά Paymenter: δεν βγάζει νέο τιμολόγιο αν υπάρχει pending) |
+| Continuous Invoice Generation | off | off | **Ν** (default off = συμπεριφορά Paymenter: δεν βγάζει νέο τιμολόγιο αν υπάρχει unpaid) |
 | Enable PDF Invoices (συνημμένο στο email) | off | on | **Ν** |
 | PDF font/μέγεθος | Freesans, A4 | Helvetica, A4 | P~ (dompdf)· Freesans/DejaVu για τα ελληνικά |
 | Store Client Data Snapshot | off | off | **P:** `invoice_snapshot` |

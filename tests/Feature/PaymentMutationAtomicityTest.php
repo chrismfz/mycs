@@ -45,7 +45,7 @@ class PaymentMutationAtomicityTest extends TestCase
 
     private function creditInvoice(): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Credit deposit', 'quantity' => 1, 'price' => 50]);
 
         return $invoice->fresh();
@@ -116,7 +116,7 @@ class PaymentMutationAtomicityTest extends TestCase
             $this->assertSame('Synthetic credit storage failure', $e->getMessage());
         }
 
-        $this->assertSame('pending', $invoice->fresh()->status);
+        $this->assertSame('unpaid', $invoice->fresh()->status);
         $this->assertNull($invoice->items()->sole()->applied_at);
         $this->assertSame(0, $invoice->transactions()->count());
         $this->assertSame('0.00', $this->credit());
@@ -135,7 +135,7 @@ class PaymentMutationAtomicityTest extends TestCase
             DB::rollBack();
         }
 
-        $this->assertSame('pending', $invoice->fresh()->status);
+        $this->assertSame('unpaid', $invoice->fresh()->status);
         $this->assertNull($invoice->items()->sole()->applied_at);
         $this->assertSame('0.00', $this->credit());
         $this->assertSame(0, $invoice->transactions()->count());

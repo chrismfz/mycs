@@ -50,7 +50,7 @@ class SuspensionRulesTest extends TestCase
         ], $attributes));
     }
 
-    private function overdueInvoice(Service $service, string $due, string $status = 'pending', ?string $issued = null): Invoice
+    private function overdueInvoice(Service $service, string $due, string $status = 'unpaid', ?string $issued = null): Invoice
     {
         $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => $status, 'currency_code' => 'USD', 'due_at' => $due,
             'created_at' => $issued ?? Carbon::parse($due)->subWeek()]);

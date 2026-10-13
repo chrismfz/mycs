@@ -50,7 +50,7 @@ class InvoiceSettleTest extends TestCase
         Gateway::query()->firstOrCreate(['extension' => 'Stripe'], ['name' => 'Stripe', 'type' => 'gateway']);
     }
 
-    private function invoice(float $price = 100, string $status = Invoice::STATUS_PENDING): Invoice
+    private function invoice(float $price = 100, string $status = Invoice::STATUS_UNPAID): Invoice
     {
         $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => $price]);
@@ -87,7 +87,7 @@ class InvoiceSettleTest extends TestCase
         (new RecordPaymentService)->handle($invoice->fresh(), null, 30.0, transactionId: 'wire-2');
         $invoice->items()->sole()->update(['price' => 75]);
 
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status, 'an edit does not close it on its own');
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status, 'an edit does not close it on its own');
         $this->assertSame(['open_settled'], array_values(array_unique(array_column((new MoneyCheck)->run(['open_settled']), 'rule'))));
 
         $this->assertTrue((new RecordPaymentService)->settle($invoice));
@@ -114,7 +114,7 @@ class InvoiceSettleTest extends TestCase
         (new RecordPaymentService)->handle($invoice, null, 60.0, transactionId: 'wire-1');
         (new RecordPaymentService)->payWithCredit($invoice->fresh()); // 40.00 from credit
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
-        DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PENDING]); // staff reopened it to fix a line
+        DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_UNPAID]); // staff reopened it to fix a line
         $invoice->items()->sole()->update(['price' => 50]);
 
         $this->assertTrue((new RecordPaymentService)->settle($invoice));
@@ -130,7 +130,7 @@ class InvoiceSettleTest extends TestCase
     {
         $service = new RecordPaymentService;
 
-        $empty = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_PENDING, 'currency_code' => 'USD']);
+        $empty = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $this->assertFalse($service->settle($empty), 'no lines: staff are still writing it');
 
         $owed = $this->invoice(10);
@@ -144,7 +144,7 @@ class InvoiceSettleTest extends TestCase
         $noted->adjustmentNotes()->create(['type' => AdjustmentNoteType::Credit->value, 'amount' => -20, 'description' => 'Goodwill']);
         $this->assertFalse($service->settle($noted), 'staff fix the note');
 
-        $this->assertSame([Invoice::STATUS_PENDING, Invoice::STATUS_PENDING, Invoice::STATUS_DRAFT, Invoice::STATUS_PENDING],
+        $this->assertSame([Invoice::STATUS_UNPAID, Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT, Invoice::STATUS_UNPAID],
             [$empty->fresh()->status, $owed->fresh()->status, $draft->fresh()->status, $noted->fresh()->status]);
         $this->assertSame('0.00', $this->balance());
     }
@@ -178,13 +178,13 @@ class InvoiceSettleTest extends TestCase
         (new \ReflectionProperty($page, 'record'))->setValue($page, $order->fresh());
         (new \ReflectionMethod($page, 'afterCreate'))->invoke($page);
 
-        $this->assertSame(Invoice::STATUS_PENDING, Invoice::query()->where('user_id', $this->user->id)->sole()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, Invoice::query()->where('user_id', $this->user->id)->sole()->status);
     }
 
     public function test_a_line_the_app_reprices_to_nothing_closes_its_invoice(): void
     {
         $service = $this->service(10, Service::STATUS_ACTIVE);
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_PENDING, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $line = $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => 10]);
 
         $this->assertTrue(ChangeOpenLine::handle($line, fn ($locked) => $locked->price = 0));
@@ -197,14 +197,14 @@ class InvoiceSettleTest extends TestCase
     {
         $draft = $this->invoice(0, Invoice::STATUS_DRAFT);
 
-        $draft->update(['status' => Invoice::STATUS_PENDING]);
+        $draft->update(['status' => Invoice::STATUS_UNPAID]);
 
         $this->assertSame(Invoice::STATUS_PAID, $draft->fresh()->status);
     }
 
     public function test_the_money_check_reports_a_zero_invoice_left_open_but_not_one_being_written(): void
     {
-        $zero = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_PENDING, 'currency_code' => 'USD']);
+        $zero = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $this->assertSame([], (new MoneyCheck)->run(['open_settled']), 'no lines yet');
         DB::table('invoice_items')->insert(['invoice_id' => $zero->id, 'description' => 'Free transfer', 'quantity' => 1, 'price' => 0, 'created_at' => now(), 'updated_at' => now()]);
         $this->invoice(0, Invoice::STATUS_DRAFT);
@@ -222,7 +222,7 @@ class InvoiceSettleTest extends TestCase
     {
         $invoice = $this->invoice(100);
         (new RecordPaymentService)->handle($invoice, null, 100.0, transactionId: 'wire-9');
-        DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PENDING]);
+        DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_UNPAID]);
         $invoice->items()->sole()->update(['price' => 80]);
         $staff = $this->owner();
 
@@ -244,7 +244,7 @@ class InvoiceSettleTest extends TestCase
         $invoice = $this->invoice(100);
         (new RecordPaymentService)->handle($invoice, null, 100.0, transactionId: 'wire-1');
         $gateway = Gateway::query()->where('extension', 'Stripe')->sole();
-        DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PENDING]);
+        DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_UNPAID]);
         (new RecordPaymentService)->handle($invoice->fresh(), $gateway, 20.0, transactionId: 'pi_late', status: InvoiceTransactionStatus::Processing, currency: 'USD');
         $invoice->items()->sole()->update(['price' => 90]);
 

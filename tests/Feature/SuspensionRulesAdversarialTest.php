@@ -61,7 +61,7 @@ class SuspensionRulesAdversarialTest extends TestCase
         ], $attributes));
     }
 
-    private function invoice(Service $service, ?string $due, string $status = 'pending', string $type = Service::class): Invoice
+    private function invoice(Service $service, ?string $due, string $status = 'unpaid', string $type = Service::class): Invoice
     {
         // Issued on its due date (or now, if that is later): an invoice the customer had in hand.
         $issued = $due !== null && Carbon::parse($due)->isPast() ? Carbon::parse($due) : now();
@@ -104,7 +104,7 @@ class SuspensionRulesAdversarialTest extends TestCase
         $draft->delete(); // staff act on the notice
 
         $this->cron('2026-10-21 03:00:00');
-        $bill = $service->invoices()->where('invoices.status', 'pending')->sole();
+        $bill = $service->invoices()->where('invoices.status', 'unpaid')->sole();
         $this->assertSame('2026-10-01', $bill->due_at->toDateString(), 'renewal due at its period start, in the past');
         $this->assertSame('active', $service->fresh()->status, 'asked to pay a minute ago: not yet suspended');
     }
@@ -266,7 +266,7 @@ class SuspensionRulesAdversarialTest extends TestCase
         // Only an upgrade line (same numeric id) and a renewal draft: no open Service invoice.
         $upgradeOnly = $this->service(['expires_at' => '2026-10-01 00:00:00']);
         $this->invoice($upgradeOnly, '2026-10-01', 'draft');
-        $this->invoice($upgradeOnly, '2026-10-01', 'pending', ServiceUpgrade::class);
+        $this->invoice($upgradeOnly, '2026-10-01', 'unpaid', ServiceUpgrade::class);
 
         $this->cron();
 

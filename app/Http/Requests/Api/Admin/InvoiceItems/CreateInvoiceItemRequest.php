@@ -33,11 +33,4 @@ class CreateInvoiceItemRequest extends AdminApiRequest
             }
         }];
     }
-
-    public function prepareForValidation()
-    {
-        $this->mergeIfMissing([
-            'status' => 'pending', // Default status to 'pending' if not provided
-        ]);
-    }
 }

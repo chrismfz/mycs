@@ -62,7 +62,7 @@ class GatewayLogAdversarialTest extends TestCase
 
     private function invoice(float $price = 100, string $currency = 'USD'): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_PENDING, 'currency_code' => $currency, 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => $currency, 'due_at' => now()->addWeek()]);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => $price]);
 
         return $invoice->fresh();
@@ -170,7 +170,7 @@ class GatewayLogAdversarialTest extends TestCase
 
     private function invoiceFor(Service $service, float $price = 10.00): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_PENDING, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Renewal',
             'quantity' => 1, 'price' => $price, 'period_start' => now()->addDays(3), 'period_end' => now()->addDays(3)->addMonth(),
@@ -196,7 +196,7 @@ class GatewayLogAdversarialTest extends TestCase
         $this->paypal();
         $this->stripe();
         $other = User::factory()->create();
-        $theirs = Invoice::factory()->create(['user_id' => $other->id, 'status' => Invoice::STATUS_PENDING, 'currency_code' => 'USD']);
+        $theirs = Invoice::factory()->create(['user_id' => $other->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
 
         // not signed in: the auth middleware redirects
         $this->post('/extensions/paypal/capture/' . $theirs->id . '/ORDER-1')->assertRedirect();

@@ -31,7 +31,7 @@ class VoidAdjustmentNote
 
         return $byStaff
             && (bool) auth()->user()?->can('update', $note)
-            && (!config('settings.immutable_invoices_enabled') || $status === Invoice::STATUS_PENDING);
+            && (!config('settings.immutable_invoices_enabled') || $status === Invoice::STATUS_UNPAID);
     }
 
     public static function make(): Action

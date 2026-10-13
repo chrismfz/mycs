@@ -58,7 +58,7 @@ class PaidNotAppliedTest extends TestCase
 
     private function renewal(Service $service): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'pending', 'currency_code' => 'USD', 'due_at' => '2026-10-15',
+        $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-15',
             'created_at' => '2026-10-08']);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => 10]);
 
@@ -155,7 +155,7 @@ class PaidNotAppliedTest extends TestCase
         $service = $this->service();
         $invoice = $this->renewal($service);
         $this->payFailingAfterCommit($invoice);
-        DB::table('invoices')->where('id', $invoice->id)->update(['status' => 'pending']); // staff took the payment back
+        DB::table('invoices')->where('id', $invoice->id)->update(['status' => 'unpaid']); // staff took the payment back
 
         Carbon::setTestNow('2026-10-20 03:30:00');
         $this->artisan('app:cron-job');

@@ -55,7 +55,7 @@ class MoneyCheckAdversarialTest extends TestCase
 
     private function invoice(float $price = 10, ?User $user = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => ($user ?? $this->user)->id, 'status' => Invoice::STATUS_PENDING, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => ($user ?? $this->user)->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => $price]);
 
         return $invoice->fresh();
@@ -71,7 +71,7 @@ class MoneyCheckAdversarialTest extends TestCase
 
     private function serviceInvoice(Service $service, float $price = 10): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_PENDING, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => $price]);
 
         return $invoice->fresh();
@@ -410,7 +410,7 @@ class MoneyCheckAdversarialTest extends TestCase
 
     public function test_holds_a_credit_purchase_and_its_refund(): void
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_PENDING, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Credit::class, 'reference_id' => null, 'description' => 'Credit', 'quantity' => 1, 'price' => 25]);
         (new RecordPaymentService)->handle($invoice->fresh(), null, 25.0, transactionId: 'wire-104');
         $this->assertSame([], (new MoneyCheck)->run());
@@ -423,7 +423,7 @@ class MoneyCheckAdversarialTest extends TestCase
     {
         $cancelledService = $this->service(Service::STATUS_ACTIVE);
         $keptService = $this->service(Service::STATUS_ACTIVE);
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_PENDING, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $cancelledService->id, 'description' => 'A', 'quantity' => 1, 'price' => 10]);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $keptService->id, 'description' => 'B', 'quantity' => 1, 'price' => 5]);
         (new CreditLedger)->add($this->user->id, 'USD', 1200, 'staff_adjustment', 'staff', note: 'Goodwill');

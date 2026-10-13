@@ -68,9 +68,9 @@ class StaffCorrectionsAdversarialTest extends TestCase
 
     // ---------------------------------------------------------------- helpers
 
-    private function invoice(float $price = 100, string $status = Invoice::STATUS_PENDING, ?string $referenceType = null, ?int $referenceId = null, ?User $user = null): Invoice
+    private function invoice(float $price = 100, string $status = Invoice::STATUS_UNPAID, ?string $referenceType = null, ?int $referenceId = null, ?User $user = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => ($user ?? $this->user)->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_PENDING : $status, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['user_id' => ($user ?? $this->user)->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(array_filter([
             'description' => 'Line', 'quantity' => 1, 'price' => $price,
             'reference_type' => $referenceType, 'reference_id' => $referenceId,
@@ -161,7 +161,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
     /** I1 via the admin API: an invoice with no line is «paid» (nothing to pay), then gets its lines. */
     public function test_api_lines_added_after_the_paid_flip_never_leave_a_paid_invoice_with_a_balance(): void
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $token = $this->apiToken(['admin.invoices.update', 'admin.invoice_items.create']);
 
         $this->withToken($token)->putJson(route('api.v1.admin.invoices.update', $invoice), ['status' => 'paid']);
@@ -345,7 +345,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
 
     public function test_a_stale_model_with_cached_empty_lines_is_not_marked_paid(): void
     {
-        $stale = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $stale = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $stale->load('items', 'transactions', 'adjustmentNotes'); // total 0 in memory
         Invoice::query()->find($stale->id)->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 100]);
 
@@ -354,7 +354,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
         } catch (DisplayException) {
         }
 
-        $this->assertSame(Invoice::STATUS_PENDING, $stale->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $stale->fresh()->status);
     }
 
     public function test_paid_with_a_move_to_another_customer_in_the_same_save_is_refused(): void
@@ -368,7 +368,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
         } catch (DisplayException) {
         }
 
-        $this->assertSame([Invoice::STATUS_PENDING, $this->user->id], [$invoice->fresh()->status, $invoice->fresh()->user_id]);
+        $this->assertSame([Invoice::STATUS_UNPAID, $this->user->id], [$invoice->fresh()->status, $invoice->fresh()->user_id]);
     }
 
     public function test_mark_paid_overpayment_journals_payment_and_credit_in(): void
@@ -413,7 +413,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
         } catch (DisplayException) {
         }
 
-        $this->assertSame([1, Invoice::STATUS_PENDING, 6000], [InvoiceTransaction::query()->count(), $invoice->fresh()->status, self::cents($invoice->fresh()->remaining)]);
+        $this->assertSame([1, Invoice::STATUS_UNPAID, 6000], [InvoiceTransaction::query()->count(), $invoice->fresh()->status, self::cents($invoice->fresh()->remaining)]);
     }
 
     public function test_deleting_a_spent_payment_without_confirmation_changes_nothing(): void
@@ -445,7 +445,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
 
         // MT-1e: what is left after the debt (20) pays the oldest open invoice, the one the deleted payment reopened
         $this->assertSame(80.0, $overpaid->fresh()->remaining);
-        $this->assertSame(Invoice::STATUS_PENDING, $open->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $open->fresh()->status);
         $this->assertSame(0, $this->balanceCents());
         $this->assertSame(0, Artisan::call('mycs:credits-check'));
     }
@@ -469,7 +469,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
 
         $other = $this->invoice(100);
         $other->update(['status' => Invoice::STATUS_CANCELLED]);
-        $other->fresh()->update(['status' => Invoice::STATUS_PENDING]); // reopening voids the cancellation note
+        $other->fresh()->update(['status' => Invoice::STATUS_UNPAID]); // reopening voids the cancellation note
         $this->assertSame(AdjustmentNoteStatus::Voided, $other->adjustmentNotes()->where('is_cancellation', true)->sole()->status);
         $this->assertSame(10000, self::cents($other->fresh()->remaining));
     }
@@ -582,7 +582,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
                         $svc->deleteTransaction($t, $allow);
                     }
                 } elseif ($roll <= 74) {
-                    if (in_array($invoice->status, ['pending', 'draft'], true)) {
+                    if (in_array($invoice->status, ['unpaid', 'draft'], true)) {
                         $invoice->update(['status' => 'cancelled', 'cancellation_reason' => 'fuzz']);
                         $op = "cancel #{$invoiceId}";
                     } else {
@@ -591,7 +591,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
                 } elseif ($roll <= 79) {
                     $op = "reopen #{$invoiceId} ({$invoice->status})";
                     if ($invoice->status === 'cancelled') {
-                        $invoice->update(['status' => 'pending']);
+                        $invoice->update(['status' => 'unpaid']);
                     }
                 } elseif ($roll <= 86) {
                     $op = "flip paid #{$invoiceId} ({$invoice->status}, remaining {$invoice->fresh()->remaining})";

@@ -68,7 +68,7 @@ class PayPalApiErrorsTest extends TestCase
 
     private function paidInvoice(float $amount = 20.00): InvoiceTransaction
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => $amount]);
 
         return ExtensionHelper::addPayment($invoice->id, 'PayPal', $amount, null, 'CAPTURE-1', currency: 'USD');
@@ -137,7 +137,7 @@ class PayPalApiErrorsTest extends TestCase
 
     private function unpaidInvoice(): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 20.00]);
 
         return $invoice->fresh();
@@ -323,7 +323,7 @@ class PayPalApiErrorsTest extends TestCase
         $transaction = $invoice->transactions()->sole();
         $this->assertSame(InvoiceTransactionStatus::Processing, $transaction->status);
         $this->assertSame('CAP-P', $transaction->transaction_id);
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
     }
 
     public function test_an_unknown_order_is_a_bad_request(): void

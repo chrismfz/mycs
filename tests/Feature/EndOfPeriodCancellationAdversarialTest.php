@@ -53,7 +53,7 @@ class EndOfPeriodCancellationAdversarialTest extends TestCase
     /** @param array<int, Service> $services */
     private function openInvoiceFor(array $services, ?string $periodStart = null, ?string $periodEnd = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         foreach ($services as $service) {
             $invoice->items()->create([
                 'reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal',
@@ -86,11 +86,11 @@ class EndOfPeriodCancellationAdversarialTest extends TestCase
         $service = $this->service('2026-10-25');
         $invoice = $this->openInvoiceFor([$service]);
         (new RecordPaymentService)->handle($invoice, null, 4.00, transactionId: 'bank-1');
-        $this->assertSame(Invoice::STATUS_PENDING, $invoice->fresh()->status);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
 
         $this->request($service); // listener runs (sync queue)
 
-        $kept = $invoice->fresh()->status === Invoice::STATUS_PENDING;
+        $kept = $invoice->fresh()->status === Invoice::STATUS_UNPAID;
         $this->assertTrue($kept || abs($this->credit() - 4.00) < 0.001,
             'the 4.00 paid by gateway must stay payable on the open invoice or come back as credit; it vanished (credit = ' . $this->credit() . ')');
     }
@@ -108,7 +108,7 @@ class EndOfPeriodCancellationAdversarialTest extends TestCase
 
         $this->assertSame(Service::STATUS_CANCELLED, $service->fresh()->status);
         // Decision (#61): the invoice stays open with its money, for staff (the cron mails it); MT-2 decides credit.
-        $kept = $invoice->fresh()->status === Invoice::STATUS_PENDING;
+        $kept = $invoice->fresh()->status === Invoice::STATUS_UNPAID;
         $this->assertTrue($kept || abs($this->credit() - 4.00) < 0.001, 'the 4.00 a gateway paid vanished (credit = ' . $this->credit() . ')');
     }
 
@@ -127,7 +127,7 @@ class EndOfPeriodCancellationAdversarialTest extends TestCase
         $this->request($a);
 
         $this->assertTrue(
-            $b->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->exists(),
+            $b->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->exists(),
             "service B's renewal (invoice #{$invoice->id}, status {$invoice->fresh()->status}) was cancelled by a request on service A"
         );
     }
@@ -259,7 +259,7 @@ class EndOfPeriodCancellationAdversarialTest extends TestCase
 
         $service->refresh();
         $this->assertSame(Service::STATUS_ACTIVE, $service->status);
-        $this->assertTrue($service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->exists(), 'the period is billed again');
+        $this->assertTrue($service->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->exists(), 'the period is billed again');
         Queue::assertNotPushed(TerminateJob::class);
     }
 
@@ -274,7 +274,7 @@ class EndOfPeriodCancellationAdversarialTest extends TestCase
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
-        $this->assertTrue($b->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->exists());
+        $this->assertTrue($b->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->exists());
     }
 
     public function test_holds_credit_is_not_applied_to_a_requested_service_invoice_by_the_sweep(): void

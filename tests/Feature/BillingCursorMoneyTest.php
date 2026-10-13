@@ -70,9 +70,9 @@ class BillingCursorMoneyTest extends TestCase
         ], $attributes));
     }
 
-    private function invoiceFor(Service $service, ?string $start, ?string $end, string $status = 'pending', float $price = 10.00): Invoice
+    private function invoiceFor(Service $service, ?string $start, ?string $end, string $status = 'unpaid', float $price = 10.00): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_PENDING : $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id,
             'reference_type' => Service::class,
@@ -137,7 +137,7 @@ class BillingCursorMoneyTest extends TestCase
         $this->invoiceFor($service, '2026-09-15', '2026-10-15', 'paid', 5.00); // cycle 1, the order
 
         $this->cronOn('2026-10-12 10:00:00'); // cycle 2: discounted, correct
-        $this->pay($service->invoices()->where('status', 'pending')->sole());
+        $this->pay($service->invoices()->where('status', 'unpaid')->sole());
         $this->cronOn('2026-11-12 10:00:00'); // cycle 3: full price
 
         $prices = $this->serviceLines($service)->pluck('price')->map(fn ($p) => (string) $p)->all();
@@ -353,7 +353,7 @@ class BillingCursorMoneyTest extends TestCase
         $service = $this->service();
         $invoice = $this->invoiceFor($service, '2026-10-15', '2026-11-15');
         $this->pay($invoice);
-        $invoice->fresh()->update(['status' => 'pending']);
+        $invoice->fresh()->update(['status' => 'unpaid']);
         $invoice->fresh()->update(['status' => 'paid']);
 
         $this->assertSame('2026-11-15', $this->expires($service));

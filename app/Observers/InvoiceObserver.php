@@ -26,6 +26,7 @@ class InvoiceObserver
      */
     public function creating(Invoice $invoice): void
     {
+        self::refuseUnknownStatus($invoice);
         // Created unpaid (MT-1c): paid follows a recorded payment. The WHMCS importer writes its rows directly.
         if ($invoice->status === Invoice::STATUS_PAID) {
             throw new DisplayException(__('An invoice is created unpaid: it becomes paid when its payment is recorded.'));
@@ -60,11 +61,12 @@ class InvoiceObserver
      */
     public function updating(Invoice $invoice): void
     {
+        self::refuseUnknownStatus($invoice);
         // A cancelled invoice is never marked paid directly, by anyone (docs/payments.md): it renews nothing
-        // and its credit note already covers it. Staff reopen it (pending) and record the payment.
+        // and its credit note already covers it. Staff reopen it (unpaid) and record the payment.
         if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_CANCELLED
             && $invoice->status === Invoice::STATUS_PAID) {
-            throw new DisplayException(__('A cancelled invoice cannot be marked paid: reopen it (pending) and record the payment.'));
+            throw new DisplayException(__('A cancelled invoice cannot be marked paid: reopen it (unpaid) and record the payment.'));
         }
         // Refunded (PR 2c, as WHMCS): all its money went back, to the customer or to their credit. Final: it holds
         // nothing to pay or to apply, and a later payment on it becomes credit (RecordPaymentService).
@@ -132,6 +134,19 @@ class InvoiceObserver
         event(new InvoiceEvent\Updating($invoice));
     }
 
+    /**
+     * Only the statuses MyCS knows (Invoice::STATUSES). One it does not know (Paymenter's old «pending», a typo) would
+     * hide the invoice from every list, payment and cron step that looks for open ones (adversarial review of 2b).
+     */
+    private static function refuseUnknownStatus(Invoice $invoice): void
+    {
+        // Not set on create: the column default (draft) fills it.
+        $status = $invoice->getAttributes()['status'] ?? null;
+        if ($status !== null && !in_array($status, Invoice::STATUSES, true)) {
+            throw new \LogicException("Unknown invoice status «{$status}»: one of " . implode(', ', Invoice::STATUSES) . '.');
+        }
+    }
+
     /** The credit its lines still have to give (applied lines gave theirs already). Lines read locked. */
     private static function creditToGiveCents(Invoice $invoice): int
     {
@@ -159,14 +174,14 @@ class InvoiceObserver
         // Reopened: the cancellation's credit note no longer applies, the invoice is payable again
         // (docs/payments.md). Refund notes and other adjustments stay as they are.
         if ($invoice->getOriginal('status') === Invoice::STATUS_CANCELLED
-            && in_array($invoice->status, [Invoice::STATUS_PENDING, Invoice::STATUS_DRAFT], true)) {
+            && in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true)) {
             $invoice->adjustmentNotes()->where('is_cancellation', true)
                 ->where('status', AdjustmentNoteStatus::Active->value)->get()
                 ->each(fn (AdjustmentNote $note) => $note->update(['status' => AdjustmentNoteStatus::Voided]));
             $invoice->unsetRelation('adjustmentNotes');
         }
 
-        if ($invoice->getOriginal('status') === Invoice::STATUS_DRAFT && $invoice->status === Invoice::STATUS_PENDING) {
+        if ($invoice->getOriginal('status') === Invoice::STATUS_DRAFT && $invoice->status === Invoice::STATUS_UNPAID) {
             $this->createSnapshot($invoice);
             event(new InvoiceEvent\Created($invoice));
 

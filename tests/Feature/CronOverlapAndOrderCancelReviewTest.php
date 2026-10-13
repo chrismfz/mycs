@@ -61,7 +61,7 @@ class CronOverlapAndOrderCancelReviewTest extends TestCase
 
     private function orderInvoice(Service ...$services): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD', 'due_at' => '2026-10-01']);
+        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-01']);
         foreach ($services as $service) {
             $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Order', 'quantity' => 1, 'price' => 10]);
         }
