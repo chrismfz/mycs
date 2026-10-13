@@ -171,6 +171,11 @@ class CreditAutoApply
         if (ServiceCancellation::query()->whereIn('service_id', $services)->exists()) {
             return false;
         }
+        // A service already ended (terminated, an unpaid order cancelled): an invoice of it left open for staff (it
+        // holds gateway money, CancelOpenInvoices) is not something credit should pay.
+        if (Service::query()->whereIn('id', $services)->where('status', Service::STATUS_CANCELLED)->exists()) {
+            return false;
+        }
 
         return $subscriptionRenewal || !Service::query()->whereIn('id', $services)->whereNotNull('subscription_id')
             ->where('subscription_id', '!=', '')->exists();

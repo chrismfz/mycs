@@ -87,23 +87,34 @@ class CronJob extends Command
             }, transaction: false);
 
             $this->runCronJob('orders_cancelled', function ($number = 0) {
-                // Cancel services if first invoice is not paid after x days
-                Service::where('status', 'pending')->whereDoesntHave('invoices', function ($query) {
+                // Cancel services if first invoice is not paid after x days. One service per transaction: an invoice
+                // that cannot be cancelled rolls back its own service only, never the step (audit sweep BIL-10).
+                $ids = Service::where('status', 'pending')->whereDoesntHave('invoices', function ($query) {
                     $query->where('status', 'paid');
-                })->where('created_at', '<', now()->subDays((int) config('settings.cronjob_order_cancel', 7)))->get()->each(function ($service) use (&$number) {
-                    $this->cancelInvoices($service->invoices()->where('status', 'pending')->get());
+                })->where('created_at', '<', now()->subDays((int) config('settings.cronjob_order_cancel', 7)))->pluck('id');
+                foreach ($ids as $id) {
+                    try {
+                        $number += DB::transaction(function () use ($id) {
+                            $service = Service::query()->whereKey($id)->lockForUpdate()->first();
+                            if ($service === null || $service->status !== Service::STATUS_PENDING) {
+                                return 0;
+                            }
+                            $this->cancelInvoices($service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->get());
+                            $service->update(['status' => 'cancelled']);
+                            if ($service->product?->stock !== null) {
+                                $service->product->increment('stock', $service->quantity);
+                            }
 
-                    $service->update(['status' => 'cancelled']);
-
-                    if ($service->product->stock !== null) {
-                        $service->product->increment('stock', $service->quantity);
+                            return 1;
+                        });
+                    } catch (Throwable $e) {
+                        report($e);
+                        $this->failures["orders_cancelled #{$id}"] = $e;
                     }
-
-                    $number++;
-                });
+                }
 
                 return $number;
-            });
+            }, transaction: false);
 
             $this->runCronJob('upgrade_invoices_updated', function ($number = 0) {
                 // Update pending upgrade invoices
@@ -173,23 +184,33 @@ class CronJob extends Command
             });
 
             $this->runCronJob('services_terminated', function ($number = 0) {
-                // Terminate orders if due date is overdue for x days
-                Service::where('status', 'suspended')->whereNotNull('dunning_suspended_at')->where('expires_at', '<', now()->subDays((int) config('settings.cronjob_order_terminate', 14)))->lockForUpdate()->get()->each(function ($service) use (&$number) {
-                    TerminateJob::dispatch($service);
+                // Terminate orders if due date is overdue for x days. One service per transaction (BIL-10).
+                $ids = Service::where('status', 'suspended')->whereNotNull('dunning_suspended_at')
+                    ->where('expires_at', '<', now()->subDays((int) config('settings.cronjob_order_terminate', 14)))->pluck('id');
+                foreach ($ids as $id) {
+                    try {
+                        $number += DB::transaction(function () use ($id) {
+                            $service = Service::query()->whereKey($id)->lockForUpdate()->first();
+                            if ($service === null || $service->status !== Service::STATUS_SUSPENDED || $service->dunning_suspended_at === null) {
+                                return 0;
+                            }
+                            TerminateJob::dispatch($service)->afterCommit();
+                            $service->update(['status' => 'cancelled']);
+                            $this->cancelInvoices($service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->get());
+                            if ($service->product?->stock !== null) {
+                                $service->product->increment('stock', $service->quantity);
+                            }
 
-                    $service->update(['status' => 'cancelled']);
-                    // Cancel outstanding invoices
-                    $this->cancelInvoices($service->invoices()->where('status', 'pending')->get());
-
-                    if ($service->product->stock !== null) {
-                        $service->product->increment('stock', $service->quantity);
+                            return 1;
+                        });
+                    } catch (Throwable $e) {
+                        report($e);
+                        $this->failures["services_terminated #{$id}"] = $e;
                     }
-
-                    $number++;
-                });
+                }
 
                 return $number;
-            });
+            }, transaction: false);
 
             $this->runCronJob('tickets_closed', function ($number = 0) {
                 // Close tickets if no response for x days

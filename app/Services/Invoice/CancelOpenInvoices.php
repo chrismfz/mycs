@@ -6,6 +6,7 @@ use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\DisplayException;
 use App\Models\Invoice;
 use App\Models\Service;
+use App\Models\ServiceUpgrade;
 use App\Services\Money\CreditAutoApply;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -65,8 +66,13 @@ final class CancelOpenInvoices
         if ($invoice->transactions()->where('status', InvoiceTransactionStatus::Succeeded)->where('is_credit_transaction', false)->exists()) {
             return 'it holds money a gateway or a transfer paid (refund it or move it to credit, then cancel it).';
         }
-        if ($onlyFor !== null && $invoice->items()->where(fn ($query) => $query->where('reference_type', '!=', Service::class)
-            ->orWhereNull('reference_type')->orWhere('reference_id', '!=', $onlyFor->id))->exists()) {
+        // Its own lines: this service's renewals and upgrades; a line with no reference (a setup fee, a promotion, an
+        // imported WHMCS Promo/Setup line) goes with the invoice.
+        $upgrades = ServiceUpgrade::query()->where('service_id', $onlyFor?->id)->pluck('id');
+        if ($onlyFor !== null && $invoice->items()->whereNotNull('reference_type')->where(fn ($query) => $query
+            ->whereNot(fn ($own) => $own->where('reference_type', Service::class)->where('reference_id', $onlyFor->id))
+            ->whereNot(fn ($own) => $own->where('reference_type', ServiceUpgrade::class)->whereIn('reference_id', $upgrades))
+        )->exists()) {
             return "it also bills something other than service #{$onlyFor->id} (remove that line, or cancel it by hand).";
         }
 
