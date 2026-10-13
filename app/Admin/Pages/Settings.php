@@ -58,7 +58,11 @@ class Settings extends Page implements HasForms
         $setting_values = [];
         foreach (ClassesSettings::settings() as $group => $settings) {
             foreach ($settings as $setting) {
-                $setting_values[$setting['name']] = config("settings.{$setting['name']}", $setting['default'] ?? null);
+                // A secret never goes to the browser (audit sweep AUTH-12): staff with settings.view could read it in the
+                // page state. The field stays empty; left empty on save, the stored value is kept.
+                $setting_values[$setting['name']] = ($setting['encrypted'] ?? false)
+                    ? null
+                    : config("settings.{$setting['name']}", $setting['default'] ?? null);
             }
         }
 
@@ -76,7 +80,12 @@ class Settings extends Page implements HasForms
                 ->schema(function () use ($categories) {
                     $inputs = [];
                     foreach ($categories as $setting) {
-                        $inputs[] = FilamentInput::convert($setting);
+                        $input = FilamentInput::convert($setting);
+                        if (($setting['encrypted'] ?? false) && self::hasStoredValue($setting['name'])) {
+                            // Empty means "keep the stored one", so it is not required again.
+                            $input->required(false)->placeholder(__('Stored: leave empty to keep it'));
+                        }
+                        $inputs[] = $input;
                     }
 
                     return $inputs;
@@ -210,6 +219,11 @@ class Settings extends Page implements HasForms
         return $prefix === 'invoice'
             ? Invoice::query()->where('number', $number)->exists()
             : AdjustmentNote::query()->where('number', $number)->exists();
+    }
+
+    private static function hasStoredValue(string $key): bool
+    {
+        return filled(config("settings.$key"));
     }
 
     private static function same(mixed $a, mixed $b): bool
