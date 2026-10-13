@@ -56,7 +56,7 @@
   του deploy). Και ένα `git checkout` εκεί αλλάζει αμέσως τον κώδικα που τρέχει. Δουλειά και tests σε ξεχωριστό clone
   ή worktree (π.χ. `git worktree add /root/mycs-dev <branch>`, `cp -a vendor`, SQLite με `APP_KEY`)· στο site μόνο
   `deploy/update.sh`.
-- **Tests:** βάση `mycs_test` (ίδιος χρήστης)· `set -a; . ./.db-credentials; DB_DATABASE=mycs_test; set +a; php artisan test`
+- **Tests (σε worktree, όχι στο `/var/www/mycs`):** βάση `mycs_test` (ίδιος χρήστης)· `set -a; . /var/www/mycs/.db-credentials; DB_DATABASE=mycs_test; set +a; php artisan test`
   → 66 passed· `vendor/bin/pint --test` → καθαρό (2026-10-11, μετά το PR #2).
 - **Ενημέρωση:** `su - mycs -c 'cd /var/www/mycs && deploy/update.sh'` (χωρίς `git pull` πριν· το script κάνει fetch/checkout) (το `main`· ή `deploy/update.sh <branch|tag>`).
   Snapshot της βάσης στο `storage/app/db-snapshots/` πριν από κάθε αλλαγή, maintenance mode, queue drain, migrate, build,
