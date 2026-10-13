@@ -14,6 +14,7 @@ use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Models\Setting;
 use App\Models\Ticket;
+use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Service\RenewServiceService;
 use Carbon\CarbonImmutable;
@@ -129,6 +130,25 @@ class CronJob extends Command
                 return $number;
             });
 
+            $this->runCronJob('cancellations_processed', function ($number = 0) {
+                // Cancellation requests «at the end of the billing period», on that day (WHMCS: Process Cancellation
+                // Requests): the service ends as the customer asked, before anything would suspend it as unpaid.
+                $ids = Service::whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
+                    ->where('expires_at', '<=', now()->endOfDay())
+                    ->whereHas('cancellation', fn ($query) => $query->where('type', 'end_of_period'))
+                    ->pluck('id');
+                foreach ($ids as $id) {
+                    try {
+                        $number += DB::transaction(fn () => $this->endAsRequested($id));
+                    } catch (Throwable $e) {
+                        report($e);
+                        $this->failures["cancellations_processed #{$id}"] = $e;
+                    }
+                }
+
+                return $number;
+            }, transaction: false);
+
             $this->runCronJob('services_suspended', function ($number = 0) {
                 // Suspend orders if due date is overdue for x days
                 Service::where('status', 'active')
@@ -222,6 +242,28 @@ class CronJob extends Command
      * where the live periods that follow the paid-until date end, never the same period twice,
      * never across a hole. Returns 1 when it billed or renewed.
      */
+    /**
+     * One service whose cancellation request falls due: terminated at the server, cancelled (no dunning marker: the
+     * customer did not fail to pay, they left), its open invoices cancelled, its stock back. Locked and re-read.
+     */
+    private function endAsRequested(int $id): int
+    {
+        $service = Service::query()->whereKey($id)->lockForUpdate()->first();
+        if ($service === null || !in_array($service->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true)
+            || !$service->cancellation()->where('type', 'end_of_period')->exists()) {
+            return 0;
+        }
+
+        TerminateJob::dispatch($service)->afterCommit();
+        $service->forceFill(['status' => Service::STATUS_CANCELLED])->save();
+        $this->cancelInvoices($service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->get());
+        if ($service->product?->stock !== null) {
+            $service->product->increment('stock', $service->quantity);
+        }
+
+        return 1;
+    }
+
     private function billRenewal(int $id, CarbonInterface $billUntil): int
     {
         $service = Service::query()->whereKey($id)->lockForUpdate()->first();
@@ -344,27 +386,13 @@ class CronJob extends Command
     }
 
     /**
-     * Cancel open invoices the cron gives up on; account credit paid on them goes back to the customer first (MT-1e:
-     * credit is also applied in part). An invoice whose credit cannot be given back stays open for staff. As before:
-     * an upgrade's invoice through the model (its cancellation note), the others by a plain update.
+     * Cancel open invoices the cron gives up on (CancelOpenInvoices: credit paid on them goes back first).
      *
      * @param  iterable<Invoice>  $invoices
      */
     private function cancelInvoices(iterable $invoices, bool $throughModel = false): void
     {
-        foreach ($invoices as $invoice) {
-            try {
-                DB::transaction(function () use ($invoice, $throughModel) {
-                    (new CreditAutoApply)->giveBack($invoice);
-                    $throughModel
-                        ? $invoice->refresh()->update(['status' => Invoice::STATUS_CANCELLED])
-                        : Invoice::query()->whereKey($invoice->id)->where('status', Invoice::STATUS_PENDING)->update(['status' => Invoice::STATUS_CANCELLED]);
-                });
-            } catch (Throwable $e) {
-                report($e);
-                $this->failures["invoice_cancelled #{$invoice->id}"] = $e;
-            }
-        }
+        $this->failures = array_merge($this->failures, CancelOpenInvoices::handle($invoices, $throughModel));
     }
 
     /**

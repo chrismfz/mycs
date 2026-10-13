@@ -4,7 +4,9 @@ namespace App\Listeners;
 
 use App\Events\ServiceCancellation\Created;
 use App\Jobs\Server\TerminateJob;
+use App\Models\Invoice;
 use App\Models\Service;
+use App\Services\Invoice\CancelOpenInvoices;
 use Illuminate\Contracts\Queue\ShouldQueue;
 
 class CancellationCreatedListener implements ShouldQueue
@@ -23,12 +25,17 @@ class CancellationCreatedListener implements ShouldQueue
                 'status' => 'cancelled',
             ]);
 
-            $event->cancellation->service->invoices()->where('status', 'pending')->update(['status' => 'cancelled']);
+            CancelOpenInvoices::handle($event->cancellation->service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->get());
 
-            if ($event->cancellation->service->product->stock) {
+            if ($event->cancellation->service->product?->stock !== null) {
                 $event->cancellation->service->product->increment('stock', $event->cancellation->service->quantity);
             }
+
+            return;
         }
-        // If the cancellation is scheduled, we don't need to do anything as it will be handled by the cron job
+
+        // At the end of the billing period: the cron ends the service on its due date (cancellations_processed). Its
+        // open invoices are cancelled now, as WHMCS does: nothing left to pay that would renew it by mistake.
+        CancelOpenInvoices::handle($event->cancellation->service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->get());
     }
 }
