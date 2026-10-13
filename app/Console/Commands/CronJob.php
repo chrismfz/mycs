@@ -293,22 +293,18 @@ class CronJob extends Command
     }
 
     /**
-     * Active services past Suspend Days, not on hold (a hold holds through its last day), with a renewing plan (free
-     * and one-time plans have no period to pay), and no open invoice of theirs with a payment on its way. With
-     * $overdueInvoice: and an open invoice of theirs due and issued Suspend Days ago (a missing due date counts from
-     * its issue).
+     * Active services past Suspend Days, not held, not on a free or one-time plan (no period to pay; a service whose
+     * plan is gone is not exempt), with no payment on its way. With $overdueInvoice: and an open invoice of theirs due
+     * and issued Suspend Days ago (a missing due date counts from its issue).
      *
      * @return Builder<Service>
      */
     private function suspendable(bool $overdueInvoice = false): Builder
     {
-        $cutoff = now()->subDays((int) config('settings.cronjob_order_suspend', 2))->toDateString();
-        $query = Service::query()->where('status', Service::STATUS_ACTIVE)
+        $cutoff = today()->subDays(self::days('cronjob_order_suspend', 2))->toDateString();
+        $query = $this->unheldWithNoPaymentOnItsWay(Service::query()->where('status', Service::STATUS_ACTIVE))
             ->whereDate('expires_at', '<', $cutoff)
-            ->where(fn ($hold) => $hold->whereNull('suspend_hold_until')->orWhereDate('suspend_hold_until', '<', today()))
-            ->whereHas('plan', fn ($plan) => $plan->whereNotIn('type', ['free', 'one-time']))
-            ->whereDoesntHave('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_PENDING)
-                ->whereHas('transactions', fn ($payments) => $payments->where('status', InvoiceTransactionStatus::Processing)));
+            ->whereDoesntHave('plan', fn ($plan) => $plan->whereIn('type', ['free', 'one-time']));
 
         return !$overdueInvoice ? $query : $query->whereHas('invoices', fn ($invoices) => $invoices
             ->where('invoices.status', Invoice::STATUS_PENDING)
@@ -317,15 +313,36 @@ class CronJob extends Command
     }
 
     /**
-     * Suspended for non-payment, past Termination Days, and suspended at least «minimum days suspended» ago.
+     * Suspended for non-payment, past Termination Days, suspended at least «minimum days suspended» ago, not held,
+     * with no payment on its way (a SEPA payment would land on the invoices the termination cancels).
      *
      * @return Builder<Service>
      */
     private function terminable(): Builder
     {
-        return Service::query()->where('status', Service::STATUS_SUSPENDED)->whereNotNull('dunning_suspended_at')
-            ->whereDate('expires_at', '<', now()->subDays((int) config('settings.cronjob_order_terminate', 14))->toDateString())
-            ->whereDate('dunning_suspended_at', '<=', today()->subDays(max(0, (int) config('settings.cronjob_terminate_min_suspended_days', 1))));
+        return $this->unheldWithNoPaymentOnItsWay(Service::query()->where('status', Service::STATUS_SUSPENDED))
+            ->whereNotNull('dunning_suspended_at')
+            ->whereDate('expires_at', '<', today()->subDays(self::days('cronjob_order_terminate', 14))->toDateString())
+            ->whereDate('dunning_suspended_at', '<=', today()->subDays(self::days('cronjob_terminate_min_suspended_days', 1))->toDateString());
+    }
+
+    /**
+     * No hold (a hold holds through its last day), and no open invoice of theirs with a processing payment (PAY-9).
+     *
+     * @param  Builder<Service>  $query
+     * @return Builder<Service>
+     */
+    private function unheldWithNoPaymentOnItsWay(Builder $query): Builder
+    {
+        return $query->where(fn ($hold) => $hold->whereNull('suspend_hold_until')->orWhereDate('suspend_hold_until', '<', today()))
+            ->whereDoesntHave('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_PENDING)
+                ->whereHas('transactions', fn ($payments) => $payments->where('status', InvoiceTransactionStatus::Processing)));
+    }
+
+    /** A day count setting; never negative (a negative count would act before the due date). */
+    private static function days(string $setting, int $default): int
+    {
+        return max(0, (int) config("settings.{$setting}", $default));
     }
 
     /**

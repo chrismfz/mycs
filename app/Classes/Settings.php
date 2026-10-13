@@ -476,6 +476,7 @@ class Settings
                     'type' => 'number',
                     'default' => 2,
                     'required' => true,
+                    'min_value' => 0,
                     'description' => 'Days after the service\'s next due date before it is suspended (WHMCS: Suspend Days).',
                 ],
                 [
@@ -492,6 +493,7 @@ class Settings
                     'type' => 'number',
                     'default' => 14,
                     'required' => true,
+                    'min_value' => 0,
                     'description' => 'Days after the due date before a service suspended for non-payment is terminated; its open invoices are cancelled (WHMCS: Termination Days).',
                 ],
                 [
@@ -500,6 +502,7 @@ class Settings
                     'type' => 'number',
                     'default' => 1,
                     'required' => true,
+                    'min_value' => 0,
                     'description' => 'Never terminated sooner after its suspension, whatever the due date (a hold that ended late, a date moved back, the cron down): the customer gets the suspension email first. 0 = as WHMCS.',
                 ],
                 [
