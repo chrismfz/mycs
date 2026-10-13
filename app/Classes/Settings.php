@@ -703,9 +703,16 @@ class Settings
 
     public static function tax(?User $user = null)
     {
-        // Use once so the query is only run once
-        return once(function () use ($user) {
-            $user ??= Auth::user();
+        $user ??= Auth::user();
+        // Once per user and request/job (product pages build many prices). Keyed by the user's id: once() keyed
+        // by the object, whose id PHP reuses, so in the cron's loop one customer could get the previous one's rate.
+        $rates = app('settings.tax-rates');
+        $key = $user?->getKey() ?? 'guest';
+        if ($rates->offsetExists($key)) {
+            return $rates[$key];
+        }
+
+        return $rates[$key] = (function () use ($user) {
             // Get country from user properties
             $country = $user?->properties->where('key', 'country')->value('value') ?? null;
 
@@ -719,7 +726,7 @@ class Settings
                 ->first();
 
             return $taxRate ?: 0;
-        });
+        })();
     }
 
     public static function settingsObject()
