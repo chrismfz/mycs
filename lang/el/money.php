@@ -19,4 +19,11 @@ return [
         'paid' => 'εξοφλημένο',
         'cancelled' => 'ακυρωμένο',
     ],
+    'outcomes' => [
+        'received' => 'ελήφθη',
+        'recorded' => 'καταγράφηκε',
+        'ignored' => 'αγνοήθηκε',
+        'rejected' => 'απορρίφθηκε',
+        'error' => 'σφάλμα',
+    ],
 ];

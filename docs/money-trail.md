@@ -144,6 +144,27 @@ admin και API (`cause=staff_adjustment`, `source=staff`/`api`). Εξαίρε�
 `RecordPaymentService` για το «τι έγινε»), χωρίς κώδικα σε κάθε gateway. Ειδοποίηση στο staff, με cooldown, όταν
 ένα gateway λέει «χρέωσα» αλλά τα χρήματα δεν γράφτηκαν.
 
+**Όπως χτίστηκε (MT-2a):** πίνακας `payment_gateway_events`, `App\Services\Money\GatewayLog`. Τα routes των gateways
+δηλώνονται στο `boot()` τους χωρίς middleware group, οπότε αντί για middleware ακούμε τα `RouteMatched` (ανοίγει η
+γραμμή για κάθε route `extensions.gateways.{gateway}.{endpoint}`) και `RequestHandled` (κλείνει με το HTTP status).
+Το `RecordPaymentService::handle()` λέει τι έγινε, μόνο αφού γίνει commit: `recorded` (με ποσό, νόμισμα, id παρόχου,
+τιμολόγιο, συναλλαγή· `reason` = `processing`/`failed` όταν δεν πέτυχε ακόμη), `ignored`/`replay`,
+`rejected`/`currency_mismatch` ή `amount_not_positive`. Ό,τι δεν πέρασε από εκεί: 2xx → `ignored`/`nothing_recorded`,
+4xx → `rejected`/`http_4xx`, 5xx → `error`. Κρατιούνται μόνο τα **ονόματα** των πεδίων και ο τύπος γεγονότος
+(`type`/`event_type`/`txn_type`, μόνο αν είναι σύντομος κωδικός)· ποτέ τιμές, tokens ή υπογραφές· ένα αίτημα που
+απορρίφθηκε (4xx: πλαστό, άγνωστο) δεν κρατά ούτε τα ονόματα. Stripe, PayPal και PayPal IPN λένε αν η υπογραφή
+επαληθεύτηκε (μία γραμμή το καθένα). Το αποτέλεσμα κρατιέται αμέσως και στο κλείσιμο ελέγχεται ότι η συναλλαγή υπάρχει:
+ένα callback που αποτυγχάνει μετά το commit (ανανέωση) δεν κρύβει χρήματα που γράφτηκαν, και ένα rollback δεν μένει
+«recorded». Σε 5xx το staff παίρνει email (λέει αν τα χρήματα γράφτηκαν ή όχι), το πολύ μία φορά την ώρα ανά gateway
+και endpoint (το gateway ξαναστέλνει)· ποτέ για αίτημα με υπογραφή που δεν επαληθεύτηκε. Mollie: id που δεν γνωρίζει η
+Mollie (ο καθένας μπορεί να στείλει ένα) είναι 404, όχι σφάλμα. PayPal capture και IPN σε άλλο νόμισμα: τα απορρίπτει
+το `RecordPaymentService` (log `currency_mismatch`, email στο staff), όχι σιωπηλά το gateway. Γραμμές που έμειναν
+`received` (fatal error, timeout) τις πιάνει ο έλεγχος του MT-3. Πληρωμή υπογεγραμμένου αιτήματος σε τιμολόγιο που δεν
+υπάρχει: `rejected`/`invoice_not_found` (κρατά ποσό και id παρόχου) και email στο staff. Ονόματα πεδίων και τύπος
+γεγονότος κρατιούνται μόνο όταν μοιάζουν με όνομα (αρχίζουν από γράμμα, όχι σειρά 5+ ψηφίων, όχι κατάληξη domain).
+Αίτημα που δεν βρίσκει route (λάθος μέθοδος, 404 πριν το routing) δεν γράφεται. Οθόνη «Gateway log» στο admin, μόνο ανάγνωση, permission
+`admin.gateway_events.viewAny`.
+
 ### 5. Καθημερινός έλεγχος συνέπειας (`mycs:money-check`)
 Προγραμματισμένος, χωρίς να αλλάζει τίποτα, με email στο staff μόνο όταν βρει κάτι:
 - τιμολόγιο `paid` με υπόλοιπο > 0· `pending` με υπόλοιπο ≤ 0· ακυρωμένο που ανανέωσε υπηρεσία·
@@ -267,10 +288,14 @@ admin και API (`cause=staff_adjustment`, `source=staff`/`api`). Εξαίρε�
    `credit_applied` όταν μένει υπόλοιπο (το εξοφλημένο στέλνει ήδη «Invoice paid»· όχι όταν ακολουθεί χρέωση billing
    agreement για το υπόλοιπο). Η ρύθμιση «Automatically use credits» (και το «Credits Enabled») το απενεργοποιεί όλο.
    Πρόσθεση πίστωσης δεν αρνείται ποτέ (σε αρνητικό υπόλοιπο ξεπληρώνει μέρος του χρέους).
-6. **MT-2, audit και Log πύλης:** audit στους workers, όχι μαζικά updates (και πιστωτικό στις μαζικές ακυρώσεις),
-   γενικό Log πύλης με ειδοποιήσεις.
+6. **MT-2, audit και Log πύλης:** σε δύο PR. **MT-2a:** γενικό Log πύλης με ειδοποιήσεις (§4). **MT-2b**, μετά το
+   PR των κανόνων αναστολής/τερματισμού (αγγίζουν τα ίδια βήματα του cron): audit στους workers, όχι μαζικά updates
+   (και πιστωτικό στις μαζικές ακυρώσεις).
 7. **MT-3, έλεγχος και διατήρηση:** `mycs:money-check` στον scheduler, κανάλι `payments`, ο έλεγχος μέσα στην
-   προσομοίωση.
+   προσομοίωση. Από τα reviews του MT-2a: γραμμές του Log πύλης που έμειναν `received` (fatal error, timeout)·
+   διατήρηση/καθάρισμα των `rejected` χωρίς χρήματα (πλαστά αιτήματα) και throttle στα routes των gateways (σήμερα κάθε
+   πλαστό αίτημα γράφει μία γραμμή)· αιτήματα σε URL gateway που δεν βρίσκουν route (λάθος μέθοδος) δεν φαίνονται
+   πουθενά.
 
 ### Τι σημαίνει κάθε κίνηση (MT-1a)
 Έτσι ώστε το ημερολόγιο να «κλείνει»:
