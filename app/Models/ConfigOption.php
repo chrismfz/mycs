@@ -67,10 +67,22 @@ class ConfigOption extends Model implements Auditable
         return $this->hasMany(ServiceConfig::class, 'config_option_id');
     }
 
-    /** A value (a child option) services use: never deleted with them (DATA-8). */
+    /**
+     * A value (a child option) a service has, or a pending upgrade will give one (DATA-8). Rows of a finished upgrade, or
+     * left by a service deleted before its configs went with it, hold nothing.
+     */
     public function valueInUse(): bool
     {
-        return $this->parent_id !== null && ServiceConfig::query()->where('config_value_id', $this->id)->exists();
+        if ($this->parent_id === null) {
+            return false;
+        }
+
+        return ServiceConfig::query()->where('config_value_id', $this->id)->where(fn ($query) => $query
+            ->where(fn ($services) => $services->where('configurable_type', (new Service)->getMorphClass())
+                ->whereIn('configurable_id', Service::query()->select('id')))
+            ->orWhere(fn ($upgrades) => $upgrades->where('configurable_type', (new ServiceUpgrade)->getMorphClass())
+                ->whereIn('configurable_id', ServiceUpgrade::query()->where('status', ServiceUpgrade::STATUS_PENDING)->select('id'))))
+            ->exists();
     }
 
     protected static function booted(): void
@@ -78,6 +90,11 @@ class ConfigOption extends Model implements Auditable
         static::deleting(function (self $option) {
             if ($option->valueInUse()) {
                 throw new DisplayException(__('This option value is used by services: move them to another value first.'));
+            }
+            // The rows that hold nothing (finished upgrades, services long gone) go first: the foreign key refuses the
+            // delete while any row points at the value.
+            if ($option->parent_id !== null) {
+                ServiceConfig::query()->where('config_value_id', $option->id)->delete();
             }
         });
     }

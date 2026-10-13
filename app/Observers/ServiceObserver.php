@@ -95,6 +95,9 @@ class ServiceObserver
      */
     public function deleted(Service $service): void
     {
+        // Its option values go with it (a morph: no foreign key would take them): left behind, they held the values
+        // they point at as «in use» for ever (DATA-8).
+        $service->configs()->delete();
         event(new ServiceEvent\Deleted($service));
     }
 }
