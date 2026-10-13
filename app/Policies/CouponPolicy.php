@@ -20,7 +20,7 @@ class CouponPolicy
      */
     public function view(User $user, Coupon $coupon): bool
     {
-        return $user->hasPermission('admin.coupons.view');
+        return $user->hasPermission('admin.coupons.viewAny');
     }
 
     /**

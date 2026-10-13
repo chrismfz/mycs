@@ -14,7 +14,7 @@ class AdjustmentNotePolicy extends BasePolicy
 
     public function view(User $user, AdjustmentNote $adjustmentNote): bool
     {
-        return $this->adminPermission($user, 'admin.adjustment_notes.view');
+        return $this->adminPermission($user, 'admin.adjustment_notes.viewAny');
     }
 
     public function create(User $user): bool

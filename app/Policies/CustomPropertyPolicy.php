@@ -20,7 +20,7 @@ class CustomPropertyPolicy
      */
     public function view(User $user, CustomProperty $customProperty): bool
     {
-        return $user->hasPermission('admin.custom_properties.view');
+        return $user->hasPermission('admin.custom_properties.viewAny');
     }
 
     /**

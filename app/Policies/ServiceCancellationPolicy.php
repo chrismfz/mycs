@@ -20,7 +20,7 @@ class ServiceCancellationPolicy
      */
     public function view(User $user, ServiceCancellation $category): bool
     {
-        return $user->hasPermission('admin.service_cancellations.view');
+        return $user->hasPermission('admin.service_cancellations.viewAny');
     }
 
     /**

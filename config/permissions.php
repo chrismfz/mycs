@@ -15,6 +15,7 @@ return [
                 'viewAny' => 'View Users',
                 'delete' => 'Delete Users',
                 'impersonate' => 'Impersonate Users',
+                'deleteAny' => 'Bulk Delete Users',
             ],
             'credits' => [
                 'create' => 'Create Credits',
@@ -161,6 +162,7 @@ return [
                 'update' => 'Update API Keys',
                 'viewAny' => 'View API Keys',
                 'delete' => 'Delete API Keys',
+                'deleteAny' => 'Bulk Delete API Keys',
             ],
             'extensions' => [
                 'update' => 'Update Extensions',
@@ -168,8 +170,21 @@ return [
                 'install' => 'Install Extensions',
                 'delete' => 'Delete Extensions',
             ],
+            // Audit log (read-only: audits are never edited or deleted, the money trail's append-only rule).
+            'audit' => [
+                'viewAny' => 'View Audit Log',
+            ],
+            'notification_templates' => [
+                'viewAny' => 'View Notification Templates',
+                'create' => 'Create Notification Templates',
+                'update' => 'Update Notification Templates',
+                'delete' => 'Delete Notification Templates',
+                'deleteAny' => 'Bulk Delete Notification Templates',
+            ],
             'failed_jobs' => [
                 'viewAny' => 'View Failed Jobs',
+                'retry' => 'Retry Failed Jobs',
+                'delete' => 'Delete Failed Jobs',
             ],
             'email_logs' => [
                 'viewAny' => 'View Email Logs',

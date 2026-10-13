@@ -56,6 +56,7 @@ class FailedJobResource extends Resource
             ->recordActions([
                 Action::make('retry')
                     ->label('Retry')
+                    ->authorize(fn (): bool => (bool) auth()->user()?->hasPermission('admin.failed_jobs.retry')) // runs the job again (AUTH-3)
                     ->requiresConfirmation()
                     ->action(function (FailedJob $record): void {
                         Artisan::call("queue:retry {$record->uuid}");
@@ -66,6 +67,7 @@ class FailedJobResource extends Resource
                     }),
                 Action::make('delete')
                     ->label('Mark as Resolved')
+                    ->authorize(fn (): bool => (bool) auth()->user()?->hasPermission('admin.failed_jobs.delete'))
                     ->requiresConfirmation()
                     ->color('danger')
                     ->action(function (FailedJob $failedJob) {
@@ -75,6 +77,7 @@ class FailedJobResource extends Resource
             ->toolbarActions([
                 BulkAction::make('retry')
                     ->label('Retry')
+                    ->authorize(fn (): bool => (bool) auth()->user()?->hasPermission('admin.failed_jobs.retry')) // runs the job again (AUTH-3)
                     ->requiresConfirmation()
                     ->action(function (Collection $records): void {
                         foreach ($records as $record) {
@@ -96,6 +99,7 @@ class FailedJobResource extends Resource
                     ->deselectRecordsAfterCompletion(),
                 BulkAction::make('delete')
                     ->label('Mark as Resolved')
+                    ->authorize(fn (): bool => (bool) auth()->user()?->hasPermission('admin.failed_jobs.delete'))
                     ->requiresConfirmation()
                     ->color('danger')
                     ->action(function (Collection $records): void {

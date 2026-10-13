@@ -51,7 +51,7 @@ class PermissionGuardTest extends TestCase
 
     public function test_api_permissions_map_to_role_permissions(): void
     {
-        $this->assertTrue(PermissionGuard::canGrantApi($this->support, 'admin.tickets.view'));
+        $this->assertTrue(PermissionGuard::canGrantApi($this->support, 'admin.tickets.viewAny'));
         $this->assertTrue(PermissionGuard::canGrantApi($this->support, 'admin.ticket_messages.create'));
         $this->assertFalse(PermissionGuard::canGrantApi($this->support, 'admin.invoices.create'));
         $this->assertFalse(PermissionGuard::canGrantApi($this->support, 'admin.some_extension.thing'));
@@ -74,7 +74,7 @@ class PermissionGuardTest extends TestCase
         ApiKey::create([
             'name' => 'old key', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
             'user_id' => $this->support->id,
-            'permissions' => ['admin.tickets.view', 'admin.invoices.view'],
+            'permissions' => ['admin.tickets.viewAny', 'admin.invoices.viewAny'],
         ]);
         $request = Request::create('/api/v1/admin/tickets', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]);
 
@@ -85,7 +85,7 @@ class PermissionGuardTest extends TestCase
             return new Response;
         });
 
-        $this->assertSame(['admin.tickets.view'], $seen);
+        $this->assertSame(['admin.tickets.viewAny'], $seen);
     }
 
     public function test_a_lesser_admin_cannot_impersonate_a_greater_one(): void

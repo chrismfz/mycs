@@ -20,7 +20,7 @@ class AdminUserPermissionGuardTest extends TestCase
 
     private const STAFF_PERMISSIONS = ['admin.users.viewAny', 'admin.users.update', 'admin.users.create', 'admin.users.delete', 'admin.roles.update', 'admin.api_keys.create'];
 
-    private const KEY_PERMISSIONS = ['admin.users.view', 'admin.users.update', 'admin.users.create', 'admin.users.delete', 'admin.roles.update'];
+    private const KEY_PERMISSIONS = ['admin.users.viewAny', 'admin.users.update', 'admin.users.create', 'admin.users.delete', 'admin.roles.update'];
 
     private Role $adminRole;
 

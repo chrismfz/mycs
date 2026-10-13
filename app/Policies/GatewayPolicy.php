@@ -20,7 +20,7 @@ class GatewayPolicy
      */
     public function view(User $user, Gateway $gateway): bool
     {
-        return $user->hasPermission('admin.gateways.view');
+        return $user->hasPermission('admin.gateways.viewAny');
     }
 
     /**

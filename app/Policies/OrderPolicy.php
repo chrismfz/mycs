@@ -20,7 +20,7 @@ class OrderPolicy
      */
     public function view(User $user, Order $order): bool
     {
-        return $user->hasPermission('admin.orders.view');
+        return $user->hasPermission('admin.orders.viewAny');
     }
 
     /**

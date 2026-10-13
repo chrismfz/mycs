@@ -20,7 +20,7 @@ class TaxRatePolicy
      */
     public function view(User $user, TaxRate $taxRate): bool
     {
-        return $user->hasPermission('admin.tax_rates.view');
+        return $user->hasPermission('admin.tax_rates.viewAny');
     }
 
     /**

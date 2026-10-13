@@ -12,6 +12,6 @@ class TicketMessageAttachmentPolicy
      */
     public function view(User $user, TicketMessageAttachment $attachment): bool
     {
-        return $user->hasPermission('admin.tickets.view') || $user->id === $attachment->ticketMessage->ticket->user_id;
+        return $user->hasPermission('admin.tickets.viewAny') || $user->id === $attachment->ticketMessage->ticket->user_id;
     }
 }

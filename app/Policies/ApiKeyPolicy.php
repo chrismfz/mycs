@@ -21,7 +21,7 @@ class ApiKeyPolicy
      */
     public function view(User $user, ApiKey $api_key): bool
     {
-        return $user->hasPermission('admin.api_keys.view');
+        return $user->hasPermission('admin.api_keys.viewAny');
     }
 
     /**

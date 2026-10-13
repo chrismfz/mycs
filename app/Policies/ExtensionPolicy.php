@@ -20,7 +20,7 @@ class ExtensionPolicy
      */
     public function view(User $user): bool
     {
-        return $user->hasPermission('admin.extensions.view');
+        return $user->hasPermission('admin.extensions.viewAny');
     }
 
     /**
