@@ -92,6 +92,30 @@ class EmailTemplateSeeder extends Seeder
             'edit_preference_message' => 'Notify me about successful payments',
             'in_app_url' => '{{ urls.invoice }}',
         ],
+        'credit_applied' => [
+            'subject' => 'Account credit applied to your invoice',
+            'body' => <<<'HTML'
+                # Account credit applied
+
+                Your account credit paid **{{ credit.applied }}** of invoice #{{ invoice.id }}.
+
+                Left to pay: **{{ credit.remaining }}**
+
+                You can view your invoice and pay the rest by clicking the button below.
+
+                <div class="action">
+                	<a class="button button-blue" href="{{ urls.invoice }}">
+                		View Invoice
+                	</a>
+                </div>
+                HTML,
+            'in_app_title' => 'Account credit applied',
+            'in_app_body' => 'Your account credit paid {{ credit.applied }} of invoice #{{ invoice.id }}. Left to pay: {{ credit.remaining }}.',
+            'mail_enabled' => 'choice_on',
+            'in_app_enabled' => 'choice_on',
+            'edit_preference_message' => 'Notify me when my account credit pays part of an invoice',
+            'in_app_url' => '{{ urls.invoice }}',
+        ],
         'invoice_payment_failed' => [
             'subject' => 'Invoice payment failed',
             'body' => <<<'HTML'

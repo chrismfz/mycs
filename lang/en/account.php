@@ -50,6 +50,10 @@ return [
 
     'no_credit' => 'You have no credits.',
     'add_credit' => 'Add credit',
+    'credit_auto_apply' => 'Use my credit to pay open invoices automatically',
+    'credit_auto_apply_help' => 'Credit pays open invoices on its own, also in part, oldest first. Switch it off to keep it for something else.',
+    'credit_auto_apply_on' => 'Your credit will pay open invoices automatically.',
+    'credit_auto_apply_off' => 'Your credit will be kept until you use it.',
     'credit_deposit' => 'Credit deposit (:currency)',
 
     'payment_methods' => 'Payment Methods',

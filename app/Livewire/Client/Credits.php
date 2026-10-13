@@ -30,8 +30,12 @@ class Credits extends Component
 
     public $gateway;
 
+    /** The customer lets credit pay open invoices on its own (MT-1e), or keeps it for something else. */
+    public bool $autoApply = true;
+
     public function mount()
     {
+        $this->autoApply = (bool) (Auth::user()->credit_auto_apply ?? true);
         $this->amount = config('settings.credits_minimum_deposit');
         $this->currency = session('currency', config('settings.default_currency'));
         $this->gateways = ExtensionHelper::getCheckoutGateways($this->amount, $this->currency, 'credits');
@@ -48,6 +52,12 @@ class Credits extends Component
                 $this->gateway = $this->gateways[0]->id;
             }
         }
+    }
+
+    public function updatedAutoApply(bool $value): void
+    {
+        Auth::user()->forceFill(['credit_auto_apply' => $value])->save();
+        $this->notify($value ? __('account.credit_auto_apply_on') : __('account.credit_auto_apply_off'), 'success');
     }
 
     public function addCredit()

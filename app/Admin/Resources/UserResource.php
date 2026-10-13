@@ -92,6 +92,12 @@ class UserResource extends Resource
                         return $state ? $record->email_verified_at : null;
                     })
                     ->hiddenOn(['create']),
+
+                // The customer's choice, also set by staff (MT-1e): credit pays open invoices on its own, or is kept.
+                Toggle::make('credit_auto_apply')
+                    ->label(__('Credit pays open invoices automatically'))
+                    ->helperText(__('Off: the credit is kept until the customer or staff use it.'))
+                    ->default(true),
             ]);
     }
 

@@ -14,7 +14,7 @@ use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Models\Setting;
 use App\Models\Ticket;
-use App\Services\Invoice\RecordPaymentService;
+use App\Services\Money\CreditAutoApply;
 use App\Services\Service\RenewServiceService;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -121,6 +121,10 @@ class CronJob extends Command
 
                 return $number;
             });
+
+            // Credit pays what is open before anything is suspended (decision 5, MT-1e): a customer with credit is not
+            // suspended while it sits unused. Each invoice in its own transaction, under the payment locks.
+            $this->runCronJob('credit_applied', fn () => (new CreditAutoApply)->sweep(), transaction: false);
 
             $this->runCronJob('services_suspended', function ($number = 0) {
                 // Suspend orders if due date is overdue for x days
@@ -325,12 +329,9 @@ class CronJob extends Command
 
     private function payInvoiceWithCredits(Invoice $invoice): void
     {
-        // Credits switched off: the balance is never spent automatically either.
-        if (!config('settings.credits_enabled') || !config('settings.credits_auto_use', true)) {
-            return;
-        }
-        // Only when the credit covers the whole invoice; read and spent under the payment locks.
-        (new RecordPaymentService)->payWithCredit($invoice, onlyIfCovers: true);
+        // As much as the credit covers, also in part (decision 5, MT-1e); read and spent under the payment locks.
+        // Off with credits, or with "Automatically use credits", or for the invoices CreditAutoApply leaves alone.
+        (new CreditAutoApply)->toInvoice($invoice);
     }
 
     /**

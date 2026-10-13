@@ -535,7 +535,7 @@ class Settings
                     'type' => 'checkbox',
                     'database_type' => 'boolean',
                     'default' => true,
-                    'description' => 'Automatically pay recurring invoices using available credits. (only pays if credits is more or equal to invoice amount)',
+                    'description' => 'Credit pays open invoices on its own, also in part, oldest due first: when a renewal invoice is made, when credit comes in from an overpayment, and once a day before suspensions. Not credit purchases, invoices with a payment in progress, or services with a gateway subscription; customers can opt out.',
                 ],
                 [
                     // Enable credits give back if and service is upgraded or downgraded
