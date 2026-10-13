@@ -70,7 +70,13 @@ class PayPal extends Gateway
     public function cancelBillingAgreement(BillingAgreement $billingAgreement): bool
     {
         $url = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
-        $this->request('delete', $url . '/v3/vault/payment-tokens/' . $billingAgreement->external_reference);
+        try {
+            $this->request('delete', $url . '/v3/vault/payment-tokens/' . $billingAgreement->external_reference);
+        } catch (PayPalApiException $e) {
+            if ($e->status !== 404) { // already deleted at PayPal: nothing left to cancel
+                throw $e;
+            }
+        }
 
         return true;
     }
@@ -127,6 +133,12 @@ class PayPal extends Gateway
             ],
         ]);
 
+        // The payment itself is recorded by the PAYMENT.CAPTURE.COMPLETED webhook; here only whether PayPal took it.
+        $captureStatus = $result->purchase_units[0]->payments->captures[0]->status ?? null;
+        if (($result->status ?? null) !== 'COMPLETED' || !in_array($captureStatus, ['COMPLETED', 'PENDING'], true)) {
+            throw new Exception('PayPal did not capture the payment (order ' . ($result->status ?? 'unknown') . ', capture ' . ($captureStatus ?? 'none') . ').');
+        }
+
         return true;
     }
 
@@ -141,16 +153,19 @@ class PayPal extends Gateway
             if ($event->service->properties()->where('key', 'has_paypal_subscription')->value('value') !== '1') {
                 return;
             }
+            // A failure is reported, never thrown: the service change is committed; a failed cancel keeps the marker.
             if ($event->changed('price')) {
                 try {
                     $this->updateSubscription($event->service);
                 } catch (Exception $e) {
+                    report($e);
                 }
             }
             if ($event->cancelledBySave()) {
                 try {
                     $this->cancelSubscription($event->service);
                 } catch (Exception $e) {
+                    report($e);
                 }
             }
         });
@@ -163,7 +178,7 @@ class PayPal extends Gateway
             try {
                 $this->cancelSubscription($service);
             } catch (Exception $e) {
-                // Log the error or handle it as needed
+                report($e);
             }
         });
     }
@@ -230,13 +245,22 @@ class PayPal extends Gateway
         });
     }
 
+    /**
+     * @throws PayPalApiException when PayPal does not answer 2xx: an error body must never read as success
+     */
     public function request($method, $url, $data = [])
     {
-        return Http::withHeaders([
+        $response = Http::withHeaders([
             'Content-Type' => 'application/json',
             'Authorization' => 'Bearer ' . $this->generateAccessToken(),
             'PayPal-Request-Id' => uniqid(),
-        ])->$method($url, $data)->object();
+        ])->$method($url, $data);
+
+        if (!$response->successful()) {
+            throw PayPalApiException::fromResponse($response);
+        }
+
+        return $response->object();
     }
 
     public function pay($invoice, $total)
@@ -273,7 +297,11 @@ class PayPal extends Gateway
         $url = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
 
         // First check if the order is already captured
-        $order = $this->request('get', $url . '/v2/checkout/orders/' . $orderID);
+        try {
+            $order = $this->request('get', $url . '/v2/checkout/orders/' . $orderID);
+        } catch (PayPalApiException $e) {
+            abort(400, 'PayPal order not found');
+        }
 
         // Verify if the invoice id matches the one from the order
         if (!isset($order->purchase_units[0]->invoice_id) || $order->purchase_units[0]->invoice_id != $invoice->id) {
@@ -293,15 +321,30 @@ class PayPal extends Gateway
             abort(400, 'PayPal order currency does not match invoice currency');
         }
 
-        $response = $this->request('post', $url . '/v2/checkout/orders/' . $orderID . '/capture', [
-            'intent' => 'CAPTURE',
-        ]);
+        try {
+            $response = $this->request('post', $url . '/v2/checkout/orders/' . $orderID . '/capture', [
+                'intent' => 'CAPTURE',
+            ]);
+        } catch (PayPalApiException $e) {
+            // PayPal's error as the JS SDK reads it: INSTRUMENT_DECLINED lets the buyer pick another funding source.
+            return response()->json($e->toClientArray(), 422);
+        }
 
-        if (($response->status ?? null) !== 'COMPLETED' || !isset($response->purchase_units[0]->payments->captures[0])) {
+        $capture = $response->purchase_units[0]->payments->captures[0] ?? null;
+        if (($response->status ?? null) !== 'COMPLETED' || !in_array($capture->status ?? null, ['COMPLETED', 'PENDING'], true)) {
             abort(400, 'Failed to capture PayPal order');
         }
 
-        ExtensionHelper::addPayment($order->purchase_units[0]->invoice_id, 'PayPal', $response->purchase_units[0]->payments->captures[0]->amount->value, $response->purchase_units[0]->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value, $response->purchase_units[0]->payments->captures[0]->id, currency: $response->purchase_units[0]->payments->captures[0]->amount->currency_code ?? null);
+        // A PENDING capture (review, eCheck, unheld currency) is not money yet: processing until PAYMENT.CAPTURE.COMPLETED.
+        ExtensionHelper::addPayment(
+            $order->purchase_units[0]->invoice_id,
+            'PayPal',
+            $capture->amount->value,
+            $capture->seller_receivable_breakdown->paypal_fee->value ?? null,
+            $capture->id,
+            $capture->status === 'PENDING' ? InvoiceTransactionStatus::Processing : InvoiceTransactionStatus::Succeeded,
+            currency: $capture->amount->currency_code ?? null,
+        );
 
         return $response;
     }
@@ -366,15 +409,22 @@ class PayPal extends Gateway
     public function webhook(Request $request)
     {
         $body = $request->getContent();
-        $verification = $this->request('post', ($this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com') . '/v1/notifications/verify-webhook-signature', [
-            'auth_algo' => $request->header('PAYPAL-AUTH-ALGO'),
-            'cert_url' => $request->header('PAYPAL-CERT-URL'),
-            'transmission_id' => $request->header('PAYPAL-TRANSMISSION-ID'),
-            'transmission_sig' => $request->header('PAYPAL-TRANSMISSION-SIG'),
-            'transmission_time' => $request->header('PAYPAL-TRANSMISSION-TIME'),
-            'webhook_id' => $this->config('webhook_id'),
-            'webhook_event' => json_decode($body, true),
-        ]);
+        try {
+            $verification = $this->request('post', ($this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com') . '/v1/notifications/verify-webhook-signature', [
+                'auth_algo' => $request->header('PAYPAL-AUTH-ALGO'),
+                'cert_url' => $request->header('PAYPAL-CERT-URL'),
+                'transmission_id' => $request->header('PAYPAL-TRANSMISSION-ID'),
+                'transmission_sig' => $request->header('PAYPAL-TRANSMISSION-SIG'),
+                'transmission_time' => $request->header('PAYPAL-TRANSMISSION-TIME'),
+                'webhook_id' => $this->config('webhook_id'),
+                'webhook_event' => json_decode($body, true),
+            ]);
+        } catch (PayPalApiException $e) {
+            if ($e->status >= 500) {
+                throw $e; // PayPal unavailable: a 500 here makes PayPal retry the webhook
+            }
+            $verification = null;
+        }
 
         if (($verification->verification_status ?? null) !== 'SUCCESS') {
             return response()->json(['status' => 'error'], 400);
@@ -412,7 +462,7 @@ class PayPal extends Gateway
                 // Verify that the currency is the same as the invoice
                 $invoice = Invoice::find($order->purchase_units[0]->invoice_id);
                 if ($invoice && $invoice->currency_code === $order->purchase_units[0]->payments->captures[0]->amount->currency_code) {
-                    ExtensionHelper::addPayment($order->purchase_units[0]->invoice_id, 'PayPal', $order->purchase_units[0]->payments->captures[0]->amount->value, $order->purchase_units[0]->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value, $body['resource']['id'], currency: $order->purchase_units[0]->payments->captures[0]->amount->currency_code);
+                    ExtensionHelper::addPayment($order->purchase_units[0]->invoice_id, 'PayPal', $order->purchase_units[0]->payments->captures[0]->amount->value, $order->purchase_units[0]->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value ?? null, $body['resource']['id'], currency: $order->purchase_units[0]->payments->captures[0]->amount->currency_code);
                 }
             }
         }
@@ -448,11 +498,22 @@ class PayPal extends Gateway
 
     public function cancelSubscription(Service $service)
     {
+        // Not a PayPal subscription: false lets ExtensionHelper::cancelSubscription try the other gateways.
+        if (!$service->subscription_id || $service->properties()->where('key', 'has_paypal_subscription')->value('value') !== '1') {
+            return false;
+        }
+
         // Cancel subscription
         $url = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
-        $this->request('post', $url . '/v1/billing/subscriptions/' . $service->subscription_id . '/cancel', [
-            'reason' => 'User canceled',
-        ]);
+        try {
+            $this->request('post', $url . '/v1/billing/subscriptions/' . $service->subscription_id . '/cancel', [
+                'reason' => 'User canceled',
+            ]);
+        } catch (PayPalApiException $e) {
+            if ($e->issue !== 'SUBSCRIPTION_STATUS_INVALID') { // already cancelled or expired at PayPal
+                throw $e;
+            }
+        }
 
         $service->properties()->where('key', 'has_paypal_subscription')->delete();
         $service->unsetRelation('properties');
@@ -475,12 +536,16 @@ class PayPal extends Gateway
 
         $url = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
 
-        $this->request('post', $url . '/v2/payments/captures/' . $captureId . '/refund', [
+        $refund = $this->request('post', $url . '/v2/payments/captures/' . $captureId . '/refund', [
             'amount' => [
                 'currency_code' => $transaction->invoice->currency_code,
                 'value' => number_format($amount, 2, '.', ''),
             ],
         ]);
+
+        if (!in_array($refund->status ?? null, ['COMPLETED', 'PENDING'], true)) {
+            throw new Exception('PayPal did not refund capture ' . $captureId . ' (status ' . ($refund->status ?? 'none') . ').');
+        }
 
         return true;
     }
