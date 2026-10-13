@@ -179,4 +179,36 @@ class PlanProductDeleteReviewTest extends TestCase
 
         $this->assertNotNull($spare->fresh());
     }
+
+    /**
+     * R5b (round 2). EditProduct::save catches the DisplayException and says «Product not saved» ("the whole save is
+     * rolled back"), but the page has no database transaction (Filament's default is off; only EditInvoice turns it
+     * on): a plan removed in the same save and deleted before the refused one stays deleted (the product's own fields
+     * are written after the relationships, so they happen to be spared).
+     */
+    public function test_a_save_refused_for_a_plan_used_meanwhile_changes_nothing(): void
+    {
+        $service = $this->service();
+        $product = $service->product;
+        $other = Plan::factory()->create(['priceable_id' => $product->id, 'priceable_type' => Product::class,
+            'name' => 'Other', 'billing_unit' => 'month', 'billing_period' => 3, 'type' => 'recurring']);
+        $spare = Plan::factory()->create(['priceable_id' => $product->id, 'priceable_type' => Product::class,
+            'name' => 'Spare', 'billing_unit' => 'year', 'billing_period' => 1, 'type' => 'recurring']);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $admin = User::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+
+        $page = Livewire::actingAs($admin)->test(EditProduct::class, ['record' => $product->getRouteKey()]);
+        foreach ([$other, $spare] as $plan) { // both unused when removed
+            $key = collect($page->get('data.plan'))->search(fn ($item) => ($item['id'] ?? null) === $plan->id);
+            $page->callAction(TestAction::make('delete')->schemaComponent('plan', 'form')->arguments(['item' => $key]));
+        }
+        $page->set('data.name', 'Renamed');
+        $this->service(['plan_id' => $spare->id, 'product_id' => $product->id]); // ordered meanwhile
+
+        $page->call('save');
+
+        $page->assertNotified(__('Product not saved'));
+        $this->assertSame('Test Product', $product->fresh()->name, 'not saved means nothing saved');
+        $this->assertNotNull($other->fresh(), 'nor the other plan removed in the same save');
+    }
 }

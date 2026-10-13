@@ -84,6 +84,9 @@ class EditProduct extends EditRecord
         ];
     }
 
+    /** The save in one transaction: a refused plan rolls back the plans removed before it too (R5b of #73). */
+    protected ?bool $hasDatabaseTransactions = true;
+
     /**
      * A plan removed from the form is deleted on save: one a service or an upgrade started using meanwhile is refused
      * (Plan's guard, audit sweep BIL-6) with a message, not an error page; the whole save is rolled back.
