@@ -8,7 +8,8 @@ use Illuminate\Support\Facades\Schema;
 /**
  * Database guarantees the models assume (audit sweep DATA-11), and line descriptions as long as WHMCS's (DATA-12).
  *
- * - coupons.code unique: a duplicate keeps working under a new code (its id appended); the oldest keeps its own.
+ * - coupons.code unique: a duplicate (as the database's collation sees it) keeps working under a new code (its id
+ *   appended); the oldest keeps its own.
  * - service_cancellations.service_id, invoice_snapshots.invoice_id unique (hasOne): the first row of each is kept.
  * - settings: one row per key and scope. MySQL/MariaDB treat NULLs as distinct, so the existing unique key never held
  *   for global settings (settingable NULL), the invoice counter among them: a generated scope column, NULL-free, is
@@ -24,25 +25,24 @@ return new class extends Migration
 
     public function up(): void
     {
-        $seen = [];
-        foreach (DB::table('coupons')->orderBy('id')->get(['id', 'code']) as $coupon) {
-            $key = mb_strtolower((string) $coupon->code);
-            if (isset($seen[$key])) {
-                DB::table('coupons')->where('id', $coupon->id)->update(['code' => $coupon->code . '-' . $coupon->id]);
-            }
-            $seen[$key] = true;
+        // Grouped by the database (its collation decides what the unique key will see as equal: case, accents and
+        // trailing spaces on MariaDB's utf8mb4_unicode_ci), not by PHP.
+        $first = DB::table('coupons')->selectRaw('MIN(id) AS id')->groupBy('code')->pluck('id');
+        foreach (DB::table('coupons')->whereNotIn('id', $first)->get(['id', 'code']) as $coupon) {
+            DB::table('coupons')->where('id', $coupon->id)->update(['code' => $coupon->code . '-' . $coupon->id]);
         }
         foreach (['service_cancellations' => 'service_id', 'invoice_snapshots' => 'invoice_id'] as $table => $column) {
             $first = DB::table($table)->selectRaw("MIN(id) AS id, {$column}")->groupBy($column)->pluck('id');
             DB::table($table)->whereNotIn('id', $first)->delete();
         }
-        $groups = DB::table('settings')->orderBy('id')->get(['id', 'key', 'value', 'settingable_type', 'settingable_id'])
-            ->groupBy(fn ($row) => $row->key . '|' . ($row->settingable_type ?? '') . '|' . ($row->settingable_id ?? ''));
-        foreach ($groups as $rows) {
-            if ($rows->count() < 2) {
-                continue;
-            }
-            $keep = in_array($rows->first()->key, self::COUNTERS, true) && $rows->first()->settingable_type === null
+        $groups = DB::table('settings')->select('key', 'settingable_type', 'settingable_id')
+            ->groupBy('key', 'settingable_type', 'settingable_id')->havingRaw('COUNT(*) > 1')->get();
+        foreach ($groups as $group) {
+            $rows = DB::table('settings')->where('key', $group->key)
+                ->where(fn ($query) => $group->settingable_type === null ? $query->whereNull('settingable_type') : $query->where('settingable_type', $group->settingable_type))
+                ->where(fn ($query) => $group->settingable_id === null ? $query->whereNull('settingable_id') : $query->where('settingable_id', $group->settingable_id))
+                ->orderBy('id')->get(['id', 'key', 'value', 'settingable_type']);
+            $keep = in_array($group->key, self::COUNTERS, true) && $group->settingable_type === null
                 ? $rows->sortByDesc(fn ($row) => (int) $row->value)->first()
                 : $rows->last();
             DB::table('settings')->whereIn('id', $rows->pluck('id')->reject(fn ($id) => $id === $keep->id))->delete();

@@ -883,7 +883,8 @@ class ImportFromWhmcs extends Command
     {
         $this->info('Importing cancellations... (' . $this->count('tblcancelrequests') . ' records)');
 
-        $this->migrateInBatch('tblcancelrequests', 'SELECT * FROM tblcancelrequests LIMIT :limit OFFSET :offset', function ($records) {
+        // One request per service (DATA-11; WHMCS has no such key): the first one is kept, the later ones ignored.
+        $this->migrateInBatch('tblcancelrequests', 'SELECT * FROM tblcancelrequests ORDER BY id LIMIT :limit OFFSET :offset', function ($records) {
             $data = [];
             foreach ($records as $record) {
                 $data[] = [
@@ -896,7 +897,7 @@ class ImportFromWhmcs extends Command
                 ];
             }
 
-            DB::table('service_cancellations')->insert($data);
+            DB::table('service_cancellations')->insertOrIgnore($data);
         });
     }
 
