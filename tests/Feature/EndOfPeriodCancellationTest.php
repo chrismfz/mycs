@@ -7,6 +7,7 @@ use App\Models\Invoice;
 use App\Models\Service;
 use App\Models\ServiceCancellation;
 use App\Models\User;
+use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Queue;
@@ -119,5 +120,17 @@ class EndOfPeriodCancellationTest extends TestCase
 
         $this->assertSame(Service::STATUS_CANCELLED, $service->fresh()->status);
         $this->assertSame(1, $service->product->fresh()->stock);
+    }
+
+    public function test_paying_the_renewal_after_the_request_does_not_renew_the_service(): void
+    {
+        $service = $this->service('2026-10-25');
+        $invoice = $this->openInvoiceFor($service);
+        $this->request($service); // cancels the open invoice
+
+        (new RecordPaymentService)->handle($invoice->fresh(), null, 10.00, transactionId: 'late-transfer');
+
+        $this->assertSame('2026-10-25', $service->fresh()->expires_at->toDateString(), 'not renewed past the requested end');
+        $this->assertNotSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
     }
 }

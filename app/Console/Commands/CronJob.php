@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Jobs\Server\SuspendJob;
@@ -45,6 +46,9 @@ class CronJob extends Command
 
     /** @var array<string, Throwable> job (or job #service) => what failed */
     private array $failures = [];
+
+    /** @var array<string, Throwable> what staff must look at, though nothing failed (an invoice left open): mailed, the run succeeds */
+    private array $notices = [];
 
     /**
      * Execute the console command.
@@ -133,6 +137,8 @@ class CronJob extends Command
             $this->runCronJob('cancellations_processed', function ($number = 0) {
                 // Cancellation requests «at the end of the billing period», on that day (WHMCS: Process Cancellation
                 // Requests): the service ends as the customer asked, before anything would suspend it as unpaid.
+                // Day-granular like WHMCS: due today ends at this run. A service without an expiry (one-time, free)
+                // has no end of period; its request waits for staff.
                 $ids = Service::whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
                     ->where('expires_at', '<=', now()->endOfDay())
                     ->whereHas('cancellation', fn ($query) => $query->where('type', 'end_of_period'))
@@ -206,6 +212,14 @@ class CronJob extends Command
                 return $number;
             });
 
+            if ($this->notices !== []) {
+                $notices = e(implode("\n", array_map(fn ($key, $notice) => "{$key}: {$notice->getMessage()}", array_keys($this->notices), $this->notices)));
+                NotificationHelper::sendSystemEmailNotification('Cron Job: needs staff attention', <<<HTML
+                    The cron job left these for staff:<br>
+                    <pre>{$notices}</pre>
+                    HTML);
+            }
+
             if ($this->failures !== []) {
                 throw reset($this->failures);
             }
@@ -238,11 +252,6 @@ class CronJob extends Command
     }
 
     /**
-     * Bill (or, at zero price, renew) the next period of one service (docs/billing-cursor.md):
-     * where the live periods that follow the paid-until date end, never the same period twice,
-     * never across a hole. Returns 1 when it billed or renewed.
-     */
-    /**
      * One service whose cancellation request falls due: terminated at the server, cancelled (no dunning marker: the
      * customer did not fail to pay, they left), its open invoices cancelled, its stock back. Locked and re-read.
      */
@@ -254,9 +263,19 @@ class CronJob extends Command
             return 0;
         }
 
+        // A later period already paid (it waits behind an unpaid one, docs/billing-cursor.md): ending the service now
+        // would keep that money without the period. Staff decide (deliver it, or refund/credit it).
+        $paidAhead = $service->invoiceItems()->where('period_start', '>=', $service->expires_at)
+            ->whereHas('invoice', fn ($query) => $query->where('status', Invoice::STATUS_PAID))->exists();
+        if ($paidAhead) {
+            $this->notices["cancellations_processed #{$id}"] = new DisplayException("Service #{$id} not ended: a later period is already paid.");
+
+            return 0;
+        }
+
         TerminateJob::dispatch($service)->afterCommit();
         $service->forceFill(['status' => Service::STATUS_CANCELLED])->save();
-        $this->cancelInvoices($service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->get());
+        $this->leftOpen(CancelOpenInvoices::handle($service->invoices()->where('invoices.status', Invoice::STATUS_PENDING)->get(), onlyFor: $service));
         if ($service->product?->stock !== null) {
             $service->product->increment('stock', $service->quantity);
         }
@@ -264,6 +283,11 @@ class CronJob extends Command
         return 1;
     }
 
+    /**
+     * Bill (or, at zero price, renew) the next period of one service (docs/billing-cursor.md):
+     * where the live periods that follow the paid-until date end, never the same period twice,
+     * never across a hole. Returns 1 when it billed or renewed.
+     */
     private function billRenewal(int $id, CarbonInterface $billUntil): int
     {
         $service = Service::query()->whereKey($id)->lockForUpdate()->first();
@@ -392,7 +416,24 @@ class CronJob extends Command
      */
     private function cancelInvoices(iterable $invoices, bool $throughModel = false): void
     {
-        $this->failures = array_merge($this->failures, CancelOpenInvoices::handle($invoices, $throughModel));
+        $this->leftOpen(CancelOpenInvoices::handle($invoices, $throughModel));
+    }
+
+    /**
+     * What CancelOpenInvoices left: an invoice kept open for staff is a notice (mailed, the run succeeds), anything
+     * else a failure.
+     *
+     * @param  array<string, Throwable>  $left
+     */
+    private function leftOpen(array $left): void
+    {
+        foreach ($left as $key => $reason) {
+            if ($reason instanceof DisplayException) {
+                $this->notices[$key] = $reason;
+            } else {
+                $this->failures[$key] = $reason;
+            }
+        }
     }
 
     /**

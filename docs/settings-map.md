@@ -18,7 +18,7 @@
 | **Enable Mass Payment** | on | on | **Ν** (#1137, `whmcs-usage.md`) |
 | Clients Choose Gateway | on | on | P (επιλογή gateway στην πληρωμή) |
 | Group Similar Line Items | off | **on** | **Ν** |
-| Cancellation Request → ακύρωση απλήρωτων τιμολογίων | on | on | P~ (το listener ακυρώνει με `->update()` χωρίς observers· διόρθωση) |
+| Cancellation Request → ακύρωση απλήρωτων τιμολογίων | on | on | **M** (#61): σταθερή συμπεριφορά (on και στις δύο)· τιμολόγιο με χρήματα gateway ή με γραμμές άλλων υπηρεσιών μένει ανοιχτό για το staff (MT-2) |
 | Auto-cancel subscriptions σε upgrade/ακύρωση | on | on | P~ (PayPal/Stripe subscriptions) → έλεγχος |
 | Late fees | 0 (off) | 0 (off) | — δεν το χρειαζόμαστε |
 | Accepted card types, Issue number | — | Visa/MasterCard | — (τα διαχειρίζεται το Stripe) |
