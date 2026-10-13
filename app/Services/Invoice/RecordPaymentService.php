@@ -214,13 +214,13 @@ class RecordPaymentService
      * Pay an open invoice from the customer's account credit, under the same locks: the credit is read
      * and spent in one place, so nothing can save a stale copy of it. Pays what is left, or as much as
      * the credit covers ($onlyIfCovers: all of it or nothing). $eligible, when given, is asked with the locked invoice
-     * before anything is spent. Null when nothing is paid.
+     * before anything is spent; $upToCents caps what is spent. Null when nothing is paid.
      */
-    public function payWithCredit(Invoice|int $invoice, bool $onlyIfCovers = false, ?\Closure $eligible = null): ?InvoiceTransaction
+    public function payWithCredit(Invoice|int $invoice, bool $onlyIfCovers = false, ?\Closure $eligible = null, ?int $upToCents = null): ?InvoiceTransaction
     {
         $invoiceId = $invoice instanceof Invoice ? $invoice->getKey() : $invoice;
 
-        return DB::transaction(function () use ($invoiceId, $onlyIfCovers, $eligible) {
+        return DB::transaction(function () use ($invoiceId, $onlyIfCovers, $eligible, $upToCents) {
             $invoice = $this->lockInvoice($invoiceId);
             if (!in_array($invoice->status, [Invoice::STATUS_PENDING, Invoice::STATUS_DRAFT], true)) {
                 return null;
@@ -232,7 +232,7 @@ class RecordPaymentService
             $credit = $this->lockCredit($invoice);
             $available = $credit === null ? 0 : CreditLedger::cents($credit);
             $remaining = max(0, self::toCents($invoice->withLockedBalance()->remaining));
-            $cents = min($available, $remaining);
+            $cents = min($available, $remaining, $upToCents ?? PHP_INT_MAX);
             if ($credit === null || $cents <= 0 || ($onlyIfCovers && $available < $remaining)) {
                 return null;
             }
@@ -344,9 +344,9 @@ class RecordPaymentService
      *
      * @throws DisplayException
      */
-    public function deleteTransaction(InvoiceTransaction $transaction, bool $allowNegativeCredit = false): void
+    public function deleteTransaction(InvoiceTransaction $transaction, bool $allowNegativeCredit = false, string $cause = MoneyTrail::CAUSE_TRANSACTION_DELETED): void
     {
-        DB::transaction(function () use ($transaction, $allowNegativeCredit) {
+        DB::transaction(function () use ($transaction, $allowNegativeCredit, $cause) {
             $invoice = $this->lockInvoice($transaction->invoice_id);
             $transaction = InvoiceTransaction::query()->whereKey($transaction->getKey())->lockForUpdate()->first();
             if ($transaction === null) {
@@ -405,7 +405,7 @@ class RecordPaymentService
                     $journaled += $effect;
                     $credit->amount = $balance / 100;
                 }
-                $trail->reverse($event, MoneyTrail::CAUSE_TRANSACTION_DELETED, $effect !== 0 ? $credit : null);
+                $trail->reverse($event, $cause, $effect !== 0 ? $credit : null);
             }
             // What the reversals do not cover: credit a credit purchase bought, or a payment from before the journal.
             $rest = $change - $journaled;
@@ -413,8 +413,8 @@ class RecordPaymentService
                 $balance += $rest;
                 $credit->amount = $balance / 100;
                 $rest > 0
-                    ? $trail->creditIn($credit, $rest, MoneyTrail::CAUSE_TRANSACTION_DELETED, MoneyTrail::SOURCE_MANUAL, $invoice, $transaction)
-                    : $trail->creditOut($credit, -$rest, MoneyTrail::CAUSE_TRANSACTION_DELETED, MoneyTrail::SOURCE_MANUAL, $invoice, $transaction);
+                    ? $trail->creditIn($credit, $rest, $cause, MoneyTrail::SOURCE_MANUAL, $invoice, $transaction)
+                    : $trail->creditOut($credit, -$rest, $cause, MoneyTrail::SOURCE_MANUAL, $invoice, $transaction);
             }
             $credit?->save();
 

@@ -9,6 +9,7 @@ return [
         'purchase' => 'αγορά πίστωσης',
         'purchase_refunded' => 'επιστροφή αγοράς πίστωσης',
         'transaction_deleted' => 'διαγραφή συναλλαγής',
+        'cancellation' => 'ακύρωση',
         'staff_adjustment' => 'προσαρμογή από staff',
         'downgrade' => 'υποβάθμιση',
         'affiliate_reward' => 'αμοιβή συνεργάτη',

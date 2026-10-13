@@ -72,4 +72,12 @@ return [
     'refund_via_gateway' => 'Refund via Payment Gateway',
     'deleted_user' => 'Deleted User',
 
+    // The credit note of an invoice the app cancels (CancelOpenInvoices), written in the app's language.
+    'cancellation_reasons' => [
+        'unpaid_order' => 'Cancelled: the order was not paid in time.',
+        'service_terminated' => 'Cancelled: the service was terminated.',
+        'cancellation_request' => 'Cancelled: the service was cancelled at your request.',
+        'upgrade_expired' => 'Cancelled: the upgrade was not paid before the end of the billing period.',
+    ],
+
 ];
