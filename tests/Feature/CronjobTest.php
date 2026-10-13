@@ -321,6 +321,7 @@ class CronjobTest extends TestCase
 
         $service = Service::factory()->create([
             'product_id' => $product->product->id,
+            'plan_id' => $product->plan->id,
             'status' => 'suspended',
             'dunning_suspended_at' => now()->subDays(13), // suspended long enough to be terminated (BIL-4)
             'expires_at' => now()->subDays(15),
@@ -354,6 +355,7 @@ class CronjobTest extends TestCase
 
         $service = Service::factory()->create([
             'product_id' => $product->product->id,
+            'plan_id' => $product->plan->id,
             'status' => 'suspended',
             'dunning_suspended_at' => now()->subDays(13), // suspended long enough to be terminated (BIL-4)
             'expires_at' => now()->subDays(15),
@@ -380,6 +382,7 @@ class CronjobTest extends TestCase
 
         $service = Service::factory()->create([
             'product_id' => $product->product->id,
+            'plan_id' => $product->plan->id,
             'status' => 'suspended',
             'dunning_suspended_at' => now()->subDays(13), // suspended long enough to be terminated (BIL-4)
             'expires_at' => now()->subDays(15),

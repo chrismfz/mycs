@@ -4,6 +4,7 @@ namespace App\Admin\Resources\ProductResource\Pages;
 
 use App\Admin\Actions\AuditAction;
 use App\Admin\Resources\ProductResource;
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\Product;
 use App\Models\Server;
@@ -68,10 +69,10 @@ class EditProduct extends EditRecord
                 }),
             DeleteAction::make()
                 ->before(function (Product $record, DeleteAction $action) {
-                    if ($record->services()->count() > 0) {
+                    if ($record->inUse()) {
                         Notification::make()
                             ->title('Whoops!')
-                            ->body('You cannot delete this plan because it is being used by one or more services.')
+                            ->body(__('This product is used by services or upgrades: hide it instead of deleting it.'))
                             ->danger()
                             ->send();
                         $action->cancel();
@@ -81,6 +82,22 @@ class EditProduct extends EditRecord
                 }),
             AuditAction::make(),
         ];
+    }
+
+    /** The save in one transaction: a refused plan rolls back the plans removed before it too (R5b of #73). */
+    protected ?bool $hasDatabaseTransactions = true;
+
+    /**
+     * A plan removed from the form is deleted on save: one a service or an upgrade started using meanwhile is refused
+     * (Plan's guard, audit sweep BIL-6) with a message, not an error page; the whole save is rolled back.
+     */
+    public function save(bool $shouldRedirect = true, bool $shouldSendSavedNotification = true): void
+    {
+        try {
+            parent::save($shouldRedirect, $shouldSendSavedNotification);
+        } catch (DisplayException $e) {
+            Notification::make()->danger()->title(__('Product not saved'))->body($e->getMessage())->send();
+        }
     }
 
     protected function mutateFormDataBeforeFill(array $data): array

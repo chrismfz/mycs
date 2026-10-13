@@ -146,5 +146,8 @@
     "Outcome": "Αποτέλεσμα",
     "Gateway id": "Id πύλης",
     "Fields": "Πεδία",
-    "Paid, not applied": "Πληρωμένα, χωρίς εφαρμογή"
+    "Paid, not applied": "Πληρωμένα, χωρίς εφαρμογή",
+    "This plan is used by services or upgrades: hide it instead of deleting it.": "Το πλάνο χρησιμοποιείται από υπηρεσίες ή αλλαγές πακέτου: κρύψτε το αντί να το διαγράψετε.",
+    "This product is used by services or upgrades: hide it instead of deleting it.": "Το προϊόν χρησιμοποιείται από υπηρεσίες ή αλλαγές πακέτου: κρύψτε το αντί να το διαγράψετε.",
+    "Product not saved": "Το προϊόν δεν αποθηκεύτηκε"
 }
