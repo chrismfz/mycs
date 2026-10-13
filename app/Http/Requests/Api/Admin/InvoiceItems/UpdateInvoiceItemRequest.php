@@ -3,6 +3,8 @@
 namespace App\Http\Requests\Api\Admin\InvoiceItems;
 
 use App\Http\Requests\Api\Admin\AdminApiRequest;
+use App\Services\Invoice\InvoiceItemReference;
+use Illuminate\Validation\Validator;
 
 class UpdateInvoiceItemRequest extends AdminApiRequest
 {
@@ -14,28 +16,28 @@ class UpdateInvoiceItemRequest extends AdminApiRequest
             'description' => 'sometimes|string|max:255',
             'quantity' => 'sometimes|integer|min:1',
             'price' => 'sometimes|numeric|min:0',
-            'reference_type' => 'sometimes|string|max:100',
-            'reference_id' => [
-                'sometimes',
-                'integer',
-                function ($attribute, $value, $fail) {
-                    if ($this->input('reference_type') && !$value) {
-                        $fail('The reference_id field is required when reference_type is provided.');
-                    }
-                    if ($this->input('reference_type') && $value) {
-                        // Check if the reference_type is a valid class
-                        if (!class_exists($this->input('reference_type'))) {
-                            $fail('The reference_type must be a valid class name.');
-                        } else {
-                            // Check if the reference_id exists in the specified reference_type table
-                            $modelClass = $this->input('reference_type');
-                            if (!app($modelClass)->where('id', $value)->exists()) {
-                                $fail('The selected reference_id is invalid for the given reference_type.');
-                            }
-                        }
-                    }
-                },
-            ],
+            'reference_type' => 'sometimes|nullable',
+            'reference_id' => 'sometimes|nullable',
         ];
+    }
+
+    /**
+     * The pair the line will have: what is sent, the stored value for what is not (a type sent alone must not
+     * reinterpret the stored id).
+     */
+    public function after(): array
+    {
+        return [function (Validator $validator) {
+            if (!$this->exists('reference_type') && !$this->exists('reference_id')) {
+                return;
+            }
+            $item = $this->route('invoice_item');
+            $type = $this->exists('reference_type') ? $this->input('reference_type') : $item?->reference_type;
+            $id = $this->exists('reference_id') ? $this->input('reference_id') : $item?->reference_id;
+            $problem = InvoiceItemReference::problem($item?->invoice, $type, $id);
+            if ($problem !== null) {
+                $validator->errors()->add(...$problem);
+            }
+        }];
     }
 }

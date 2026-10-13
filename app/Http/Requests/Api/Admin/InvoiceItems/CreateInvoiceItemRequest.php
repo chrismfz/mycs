@@ -3,6 +3,9 @@
 namespace App\Http\Requests\Api\Admin\InvoiceItems;
 
 use App\Http\Requests\Api\Admin\AdminApiRequest;
+use App\Models\Invoice;
+use App\Services\Invoice\InvoiceItemReference;
+use Illuminate\Validation\Validator;
 
 class CreateInvoiceItemRequest extends AdminApiRequest
 {
@@ -15,31 +18,20 @@ class CreateInvoiceItemRequest extends AdminApiRequest
             'description' => 'required|string|max:255',
             'price' => 'required|numeric|min:0',
             'quantity' => 'required|integer|min:1',
-            'reference_type' => 'nullable|string|max:255',
-            'reference_id' => [
-                'nullable',
-                'integer',
-                // Ensure reference_id is provided if reference_type is provided
-                function ($attribute, $value, $fail) {
-                    if ($this->input('reference_type') && !$value) {
-                        $fail('The reference_id field is required when reference_type is provided.');
-                    }
-                    if ($this->input('reference_type') && $value) {
-                        // Check if the reference_type is a valid class
-                        if (!class_exists($this->input('reference_type'))) {
-                            $fail('The reference_type must be a valid class name.');
-                        } else {
-                            // Check if the reference_id exists in the specified reference_type table
-                            $modelClass = $this->input('reference_type');
-                            if (!app($modelClass)->where('id', $value)->exists()) {
-                                $fail('The selected reference_id is invalid for the given reference_type.');
-                            }
-                        }
-                    }
-                },
-            ],
-
+            'reference_type' => 'nullable',
+            'reference_id' => 'nullable',
         ];
+    }
+
+    /** The reference is checked as a pair (InvoiceItemReference). */
+    public function after(): array
+    {
+        return [function (Validator $validator) {
+            $problem = InvoiceItemReference::problem(Invoice::query()->find($this->input('invoice_id')), $this->input('reference_type'), $this->input('reference_id'));
+            if ($problem !== null) {
+                $validator->errors()->add(...$problem);
+            }
+        }];
     }
 
     public function prepareForValidation()
