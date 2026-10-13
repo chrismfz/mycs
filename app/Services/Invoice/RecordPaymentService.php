@@ -299,6 +299,10 @@ class RecordPaymentService
     /**
      * Customer first, then the invoice. Every path that writes money (payments, credit, refunds, deletions)
      * takes them in this order before any transaction row: no deadlock.
+     *
+     * The owner is read before any lock: staff can move an unpaid invoice in between. Then the owner the locked
+     * invoice really has is locked too, so that customer's payment paths stay serialised. That one lock comes after
+     * the invoice's; the rare deadlock it can cause is detected by InnoDB and rolls one side back.
      */
     public function lockInvoice(mixed $invoiceId): Invoice
     {
@@ -307,7 +311,12 @@ class RecordPaymentService
             User::query()->whereKey($userId)->lockForUpdate()->first();
         }
 
-        return Invoice::query()->whereKey($invoiceId)->lockForUpdate()->firstOrFail();
+        $invoice = Invoice::query()->whereKey($invoiceId)->lockForUpdate()->firstOrFail();
+        if ($invoice->user_id !== null && (int) $invoice->user_id !== (int) $userId) {
+            User::query()->whereKey($invoice->user_id)->lockForUpdate()->first();
+        }
+
+        return $invoice;
     }
 
     /**

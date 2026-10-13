@@ -11,6 +11,7 @@ use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\Invoice\RecordPaymentService;
 use Filament\Actions\DeleteAction;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -71,8 +72,8 @@ class MoneyTrailFinalReviewTest extends TestCase
 
     /**
      * P2: the same guard in the admin edit form was an uncaught DisplayException (error page) instead of a message.
-     * In its own process: after the rest of the suite the Filament/Livewire page no longer mounts (state other tests
-     * leave behind in statics); a real request is always a fresh process.
+     * In its own process: after some earlier test in the suite, Livewire's update route is gone (the follow-up
+     * request 404s), route state leaking between tests; production has a fresh process per request.
      */
     #[RunInSeparateProcess]
     #[PreserveGlobalState(false)]
@@ -131,17 +132,54 @@ class MoneyTrailFinalReviewTest extends TestCase
         $this->assertNull($this->user->fresh());
     }
 
-    /** A stale form that moves nothing and leaves the status alone does not write an old status back. */
-    public function test_saving_an_unpaid_looking_copy_without_a_status_change_keeps_the_paid_status(): void
+    private function unpaidInvoice(): Invoice
     {
         $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'pending', 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 100]);
+
+        return $invoice->fresh();
+    }
+
+    /**
+     * Round 4 (P2): a stale copy that only moves an unpaid invoice goes through the locked save; it must not write
+     * its old status back over a newer one (pending over cancelled would reopen it and void its cancellation note).
+     */
+    public function test_a_stale_copy_moving_an_unpaid_invoice_does_not_reopen_a_cancelled_one(): void
+    {
+        $invoice = $this->unpaidInvoice();
         $stale = $invoice->fresh(); // loaded while pending
-        ExtensionHelper::addPayment($invoice->id, 'Stripe', 100.00, null, 'pi_stale', currency: 'USD');
-        $this->assertSame('paid', $invoice->fresh()->status);
+        $invoice->fresh()->update(['status' => 'cancelled']);
 
-        $stale->forceFill(['due_at' => now()->addWeeks(2)])->save();
+        $stale->update(['user_id' => User::factory()->create()->id]);
 
-        $this->assertSame('paid', $invoice->fresh()->status);
+        $this->assertSame('cancelled', $invoice->fresh()->status);
+    }
+
+    /**
+     * Round 4 (P2): the invoice moves to another customer between lockInvoice's read of the owner and its locks; the
+     * owner the locked invoice has is locked too, so that customer's payment paths stay serialised.
+     */
+    public function test_lock_invoice_locks_the_owner_the_locked_invoice_has(): void
+    {
+        $other = User::factory()->create();
+        $invoice = $this->unpaidInvoice();
+        $moved = false;
+        DB::listen(function ($query) use (&$moved, $invoice, $other) {
+            if (!$moved && preg_match('/^select [`"]user_id[`"] from [`"]invoices[`"]/', $query->sql)) {
+                $moved = true;
+                DB::table('invoices')->where('id', $invoice->id)->update(['user_id' => $other->id]);
+            }
+        });
+        DB::enableQueryLog();
+
+        $locked = DB::transaction(fn () => (new RecordPaymentService)->lockInvoice($invoice->id));
+
+        $this->assertTrue($moved);
+        $this->assertSame($other->id, $locked->user_id);
+        $lockedUsers = collect(DB::getQueryLog())
+            // The customer locks (SQLite drops "for update" from the SQL; MariaDB keeps it).
+            ->filter(fn (array $query) => preg_match('/^select \* from [`"]users[`"]/', $query['query']))
+            ->map(fn (array $query) => $query['bindings'][0])->values()->all();
+        $this->assertContains($other->id, $lockedUsers, 'The payment went ahead for the new owner without that customer lock.');
     }
 }
