@@ -135,14 +135,15 @@ class InvoiceObserver
     }
 
     /**
-     * Only the statuses MyCS knows (Invoice::STATUSES). One it does not know (Paymenter's old «pending», a typo, the old
-     * importer's «unpaid» before it existed) would hide the invoice from every list, payment and cron step that looks
-     * for open ones (adversarial review of 2b).
+     * Only the statuses MyCS knows (Invoice::STATUSES). One it does not know (Paymenter's old «pending», a typo) would
+     * hide the invoice from every list, payment and cron step that looks for open ones (adversarial review of 2b).
      */
     private static function refuseUnknownStatus(Invoice $invoice): void
     {
-        if ($invoice->status !== null && !in_array($invoice->status, Invoice::STATUSES, true)) {
-            throw new \LogicException("Unknown invoice status «{$invoice->status}»: one of " . implode(', ', Invoice::STATUSES) . '.');
+        // Not set on create: the column default (unpaid) fills it.
+        $status = $invoice->getAttributes()['status'] ?? null;
+        if ($status !== null && !in_array($status, Invoice::STATUSES, true)) {
+            throw new \LogicException("Unknown invoice status «{$status}»: one of " . implode(', ', Invoice::STATUSES) . '.');
         }
     }
 
