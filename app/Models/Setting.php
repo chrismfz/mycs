@@ -58,7 +58,7 @@ class Setting extends Model implements Auditable
             'boolean' => (bool) $value,
             'integer' => (int) $value,
             'float' => (float) $value,
-            'array' => json_decode($value, true),
+            'array' => $value === null ? null : json_decode($value, true),
             default => $value,
         };
     }

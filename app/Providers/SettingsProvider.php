@@ -40,7 +40,7 @@ class SettingsProvider extends ServiceProvider
             // The cache keeps the rows as stored (secrets still encrypted, it lands in storage/ and its backups);
             // decrypted only into this process's config.
             $rows = Cache::get(self::CACHE_KEY);
-            if (!is_array($rows)) {
+            if (!is_array($rows) || $rows === []) { // empty: the table may have been empty at the first boot
                 Cache::forget('settings'); // the old cache held decrypted values
                 $rows = Setting::query()->whereNull('settingable_type')->toBase()->get(['key', 'value', 'type', 'encrypted'])
                     ->map(fn ($row) => (array) $row)->all();
