@@ -703,23 +703,26 @@ class Settings
 
     public static function tax(?User $user = null)
     {
-        // Use once so the query is only run once
-        return once(function () use ($user) {
-            $user ??= Auth::user();
-            // Get country from user properties
-            $country = $user?->properties->where('key', 'country')->value('value') ?? null;
+        $user ??= Auth::user();
+        // Get country from user properties
+        $country = $user?->properties->where('key', 'country')->value('value') ?? null;
 
-            // Change country to a two-letter country code if it's not already
-            if ($country) {
-                $country = array_search($country, config('app.countries')) ?: $country;
-            }
+        // Change country to a two-letter country code if it's not already
+        if ($country) {
+            $country = array_search($country, config('app.countries')) ?: $country;
+        }
 
-            $taxRate = TaxRate::whereIn('country', [$country, 'all'])
+        // Once per country and request/job (product pages build many prices); reset between requests and queued
+        // jobs. Per country, not per user: a customer whose country changes in the request gets the new rate.
+        $rates = app('settings.tax-rates');
+        $key = $country ?? '';
+        if (!$rates->offsetExists($key)) {
+            $rates[$key] = TaxRate::whereIn('country', [$country, 'all'])
                 ->orderByRaw('country = ? desc', [$country])
-                ->first();
+                ->first() ?: 0;
+        }
 
-            return $taxRate ?: 0;
-        });
+        return $rates[$key];
     }
 
     public static function settingsObject()

@@ -19,7 +19,12 @@ class SettingsProvider extends ServiceProvider
     /**
      * Register services.
      */
-    public function register(): void {}
+    public function register(): void
+    {
+        // Settings::tax() per country: reset for every request and every queued job (scoped), so a rate changed
+        // meanwhile is seen.
+        $this->app->scoped('settings.tax-rates', fn () => new \ArrayObject);
+    }
 
     /**
      * Bootstrap services.
