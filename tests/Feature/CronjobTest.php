@@ -239,15 +239,16 @@ class CronjobTest extends TestCase
             'currency_code' => 'USD',
         ]);
 
-        // Update due date to be overdue
-        $service->expires_at = now()->subDays(15);
-        $service->save();
-
         Queue::fake();
 
-        // Run the cron job again
-        $this->artisan('app:cron-job')
-            ->assertExitCode(0);
+        // Its invoice 3 days overdue: suspended. Not terminated in the same run (audit sweep BIL-4).
+        $this->travel(3)->days();
+        $this->artisan('app:cron-job')->assertExitCode(0);
+        $this->assertSame(Service::STATUS_SUSPENDED, $service->fresh()->status);
+
+        // 15 days overdue and suspended for 12 (terminate 14 - suspend 2): terminated.
+        $this->travel(12)->days();
+        $this->artisan('app:cron-job')->assertExitCode(0);
 
         // Check if the service was terminated
         $this->assertDatabaseHas('services', [
@@ -315,7 +316,7 @@ class CronjobTest extends TestCase
         $service = Service::factory()->create([
             'product_id' => $product->product->id,
             'status' => 'suspended',
-            'dunning_suspended_at' => now(),
+            'dunning_suspended_at' => now()->subDays(13), // suspended long enough to be terminated (BIL-4)
             'expires_at' => now()->subDays(15),
             'user_id' => $user->id,
             'currency_code' => 'USD',
@@ -348,7 +349,7 @@ class CronjobTest extends TestCase
         $service = Service::factory()->create([
             'product_id' => $product->product->id,
             'status' => 'suspended',
-            'dunning_suspended_at' => now(),
+            'dunning_suspended_at' => now()->subDays(13), // suspended long enough to be terminated (BIL-4)
             'expires_at' => now()->subDays(15),
             'user_id' => $user->id,
             'currency_code' => 'USD',
@@ -374,7 +375,7 @@ class CronjobTest extends TestCase
         $service = Service::factory()->create([
             'product_id' => $product->product->id,
             'status' => 'suspended',
-            'dunning_suspended_at' => now(),
+            'dunning_suspended_at' => now()->subDays(13), // suspended long enough to be terminated (BIL-4)
             'expires_at' => now()->subDays(15),
             'user_id' => $user->id,
             'currency_code' => 'USD',

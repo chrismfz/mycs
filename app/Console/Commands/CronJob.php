@@ -167,26 +167,51 @@ class CronJob extends Command
             }, transaction: false);
 
             $this->runCronJob('services_suspended', function ($number = 0) {
-                // Suspend orders if due date is overdue for x days
-                Service::where('status', 'active')
-                    ->where('expires_at', '<', now()->subDays((int) config('settings.cronjob_order_suspend', 2)))
+                // Suspend services whose invoice is x days overdue (WHMCS: an overdue invoice, not the date alone).
+                // A service past due with no open invoice (its billing failed, a draft holds it) is not suspended: the
+                // customer was never asked to pay. Staff are told. One service per transaction (BIL-10).
+                $cutoff = now()->subDays((int) config('settings.cronjob_order_suspend', 2));
+                $due = Service::where('status', 'active')
+                    ->where('expires_at', '<', $cutoff)
                     ->where(function ($query) {
                         $query->whereNull('suspend_hold_until')->orWhere('suspend_hold_until', '<', now());
-                    })
-                    ->lockForUpdate()->get()->each(function ($service) use (&$number) {
-                        // Register before Service Updated listeners, but execute only after the status commits.
-                        SuspendJob::dispatch($service)->afterCommit();
-                        $service->forceFill(['status' => 'suspended', 'dunning_suspended_at' => now()])->save();
-                        $number++;
                     });
+                foreach ((clone $due)->whereDoesntHave('invoices', fn ($query) => $query->where('invoices.status', Invoice::STATUS_PENDING))->pluck('id') as $id) {
+                    $this->notices["services_suspended #{$id}"] = new DisplayException("Service #{$id} is past due with no open invoice: not suspended (bill it, or set its due date).");
+                }
+                $ids = (clone $due)->whereHas('invoices', fn ($query) => $query->where('invoices.status', Invoice::STATUS_PENDING)
+                    ->where('invoices.due_at', '<', $cutoff))->pluck('id');
+                foreach ($ids as $id) {
+                    try {
+                        $number += DB::transaction(function () use ($id) {
+                            $service = Service::query()->whereKey($id)->lockForUpdate()->first();
+                            if ($service === null || $service->status !== Service::STATUS_ACTIVE) {
+                                return 0;
+                            }
+                            // Register before Service Updated listeners, but execute only after the status commits.
+                            SuspendJob::dispatch($service)->afterCommit();
+                            $service->forceFill(['status' => 'suspended', 'dunning_suspended_at' => now()])->save();
+
+                            return 1;
+                        });
+                    } catch (Throwable $e) {
+                        report($e);
+                        $this->failures["services_suspended #{$id}"] = $e;
+                    }
+                }
 
                 return $number;
-            });
+            }, transaction: false);
 
             $this->runCronJob('services_terminated', function ($number = 0) {
                 // Terminate orders if due date is overdue for x days. One service per transaction (BIL-10).
+                // Suspended for at least the gap between the two settings (one day at least): never suspended and
+                // terminated in one run, when a hold ended late, the date was moved back or the cron was down (BIL-4).
+                $suspendDays = (int) config('settings.cronjob_order_suspend', 2);
+                $terminateDays = (int) config('settings.cronjob_order_terminate', 14);
                 $ids = Service::where('status', 'suspended')->whereNotNull('dunning_suspended_at')
-                    ->where('expires_at', '<', now()->subDays((int) config('settings.cronjob_order_terminate', 14)))->pluck('id');
+                    ->where('expires_at', '<', now()->subDays($terminateDays))
+                    ->where('dunning_suspended_at', '<=', now()->subDays(max(1, $terminateDays - $suspendDays)))->pluck('id');
                 foreach ($ids as $id) {
                     try {
                         $number += DB::transaction(function () use ($id) {
