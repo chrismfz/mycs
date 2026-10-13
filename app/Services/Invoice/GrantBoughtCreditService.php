@@ -7,8 +7,8 @@ use App\Models\Credit;
 use App\Models\Invoice;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
+use App\Services\Money\PaymentsLog;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 class GrantBoughtCreditService
 {
@@ -25,7 +25,7 @@ class GrantBoughtCreditService
         if ($invoice->user_id === null) {
             if ($items->contains(fn ($item) => $item->applied_at === null)) {
                 $message = "Credit purchase invoice #{$invoice->id} was paid but has no customer: its credit was NOT given. Handle it by hand.";
-                Log::warning($message, ['invoice_id' => $invoice->id]);
+                PaymentsLog::warning($message, ['invoice_id' => $invoice->id]);
                 DB::afterCommit(fn () => NotificationHelper::sendSystemEmailNotification('Payment needs attention', e($message)));
             }
 
