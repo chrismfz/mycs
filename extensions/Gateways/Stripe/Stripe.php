@@ -49,14 +49,14 @@ class Stripe extends Gateway
                 // If the service is not a stripe subscription, skip
                 return;
             }
-            if ($event->service->isDirty('price') || $event->service->isDirty('expires_at')) {
+            if ($event->changed('price', 'expires_at')) {
                 try {
-                    $this->updateSubscription($event->service);
+                    $this->updateSubscription($event->service, $event->changes);
                 } catch (Exception $e) {
                 }
             }
-            // Check if the service is canceled
-            if ($event->service->isDirty('status') && $event->service->status === Service::STATUS_CANCELLED) {
+            // Check if the service is canceled (by this save, and still is at commit)
+            if (($event->changes['status'] ?? null) === Service::STATUS_CANCELLED && $event->service->status === Service::STATUS_CANCELLED) {
                 try {
                     $this->cancelSubscription($event->service);
                 } catch (Exception $e) {
@@ -409,12 +409,17 @@ class Stripe extends Gateway
         }
     }
 
-    public function updateSubscription(Service $service)
+    /**
+     * @param  array<string, mixed>|null  $changes  what the save changed (Service\Updated::$changes); null = the dirty attributes
+     */
+    public function updateSubscription(Service $service, ?array $changes = null)
     {
+        $changes ??= $service->getDirty();
+
         // Grab the schedule from Stripe
         $scheduleId = $this->request('get', '/subscriptions/' . $service->subscription_id);
 
-        if ($service->isDirty('price')) {
+        if (array_key_exists('price', $changes)) {
             if ($scheduleId->schedule) {
 
                 $oldPhases = $this->request('get', '/subscription_schedules/' . $scheduleId->schedule)->phases;
@@ -481,7 +486,7 @@ class Stripe extends Gateway
             }
         }
 
-        if ($service->isDirty('expires_at')) {
+        if (array_key_exists('expires_at', $changes)) {
             $subDate = Carbon::createFromTimestamp($scheduleId->current_period_end)->startOfDay();
             // Check if current date is before the end date of the subscription
             if ($subDate == $service->expires_at || $service->expires_at <= $subDate) {

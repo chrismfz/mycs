@@ -133,7 +133,10 @@ class DiscordNotifications extends Extension
                 : $this->mapId($event->{$model}->id, $model . '_id'),
             'inline' => true,
         ];
-        foreach ($event->{$model}->getChanges() as $field => $value) {
+        // Events dispatched after commit (Service\Updated) carry their own changes; the model's are synced by then.
+        $changes = property_exists($event, 'changes') ? $event->changes : $event->{$model}->getChanges();
+        $original = property_exists($event, 'original') ? $event->original : null;
+        foreach ($changes as $field => $value) {
             if (!in_array($field, ['created_at', 'updated_at', 'password', 'remember_token'])) {
                 if (!is_string($value)) {
                     $value = json_encode($value);
@@ -141,7 +144,7 @@ class DiscordNotifications extends Extension
                 // Replace _ with space and capitalize the first letter
                 $changedFields[] = [
                     'name' => ucfirst(str_replace('_', ' ', $field)),
-                    'value' => $event->{$model}->getOriginal($field) . ' -> ' . $value,
+                    'value' => ($original !== null ? ($original[$field] ?? '') : $event->{$model}->getOriginal($field)) . ' -> ' . $value,
                     'inline' => true,
                 ];
             }

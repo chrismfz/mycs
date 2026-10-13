@@ -140,13 +140,13 @@ class PayPal extends Gateway
             if ($event->service->properties->where('key', 'has_paypal_subscription')->first()?->value !== '1') {
                 return;
             }
-            if ($event->service->isDirty('price')) {
+            if ($event->changed('price')) {
                 try {
                     $this->updateSubscription($event->service);
                 } catch (Exception $e) {
                 }
             }
-            if ($event->service->isDirty('status') && $event->service->status === Service::STATUS_CANCELLED) {
+            if (($event->changes['status'] ?? null) === Service::STATUS_CANCELLED && $event->service->status === Service::STATUS_CANCELLED) {
                 try {
                     $this->cancelSubscription($event->service);
                 } catch (Exception $e) {
@@ -424,7 +424,8 @@ class PayPal extends Gateway
         if ($service->properties->where('key', 'has_paypal_subscription')->first()?->value !== '1') {
             return false;
         }
-        $paypal = new PayPal;
+        // This instance: a new PayPal would lose the configuration (sandbox, credentials) it was booted with.
+        $paypal = $this;
         // Update subscription price
         $newPrice = Service::where('subscription_id', $service->subscription_id)->sum('price');
         // Grab currenct subscription ID
