@@ -2,10 +2,10 @@
 
 namespace App\Jobs\Server;
 
+use App\Exceptions\NothingToDoOnServer;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Models\Service;
-use Exception;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -14,11 +14,9 @@ use Illuminate\Queue\SerializesModels;
 
 class UnsuspendJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, RetriesModuleAction, SerializesModels;
 
     public $timeout = 120;
-
-    public $tries = 1;
 
     /**
      * Create a new job instance.
@@ -37,13 +35,16 @@ class UnsuspendJob implements ShouldQueue
         $data = [];
         try {
             $data = ExtensionHelper::unsuspendServer($this->service);
-        } catch (Exception $e) {
-            if ($e->getMessage() !== 'No server assigned to this product') {
-                throw $e;
-            }
+        } catch (NothingToDoOnServer) {
+            // No module, or a module without this action: nothing to do (not retried).
         }
 
         // WHMCS's «Service Unsuspension Notification» (sent at both companies).
         NotificationHelper::serverUnsuspendedNotification($this->service->client, $this->service, is_array($data) ? $data : []);
+    }
+
+    protected function moduleAction(): string
+    {
+        return 'unsuspend';
     }
 }

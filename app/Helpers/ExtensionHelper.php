@@ -7,7 +7,9 @@ use App\Classes\FilamentInput;
 use App\Enums\AdjustmentNoteType;
 use App\Enums\InvoiceTransactionStatus;
 use App\Enums\MoneyEventKind;
+use App\Exceptions\CreateSkipped;
 use App\Exceptions\DisplayException;
+use App\Exceptions\NothingToDoOnServer;
 use App\Models\BillingAgreement;
 use App\Models\Client;
 use App\Models\Credit;
@@ -17,17 +19,20 @@ use App\Models\GatewayRefund;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
+use App\Models\ModuleAction;
 use App\Models\MoneyEvent;
 use App\Models\PaymentGatewayEvent;
 use App\Models\Product;
 use App\Models\Server;
 use App\Models\Service;
+use App\Observers\ServiceObserver;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\GatewayLog;
 use App\Services\Money\MoneyTrail;
 use App\Services\Service\ServerSelector;
+use Carbon\CarbonImmutable;
 use Exception;
 use Filament\Forms\Components\Placeholder;
 use Illuminate\Database\Eloquent\Collection;
@@ -43,6 +48,7 @@ use Illuminate\Support\Facades\Log;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use OwenIt\Auditing\Events\AuditCustom;
 use ReflectionClass;
+use Throwable;
 
 class ExtensionHelper
 {
@@ -297,7 +303,7 @@ class ExtensionHelper
 
         if (!$server) {
             if ($mayFail) {
-                throw new Exception('No server assigned to this product');
+                throw new NothingToDoOnServer('No server assigned to this product');
             } else {
                 return;
             }
@@ -531,7 +537,7 @@ class ExtensionHelper
             DB::afterCommit(function () use ($extension, $transactionId) {
                 try {
                     self::applyWaitingRefunds($extension, (string) $transactionId);
-                } catch (\Throwable $e) {
+                } catch (Throwable $e) {
                     report($e);
                 }
             });
@@ -576,7 +582,7 @@ class ExtensionHelper
                     if (self::getExtension('gateway', $gateway->extension, $gateway->settings)->cancelSubscription($service)) {
                         return true;
                     }
-                } catch (\Throwable $e) { // an Error too: the subscription may still be another gateway's
+                } catch (Throwable $e) { // an Error too: the subscription may still be another gateway's
                     $failure ??= $e;
                 }
             }
@@ -662,7 +668,7 @@ class ExtensionHelper
 
                 return true;
             });
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             if ($refundedAtGateway) { // recording or the commit failed after the money left
                 // With the gateway's id, its webhook records it (PR 2c-2): recording it by hand as well would count it twice.
                 Log::critical($reference !== null
@@ -782,7 +788,7 @@ class ExtensionHelper
         DB::afterCommit(function () use ($clientId, $currency) {
             try {
                 (new CreditAutoApply)->forCustomer($clientId, $currency);
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 report($e); // the refund stands; the daily pass tries again
             }
         });
@@ -910,7 +916,7 @@ class ExtensionHelper
                     $waiting->origin === GatewayRefund::ORIGIN_CHARGEBACK_WAITING
                         ? self::chargebackAtGateway($gateway, $paymentReference, $waiting->reference, (float) $waiting->amount, $currency)
                         : self::refundedAtGateway($gateway, $paymentReference, $waiting->reference, (float) $waiting->amount, $currency);
-                } catch (\Throwable $e) {
+                } catch (Throwable $e) {
                     report($e); // it keeps waiting: the next payment event or the gateway's retry applies it
                 }
             });
@@ -1372,7 +1378,7 @@ class ExtensionHelper
         DB::afterCommit(function () use ($invoice, $cents, $toCredit, $byGateway) {
             try {
                 NotificationHelper::invoiceRefundedNotification($invoice->client, $invoice->fresh(), $cents, $toCredit, $byGateway);
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 report($e);
             }
         });
@@ -1445,12 +1451,12 @@ class ExtensionHelper
             throw new Exception("The service's server #{$service->server_id} no longer exists: set its server first");
         }
         if (!$server) {
-            throw new Exception('No server assigned to this product');
+            throw new NothingToDoOnServer('No server assigned to this product');
         }
 
         // Does server support this action?
         if (!self::hasFunction($server, $action)) {
-            throw new Exception('Server does not support the action: ' . $action);
+            throw new NothingToDoOnServer('Server does not support the action: ' . $action);
         }
 
         return $server;
@@ -1468,30 +1474,111 @@ class ExtensionHelper
     }
 
     /**
-     * Runs a server action. An adapter fails by throwing; `false` (the old cPanel convention) is turned into an
-     * exception too, so no caller mistakes a refused action for a done one.
+     * Runs one server action and records it (Σ1, module_actions): a failure stays open for the Pending Module Actions,
+     * a success closes it. An adapter fails by throwing; `false` (the old cPanel convention) is turned into an exception
+     * too, so no caller mistakes a refused action for a done one. Nothing to do on the server (no module, or a module
+     * without the action: NothingToDoOnServer) is not a failure. A create that succeeds starts a pending service:
+     * active only once the account exists (WHMCS).
      */
     protected static function serverAction(Service $service, string $action, string $audit)
     {
-        $server = self::checkServer($service, $action);
+        $recorded = ModuleAction::ACTIONS[$action];
+        try {
+            $server = self::checkServer($service, $action);
+        } catch (NothingToDoOnServer $e) {
+            throw $e;
+        } catch (Exception $e) {
+            ModuleAction::recordFailure($service, $recorded, $service->server?->extension, $e);
+            throw $e;
+        }
 
         self::recordAudit($service, 'extension_action', [], ['action' => $audit]);
 
-        $result = self::getExtension('server', $server->extension, $server->settings)->$action($service, self::settingsToArray($service->product->settings), self::getServiceProperties($service));
+        try {
+            $result = self::getExtension('server', $server->extension, $server->settings)->$action($service, self::settingsToArray($service->product->settings), self::getServiceProperties($service));
 
-        if ($result === false) {
-            throw new Exception('Server action ' . $action . ' failed for service #' . $service->id . ' (' . $server->extension . ')');
+            if ($result === false) {
+                throw new Exception('Server action ' . $action . ' failed for service #' . $service->id . ' (' . $server->extension . ')');
+            }
+        } catch (Throwable $e) {
+            ModuleAction::recordFailure($service, $recorded, $server->extension, $e);
+            throw $e;
+        }
+
+        ModuleAction::recordSuccess($service, $recorded, $server->extension);
+        if ($action === 'createServer') {
+            self::startCreated($service);
         }
 
         return $result;
     }
 
     /**
+     * Paid while its account could not be made (the server failed, Pending Module Actions): the customer gets the
+     * period they paid for from the day the account exists, so a service made late is not overdue the day it starts
+     * (adversarial A1). The paid-until date moves by the days waited, as staff's grace would; its invoice lines stay.
+     */
+    private static function giveBackTheWait(Service $service): void
+    {
+        if ($service->expires_at === null) {
+            return;
+        }
+        $paidFrom = $service->livePeriodLines()->filter(fn ($line) => $line->invoice?->status === Invoice::STATUS_PAID)
+            ->min(fn ($line) => $line->period_start);
+        if ($paidFrom === null) {
+            return;
+        }
+        $waited = (int) CarbonImmutable::parse($paidFrom)->startOfDay()->diffInDays(CarbonImmutable::today(), false);
+        if ($waited > 0) {
+            $service->expires_at = CarbonImmutable::parse($service->expires_at)->addDays($waited)->toMutable();
+        }
+    }
+
+    /**
+     * The account exists (made, made by hand, or nothing to make): a pending service starts (an ended one stays as it
+     * is).
+     */
+    public static function startCreated(Service $service): void
+    {
+        DB::transaction(function () use ($service) {
+            $locked = Service::query()->whereKey($service->id)->lockForUpdate()->first();
+            if ($locked === null) {
+                return;
+            }
+            if ($locked->status === Service::STATUS_PENDING) {
+                $locked->status = Service::STATUS_ACTIVE;
+                self::giveBackTheWait($locked);
+                ServiceObserver::$renewing = true; // the date moved here is the paid one, not a staff edit to re-chain
+                try {
+                    $locked->save();
+                } finally {
+                    ServiceObserver::$renewing = false;
+                }
+            }
+            $service->setRawAttributes($locked->getAttributes(), true);
+        });
+    }
+
+    /**
      * Create server
      */
-    public static function createServer(Service $service)
+    public static function createServer(Service $service, bool $whilePending = false)
     {
-        return self::serverAction($service, 'createServer', 'create_server');
+        // One create of a service at a time, whoever asks (the job, its retry, staff): two would make two accounts
+        // (adversarial A5). $whilePending: the job's check, read again under the lock.
+        $lock = Cache::lock("service-create:{$service->id}", 600);
+        if (!$lock->get()) {
+            throw new CreateSkipped("A create of service #{$service->id} is already running.");
+        }
+        try {
+            if ($whilePending && Service::query()->whereKey($service->id)->value('status') !== Service::STATUS_PENDING) {
+                throw new CreateSkipped("Service #{$service->id} is no longer pending.");
+            }
+
+            return self::serverAction($service, 'createServer', 'create_server');
+        } finally {
+            $lock->release();
+        }
     }
 
     /**

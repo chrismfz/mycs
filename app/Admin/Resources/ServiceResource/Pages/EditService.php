@@ -92,7 +92,7 @@ class EditService extends EditRecord
                             'suspend' => 'Suspend server',
                             'unsuspend' => 'Unsuspend server',
                             'terminate' => 'Terminate server',
-                            'upgrade' => 'Upgrade server',
+                            'upgrade' => 'Change package (upgrade/downgrade)',
                         ])->required(),
                     Checkbox::make('sendNotification')
                         ->label('Send Notification')

@@ -19,6 +19,7 @@ use App\Admin\Resources\FailedJobResource;
 use App\Admin\Resources\GatewayResource;
 use App\Admin\Resources\InvoiceResource;
 use App\Admin\Resources\InvoiceTransactions\InvoiceTransactionResource;
+use App\Admin\Resources\ModuleActionResource;
 use App\Admin\Resources\NotificationTemplateResource;
 use App\Admin\Resources\OauthClientResource;
 use App\Admin\Resources\OrderResource;
@@ -74,6 +75,7 @@ class TopMenu
             [EmailLogResource::class, 'index', 'Email Message Log'],
             [AuditResource::class, 'index', 'Activity Log'],
             [CronStats::class],
+            [ModuleActionResource::class, 'index', 'Pending Module Actions'],
             [FailedJobResource::class, 'index', 'Failed Jobs'],
         ],
         'Setup' => [

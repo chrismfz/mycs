@@ -96,6 +96,7 @@ class ServerAdapterFailureTest extends TestCase
     public function test_the_create_job_fails_and_sends_no_server_created_email(): void
     {
         $this->whm('/createacct', 0, 'Package does not exist');
+        $this->service->update(['status' => 'pending']); // the job creates pending services only (Σ1)
 
         try {
             (new CreateJob($this->service))->handle();
@@ -106,6 +107,7 @@ class ServerAdapterFailureTest extends TestCase
 
         // Other mail (e.g. the new user's) may be queued by the fixtures: only the server-created one matters.
         Mail::assertNotQueued(MyCSMail::class, fn (MyCSMail $mail) => $mail->templateKey === 'new_server_created');
+        $this->assertSame('pending', $this->service->fresh()->status, 'active only once the account exists');
     }
 
     /** @return array<string, array{string, string}> */
