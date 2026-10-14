@@ -33,7 +33,7 @@ class ZlicController extends Controller
             return response(json_encode(['status' => 'Invalid', 'description' => 'Remote Check Failed']), 200, ['Content-Type' => 'application/json']);
         }
 
-        if (isset($params['license']) && is_string($params['license']) && $params['license'] !== '') {
+        if (isset($params['license']) && $params['license'] !== '') {
             try {
                 LicenseActivity::record($params['license'], $response, $ip, $request->method() . ' ' . $request->userAgent());
             } catch (Throwable $e) {
