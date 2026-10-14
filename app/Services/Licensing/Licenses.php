@@ -32,7 +32,8 @@ class Licenses
         return DB::transaction(function () use ($service, $settings) {
             $license = License::query()->where('service_id', $service->id)->lockForUpdate()->first();
             if ($license !== null) {
-                if ($license->status === License::STATUS_EXPIRED || $license->status === License::STATUS_SUSPENDED) {
+                // Made Active again only for a service that runs (review ADV-L2b): «Create» on a cancelled one revives nothing.
+                if ($license->status === License::STATUS_SUSPENDED && $service->status === Service::STATUS_ACTIVE) {
                     $license->update(['status' => License::STATUS_ACTIVE]);
                 }
 
@@ -52,6 +53,12 @@ class Licenses
     public static function setStatus(Service $service, string $status): ?License
     {
         $license = License::query()->where('service_id', $service->id)->first();
+        // Expired is final, and Active needs a running service (review ADV-L2): an «Unsuspend» of a cancelled service
+        // does not revive its license.
+        if ($license !== null && ($license->status === License::STATUS_EXPIRED
+            || ($status === License::STATUS_ACTIVE && $service->fresh()?->status !== Service::STATUS_ACTIVE))) {
+            return $license;
+        }
         if ($license !== null && $license->status !== $status) {
             // An unsuspend of a license waiting to be bound again keeps it Reissued.
             if (!($status === License::STATUS_ACTIVE && $license->status === License::STATUS_REISSUED)) {

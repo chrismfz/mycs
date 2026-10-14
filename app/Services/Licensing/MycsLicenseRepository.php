@@ -8,6 +8,7 @@ use App\Models\LicenseAccessLog;
 use App\Models\Plan;
 use App\Models\Service;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Nixpal\Licensing\License;
 use Nixpal\Licensing\LicenseRepository;
 
@@ -19,6 +20,8 @@ use Nixpal\Licensing\LicenseRepository;
  */
 final class MycsLicenseRepository implements LicenseRepository
 {
+    public const UNKNOWN_PER_MINUTE = 10;
+
     public function findByKey($licenseKey)
     {
         $row = LicenseRow::query()->where('license_key', (string) $licenseKey)
@@ -34,7 +37,9 @@ final class MycsLicenseRepository implements LicenseRepository
         $license = new License;
         $license->id = $row->id;
         $license->licenseKey = $row->license_key;
-        $license->status = $row->status;
+        // As verify.php, the service's state wins (review ADV-L1): an ended service answers Expired, a suspended or not yet
+        // active one Suspended, also when its server action never ran (a failed job, a product moved off the server).
+        $license->status = self::effectiveStatus($row->status, $service->status);
         $license->validDomain = (string) $row->valid_domain;
         $license->validIp = (string) $row->valid_ip;
         $license->validDirectory = (string) $row->valid_directory;
@@ -46,15 +51,17 @@ final class MycsLicenseRepository implements LicenseRepository
         $tags = [
             'registeredname' => trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')),
             'companyname' => (string) ($contact->company_name ?? ''),
-            'email' => (string) ($contact->email ?? $service->client->email ?? ''),
+            'email' => (string) ($contact->email ?? ''), // the account's own, as tblclients.email (review R9)
             // The importer keeps WHMCS's ids: the id clients have in their stored localkey.
             'serviceid' => (string) $service->id,
             'productid' => (string) $service->product_id,
             'productname' => (string) ($service->product->name ?? ''),
             // verify.php prints the registration date as a datetime at midnight.
-            'regdate' => $service->created_at?->format('Y-m-d') . ' 00:00:00',
+            // In the company's time zone, as WHMCS's local regdate (review R10).
+            'regdate' => $service->created_at?->copy()->setTimezone((string) config('settings.timezone', 'UTC'))->format('Y-m-d') . ' 00:00:00',
             'nextduedate' => $service->expires_at?->format('Y-m-d') ?? '0000-00-00',
-            'billingcycle' => self::billingCycle($service->plan),
+            // WHMCS's own cycle when imported (review R8: a free or retired plan is imported without one).
+            'billingcycle' => (string) ($service->properties->firstWhere('key', 'whmcs_billingcycle')->value ?? self::billingCycle($service->plan)),
         ];
         $customfields = self::customFields($service, (string) ($settings['custom_fields'] ?? ''));
         if ($customfields !== null) {
@@ -88,6 +95,10 @@ final class MycsLicenseRepository implements LicenseRepository
 
     public function log($license, $domain, $ip, $directory, $message)
     {
+        // Unknown keys (unauthenticated) are logged at most UNKNOWN_PER_MINUTE times a minute per address (review ADV-L6).
+        if ($license === null && Cache::increment('zlic:unknown:' . $ip . ':' . now()->format('YmdHi')) > self::UNKNOWN_PER_MINUTE) {
+            return;
+        }
         LicenseAccessLog::query()->create([
             'license_id' => $license?->id,
             'domain' => mb_substr((string) $domain, 0, 255),
@@ -96,6 +107,15 @@ final class MycsLicenseRepository implements LicenseRepository
             'message' => mb_substr((string) $message, 0, 255),
             'created_at' => now(),
         ]);
+    }
+
+    public static function effectiveStatus(string $license, string $service): string
+    {
+        return match ($service) {
+            Service::STATUS_CANCELLED, Service::STATUS_TERMINATED => LicenseRow::STATUS_EXPIRED,
+            Service::STATUS_SUSPENDED, Service::STATUS_PENDING => $license === LicenseRow::STATUS_EXPIRED ? $license : LicenseRow::STATUS_SUSPENDED,
+            default => $license,
+        };
     }
 
     /** WHMCS's billing cycle names (verify.php's «billingcycle»). */

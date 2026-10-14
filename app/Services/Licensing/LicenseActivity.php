@@ -22,15 +22,17 @@ class LicenseActivity
         $now = now();
         License::query()->whereKey($license->id)->update($ok
             ? ['last_ok_at' => $now, 'last_seen_ip' => mb_substr($ip, 0, 64), 'last_seen_client' => mb_substr($client, 0, 255)]
-            : ['last_failure_at' => $now, 'last_failure' => mb_substr((string) ($response->body['message'] ?? $response->body['description'] ?? $response->body['status'] ?? ''), 0, 255),
-                'last_seen_ip' => mb_substr($ip, 0, 64), 'last_seen_client' => mb_substr($client, 0, 255)]);
+            // A failure says when, why and from where, without overwriting where it last worked (anyone may send one).
+            : ['last_failure_at' => $now, 'last_failure' => mb_substr(trim((string) ($response->body['message'] ?? $response->body['description'] ?? $response->body['status'] ?? '') . ' (' . $ip . ')'), 0, 255)]);
 
         $column = $ok ? 'ok' : 'failed';
         $day = $now->toDateString();
         // One row per license and day: created by the first check, counted up by the rest.
         $updated = DB::table('license_check_days')->where(['license_id' => $license->id, 'day' => $day])->increment($column);
-        if ($updated === 0) {
-            DB::table('license_check_days')->insertOrIgnore(['license_id' => $license->id, 'day' => $day, 'ok' => $ok ? 1 : 0, 'failed' => $ok ? 0 : 1]);
+        if ($updated === 0
+            && DB::table('license_check_days')->insertOrIgnore(['license_id' => $license->id, 'day' => $day, 'ok' => $ok ? 1 : 0, 'failed' => $ok ? 0 : 1]) === 0) {
+            // Another check of the same license made the day's row meanwhile (review R6): count this one on it.
+            DB::table('license_check_days')->where(['license_id' => $license->id, 'day' => $day])->increment($column);
         }
     }
 }

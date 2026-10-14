@@ -5,7 +5,7 @@ namespace App\Models;
 use App\Events\Setting\Retrieved;
 use App\Events\Setting\Saved;
 use App\Events\Setting\Saving;
-use App\Redactors\RightRedactor;
+use App\Redactors\FullRedactor;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Support\Facades\Crypt;
 use OwenIt\Auditing\Contracts\Auditable;
@@ -76,7 +76,7 @@ class Setting extends Model implements Auditable
         }
 
         return [
-            'value' => RightRedactor::class,
+            'value' => FullRedactor::class,
         ];
     }
 

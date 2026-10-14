@@ -31,6 +31,11 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->append(ProxyMiddleware::class);
+        // zlic.php is a machine contract (CLAUDE.md, review ADV-L4/L7): answered during a deploy too (its own
+        // «Remote Check Failed» is what clients fall back on), and its input as sent, never trimmed or nulled.
+        $middleware->preventRequestsDuringMaintenance(except: ['zlic.php']);
+        $middleware->trimStrings(except: [fn ($request) => $request->is('zlic.php')]);
+        $middleware->convertEmptyStringsToNull(except: [fn ($request) => $request->is('zlic.php')]);
         $middleware->alias([
             'has' => EnsureUserHasPermissions::class,
             'scope' => CheckTokenForAnyScope::class,

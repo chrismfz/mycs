@@ -21,9 +21,11 @@ class ZlicController extends Controller
 
     public function __invoke(Request $request): Response
     {
-        $params = $request->post() + $request->query();
+        // Strings only (review ADV-L5): «license[]=…» is a missing parameter, as for zlic.php, not an exception.
+        $params = array_filter($request->post() + $request->query(), 'is_string');
+        $ip = self::callerIp($request);
         try {
-            $response = (new Zlic(new MycsLicenseRepository, null, null, null, self::DIRECTORY))->handle($params, (string) $request->ip());
+            $response = (new Zlic(new MycsLicenseRepository, null, null, null, self::DIRECTORY))->handle($params, $ip);
         } catch (Throwable $e) {
             report($e);
 
@@ -33,12 +35,24 @@ class ZlicController extends Controller
 
         if (isset($params['license']) && is_string($params['license']) && $params['license'] !== '') {
             try {
-                LicenseActivity::record($params['license'], $response, (string) $request->ip(), $request->method() . ' ' . $request->userAgent());
+                LicenseActivity::record($params['license'], $response, $ip, $request->method() . ' ' . $request->userAgent());
             } catch (Throwable $e) {
                 report($e); // never changes the answer
             }
         }
 
         return response($response->json(), $response->httpStatus, ['Content-Type' => 'application/json']);
+    }
+
+    /**
+     * The address the license is bound to and checked against: the connection's, unless it comes through a proxy staff
+     * listed by address (review ADV-L3). «Trust all proxies» (*) would let any caller name its address in
+     * X-Forwarded-For and pass the IP binding, the one per-customer check.
+     */
+    private static function callerIp(Request $request): string
+    {
+        $proxies = (array) config('settings.trusted_proxies', []);
+
+        return in_array('*', $proxies, true) ? (string) $request->server('REMOTE_ADDR') : (string) $request->ip();
     }
 }

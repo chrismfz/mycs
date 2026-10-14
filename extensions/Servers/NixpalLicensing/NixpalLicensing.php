@@ -72,6 +72,15 @@ class NixpalLicensing extends Server
         return true;
     }
 
+    /**
+     * A plan or cycle change keeps the license as it is (review R7): same key, bindings and status. A move to another
+     * licensing product changes the PSK its clients must send: staff reissue it there.
+     */
+    public function upgradeServer(Service $service, $settings, $properties)
+    {
+        return true;
+    }
+
     public function terminateServer(Service $service, $settings, $properties)
     {
         Licenses::setStatus($service, License::STATUS_EXPIRED);

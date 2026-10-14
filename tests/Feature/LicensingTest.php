@@ -120,7 +120,7 @@ class LicensingTest extends TestCase
         $license = License::query()->sole();
 
         $this->assertSame('2026-10-20 10:00:00', $license->last_ok_at->format('Y-m-d H:i:s'));
-        $this->assertSame('MD5 Checksum Verification Failed', $license->last_failure);
+        $this->assertSame('MD5 Checksum Verification Failed (198.51.100.7)', $license->last_failure);
         $this->assertSame('198.51.100.7', $license->last_seen_ip);
         $this->assertStringStartsWith('POST ', $license->last_seen_client);
         $day = DB::table('license_check_days')->where('license_id', $license->id)->sole();
