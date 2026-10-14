@@ -118,6 +118,7 @@ class ClientSplitTest extends TestCase
     public function test_the_accounts_mail_goes_to_its_owner_and_is_logged_on_the_account(): void
     {
         Mail::fake();
+        config(['settings.mail_disable' => false]);
         (new EmailTemplateSeeder)->run();
         $owner = User::factory()->create(['email' => 'owner@example.test']);
         $client = $owner->client();
@@ -135,9 +136,9 @@ class ClientSplitTest extends TestCase
     {
         $client = User::factory()->create()->client();
 
-        (new CreditLedger)->add($client->client()->id, 'USD', 500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
+        (new CreditLedger)->add($client->id, 'USD', 500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
 
-        $this->assertSame(500, (new CreditLedger)->balanceCents($client->client()->id, 'USD'));
+        $this->assertSame(500, (new CreditLedger)->balanceCents($client->id, 'USD'));
         $this->assertSame($client->id, (int) $client->moneyEvents()->value('client_id'));
         $this->assertTrue($client->hasMoneyHistory());
     }
@@ -146,7 +147,7 @@ class ClientSplitTest extends TestCase
     {
         $owner = User::factory()->create();
         $client = $owner->client();
-        (new CreditLedger)->add($client->client()->id, 'USD', 100, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
+        (new CreditLedger)->add($client->id, 'USD', 100, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
 
         try {
             $client->delete();
