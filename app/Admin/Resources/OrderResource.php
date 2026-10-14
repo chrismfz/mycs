@@ -8,9 +8,13 @@ use App\Admin\Resources\OrderResource\Pages\CreateOrder;
 use App\Admin\Resources\OrderResource\Pages\EditOrder;
 use App\Admin\Resources\OrderResource\Pages\ListOrders;
 use App\Admin\Resources\OrderResource\RelationManagers\ServiceRelationManager;
+use App\Models\Client;
 use App\Models\Currency;
 use App\Models\Order;
+use App\Models\Plan;
 use App\Models\Product;
+use App\Services\Order\OrderPricing;
+use Brick\Math\BigDecimal;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -58,7 +62,48 @@ class OrderResource extends Resource
                     ->options(Currency::query()->pluck('code', 'code'))
                     ->helperText('Does not convert the price, only displays the currency symbol')
                     ->placeholder('Select the currency'),
+                // Creating: the lines go to the PlaceOrderService (Σ7, CART-4), which prices them as checkout does.
+                Repeater::make('lines')
+                    ->label('Services')
+                    ->visibleOn('create')
+                    ->required()
+                    ->minItems(1)
+                    ->columnSpanFull()
+                    ->columns(2)
+                    ->schema([
+                        Select::make('product_id')
+                            ->label('Product')
+                            ->required()
+                            ->options(fn () => Product::query()->with('category')->get()->mapWithKeys(fn (Product $product) => [$product->id => $product->name . ' - ' . data_get($product, 'category.name') . " (#{$product->id})"]))
+                            ->searchable()
+                            ->live()
+                            ->afterStateUpdated(fn (Set $set) => $set('plan_id', null))
+                            ->placeholder('Select the product'),
+                        Select::make('plan_id')
+                            ->label('Plan')
+                            ->required()
+                            ->options(fn (Get $get) => $get('product_id') ? Plan::query()->where('priceable_type', Product::class)->where('priceable_id', $get('product_id'))->pluck('name', 'id') : [])
+                            ->live()
+                            ->disabled(fn (Get $get) => !$get('product_id') || !$get('../../currency_code'))
+                            ->placeholder('Select the plan'),
+                        TextInput::make('quantity')
+                            ->label('Quantity')
+                            ->required()
+                            ->integer()
+                            ->minValue(1)
+                            ->default(1),
+                        TextInput::make('price')
+                            ->label('Recurring price')
+                            ->nullable()
+                            ->numeric()
+                            ->minValue(0)
+                            ->prefix(fn (Get $get) => Currency::query()->find($get('../../currency_code'))?->prefix)
+                            ->suffix(fn (Get $get) => Currency::query()->find($get('../../currency_code'))?->suffix)
+                            ->placeholder(fn (Get $get) => self::catalogPrice($get) ?? 'Catalog price')
+                            ->helperText('Empty: the catalog price, with tax for the client\'s country. The setup fee is added to the first invoice.'),
+                    ]),
                 Repeater::make('services')
+                    ->visibleOn('edit')
                     ->relationship('services')
                     ->label('Services')
                     ->columnSpanFull()
@@ -126,6 +171,24 @@ class OrderResource extends Resource
                             ]),
                     ]),
             ]);
+    }
+
+    /** The line's price as checkout would charge it, for the form's placeholder. */
+    private static function catalogPrice(Get $get): ?string
+    {
+        $product = $get('product_id') ? Product::query()->find($get('product_id')) : null;
+        $plan = $get('plan_id') ? Plan::query()->find($get('plan_id')) : null;
+        $currency = $get('../../currency_code');
+        if ($product === null || $plan === null || !$currency || $plan->priceable_id !== $product->id) {
+            return null;
+        }
+        $catalog = OrderPricing::catalog($product, $plan, [], $currency);
+        if ($catalog === null) {
+            return 'Not available in this currency';
+        }
+        $line = OrderPricing::line($catalog, null, $get('../../client_id') ? Client::query()->find($get('../../client_id')) : null);
+
+        return $line->grossPrice . (BigDecimal::of($line->grossSetupFee)->isPositive() ? " (+ {$line->grossSetupFee} setup fee)" : '');
     }
 
     public static function table(Table $table): Table

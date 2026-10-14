@@ -3,12 +3,13 @@
 namespace App\Models;
 
 use App\Classes\Price;
-use App\Classes\Settings;
 use App\Models\Traits\HasProperties;
 use App\Observers\ServiceObserver;
 use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\Invoice\ChangeOpenLine;
+use App\Services\Order\OrderPricing;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
+use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
@@ -652,38 +653,33 @@ class Service extends Model implements Auditable
         });
     }
 
+    /**
+     * The price it renews at, from its plan and options now (Σ7, `OrderPricing`): what a recalculation or an upgrade
+     * stores. The coupon counts only for a product it covers (CART-2) and for its cycles (CART-1: empty = the first).
+     */
     public function calculatePrice(bool $applyCoupon = true)
     {
         // No plan: the price it has (nothing to compute it from until staff set one).
         if ($this->plan === null) {
             return number_format((float) $this->price, 2, '.', '');
         }
-        // Calculate the price based on the plan and config options
-        $price = $this->plan->price($this->currency_code)->price;
-
-        $this->configs->each(function ($config) use (&$price) {
-            $configValue = $config->configValue;
-            if ($configValue) {
-                $price += $configValue->price(null, $this->plan->billing_period, $this->plan->billing_unit, $this->currency_code)->price;
-            }
-        });
-
-        // Add coupon discount if applicable
-        if ($applyCoupon && $this->coupon && $this->coupon_expired_at === null) {
-            $invoices = $this->invoices()->where('status', 'paid')->count() + 1;
-            // If it already used for the recurring period, do not apply the discount
-            if ($this->coupon->recurring == 0 || $invoices <= $this->coupon->recurring) {
-                $discount = $this->coupon->calculateDiscount($price);
-                $price -= $discount;
+        $price = BigDecimal::of(number_format((float) $this->plan->price($this->currency_code)->price, 2, '.', ''));
+        foreach ($this->configs as $config) {
+            if ($config->configValue) {
+                $price = $price->plus(number_format((float) $config->configValue->price(null, $this->plan->billing_period, $this->plan->billing_unit, $this->currency_code)->price, 2, '.', ''));
             }
         }
 
-        $price = (new Price([
-            'price' => $price,
-            'currency' => $this->currency,
-        ], apply_exclusive_tax: true, tax: Settings::tax($this->client)))->price;
+        $discount = null;
+        if ($applyCoupon && $this->coupon && $this->coupon_expired_at === null) {
+            // The cycle this price is for: the one after those already paid.
+            $cycle = $this->invoices()->where('status', 'paid')->count() + 1;
+            if ($this->coupon->cycles() === 0 || $cycle <= $this->coupon->cycles()) {
+                $discount = OrderPricing::discount($this->coupon, (int) $this->product_id);
+            }
+        }
 
-        return number_format($price, 2, '.', '');
+        return OrderPricing::line(['price' => (string) $price, 'setup_fee' => '0.00'], $discount, $this->client)->grossPrice;
     }
 
     /** @return HasMany<ServiceUpgrade, $this> */

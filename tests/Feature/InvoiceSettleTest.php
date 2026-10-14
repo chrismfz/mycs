@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
-use App\Admin\Resources\OrderResource\Pages\CreateOrder;
 use App\Enums\AdjustmentNoteType;
 use App\Enums\InvoiceTransactionStatus;
 use App\Enums\MoneyEventKind;
@@ -11,7 +10,6 @@ use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\MoneyEvent;
-use App\Models\Order;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\Staff;
@@ -21,6 +19,8 @@ use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyCheck;
 use App\Services\Money\MoneyTrail;
+use App\Services\Order\OrderLine;
+use App\Services\Order\PlaceOrderService;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -151,32 +151,21 @@ class InvoiceSettleTest extends TestCase
 
     // ------------------------------------------------------------------ zero invoices close on their own (as WHMCS)
 
-    public function test_an_admin_order_for_a_free_service_is_paid_and_the_service_goes_ahead(): void
+    /** Staff's «Create Order» goes through the PlaceOrderService (Σ7): nothing due, no invoice, the service starts. */
+    public function test_an_admin_order_for_a_free_service_makes_no_invoice_and_the_service_goes_ahead(): void
     {
-        $order = Order::create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD']);
-        $service = $this->service(0);
-        $service->update(['order_id' => $order->id]);
+        $product = $this->createProduct();
+        $placed = (new PlaceOrderService)->place($this->user->client(), 'USD', [new OrderLine($product->product->fresh(), $product->plan->fresh(), price: '0.00')]);
 
-        $page = new CreateOrder;
-        $property = new \ReflectionProperty($page, 'record');
-        $property->setValue($page, $order->fresh());
-        (new \ReflectionMethod($page, 'afterCreate'))->invoke($page);
-
-        $invoice = Invoice::query()->where('client_id', $this->user->client()->id)->sole();
-        $this->assertSame(Invoice::STATUS_PAID, $invoice->status);
-        $this->assertSame(0, $invoice->transactions()->count(), 'no payment: nothing was paid');
-        $this->assertSame(Service::STATUS_ACTIVE, $service->fresh()->status, 'the free service goes ahead');
-        $this->assertNotNull($invoice->items()->sole()->applied_at);
+        $this->assertNull($placed->invoice);
+        $this->assertSame(0, Invoice::query()->count());
+        $this->assertSame(Service::STATUS_ACTIVE, $placed->order->services()->sole()->status, 'the free service goes ahead');
     }
 
     public function test_an_admin_order_with_a_price_stays_unpaid(): void
     {
-        $order = Order::create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD']);
-        $this->service(10)->update(['order_id' => $order->id]);
-
-        $page = new CreateOrder;
-        (new \ReflectionProperty($page, 'record'))->setValue($page, $order->fresh());
-        (new \ReflectionMethod($page, 'afterCreate'))->invoke($page);
+        $product = $this->createProduct();
+        (new PlaceOrderService)->place($this->user->client(), 'USD', [new OrderLine($product->product->fresh(), $product->plan->fresh(), price: '10.00')]);
 
         $this->assertSame(Invoice::STATUS_UNPAID, Invoice::query()->where('client_id', $this->user->client()->id)->sole()->status);
     }

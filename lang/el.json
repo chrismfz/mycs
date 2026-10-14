@@ -237,5 +237,6 @@
     "The account's details become this contact's; the current primary stays as a contact.": "Τα στοιχεία του λογαριασμού γίνονται αυτής της επαφής· η σημερινή κύρια μένει ως επαφή.",
     "Archive": "Αρχειοθέτηση",
     "Restore": "Επαναφορά",
-    "The primary contact is the account's details: make another contact primary first.": "Η κύρια επαφή είναι τα στοιχεία του λογαριασμού: ορίστε πρώτα άλλη επαφή ως κύρια."
+    "The primary contact is the account's details: make another contact primary first.": "Η κύρια επαφή είναι τα στοιχεία του λογαριασμού: ορίστε πρώτα άλλη επαφή ως κύρια.",
+    "The quantity must be at least 1.": "Η ποσότητα πρέπει να είναι τουλάχιστον 1."
 }

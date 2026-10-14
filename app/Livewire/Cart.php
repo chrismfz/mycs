@@ -4,19 +4,18 @@ namespace App\Livewire;
 
 use App\Classes\Cart as ClassesCart;
 use App\Classes\Price;
+use App\Exceptions\CouponUnusableException;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
-use App\Jobs\Server\CreateJob;
+use App\Models\Cart as CartModel;
 use App\Models\Client;
-use App\Models\Invoice;
-use App\Models\Order;
-use App\Models\Product;
-use App\Models\Service;
+use App\Services\Order\OrderLine;
+use App\Services\Order\PlaceOrderService;
 use App\Support\CurrentClient;
-use Exception;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Locked;
+use Throwable;
 
 class Cart extends Component
 {
@@ -116,171 +115,57 @@ class Cart extends Component
             return $this->notify(__('You do not have access to this area of the account.'), 'error');
         }
 
-        // Start database transaction
-        DB::beginTransaction();
         try {
-            $cart = ClassesCart::get();
+            $placed = DB::transaction(function () {
+                // The order is the current account's; a login without any account gets its own here (WHMCS opens the
+                // client account at checkout). Its row first, as every payment path locks it (no lock-order deadlock).
+                $client = CurrentClient::model() ?? Client::openFor(Auth::user());
+                Client::lock($client->id);
 
-            // The order is the current account's; a login without any account gets its own here (WHMCS opens the
-            // client account at checkout). Its row first, as every payment path locks it (no lock-order deadlock).
-            $client = CurrentClient::model() ?? Client::openFor(Auth::user());
-            Client::lock($client->id);
-
-            if ($cart->coupon && !ClassesCart::validateAndRefreshCoupon()) {
-                DB::rollBack();
-                $this->coupon = null;
-                $this->updateTotal();
-
-                return $this->notify(__('This coupon can no longer be used'), 'error');
-            }
-            // Lock the orderproducts
-            foreach ($cart->items as $item) {
-                // An item without a price row in the cart's currency would otherwise check out free.
-                if (!$item->price->available) {
-                    throw new DisplayException(__('product.not_available', ['product' => $item->product->name]));
+                // The cart read again under its lock (CART-6): a second checkout of it (another tab) finds it gone.
+                $cart = CartModel::query()->whereKey(ClassesCart::get()->id)->lockForUpdate()->first();
+                $cart?->load('coupon', 'items.plan.prices', 'items.product.configOptions.children.plans.prices');
+                if ($cart === null || $cart->items->isEmpty()) {
+                    throw new DisplayException(__('Your cart is empty'));
                 }
 
-                // Make sure we have the latest product data and lock it
-                $product = Product::where('id', $item->product->id)->lockForUpdate()->first();
+                $lines = $cart->items->map(fn ($item) => new OrderLine(
+                    $item->product, $item->plan, (int) $item->quantity, $item->config_options ?? [], $item->checkout_config ?? [],
+                ))->all();
+                // Priced and invoiced here, from the lines as they are now (CART-7), not from the total on the page.
+                $placed = (new PlaceOrderService)->place($client, $cart->currency_code, $lines, $cart->coupon);
+                $cart->delete();
 
-                if ($product->per_user_limit > 0) {
-                    $existingServiceCount = $client->services()->where('product_id', $product->id)->count();
-                    $cartQuantityForProduct = $cart->items->filter(fn ($it) => $it->product->id == $product->id)->sum(fn ($it) => $it->quantity);
+                return $placed;
+            });
+        } catch (CouponUnusableException $e) {
+            // Removed after the rollback, or the rollback would put it back (CART-19).
+            ClassesCart::removeCoupon();
+            $this->coupon = null;
+            $this->updateTotal();
 
-                    if ($existingServiceCount >= $product->per_user_limit || ($cartQuantityForProduct + $existingServiceCount) > $product->per_user_limit) {
-                        throw new DisplayException(__('product.user_limit', ['product' => $product->name]));
-                    }
-                }
-                if ($product->stock !== null) {
-                    if ($product->stock < $item->quantity) {
-                        throw new DisplayException(__('product.out_of_stock', ['product' => $product->name]));
-                    }
+            return $this->notify($e->getMessage(), 'error');
+        } catch (DisplayException $e) {
+            return $this->notify($e->getMessage(), 'error');
+        } catch (Throwable $e) {
+            report($e);
 
-                    $product->stock -= $item->quantity;
-                    $product->save();
-                }
-            }
-            // Create the order
-            $order = new Order([
-                'client_id' => $client->id,
-                'currency_code' => $cart->currency_code,
-            ]);
-            $order->save();
-
-            // Create the invoice
-            if ($this->total->price > 0) {
-                $invoice = new Invoice([
-                    'client_id' => $client->id,
-                    'due_at' => now()->addDays(7),
-                    'currency_code' => $cart->currency_code,
-                    'status' => Invoice::STATUS_UNPAID,
-                ]);
-                $invoice->save();
-            }
-
-            // Create the services
-            foreach ($cart->items as $item) {
-                // Is it a lifetime coupon, then we can adjust the price of the service
-                if (is_object($cart->coupon) && ($cart->coupon->recurring === null || (int) $cart->coupon->recurring == 1)) {
-                    // Apply coupon only to first billing cycle (use original price for recurring)
-                    $price = $item->price->original_price;
-                } else {
-                    // Apply coupon to all billing cycles (use discounted price)
-                    $price = $item->price->price;
-                }
-                // Create the service
-                $service = $order->services()->create([
-                    'client_id' => $client->id,
-                    'currency_code' => $cart->currency_code,
-                    'product_id' => $item->product->id,
-                    'plan_id' => $item->plan->id,
-                    'price' => $price,
-                    'quantity' => $item->quantity,
-                    'coupon_id' => $cart->coupon_id,
-                ]);
-
-                foreach ($item->checkout_config as $key => $value) {
-                    $service->properties()->updateOrCreate([
-                        'key' => $key,
-                    ], [
-                        'value' => $value,
-                    ]);
-                }
-
-                foreach ($item->config_options as $configOption) {
-                    $configOption = (object) $configOption;
-                    if (in_array($configOption->option_type, ['text', 'number'])) {
-                        if (!isset($configOption->value)) {
-                            continue;
-                        }
-                        $service->properties()->updateOrCreate([
-                            'key' => $configOption->option_env_variable ? $configOption->option_env_variable : $configOption->option_name,
-                        ], [
-                            'name' => $configOption->option_name,
-                            'value' => $configOption->value,
-                        ]);
-
-                        continue;
-                    }
-                    if (!isset($configOption->value) || $configOption->value === null) {
-                        continue;
-                    }
-
-                    $service->configs()->create([
-                        'config_option_id' => $configOption->option_id,
-                        'config_value_id' => $configOption->value,
-                    ]);
-                }
-
-                // Create the invoice items
-                if ($item->price->total > 0) {
-                    $invoice->items()->create([
-                        'reference_id' => $service->id,
-                        'reference_type' => Service::class,
-                        'price' => $item->price->total,
-                        'quantity' => $item->quantity,
-                        'description' => $service->description,
-                    ]);
-                } else {
-                    // We'll make the service active immediately
-                    if ($service->product->server) {
-                        CreateJob::dispatch($service);
-                    }
-                    $service->status = Service::STATUS_ACTIVE;
-                    $service->expires_at = $service->calculateNextDueDate();
-                    $service->save();
-                }
-            }
-
-            // Commit the transaction
-            DB::commit();
-
-            // Clear the cart
-            ClassesCart::clear();
-
-            if ($this->total->price == 0) {
-                // Is it only one item? Then redirect to the service page
-                if ($order->services->count() == 1) {
-                    return $this->redirect(route('services.show', $order->services->first()), true);
-                }
-
-                return $this->redirect(route('services'), true);
-            } else {
-                return $this->redirect(route('invoices.show', [$invoice, 'pay' => true]), true);
-            }
-        } catch (Exception $e) {
-            // Rollback the transaction
-            DB::rollBack();
-            // Return error message
-            // Is it a real error or a validation error?
-            // If it's a validation error, you can use the $this->addError() method to display the error message to the user.
-            if ($e instanceof DisplayException) {
-                return $this->notify($e->getMessage(), 'error');
-            } else {
-                report($e);
-                $this->notify(__('An error occurred while processing your order. Please try again later.'));
-            }
+            return $this->notify(__('An error occurred while processing your order. Please try again later.'), 'error');
         }
+
+        // The cart row is gone; this drops its cookie.
+        ClassesCart::clear();
+
+        if ($placed->invoice === null) {
+            // Nothing to pay: one service goes to its page, more to the list.
+            if ($placed->order->services()->count() === 1) {
+                return $this->redirect(route('services.show', $placed->order->services()->first()), true);
+            }
+
+            return $this->redirect(route('services'), true);
+        }
+
+        return $this->redirect(route('invoices.show', [$placed->invoice, 'pay' => true]), true);
     }
 
     public function render()

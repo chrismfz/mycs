@@ -3,6 +3,7 @@
 namespace App\Classes;
 
 use App\Models\TaxRate;
+use MyCS\Pricing\LinePrice;
 
 /**
  * Class Price
@@ -109,6 +110,32 @@ class Price
             'setup_fee_tax' => $this->format($this->setup_fee_tax),
             'total_tax' => $this->format($this->total_tax),
         ];
+    }
+
+    /**
+     * A line priced by `OrderPricing` (Σ7), for display: what the cart shows is what checkout charges.
+     *
+     * @param  LinePrice|null  $full  the same line without the coupon, when the coupon discounted it
+     */
+    public static function fromLine(LinePrice $line, $currency, ?LinePrice $full = null): self
+    {
+        // No tax here: the line has it already.
+        $price = new self(['price' => $line->grossPrice, 'setup_fee' => $line->grossSetupFee, 'currency' => $currency], tax: 0);
+        $price->tax = $line->priceTax;
+        $price->setup_fee_tax = $line->setupFeeTax;
+        $price->original_price = (float) ($full ?? $line)->grossPrice;
+        $price->original_setup_fee = (float) ($full ?? $line)->grossSetupFee;
+        $price->discount = $full !== null ? round($price->original_price + $price->original_setup_fee - $price->price - $price->setup_fee, 2) : 0;
+        $price->formatted = (object) [
+            'total' => $price->format($price->__get('total')),
+            'price' => $price->format($price->price),
+            'setup_fee' => $price->format($price->setup_fee),
+            'tax' => $price->format($price->tax),
+            'setup_fee_tax' => $price->format($price->setup_fee_tax),
+            'total_tax' => $price->format($price->__get('total_tax')),
+        ];
+
+        return $price;
     }
 
     public function format($price)
