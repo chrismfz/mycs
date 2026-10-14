@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -15,9 +16,16 @@ use Throwable;
  */
 class AfterCommit
 {
-    public static function event(object $event): void
+    /**
+     * @param  Model|null  $about  the model the event is about: deleted before the commit (created and dropped in one
+     *                             transaction), the event does not fire
+     */
+    public static function event(object $event, ?Model $about = null): void
     {
-        DB::afterCommit(function () use ($event) {
+        DB::afterCommit(function () use ($event, $about) {
+            if ($about !== null && !$about->exists) {
+                return;
+            }
             try {
                 event($event);
             } catch (Throwable $e) {

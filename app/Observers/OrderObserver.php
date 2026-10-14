@@ -23,7 +23,7 @@ class OrderObserver
     {
         event(new OrderEvent\Created($order));
 
-        AfterCommit::event(new OrderEvent\Finalized($order, $order->send_create_email));
+        AfterCommit::event(new OrderEvent\Finalized($order, $order->send_create_email), $order);
     }
 
     /**

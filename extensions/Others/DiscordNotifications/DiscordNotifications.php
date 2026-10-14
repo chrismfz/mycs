@@ -20,7 +20,6 @@ use App\Events\User;
 use App\Events\User\Created;
 use App\Models\Order;
 use Illuminate\Support\Facades\Event;
-use Illuminate\Support\Facades\Http;
 use Throwable;
 
 #[ExtensionMeta(
@@ -122,8 +121,7 @@ class DiscordNotifications extends Extension
                         if ($message === null) {
                             return;
                         }
-                        $webhookUrl = $this->config('webhook_url');
-                        dispatch(fn () => Http::post($webhookUrl, $message)->throw())->afterCommit();
+                        PostToDiscord::dispatch((string) $this->config('webhook_url'), $message)->afterCommit();
                     }
                 );
             }

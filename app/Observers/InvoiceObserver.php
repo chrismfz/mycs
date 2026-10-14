@@ -50,7 +50,7 @@ class InvoiceObserver
             return;
         }
 
-        AfterCommit::event(new InvoiceEvent\Finalized($invoice, $invoice->send_create_email));
+        AfterCommit::event(new InvoiceEvent\Finalized($invoice, $invoice->send_create_email), $invoice);
     }
 
     /**
@@ -182,7 +182,7 @@ class InvoiceObserver
             $this->createSnapshot($invoice);
             event(new InvoiceEvent\Created($invoice));
 
-            AfterCommit::event(new InvoiceEvent\Finalized($invoice, $invoice->send_create_email));
+            AfterCommit::event(new InvoiceEvent\Finalized($invoice, $invoice->send_create_email), $invoice);
 
             // Finalized with nothing to pay (a free service, or its payments cover it exactly): closed as paid, as a
             // zero invoice is (2b). Never one paid over its total: that would move a payment to credit for whoever may
