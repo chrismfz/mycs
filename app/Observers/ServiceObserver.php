@@ -5,6 +5,7 @@ namespace App\Observers;
 use App\Events\Service as ServiceEvent;
 use App\Exceptions\DisplayException;
 use App\Models\BillingAgreement;
+use App\Models\Contact;
 use App\Models\Service;
 use App\Services\Service\ServerSelector;
 use Carbon\CarbonImmutable;
@@ -40,6 +41,7 @@ class ServiceObserver
      */
     public function saving(Service $service): void
     {
+        self::keepContactInAccount($service);
         if ($service->billing_agreement_id === null || !$service->isDirty(['billing_agreement_id', 'client_id'])
             || BillingAgreement::withTrashed()->whereKey($service->billing_agreement_id)->where('client_id', $service->client_id)->exists()) {
             return;
@@ -51,6 +53,28 @@ class ServiceObserver
         }
 
         throw new DisplayException(__('This payment method belongs to another account.'));
+    }
+
+    /**
+     * A related contact is one of the service's own account; moved to another account, it stays behind (as the card).
+     * One newly set is an active one (review 4); one archived since it was set stays.
+     */
+    private static function keepContactInAccount(Service $service): void
+    {
+        if ($service->contact_id === null || !$service->isDirty(['contact_id', 'client_id'])) {
+            return;
+        }
+        $own = Contact::query()->whereKey($service->contact_id)->where('client_id', $service->client_id);
+        if ($service->isDirty('contact_id') ? (clone $own)->whereNull('archived_at')->exists() : $own->exists()) {
+            return;
+        }
+        if (!$service->isDirty('contact_id')) {
+            $service->contact_id = null;
+
+            return;
+        }
+
+        throw new DisplayException(__('This contact is not available.'));
     }
 
     public function updating(Service $service): void

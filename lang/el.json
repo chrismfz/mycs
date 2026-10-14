@@ -257,5 +257,6 @@
     "This service has no paid period to change now: change it from the next renewal.": "Η υπηρεσία δεν έχει πληρωμένη περίοδο για να αλλάξει τώρα: αλλάξτε τον από την επόμενη ανανέωση.",
     "A discount for its billing cycle runs on this service: ask us to change it.": "Η υπηρεσία έχει έκπτωση που εξαρτάται από τον κύκλο χρέωσης: ζητήστε μας να τον αλλάξουμε.",
     "An open invoice of this service needs staff first: :reason": "Ένα ανοιχτό τιμολόγιο της υπηρεσίας χρειάζεται πρώτα έλεγχο από εμάς: :reason",
-    "An open invoice of this service bills days already used: settle it first.": "Ένα ανοιχτό τιμολόγιο της υπηρεσίας χρεώνει μέρες που έχουν ήδη περάσει: τακτοποιήστε το πρώτα."
+    "An open invoice of this service bills days already used: settle it first.": "Ένα ανοιχτό τιμολόγιο της υπηρεσίας χρεώνει μέρες που έχουν ήδη περάσει: τακτοποιήστε το πρώτα.",
+    "This contact is not available.": "Αυτή η επαφή δεν είναι διαθέσιμη."
 }
