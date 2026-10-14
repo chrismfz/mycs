@@ -56,7 +56,7 @@ class CreditAutoApplyCodeReviewTest extends TestCase
 
     private function giveCredit(int $cents): void
     {
-        (new CreditLedger)->add($this->user->id, 'USD', $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
+        (new CreditLedger)->add($this->user->client()->id, 'USD', $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
     }
 
     private function balance(): string

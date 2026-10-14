@@ -55,7 +55,7 @@ class CreditAutoApplyTest extends TestCase
 
     private function giveCredit(int $cents): void
     {
-        (new CreditLedger)->add($this->user->id, 'USD', $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
+        (new CreditLedger)->add($this->user->client()->id, 'USD', $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
     }
 
     private function balance(): string
@@ -99,7 +99,7 @@ class CreditAutoApplyTest extends TestCase
         $older = $this->invoice(50, '+2 days');
         $this->giveCredit(7000);
 
-        $this->assertSame(2, (new CreditAutoApply)->forCustomer($this->user->id, 'USD'));
+        $this->assertSame(2, (new CreditAutoApply)->forCustomer($this->user->client()->id, 'USD'));
 
         $this->assertSame(Invoice::STATUS_PAID, $older->fresh()->status);
         $this->assertSame(30.0, $newer->fresh()->remaining);
@@ -117,9 +117,9 @@ class CreditAutoApplyTest extends TestCase
             'status' => 'active', 'currency_code' => 'USD', 'price' => 50, 'subscription_id' => 'I-SUB1']);
         $subscription = $this->invoice(50, reference: Service::class, referenceId: $service->id);
 
-        $this->assertSame(0, (new CreditAutoApply)->forCustomer($this->user->id, 'USD'));
+        $this->assertSame(0, (new CreditAutoApply)->forCustomer($this->user->client()->id, 'USD'));
 
-        $this->user->forceFill(['credit_auto_apply' => false])->save();
+        $this->user->client()->forceFill(['credit_auto_apply' => false])->save();
         $plain = $this->invoice(50);
         $this->assertNull((new CreditAutoApply)->toInvoice($plain));
 
@@ -207,6 +207,6 @@ class CreditAutoApplyTest extends TestCase
 
         Livewire::test(Credits::class)->assertSet('autoApply', true)->set('autoApply', false);
 
-        $this->assertFalse($this->user->fresh()->credit_auto_apply);
+        $this->assertFalse($this->user->client()->fresh()->credit_auto_apply);
     }
 }

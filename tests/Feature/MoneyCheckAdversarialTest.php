@@ -159,7 +159,7 @@ class MoneyCheckAdversarialTest extends TestCase
     /** F1c. Credit spent on an invoice that staff then cancel by hand: the credit is gone for nothing. */
     public function test_credit_spent_on_an_invoice_staff_cancelled_is_reported(): void
     {
-        (new CreditLedger)->add($this->user->id, 'USD', 600, 'staff_adjustment', 'staff', note: 'Goodwill');
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 600, 'staff_adjustment', 'staff', note: 'Goodwill');
         $invoice = $this->invoice(10);
         (new RecordPaymentService)->payWithCredit($invoice);
         $this->cancelledBefore2c($invoice, 'Duplicate');
@@ -426,7 +426,7 @@ class MoneyCheckAdversarialTest extends TestCase
         $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $cancelledService->id, 'description' => 'A', 'quantity' => 1, 'price' => 10]);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $keptService->id, 'description' => 'B', 'quantity' => 1, 'price' => 5]);
-        (new CreditLedger)->add($this->user->id, 'USD', 1200, 'staff_adjustment', 'staff', note: 'Goodwill');
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 1200, 'staff_adjustment', 'staff', note: 'Goodwill');
         (new RecordPaymentService)->payWithCredit($invoice->fresh());
 
         CancelOpenInvoices::handle([$invoice], 'service cancelled', $cancelledService);
@@ -476,7 +476,7 @@ class MoneyCheckAdversarialTest extends TestCase
         }
         $this->assertSame(1, $this->moneyCheckMails());
 
-        (new CreditLedger)->add($this->user->id, 'USD', 100, 'staff_adjustment', 'staff', note: 'Goodwill');
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 100, 'staff_adjustment', 'staff', note: 'Goodwill');
         DB::table('credits')->where('client_id', $this->user->client()->id)->update(['amount' => 3]);
         $this->artisan('mycs:money-check')->assertExitCode(1);
         $this->assertSame(2, $this->moneyCheckMails(), 'a new finding is mailed');

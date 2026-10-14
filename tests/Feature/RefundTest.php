@@ -168,7 +168,7 @@ class RefundTest extends TestCase
 
     public function test_a_credit_payment_goes_back_to_credit_only(): void
     {
-        (new CreditLedger)->add($this->user->id, 'USD', 4000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 4000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
         $invoice = $this->invoice(40);
         (new RecordPaymentService)->payWithCredit($invoice);
         $payment = $invoice->transactions()->sole();

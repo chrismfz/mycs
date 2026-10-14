@@ -109,7 +109,7 @@ class InvoiceSettleTest extends TestCase
 
     public function test_the_part_over_spreads_over_the_payments_newest_first_and_a_credit_payment_gives_its_credit_back(): void
     {
-        (new CreditLedger)->add($this->user->id, 'USD', 4000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 4000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
         $invoice = $this->invoice(100);
         (new RecordPaymentService)->handle($invoice, null, 60.0, transactionId: 'wire-1');
         (new RecordPaymentService)->payWithCredit($invoice->fresh()); // 40.00 from credit

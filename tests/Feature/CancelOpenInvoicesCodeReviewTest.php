@@ -104,7 +104,7 @@ class CancelOpenInvoicesCodeReviewTest extends TestCase
     public function test_credit_the_customer_put_on_a_mixed_invoice_still_pays_what_is_left(): void
     {
         Queue::fake([TerminateJob::class]);
-        $this->user->forceFill(['credit_auto_apply' => false])->save();
+        $this->user->client()->forceFill(['credit_auto_apply' => false])->save();
         $a = $this->service();
         $b = $this->service();
         $invoice = $this->invoice([$a, $b]);

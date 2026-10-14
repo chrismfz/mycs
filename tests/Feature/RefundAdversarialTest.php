@@ -171,7 +171,7 @@ class RefundAdversarialTest extends TestCase
     {
         config(['settings.credits_auto_use' => true]);
         User::whereKey($this->user->id)->update(['credit_auto_apply' => false]);
-        (new CreditLedger)->add($this->user->id, 'USD', 4000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 4000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
         $invoice = $this->invoice(100);
         (new RecordPaymentService)->payWithCredit($invoice);
         $this->assertSame('0.00', $this->balance());
@@ -312,7 +312,7 @@ class RefundAdversarialTest extends TestCase
     /** A credit payment and a gateway payment on one paid invoice: each back its own way; refunded; books clean. */
     public function test_guard_credit_and_gateway_payment_on_one_invoice(): void
     {
-        (new CreditLedger)->add($this->user->id, 'USD', 3000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 3000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
         $invoice = $this->invoice(100);
         (new RecordPaymentService)->payWithCredit($invoice);
         (new RecordPaymentService)->handle($invoice, null, 70.0, transactionId: 'wire-mix');

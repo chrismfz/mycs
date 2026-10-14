@@ -375,7 +375,7 @@ class GatewayChargebackAdversarialTest extends TestCase
         $this->assertEqualsWithDelta(100, $this->credit(), 0.001);
 
         $this->stripeWebhook('charge.dispute.funds_withdrawn', 'dp_auto', 'pi_auto', 10000)->assertOk();
-        (new CreditAutoApply)->forCustomer($this->user->id, 'USD');
+        (new CreditAutoApply)->forCustomer($this->user->client()->id, 'USD');
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
         $this->assertEqualsWithDelta(0, $this->credit(), 0.001);
 

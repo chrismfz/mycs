@@ -103,7 +103,7 @@ class CronOverlapAndOrderCancelReviewTest extends TestCase
         config(['settings.credits_enabled' => true, 'settings.credits_auto_use' => true]);
         $service = $this->pendingService();
         $invoice = $this->orderInvoice($service);
-        (new CreditLedger)->add($this->user->id, 'USD', 300, MoneyTrail::CAUSE_OPENING_BALANCE, MoneyTrail::SOURCE_SYSTEM);
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 300, MoneyTrail::CAUSE_OPENING_BALANCE, MoneyTrail::SOURCE_SYSTEM);
 
         $this->cron();
 

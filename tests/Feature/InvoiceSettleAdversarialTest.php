@@ -318,7 +318,7 @@ class InvoiceSettleAdversarialTest extends TestCase
     /** A credit payment settled back to credit, then deleted: the journal and the balance agree, nothing doubles. */
     public function test_guard_a_settled_credit_payment_deleted_afterwards_keeps_the_ledger_whole(): void
     {
-        (new CreditLedger)->add($this->user->id, 'USD', 4000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 4000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
         $invoice = $this->invoice(100);
         (new RecordPaymentService)->handle($invoice, null, 60.0, transactionId: 'wire-1');
         (new RecordPaymentService)->payWithCredit($invoice->fresh());

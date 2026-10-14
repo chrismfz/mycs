@@ -75,7 +75,7 @@ class MoneyCheckTest extends TestCase
     {
         $paid = $this->paid();
         $this->invoice();
-        $credit = (new CreditLedger)->add($this->user->id, 'USD', 500, 'staff_adjustment', 'staff', note: 'Goodwill');
+        $credit = (new CreditLedger)->add($this->user->client()->id, 'USD', 500, 'staff_adjustment', 'staff', note: 'Goodwill');
         $refunded = $this->paid(20);
         ExtensionHelper::refundLocally($refunded->transactions()->sole(), 5.0);
 
@@ -157,7 +157,7 @@ class MoneyCheckTest extends TestCase
 
     public function test_a_credit_balance_the_journal_does_not_add_up_to_and_a_negative_one(): void
     {
-        $credit = (new CreditLedger)->add($this->user->id, 'USD', 500, 'staff_adjustment', 'staff', note: 'Goodwill');
+        $credit = (new CreditLedger)->add($this->user->client()->id, 'USD', 500, 'staff_adjustment', 'staff', note: 'Goodwill');
         DB::table('credits')->where('id', $credit->id)->update(['amount' => -2]);
 
         $this->assertSame(['credit_journal', 'credit_negative'], $this->rules(['credit_journal', 'credit_negative']));
@@ -231,7 +231,7 @@ class MoneyCheckTest extends TestCase
 
     public function test_credits_check_still_rebuilds_from_the_journal(): void
     {
-        $credit = (new CreditLedger)->add($this->user->id, 'USD', 500, 'staff_adjustment', 'staff', note: 'Goodwill');
+        $credit = (new CreditLedger)->add($this->user->client()->id, 'USD', 500, 'staff_adjustment', 'staff', note: 'Goodwill');
         DB::table('credits')->where('id', $credit->id)->update(['amount' => 1]);
 
         $this->artisan('mycs:credits-check')->assertExitCode(1);

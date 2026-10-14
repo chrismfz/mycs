@@ -82,8 +82,8 @@ class CreditLedgerTest extends TestCase
     {
         $ledger = new CreditLedger;
 
-        $ledger->add($this->user->id, 'USD', 2500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
-        $ledger->remove($this->user->id, 'USD', 1000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Correction');
+        $ledger->add($this->user->client()->id, 'USD', 2500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
+        $ledger->remove($this->user->client()->id, 'USD', 1000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Correction');
 
         $this->assertSame('15.00', $this->balance());
         $this->assertSame([['credit_in', '25.00', '25.00', 'staff_adjustment'], ['credit_out', '10.00', '15.00', 'staff_adjustment']],
@@ -94,10 +94,10 @@ class CreditLedgerTest extends TestCase
 
     public function test_remove_is_refused_below_zero_and_changes_nothing(): void
     {
-        (new CreditLedger)->add($this->user->id, 'USD', 500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
 
         try {
-            (new CreditLedger)->remove($this->user->id, 'USD', 600, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
+            (new CreditLedger)->remove($this->user->client()->id, 'USD', 600, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
             $this->fail('Credit went below zero.');
         } catch (DisplayException) {
         }
@@ -110,15 +110,15 @@ class CreditLedgerTest extends TestCase
     public function test_a_staff_adjustment_needs_a_reason(): void
     {
         $this->expectException(\LogicException::class);
-        (new CreditLedger)->add($this->user->id, 'USD', 500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: '  ');
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: '  ');
     }
 
     public function test_set_balance_journals_only_the_difference(): void
     {
         $ledger = new CreditLedger;
-        $ledger->setBalance($this->user->id, 'USD', 4000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_API, 'Opening');
-        $ledger->setBalance($this->user->id, 'USD', 2500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_API, 'Lower');
-        $ledger->setBalance($this->user->id, 'USD', 2500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_API, 'Same');
+        $ledger->setBalance($this->user->client()->id, 'USD', 4000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_API, 'Opening');
+        $ledger->setBalance($this->user->client()->id, 'USD', 2500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_API, 'Lower');
+        $ledger->setBalance($this->user->client()->id, 'USD', 2500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_API, 'Same');
 
         $this->assertSame('25.00', $this->balance());
         $this->assertSame([['credit_in', '40.00'], ['credit_out', '15.00']],
@@ -207,7 +207,7 @@ class CreditLedgerTest extends TestCase
     {
         $owner = $this->owner();
         // A fresh page per action: a refused action stays mounted (its modal open) on the same component.
-        $page = fn () => $this->livewireAs($owner)->test(ShowCredits::class, ['record' => $this->user->getKey()]);
+        $page = fn () => $this->livewireAs($owner)->test(ShowCredits::class, ['record' => $this->user->client()->getKey()]);
 
         $page()->callTableAction('addCredit', data: ['currency_code' => 'USD', 'amount' => '20.00', 'reason' => ''])
             ->assertHasTableActionErrors(['reason' => 'required']);
@@ -227,7 +227,7 @@ class CreditLedgerTest extends TestCase
 
     public function test_the_check_finds_a_balance_that_differs_and_rebuilds_it_only_with_write(): void
     {
-        (new CreditLedger)->add($this->user->id, 'USD', 1000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 1000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
         $this->assertSame(0, Artisan::call('mycs:credits-check'));
 
         DB::table('credits')->where('client_id', $this->user->client()->id)->update(['amount' => 99]); // a write that skipped the ledger

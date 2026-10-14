@@ -87,7 +87,7 @@ class RefundCodeReviewTest extends TestCase
     {
         config(['settings.credits_auto_use' => true]);
         User::whereKey($this->user->id)->update(['credit_auto_apply' => true]);
-        (new CreditLedger)->add($this->user->id, 'USD', 3000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT,
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 3000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT,
             MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
         $invoice = $this->invoice(100);
         (new RecordPaymentService)->payWithCredit($invoice);

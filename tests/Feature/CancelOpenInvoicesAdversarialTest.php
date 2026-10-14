@@ -197,7 +197,7 @@ class CancelOpenInvoicesAdversarialTest extends TestCase
     public function test_a_partial_removal_returns_only_the_credit_the_invoice_no_longer_needs(): void
     {
         Queue::fake([TerminateJob::class]);
-        $this->user->forceFill(['credit_auto_apply' => false])->save();
+        $this->user->client()->forceFill(['credit_auto_apply' => false])->save();
         $a = $this->service();
         $b = $this->service();
         $invoice = $this->invoice([$a, $b]);
