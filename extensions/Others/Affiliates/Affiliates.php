@@ -2,6 +2,7 @@
 
 namespace Paymenter\Extensions\Others\Affiliates;
 
+use App\Support\CurrentClient;
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Extension;
 use App\Events\Invoice\Paid as InvoicePaid;
@@ -146,6 +147,7 @@ class Affiliates extends Extension
             return [
                 'name' => __('affiliates::affiliate.affiliate'),
                 'route' => 'affiliate.index',
+                'condition' => CurrentClient::allows('affiliates'),
                 'priority' => 15,
             ];
         });

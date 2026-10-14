@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Classes\Synths\PriceSynth;
 use App\Exceptions\ErrorHandler;
 use App\Helpers\ExtensionHelper;
+use App\Http\Middleware\EnsureClientPermission;
 use App\Mail\Mail;
 use App\Mail\SystemMail;
 use App\Models\ApiKey;
@@ -167,6 +168,8 @@ class AppServiceProvider extends ServiceProvider
             return Route::post('/paymenter/update', $handle)->middleware('web')->name('paymenter.');
         });
         Livewire::propertySynthesizer(PriceSynth::class);
+        // A page's area check holds for its Livewire calls too, not only the first load (docs/accounts.md, PR 2b).
+        Livewire::addPersistentMiddleware([EnsureClientPermission::class]);
 
         // Only staff hold admin permissions (docs/accounts.md, PR 1); a customer never does.
         Gate::define('has-permission', function (User|Staff $user, string $ability) {

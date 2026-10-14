@@ -15,7 +15,8 @@ class Widget extends Component
 
     public function render()
     {
-        $query = CurrentClient::model()->services();
+        // Nothing without `products` (docs/accounts.md, PR 2b): the widget is called on its own too.
+        $query = CurrentClient::allows('products') ? CurrentClient::model()->services() : Service::query()->whereRaw('1 = 0');
 
         if ($this->status) {
             $query->where('status', $this->status);

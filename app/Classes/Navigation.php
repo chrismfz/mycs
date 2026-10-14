@@ -4,6 +4,7 @@ namespace App\Classes;
 
 use App\Helpers\EventHelper;
 use App\Models\Category;
+use App\Support\CurrentClient;
 use Illuminate\Support\Facades\Auth;
 
 class Navigation
@@ -61,7 +62,7 @@ class Navigation
                 [
                     'name' => __('navigation.tickets'),
                     'url' => route('tickets'),
-                    'condition' => !config('settings.tickets_disabled', false),
+                    'condition' => !config('settings.tickets_disabled', false) && CurrentClient::allows('tickets'),
                 ],
                 [
                     'name' => __('navigation.account'),
@@ -101,7 +102,7 @@ class Navigation
                     'name' => __('navigation.services'),
                     'url' => route('services'),
                     'icon' => 'ri-archive-stack',
-                    'condition' => Auth::check(),
+                    'condition' => Auth::check() && CurrentClient::allows('products'),
                     'priority' => 20,
                 ],
                 [
@@ -109,7 +110,7 @@ class Navigation
                     'url' => route('invoices'),
                     'icon' => 'ri-receipt',
                     'separator' => true,
-                    'condition' => Auth::check(),
+                    'condition' => Auth::check() && CurrentClient::allows('invoices'),
                     'priority' => 30,
                 ],
                 [
@@ -117,7 +118,7 @@ class Navigation
                     'url' => route('tickets'),
                     'icon' => 'ri-customer-service',
                     'separator' => true,
-                    'condition' => Auth::check() && !config('settings.tickets_disabled', false),
+                    'condition' => Auth::check() && !config('settings.tickets_disabled', false) && CurrentClient::allows('tickets'),
                     'priority' => 40,
                 ],
                 [
@@ -144,12 +145,13 @@ class Navigation
                                 'name' => __('account.credits'),
                                 'url' => route('account.credits'),
                                 'params' => [],
-                                'condition' => config('settings.credits_enabled'),
+                                'condition' => config('settings.credits_enabled') && CurrentClient::allows('invoices'),
                                 'priority' => 30,
                             ],
                             [
                                 'name' => __('account.payment_methods'),
                                 'url' => route('account.payment-methods'),
+                                'condition' => CurrentClient::allows('invoices'),
                                 'priority' => 40,
                             ],
                             [
@@ -167,6 +169,13 @@ class Navigation
             $routes = array_filter($routes, function ($route) {
                 return isset($route['condition']) ? $route['condition'] : true;
             });
+            // Children too: an area the login's grant does not allow is not offered (docs/accounts.md, PR 2b).
+            foreach ($routes as &$route) {
+                if (isset($route['children'])) {
+                    $route['children'] = array_values(array_filter($route['children'], fn ($child) => $child['condition'] ?? true));
+                }
+            }
+            unset($route);
 
             return Navigation::markActiveRoute($routes);
         });

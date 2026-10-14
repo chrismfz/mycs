@@ -32,26 +32,28 @@ Route::group(['middleware' => ['web', 'guest']], function () {
     Route::get('/oauth/{provider}/callback', [SocialLoginController::class, 'handle'])->name('oauth.handle');
 });
 
+// Each area of the current account needs the login's grant to allow it (docs/accounts.md, PR 2b): `client.can`, and
+// the policies for a record reached by its URL.
 Route::group(['middleware' => ['web', 'auth', MustVerfiyEmail::class]], function () {
     Route::get('/dashboard', Dashboard::class)->name('dashboard');
 
-    Route::get('/invoices', Invoices\Index::class)->name('invoices');
+    Route::get('/invoices', Invoices\Index::class)->name('invoices')->middleware('client.can:invoices');
     Route::get('/invoices/{invoice}', Invoices\Show::class)->name('invoices.show')->middleware('can:view,invoice');
 
-    Route::get('/tickets', Tickets\Index::class)->name('tickets');
-    Route::get('/tickets/create', Tickets\Create::class)->name('tickets.create');
+    Route::get('/tickets', Tickets\Index::class)->name('tickets')->middleware('client.can:tickets');
+    Route::get('/tickets/create', Tickets\Create::class)->name('tickets.create')->middleware('client.can:tickets');
     Route::get('/tickets/{ticket}', Tickets\Show::class)->name('tickets.show')->middleware('can:view,ticket');
 
-    Route::get('/services', Services\Index::class)->name('services');
+    Route::get('/services', Services\Index::class)->name('services')->middleware('client.can:products');
     Route::get('/services/{service}', Services\Show::class)->name('services.show')->middleware('can:view,service');
-    Route::get('/services/{service}/upgrade', Services\Upgrade::class)->name('services.upgrade')->middleware('can:view,service');
+    Route::get('/services/{service}/upgrade', Services\Upgrade::class)->name('services.upgrade')->middleware('can:update,service');
 });
 
 Route::group(['middleware' => ['web', 'auth']], function () {
     Route::get('/account', Client\Account::class)->name('account');
     Route::get('/account/security', Client\Security::class)->name('account.security');
-    Route::get('/account/credits', Client\Credits::class)->name('account.credits');
-    Route::get('/account/payment-methods', Client\PaymentMethods::class)->name('account.payment-methods');
+    Route::get('/account/credits', Client\Credits::class)->name('account.credits')->middleware('client.can:invoices');
+    Route::get('/account/payment-methods', Client\PaymentMethods::class)->name('account.payment-methods')->middleware('client.can:invoices');
     Route::get('/account/notifications', Client\Notifications::class)->name('account.notifications');
 
     Route::get('/email/verify', Auth\VerifyEmail::class)->name('verification.notice');

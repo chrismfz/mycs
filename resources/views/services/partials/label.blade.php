@@ -8,12 +8,14 @@
         @else
             {{ $service->label }}
         @endif
+        @can('update', $service)
         <button wire:click="$set('editLabel', true)" class="cursor-pointer">
             <x-loading target="editLabel" class="!size-4" />
             <span wire:loading.remove wire:target="editLabel">
                 <x-ri-edit-line class="inline size-4 text-base/50" />
             </span>
         </button>
+        @endcan
     </span>
 </div>
 @if($editLabel)

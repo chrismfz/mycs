@@ -3,6 +3,7 @@
 use App\Http\Middleware\Api\AdminApi;
 use App\Http\Middleware\CheckoutParameterMiddleware;
 use App\Http\Middleware\EnsureClientAccount;
+use App\Http\Middleware\EnsureClientPermission;
 use App\Http\Middleware\EnsureUserHasPermissions;
 use App\Http\Middleware\ImpersonateMiddleware;
 use App\Http\Middleware\LockSession;
@@ -31,6 +32,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'scope' => CheckTokenForAnyScope::class,
             'api.admin' => AdminApi::class,
             'checkout' => CheckoutParameterMiddleware::class,
+            'client.can' => EnsureClientPermission::class,
         ]);
         $middleware->web([
             UseWebGuard::class,

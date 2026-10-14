@@ -32,6 +32,7 @@ class Show extends Component
 
     public function save()
     {
+        $this->authorize('update', $this->ticket);
         $this->validate();
 
         $rateLimitKey = 'ticket-message:' . $this->ticket->id . ':' . Auth::id();
