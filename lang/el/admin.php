@@ -9,6 +9,7 @@ return [
         'credit_applied' => 'Πίστωση σε ανοιχτά τιμολόγια',
         'cancellations_processed' => 'Αιτήματα ακύρωσης που εκτελέστηκαν',
         'paid_applied' => 'Πληρωμένα τιμολόγια που εφαρμόστηκαν ξανά',
+        'reminders_sent' => 'Υπενθυμίσεις πληρωμής',
         'services_suspended' => 'Υπηρεσίες σε αναστολή',
         'services_terminated' => 'Υπηρεσίες που τερματίστηκαν',
         'tickets_closed' => 'Tickets που έκλεισαν',

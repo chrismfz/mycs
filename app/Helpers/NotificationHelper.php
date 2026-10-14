@@ -16,6 +16,7 @@ use App\Models\Service;
 use App\Models\ServiceCancellation;
 use App\Models\TicketMessage;
 use App\Models\User;
+use App\Services\Invoice\PaymentReminders;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Cache;
@@ -186,13 +187,14 @@ class NotificationHelper
         self::sendNotification('new_login_detected', $data, $user);
     }
 
-    public static function invoiceNotification(User $user, Invoice $invoice, $key = 'new_invoice_created'): void
+    /** @param  array<string, mixed>  $extra  more for the template (an overdue notice's days) */
+    public static function invoiceNotification(User $user, Invoice $invoice, $key = 'new_invoice_created', array $extra = []): void
     {
-        $data = [
+        $data = $extra + [
             'invoice' => $invoice,
             'items' => $invoice->items,
             'total' => $invoice->formattedTotal,
-            'has_subscription' => $invoice->items->filter(fn ($item) => $item->reference_type === Service::class && $item->reference?->subscription_id)->isNotEmpty(),
+            'has_subscription' => PaymentReminders::paidAutomatically($invoice),
         ];
 
         // Generate the invoice PDF, in the customer's language

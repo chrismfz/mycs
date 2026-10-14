@@ -448,6 +448,150 @@ class EmailTemplateSeeder extends Seeder
             'edit_preference_message' => 'Notify me about service cancellations',
             'in_app_url' => '{{ urls.service }}',
         ],
+        'invoice_payment_reminder' => [
+            'subject' => 'Reminder: invoice #{{ invoice_number }} | Due {{ invoice.due_at|date("d/m/Y") }} | {{ total }}',
+            'body' => <<<'HTML'
+                # Payment reminder
+
+                Dear {{ user.first_name }},
+
+                This is a reminder that invoice **#{{ invoice_number }}** is due on **{{ invoice.due_at|date("d/m/Y") }}**. If you have already paid it, please ignore this message.
+
+                - Invoice: **#{{ invoice_number }}**
+                - Total: **{{ total }}**
+                - Due date: **{{ invoice.due_at|date("d/m/Y") }}**
+
+                <div class="table">
+
+                | Description | Qty | Price |
+                | :--- | :---: | ---: |
+                {% for item in items %}
+                | {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |
+                {% endfor %}
+                </div>
+
+                <div class="action">
+                	<a class="button button-blue" href="{{ urls.invoice }}">
+                		View & pay invoice
+                	</a>
+                </div>
+                HTML,
+            'in_app_title' => 'Payment reminder: invoice #{{ invoice_number }}',
+            'in_app_body' => 'Invoice #{{ invoice_number }} of {{ total }} is due on {{ invoice.due_at|date("d/m/Y") }}.',
+            'mail_enabled' => 'choice_on',
+            'in_app_enabled' => 'choice_on',
+            'edit_preference_message' => 'Remind me of invoices about to fall due',
+            'in_app_url' => '{{ urls.invoice }}',
+        ],
+        'card_payment_due' => [
+            'subject' => 'Upcoming charge: invoice #{{ invoice_number }} | {{ total }}',
+            'body' => <<<'HTML'
+                # Upcoming automatic payment
+
+                Dear {{ user.first_name }},
+
+                Invoice **#{{ invoice_number }}** of **{{ total }}** will be charged automatically on **{{ invoice.due_at|date("d/m/Y") }}** with your saved payment method. There is nothing you need to do.
+
+                If your card has changed or expired, please update it, or pay the invoice with another method, before that date.
+
+                <div class="table">
+
+                | Description | Qty | Price |
+                | :--- | :---: | ---: |
+                {% for item in items %}
+                | {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |
+                {% endfor %}
+                </div>
+
+                <div class="action">
+                	<a class="button button-blue" href="{{ urls.invoice }}">
+                		View invoice
+                	</a>
+                </div>
+                HTML,
+            'in_app_title' => 'Upcoming charge: invoice #{{ invoice_number }}',
+            'in_app_body' => 'Invoice #{{ invoice_number }} ({{ total }}) will be charged automatically on {{ invoice.due_at|date("d/m/Y") }}.',
+            'mail_enabled' => 'choice_on',
+            'in_app_enabled' => 'choice_on',
+            'edit_preference_message' => 'Tell me before an automatic payment',
+            'in_app_url' => '{{ urls.invoice }}',
+        ],
+        'invoice_overdue' => [
+            'subject' => 'Overdue: invoice #{{ invoice_number }} | {{ total }}',
+            'body' => <<<'HTML'
+                # Overdue invoice
+
+                Dear {{ user.first_name }},
+
+                Invoice **#{{ invoice_number }}** was due on **{{ invoice.due_at|date("d/m/Y") }}** and is now {{ overdue.days }} day(s) overdue. If you have already paid it, please ignore this message: the payment may still be on its way.
+
+                - Invoice: **#{{ invoice_number }}**
+                - Total: **{{ total }}**
+                - Was due: **{{ invoice.due_at|date("d/m/Y") }}**
+
+                <div class="table">
+
+                | Description | Qty | Price |
+                | :--- | :---: | ---: |
+                {% for item in items %}
+                | {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |
+                {% endfor %}
+                </div>
+
+                {% if overdue.last %}
+                **This is our last notice.**{% if overdue.suspend_on %} If it is not paid, the service is suspended on **{{ overdue.suspend_on }}**.{% endif %}
+                {% endif %}
+
+                <div class="action">
+                	<a class="button button-blue" href="{{ urls.invoice }}">
+                		Pay invoice
+                	</a>
+                </div>
+
+                If you have any questions or trouble paying, please contact us.
+                HTML,
+            'in_app_title' => 'Overdue: invoice #{{ invoice_number }}',
+            'in_app_body' => 'Invoice #{{ invoice_number }} ({{ total }}) is {{ overdue.days }} day(s) overdue.',
+            'mail_enabled' => 'force',
+            'in_app_enabled' => 'choice_on',
+            'edit_preference_message' => 'Alert me about overdue invoices',
+            'in_app_url' => '{{ urls.invoice }}',
+        ],
+        'invoice_modified' => [
+            'subject' => 'Invoice #{{ invoice_number }} updated | {{ total }}',
+            'body' => <<<'HTML'
+                # Invoice updated
+
+                Dear {{ user.first_name }},
+
+                Invoice **#{{ invoice_number }}** was updated. Here it is as it stands now.
+
+                - Invoice: **#{{ invoice_number }}**
+                - Total: **{{ total }}**
+                - Due date: **{{ invoice.due_at|date("d/m/Y") }}**
+
+                <div class="table">
+
+                | Description | Qty | Price |
+                | :--- | :---: | ---: |
+                {% for item in items %}
+                | {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |
+                {% endfor %}
+                </div>
+
+                <div class="action">
+                	<a class="button button-blue" href="{{ urls.invoice }}">
+                		View & pay invoice
+                	</a>
+                </div>
+                HTML,
+            'in_app_title' => 'Invoice #{{ invoice_number }} updated',
+            'in_app_body' => 'Invoice #{{ invoice_number }} was updated: total {{ total }}.',
+            'mail_enabled' => 'choice_on',
+            'in_app_enabled' => 'choice_on',
+            'edit_preference_message' => 'Notify me when an invoice of mine is updated',
+            'in_app_url' => '{{ urls.invoice }}',
+        ],
     ];
 
     /**
@@ -867,6 +1011,142 @@ class EmailTemplateSeeder extends Seeder
                     HTML,
                 'in_app_title' => 'Επιβεβαίωση αιτήματος διακοπής',
                 'in_app_body' => 'Λάβαμε το αίτημα διακοπής για την υπηρεσία {{ service.product.name }}.',
+            ],
+        ],
+        'invoice_payment_reminder' => [
+            'el' => [
+                'subject' => 'Υπενθύμιση: προτιμολόγιο #{{ invoice_number }} | Λήξη {{ invoice.due_at|date("d/m/Y") }} | {{ total }}',
+                'body' => <<<'HTML'
+                    # Υπενθύμιση πληρωμής
+
+                    Αγαπητέ/ή {{ user.first_name }},
+
+                    Σας υπενθυμίζουμε ότι το προτιμολόγιο **#{{ invoice_number }}** λήγει στις **{{ invoice.due_at|date("d/m/Y") }}**. Αν το έχετε ήδη εξοφλήσει, παραβλέψτε αυτό το μήνυμα.
+
+                    - Προτιμολόγιο: **#{{ invoice_number }}**
+                    - Σύνολο: **{{ total }}**
+                    - Ημερομηνία λήξης: **{{ invoice.due_at|date("d/m/Y") }}**
+
+                    <div class="table">
+
+                    | Περιγραφή | Ποσότητα | Τιμή |
+                    | :--- | :---: | ---: |
+                    {% for item in items %}
+                    | {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |
+                    {% endfor %}
+                    </div>
+
+                    <div class="action">
+                    	<a class="button button-blue" href="{{ urls.invoice }}">
+                    		Προβολή & πληρωμή
+                    	</a>
+                    </div>
+                    HTML,
+                'in_app_title' => 'Υπενθύμιση πληρωμής: #{{ invoice_number }}',
+                'in_app_body' => 'Το προτιμολόγιο #{{ invoice_number }} ποσού {{ total }} λήγει στις {{ invoice.due_at|date("d/m/Y") }}.',
+            ],
+        ],
+        'card_payment_due' => [
+            'el' => [
+                'subject' => 'Επερχόμενη χρέωση: προτιμολόγιο #{{ invoice_number }} | {{ total }}',
+                'body' => <<<'HTML'
+                    # Επερχόμενη αυτόματη πληρωμή
+
+                    Αγαπητέ/ή {{ user.first_name }},
+
+                    Το προτιμολόγιο **#{{ invoice_number }}** ποσού **{{ total }}** θα χρεωθεί αυτόματα στις **{{ invoice.due_at|date("d/m/Y") }}** με τον αποθηκευμένο τρόπο πληρωμής σας. Δεν χρειάζεται να κάνετε κάτι.
+
+                    Αν η κάρτα σας έχει αλλάξει ή λήξει, ενημερώστε την ή εξοφλήστε το προτιμολόγιο με άλλο τρόπο πριν από αυτή την ημερομηνία.
+
+                    <div class="table">
+
+                    | Περιγραφή | Ποσότητα | Τιμή |
+                    | :--- | :---: | ---: |
+                    {% for item in items %}
+                    | {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |
+                    {% endfor %}
+                    </div>
+
+                    <div class="action">
+                    	<a class="button button-blue" href="{{ urls.invoice }}">
+                    		Προβολή προτιμολογίου
+                    	</a>
+                    </div>
+                    HTML,
+                'in_app_title' => 'Επερχόμενη χρέωση: #{{ invoice_number }}',
+                'in_app_body' => 'Το προτιμολόγιο #{{ invoice_number }} ({{ total }}) θα χρεωθεί αυτόματα στις {{ invoice.due_at|date("d/m/Y") }}.',
+            ],
+        ],
+        'invoice_overdue' => [
+            'el' => [
+                'subject' => 'Ληξιπρόθεσμο: προτιμολόγιο #{{ invoice_number }} | {{ total }}',
+                'body' => <<<'HTML'
+                    # Ληξιπρόθεσμη οφειλή
+
+                    Αγαπητέ/ή {{ user.first_name }},
+
+                    Το προτιμολόγιο **#{{ invoice_number }}** έληξε στις **{{ invoice.due_at|date("d/m/Y") }}** και είναι ληξιπρόθεσμο εδώ και {{ overdue.days }} ημέρα/ες. Αν το έχετε ήδη εξοφλήσει, παραβλέψτε αυτό το μήνυμα· η πληρωμή ίσως δεν έχει καταχωριστεί ακόμα.
+
+                    - Προτιμολόγιο: **#{{ invoice_number }}**
+                    - Σύνολο: **{{ total }}**
+                    - Έληξε: **{{ invoice.due_at|date("d/m/Y") }}**
+
+                    <div class="table">
+
+                    | Περιγραφή | Ποσότητα | Τιμή |
+                    | :--- | :---: | ---: |
+                    {% for item in items %}
+                    | {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |
+                    {% endfor %}
+                    </div>
+
+                    {% if overdue.last %}
+                    **Αυτή είναι η τελευταία μας ειδοποίηση.**{% if overdue.suspend_on %} Αν δεν εξοφληθεί, η υπηρεσία τίθεται σε αναστολή στις **{{ overdue.suspend_on }}**.{% endif %}
+                    {% endif %}
+
+                    <div class="action">
+                    	<a class="button button-blue" href="{{ urls.invoice }}">
+                    		Εξόφληση προτιμολογίου
+                    	</a>
+                    </div>
+
+                    Αν έχετε απορίες ή δυσκολία με την πληρωμή, επικοινωνήστε μαζί μας.
+                    HTML,
+                'in_app_title' => 'Ληξιπρόθεσμο: #{{ invoice_number }}',
+                'in_app_body' => 'Το προτιμολόγιο #{{ invoice_number }} ({{ total }}) είναι ληξιπρόθεσμο εδώ και {{ overdue.days }} ημέρα/ες.',
+            ],
+        ],
+        'invoice_modified' => [
+            'el' => [
+                'subject' => 'Ενημέρωση προτιμολογίου #{{ invoice_number }} | {{ total }}',
+                'body' => <<<'HTML'
+                    # Ενημέρωση προτιμολογίου
+
+                    Αγαπητέ/ή {{ user.first_name }},
+
+                    Το προτιμολόγιο **#{{ invoice_number }}** ενημερώθηκε. Ακολουθεί όπως είναι τώρα.
+
+                    - Προτιμολόγιο: **#{{ invoice_number }}**
+                    - Σύνολο: **{{ total }}**
+                    - Ημερομηνία λήξης: **{{ invoice.due_at|date("d/m/Y") }}**
+
+                    <div class="table">
+
+                    | Περιγραφή | Ποσότητα | Τιμή |
+                    | :--- | :---: | ---: |
+                    {% for item in items %}
+                    | {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |
+                    {% endfor %}
+                    </div>
+
+                    <div class="action">
+                    	<a class="button button-blue" href="{{ urls.invoice }}">
+                    		Προβολή & πληρωμή
+                    	</a>
+                    </div>
+                    HTML,
+                'in_app_title' => 'Ενημέρωση προτιμολογίου #{{ invoice_number }}',
+                'in_app_body' => 'Το προτιμολόγιο #{{ invoice_number }} ενημερώθηκε: σύνολο {{ total }}.',
             ],
         ],
     ];

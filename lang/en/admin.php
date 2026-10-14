@@ -9,6 +9,7 @@ return [
         'credit_applied' => 'Account credit applied to open invoices',
         'cancellations_processed' => 'Cancellation requests processed',
         'paid_applied' => 'Paid invoices applied again',
+        'reminders_sent' => 'Payment reminders sent',
         'services_suspended' => 'Services suspended',
         'services_terminated' => 'Services terminated',
         'tickets_closed' => 'Tickets closed',

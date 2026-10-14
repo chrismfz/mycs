@@ -21,6 +21,7 @@ use App\Models\Setting;
 use App\Models\Ticket;
 use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\Invoice\ChangeOpenLine;
+use App\Services\Invoice\PaymentReminders;
 use App\Services\Invoice\ProcessPaidInvoiceService;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditAutoApply;
@@ -225,6 +226,12 @@ class CronJob extends Command
 
                 return $number;
             }, transaction: false);
+
+            // Payment reminders before the due date and overdue notices (Σ4): before the suspensions, so a last notice
+            // goes out before its service is suspended. Each invoice on its own.
+            $this->runCronJob('reminders_sent', fn () => (new PaymentReminders)->send(function (int $id, Throwable $e) {
+                $this->notices["reminders_sent #{$id}"] = new DisplayException("Invoice #{$id}: its payment reminder could not be sent: {$e->getMessage()}. Tried again on the next run.");
+            }), transaction: false);
 
             $this->runCronJob('services_suspended', function ($number = 0) {
                 if (!config('settings.cronjob_suspend_enabled', true)) {

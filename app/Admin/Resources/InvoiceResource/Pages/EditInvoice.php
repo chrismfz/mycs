@@ -8,10 +8,12 @@ use App\Admin\Actions\MarkInvoicePaid;
 use App\Admin\Resources\InvoiceResource;
 use App\Classes\PDF;
 use App\Exceptions\DisplayException;
+use App\Helpers\NotificationHelper;
 use App\Models\Invoice;
 use App\Services\Invoice\RecordPaymentService;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
+use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Support\Exceptions\Halt;
@@ -139,6 +141,27 @@ class EditInvoice extends EditRecord
                             ->body(__('An invoice with payments cannot be deleted: cancel it, or delete its transactions first.'))->send();
                         $action->cancel();
                     }
+                }),
+            // WHMCS's «Send Email» on an invoice: staff mail the customer one of the invoice templates, e.g. «Invoice
+            // Modified» after changing its lines, or a reminder by hand.
+            Action::make('sendEmail')
+                ->label('Send Email')
+                ->icon('heroicon-o-envelope')
+                ->authorize(fn (Invoice $record) => auth()->user()?->can('update', $record))
+                ->visible(fn (Invoice $record): bool => $record->status !== Invoice::STATUS_DRAFT && $record->user !== null)
+                ->schema([
+                    Select::make('template')->label('Template')->required()->options([
+                        'invoice_modified' => 'Invoice Modified',
+                        'new_invoice_created' => 'Invoice Created',
+                        'invoice_payment_reminder' => 'Invoice Payment Reminder',
+                        'invoice_overdue' => 'Invoice Overdue Notice',
+                        'invoice_paid' => 'Invoice Payment Confirmation',
+                    ])->default('invoice_modified'),
+                ])
+                ->action(function (Invoice $record, array $data) {
+                    $overdue = $record->due_at !== null && $record->due_at->isPast() ? (int) $record->due_at->startOfDay()->diffInDays(today()) : 0;
+                    NotificationHelper::invoiceNotification($record->user, $record, $data['template'], ['overdue' => ['days' => $overdue, 'last' => false, 'suspend_on' => null]]);
+                    Notification::make()->success()->title('Email queued to ' . $record->user->email)->send();
                 }),
             Action::make('pdf')
                 ->label('Download PDF')
