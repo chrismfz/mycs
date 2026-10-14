@@ -81,5 +81,5 @@
 ## Τι μένει
 - Λόγος του 0% στη γραμμή (reverse charge, εκτός ΕΕ): με το EU VAT. ΦΠΑ ανά είδος γραμμής (domains, late fees,
   billable items: `TaxDomains`, `TaxLateFee`, `TaxBillableItems` του WHMCS) όταν υπάρξουν τα είδη.
-- Upgrades (SVC-14) στο ίδιο σημείο τιμολόγησης· επιλογές τύπου quantity με τιμή (CART-9)· κουπόνι, επιλογές και
+- Upgrades: το SVC-14a έγινε (`decisions.md` §7)· η αλλαγή κύκλου (14b)· επιλογές τύπου quantity με τιμή (CART-9)· κουπόνι, επιλογές και
   ημερομηνία λήξης στο «Create Order»· status παραγγελίας και «Accept Order» (CART-12, Δ4).

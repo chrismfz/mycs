@@ -115,12 +115,12 @@ class NetAmountsAdversarialTest extends TestCase
         $from = $this->product(10.00);
         $to = $this->product(2.00);
         DB::table('product_upgrades')->insert(['product_id' => $from->id, 'upgrade_id' => $to->id]);
-        $service = $this->service($client, $from, 10.00);
+        $service = $this->service($client, $from, 10.00, ['expires_at' => now()->addMonthNoOverflow()]);
 
         $this->tax();
         $this->livewireAs($user)->test(Upgrade::class, ['service' => $service])->set('upgrade', $to->id)->call('doUpgrade');
 
-        // Full period left (30 of 30 days): (10.00 − 2.00) × 1.24.
+        // The whole period left (SVC-14: the days of the real period): (10.00 − 2.00) × 1.24.
         $this->assertSame('9.92', $this->creditBalance($client));
     }
 
@@ -132,7 +132,7 @@ class NetAmountsAdversarialTest extends TestCase
         $from = $this->product(12.40);
         $to = $this->product(2.48);
         DB::table('product_upgrades')->insert(['product_id' => $from->id, 'upgrade_id' => $to->id]);
-        $service = $this->service($client, $from, 10.00);
+        $service = $this->service($client, $from, 10.00, ['expires_at' => now()->addMonthNoOverflow()]);
 
         $this->tax('inclusive');
         $this->livewireAs($user)->test(Upgrade::class, ['service' => $service])->set('upgrade', $to->id)->call('doUpgrade');
@@ -152,7 +152,7 @@ class NetAmountsAdversarialTest extends TestCase
         $from = $this->product(10.00, taxable: false);
         $to = $this->product(20.00);
         DB::table('product_upgrades')->insert(['product_id' => $from->id, 'upgrade_id' => $to->id]);
-        $service = $this->service($client, $from, 10.00);
+        $service = $this->service($client, $from, 10.00, ['expires_at' => now()->addMonthNoOverflow()]);
 
         $this->tax();
         $this->livewireAs($user)->test(Upgrade::class, ['service' => $service])->set('upgrade', $to->id)->call('doUpgrade');

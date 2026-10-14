@@ -6,6 +6,7 @@ use App\Exceptions\DisplayException;
 use App\Livewire\Component;
 use App\Models\ConfigOption;
 use App\Models\Invoice;
+use App\Models\Plan;
 use App\Models\Product;
 use App\Models\Service;
 use App\Models\ServiceConfig;
@@ -54,10 +55,9 @@ class Upgrade extends Component
     #[Computed]
     public function totalToday()
     {
-        $upgrade = new ServiceUpgrade([
-            'service' => $this->service,
-            'product' => $this->upgradeProduct,
-        ]);
+        $upgrade = new ServiceUpgrade(['service_id' => $this->service->id, 'product_id' => $this->upgradeProduct->id]);
+        $upgrade->setRelation('service', $this->service);
+        $upgrade->setRelation('product', $this->upgradeProduct);
 
         // Initialize empty configs collection
         $configs = collect();
@@ -118,11 +118,7 @@ class Upgrade extends Component
             'upgradeProduct.id' => [
                 'required',
                 function ($attribute, $value, $fail) {
-                    $plan = $this->upgradeProduct->availablePlans()
-                        ->where('billing_period', $this->service->plan->billing_period)
-                        ->where('billing_unit', $this->service->plan->billing_unit)
-                        ->first();
-                    if (!$plan) {
+                    if (!$this->targetPlan($this->service)) {
                         $fail(__('Invalid upgrade.'));
                     }
                 },
@@ -180,10 +176,13 @@ class Upgrade extends Component
                 return $this->redirect(route('services.show', $this->service), true);
             }
 
-            $upgradePlan = $this->upgradeProduct->availablePlans()
-                ->where('billing_period', $service->plan->billing_period)
-                ->where('billing_unit', $service->plan->billing_unit)
-                ->first();
+            $upgradePlan = $this->targetPlan($service);
+            if ($upgradePlan === null) {
+                DB::rollBack();
+                $this->notify(__('Invalid upgrade.'), 'error');
+
+                return;
+            }
 
             // The old config options must be in upgradableConfigOptions
             $serviceConfigOptions = $service->configs->pluck('config_value_id', 'config_option_id')->toArray();
@@ -224,6 +223,8 @@ class Upgrade extends Component
             $price = $upgrade->calculatePrice();
 
             if ($price->price <= 0) {
+                // The credit as priced, before the service changes.
+                $gross = $upgrade->grossPrice();
                 // Refused when the service stopped running meanwhile: no credit for a downgrade that did not happen.
                 if (!(new ServiceUpgradeService)->handle($upgrade)) {
                     DB::rollBack();
@@ -242,7 +243,7 @@ class Upgrade extends Component
 
                 // The difference of a downgrade becomes account credit, through the ledger (docs/money-trail.md §2),
                 // with its tax: the unused period was paid with tax, and credit pays invoices with tax (Δ1).
-                $cents = RecordPaymentService::toCents(abs((float) $upgrade->grossPrice()->price));
+                $cents = RecordPaymentService::toCents(abs((float) $gross->price));
                 if ($cents > 0) {
                     (new CreditLedger)->add((int) $service->client_id, $price->currency->code, $cents, MoneyTrail::CAUSE_DOWNGRADE, MoneyTrail::SOURCE_SYSTEM);
                 }
@@ -302,6 +303,23 @@ class Upgrade extends Component
             'title' => 'Upgrade Service',
             'sidebar' => true,
         ]);
+    }
+
+    /**
+     * The plan the service moves to: its own when the product stays (an options upgrade does not move it to another plan
+     * of the same cycle), else the new product's for its cycle, priced in its currency (SVC-14 review F1: a plan priced
+     * only in another currency was taken, and priced as free).
+     */
+    private function targetPlan(Service $service): ?Plan
+    {
+        if ((int) $this->upgradeProduct->id === (int) $service->product_id) {
+            return $service->plan;
+        }
+
+        return $this->upgradeProduct->availablePlans($service->currency_code)
+            ->where('billing_period', $service->plan->billing_period)
+            ->where('billing_unit', $service->plan->billing_unit)
+            ->first();
     }
 
     /**

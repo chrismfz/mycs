@@ -686,7 +686,9 @@ class Service extends Model implements Auditable
             if ($product->stock !== null && ($product->stock - $this->quantity) < 0) {
                 return false;
             }
-            $plan = $product->plans()->where('billing_unit', $this->plan->billing_unit)->where('billing_period', $this->plan->billing_period)->get();
+            // In the service's currency (F1 of the SVC-14 review: a plan priced only in another one read as free).
+            $plan = $product->availablePlans($this->currency_code)->where('billing_unit', $this->plan->billing_unit)
+                ->where('billing_period', $this->plan->billing_period)->values();
             // Only get the upgrades that have the exact same billing cycle as the service
             if ($plan->count() > 0) {
                 $product->setAttribute('plan', $plan->first());
@@ -719,10 +721,21 @@ class Service extends Model implements Auditable
     }
 
     /**
-     * The price it renews at, from its plan and options now (Σ7, `OrderPricing`): what a recalculation or an upgrade
-     * stores. The coupon counts only for a product it covers (CART-2) and for its cycles (CART-1: empty = the first).
+     * The coupon cycle its recurring amount (`price`) was set for: the one it is in, never the first (the first
+     * invoice is the order's, the recurring amount the renewal's). What an upgrade prices the new amount with, so a
+     * coupon's last discounted cycle is not charged back (SVC-14 review).
      */
-    public function calculatePrice(bool $applyCoupon = true)
+    public function priceCycle(): int
+    {
+        return max(2, $this->invoices()->where('status', 'paid')->count());
+    }
+
+    /**
+     * The price it renews at, from its plan and options now (Σ7, `OrderPricing`): what a recalculation or an upgrade
+     * stores. The coupon counts only for a product it covers (CART-2) and for its cycles (CART-1: empty = the first),
+     * those of $cycle when given (else of the next renewal).
+     */
+    public function calculatePrice(bool $applyCoupon = true, ?int $cycle = null)
     {
         // No plan: the price it has (nothing to compute it from until staff set one).
         if ($this->plan === null) {
@@ -739,7 +752,7 @@ class Service extends Model implements Auditable
         if ($applyCoupon && $this->coupon && $this->coupon_expired_at === null) {
             // The cycle this price is for: the next renewal, after those already paid, and never the first (its
             // invoice was made with the order): a first-cycle coupon is never in it, even before the first payment (ADV-4).
-            $cycle = max($this->invoices()->where('status', 'paid')->count(), 1) + 1;
+            $cycle ??= max($this->invoices()->where('status', 'paid')->count(), 1) + 1;
             if ($this->coupon->cycles() === 0 || $cycle <= $this->coupon->cycles()) {
                 $discount = OrderPricing::discount($this->coupon, (int) $this->product_id);
             }
