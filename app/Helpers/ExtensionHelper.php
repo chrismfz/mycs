@@ -1213,7 +1213,7 @@ class ExtensionHelper
         $log = fn (string $outcome, string $reason, ?GatewayRefund $row = null) => GatewayLog::current()->result($outcome, $reason, [
             'amount' => $cents / 100, 'currency_code' => $currency !== null ? strtoupper($currency) : null,
             'external_id' => $resolutionReference ?? $chargebackReference ?? $row?->reference,
-            'invoice_id' => $payment?->invoice_id, 'invoice_transaction_id' => $row?->invoice_transaction_id ?? $payment?->id,
+            'invoice_id' => $payment?->invoice_id, 'invoice_transaction_id' => $row !== null ? $row->invoice_transaction_id : $payment?->id,
         ]);
         if ($resolutionReference !== null && GatewayRefund::query()->where('gateway', $gateway)->where('reference', $resolutionReference)->exists()) {
             $log(PaymentGatewayEvent::OUTCOME_IGNORED, 'replay');
