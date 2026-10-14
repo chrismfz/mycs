@@ -32,7 +32,7 @@ tests) **διαβάζει μόνο δεδομένα**: δεν καλεί συν�
 ## Ανά ειδοποίηση
 | Template | Τιμές |
 |---|---|
-| `new_invoice_created`, `invoice_paid`, `invoice_payment_failed` | `invoice`, `items`, `total`, `has_subscription` |
+| `new_invoice_created`, `invoice_paid`, `invoice_payment_failed` | `invoice`, `items`, `total`, `subtotal`, `tax` (κενά χωρίς ΦΠΑ, Δ1), `has_subscription` |
 | `new_order_created` | `order`, `items` (υπηρεσίες), `total` |
 | `new_server_created`, `server_suspended`, `server_terminated` | `service`· στο πρώτο και `product_info` (το snippet του προϊόντος, ήδη σε HTML) |
 | `new_ticket_message` | `ticketMessage`, `message_html` (το μήνυμα σε ασφαλές HTML) |

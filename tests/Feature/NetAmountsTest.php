@@ -2,18 +2,22 @@
 
 namespace Tests\Feature;
 
+use App\Events\Service\RenewalTaxChanged;
 use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\Order;
 use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Product;
 use App\Models\Service;
+use App\Models\ServiceUpgrade;
 use App\Models\TaxRate;
 use App\Models\User;
 use App\Support\CurrentClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
 use Tests\TestCase;
 
 /**
@@ -165,6 +169,51 @@ class NetAmountsTest extends TestCase
             ->assertOk()
             ->assertSee('ΦΠΑ (24%)')
             ->assertSee('24.80');
+    }
+
+    public function test_an_upgrade_line_follows_its_product_and_a_loose_line_the_account(): void
+    {
+        $client = $this->client();
+        $service = $this->service($client);
+        $untaxed = Product::factory()->create(['taxable' => false]);
+        $upgrade = ServiceUpgrade::query()->create(['service_id' => $service->id, 'product_id' => $untaxed->id, 'plan_id' => $service->plan_id, 'status' => ServiceUpgrade::STATUS_PENDING]);
+        $invoice = $this->invoice($client);
+
+        $upgradeLine = $this->line($invoice, '10.00', extra: ['reference_type' => ServiceUpgrade::class, 'reference_id' => $upgrade->id]);
+        $staffLine = $this->line($invoice, '10.00');
+
+        $this->assertSame('0.00', (string) $upgradeLine->tax_amount, 'the upgrade is to a product sold without tax');
+        $this->assertSame('2.40', (string) $staffLine->tax_amount, 'a line of nothing takes the account\'s rate');
+    }
+
+    /** What the customer sees for a service and an order is what renewals charge, tax included. */
+    public function test_service_and_order_amounts_are_shown_with_tax(): void
+    {
+        $client = $this->client();
+        $service = $this->service($client, 20.00);
+        $order = Order::query()->create(['client_id' => $client->id, 'currency_code' => 'USD']);
+        $service->update(['order_id' => $order->id]);
+
+        $this->assertSame('24.80', number_format((float) $service->fresh()->formattedPrice->price, 2, '.', ''));
+        $this->assertSame(24.80, (float) $order->fresh()->total);
+    }
+
+    /** A subscription billing a renewal by itself follows a change of its tax (code review S4). */
+    public function test_a_tax_change_tells_the_subscriptions(): void
+    {
+        Event::fake([RenewalTaxChanged::class]);
+        $client = $this->client();
+        $subscribed = $this->service($client);
+        $subscribed->update(['subscription_id' => 'sub_test']);
+        $this->service($client);
+
+        $client->update(['tax_exempt' => true]);
+        Event::assertDispatched(RenewalTaxChanged::class, 1);
+        Event::assertDispatched(RenewalTaxChanged::class, fn (RenewalTaxChanged $event) => $event->service->is($subscribed));
+
+        $subscribed->product->update(['taxable' => false]);
+        $client->primaryContact->update(['country' => 'DE']);
+        Event::assertDispatched(RenewalTaxChanged::class, 3);
     }
 
     public function test_a_renewal_charges_the_net_price_with_tax(): void

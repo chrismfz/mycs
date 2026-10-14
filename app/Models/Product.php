@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Events\Service\RenewalTaxChanged;
 use App\Exceptions\DisplayException;
 use App\Models\Traits\HasPlans;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -74,6 +75,12 @@ class Product extends Model implements Auditable
 
     protected static function booted(): void
     {
+        // Taxable or not changes what its services' subscriptions bill (Δ1).
+        static::updated(function (self $model) {
+            if ($model->wasChanged('taxable')) {
+                RenewalTaxChanged::forSubscribed(Service::query()->where('product_id', $model->id));
+            }
+        });
         static::deleting(function (self $model) {
             if ($model->inUse()) {
                 throw new DisplayException(__('This product is used by services or upgrades: hide it instead of deleting it.'));

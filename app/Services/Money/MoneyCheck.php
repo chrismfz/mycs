@@ -99,17 +99,21 @@ final class MoneyCheck
     }
 
     /**
-     * Each line's stored total is its net × quantity plus its tax (Δ1): a line written around the model (raw SQL, an
-     * import) with a wrong or missing total would make every balance built on it wrong.
+     * Each line's stored total is its net × quantity plus its tax, and its tax its rate on that (Δ1): a line written
+     * around the model (raw SQL, an import) with a wrong or missing total or tax would make every balance built on it
+     * wrong.
      */
     private function lineTotals(): void
     {
         InvoiceItem::query()
-            ->whereRaw('ROUND(ROUND(price * quantity, 2) + tax_amount, 2) <> line_total')
+            ->where(fn ($query) => $query->whereRaw('ROUND(ROUND(price * quantity, 2) + tax_amount, 2) <> line_total')
+                // and its tax is its rate on its net amount (0 when not taxed)
+                ->orWhereRaw('tax_amount <> CASE WHEN taxed THEN ROUND(ROUND(price * quantity, 2) * tax_rate / 100, 2) ELSE 0 END'))
             ->orderBy('id')
             ->each(fn (InvoiceItem $item) => $this->add('line_totals', "invoice #{$item->invoice_id} line #{$item->id}",
-                'total ' . number_format((float) $item->line_total, 2, '.', '') . ' ≠ ' . number_format((float) $item->price, 2, '.', '')
-                . ' × ' . $item->quantity . ' + tax ' . number_format((float) $item->tax_amount, 2, '.', '')));
+                'total ' . number_format((float) $item->line_total, 2, '.', '') . ', price ' . number_format((float) $item->price, 2, '.', '')
+                . ' × ' . $item->quantity . ', tax ' . number_format((float) $item->tax_amount, 2, '.', '')
+                . ' at ' . rtrim(rtrim((string) $item->tax_rate, '0'), '.') . '%' . ($item->taxed ? '' : ' (not taxed)')));
     }
 
     /** A paid invoice owes nothing and holds nothing over (an overpayment becomes credit). */

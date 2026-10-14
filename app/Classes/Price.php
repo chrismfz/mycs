@@ -82,7 +82,7 @@ class Price
             $tax ??= $priceAndCurrency->tax ?? Settings::tax();
             if ($tax) {
                 // Inclusive has the tax included in the price
-                if (config('settings.tax_type', 'inclusive') == 'inclusive' || !$apply_exclusive_tax) {
+                if (config('settings.tax_type', 'exclusive') == 'inclusive' || !$apply_exclusive_tax) {
                     $this->tax = number_format($this->price - ($this->price / (1 + $tax->rate / 100)), 2, '.', '');
                     if ($this->setup_fee) {
                         $this->setup_fee_tax = number_format($this->setup_fee - ($this->setup_fee / (1 + $tax->rate / 100)), 2, '.', '');

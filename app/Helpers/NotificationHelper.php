@@ -256,6 +256,9 @@ class NotificationHelper
             'invoice' => $invoice,
             'items' => $invoice->items,
             'total' => $invoice->formattedTotal,
+            // Δ1: the lines are net; when there is tax, the subtotal and the tax for the template (empty otherwise).
+            'subtotal' => $invoice->taxTotal != 0 ? $invoice->formattedTotal->format($invoice->subtotal) : '',
+            'tax' => $invoice->taxTotal != 0 ? $invoice->formattedTotal->format($invoice->taxTotal) : '',
             // Only a gateway subscription is charged on its own later (review R1/A2); a saved method was charged once.
             'has_subscription' => PaymentReminders::chargedOnItsOwn($invoice),
             // What is left to pay, for a partly paid invoice (review R5/A10).

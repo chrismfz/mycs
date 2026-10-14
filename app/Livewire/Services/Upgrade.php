@@ -77,7 +77,8 @@ class Upgrade extends Component
 
         $upgrade->setRelation('configs', $configs);
 
-        return $upgrade->calculatePrice();
+        // With tax: what the invoice it makes charges (Δ1).
+        return $upgrade->grossPrice();
     }
 
     // When upgrade changes, update the upgradeProduct
@@ -239,8 +240,9 @@ class Upgrade extends Component
                     return $this->redirect(route('services.show', $service), true);
                 }
 
-                // The difference of a downgrade becomes account credit, through the ledger (docs/money-trail.md §2).
-                $cents = RecordPaymentService::toCents(abs($price->price));
+                // The difference of a downgrade becomes account credit, through the ledger (docs/money-trail.md §2),
+                // with its tax: the unused period was paid with tax, and credit pays invoices with tax (Δ1).
+                $cents = RecordPaymentService::toCents(abs((float) $upgrade->grossPrice()->price));
                 if ($cents > 0) {
                     (new CreditLedger)->add((int) $service->client_id, $price->currency->code, $cents, MoneyTrail::CAUSE_DOWNGRADE, MoneyTrail::SOURCE_SYSTEM);
                 }

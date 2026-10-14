@@ -77,7 +77,7 @@ class ProductResource extends Resource
                                 TextInput::make('stock')->integer()->nullable(),
                                 TextInput::make('per_user_limit')->integer()->nullable(),
                                 // WHMCS «Apply Tax» (Δ1): a product sold without VAT.
-                                Toggle::make('taxable')->label('Taxed')->default(true)
+                                Toggle::make('taxable')->label('Apply tax')->default(true)
                                     ->helperText('Off: sold without tax (its invoice lines are not taxed).'),
                                 Select::make('allow_quantity')->options([
                                     'disabled' => 'No',

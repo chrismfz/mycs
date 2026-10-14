@@ -1023,8 +1023,9 @@ class ImportFromWhmcs extends Command
         $this->info('Importing invoice items... (' . $this->count('tblinvoiceitems') . ' records)');
 
         // Each line with the tax it was issued with (Δ1): WHMCS keeps amounts net, «taxed» per line and the rate on the
-        // invoice (TaxPerLineItem: rounded per line, as here).
-        $this->migrateInBatch('tblinvoiceitems', 'SELECT ii.*, i.taxrate AS invoice_taxrate FROM tblinvoiceitems ii LEFT JOIN tblinvoices i ON i.id = ii.invoiceid LIMIT :limit OFFSET :offset', function ($records) {
+        // invoice (TaxPerLineItem: rounded per line, as here). The second tax (taxrate2) is not used by either company.
+        // Ordered, so the batches are stable.
+        $this->migrateInBatch('tblinvoiceitems', 'SELECT ii.*, i.taxrate AS invoice_taxrate FROM tblinvoiceitems ii LEFT JOIN tblinvoices i ON i.id = ii.invoiceid ORDER BY ii.id LIMIT :limit OFFSET :offset', function ($records) {
             $data = [];
             foreach ($records as $record) {
                 $taxed = (bool) ($record['taxed'] ?? false) && (float) ($record['invoice_taxrate'] ?? 0) > 0;

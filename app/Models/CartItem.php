@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Auth;
+use MyCS\Pricing\LinePricer;
 
 /**
  * @property-read mixed $price
@@ -18,6 +19,9 @@ use Illuminate\Support\Facades\Auth;
 #[ObservedBy(CartItemObserver::class)]
 class CartItem extends Model
 {
+    /** The cents of {@see lineTotal()}, set when the price is worked out. */
+    private ?int $lineTotalCents = null;
+
     protected $fillable = [
         'cart_id',
         'product_id',
@@ -76,8 +80,21 @@ class CartItem extends Model
                 $line = OrderPricing::line($catalog, $discount, $client, $this->product);
                 $full = $discount !== null && $line->hasDiscount() ? OrderPricing::line($catalog, null, $client, $this->product) : null;
 
+                // The first invoice's line for the whole quantity (Δ1: net × quantity, the tax once on that; F4 of the
+                // Σ7b review): what the cart adds up, so it is what checkout charges.
+                $this->lineTotalCents = (int) round((float) LinePricer::invoiceLine($line->firstPaymentNet(), max(1, (int) $this->quantity),
+                    OrderPricing::taxRate($client, $this->product))['total'] * 100);
+
                 return Price::fromLine($line, $currencyModel, $full);
             }
         )->shouldCache();
+    }
+
+    /** What this item adds to the first invoice, with tax (as its invoice line): 0 when it has no price. */
+    public function lineTotal(): float
+    {
+        $price = $this->price;
+
+        return $price->available ? ($this->lineTotalCents ?? 0) / 100 : 0.0;
     }
 }

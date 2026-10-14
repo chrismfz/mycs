@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\Schema;
  * - clients.tax_exempt: WHMCS `tblclients.taxexempt`.
  * - invoice_items: taxed, tax_rate (percent, the one in force when the line was made), tax_amount and line_total (net ×
  *   quantity + tax), rounded per line. A line made before keeps the total it had: tax 0, line_total = price × quantity.
+ * Service prices are NOT converted: before this they were gross (with tax in exclusive mode), from now on renewals add
+ * the tax on top. There are no live data yet; a staging database from before this is not to be trusted for amounts.
  */
 return new class extends Migration
 {

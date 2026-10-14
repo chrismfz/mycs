@@ -7,6 +7,7 @@ use App\Models\Traits\HasProperties;
 use App\Observers\ServiceObserver;
 use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\Invoice\ChangeOpenLine;
+use App\Services\Invoice\LineTax;
 use App\Services\Order\OrderPricing;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use Brick\Math\BigDecimal;
@@ -162,7 +163,8 @@ class Service extends Model implements Auditable
     public function formattedPrice(): Attribute
     {
         return Attribute::make(
-            get: fn () => new Price(['price' => $this->price * $this->quantity, 'currency' => $this->currency])
+            // With tax (Δ1: the price is net): what a renewal charges.
+            get: fn () => new Price(['price' => $this->recurringGrossCents() / 100, 'currency' => $this->currency], tax: 0)
         );
     }
 
@@ -423,7 +425,8 @@ class Service extends Model implements Auditable
     }
 
     /** Rebuild open renewal periods and prices from the current recurring amount. */
-    public function refreshOpenPeriods(): void
+    /** @param  bool  $retax  its product changed: the lines' tax is decided again (Δ1), else each keeps its rate */
+    public function refreshOpenPeriods(bool $retax = false): void
     {
         if ($this->plan === null || in_array($this->plan->type, ['one-time', 'free'], true)) {
             return;
@@ -444,7 +447,7 @@ class Service extends Model implements Auditable
                     'period_end' => $end,
                     'description' => $this->describePeriod($locked->period_start, $end),
                     'price' => $this->priceForPeriod($locked->period_start, $end),
-                ]));
+                ] + ($retax ? ['tax_rate' => LineTax::rateFor($locked)] : [])));
             }
         }
     }
@@ -660,10 +663,18 @@ class Service extends Model implements Auditable
      */
     public function recurringGrossCents(): int
     {
-        $line = LinePricer::invoiceLine(number_format((float) $this->price, 2, '.', ''), max(1, (int) $this->quantity),
-            OrderPricing::taxRate($this->client, $this->product));
+        return (int) round((float) $this->recurringLine()['total'] * 100);
+    }
 
-        return (int) round((float) $line['total'] * 100);
+    /**
+     * A renewal's line: net × quantity, its tax and total (Δ1).
+     *
+     * @return array{net: string, tax: string, total: string}
+     */
+    public function recurringLine(): array
+    {
+        return LinePricer::invoiceLine(number_format((float) $this->price, 2, '.', ''), max(1, (int) $this->quantity),
+            OrderPricing::taxRate($this->client, $this->product));
     }
 
     /**

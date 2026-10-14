@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use MyCS\Pricing\LinePricer;
 use OwenIt\Auditing\Contracts\Auditable;
 
 #[ObservedBy([ServiceUpgradeObserver::class])]
@@ -102,6 +103,19 @@ class ServiceUpgrade extends Model implements Auditable
         }
 
         return $this->makePrice($total);
+    }
+
+    /**
+     * What the upgrade charges (or gives back, when negative) with tax (Δ1: calculatePrice is net, its invoice line adds
+     * the tax): what the upgrade page shows and what a downgrade gives as credit.
+     */
+    public function grossPrice(): Price
+    {
+        $net = $this->calculatePrice();
+        $line = LinePricer::invoiceLine(number_format((float) $net->price, 2, '.', ''), 1,
+            OrderPricing::taxRate($this->service->client, $this->product ?? $this->service->product));
+
+        return $this->makePrice((float) $line['total']);
     }
 
     protected function resolveOldItemPrice($oldItem): float

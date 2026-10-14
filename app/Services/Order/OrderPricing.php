@@ -119,7 +119,7 @@ final class OrderPricing
 
     public static function taxMode(): string
     {
-        return config('settings.tax_type', 'inclusive') === 'exclusive' ? LinePricer::TAX_EXCLUSIVE : LinePricer::TAX_INCLUSIVE;
+        return config('settings.tax_type', 'exclusive') === 'exclusive' ? LinePricer::TAX_EXCLUSIVE : LinePricer::TAX_INCLUSIVE;
     }
 
     /** @param  array<int, array<string, mixed>>  $configOptions */

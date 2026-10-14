@@ -4,6 +4,7 @@ namespace MyCS\Extensions\Gateways\Stripe;
 
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Gateway;
+use App\Events\Service\RenewalTaxChanged;
 use App\Events\Service\Updated;
 use App\Events\ServiceCancellation\Created;
 use App\Exceptions\DisplayException;
@@ -48,6 +49,17 @@ class Stripe extends Gateway
         // Register webhook route
         View::addNamespace('gateways.stripe', __DIR__ . '/resources/views');
 
+        // The renewal's tax changed (Δ1): the subscription bills the new amount, as the renewal invoices.
+        Event::listen(RenewalTaxChanged::class, function (RenewalTaxChanged $event) {
+            if (!$this->ownsSubscription($event->service)) {
+                return;
+            }
+            try {
+                $this->updateSubscription($event->service, ['price' => $event->service->price]);
+            } catch (Exception $e) {
+                report($e);
+            }
+        });
         Event::listen(Updated::class, function (Updated $event) {
             if (!$this->ownsSubscription($event->service)) {
                 // If the service is not a stripe subscription, skip
