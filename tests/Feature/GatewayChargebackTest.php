@@ -251,6 +251,7 @@ class GatewayChargebackTest extends TestCase
         ]])->assertOk();
 
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
-        $this->assertSame(GatewayRefund::ORIGIN_CHARGEBACK, GatewayRefund::query()->sole()->origin);
+        $this->assertSame(GatewayRefund::ORIGIN_CHARGEBACK, GatewayRefund::query()->where('reference', 'REV-2')->value('origin'));
+        $this->assertSame(GatewayRefund::ORIGIN_DISPUTE_RESOLVED, GatewayRefund::query()->where('reference', 'PP-D-2')->value('origin'), 'kept: another dispute\'s win never undoes it');
     }
 }
