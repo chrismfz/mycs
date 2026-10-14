@@ -62,15 +62,15 @@ class Upgrade extends Component
         // Initialize empty configs collection
         $configs = collect();
 
-        // Add config options to the temporary upgrade (without saving)
-        foreach ($this->configOptions as $optionId => $value) {
-            $option = $this->upgradeProduct->upgradableConfigOptions->where('id', $optionId)->first();
-            if (!$option || !$option->children->contains('id', $value)) {
+        // The values the charge will take (optionValue): what is shown is what is charged (R2 of #86).
+        foreach ($this->upgradableOptions() as $option) {
+            $value = $this->optionValue($option);
+            if ($value === null) {
                 continue;
             }
 
             $configs->push(new ServiceConfig([
-                'config_option_id' => $optionId,
+                'config_option_id' => $option->id,
                 'config_value_id' => $value,
             ]));
         }
@@ -95,11 +95,16 @@ class Upgrade extends Component
     public function nextStep()
     {
         $currentConfigOptions = $this->service->configs->pluck('config_value_id', 'config_option_id')->toArray();
-        $this->configOptions = $this->upgradeProduct->upgradableConfigOptions->mapWithKeys(function ($option) use ($currentConfigOptions) {
+        $this->configOptions = collect($this->upgradableOptions())->mapWithKeys(function ($option) use ($currentConfigOptions) {
+            // A checkbox starts as the service has it (N2 of #86: it started on, and was charged unless unticked).
+            if ($option->type === 'checkbox') {
+                return [$option->id => isset($currentConfigOptions[$option->id])];
+            }
+
             return [
                 $option->id => $currentConfigOptions[$option->id]
                     ?? $this->configOptions[$option->id]
-                    ?? $option->children->first()->id,
+                    ?? $option->children->first()?->id,
             ];
         })->toArray();
 
@@ -150,6 +155,17 @@ class Upgrade extends Component
 
         $this->validate();
 
+        // An option the service has is not taken off here (R1 of #86): an upgrade only sets values, so the option would
+        // stay, and stay billed, while the customer is told it is done. Staff remove it (and decide on credit).
+        $has = $this->service->configs->pluck('config_value_id', 'config_option_id');
+        foreach ($this->upgradableOptions() as $option) {
+            if ($option->type === 'checkbox' && $has->has($option->id) && $this->optionValue($option) === null) {
+                $this->notify(__('An option you have cannot be removed here: please contact us.'), 'error');
+
+                return;
+            }
+        }
+
         DB::beginTransaction();
         try {
             $service = Service::where('id', $this->service->id)->lockForUpdate()->first();
@@ -174,7 +190,9 @@ class Upgrade extends Component
             })->toArray();
 
             // If the product did not change and the config options are the same, present the user with a message
-            if ($this->upgradeProduct->id === $service->product_id && $this->configOptions == $configOptions) {
+            $chosen = collect($this->upgradableOptions())->mapWithKeys(fn ($option) => [$option->id => $this->optionValue($option)])
+                ->filter(fn ($value) => $value !== null)->toArray();
+            if ($this->upgradeProduct->id === $service->product_id && $chosen == $configOptions) {
                 // No changes made, clean rollback and exit safely
                 DB::rollBack();
                 $this->notify(__('You have not changed anything. Please select a different product or change the configuration options.'), 'error');
@@ -283,10 +301,13 @@ class Upgrade extends Component
         ]);
     }
 
-    /** The options the upgrade offers (the product's upgradable ones). */
+    /**
+     * The options the upgrade offers: the product's upgradable ones that have values. Text and number options have none
+     * (their text is a property of the service, set at order): left out (R3 of #86: they broke the page).
+     */
     private function upgradableOptions(): iterable
     {
-        return $this->upgradeProduct->upgradableConfigOptions;
+        return $this->upgradeProduct->upgradableConfigOptions->reject(fn ($option) => in_array($option->type, ['text', 'number'], true));
     }
 
     /**

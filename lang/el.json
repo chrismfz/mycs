@@ -175,5 +175,6 @@
     "Service not deleted": "Η υπηρεσία δεν διαγράφηκε",
     "Not deleted": "Δεν διαγράφηκαν",
     "This service cannot be deleted yet: :reasons": "Η υπηρεσία δεν μπορεί να διαγραφεί ακόμη: :reasons",
-    "The service was terminated but not deleted: :reason": "Η υπηρεσία τερματίστηκε αλλά δεν διαγράφηκε: :reason"
+    "The service was terminated but not deleted: :reason": "Η υπηρεσία τερματίστηκε αλλά δεν διαγράφηκε: :reason",
+    "An option you have cannot be removed here: please contact us.": "Μια επιλογή που ήδη έχετε δεν αφαιρείται από εδώ: επικοινωνήστε μαζί μας."
 }
