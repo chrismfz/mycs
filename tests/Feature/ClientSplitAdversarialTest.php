@@ -14,6 +14,7 @@ use App\Models\EmailLog;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
@@ -258,7 +259,7 @@ class ClientSplitAdversarialTest extends TestCase
     {
         $customer = User::factory()->create();
         $other = User::factory()->create()->client();
-        $staff = \App\Models\Staff::factory()->withPermissions(['admin.users.impersonate'])->create();
+        $staff = Staff::factory()->withPermissions(['admin.users.impersonate'])->create();
 
         $this->actingAs($staff)->withSession(['impersonating' => $customer->id, CurrentClient::SESSION_KEY => $other->id])
             ->get(route('dashboard'))->assertOk();

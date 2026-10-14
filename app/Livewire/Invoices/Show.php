@@ -12,6 +12,7 @@ use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\Service;
 use App\Services\Invoice\RecordPaymentService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Request;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
@@ -74,7 +75,7 @@ class Show extends Component
      * The invoice's account's saved payment methods, whichever account the client area is on: one account's card
      * never pays, nor is set on the services of, another's invoice (docs/accounts.md, PR 2a).
      *
-     * @return \Illuminate\Database\Eloquent\Builder<BillingAgreement>
+     * @return Builder<BillingAgreement>
      */
     private function accountAgreements()
     {
