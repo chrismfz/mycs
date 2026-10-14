@@ -138,6 +138,16 @@ class Service extends Model implements Auditable
     ];
 
     /**
+     * The plan it moves to when its next period is billed (a change of cycle «from the next renewal», SVC-14b).
+     *
+     * @return BelongsTo<Plan, $this>
+     */
+    public function nextPlan(): BelongsTo
+    {
+        return $this->belongsTo(Plan::class, 'next_plan_id');
+    }
+
+    /**
      * Get the order that owns the service.
      *
      * @return BelongsTo<Order, $this>
@@ -718,6 +728,24 @@ class Service extends Model implements Auditable
     {
         return LinePricer::invoiceLine(number_format((float) $this->price, 2, '.', ''), max(1, (int) $this->quantity),
             OrderPricing::taxRate($this->client, $this->product));
+    }
+
+    /**
+     * Start of the period it is in (the one ending at its expiry): its period line ending there, else one cycle back
+     * (a period clamped to a short month keeps its real length). None without an expiry or a plan of whole days.
+     */
+    public function currentPeriodStart(): ?CarbonImmutable
+    {
+        $plan = $this->plan;
+        if ($this->expires_at === null || $plan === null || !in_array($plan->billing_unit, BillingPeriod::UNITS, true)) {
+            return null;
+        }
+        $end = $this->expires_at->toDateString();
+        $line = $this->livePeriodLines()->last(fn ($line) => $line->period_end->toDateString() === $end);
+
+        return $line !== null && $line->period_start->lessThan($line->period_end)
+            ? CarbonImmutable::instance($line->period_start)->startOfDay()
+            : BillingPeriod::start($this->expires_at, $plan->billing_unit, max(1, (int) $plan->billing_period));
     }
 
     /**

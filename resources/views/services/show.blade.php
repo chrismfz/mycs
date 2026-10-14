@@ -75,7 +75,7 @@
                     @endforeach
                 </div>
             </div>
-            @if((Gate::allows('update', $service) && ($service->cancellable || $service->upgradable)) || count($buttons) > 0)
+            @if((Gate::allows('update', $service) && ($service->cancellable || $service->upgradable || \App\Services\ServiceUpgrade\ChangeCycle::plans($service)->isNotEmpty())) || count($buttons) > 0)
             <div>
                 <h4 class="text-lg font-semibold">{{ __('services.actions') }}:</h4>
                 <div class="mt-2 flex flex-row gap-2 flex-wrap">
@@ -92,6 +92,34 @@
                         @click="Alpine.store('notifications').addNotification([{message: '{{ __('services.upgrade_pending') }}', type: 'error'}])">
                         <span>{{ __('services.upgrade') }}</span>
                     </x-button.primary>
+                    @endif
+                    @php($cyclePlans = \App\Services\ServiceUpgrade\ChangeCycle::plans($service))
+                    @if($cyclePlans->isNotEmpty() && \App\Services\ServiceUpgrade\ChangeCycle::refusal($service, $cyclePlans->first(), 'next_renewal') === null)
+                    <x-button.secondary class="h-fit !w-fit" wire:click="$set('showCycle', true)">
+                        <span>{{ __('services.change_cycle') }}</span>
+                    </x-button.secondary>
+                    @endif
+                    @if($showCycle)
+                    <x-modal open="true" title="{{ __('services.change_cycle') }}" width="max-w-xl">
+                        <form wire:submit="changeCycle" class="flex flex-col gap-4">
+                            <p class="text-base/70">{{ __('services.change_cycle_note') }}</p>
+                            @if($service->nextPlan)
+                            <p class="text-base/70">{{ __('services.change_cycle_pending', ['plan' => $service->nextPlan->name]) }}</p>
+                            @endif
+                            <x-form.select name="cyclePlan" wire:model="cyclePlan" :label="__('services.billing_cycle')" required>
+                                <option value="">{{ __('Choose') }}</option>
+                                @foreach($cyclePlans as $cyclePlanOption)
+                                <option value="{{ $cyclePlanOption->id }}">{{ $cyclePlanOption->name }}@if($cyclePlanOption->id === $service->plan_id) ({{ __('services.change_cycle_keep') }})@else ({{ \App\Services\ServiceUpgrade\ChangeCycle::quote($service, $cyclePlanOption, 'next_renewal')['gross'] }} {{ $service->currency_code }})@endif</option>
+                                @endforeach
+                            </x-form.select>
+                            <x-button.primary type="submit" class="!w-fit">{{ __('services.change_cycle') }}</x-button.primary>
+                        </form>
+                        <x-slot name="closeTrigger">
+                            <button wire:click="$set('showCycle', false)" @click="open = false" class="text-primary-100">
+                                <x-ri-close-fill class="size-6" />
+                            </button>
+                        </x-slot>
+                    </x-modal>
                     @endif
                     @if($service->cancellable)
                     <x-button.danger class="h-fit !w-fit" wire:click="$set('showCancel', true)">
