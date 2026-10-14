@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Classes\Price;
+use App\Exceptions\DisplayException;
 use App\Observers\OrderObserver;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -86,5 +87,15 @@ class Order extends Model implements Auditable
         return new Attribute(
             get: fn () => Invoice::whereIn('id', $invoicesId)
         );
+    }
+
+    /** An order with services is not deleted (DATA-2): delete its services first, one way (DeleteService). */
+    protected static function booted(): void
+    {
+        static::deleting(function (self $order) {
+            if ($order->services()->exists()) {
+                throw new DisplayException(__('This order has services: delete them first.'));
+            }
+        });
     }
 }

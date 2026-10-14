@@ -11,13 +11,16 @@ use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Admin\Resources\ServiceResource\Pages\ListService;
 use App\Admin\Resources\ServiceResource\RelationManagers\ConfigOptionsRelationManager;
 use App\Admin\Resources\ServiceResource\RelationManagers\InvoicesRelationManager;
+use App\Exceptions\DisplayException;
 use App\Models\Currency;
 use App\Models\Product;
 use App\Models\Service;
+use App\Services\Service\DeleteService;
 use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -32,6 +35,8 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
+use Throwable;
 
 class ServiceResource extends Resource
 {
@@ -235,7 +240,7 @@ class ServiceResource extends Resource
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+                    self::deleteBulkAction(),
                 ]),
             ]);
     }
@@ -256,5 +261,39 @@ class ServiceResource extends Resource
             'create' => CreateService::route('/create'),
             'edit' => EditService::route('/{record}/edit'),
         ];
+    }
+
+    /**
+     * Delete the selected services through DeleteService (DATA-2, SVC-7, AUTH-9): optionally their accounts on the
+     * server first; one the server refuses is kept and reported, the others go.
+     */
+    public static function deleteBulkAction(): BulkAction
+    {
+        return BulkAction::make('delete')
+            ->label('Delete selected')
+            ->icon('heroicon-o-trash')
+            ->color('danger')
+            ->requiresConfirmation()
+            ->schema([
+                Checkbox::make('deleteExtensionServer')->label('Also trigger deletion of server (running services)')->default(true),
+            ])
+            ->action(function (Collection $records, array $data): void {
+                $kept = [];
+                foreach ($records as $service) {
+                    /** @var Service $service */
+                    try {
+                        (new DeleteService)->handle($service, (bool) ($data['deleteExtensionServer'] ?? false));
+                    } catch (Throwable $e) {
+                        if (!$e instanceof DisplayException) {
+                            report($e);
+                        }
+                        $kept[] = "#{$service->id}: {$e->getMessage()}";
+                    }
+                }
+                if ($kept !== []) {
+                    Notification::make()->danger()->title(__('Not deleted'))->body(implode("\n", $kept))->persistent()->send();
+                }
+            })
+            ->deselectRecordsAfterCompletion();
     }
 }

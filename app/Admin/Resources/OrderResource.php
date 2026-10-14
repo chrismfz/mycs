@@ -162,6 +162,7 @@ class OrderResource extends Resource
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
+                    // An order with services is refused by its guard (DATA-2) and counted as not deleted (R6 of #82).
                     DeleteBulkAction::make(),
                 ]),
             ]);

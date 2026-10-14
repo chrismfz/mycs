@@ -72,10 +72,11 @@ class ViewInvoice extends ViewRecord
                             ->schema([
                                 TextEntry::make('description')
                                     ->label('Description')
-                                    ->url(fn ($record) => in_array($record->reference_type, [Service::class, ServiceUpgrade::class])
+                                    // A line of a service deleted since keeps its text, without a link (DATA-2).
+                                    ->url(fn ($record) => in_array($record->reference_type, [Service::class, ServiceUpgrade::class]) && $record->reference
                                         ? ServiceResource::getUrl('edit', ['record' => $record->reference_type == Service::class ? $record->reference_id : $record->reference->service_id])
                                         : null)
-                                    ->color(fn ($record) => in_array($record->reference_type, [Service::class, ServiceUpgrade::class]) ? 'primary' : null),
+                                    ->color(fn ($record) => in_array($record->reference_type, [Service::class, ServiceUpgrade::class]) && $record->reference ? 'primary' : null),
                                 TextEntry::make('price')
                                     ->label('Price')
                                     ->money(fn ($record) => $record->invoice->currency_code ?? 'USD'),

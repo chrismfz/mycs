@@ -135,7 +135,7 @@
 - Μικρά: φίλτρο «Assigned To» tickets, «Email Verified», null deref στο client area, `per_page` χωρίς όριο, throttle API, sessions μετά από αλλαγή password από admin, log impersonation, back-off στο 2FA. AUTH-14..20
 
 ### Σ6. Ακεραιότητα δεδομένων και διαγραφές
-- Διαγραφή παραγγελίας → **cascade σβήνει τις υπηρεσίες** χωρίς events και χωρίς terminate· διαγραφή υπηρεσίας (bulk, API, coupon/order relation managers) αφήνει ζωντανό λογαριασμό και γραμμές τιμολογίων που δείχνουν στο κενό (500 στη σελίδα τιμολογίου και στα emails). Μία υπηρεσία διαγραφής, `restrict`, null-safe `reference`. DATA-2, SVC-7, AUTH-9
+- Διαγραφή παραγγελίας → **cascade σβήνει τις υπηρεσίες** χωρίς events και χωρίς terminate· διαγραφή υπηρεσίας (bulk, API, coupon/order relation managers) αφήνει ζωντανό λογαριασμό και γραμμές τιμολογίων που δείχνουν στο κενό (500 στη σελίδα τιμολογίου και στα emails). Μία υπηρεσία διαγραφής, `restrict`, null-safe `reference`. DATA-2, SVC-7, AUTH-9 *(`DeleteService` για όλους τους δρόμους· διαγραφή σε κάθε status, όπως στο WHMCS, με προαιρετικό terminate· παραγγελία με υπηρεσίες δεν σβήνεται)*
 - Διαγραφή μέλους staff → **σβήνονται όλες οι απαντήσεις του σε tickets** (`cascadeOnDelete`)· διαγραφή πελάτη → τιμολόγια με `user_id NULL` που σκάνε στο `RecordPaymentService`. Staff απενεργοποιείται, δεν σβήνεται. DATA-3, AUTH-7 (επικάλυψη MT-1 §8)
 - Αφαίρεση τιμής config option → cascade από όλες τις υπηρεσίες (υποτιμολόγηση). DATA-8 *(restrict + μήνυμα· η διαγραφή ολόκληρου option μένει, με την προειδοποίηση)*
 - Soft-deleted billing agreement/gateway με FK που μένει → `TypeError` στο cron, ο πελάτης δεν ειδοποιείται. DATA-9 *(η υπηρεσία αφήνει τη μέθοδο· το cron ειδοποιεί τον πελάτη)*

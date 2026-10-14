@@ -4,9 +4,11 @@ namespace App\Admin\Resources\ServiceResource\Pages;
 
 use App\Admin\Actions\AuditAction;
 use App\Admin\Resources\ServiceResource;
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Models\Service;
+use App\Services\Service\DeleteService;
 use Exception;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
@@ -48,8 +50,8 @@ class EditService extends EditRecord
         return [
             DeleteAction::make()
                 ->form(function (DeleteAction $action) use ($record) {
-                    $status = !in_array($record->status, [Service::STATUS_PENDING, ...Service::ENDED_STATUSES], true) && $record->product->server_id !== null;
-                    if (!$status) {
+                    // A record of an account already gone (terminated straight on the server): untick to delete only it.
+                    if ($record->isEnded() || $record->status === Service::STATUS_PENDING || $record->product?->server_id === null) {
                         return [];
                     }
 
@@ -61,9 +63,11 @@ class EditService extends EditRecord
                 })
                 ->action(function (array $data, Service $record): void {
                     try {
-                        if (($data['deleteExtensionServer'] ?? false)) {
-                            ExtensionHelper::terminateServer($record);
-                        }
+                        (new DeleteService)->handle($record, (bool) ($data['deleteExtensionServer'] ?? false));
+                    } catch (DisplayException $e) {
+                        Notification::make('Error')->title(__('Service not deleted'))->body($e->getMessage())->danger()->send();
+
+                        return;
                     } catch (Exception $e) {
                         report($e);
 
@@ -76,7 +80,7 @@ class EditService extends EditRecord
                         // Kept: deleting it would orphan the account on the server and lose its username.
                         return;
                     }
-                    $record->delete();
+                    $this->redirect(ServiceResource::getUrl());
                 }),
             Action::make('changeStatus')
                 ->label('Trigger Extension Action')

@@ -82,7 +82,10 @@ class OrderController extends ApiController
      */
     public function destroy(DeleteOrderRequest $request, Order $order)
     {
-        // Delete the order
+        // Not with services (DATA-2): they are deleted first, one way (DELETE /services/{id}).
+        if ($order->services()->exists()) {
+            return response()->json(['message' => __('This order has services: delete them first.')], 422);
+        }
         $order->delete();
 
         return $this->returnNoContent();

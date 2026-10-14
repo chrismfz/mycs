@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Exceptions\DisplayException;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\Admin\Services\CreateServiceRequest;
 use App\Http\Requests\Api\Admin\Services\DeleteServiceRequest;
@@ -10,6 +11,7 @@ use App\Http\Requests\Api\Admin\Services\GetServicesRequest;
 use App\Http\Requests\Api\Admin\Services\UpdateServiceRequest;
 use App\Http\Resources\ServiceResource;
 use App\Models\Service;
+use App\Services\Service\DeleteService;
 use Dedoc\Scramble\Attributes\Group;
 use Dedoc\Scramble\Attributes\QueryParameter;
 use Spatie\QueryBuilder\QueryBuilder;
@@ -91,8 +93,12 @@ class ServiceController extends ApiController
      */
     public function destroy(DeleteServiceRequest $request, Service $service)
     {
-        // Delete the service
-        $service->delete();
+        // One way for every path (DATA-2, SVC-7, AUTH-9): ?terminate=1 deletes the account on the server first.
+        try {
+            (new DeleteService)->handle($service, $request->boolean('terminate'));
+        } catch (DisplayException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
         return $this->returnNoContent();
     }

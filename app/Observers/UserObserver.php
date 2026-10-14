@@ -41,6 +41,11 @@ class UserObserver
         if ($user->hasMoneyHistory()) {
             throw new DisplayException(__('A customer with payments or account credit history cannot be deleted.'));
         }
+        // Their services are deleted first, one way (DeleteService: the server, the subscription, the invoices): the
+        // database cascade took them silently, and on MariaDB it now fails on the orders' restrict (R7 of #82).
+        if ($user->services()->exists()) {
+            throw new DisplayException(__('This customer has services: delete them first.'));
+        }
     }
 
     /**
