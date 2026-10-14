@@ -11,6 +11,7 @@ use App\Helpers\TemplateRenderer;
 use App\Models\Currency;
 use App\Models\Product;
 use App\Models\Server;
+use App\Support\ProductSettings;
 use Exception;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
@@ -23,6 +24,7 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
+use Filament\Resources\Pages\EditRecord;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Tabs;
@@ -152,6 +154,12 @@ class ProductResource extends Resource
 
                                             try {
                                                 foreach (ExtensionHelper::getProductConfigOnce(Server::findOrFail($server), $get('settings')) as $setting) {
+                                                    // A secret already stored is not sent to the page: left empty, it is kept.
+                                                    if (($setting['encrypted'] ?? false) && $livewire instanceof EditRecord
+                                                        && ProductSettings::stored($livewire->getRecord())->where('key', $setting['name'])->exists()) {
+                                                        $setting['required'] = false;
+                                                        $setting['placeholder'] = __('Stored: leave empty to keep it');
+                                                    }
                                                     // Easier to use dot notation for settings
                                                     $setting['name'] = 'settings.' . $setting['name'];
                                                     $settings[] = FilamentInput::convert($setting);

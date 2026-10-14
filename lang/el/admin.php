@@ -10,6 +10,7 @@ return [
         'cancellations_processed' => 'Αιτήματα ακύρωσης που εκτελέστηκαν',
         'paid_applied' => 'Πληρωμένα τιμολόγια που εφαρμόστηκαν ξανά',
         'reminders_sent' => 'Υπενθυμίσεις πληρωμής',
+        'license_logs_pruned' => 'Καθαρισμός log αδειών',
         'services_suspended' => 'Υπηρεσίες σε αναστολή',
         'services_terminated' => 'Υπηρεσίες που τερματίστηκαν',
         'tickets_closed' => 'Tickets που έκλεισαν',
