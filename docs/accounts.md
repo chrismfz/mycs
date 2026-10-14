@@ -1,6 +1,6 @@
 # Λογαριασμοί: staff, multi-user, προφίλ πελάτη
 
-> Κατάσταση: **σχέδιο εκκρεμεί** (σημείωση 2026-10-12). Γίνεται **αμέσως μετά τα MT-x** (`money-trail.md`) και **πριν
+> Κατάσταση: **απογραφή έτοιμη (2026-10-14), σχέδιο εκκρεμεί** (σημείωση 2026-10-12). Γίνεται **αμέσως μετά τα MT-x** (`money-trail.md`) και **πριν
 > τα migrations/cut-over της nixpal**, όσο δεν υπάρχουν ζωντανά δεδομένα. Ο importer (`importer.md`) και το bridge
 > προς Ekdosi χτίζονται πάνω στο σχήμα που θα αποφασιστεί εδώ.
 
@@ -24,6 +24,115 @@ WHMCS να έχει ένα σαφές σπίτι εδώ**. Ο importer τότε 
 - Πριν τον σχεδιασμό: **απογραφή** (μόνο aggregate SELECTs, read-only) ποια πεδία και custom fields χρησιμοποιούνται
   πραγματικά σε nixpal και myip, με πλήθος μη κενών τιμών. Τα αχρησιμοποίητα δεν μεταφέρονται.
 - Οι όροι στο admin ακολουθούν το WHMCS (Client, User, Contact, Company Name, Tax ID), όπως και στη φόρμα υπηρεσίας.
+
+## Απογραφή (2026-10-14)
+Μόνο aggregate SELECTs, read-only: myip (rigel, `myipgr_clients`) και nixpal (orion, `clnixpal_nixcldb`). «Μη κενά» =
+όχι NULL, `''`, `0` ή μηδενική ημερομηνία.
+
+### Πελάτες (`tblclients`)
+| | myip | nixpal |
+|---|---|---|
+| Πελάτες (ids) | 900 (2–2078) | 233 (1–260) |
+| Status | Active 552, Inactive 348 | Active 31, Inactive 200, Closed 2 |
+| `companyname` | 641 | 159 |
+| `tax_id` (πεδίο WHMCS) | 1 | 44 (27 στην ΕΕ, όλοι taxexempt: reverse charge) |
+| `taxexempt` | 11 | 30 |
+| Διεύθυνση (`address1`/`city`/`postcode`/`country`) | ~895 | ~232 |
+| `address2` / `state` | 90 / 855 | 62 / 232 |
+| `phonenumber` | 883 | 231 |
+| Χώρα | GR 849, CY 10, GB 8, US 6, … | US 35, GB 22, CA 13, NL 12, … (διεθνείς) |
+| `language` | greek 248, english 37, default 614 | english 29, άλλες 6, default 198 |
+| `currency` | 1 νόμισμα (+1 πελάτης σε δεύτερο) | ίδιο |
+| `credit` > 0 | 22 | 11 |
+| `notes` (πεδίο) / `tblnotes` | 127 / 13 σε 6 πελάτες | 3 / 2 |
+| `groupid` | 38 (ομάδες με `separateinvoices`, 1 με `susptermexempt`) | 3 (ομάδες έκπτωσης 10% / 50%) |
+| `defaultgateway` | 128 | 9 |
+| `latefeeoveride` / `overideduenotices` / `separateinvoices` | 2 / 18 / 3 | 0 / 0 / 0 |
+| `email_preferences` (JSON general/invoice/support/product/domain/affiliate) | 695 (λίγοι με κάτι κλειστό) | 230 (3 μόνο domain) |
+| `emailoptout` / `marketing_emails_opt_in` | 341 / 558 | 76 / 156 |
+| `billingcid` (επαφή χρέωσης) | 1 | 0 |
+| Αποθηκευμένη κάρτα στο `tblclients` (παλιό σχήμα) | 1 | 0 |
+| `tblclientsfiles` | 18 | 1 |
+| Affiliates | 5 | 0 |
+
+### Custom fields πελάτη (`tblcustomfields` type `client`)
+| Πεδίο (myip) | Τύπος | Τιμές |
+|---|---|---|
+| Θα ήθελα να εκδοθεί τιμολόγιο | tickbox | 595 `on` (586 από αυτούς με ΑΦΜ, 568 με ΔΟΥ) |
+| ΑΦΜ / Vies Vat No | text, εμφανίζεται στο τιμολόγιο | 644 |
+| ΔΟΥ | text | 624 |
+| Δραστηριότητα επιχείρησης | text | 595 |
+| Σημειώσεις | textarea | 52 |
+| «Δύσκολος πελάτης» (σήμανση) | tickbox, admin only | 415 `on` |
+
+Η nixpal **δεν έχει** custom fields πελάτη· χρησιμοποιεί το `tax_id` του WHMCS (ΑΦΜ/VAT διεθνών). Δηλαδή το ίδιο
+στοιχείο ζει σε δύο διαφορετικά σημεία ανάλογα με την εταιρεία.
+
+### Users και πρόσβαση (`tblusers`, `tblusers_clients`)
+| | myip | nixpal |
+|---|---|---|
+| Users | 1.007 | 247 |
+| Users χωρίς πελάτη | 108 (93 είχαν login κάποτε, 2 στους 12μ) | 3 |
+| Owner ανά πελάτη | ακριβώς 1 σε όλους | ακριβώς 1 σε όλους |
+| Μη-owner συνδέσεις | 101 (76 με όλα τα δικαιώματα) | 14 (12 με όλα) |
+| Πελάτες με >1 user | 93 (88 με 2, έως 5) | 11 |
+| Users με >1 πελάτη | 33 (ένας με 29, ένας με 17) | 2 |
+| Users που είναι owner αλλού και μη-owner εδώ | 14 | – |
+| 2FA (`second_factor`) | 10 | 1 |
+| Invites | 1 | 0 |
+
+Δικαιώματα του WHMCS: `profile, contacts, products, manageproducts, productsso, domains, managedomains, invoices, quotes,
+tickets, affiliates, emails, orders`. Στην πράξη: «όλα» ή μικρά υποσύνολα (π.χ. μόνο `invoices`, ή
+`products,productsso,managedomains`).
+
+### Επαφές (`tblcontacts`)
+| | myip | nixpal |
+|---|---|---|
+| Επαφές | 434 σε 140 πελάτες (ένας πελάτης έχει 79) | 17 σε 11 πελάτες |
+| `companyname` / `tax_id` | 143 / 46 | 11 / 3 |
+| Πλήρης διεύθυνση | ~334 | 17 |
+| Με ίδιο email όπως κάποιος user | 141 | 13 |
+| Παλιοί sub-accounts (`password`) | 231 (`subaccount` = 0 παντού· μετά το WHMCS 8 έγιναν users) | 0 |
+| Παραλήπτες emails (invoice / general / support / domain / product) | 108 / 92 / 95 / 88 / 88 | 7 / 4 / 3 / 3 / 3 |
+
+### Ekdosi bridge (μόνο myip)
+- `mod_ekdosi_contacts`: ~180 επαφές τιμολόγησης σε 68 πελάτες (ένας πελάτης έχει 62). Επωνυμία, ΑΦΜ (σχεδόν όλες),
+  VIES 22, ΔΟΥ, διεύθυνση, email 124, τηλέφωνο 61, σχόλια. Μόνο **13** έχουν το ίδιο ΑΦΜ με τον πελάτη· οι υπόλοιπες
+  είναι πραγματικά **άλλοι αποδέκτες** (π.χ. ο πελάτης του reseller). Ένα ΑΦΜ εμφανίζεται σε δύο πελάτες. Το
+  `legacy_contact_id` δείχνει στο παλιό plugin, όχι στο `tblcontacts`.
+- `mod_ekdosi_routing`: ~180 αναθέσεις «υπηρεσία → επαφή»: domains 140, hosting 44 (9 σε υπηρεσίες που έληξαν).
+  `is_receipt` (απόδειξη αντί τιμολογίου) σε 2. 71 επαφές δεν έχουν ανάθεση (χρησιμοποιούνται χειροκίνητα ή είναι
+  παλιές). Όλες οι αναθέσεις δείχνουν σε επαφή του ίδιου πελάτη.
+- Επίσης `mod_ekdosi_bridge_log` (~12k) και `mod_ekdosi_invoice_marks` (61): ιστορικό του bridge, όχι λογαριασμοί.
+
+### Staff (`tbladmins`)
+- myip: 4 ενεργοί (3 Full Administrator, 1 Support Operator), 1 ανενεργός· **όλοι οι ενεργοί με 2FA**. Ρόλοι: Full,
+  Sales, Support και 2 custom. 2 admins έχουν το ίδιο email με user πελάτη.
+- nixpal: 4 ενεργοί (3 Full, 1 Sales), **κανένας με 2FA**· 1 admin με το ίδιο email με user πελάτη.
+
+### Τι σημαίνει για τον σχεδιασμό
+1. **User ≠ πελάτης είναι πραγματικό:** 33 users (myip) βλέπουν πολλούς λογαριασμούς, ως 29. Ο σημερινός importer
+   φέρνει μόνο τον owner και χάνει τις 101/14 επιπλέον συνδέσεις και τους 108 users χωρίς πελάτη.
+2. **IDs πελατών:** κρατιούνται (ίδια με `tblclients.id`). Τα IDs των users είναι **άλλη αρίθμηση**, που σήμερα
+   συμπίπτει τυχαία. Ο importer ήδη γράφει `users.id = tblclients.id`, και στον νέο σχεδιασμό αυτό γίνεται
+   `clients.id`.
+3. **ΑΦΜ σε δύο σημεία** (custom field στο myip, `tax_id` στη nixpal): εδώ ένα πραγματικό πεδίο και ο importer
+   διαλέγει την πηγή ανά instance.
+4. **«Θέλω τιμολόγιο»** χρησιμοποιείται πολύ (595)· είναι το είδος παραστατικού της προεπιλεγμένης επαφής
+   τιμολόγησης (σημείο 4). Το `is_receipt` του bridge είναι το ίδιο ανά υπηρεσία.
+5. **Επαφές:** `tblcontacts` (κυρίως παραλήπτες emails) και `mod_ekdosi_contacts` (αποδέκτες τιμολόγησης) είναι
+   σχεδόν ξένα σύνολα· γίνονται ένα: επαφή με ρόλους. Η ενοποίηση ανά ΑΦΜ αφορά λίγες περιπτώσεις.
+6. **Σήμανση «δύσκολος πελάτης»** (415) και ομάδες πελατών (`separateinvoices`, έκπτωση, `susptermexempt`) θέλουν
+   σπίτι.
+7. **Staff 2FA:** στη nixpal κανείς δεν έχει· το υποχρεωτικό 2FA θα θέλει ενεργοποίηση στο cut-over.
+8. **Δεν μεταφέρονται** (χωρίς χρήση): security questions, παλιά πεδία κάρτας/τράπεζας στο `tblclients`
+   (1 εγγραφή), `authmodule`, `pwresetkey`, invites.
+9. **Bugs του σημερινού importer** (θα ξαναγραφτεί με το νέο σχήμα):
+   - `importAdmins()` μαζεύει τους admins αλλά δεν τους γράφει πουθενά;
+   - τα custom properties ελέγχονται με το κλειδί του MyCS αντί του WHMCS (`isset($record[$key])`) και η αντιστοίχιση
+     είναι ελλιπής, οπότε τηλέφωνο, επωνυμία, διεύθυνση (`address1`) και ΤΚ δεν μεταφέρονται ποτέ (περνούν μόνο
+     `address2`, `city`, `state`, `country`)· τα custom fields του WHMCS (ΑΦΜ, ΔΟΥ κ.λπ.) δεν διαβάζονται καθόλου;
+   - πελάτης χωρίς owner παραλείπεται σιωπηλά (σήμερα 0 τέτοιοι).
 
 ## Σήμερα (κληρονομιά Paymenter)
 - Ένας πίνακας `users` για όλους. Admin = user με `role_id` (`User::canAccessPanel()`).
