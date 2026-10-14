@@ -34,6 +34,12 @@ class GatewayRefund extends Model
     /** A dispute opened on the payment (reference «opened:<id>»): staff told once; counted for PayPal's wins. */
     public const ORIGIN_DISPUTE = 'dispute';
 
+    /** A dispute resolved (PayPal, its id), won or lost: told once, and counted so a win never undoes another's chargeback. */
+    public const ORIGIN_DISPUTE_RESOLVED = 'dispute_resolved';
+
+    /** A dispute won before its chargeback arrived (PayPal, its id): the chargeback that arrives then records nothing. */
+    public const ORIGIN_DISPUTE_WON_EARLY = 'dispute_won_early';
+
     /**
      * What MyCS itself refunded on a payment through its gateway, in cents: the gateways' idempotency key for a refund
      * (a retry of an attempt whose answer was lost keeps its key, whatever the webhook recorded meanwhile).

@@ -525,6 +525,9 @@ class PayPal extends Gateway
             } elseif (in_array($body['resource']['dispute_outcome']['outcome_code'] ?? null, ['RESOLVED_SELLER_FAVOUR', 'CANCELED_BY_BUYER'], true) && $captureId !== '') {
                 // Won (or withdrawn): the capture's chargeback is undone, once per dispute (kept by its id).
                 ExtensionHelper::chargebackReversedAtGateway('PayPal', $captureId, null, $amount, $currency, (string) $body['resource']['dispute_id']);
+            } elseif ($captureId !== '') {
+                // Lost: its chargeback stays; kept, so another dispute's win on this capture never undoes it.
+                ExtensionHelper::disputeLostAtGateway('PayPal', $captureId, (string) $body['resource']['dispute_id'], $amount, $currency);
             }
         } elseif ($body['event_type'] === 'PAYMENT.CAPTURE.REFUNDED' && isset($body['resource']['id'])) {
             // A refund made here or in PayPal's dashboard (PR 2c-2): recorded once, by its id. Its capture is the «up» link.

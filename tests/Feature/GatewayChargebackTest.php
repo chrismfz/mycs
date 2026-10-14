@@ -208,7 +208,7 @@ class GatewayChargebackTest extends TestCase
 
         $this->stripeWebhook('charge.dispute.funds_withdrawn', 'dp_other', 'pi_not_ours', 1000)->assertOk();
 
-        $this->assertSame(0, GatewayRefund::query()->count());
+        $this->assertSame(GatewayRefund::ORIGIN_CHARGEBACK_WAITING, GatewayRefund::query()->sole()->origin, 'kept until its payment, if ever');
     }
 
     public function test_a_paypal_reversal_and_a_dispute_won_in_our_favour(): void

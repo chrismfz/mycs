@@ -1109,6 +1109,18 @@ class ExtensionHelper
                     return 0;
                 }
                 $known?->delete(); // it waited for this payment: recorded now
+                // Won before its money was taken (PayPal told the win first): this chargeback is already undone.
+                $early = GatewayRefund::query()->where('gateway', $gateway)->where('invoice_transaction_id', $payment->id)
+                    ->where('origin', GatewayRefund::ORIGIN_DISPUTE_WON_EARLY)->where('amount', $cents / 100)->orderBy('id')->lockForUpdate()->first();
+                if ($early !== null) {
+                    $early->update(['origin' => GatewayRefund::ORIGIN_DISPUTE_RESOLVED]);
+                    GatewayRefund::create(['invoice_transaction_id' => $payment->id, 'gateway' => $gateway, 'reference' => $chargebackReference,
+                        'payment_reference' => $payment->transaction_id, 'amount' => $cents / 100, 'currency_code' => $invoice->currency_code,
+                        'recorded_amount' => 0, 'origin' => GatewayRefund::ORIGIN_CHARGEBACK_WON]);
+                    $log(PaymentGatewayEvent::OUTCOME_IGNORED, 'chargeback_already_won');
+
+                    return 0;
+                }
                 $row = ['invoice_transaction_id' => $payment->id, 'gateway' => $gateway, 'reference' => $chargebackReference,
                     'payment_reference' => $payment->transaction_id, 'amount' => $cents / 100, 'currency_code' => $invoice->currency_code,
                     'origin' => GatewayRefund::ORIGIN_CHARGEBACK];
@@ -1218,9 +1230,10 @@ class ExtensionHelper
             // must never undo another dispute's lost chargeback).
             $standing = GatewayRefund::query()->where('gateway', $gateway)->where('invoice_transaction_id', $payment->id)
                 ->where('origin', GatewayRefund::ORIGIN_CHARGEBACK)->orderBy('id')->get();
-            $disputes = GatewayRefund::query()->where('gateway', $gateway)->where('invoice_transaction_id', $payment->id)
-                ->where('origin', GatewayRefund::ORIGIN_DISPUTE)->count();
-            $row = $standing->count() === 1 && $disputes <= 1 ? $standing->first() : null;
+            $otherDisputes = GatewayRefund::query()->where('gateway', $gateway)->where('invoice_transaction_id', $payment->id)
+                ->whereIn('origin', [GatewayRefund::ORIGIN_DISPUTE, GatewayRefund::ORIGIN_DISPUTE_RESOLVED, GatewayRefund::ORIGIN_DISPUTE_WON_EARLY])
+                ->whereNotIn('reference', ['opened:' . $resolutionReference, (string) $resolutionReference])->count();
+            $row = $standing->count() === 1 && $otherDisputes === 0 ? $standing->first() : null;
         }
 
         if ($row === null) {
@@ -1233,7 +1246,11 @@ class ExtensionHelper
                 GatewayRefund::create(['invoice_transaction_id' => $payment->id, 'gateway' => $gateway,
                     'reference' => $resolutionReference ?? (string) $chargebackReference, 'payment_reference' => $payment->transaction_id,
                     'amount' => $cents / 100, 'currency_code' => strtoupper((string) ($currency ?? '')), 'recorded_amount' => 0,
-                    'origin' => GatewayRefund::ORIGIN_CHARGEBACK_WON]);
+                    // PayPal, no chargeback at all yet: won early, so one arriving later records nothing; chargebacks standing
+                    // but none surely this dispute's: kept as resolved, staff decide. Stripe: the dispute's own id.
+                    'origin' => $resolutionReference === null ? GatewayRefund::ORIGIN_CHARGEBACK_WON
+                        : (GatewayRefund::query()->where('gateway', $gateway)->where('invoice_transaction_id', $payment->id)
+                            ->where('origin', GatewayRefund::ORIGIN_CHARGEBACK)->exists() ? GatewayRefund::ORIGIN_DISPUTE_RESOLVED : GatewayRefund::ORIGIN_DISPUTE_WON_EARLY)]);
             } catch (UniqueConstraintViolationException) {
                 return false;
             }
@@ -1265,7 +1282,7 @@ class ExtensionHelper
                 if ($resolutionReference !== null) { // once per dispute, under the same locks (M1)
                     GatewayRefund::create(['invoice_transaction_id' => $payment->id, 'gateway' => $gateway, 'reference' => $resolutionReference,
                         'payment_reference' => $payment->transaction_id, 'amount' => $row->amount, 'currency_code' => $row->currency_code,
-                        'recorded_amount' => 0, 'origin' => GatewayRefund::ORIGIN_CHARGEBACK_WON]);
+                        'recorded_amount' => 0, 'origin' => GatewayRefund::ORIGIN_DISPUTE_RESOLVED]);
                 }
                 $row->update(['origin' => GatewayRefund::ORIGIN_CHARGEBACK_WON]);
                 $recorded = RecordPaymentService::toCents($row->recorded_amount);
@@ -1316,6 +1333,26 @@ class ExtensionHelper
         }
 
         return $reversed > 0;
+    }
+
+    /**
+     * A dispute closed in the customer's favour (PayPal; PR 2c-2b): nothing moves (its chargeback stays), but it is kept,
+     * once, so a later win of another dispute on the same payment does not undo this one's chargeback.
+     */
+    public static function disputeLostAtGateway(string $gateway, string $paymentReference, string $resolutionReference, float $amount, ?string $currency = null): void
+    {
+        $payment = $paymentReference !== '' ? self::gatewayPayment($gateway, $paymentReference) : null;
+        GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_IGNORED, 'dispute_lost', [
+            'amount' => $amount, 'currency_code' => $currency !== null ? strtoupper($currency) : null, 'external_id' => $resolutionReference,
+            'invoice_id' => $payment?->invoice_id, 'invoice_transaction_id' => $payment?->id,
+        ]);
+        if ($payment === null) {
+            return;
+        }
+        GatewayRefund::query()->firstOrCreate(['gateway' => $gateway, 'reference' => $resolutionReference], [
+            'invoice_transaction_id' => $payment->id, 'payment_reference' => $payment->transaction_id, 'amount' => RecordPaymentService::toCents($amount) / 100,
+            'currency_code' => strtoupper((string) ($currency ?? '')), 'recorded_amount' => 0, 'origin' => GatewayRefund::ORIGIN_DISPUTE_RESOLVED,
+        ]);
     }
 
     /** The customer is told of a refund, after the commit; a failing notification never undoes the refund. */
