@@ -16,6 +16,7 @@ use App\Models\Service;
 use App\Models\ServiceCancellation;
 use App\Models\TicketMessage;
 use App\Models\User;
+use App\Services\Invoice\PaymentReminders;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Cache;
@@ -186,13 +187,18 @@ class NotificationHelper
         self::sendNotification('new_login_detected', $data, $user);
     }
 
-    public static function invoiceNotification(User $user, Invoice $invoice, $key = 'new_invoice_created'): void
+    /** @param  array<string, mixed>  $extra  more for the template (an overdue notice's days) */
+    public static function invoiceNotification(User $user, Invoice $invoice, $key = 'new_invoice_created', array $extra = []): void
     {
-        $data = [
+        $data = $extra + [
             'invoice' => $invoice,
             'items' => $invoice->items,
             'total' => $invoice->formattedTotal,
-            'has_subscription' => $invoice->items->filter(fn ($item) => $item->reference_type === Service::class && $item->reference?->subscription_id)->isNotEmpty(),
+            // Only a gateway subscription is charged on its own later (review R1/A2); a saved method was charged once.
+            'has_subscription' => PaymentReminders::chargedOnItsOwn($invoice),
+            // What is left to pay, for a partly paid invoice (review R5/A10).
+            'remaining' => $invoice->formattedRemaining,
+            'partly_paid' => $invoice->remaining > 0 && $invoice->remaining < $invoice->total,
         ];
 
         // Generate the invoice PDF, in the customer's language

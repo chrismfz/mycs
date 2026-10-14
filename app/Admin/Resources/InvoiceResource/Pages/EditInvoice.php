@@ -5,6 +5,7 @@ namespace App\Admin\Resources\InvoiceResource\Pages;
 use App\Admin\Actions\AuditAction;
 use App\Admin\Actions\CloseInvoiceAsPaid;
 use App\Admin\Actions\MarkInvoicePaid;
+use App\Admin\Actions\SendInvoiceEmail;
 use App\Admin\Resources\InvoiceResource;
 use App\Classes\PDF;
 use App\Exceptions\DisplayException;
@@ -140,6 +141,7 @@ class EditInvoice extends EditRecord
                         $action->cancel();
                     }
                 }),
+            SendInvoiceEmail::make(),
             Action::make('pdf')
                 ->label('Download PDF')
                 ->action(function (Invoice $invoice) {

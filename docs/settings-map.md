@@ -103,8 +103,8 @@ nixpal (pilot). Τιμές από το `tblconfiguration` των δύο WHMCS, 2
 | — ελάχιστες ημέρες σε αναστολή | (όχι στο WHMCS) | | **P:** `cronjob_terminate_min_suspended_days`, default 1· 0 = ακριβώς WHMCS (BIL-4) |
 | Invoice Generation (`CreateInvoiceDaysBefore`) | 14· ανά κύκλο: μήνας 10, τρίμηνο 15, εξάμηνο/έτος 20· domains 15 | 7 | P~ `cronjob_invoice` (default 7, μία τιμή) → **Ν: ανά κύκλο** |
 | Order Days Grace (`OrderDaysGrace`) | 8 | 0 | **Ν** (προθεσμία πληρωμής του πρώτου τιμολογίου)· το `cronjob_order_cancel` (default 7, 0 = ποτέ) ακυρώνει παραγγελίες με απλήρωτο τιμολόγιο χωρίς καμία πληρωμή (BIL-12) |
-| Payment Reminder Emails, Invoice Unpaid Reminder | on, 1 | on, 6 | **Ν** (υπενθυμίσεις του Ekdosi)· το παλιό `cronjob_invoice_reminder` δεν το διάβαζε κανείς και αφαιρέθηκε |
-| First/Second/Third Overdue Reminder | 1/3/5 | 1/2/— | **Ν** (υπενθυμίσεις του Ekdosi) |
+| Payment Reminder Emails, Invoice Unpaid Reminder | on, 1 | on, 6 | **P:** `cronjob_payment_reminder` (default 6, 0 = off)· με αποθηκευμένο τρόπο πληρωμής ή συνδρομή φεύγει το «payment due» (WHMCS «Credit Card Payment Due») |
+| First/Second/Third Overdue Reminder | 1/3/5 | 1/2/— | **P:** `cronjob_overdue_reminders` (λίστα ημερών, default «1,2», κενό = off): ένα template, η τελευταία λέει πότε αναστέλλεται· μία φορά η καθεμία (`invoice_reminders`) |
 | Add Late Fee Days (`AddLateFeeDays`) | 5 (Percentage, ποσό κενό) | 0 | **Ν** (δεν χρησιμοποιείται στην πράξη) |
 | Enable Auto Cancellation (unpaid invoices) | off | off | — |
 | Cancellation Requests (`AutoCancellationRequests`) | on | on | **M** (#61), πάντα on |

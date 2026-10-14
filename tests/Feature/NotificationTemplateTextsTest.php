@@ -51,7 +51,8 @@ class NotificationTemplateTextsTest extends TestCase
 
         return match ($key) {
             'new_login_detected' => ['ip' => '192.0.2.1', 'device' => 'Firefox', 'time' => '2026-10-14 10:00'],
-            'new_invoice_created', 'invoice_paid', 'invoice_payment_failed' => ['invoice' => $invoice, 'items' => $invoice->items, 'total' => $invoice->formattedTotal, 'has_subscription' => false],
+            'new_invoice_created', 'invoice_paid', 'invoice_payment_failed', 'invoice_payment_reminder', 'card_payment_due', 'invoice_modified' => ['invoice' => $invoice, 'items' => $invoice->items, 'total' => $invoice->formattedTotal, 'has_subscription' => false],
+            'invoice_overdue' => ['invoice' => $invoice, 'items' => $invoice->items, 'total' => $invoice->formattedTotal, 'overdue' => ['days' => 3, 'last' => true, 'suspend_on' => '27/10/2026']],
             'credit_applied' => ['invoice' => $invoice, 'credit' => ['applied' => '$3.00', 'remaining' => '$7.00']],
             'invoice_refunded' => ['invoice' => $invoice, 'refund' => ['amount' => '$5.00', 'to_credit' => false, 'by_gateway' => true]],
             'new_order_created' => ['order' => $order, 'items' => collect([$service]), 'total' => '$10.00'],

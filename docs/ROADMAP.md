@@ -36,6 +36,7 @@ audit sweep: αφαίρεση theme system, Σ4, licensing (στο παράθυ�
   νέο σχήμα να δοκιμάζεται από το PR 2 και όχι πρώτη φορά στον importer.
 - **Runbook cut-over με επιστροφή:** πάγωμα του WHMCS, import και parity, DNS και webhooks, έλεγχοι πρώτης μέρας, πώς
   γυρνάμε πίσω (πρότυπο: `go-live-runbook.md` του Ekdosi).
+  Οι ρυθμίσεις κάθε εταιρείας από το `docs/settings-map.md` (π.χ. myip: υπενθύμιση 1 μέρα, ληξιπρόθεσμο 1,3,5, suspend 15, terminate 120, invoice 14) περνούν στο instance της πριν το cut-over· τα defaults του κώδικα είναι της nixpal.
 - **Webhooks στη μεταβατική περίοδο:** Stripe/PayPal στέλνουν σε ένα endpoint ανά λογαριασμό· τι γίνεται με γεγονότα που
   αφορούν ακόμα το WHMCS, ειδικά οι 5 ενεργές legacy συνδρομές PayPal (PAY-10/PAY-11 στο Σ3).
 - **Ενημέρωση πελατών της nixpal:** νέο URL/login, ίσως reset κωδικών αν δεν περάσουν τα bcrypt· email και template.

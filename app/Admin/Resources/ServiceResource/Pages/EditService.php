@@ -119,6 +119,10 @@ class EditService extends EditRecord
                                 // Only suspended -> active: a pending or cancelled service is not revived.
                                 if ($record->status === Service::STATUS_SUSPENDED) {
                                     $record->applyStaffChanges(['status' => Service::STATUS_ACTIVE]);
+                                    if ($data['sendNotification']) {
+                                        // WHMCS's «Service Unsuspension Notification» on a manual unsuspend too.
+                                        NotificationHelper::serverUnsuspendedNotification($record->user, $record, is_array($sdata) ? $sdata : []);
+                                    }
                                 }
                                 break;
                             case 'terminate':
