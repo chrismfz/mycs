@@ -98,6 +98,7 @@ return [
         'service_deleted' => 'Cancelled: the service was deleted.',
         'cancellation_request' => 'Cancelled: the service was cancelled at your request.',
         'upgrade_expired' => 'Cancelled: the upgrade was not paid before the end of the billing period.',
+        'cycle_changed' => 'Cancelled: the billing cycle of the service changed.',
     ],
 
 ];

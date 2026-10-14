@@ -242,5 +242,20 @@
     "A price cannot be negative.": "Η τιμή δεν μπορεί να είναι αρνητική.",
     "Tax exempt": "Χωρίς ΦΠΑ",
     "New invoice lines of this account get no tax; issued invoices keep theirs.": "Οι νέες γραμμές τιμολογίων του λογαριασμού δεν έχουν ΦΠΑ· τα εκδομένα κρατούν τον δικό τους.",
-    "Anything we should know about this order (optional)": "Ό,τι πρέπει να ξέρουμε για την παραγγελία (προαιρετικό)"
+    "Anything we should know about this order (optional)": "Ό,τι πρέπει να ξέρουμε για την παραγγελία (προαιρετικό)",
+    "This change is not available.": "Αυτή η αλλαγή δεν είναι διαθέσιμη.",
+    "Only a running service can change its billing cycle.": "Μόνο μια ενεργή υπηρεσία μπορεί να αλλάξει κύκλο χρέωσης.",
+    "This billing cycle is not available for this service.": "Αυτός ο κύκλος χρέωσης δεν είναι διαθέσιμος για αυτή την υπηρεσία.",
+    "A subscription bills this service: cancel it first.": "Η υπηρεσία χρεώνεται με συνδρομή: ακυρώστε την πρώτα.",
+    "An upgrade of this service is waiting for payment.": "Μια αλλαγή πακέτου αυτής της υπηρεσίας περιμένει πληρωμή.",
+    "This service is to be cancelled.": "Η υπηρεσία πρόκειται να ακυρωθεί.",
+    "An open invoice of this service has a payment on it.": "Ένα ανοιχτό τιμολόγιο αυτής της υπηρεσίας έχει πληρωμή.",
+    "Account credit is off: change it from the next renewal.": "Η πίστωση λογαριασμού είναι κλειστή: αλλάξτε τον από την επόμενη ανανέωση.",
+    "The billing cycle changes from your next renewal.": "Ο κύκλος χρέωσης αλλάζει από την επόμενη ανανέωση.",
+    "Choose": "Επιλέξτε",
+    "A renewal is paid ahead: change it from the next renewal.": "Μια ανανέωση έχει πληρωθεί προκαταβολικά: αλλάξτε τον από την επόμενη ανανέωση.",
+    "This service has no paid period to change now: change it from the next renewal.": "Η υπηρεσία δεν έχει πληρωμένη περίοδο για να αλλάξει τώρα: αλλάξτε τον από την επόμενη ανανέωση.",
+    "A discount for its billing cycle runs on this service: ask us to change it.": "Η υπηρεσία έχει έκπτωση που εξαρτάται από τον κύκλο χρέωσης: ζητήστε μας να τον αλλάξουμε.",
+    "An open invoice of this service needs staff first: :reason": "Ένα ανοιχτό τιμολόγιο της υπηρεσίας χρειάζεται πρώτα έλεγχο από εμάς: :reason",
+    "An open invoice of this service bills days already used: settle it first.": "Ένα ανοιχτό τιμολόγιο της υπηρεσίας χρεώνει μέρες που έχουν ήδη περάσει: τακτοποιήστε το πρώτα."
 }

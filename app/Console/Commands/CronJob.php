@@ -15,6 +15,7 @@ use App\Models\DebugLog;
 use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\Product;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Models\Setting;
@@ -618,6 +619,18 @@ class CronJob extends Command
         $periodStart = $service->nextPeriodStart($lines);
         if ($periodStart->greaterThanOrEqualTo($billUntil)) {
             return 0;
+        }
+        // A change of cycle «from the next renewal» (SVC-14b): this period is the first of the plan set to come, at its
+        // price. One no longer of the service's product (staff moved it since) is dropped.
+        if ($service->next_plan_id !== null) {
+            $next = $service->nextPlan;
+            if ($next !== null && $next->priceable_type === Product::class && (int) $next->priceable_id === (int) $service->product_id) {
+                $service->plan_id = $next->id;
+                $service->setRelation('plan', $next);
+                $service->price = (float) $service->calculatePrice();
+            }
+            $service->next_plan_id = null;
+            $service->save();
         }
         // A coupon «for N cycles»: the first cycle after them is billed at the full price. Cycles are
         // counted from a persisted start (including free cycles). Expiration is recorded once, so
