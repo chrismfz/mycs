@@ -20,7 +20,7 @@ class InvoiceTransactionPolicy extends BasePolicy
      */
     public function view(User $user, InvoiceTransaction $invoiceTransaction): bool
     {
-        return $this->adminPermission($user, 'admin.invoice_transactions.view');
+        return $this->adminPermission($user, 'admin.invoice_transactions.viewAny');
     }
 
     /**

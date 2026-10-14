@@ -20,7 +20,7 @@ class ProductPolicy
      */
     public function view(User $user, Product $product): bool
     {
-        return $user->hasPermission('admin.products.view');
+        return $user->hasPermission('admin.products.viewAny');
     }
 
     /**

@@ -175,7 +175,7 @@ class InvoiceSettleAdversarialTest extends TestCase
     public function test_s3_staff_without_payment_permission_move_a_payment_to_credit_by_a_draft_round_trip(): void
     {
         $invoice = $this->reducedBelowPayment();
-        $clerk = $this->staff(['admin.invoices.viewAny', 'admin.invoices.view', 'admin.invoices.update']);
+        $clerk = $this->staff(['admin.invoices.viewAny', 'admin.invoices.viewAny', 'admin.invoices.update']);
 
         Livewire::actingAs($clerk)->test(EditInvoice::class, ['record' => $invoice->getKey()])
             ->assertActionHidden('closeAsPaid');

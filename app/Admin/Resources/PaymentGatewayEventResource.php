@@ -62,7 +62,7 @@ class PaymentGatewayEventResource extends Resource
                     ->placeholder('—'),
                 TextColumn::make('external_id')->label(__('Gateway id'))->searchable()->placeholder('—')->limit(30),
                 TextColumn::make('invoice_id')->label(__('Invoice'))->prefix('#')->placeholder('—')
-                    ->url(fn (PaymentGatewayEvent $record): ?string => $record->invoice_id !== null && auth()->user()?->hasPermission('admin.invoices.view')
+                    ->url(fn (PaymentGatewayEvent $record): ?string => $record->invoice_id !== null && auth()->user()?->hasPermission('admin.invoices.viewAny')
                         ? InvoiceResource::getUrl(config('settings.immutable_invoices_enabled', false) ? 'view' : 'edit', ['record' => $record->invoice_id])
                         : null),
                 TextColumn::make('invoice_transaction_id')->label(__('Transaction'))->prefix('#')->placeholder('—'),

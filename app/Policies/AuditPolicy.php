@@ -22,4 +22,36 @@ class AuditPolicy
     {
         return $user->hasPermission('admin.audit.viewAny');
     }
+
+    // Append-only (the money trail's rule, audit sweep AUTH-3): Filament allows what a policy does not define, so every
+    // write is refused here.
+    public function create(User $user): bool
+    {
+        return false;
+    }
+
+    public function update(User $user, Audit $audit): bool
+    {
+        return false;
+    }
+
+    public function delete(User $user, Audit $audit): bool
+    {
+        return false;
+    }
+
+    public function deleteAny(User $user): bool
+    {
+        return false;
+    }
+
+    public function restore(User $user, Audit $audit): bool
+    {
+        return false;
+    }
+
+    public function forceDelete(User $user, Audit $audit): bool
+    {
+        return false;
+    }
 }

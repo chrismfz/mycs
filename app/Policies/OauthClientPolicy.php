@@ -20,7 +20,7 @@ class OauthClientPolicy
      */
     public function view(User $user, OauthClient $oauthClient): bool
     {
-        return $user->hasPermission('admin.oauth_clients.view');
+        return $user->hasPermission('admin.oauth_clients.viewAny');
     }
 
     /**

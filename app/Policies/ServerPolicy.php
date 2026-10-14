@@ -20,7 +20,7 @@ class ServerPolicy
      */
     public function view(User $user, Server $server): bool
     {
-        return $user->hasPermission('admin.servers.view');
+        return $user->hasPermission('admin.servers.viewAny');
     }
 
     /**

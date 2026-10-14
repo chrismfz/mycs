@@ -31,6 +31,8 @@ class AuditAction extends Action
         $this
             ->label('📜')
             ->color('gray')
+            // The audit log only with its permission (AUTH-2): it shows the old and new values of every change.
+            ->authorize(fn (): bool => (bool) auth()->user()?->hasPermission('admin.audit.viewAny'))
             ->slideOver()
             ->modalContent(fn (Model $record): View => view(
                 'admin.actions.audits',

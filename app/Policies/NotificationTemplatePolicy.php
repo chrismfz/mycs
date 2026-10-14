@@ -20,7 +20,7 @@ class NotificationTemplatePolicy
      */
     public function view(User $user, NotificationTemplate $notificationTemplate): bool
     {
-        return $user->hasPermission('admin.notification_templates.view');
+        return $user->hasPermission('admin.notification_templates.viewAny');
     }
 
     /**

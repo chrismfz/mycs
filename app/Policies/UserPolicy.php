@@ -20,7 +20,7 @@ class UserPolicy
      */
     public function view(User $user, User $model): bool
     {
-        return $user->hasPermission('admin.users.view');
+        return $user->hasPermission('admin.users.viewAny');
     }
 
     /**

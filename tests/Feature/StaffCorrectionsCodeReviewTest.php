@@ -97,7 +97,7 @@ class StaffCorrectionsCodeReviewTest extends TestCase
     public function test_mark_paid_needs_the_permission_to_record_payments(): void
     {
         $invoice = $this->invoice();
-        $editor = $this->staff(['admin.invoices.viewAny', 'admin.invoices.view', 'admin.invoices.update']);
+        $editor = $this->staff(['admin.invoices.viewAny', 'admin.invoices.viewAny', 'admin.invoices.update']);
 
         try {
             Livewire::actingAs($editor)->test(EditInvoice::class, ['record' => $invoice->getKey()])
@@ -120,7 +120,7 @@ class StaffCorrectionsCodeReviewTest extends TestCase
     {
         $invoice = $this->invoice();
         $note = $invoice->adjustmentNotes()->create(['type' => AdjustmentNoteType::Credit->value, 'amount' => -10, 'description' => 'Goodwill']);
-        $viewer = $this->staff(['admin.adjustment_notes.viewAny', 'admin.adjustment_notes.view', 'admin.invoices.viewAny', 'admin.invoices.view']);
+        $viewer = $this->staff(['admin.adjustment_notes.viewAny', 'admin.adjustment_notes.viewAny', 'admin.invoices.viewAny', 'admin.invoices.viewAny']);
 
         try {
             Livewire::actingAs($viewer)->test(ListAdjustmentNotes::class)->callTableAction('void', $note);

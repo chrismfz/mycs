@@ -20,7 +20,7 @@ class CurrencyPolicy
      */
     public function view(User $user, Currency $currency): bool
     {
-        return $user->hasPermission('admin.currencies.view');
+        return $user->hasPermission('admin.currencies.viewAny');
     }
 
     /**

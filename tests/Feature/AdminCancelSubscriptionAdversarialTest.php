@@ -209,7 +209,7 @@ class AdminCancelSubscriptionAdversarialTest extends TestCase
             self::PAYPAL . '/v1/oauth2/token' => Http::response(['access_token' => 'token']),
             self::PAYPAL . '/v1/billing/subscriptions/I-SUB1/cancel' => Http::response(null, 204),
         ]);
-        $staff = $this->admin(['admin.orders.viewAny', 'admin.orders.view', 'admin.orders.update']);
+        $staff = $this->admin(['admin.orders.viewAny', 'admin.orders.viewAny', 'admin.orders.update']);
 
         $page = Livewire::actingAs($staff)->test(EditOrder::class, ['record' => $order->getRouteKey()]);
         try {

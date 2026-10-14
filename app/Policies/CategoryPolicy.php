@@ -20,7 +20,7 @@ class CategoryPolicy
      */
     public function view(User $user, Category $category): bool
     {
-        return $user->hasPermission('admin.categories.view');
+        return $user->hasPermission('admin.categories.viewAny');
     }
 
     /**

@@ -20,7 +20,7 @@ class ConfigOptionPolicy
      */
     public function view(User $user, ConfigOption $configOption): bool
     {
-        return $user->hasPermission('admin.config_options.view');
+        return $user->hasPermission('admin.config_options.viewAny');
     }
 
     /**

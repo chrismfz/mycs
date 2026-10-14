@@ -21,7 +21,7 @@ class RolePolicy
      */
     public function view(User $user, Role $role): bool
     {
-        return $user->hasPermission('admin.roles.view');
+        return $user->hasPermission('admin.roles.viewAny');
     }
 
     /**

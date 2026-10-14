@@ -79,7 +79,7 @@ class CreditLedgerAdversarialTest extends TestCase
     {
         $token = 'PAYM' . bin2hex(random_bytes(8));
         ApiKey::create(['name' => 'adv', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
-            'permissions' => ['admin.credits.create', 'admin.credits.update', 'admin.credits.delete', 'admin.credits.view']]);
+            'permissions' => ['admin.credits.create', 'admin.credits.update', 'admin.credits.delete', 'admin.credits.viewAny']]);
 
         return $token;
     }
