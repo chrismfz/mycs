@@ -482,6 +482,28 @@ tickets, affiliates, emails, orders`. Στην πράξη: «όλα» ή μικ�
   ελευθερώνεται πριν πιαστεί, σε ένα transaction). Χρειάζεται `admin.clients.update`.
 - **Δεν μπήκαν ακόμα:** endpoints του API για users/προσκλήσεις (όταν χρειαστεί ο importer ή κάποια ενοποίηση).
 
+## PR 3a: τι έγινε (επαφές, κύρια επαφή = στοιχεία λογαριασμού)
+- **Πίνακας `contacts`** (WHMCS `tblcontacts` + Ekdosi `mod_ekdosi_contacts`): `type` (ιδιώτης/επιχείρηση),
+  ονοματεπώνυμο, επωνυμία, `tax_id` (ΑΦΜ ή ξένο), `vat_number` (VIES), ΔΟΥ, δραστηριότητα, διεύθυνση 1/2, πόλη,
+  νομός, ΤΚ, χώρα (ISO), email, τηλέφωνο, σημειώσεις, `document_type` (τιμολόγιο/απόδειξη/κανένα),
+  `email_preferences` (general, invoice, support, product, domain, affiliate), `archived_at`.
+- **Κύρια επαφή:** ακριβώς μία ανά λογαριασμό (unique `primary_of_client_id`), δημιουργείται μαζί του από τον owner. Από
+  εκεί διαβάζονται το όνομα (η επωνυμία για επιχείρηση), το email, η χώρα για τον ΦΠΑ, τα στοιχεία στο προτιμολόγιο
+  (και στο snapshot), ο πελάτης του Stripe. Αλλάζει μόνο με «Make primary» (admin)· δεν αρχειοθετείται.
+- **Migration:** τα properties `phone, company_name, address, address2, city, state, zip, country` γίνονται στήλες της
+  κύριας επαφής (η χώρα από όνομα σε ISO) και φεύγουν από τα properties και τα custom fields· όνομα και email από τον
+  owner. Το `down()` τα επαναφέρει. Τα custom properties μένουν για επιπλέον πεδία.
+- **Υποχρεωτικά ανά ρόλο** (`Contact::missingFor`): τιμολόγιο (επωνυμία, ΑΦΜ, ΔΟΥ, διεύθυνση, ΤΚ, χώρα) ή απόδειξη
+  (όνομα), domain (όνομα, email, τηλέφωνο, διεύθυνση, ΤΚ, χώρα, χωρίς ΑΦΜ), email (email). Ελέγχονται όπου
+  χρησιμοποιείται η επαφή (3b, domains), όχι στη φόρμα.
+- **Φόρμες:** εγγραφή (στοιχεία λογαριασμού), «Λογαριασμός» στο client area (με `profile`), σελίδα «Επαφές»
+  (`/account/contacts`, με `contacts`: νέα, αλλαγή, αρχειοθέτηση· όχι η κύρια), admin: «Details» στον Client και
+  καρτέλα «Contacts» (νέα, αλλαγή, «Make primary», αρχειοθέτηση/επαναφορά).
+- **Importer:** κάθε `tblclients` γράφει την κύρια επαφή του πεδίο προς πεδίο (μαζί το `tax_id`).
+- **Μένουν για το 3b:** παραλήπτες mails ανά είδος από τις επαφές (σήμερα ο owner), `services.billing_contact_id`,
+  προτιμολόγιο ανά αποδέκτη και snapshot του αποδέκτη. Οι ρόλοι domain (registrant/admin/tech/billing) ανατίθενται
+  ανά domain όταν έρθουν τα domains.
+
 ## Από το audit sweep (Σ5), για αυτό το κομμάτι
 
 Μικρά ευρήματα δικαιωμάτων που τα ξαναγράφει ο διαχωρισμός staff/users, οπότε δεν διορθώθηκαν χωριστά (2026-10-14):
