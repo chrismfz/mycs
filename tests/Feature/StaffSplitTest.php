@@ -132,7 +132,7 @@ class StaffSplitTest extends TestCase
     public function test_a_ticket_is_assigned_to_staff(): void
     {
         $staff = Staff::factory()->admin()->create();
-        $ticket = Ticket::factory()->create(['assigned_to' => $staff->id]);
+        $ticket = Ticket::factory()->create(['user_id' => User::factory()->create()->id, 'assigned_to' => $staff->id]);
 
         $this->assertTrue($ticket->assignedTo->is($staff));
     }
@@ -207,7 +207,7 @@ class StaffSplitTest extends TestCase
     public function test_a_member_with_history_is_disabled_not_deleted(): void
     {
         $staff = Staff::factory()->admin()->create();
-        $ticket = Ticket::factory()->create();
+        $ticket = Ticket::factory()->create(['user_id' => User::factory()->create()->id]);
         $ticket->messages()->create(['staff_id' => $staff->id, 'message' => 'Hello']);
         $boss = Staff::factory()->admin()->create();
 

@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
-use Illuminate\Notifications\Notifiable;
+use Illuminate\Notifications\RoutesNotifications;
 use LogicException;
 use OwenIt\Auditing\Contracts\Auditable;
 use SensitiveParameter;
@@ -32,7 +32,8 @@ use SensitiveParameter;
  */
 class Staff extends Authenticatable implements Auditable, CanResetPasswordContract, FilamentUser, HasAppAuthentication, HasAppAuthenticationRecovery, HasAvatar, HasName
 {
-    use CanResetPassword, HasFactory, Notifiable, Traits\Auditable;
+    // RoutesNotifications, not Notifiable: mail (password reset) only; the `notifications` table is the customers'.
+    use CanResetPassword, HasFactory, RoutesNotifications, Traits\Auditable;
 
     protected $table = 'staff';
 

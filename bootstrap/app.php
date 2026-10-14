@@ -7,6 +7,7 @@ use App\Http\Middleware\ImpersonateMiddleware;
 use App\Http\Middleware\LockSession;
 use App\Http\Middleware\ProxyMiddleware;
 use App\Http\Middleware\ResolveUserSession;
+use App\Http\Middleware\UseWebGuard;
 use App\Http\Middleware\SetLocale;
 use App\Models\DebugLog;
 use Illuminate\Foundation\Application;
@@ -30,6 +31,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'checkout' => CheckoutParameterMiddleware::class,
         ]);
         $middleware->web([
+            UseWebGuard::class,
             ResolveUserSession::class,
             LockSession::class,
             ImpersonateMiddleware::class,
