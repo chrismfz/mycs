@@ -48,6 +48,10 @@ class EmailTemplateSeeder extends Seeder
                 A new invoice was issued for your account.
 
                 - Invoice: **#{{ invoice_number }}**
+                {% if tax %}
+                - Subtotal: **{{ subtotal }}**
+                - Tax: **{{ tax }}**
+                {% endif %}
                 - Total: **{{ total }}**
                 {% if partly_paid %}
                 - Left to pay: **{{ remaining }}**
@@ -92,6 +96,10 @@ class EmailTemplateSeeder extends Seeder
                 We received your payment for invoice **#{{ invoice_number }}**. Thank you! This email confirms your payment.
 
                 - Invoice: **#{{ invoice_number }}**
+                {% if tax %}
+                - Subtotal: **{{ subtotal }}**
+                - Tax: **{{ tax }}**
+                {% endif %}
                 - Total: **{{ total }}**
                 {% if partly_paid %}
                 - Left to pay: **{{ remaining }}**
@@ -185,6 +193,10 @@ class EmailTemplateSeeder extends Seeder
                 The automatic charge for invoice **#{{ invoice_number }}** was not successful, and you have **not** been charged.
 
                 - Invoice: **#{{ invoice_number }}**
+                {% if tax %}
+                - Subtotal: **{{ subtotal }}**
+                - Tax: **{{ tax }}**
+                {% endif %}
                 - Total: **{{ total }}**
                 {% if partly_paid %}
                 - Left to pay: **{{ remaining }}**
@@ -475,6 +487,10 @@ class EmailTemplateSeeder extends Seeder
                 This is a reminder that invoice **#{{ invoice_number }}** is due on **{{ invoice.due_at|date("d/m/Y") }}**. If you have already paid it, please ignore this message.
 
                 - Invoice: **#{{ invoice_number }}**
+                {% if tax %}
+                - Subtotal: **{{ subtotal }}**
+                - Tax: **{{ tax }}**
+                {% endif %}
                 - Total: **{{ total }}**
                 {% if partly_paid %}
                 - Left to pay: **{{ remaining }}**
@@ -546,6 +562,10 @@ class EmailTemplateSeeder extends Seeder
                 Invoice **#{{ invoice_number }}** was due on **{{ invoice.due_at|date("d/m/Y") }}** and is now {{ overdue.days }} day(s) overdue. If you have already paid it, please ignore this message: the payment may still be on its way.
 
                 - Invoice: **#{{ invoice_number }}**
+                {% if tax %}
+                - Subtotal: **{{ subtotal }}**
+                - Tax: **{{ tax }}**
+                {% endif %}
                 - Total: **{{ total }}**
                 {% if partly_paid %}
                 - Left to pay: **{{ remaining }}**
@@ -590,6 +610,10 @@ class EmailTemplateSeeder extends Seeder
                 Invoice **#{{ invoice_number }}** was updated. Here it is as it stands now.
 
                 - Invoice: **#{{ invoice_number }}**
+                {% if tax %}
+                - Subtotal: **{{ subtotal }}**
+                - Tax: **{{ tax }}**
+                {% endif %}
                 - Total: **{{ total }}**
                 {% if partly_paid %}
                 - Left to pay: **{{ remaining }}**

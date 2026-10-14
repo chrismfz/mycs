@@ -69,8 +69,8 @@ final class PlaceOrderService
                     throw new DisplayException(__('product.not_available', ['product' => $line->product->name]));
                 }
                 $discount = OrderPricing::discount($coupon, $line->product->id);
-                $withCoupon = OrderPricing::line($catalog, $discount, $client);
-                $priced[] = [$line, $withCoupon, $discount !== null && $withCoupon->hasDiscount() ? OrderPricing::line($catalog, null, $client) : null];
+                $withCoupon = OrderPricing::line($catalog, $discount, $client, $line->product);
+                $priced[] = [$line, $withCoupon, $discount !== null && $withCoupon->hasDiscount() ? OrderPricing::line($catalog, null, $client, $line->product) : null];
             }
 
             $this->takeStock($client, $lines);
@@ -182,7 +182,7 @@ final class PlaceOrderService
     {
         // The price the service renews at: staff's, or the catalog's. A coupon for the first cycle only discounts
         // the first invoice; one for more cycles (or all) is kept in the price until the cron ends it.
-        $renewal = $line->price ?? ($fullPrice !== null && $coupon?->cycles() === 1 ? $fullPrice->grossPrice : $price->grossPrice);
+        $renewal = $line->price ?? ($fullPrice !== null && $coupon?->cycles() === 1 ? $fullPrice->netPrice : $price->netPrice);
 
         $service = $order->services()->create([
             'client_id' => $client->id,
@@ -229,13 +229,16 @@ final class PlaceOrderService
         return $service;
     }
 
-    /** One unit's first invoice: the (discounted) price and setup fee with tax, or staff's price plus the setup fee. */
+    /**
+     * One unit's first invoice, net (Δ1: the line adds its tax): the (discounted) price and setup fee, or staff's price
+     * plus the setup fee.
+     */
     private function firstPayment(OrderLine $line, LinePrice $price): string
     {
         if ($line->price !== null) {
-            return (string) BigDecimal::of($line->price)->plus($price->grossSetupFee)->toScale(2);
+            return (string) BigDecimal::of($line->price)->plus($price->netSetupFee)->toScale(2);
         }
 
-        return $price->firstPayment();
+        return $price->firstPaymentNet();
     }
 }

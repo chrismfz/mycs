@@ -23,6 +23,8 @@ use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * @property-read mixed $total
+ * @property-read float $taxTotal
+ * @property-read float $subtotal
  * @property-read mixed $formatted_total
  * @property-read mixed $formattedTotal
  * @property-read mixed $current_balance
@@ -177,9 +179,7 @@ class Invoice extends Model implements Auditable
     {
         return Attribute::make(
             get: fn () => (
-                $this->items->sum(
-                    fn ($item) => $this->moneyToCents($item->price) * $item->quantity
-                )
+                $this->items->sum(fn (InvoiceItem $item) => $item->totalCents())
                 + $this->moneyToCents(
                     $this->adjustmentNotes
                         ->where('status', AdjustmentNoteStatus::Active->value)
@@ -197,14 +197,55 @@ class Invoice extends Model implements Auditable
     }
 
     /**
-     * Total of the invoice.
+     * The tax of its lines (Δ1: each line keeps its own).
+     *
+     * @return Attribute<mixed, mixed>
+     */
+    public function taxTotal(): Attribute
+    {
+        return Attribute::make(get: fn () => $this->items->sum(fn (InvoiceItem $item) => (int) round((float) $item->tax_amount * 100)) / 100.0);
+    }
+
+    /**
+     * Its lines without tax.
+     *
+     * @return Attribute<mixed, mixed>
+     */
+    public function subtotal(): Attribute
+    {
+        return Attribute::make(get: fn () => $this->items->sum(fn (InvoiceItem $item) => (int) round($item->net() * 100)) / 100.0);
+    }
+
+    /**
+     * The tax by rate, for the totals: [['rate' => '24.0000', 'amount' => 4.80], …], only rates with tax.
+     *
+     * @return list<array{rate: string, amount: float}>
+     */
+    public function taxLines(): array
+    {
+        return $this->items->filter(fn (InvoiceItem $item) => (float) $item->tax_amount != 0)
+            ->groupBy(fn (InvoiceItem $item) => (string) $item->tax_rate)
+            ->map(fn ($items, $rate) => ['rate' => (string) $rate, 'amount' => $items->sum(fn (InvoiceItem $item) => (int) round((float) $item->tax_amount * 100)) / 100.0])
+            ->sortKeys()->values()->all();
+    }
+
+    /** The tax's name for the totals: the issued one (snapshot) or the account's rate's, else «VAT». */
+    public function taxName(): string
+    {
+        $tax = $this->tax;
+
+        return ($tax instanceof TaxRate ? $tax->name : null) ?: __('invoices.tax');
+    }
+
+    /**
+     * Total of the invoice, with the tax of its lines (for the subtotal/tax lines of the page and PDF).
      *
      * @return Attribute<mixed, mixed>
      */
     public function formattedTotal(): Attribute
     {
         return Attribute::make(
-            get: fn () => new Price(['price' => $this->total, 'currency' => $this->currency, 'tax' => $this->tax])
+            get: fn () => Price::ofTotal($this->total, $this->taxTotal, $this->currency)
         );
     }
 
@@ -231,7 +272,7 @@ class Invoice extends Model implements Auditable
     public function formattedCurrentBalance(): Attribute
     {
         return Attribute::make(
-            get: fn () => new Price(['price' => $this->currentBalance, 'currency' => $this->currency, 'tax' => $this->tax])
+            get: fn () => new Price(['price' => $this->currentBalance, 'currency' => $this->currency], tax: 0)
         );
     }
 
@@ -243,7 +284,7 @@ class Invoice extends Model implements Auditable
     public function formattedRemaining(): Attribute
     {
         return Attribute::make(
-            get: fn () => new Price(['price' => $this->remaining, 'currency' => $this->currency, 'tax' => $this->tax])
+            get: fn () => new Price(['price' => $this->remaining, 'currency' => $this->currency], tax: 0)
         );
     }
 

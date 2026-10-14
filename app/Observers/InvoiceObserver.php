@@ -148,7 +148,7 @@ class InvoiceObserver
     private static function creditToGiveCents(Invoice $invoice): int
     {
         return (int) $invoice->items->where('reference_type', Credit::class)->whereNull('applied_at')
-            ->sum(fn (InvoiceItem $item) => max(0, RecordPaymentService::toCents($item->price) * (int) $item->quantity));
+            ->sum(fn (InvoiceItem $item) => max(0, $item->totalCents()));
     }
 
     /** Money that arrived on the invoice and stays on it: succeeded payments less refunds and what became credit. */

@@ -114,7 +114,7 @@ class Checkout extends Component
             return;
         }
         $client = Auth::guard('web')->check() ? CurrentClient::model() : null;
-        $line = OrderPricing::line($catalog, null, $client);
+        $line = OrderPricing::line($catalog, null, $client, $this->product);
         // A free plan with nothing chosen that costs: «Free», as the plan list says.
         $this->total = $this->plan->type === 'free' && !BigDecimal::of($line->firstPayment())->isPositive()
             ? new Price(['currency' => Currency::query()->find($currency)], free: true)

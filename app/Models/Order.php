@@ -59,7 +59,8 @@ class Order extends Model implements Auditable
     public function total(): Attribute
     {
         return Attribute::make(
-            get: fn () => $this->services->sum(fn ($service) => $service->price * $service->quantity)
+            // What its services renew at, with tax (Δ1: their prices are net).
+            get: fn () => $this->services->sum(fn (Service $service) => $service->recurringGrossCents()) / 100
         );
     }
 
@@ -71,7 +72,8 @@ class Order extends Model implements Auditable
     public function formattedTotal(): Attribute
     {
         return Attribute::make(
-            get: fn () => new Price(['price' => $this->total, 'currency' => $this->currency])
+            // With the tax its services' renewals carry (Δ1), for the order e-mail.
+            get: fn () => Price::ofTotal($this->total, $this->services->sum(fn (Service $service) => (int) round((float) $service->recurringLine()['tax'] * 100)) / 100, $this->currency)
         );
     }
 

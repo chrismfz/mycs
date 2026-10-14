@@ -6,6 +6,7 @@ use App\Enums\InvoiceTransactionStatus;
 use App\Enums\MoneyEventKind;
 use App\Models\Credit;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
 use App\Models\MoneyEvent;
 use App\Models\PaymentGatewayEvent;
@@ -34,7 +35,7 @@ final class MoneyCheck
         'paid_balance', 'open_settled', 'cancelled_applied', 'cancelled_holds_money', 'paid_not_applied',
         'paid_for_cancelled', 'open_for_cancelled',
         'credit_journal', 'credit_negative', 'payment_not_journaled', 'journal_without_payment', 'refund_journal',
-        'over_refunded', 'duplicate_gateway_id', 'gateway_received',
+        'over_refunded', 'duplicate_gateway_id', 'gateway_received', 'line_totals',
     ];
 
     /** @var list<array{rule: string, subject: string, detail: string}> */
@@ -95,6 +96,24 @@ final class MoneyCheck
     private static function remainingCents(Invoice $invoice): int
     {
         return RecordPaymentService::toCents($invoice->remaining);
+    }
+
+    /**
+     * Each line's stored total is its net × quantity plus its tax, and its tax its rate on that (Δ1): a line written
+     * around the model (raw SQL, an import) with a wrong or missing total or tax would make every balance built on it
+     * wrong.
+     */
+    private function lineTotals(): void
+    {
+        InvoiceItem::query()
+            ->where(fn ($query) => $query->whereRaw('ROUND(ROUND(price * quantity, 2) + tax_amount, 2) <> line_total')
+                // and its tax is its rate on its net amount (0 when not taxed)
+                ->orWhereRaw('tax_amount <> CASE WHEN taxed THEN ROUND(ROUND(price * quantity, 2) * tax_rate / 100, 2) ELSE 0 END'))
+            ->orderBy('id')
+            ->each(fn (InvoiceItem $item) => $this->add('line_totals', "invoice #{$item->invoice_id} line #{$item->id}",
+                'total ' . number_format((float) $item->line_total, 2, '.', '') . ', price ' . number_format((float) $item->price, 2, '.', '')
+                . ' × ' . $item->quantity . ', tax ' . number_format((float) $item->tax_amount, 2, '.', '')
+                . ' at ' . rtrim(rtrim((string) $item->tax_rate, '0'), '.') . '%' . ($item->taxed ? '' : ' (not taxed)')));
     }
 
     /** A paid invoice owes nothing and holds nothing over (an overpayment becomes credit). */

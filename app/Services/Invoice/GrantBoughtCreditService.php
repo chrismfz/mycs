@@ -38,7 +38,8 @@ class GrantBoughtCreditService
 
             // By the current client_id: a reassigned invoice can still have the previous owner cached in its relation.
             // A line staff edited to a negative price takes credit away (it may leave the balance negative).
-            $cents = (int) round((float) $item->price * 100);
+            // What the line charges (Δ1: × quantity; a credit line has no tax), the same amount the invoice settles.
+            $cents = $item->totalCents();
             $ledger = new CreditLedger;
             if ($cents > 0) {
                 $ledger->add($invoice->client_id, $invoice->currency_code, $cents, MoneyTrail::CAUSE_PURCHASE, MoneyTrail::SOURCE_SYSTEM, $invoice);

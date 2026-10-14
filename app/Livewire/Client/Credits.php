@@ -115,6 +115,8 @@ class Credits extends Component
                 'quantity' => 1,
                 'price' => $this->amount,
                 'reference_type' => Credit::class,
+                // Credit bought is not a sale: no tax on it (as WHMCS «Add Funds»).
+                'taxed' => false,
             ]);
 
             DB::commit();

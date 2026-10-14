@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Events\Service\RenewalTaxChanged;
 use App\Exceptions\DisplayException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -69,6 +70,17 @@ class Contact extends Model
         'address1', 'address2', 'city', 'state', 'postcode', 'country', 'email', 'phone', 'notes', 'document_type',
         'email_preferences',
     ];
+
+    protected static function booted(): void
+    {
+        // The account's country is its primary contact's (PR 3a): a new country, or another contact made primary,
+        // changes what its subscriptions bill (Δ1).
+        static::updated(function (self $contact) {
+            if ($contact->wasChanged('primary_of_client_id') || ($contact->isPrimary() && $contact->wasChanged('country'))) {
+                RenewalTaxChanged::forSubscribed(Service::query()->where('client_id', $contact->client_id));
+            }
+        });
+    }
 
     protected function casts(): array
     {

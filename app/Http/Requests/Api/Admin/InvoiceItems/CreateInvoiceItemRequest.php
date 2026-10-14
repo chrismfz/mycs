@@ -18,6 +18,7 @@ class CreateInvoiceItemRequest extends AdminApiRequest
             'description' => 'required|string|max:65535',
             'price' => 'required|numeric|min:0',
             'quantity' => 'required|integer|min:1',
+            'taxed' => 'sometimes|boolean',
             'reference_type' => 'nullable',
             'reference_id' => 'nullable',
         ];

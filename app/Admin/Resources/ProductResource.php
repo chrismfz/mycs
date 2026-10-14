@@ -22,6 +22,7 @@ use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
@@ -77,6 +78,9 @@ class ProductResource extends Resource
                                 TextInput::make('slug')->required()->unique(ignoreRecord: true),
                                 TextInput::make('stock')->integer()->nullable(),
                                 TextInput::make('per_user_limit')->integer()->nullable(),
+                                // WHMCS «Apply Tax» (Δ1): a product sold without VAT.
+                                Toggle::make('taxable')->label('Apply tax')->default(true)
+                                    ->helperText('Off: sold without tax (its invoice lines are not taxed).'),
                                 Select::make('allow_quantity')->options([
                                     'disabled' => 'No',
                                     'separated' => 'Separated',

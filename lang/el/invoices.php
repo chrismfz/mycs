@@ -10,6 +10,8 @@ return [
     'id' => 'Α/Α',
     'total' => 'Σύνολο',
     'subtotal' => 'Μερικό σύνολο',
+    'tax_line' => ':name (:rate%)',
+    'tax' => 'ΦΠΑ',
     'invoice' => 'Τιμολόγιο #:id',
     'proforma_invoice' => 'Προτιμολόγιο #:id',
     'unit_price' => 'Τιμή μονάδας',

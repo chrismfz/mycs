@@ -5,6 +5,7 @@ namespace MyCS\Extensions\Gateways\PayPal;
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Gateway;
 use App\Enums\InvoiceTransactionStatus;
+use App\Events\Service\RenewalTaxChanged;
 use App\Events\Service\Updated;
 use App\Events\ServiceCancellation\Created;
 use App\Exceptions\DisplayException;
@@ -181,6 +182,17 @@ class PayPal extends Gateway
         // Register webhook route
         View::addNamespace('gateways.paypal', __DIR__ . '/resources/views');
 
+        // The renewal's tax changed (Δ1): the subscription bills the new amount, as the renewal invoices.
+        Event::listen(RenewalTaxChanged::class, function (RenewalTaxChanged $event) {
+            if ($event->service->properties()->where('key', 'has_paypal_subscription')->value('value') !== '1') {
+                return;
+            }
+            try {
+                $this->updateSubscription($event->service);
+            } catch (Exception $e) {
+                report($e);
+            }
+        });
         Event::listen(Updated::class, function (Updated $event) {
             // From the database: an earlier event of the same commit may have cancelled and removed the marker.
             if ($event->service->properties()->where('key', 'has_paypal_subscription')->value('value') !== '1') {
@@ -577,7 +589,9 @@ class PayPal extends Gateway
             return false;
         }
         // Update subscription price
-        $newPrice = Service::where('subscription_id', $service->subscription_id)->sum('price');
+        // With tax (Δ1: prices are net; a renewal line adds the tax), as Stripe and as the renewal invoices.
+        $newPrice = number_format(Service::where('subscription_id', $service->subscription_id)->get()
+            ->sum(fn (Service $subscribed) => $subscribed->recurringGrossCents()) / 100, 2, '.', '');
         // Grab currenct subscription ID
         $subscriptionId = $service->subscription_id;
         $url = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';

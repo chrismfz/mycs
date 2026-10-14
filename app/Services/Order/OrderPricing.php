@@ -10,6 +10,7 @@ use App\Models\Plan;
 use App\Models\Product;
 use App\Models\TaxRate;
 use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use MyCS\Pricing\Discount;
 use MyCS\Pricing\LinePrice;
 use MyCS\Pricing\LinePricer;
@@ -82,14 +83,18 @@ final class OrderPricing
      *
      * @param  array{price: string, setup_fee: string}  $catalog
      */
-    public static function line(array $catalog, ?Discount $discount, ?Client $client): LinePrice
+    public static function line(array $catalog, ?Discount $discount, ?Client $client, ?Product $product = null): LinePrice
     {
-        return LinePricer::price($catalog['price'], $catalog['setup_fee'], $discount, self::taxRate($client), self::taxMode());
+        return LinePricer::price($catalog['price'], $catalog['setup_fee'], $discount, self::taxRate($client, $product), self::taxMode());
     }
 
-    public static function taxRate(?Client $client): ?string
+    /**
+     * The tax rate for an account, and for a product when given: none when tax is off, the account is tax exempt or
+     * the product is not taxable (WHMCS `taxexempt`, `tblproducts.tax`; docs/decisions.md Δ1).
+     */
+    public static function taxRate(?Client $client, ?Product $product = null): ?string
     {
-        if (!config('settings.tax_enabled', false)) {
+        if (!config('settings.tax_enabled', false) || $client?->tax_exempt || ($product !== null && !$product->taxable)) {
             return null;
         }
         $tax = Settings::tax($client);
@@ -97,9 +102,24 @@ final class OrderPricing
         return $tax instanceof TaxRate ? number_format((float) $tax->rate, 4, '.', '') : null;
     }
 
+    /**
+     * A catalog amount (a proration, a difference: may be negative) without tax: as is when tax is exclusive or there is
+     * none, the tax taken out when the catalog is inclusive (Δ1: what lines store is net).
+     */
+    public static function toNet(string $catalogAmount, ?Client $client, ?Product $product = null): string
+    {
+        $amount = BigDecimal::of($catalogAmount);
+        $rate = self::taxRate($client, $product);
+        if ($rate === null || self::taxMode() === LinePricer::TAX_EXCLUSIVE) {
+            return (string) $amount->toScale(2, RoundingMode::HalfUp);
+        }
+
+        return (string) $amount->multipliedBy(100)->dividedBy(BigDecimal::of($rate)->plus(100), 2, RoundingMode::HalfUp);
+    }
+
     public static function taxMode(): string
     {
-        return config('settings.tax_type', 'inclusive') === 'exclusive' ? LinePricer::TAX_EXCLUSIVE : LinePricer::TAX_INCLUSIVE;
+        return config('settings.tax_type', 'exclusive') === 'exclusive' ? LinePricer::TAX_EXCLUSIVE : LinePricer::TAX_INCLUSIVE;
     }
 
     /** @param  array<int, array<string, mixed>>  $configOptions */

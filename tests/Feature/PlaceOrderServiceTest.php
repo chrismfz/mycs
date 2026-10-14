@@ -78,9 +78,12 @@ class PlaceOrderServiceTest extends TestCase
         $placed = (new PlaceOrderService)->place($this->client(), 'USD', [$this->line($this->product(20.00, 5.00), 2)]);
 
         $item = $placed->invoice->items()->sole();
-        // (20 + 5) + 24% = 31.00 a unit; the service renews at 20 + 24% = 24.80.
-        $this->assertSame(['31.00', '2'], [number_format((float) $item->price, 2, '.', ''), (string) $item->quantity]);
-        $this->assertSame('24.80', number_format((float) $placed->order->services()->sole()->price, 2, '.', ''));
+        // Δ1: the line is net, (20 + 5) × 2 = 50.00, and carries its tax once: 12.00, 62.00 in all. The service renews
+        // at its net 20.00; a renewal line adds the tax.
+        $this->assertSame(['25.00', '2', '24.0000', '12.00', '62.00'], [number_format((float) $item->price, 2, '.', ''), (string) $item->quantity,
+            (string) $item->tax_rate, (string) $item->tax_amount, (string) $item->line_total]);
+        $this->assertSame('20.00', number_format((float) $placed->order->services()->sole()->price, 2, '.', ''));
+        $this->assertSame(62.00, (float) $placed->invoice->fresh()->total);
     }
 
     public function test_nothing_due_makes_no_invoice_and_starts_the_service(): void
@@ -199,10 +202,11 @@ class PlaceOrderServiceTest extends TestCase
         $placed = (new PlaceOrderService)->place($this->client(), 'USD', [$this->line($this->product(20.00))], $coupon);
         $service = $placed->order->services()->sole();
 
-        // (20 − 5) + 24% = 18.60
-        $this->assertSame('18.60', number_format((float) $placed->invoice->items()->sole()->price, 2, '.', ''));
-        $this->assertSame('18.60', number_format((float) $service->price, 2, '.', ''));
-        $this->assertSame('18.60', $service->calculatePrice());
+        // (20 − 5) net, + 24% = 18.60 to pay; the service renews at its net 15.00.
+        $this->assertSame('18.60', (string) $placed->invoice->items()->sole()->line_total);
+        $this->assertSame('15.00', number_format((float) $service->price, 2, '.', ''));
+        $this->assertSame('15.00', $service->calculatePrice());
+        $this->assertSame(1860, $service->recurringGrossCents());
     }
 
     /** CART-8: «price and setup fee» with a fixed amount takes the amount once. */
@@ -325,8 +329,8 @@ class PlaceOrderServiceTest extends TestCase
             ->assertHasNoFormErrors();
 
         $service = Service::query()->sole();
-        $this->assertSame('24.80', number_format((float) $service->price, 2, '.', ''));
-        $this->assertSame('31.00', number_format((float) Invoice::query()->sole()->items()->sole()->price, 2, '.', ''));
+        $this->assertSame('20.00', number_format((float) $service->price, 2, '.', ''));
+        $this->assertSame('31.00', (string) Invoice::query()->sole()->items()->sole()->line_total);
     }
 
     public function test_staff_may_give_a_line_its_own_price(): void

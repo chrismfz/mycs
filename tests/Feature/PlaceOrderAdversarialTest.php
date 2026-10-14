@@ -78,7 +78,7 @@ class PlaceOrderAdversarialTest extends TestCase
             return '0.00';
         }
 
-        return number_format((float) $invoice->items()->get()->sum(fn ($item) => $item->price * $item->quantity), 2, '.', '');
+        return number_format((float) $invoice->items()->get()->sum(fn ($item) => (float) $item->line_total), 2, '.', '');
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -306,7 +306,10 @@ class PlaceOrderAdversarialTest extends TestCase
 
         $placed = (new PlaceOrderService)->place($this->client(), 'USD', [$this->line($this->product(20.00, 4.00))], $coupon);
 
-        $this->assertSame('19.00', $this->invoiceTotal($placed->invoice));
-        $this->assertSame('20.00', number_format((float) $placed->order->services()->sole()->price, 2, '.', ''));
+        // Δ1: stored net (15/1.24 + 4/1.24 = 15.33) and taxed per line: 19.01. An inclusive catalog can differ by a
+        // cent from its gross (neither company uses inclusive, docs/decisions.md Δ1).
+        $this->assertEqualsWithDelta(19.00, (float) $this->invoiceTotal($placed->invoice), 0.011);
+        // Δ1: the service keeps its net price (20 / 1.24); a renewal charges the catalog's 20.00 again.
+        $this->assertSame(2000, $placed->order->services()->sole()->recurringGrossCents());
     }
 }
