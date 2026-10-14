@@ -14,6 +14,7 @@ use App\Models\Role;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Models\User;
+use App\Models\Staff;
 use App\Services\Invoice\ChangeOpenLine;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
@@ -109,7 +110,7 @@ class InvoiceSettleAdversarialTest extends TestCase
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 
-        return User::factory()->create(['role_id' => Role::create(['name' => 'Staff ' . uniqid(), 'permissions' => $permissions])->id]);
+        return Staff::factory()->create(['role_id' => Role::create(['name' => 'Staff ' . uniqid(), 'permissions' => $permissions])->id]);
     }
 
     private function assertBooksClean(string $context): void

@@ -8,6 +8,7 @@ use App\Http\Middleware\ImpersonateMiddleware;
 use App\Models\ApiKey;
 use App\Models\Role;
 use App\Models\User;
+use App\Models\Staff;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -35,8 +36,8 @@ class PermissionGuardTest extends TestCase
             'admin.roles.update', 'admin.api_keys.create', 'admin.api_keys.update',
             'admin.tickets.viewAny', 'admin.tickets.update',
         ]]);
-        $this->owner = User::factory()->create(['role_id' => $full->id]);
-        $this->support = User::factory()->create(['role_id' => $support->id]);
+        $this->owner = Staff::factory()->create(['role_id' => $full->id]);
+        $this->support = Staff::factory()->create(['role_id' => $support->id]);
         $this->client = User::factory()->create();
     }
 

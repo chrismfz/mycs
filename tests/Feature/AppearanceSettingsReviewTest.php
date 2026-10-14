@@ -6,6 +6,7 @@ use App\Admin\Pages\Settings;
 use App\Models\Role;
 use App\Models\Setting;
 use App\Models\User;
+use App\Models\Staff;
 use App\Providers\SettingsProvider;
 use Database\Seeders\DatabaseSeeder;
 use Filament\Actions\Testing\TestAction;
@@ -31,7 +32,7 @@ class AppearanceSettingsReviewTest extends TestCase
         parent::setUp();
         config(['settings.default_currency' => 'USD', 'settings.system_email_address' => 'billing@example.test']);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $this->owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $this->owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
     }
 
     /** R-1: the Reset Colors action was a hint action of the old `theme` select; color pickers have no hintActions. */

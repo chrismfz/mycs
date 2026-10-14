@@ -8,6 +8,7 @@ use App\Models\Invoice;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\User;
+use App\Models\Staff;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -128,7 +129,7 @@ class CronOverlapAndOrderCancelTest extends TestCase
     public function test_the_run_time_is_not_in_the_hour_the_clock_changes(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
         config(['settings.system_email_address' => 'billing@example.test']);
 
         Livewire::actingAs($owner)->test(Settings::class)->set('data.cronjob_time', '03:30')->call('save')->assertHasErrors('data.cronjob_time');

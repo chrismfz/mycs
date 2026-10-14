@@ -11,6 +11,7 @@ use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\Role;
 use App\Models\User;
+use App\Models\Staff;
 use App\Services\Invoice\RecordPaymentService;
 use Filament\Actions\DeleteAction;
 use Filament\Facades\Filament;
@@ -53,7 +54,7 @@ class MoneyTrailFinalReviewTest extends TestCase
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 
-        return User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        return Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
     }
 
     /** P2: the guard (InvoiceObserver::updating) answered the API with a 500, not a 422 like the user delete guard. */

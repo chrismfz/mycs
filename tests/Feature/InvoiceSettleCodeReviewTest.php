@@ -9,6 +9,7 @@ use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\Role;
 use App\Models\User;
+use App\Models\Staff;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\MoneyCheck;
 use Filament\Facades\Filament;
@@ -123,7 +124,7 @@ class InvoiceSettleCodeReviewTest extends TestCase
         $draft = $this->newInvoice(Invoice::STATUS_DRAFT);
         $draft->items()->create(['description' => 'Free transfer', 'quantity' => 1, 'price' => 0]);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $staff = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
         $page = Livewire::actingAs($staff)->test(EditInvoice::class, ['record' => $draft->getKey()])
             ->fillForm(['status' => Invoice::STATUS_UNPAID])

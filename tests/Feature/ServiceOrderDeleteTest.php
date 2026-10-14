@@ -11,6 +11,7 @@ use App\Models\Server;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Models\User;
+use App\Models\Staff;
 use App\Services\Service\DeleteService;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -134,7 +135,7 @@ class ServiceOrderDeleteTest extends TestCase
     {
         $service = $this->service();
         $open = $this->invoiceFor($service, Invoice::STATUS_UNPAID);
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
         $token = 'PAYM' . bin2hex(random_bytes(8));
         ApiKey::create(['name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'user_id' => $owner->id,
             'permissions' => ['admin.services.delete', 'admin.orders.delete']]);

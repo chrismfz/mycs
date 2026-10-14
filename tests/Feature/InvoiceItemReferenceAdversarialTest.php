@@ -10,6 +10,7 @@ use App\Models\Role;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Models\User;
+use App\Models\Staff;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -205,7 +206,7 @@ class InvoiceItemReferenceAdversarialTest extends TestCase
         $own = $this->serviceOf($this->customer);
         $item = $this->invoice->items()->create(['description' => 'Renewal', 'price' => 10, 'quantity' => 1, 'reference_type' => Service::class, 'reference_id' => $own->id]);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
         // A second Livewire request is bounced to auth.logout by the session middleware in tests: drive the page in-process.
         $this->actingAs($owner);

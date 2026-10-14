@@ -14,6 +14,7 @@ use App\Models\Role;
 use App\Models\Service;
 use App\Models\Setting;
 use App\Models\User;
+use App\Models\Staff;
 use App\Services\Invoice\RecordPaymentService;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -279,7 +280,7 @@ class NotificationsAfterCommitAdversarialTest extends TestCase
     public function test_holds_the_settings_page_never_rewinds_a_counter_moved_by_invoices(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
         Setting::query()->updateOrCreate(['key' => 'invoice_number', 'settingable_type' => null], ['value' => 10]);
         config(['settings.invoice_number' => 2, 'settings.mail_disable' => true]); // mail fields required otherwise
 

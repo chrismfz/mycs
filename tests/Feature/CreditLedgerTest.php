@@ -16,6 +16,7 @@ use App\Models\Price;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\User;
+use App\Models\Staff;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
@@ -64,7 +65,7 @@ class CreditLedgerTest extends TestCase
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 
-        return User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        return Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
     }
 
     private function apiToken(array $permissions): string

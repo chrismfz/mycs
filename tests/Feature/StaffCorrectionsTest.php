@@ -19,6 +19,7 @@ use App\Models\InvoiceTransaction;
 use App\Models\MoneyEvent;
 use App\Models\Role;
 use App\Models\User;
+use App\Models\Staff;
 use App\Services\Invoice\RecordPaymentService;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -76,7 +77,7 @@ class StaffCorrectionsTest extends TestCase
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 
-        return User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        return Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
     }
 
     private function apiToken(array $permissions): string

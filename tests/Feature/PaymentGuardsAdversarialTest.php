@@ -15,6 +15,7 @@ use App\Models\Price;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\User;
+use App\Models\Staff;
 use App\Services\Invoice\RecordPaymentService;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -469,7 +470,7 @@ class PaymentGuardsAdversarialTest extends TestCase
         $invoice = $this->invoiceFor($service, '2026-10-15', '2026-11-15');
         $invoice->update(['status' => 'cancelled']);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $admin = User::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
         Livewire::actingAs($admin)
             ->test(TransactionsRelationManager::class, ['ownerRecord' => $invoice->fresh(), 'pageClass' => EditInvoice::class])

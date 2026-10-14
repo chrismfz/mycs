@@ -7,6 +7,7 @@ use App\Models\EmailLog;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\User;
+use App\Models\Staff;
 use App\Providers\SettingsProvider;
 use Filament\Facades\Filament;
 use Filament\Schemas\Components\Section;
@@ -42,7 +43,7 @@ class AutomationSettingsReviewTest extends TestCase
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         config(['settings.system_email_address' => 'billing@example.test']);
 
-        return User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        return Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
     }
 
     /** @return array<int, Tab> */

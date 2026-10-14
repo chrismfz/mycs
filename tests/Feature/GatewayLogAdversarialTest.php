@@ -14,6 +14,7 @@ use App\Models\Price;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\User;
+use App\Models\Staff;
 use Filament\Facades\Filament;
 use Illuminate\Cache\ArrayStore;
 use Illuminate\Cache\Repository;
@@ -651,9 +652,9 @@ class GatewayLogAdversarialTest extends TestCase
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $row = PaymentGatewayEvent::query()->create(['gateway' => 'stripe', 'endpoint' => 'webhook', 'method' => 'POST', 'outcome' => 'recorded']);
-        $clerk = User::factory()->create(['role_id' => Role::create(['name' => 'Clerk' . uniqid(), 'permissions' => ['admin.invoices.viewAny', 'admin.invoices.viewAny']])->id]);
-        $reader = User::factory()->create(['role_id' => Role::create(['name' => 'Reader' . uniqid(), 'permissions' => ['admin.gateway_events.viewAny']])->id]);
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        $clerk = Staff::factory()->create(['role_id' => Role::create(['name' => 'Clerk' . uniqid(), 'permissions' => ['admin.invoices.viewAny', 'admin.invoices.viewAny']])->id]);
+        $reader = Staff::factory()->create(['role_id' => Role::create(['name' => 'Reader' . uniqid(), 'permissions' => ['admin.gateway_events.viewAny']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
         $this->actingAs($clerk);
         $this->assertFalse(PaymentGatewayEventResource::canAccess());
@@ -688,8 +689,8 @@ class GatewayLogAdversarialTest extends TestCase
             'outcome' => '<u>recorded</u>', 'reason' => '<img src=x onerror=alert(2)>', 'external_id' => '"><svg onload=alert(3)>',
             'invoice_id' => $invoice->id, 'amount' => 1, 'currency_code' => 'U<s', 'http_status' => 200, 'fields' => ['<marquee>'],
         ]);
-        $reader = User::factory()->create(['role_id' => Role::create(['name' => 'Reader' . uniqid(), 'permissions' => ['admin.gateway_events.viewAny']])->id]);
-        $boss = User::factory()->create(['role_id' => Role::create(['name' => 'Boss' . uniqid(), 'permissions' => ['admin.gateway_events.viewAny', 'admin.invoices.viewAny']])->id]);
+        $reader = Staff::factory()->create(['role_id' => Role::create(['name' => 'Reader' . uniqid(), 'permissions' => ['admin.gateway_events.viewAny']])->id]);
+        $boss = Staff::factory()->create(['role_id' => Role::create(['name' => 'Boss' . uniqid(), 'permissions' => ['admin.gateway_events.viewAny', 'admin.invoices.viewAny']])->id]);
         $url = InvoiceResource::getUrl('edit', ['record' => $invoice->id]);
 
         $readerView = Livewire::actingAs($reader)->test(ListPaymentGatewayEvents::class)->assertSuccessful()->assertDontSeeHtml($url);

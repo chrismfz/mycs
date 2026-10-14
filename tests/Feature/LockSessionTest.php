@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use App\Models\Staff;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
@@ -23,7 +24,7 @@ class LockSessionTest extends TestCase
     {
         Config::set('settings.session_validation', 'ip_both');
 
-        $user = User::factory()->create(['role_id' => 1]); // admin
+        $user = Staff::factory()->create(['role_id' => 1]); // admin
 
         $this->withServerVariables(['REMOTE_ADDR' => '1.2.3.4'])
             ->withSession($this->loginUser($user))
@@ -41,7 +42,7 @@ class LockSessionTest extends TestCase
     {
         Config::set('settings.session_validation', 'ip_both');
 
-        $user = User::factory()->create(['role_id' => 1]); // admin
+        $user = Staff::factory()->create(['role_id' => 1]); // admin
 
         // First request from initial IP
         $this->withServerVariables(['REMOTE_ADDR' => '1.2.3.4'])
@@ -60,7 +61,7 @@ class LockSessionTest extends TestCase
     {
         Config::set('settings.session_validation', 'ip_client');
 
-        $user = User::factory()->create(['role_id' => null]); // client
+        $user = User::factory()->create(); // client
 
         $this->withServerVariables(['REMOTE_ADDR' => '9.9.9.9'])
             ->withSession($this->loginUser($user))
@@ -78,7 +79,7 @@ class LockSessionTest extends TestCase
     {
         Config::set('settings.session_validation', 'user_agent_admin');
 
-        $user = User::factory()->create(['role_id' => 1]); // admin
+        $user = Staff::factory()->create(['role_id' => 1]); // admin
 
         $ua1 = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)';
 
@@ -98,7 +99,7 @@ class LockSessionTest extends TestCase
     {
         Config::set('settings.session_validation', 'user_agent_admin');
 
-        $user = User::factory()->create(['role_id' => 1]); // admin
+        $user = Staff::factory()->create(['role_id' => 1]); // admin
 
         $ua1 = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)';
         $ua2 = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)';
@@ -119,7 +120,7 @@ class LockSessionTest extends TestCase
     {
         Config::set('settings.session_validation', 'user_agent_client');
 
-        $user = User::factory()->create(['role_id' => null]); // client
+        $user = User::factory()->create(); // client
 
         $ua1 = 'Mozilla/5.0 (X11; Linux x86_64)';
         $ua2 = 'Mozilla/5.0 (X11; Linux x86_64; rv:120)';
@@ -140,7 +141,7 @@ class LockSessionTest extends TestCase
     {
         Config::set('settings.session_validation', 'none');
 
-        $user = User::factory()->create(['role_id' => 1]); // admin
+        $user = Staff::factory()->create(['role_id' => 1]); // admin
 
         $this->withServerVariables(['REMOTE_ADDR' => '1.2.3.4'])
             ->withHeaders(['User-Agent' => 'TestAgent/1.0'])
@@ -160,7 +161,7 @@ class LockSessionTest extends TestCase
     {
         Config::set('settings.session_validation', 'ip_user_agent_both');
 
-        $user = User::factory()->create(['role_id' => null]); // client
+        $user = User::factory()->create(); // client
 
         $ua1 = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)';
 

@@ -7,6 +7,7 @@ use App\Console\Commands\ImportFromWhmcs;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\User;
+use App\Models\Staff;
 use Filament\Facades\Filament;
 use Illuminate\Console\OutputStyle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -29,7 +30,7 @@ class UniqueKeysReviewTest extends TestCase
     public function test_duplicating_a_product_with_settings_copies_them(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $admin = User::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
         $product = $this->createProduct()->product;
         $product->settings()->create(['key' => 'package', 'value' => 'basic']);
 

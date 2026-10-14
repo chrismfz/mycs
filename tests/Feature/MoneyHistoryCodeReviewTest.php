@@ -13,6 +13,7 @@ use App\Models\Invoice;
 use App\Models\MoneyEvent;
 use App\Models\Role;
 use App\Models\User;
+use App\Models\Staff;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyHistory;
@@ -57,7 +58,7 @@ class MoneyHistoryCodeReviewTest extends TestCase
     /** @param  list<string>  $permissions */
     private function staff(array $permissions): User
     {
-        return User::factory()->create(['role_id' => Role::create(['name' => 'Staff' . uniqid(), 'permissions' => $permissions])->id]);
+        return Staff::factory()->create(['role_id' => Role::create(['name' => 'Staff' . uniqid(), 'permissions' => $permissions])->id]);
     }
 
     /**
@@ -125,7 +126,7 @@ class MoneyHistoryCodeReviewTest extends TestCase
     public function test_a_deleted_staff_actor_is_not_shown_as_system(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $staff = User::factory()->create(['first_name' => 'Quentin', 'last_name' => 'Gone', 'role_id' => Role::create(['name' => 'Gone' . uniqid(), 'permissions' => ['*']])->id]);
+        $staff = Staff::factory()->create(['first_name' => 'Quentin', 'last_name' => 'Gone', 'role_id' => Role::create(['name' => 'Gone' . uniqid(), 'permissions' => ['*']])->id]);
         $this->actingAs($staff);
         (new CreditLedger)->add($this->user->id, 'USD', 500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
         $staffId = $staff->id;

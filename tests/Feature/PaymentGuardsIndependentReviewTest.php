@@ -16,6 +16,7 @@ use App\Models\Price;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\User;
+use App\Models\Staff;
 use App\Services\Invoice\RecordPaymentService;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -80,7 +81,7 @@ class PaymentGuardsIndependentReviewTest extends TestCase
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 
-        return User::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        return Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
     }
 
     /**

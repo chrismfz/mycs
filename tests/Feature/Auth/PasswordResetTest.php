@@ -3,6 +3,7 @@
 namespace Tests\Feature\Auth;
 
 use App\Livewire\Auth\Password\Request;
+use App\Models\Staff;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
@@ -86,10 +87,8 @@ class PasswordResetTest extends TestCase
 
     public function test_cant_request_password_reset_link_for_admin_user()
     {
-        $user = User::factory()->create([
-            'email' => 'admin@example.com',
-            'role_id' => 1,
-        ]);
+        // Staff reset theirs at /admin (their own broker and table): the client area does not know them.
+        Staff::factory()->admin()->create(['email' => 'admin@example.com']);
         Livewire::test(Request::class)
             ->set('email', 'admin@example.com')
             ->call('submit')

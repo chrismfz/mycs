@@ -12,6 +12,7 @@ use App\Models\Role;
 use App\Models\Service;
 use App\Models\ServiceCancellation;
 use App\Models\User;
+use App\Models\Staff;
 use App\Services\Invoice\RecordPaymentService;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
@@ -143,7 +144,7 @@ class PlanProductDeleteReviewTest extends TestCase
     {
         $service = $this->service();
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $admin = User::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
         $page = Livewire::actingAs($admin)->test(EditProduct::class, ['record' => $service->product->getRouteKey()]);
         $key = array_key_first($page->get('data.plan'));
@@ -166,7 +167,7 @@ class PlanProductDeleteReviewTest extends TestCase
         $spare = Plan::factory()->create(['priceable_id' => $product->id, 'priceable_type' => Product::class,
             'name' => 'Spare', 'billing_unit' => 'year', 'billing_period' => 1, 'type' => 'recurring']);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $admin = User::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
         $page = Livewire::actingAs($admin)->test(EditProduct::class, ['record' => $product->getRouteKey()]);
         $key = collect($page->get('data.plan'))->search(fn ($item) => ($item['id'] ?? null) === $spare->id);
@@ -195,7 +196,7 @@ class PlanProductDeleteReviewTest extends TestCase
         $spare = Plan::factory()->create(['priceable_id' => $product->id, 'priceable_type' => Product::class,
             'name' => 'Spare', 'billing_unit' => 'year', 'billing_period' => 1, 'type' => 'recurring']);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $admin = User::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
         $page = Livewire::actingAs($admin)->test(EditProduct::class, ['record' => $product->getRouteKey()]);
         foreach ([$other, $spare] as $plan) { // both unused when removed

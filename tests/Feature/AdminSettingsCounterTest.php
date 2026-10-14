@@ -7,6 +7,7 @@ use App\Models\Invoice;
 use App\Models\Role;
 use App\Models\Setting;
 use App\Models\User;
+use App\Models\Staff;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
@@ -29,7 +30,7 @@ class AdminSettingsCounterTest extends TestCase
         parent::setUp();
 
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $this->owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $this->owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
         $this->counters(100, 7);
         config(['settings.system_email_address' => 'billing@example.test']); // required, empty in the test seed
     }

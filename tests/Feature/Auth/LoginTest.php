@@ -3,7 +3,9 @@
 namespace Tests\Feature\Auth;
 
 use App\Livewire\Auth\Login;
+use App\Models\Staff;
 use App\Models\User;
+use Filament\Auth\Pages\Login as FilamentLogin;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Livewire\Livewire;
@@ -90,24 +92,24 @@ class LoginTest extends TestCase
     /**
      * Test if the user can login with valid credentials and redirect to intended url
      */
-    public function test_can_login_with_valid_credentials_and_redirect_to_intended_url()
+    public function test_staff_log_in_at_the_admin_and_go_where_they_were_going()
     {
-        User::factory()->create([
+        Staff::factory()->admin()->create([
             'email' => 'test@paymenter.org',
             'password' => Hash::make('password'),
-            'role_id' => 1,
         ]);
 
-        $this->get('/admin/settings')->assertRedirect(route('login'));
+        // The admin has its own login (docs/accounts.md, PR 1), not the client area's.
+        $this->get('/admin/settings')->assertRedirect(route('filament.admin.auth.login'));
 
-        Livewire::test(Login::class)
-            ->set('email', 'test@paymenter.org')
-            ->set('password', 'password')
-            ->call('submit')
-            ->assertHasNoErrors()
-            ->assertRedirect('/admin/settings');
+        Livewire::test(FilamentLogin::class)
+            ->set('data.email', 'test@paymenter.org')
+            ->set('data.password', 'password')
+            ->call('authenticate')
+            ->assertHasNoErrors();
 
-        $this->assertAuthenticated();
+        $this->assertAuthenticated('staff');
+        $this->assertGuest('web');
 
         $this->get('/admin/settings')->assertOk();
     }
@@ -117,7 +119,7 @@ class LoginTest extends TestCase
      */
     public function test_cant_go_to_admin_dashboard_if_not_authenticated()
     {
-        $this->get('/admin/settings')->assertRedirect(route('login'));
+        $this->get('/admin/settings')->assertRedirect(route('filament.admin.auth.login'));
     }
 
     /**
@@ -127,6 +129,8 @@ class LoginTest extends TestCase
     {
         $user = User::factory()->create();
 
-        $this->actingAs($user)->withSession($this->loginUser($user))->get('/admin/settings')->assertForbidden();
+        // A customer is not staff: the admin asks for a staff login.
+        $this->actingAs($user)->withSession($this->loginUser($user))->get('/admin/settings')
+            ->assertRedirect(route('filament.admin.auth.login'));
     }
 }

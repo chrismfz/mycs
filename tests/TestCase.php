@@ -5,8 +5,10 @@ namespace Tests;
 use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Product;
+use App\Models\Staff;
 use App\Models\User;
 use App\Models\UserSession;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Once;
@@ -84,11 +86,21 @@ abstract class TestCase extends BaseTestCase
         ];
     }
 
-    /**
-     * Helper to create a user session and set it in the session
-     */
-    protected function loginUser(User $user, array $sessionData = []): array
+    /** Staff act on their own guard (docs/accounts.md, PR 1), customers on the default one. */
+    public function actingAs(Authenticatable $user, $guard = null)
     {
+        return parent::actingAs($user, $guard ?? ($user instanceof Staff ? 'staff' : null));
+    }
+
+    /**
+     * Helper to create a user session and set it in the session. Staff need none: the admin panel uses the plain
+     * session guard, not the customers' user_sessions.
+     */
+    protected function loginUser(User|Staff $user, array $sessionData = []): array
+    {
+        if ($user instanceof Staff) {
+            return $sessionData;
+        }
         $userSession = UserSession::create([
             'user_id' => $user->id,
             'ip_address' => request()->ip(),

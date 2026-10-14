@@ -17,6 +17,7 @@ use App\Models\InvoiceTransaction;
 use App\Models\Role;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Models\Staff;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Repeater;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -66,7 +67,7 @@ class NotificationsAfterCommitReviewTest extends TestCase
             $linesWhenFired = $event->invoice->items()->count();
         });
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
         $customer = User::factory()->create();
         $undo = Repeater::fake();
 

@@ -9,6 +9,7 @@ use App\Models\Invoice;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\User;
+use App\Models\Staff;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
@@ -118,7 +119,7 @@ class InvoiceItemReferenceTest extends TestCase
     {
         $this->invoice->items()->create(['description' => 'Line', 'price' => 50, 'quantity' => 1]);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
         $form = Livewire::actingAs($owner)->test(EditInvoice::class, ['record' => $this->invoice->getKey()])->instance()->form;
         $repeater = $form->getComponent(fn ($component) => $component instanceof Repeater && $component->getName() === 'items');

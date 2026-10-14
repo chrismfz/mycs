@@ -11,6 +11,7 @@ use App\Models\PaymentGatewayEvent;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\User;
+use App\Models\Staff;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\GatewayLog;
@@ -292,7 +293,7 @@ class MoneyCheckTest extends TestCase
     {
         DB::table('currencies')->insertOrIgnore(['code' => 'USD', 'name' => 'US Dollar', 'prefix' => '$', 'format' => '1,000.00']);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
         $waiting = $this->paid();
         $applied = $this->paid();
         DB::table('invoices')->where('id', $waiting->id)->update(['apply_pending_since' => now()->subHour()]);

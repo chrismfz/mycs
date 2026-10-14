@@ -9,6 +9,7 @@ use App\Models\Setting;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
+use App\Models\Staff;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -103,7 +104,7 @@ class AutomationSettingsTest extends TestCase
     public function test_the_automation_tab_shows_whmcs_sections_and_saves(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
         config(['settings.system_email_address' => 'billing@example.test']); // required, empty in the test seed
 
         Livewire::actingAs($owner)->test(Settings::class)

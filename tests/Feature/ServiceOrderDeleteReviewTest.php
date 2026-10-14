@@ -13,6 +13,7 @@ use App\Models\Role;
 use App\Models\Server;
 use App\Models\Service;
 use App\Models\User;
+use App\Models\Staff;
 use App\Services\Money\MoneyCheck;
 use App\Services\Service\DeleteService;
 use Filament\Facades\Filament;
@@ -186,7 +187,7 @@ class ServiceOrderDeleteReviewTest extends TestCase
     {
         $service = $this->service();
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $admin = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
         Livewire::actingAs($admin)->test(ListOrders::class)
             ->callTableBulkAction('delete', [$service->order])

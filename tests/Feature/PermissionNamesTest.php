@@ -7,6 +7,7 @@ use App\Models\Audit;
 use App\Models\FailedJob;
 use App\Models\Role;
 use App\Models\User;
+use App\Models\Staff;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Arr;
@@ -45,7 +46,7 @@ class PermissionNamesTest extends TestCase
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 
-        return User::factory()->create(['role_id' => Role::create(['name' => 'Staff' . uniqid(), 'permissions' => $permissions])->id]);
+        return Staff::factory()->create(['role_id' => Role::create(['name' => 'Staff' . uniqid(), 'permissions' => $permissions])->id]);
     }
 
     public function test_audits_are_never_edited_or_deleted_even_by_the_owner(): void

@@ -18,6 +18,7 @@ use App\Models\Order;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\User;
+use App\Models\Staff;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
@@ -566,7 +567,7 @@ class CreditLedgerAdversarialTest extends TestCase
     public function test_admin_page_refuses_sub_cent_and_overdraw_and_leaves_nothing_behind(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
         $page = fn () => Livewire::actingAs($owner)->test(ShowCredits::class, ['record' => $this->user->getKey()]);
 
         $page()->callTableAction('addCredit', data: ['currency_code' => 'USD', 'amount' => '0.004', 'reason' => 'tiny'])

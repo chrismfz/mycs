@@ -6,6 +6,7 @@ use App\Admin\Pages\Settings;
 use App\Models\Role;
 use App\Models\Setting;
 use App\Models\User;
+use App\Models\Staff;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
@@ -35,7 +36,7 @@ class AdminSettingsSecretsTest extends TestCase
 
     private function staff(array $permissions): User
     {
-        return User::factory()->create(['role_id' => Role::create(['name' => 'Staff ' . uniqid(), 'permissions' => $permissions])->id]);
+        return Staff::factory()->create(['role_id' => Role::create(['name' => 'Staff ' . uniqid(), 'permissions' => $permissions])->id]);
     }
 
     private function stored(): ?string

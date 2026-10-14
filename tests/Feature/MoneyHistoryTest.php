@@ -13,6 +13,7 @@ use App\Models\MoneyEvent;
 use App\Models\Role;
 use App\Models\Setting;
 use App\Models\User;
+use App\Models\Staff;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyHistory;
@@ -56,7 +57,7 @@ class MoneyHistoryTest extends TestCase
 
     private function owner(): User
     {
-        return User::factory()->create(['first_name' => 'Zebediah', 'last_name' => 'Staffperson', 'role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        return Staff::factory()->create(['first_name' => 'Zebediah', 'last_name' => 'Staffperson', 'role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
     }
 
     public function test_an_invoices_movements_are_its_journal_and_its_status_changes_in_order(): void

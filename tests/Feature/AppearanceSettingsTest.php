@@ -6,6 +6,7 @@ use App\Admin\Pages\Settings;
 use App\Models\Role;
 use App\Models\Setting;
 use App\Models\User;
+use App\Models\Staff;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Field;
 use Filament\Support\Facades\FilamentView;
@@ -99,7 +100,7 @@ class AppearanceSettingsTest extends TestCase
     public function test_the_appearance_tab_shows_and_saves(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
         config(['settings.system_email_address' => 'billing@example.test']); // required, empty in the test seed
 
         Livewire::actingAs($owner)->test(Settings::class)
@@ -133,7 +134,7 @@ class AppearanceSettingsTest extends TestCase
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         config(['settings.system_email_address' => 'billing@example.test']);
-        $staff = User::factory()->create(['role_id' => Role::create(['name' => 'Settings', 'permissions' => [
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Settings', 'permissions' => [
             'admin.settings.view', 'admin.settings.update',
         ]])->id]);
 
@@ -157,7 +158,7 @@ class AppearanceSettingsTest extends TestCase
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         config(['settings.system_email_address' => 'billing@example.test']);
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
         Livewire::actingAs($owner)->test(Settings::class)
             ->set('data.theme_custom_css', str_repeat('a', 65001))

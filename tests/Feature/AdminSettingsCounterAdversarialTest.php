@@ -8,6 +8,7 @@ use App\Models\Invoice;
 use App\Models\Role;
 use App\Models\Setting;
 use App\Models\User;
+use App\Models\Staff;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
@@ -31,7 +32,7 @@ class AdminSettingsCounterAdversarialTest extends TestCase
         parent::setUp();
 
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $this->owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $this->owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
         config(['settings.system_email_address' => 'billing@example.test']);
         config(['settings.invoice_number_format' => 'INV-{number}', 'settings.invoice_number_padding' => 1]);
     }
@@ -149,7 +150,7 @@ class AdminSettingsCounterAdversarialTest extends TestCase
 
     public function test_holds_view_only_staff_cannot_save(): void
     {
-        $viewer = User::factory()->create(['role_id' => Role::create(['name' => 'Viewer', 'permissions' => ['admin.settings.view']])->id]);
+        $viewer = Staff::factory()->create(['role_id' => Role::create(['name' => 'Viewer', 'permissions' => ['admin.settings.view']])->id]);
         $this->store('invoice_number', 100);
 
         Livewire::actingAs($viewer)->test(Settings::class)

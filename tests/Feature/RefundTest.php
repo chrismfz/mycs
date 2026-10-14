@@ -14,6 +14,7 @@ use App\Models\MoneyEvent;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\User;
+use App\Models\Staff;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyCheck;
@@ -247,7 +248,7 @@ class RefundTest extends TestCase
         $payment = $invoice->transactions()->sole();
         $this->assertNull($payment->transaction_id);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $staff = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
         Livewire::actingAs($staff)->test(TransactionsRelationManager::class, ['ownerRecord' => $invoice->fresh(), 'pageClass' => EditInvoice::class])
             ->assertTableActionVisible('refund', $payment)
