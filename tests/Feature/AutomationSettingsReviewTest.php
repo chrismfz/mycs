@@ -103,8 +103,9 @@ class AutomationSettingsReviewTest extends TestCase
         $livewire = Livewire::actingAs($this->owner())->test(Settings::class);
         foreach ($this->tabs($livewire) as $tab) {
             $sections = array_filter($tab->getChildSchema()->getComponents(withHidden: true), fn ($c) => $c instanceof Section);
-            if (str_starts_with((string) $tab->getKey(isAbsolute: false), 'automation') || str_starts_with((string) $tab->getKey(isAbsolute: false), 'cronjob')) {
-                $this->assertCount(5, $sections);
+            $key = (string) $tab->getKey(isAbsolute: false);
+            if (str_starts_with($key, 'automation') || str_starts_with($key, 'cronjob') || str_starts_with($key, 'theme')) {
+                $this->assertCount(5, $sections, $key); // Appearance: layout, colors light/dark, custom code, files
             } else {
                 $this->assertCount(0, $sections, (string) $tab->getKey(isAbsolute: false));
             }
