@@ -130,6 +130,7 @@ class Service extends Model implements Auditable
 
     protected $casts = [
         'expires_at' => 'date',
+        'activated_at' => 'datetime',
         'suspend_hold_until' => 'date',
         'dunning_suspended_at' => 'immutable_datetime',
         'coupon_started_at' => 'immutable_date',
@@ -584,6 +585,10 @@ class Service extends Model implements Auditable
         $waited = (int) CarbonImmutable::parse($paidFrom)->startOfDay()->diffInDays(CarbonImmutable::today(), false);
         if ($waited > 0) {
             $this->expires_at = CarbonImmutable::parse($this->expires_at)->addDays($waited)->toMutable();
+            // A coupon's cycles move with the periods (review R3): else «for 2 cycles» ends a cycle early.
+            if ($this->coupon_started_at !== null) {
+                $this->coupon_started_at = CarbonImmutable::parse($this->coupon_started_at)->addDays($waited);
+            }
         }
     }
 

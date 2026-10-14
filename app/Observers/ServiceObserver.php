@@ -40,6 +40,9 @@ class ServiceObserver
      */
     public function saving(Service $service): void
     {
+        if ($service->status === Service::STATUS_ACTIVE && $service->activated_at === null) {
+            $service->activated_at = now(); // its first start (Σ1-b1): the only one that moves its dates
+        }
         if ($service->billing_agreement_id === null || !$service->isDirty(['billing_agreement_id', 'client_id'])
             || BillingAgreement::withTrashed()->whereKey($service->billing_agreement_id)->where('client_id', $service->client_id)->exists()) {
             return;
@@ -84,8 +87,10 @@ class ServiceObserver
             $service->unsetRelation('plan'); // a loaded relation still holds the old plan
         }
         if ($service->isDirty('status') && $service->getOriginal('status') === Service::STATUS_PENDING
-            && $service->status === Service::STATUS_ACTIVE && !$service->isDirty('expires_at') && !self::$renewing) {
-            // Started now, with no date of staff's in the same save: the period counts from today (Σ1-b).
+            && $service->status === Service::STATUS_ACTIVE && !$service->isDirty('expires_at') && !self::$renewing
+            && $service->getOriginal('activated_at') === null) {
+            // Its first start, with no date of staff's in the same save: the period counts from today (Σ1-b). A later
+            // pending → active (a status corrected by staff) moves nothing (review R2).
             $service->datesOnStart();
 
             return;
