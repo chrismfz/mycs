@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Admin\Resources\OrderResource\Pages\ListOrders;
-use App\Events\Invoice\Updated as InvoiceUpdated;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\EmailLog;
@@ -28,6 +27,7 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
 use Paymenter\Extensions\Gateways\Stripe\Stripe;
+use Paymenter\Extensions\Others\DiscordNotifications\DiscordNotifications;
 use Tests\TestCase;
 
 /**
@@ -287,22 +287,17 @@ class ServiceOrderDeleteReviewTest extends TestCase
     /**
      * D1 (low, dry run). The dry run's rolled-back cancellation fires the synchronous model events (InvoiceObserver
      * `event(new Invoice\Updated)`, InvoiceItem/AdjustmentNote/ServiceUpgrade events) as if it had happened. Listeners
-     * that act outside the database see a cancellation that never was: DiscordNotifications posts «Invoice Updated»
-     * (status cancelled) for an invoice that stays unpaid when the delete is refused.
+     * that act outside the database must wait for the commit: DiscordNotifications posted «Invoice Updated» (status
+     * cancelled) for an invoice that stays unpaid when the delete is refused. Fixed in Σ4: Discord sends after commit.
      */
     public function test_d1_a_refused_delete_announces_no_cancellation(): void
     {
-        $this->markTestIncomplete('Σ4 (notifications after commit): Discord\'s «Invoice Updated» listener runs synchronously, also for changes rolled back.');
         $service = $this->service();
         $plain = $this->renewal($service);
         $withMoney = $this->renewal($service);
         ExtensionHelper::addPayment($withMoney->id, 'Stripe', 4.00, null, 'pi_d1', currency: 'usd');
-        $announced = [];
-        Event::listen(InvoiceUpdated::class, function (InvoiceUpdated $event) use (&$announced) {
-            if ($event->invoice->status === Invoice::STATUS_CANCELLED) {
-                $announced[] = $event->invoice->id;
-            }
-        });
+        Http::fake(['https://discord.test/*' => Http::response([])]);
+        (new DiscordNotifications(['webhook_url' => 'https://discord.test/hook', 'events' => ['Invoice Updated'], 'ping_type' => 'none']))->boot();
 
         try {
             (new DeleteService)->handle($service->fresh());
@@ -311,7 +306,9 @@ class ServiceOrderDeleteReviewTest extends TestCase
         }
 
         $this->assertSame(Invoice::STATUS_UNPAID, $plain->fresh()->status);
-        $this->assertSame([], $announced, 'listeners were told invoices were cancelled; the dry run rolled it back');
+        $announced = Http::recorded()->filter(fn ($pair) => str_contains($pair[0]->url(), 'discord.test'))
+            ->map(fn ($pair) => collect($pair[0]['embeds'][0]['fields'])->pluck('value')->implode(', '));
+        $this->assertEmpty($announced->filter(fn ($fields) => str_contains($fields, 'cancelled'))->all(), 'Discord announced a cancellation the dry run rolled back');
     }
 
     /**

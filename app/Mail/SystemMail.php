@@ -12,6 +12,12 @@ class SystemMail extends Mailable
 {
     use Queueable, SerializesModels;
 
+    /** Retried with backoff: a mail server that is down for a while loses nothing. */
+    public int $tries = 5;
+
+    /** @var list<int> seconds */
+    public array $backoff = [60, 300, 900, 3600];
+
     public $email_log_id;
 
     public $mail;

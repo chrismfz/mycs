@@ -4,6 +4,7 @@ namespace App\Observers;
 
 use App\Events\Order as OrderEvent;
 use App\Models\Order;
+use App\Support\AfterCommit;
 
 class OrderObserver
 {
@@ -22,11 +23,7 @@ class OrderObserver
     {
         event(new OrderEvent\Created($order));
 
-        $sendEmail = $order->send_create_email;
-
-        dispatch(function () use ($order, $sendEmail) {
-            event(new OrderEvent\Finalized($order, $sendEmail));
-        })->afterResponse();
+        AfterCommit::event(new OrderEvent\Finalized($order, $order->send_create_email), $order);
     }
 
     /**

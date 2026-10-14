@@ -2,6 +2,7 @@
 
 namespace App\Listeners;
 
+use App\Models\TicketMessage;
 use Illuminate\Mail\Events\MessageSending;
 
 class TicketReplyEmailListener
@@ -11,16 +12,16 @@ class TicketReplyEmailListener
      */
     public function handle(MessageSending $event): void
     {
-        if (!isset($event->data['emailTemplate'])) {
+        if (($event->data['templateKey'] ?? null) !== 'new_ticket_message' || !isset($event->data['ticketMessageId'])) {
             return;
         }
-        if ($event->data['emailTemplate']->key === 'new_ticket_message') {
+        $ticketMessage = TicketMessage::find($event->data['ticketMessageId']);
+        if ($ticketMessage !== null) {
             $message = $event->message;
             $host = config('app.url');
             // Only hostname without scheme or link
             $host = parse_url($host, PHP_URL_HOST);
 
-            $ticketMessage = $event->data['ticketMessage'];
             $ticket = $ticketMessage->ticket;
             // Check if we ever sent a reply to this ticket
             // Second last, because last is the current message

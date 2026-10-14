@@ -105,7 +105,7 @@ class ServerAdapterFailureTest extends TestCase
         }
 
         // Other mail (e.g. the new user's) may be queued by the fixtures: only the server-created one matters.
-        Mail::assertNotQueued(MyCSMail::class, fn (MyCSMail $mail) => $mail->emailTemplate->key === 'new_server_created');
+        Mail::assertNotQueued(MyCSMail::class, fn (MyCSMail $mail) => $mail->templateKey === 'new_server_created');
     }
 
     /** @return array<string, array{string, string}> */

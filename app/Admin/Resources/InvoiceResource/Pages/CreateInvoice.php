@@ -11,6 +11,12 @@ class CreateInvoice extends CreateRecord
 {
     protected static string $resource = InvoiceResource::class;
 
+    /**
+     * The record, its lines (or services) and afterCreate in one transaction (review R-1 of Σ4): Finalized fires once
+     * it is committed, so its mail, PDF and Discord message have the lines; and a failure leaves nothing half made.
+     */
+    protected ?bool $hasDatabaseTransactions = true;
+
     protected function handleRecordCreation(array $data): Model
     {
         $invoice = new (static::getModel());

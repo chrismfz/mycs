@@ -13,6 +13,12 @@ use Throwable;
 
 class Setting extends Model implements Auditable
 {
+    /**
+     * Numbering counters, moved on every invoice and credit note (InvoiceNumberListener, under a row lock): read from
+     * the database, never from the settings cache, so saving one does not flush that cache (EVT-13).
+     */
+    public const COUNTERS = ['invoice_number', 'credit_note_number'];
+
     use HasFactory, Traits\Auditable;
 
     /**

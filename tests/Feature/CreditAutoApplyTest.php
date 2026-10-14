@@ -74,7 +74,8 @@ class CreditAutoApplyTest extends TestCase
         $this->assertSame(70.0, $invoice->fresh()->remaining);
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
         $this->assertSame('0.00', $this->balance());
-        $note = Notification::query()->where('user_id', $this->user->id)->sole();
+        // The invoice's own «new invoice» notice is there too (sent once committed, Σ4).
+        $note = Notification::query()->where('user_id', $this->user->id)->where('title', 'Account credit applied')->sole();
         $this->assertSame('Account credit applied', $note->title);
         $this->assertStringContainsString('#' . $invoice->id, $note->body);
         $this->assertSame(0, Artisan::call('mycs:credits-check'));

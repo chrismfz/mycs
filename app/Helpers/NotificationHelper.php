@@ -17,10 +17,12 @@ use App\Models\ServiceCancellation;
 use App\Models\TicketMessage;
 use App\Models\User;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Mail as FacadesMail;
 use Illuminate\Support\Facades\URL;
 use MyCS\MailTemplate\TemplateError;
+use Throwable;
 
 class NotificationHelper
 {
@@ -132,11 +134,13 @@ class NotificationHelper
             report($e);
         }
 
+        // After the mail: any failure here is reported, not thrown, so the queued listener is not retried into mailing
+        // the customer twice (review R-3 of Σ4).
         try {
             if ($notification->isEnabledForPreference($userPreference, 'app')) {
                 self::sendInAppNotification($notification, $data, $user, $show_in_app, $show_as_push);
             }
-        } catch (TemplateError $e) {
+        } catch (Throwable $e) {
             report($e);
         }
     }
@@ -217,9 +221,24 @@ class NotificationHelper
         ], $user);
     }
 
+    /**
+     * Once per invoice within an hour (EVT-14): a renewal charge the cron saw fail and the gateway's own failed
+     * transaction for the same attempt (its webhook, minutes later) are one failure to the customer. A new attempt
+     * later (another card) is mailed again. Not sent (the PDF or the mail failed): the key goes, so the retry sends it.
+     */
     public static function invoicePaymentFailedNotification(User $user, Invoice $invoice): void
     {
-        self::invoiceNotification($user, $invoice, 'invoice_payment_failed');
+        $key = "invoice:{$invoice->id}:payment-failed-mailed";
+        if (!Cache::add($key, true, now()->addHour())) {
+            return;
+        }
+        try {
+            self::invoiceNotification($user, $invoice, 'invoice_payment_failed');
+        } catch (Throwable $e) {
+            Cache::forget($key);
+
+            throw $e;
+        }
     }
 
     public static function orderCreatedNotification(User $user, Order $order, array $data = []): void

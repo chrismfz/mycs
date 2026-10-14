@@ -50,7 +50,7 @@ class Settings extends Page implements HasForms
     public array $loaded = [];
 
     /** Counters the app increments: staff may move them forward, never below the last number used. */
-    private const COUNTERS = ['invoice_number', 'credit_note_number'];
+    private const COUNTERS = Setting::COUNTERS;
 
     private const COUNTER_MAX = 999_999_999_999;
 
@@ -68,6 +68,12 @@ class Settings extends Page implements HasForms
                     ? null
                     : config("settings.{$setting['name']}", $setting['default'] ?? null);
             }
+        }
+
+        // The counters as stored now: the settings cache is not flushed when an invoice moves them (EVT-13).
+        $counters = Setting::query()->whereNull('settingable_type')->whereIn('key', self::COUNTERS)->pluck('value', 'key');
+        foreach ($counters as $key => $value) {
+            $setting_values[$key] = $value;
         }
 
         $this->loaded = $setting_values;
