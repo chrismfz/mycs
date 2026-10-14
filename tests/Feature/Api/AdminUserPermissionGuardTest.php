@@ -116,11 +116,12 @@ class AdminUserPermissionGuardTest extends TestCase
         $this->assertSame(0, ApiKey::query()->count());
     }
 
-    public function test_a_key_without_an_owner_acts_on_customers(): void
+    /** A key without an owner has nobody to bound it: refused (adversarial review A2). */
+    public function test_a_key_without_an_owner_is_refused(): void
     {
         $this->withToken($this->key(null))
-            ->putJson(route('api.v1.admin.users.update', $this->customer), ['first_name' => 'Renamed'])->assertOk();
+            ->putJson(route('api.v1.admin.users.update', $this->customer), ['first_name' => 'Renamed'])->assertForbidden();
 
-        $this->assertSame('Renamed', $this->customer->fresh()->first_name);
+        $this->assertNotSame('Renamed', $this->customer->fresh()->first_name);
     }
 }
