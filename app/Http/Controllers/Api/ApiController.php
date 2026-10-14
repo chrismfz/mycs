@@ -24,6 +24,7 @@ abstract class ApiController extends Controller
         'products.plans.prices' => 'products',
         'role' => 'roles',
         'user' => 'users',
+        'client' => 'clients',
         'ticket' => 'tickets',
         'plans.prices' => 'products',
     ];

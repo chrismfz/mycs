@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Tickets;
 
+use App\Support\CurrentClient;
 use App\Livewire\Component;
 use App\Models\Ticket;
 use Illuminate\Support\Facades\Auth;
@@ -14,7 +15,7 @@ class Widget extends Component
     public function render()
     {
         return view('tickets.widget', [
-            'tickets' => Ticket::where('user_id', Auth::id())->where('status', '!=', 'closed')->latest()->paginate(config('settings.pagination')),
+            'tickets' => Ticket::where('client_id', CurrentClient::id())->where('status', '!=', 'closed')->latest()->paginate(config('settings.pagination')),
         ])->layoutData([
             'title' => 'Tickets',
         ]);

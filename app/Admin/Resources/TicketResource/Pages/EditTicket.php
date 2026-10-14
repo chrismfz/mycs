@@ -3,10 +3,10 @@
 namespace App\Admin\Resources\TicketResource\Pages;
 
 use App\Admin\Actions\AuditAction;
-use App\Admin\Components\UserComponent;
+use App\Admin\Components\ClientComponent;
 use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\TicketResource;
-use App\Admin\Resources\UserResource;
+use App\Admin\Resources\ClientResource;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
 use Filament\Actions\Action;
@@ -106,11 +106,11 @@ class EditTicket extends EditRecord
             ->record($this->record)
             ->columns(['default' => 3, 'md' => 1])
             ->components([
-                TextEntry::make('user_id')
+                TextEntry::make('client_id')
                     ->size(TextSize::Large)
-                    ->formatStateUsing(fn ($record) => $record->user->name)
-                    ->url(fn ($record) => UserResource::getUrl('edit', ['record' => $record->user]))
-                    ->label('User ID'),
+                    ->formatStateUsing(fn ($record) => $record->client->name)
+                    ->url(fn ($record) => ClientResource::getUrl('edit', ['record' => $record->client]))
+                    ->label('Client'),
                 TextEntry::make('subject')
                     ->size(TextSize::Large)
                     ->label('Subject'),
@@ -179,7 +179,7 @@ class EditTicket extends EditRecord
                                     Select::make('department')
                                         ->label('Department')
                                         ->options(array_combine(config('settings.ticket_departments'), config('settings.ticket_departments'))),
-                                    UserComponent::make('user_id'),
+                                    ClientComponent::make('client_id'),
                                     Select::make('assigned_to')
                                         ->label('Assigned To')
                                         ->relationship('assignedTo', 'id', fn (Builder $query) => $query->where('active', true))
@@ -189,17 +189,17 @@ class EditTicket extends EditRecord
                                     Select::make('service_id')
                                         ->label('Service')
                                         ->relationship('service', 'id', function (Builder $query, Get $get) {
-                                            $query->where('user_id', $get('user_id'));
+                                            $query->where('client_id', $get('client_id'));
                                         })
                                         ->getOptionLabelFromRecordUsing(fn ($record) => $this->formatServiceOptionLabel($record))
-                                        ->disabled(fn (Get $get) => !$get('user_id')),
+                                        ->disabled(fn (Get $get) => !$get('client_id')),
                                 ]);
                         })
                         ->fillForm(fn ($record) => [
                             'status' => $record->status,
                             'priority' => $record->priority,
                             'department' => $record->department,
-                            'user_id' => $record->user_id,
+                            'client_id' => $record->client_id,
                             'assigned_to' => $record->assigned_to,
                             'service_id' => $record->service_id,
                         ])

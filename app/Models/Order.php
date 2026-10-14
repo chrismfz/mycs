@@ -24,14 +24,14 @@ class Order extends Model implements Auditable
 {
     use HasFactory, Traits\Auditable;
 
-    protected $fillable = ['user_id', 'currency_code'];
+    protected $fillable = ['client_id', 'currency_code'];
 
     public bool $send_create_email = true;
 
-    /** @return BelongsTo<User, $this> */
-    public function user(): BelongsTo
+    /** @return BelongsTo<Client, $this> */
+    public function client(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(Client::class);
     }
 
     /** @return HasMany<Service, $this> */

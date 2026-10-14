@@ -1,7 +1,7 @@
 <div>
     <!-- Show apply credits button if available -->
     @php
-    $credit = Auth::user()->credits()
+    $credit = \App\Support\CurrentClient::model()->credits()
     ->where('currency_code', $invoice->currency_code)
     ->where('amount', '>', 0)
     ->first();

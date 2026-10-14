@@ -2,7 +2,7 @@
 
 namespace Paymenter\Extensions\Others\Affiliates\Admin\Resources;
 
-use App\Admin\Components\UserComponent;
+use App\Admin\Components\ClientComponent;
 use App\Helpers\ExtensionHelper;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
@@ -35,7 +35,7 @@ class AffiliateResource extends Resource
         return $schema
             ->components([
                 Toggle::make('enabled')->default(true)->columnSpanFull(),
-                UserComponent::make('user_id'),
+                ClientComponent::make('client_id'),
                 TextInput::make('code')
                     ->label('Referral Code')
                     ->required()
@@ -57,7 +57,7 @@ class AffiliateResource extends Resource
     {
         return $table
             ->columns([
-                TextColumn::make('user.name')->description(function (Affiliate $affiliate) {
+                TextColumn::make('client.name')->description(function (Affiliate $affiliate) {
                     if (count($affiliate->earnings) <= 0) {
                         return null;
                     }

@@ -21,7 +21,7 @@ class MoneyEvent extends Model
         'kind',
         'amount',
         'currency_code',
-        'user_id',
+        'client_id',
         'invoice_id',
         'invoice_transaction_id',
         'credit_balance_after',
@@ -62,10 +62,10 @@ class MoneyEvent extends Model
         static::deleting(fn () => throw new LogicException('Money events are append-only: write a reversal instead.'));
     }
 
-    /** @return BelongsTo<User, $this> */
-    public function user(): BelongsTo
+    /** @return BelongsTo<Client, $this> */
+    public function client(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(Client::class);
     }
 
     /** @return BelongsTo<Invoice, $this> */

@@ -12,7 +12,7 @@ use App\Models\MoneyEvent;
 use App\Models\Service;
 use App\Models\ServiceCancellation;
 use App\Models\ServiceUpgrade;
-use App\Models\User;
+use App\Models\Client;
 use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Support\Facades\DB;
 
@@ -25,7 +25,7 @@ use Illuminate\Support\Facades\DB;
  * with a gateway subscription (Stripe/PayPal charge the whole amount: credit first would be paid twice), except its
  * own renewal when the credit covers it all (a subscription sale that became credit pays it, as before MT-1e); an
  * invoice of a service the customer asked to cancel; an upgrade invoice (the cron reprices it); an invoice staff took
- * a credit payment off (deleted it: the sweep would put it back); a customer who opted out (users.credit_auto_apply).
+ * a credit payment off (deleted it: the sweep would put it back); a customer who opted out (clients.credit_auto_apply).
  * Read under the payment locks, as the payment itself.
  *
  * Credit on an invoice the cron cancels goes back to the customer (giveBack), so partial credit is never lost.
@@ -69,17 +69,17 @@ class CreditAutoApply
     }
 
     /** A customer's open invoices in a currency, oldest due first, while the credit lasts. Returns how many it paid into. */
-    public function forCustomer(int $userId, string $currency): int
+    public function forCustomer(int $clientId, string $currency): int
     {
-        if (!self::enabled() || !self::customerAllows($userId)) {
+        if (!self::enabled() || !self::customerAllows($clientId)) {
             return 0;
         }
         $ledger = new CreditLedger;
         $paid = 0;
-        $invoices = Invoice::query()->where('user_id', $userId)->where('currency_code', $currency)
+        $invoices = Invoice::query()->where('client_id', $clientId)->where('currency_code', $currency)
             ->where('status', Invoice::STATUS_UNPAID)->orderBy('due_at')->orderBy('id')->pluck('id');
         foreach ($invoices as $invoiceId) {
-            if ($ledger->balanceCents($userId, $currency) <= 0) {
+            if ($ledger->balanceCents($clientId, $currency) <= 0) {
                 break;
             }
             if ($this->toInvoice($invoiceId) !== null) {
@@ -104,18 +104,18 @@ class CreditAutoApply
         $paid = 0;
         Credit::query()->where('amount', '>', 0)
             ->whereExists(fn ($query) => $query->selectRaw('1')->from('invoices')
-                ->whereColumn('invoices.user_id', 'credits.user_id')->whereColumn('invoices.currency_code', 'credits.currency_code')
+                ->whereColumn('invoices.client_id', 'credits.client_id')->whereColumn('invoices.currency_code', 'credits.currency_code')
                 ->where('invoices.status', Invoice::STATUS_UNPAID))
-            ->whereExists(fn ($query) => $query->selectRaw('1')->from('users')
-                ->whereColumn('users.id', 'credits.user_id')->where('users.credit_auto_apply', true))
-            ->orderBy('id')->get(['user_id', 'currency_code'])
+            ->whereExists(fn ($query) => $query->selectRaw('1')->from('clients')
+                ->whereColumn('clients.id', 'credits.client_id')->where('clients.credit_auto_apply', true))
+            ->orderBy('id')->get(['client_id', 'currency_code'])
             ->each(function (Credit $credit) use (&$paid, $failed) {
                 try {
-                    $paid += $this->forCustomer((int) $credit->user_id, $credit->currency_code);
+                    $paid += $this->forCustomer((int) $credit->client_id, $credit->currency_code);
                 } catch (\Throwable $e) {
                     report($e);
                     if ($failed !== null) {
-                        $failed((int) $credit->user_id, $e);
+                        $failed((int) $credit->client_id, $e);
                     }
                 }
             });
@@ -143,11 +143,11 @@ class CreditAutoApply
      */
     public static function eligible(Invoice $invoice, bool $subscriptionRenewal = false): bool
     {
-        if ($invoice->status !== Invoice::STATUS_UNPAID || $invoice->user_id === null) {
+        if ($invoice->status !== Invoice::STATUS_UNPAID || $invoice->client_id === null) {
             return false;
         }
         // The customer's row is locked by the payment already (lockInvoice): this reads it as of now.
-        if (!$subscriptionRenewal && !self::customerAllows((int) $invoice->user_id, lock: true)) {
+        if (!$subscriptionRenewal && !self::customerAllows((int) $invoice->client_id, lock: true)) {
             return false;
         }
         $items = $invoice->items()->lockForUpdate()->get(['id', 'reference_type', 'reference_id']);
@@ -186,9 +186,9 @@ class CreditAutoApply
             ->where('subscription_id', '!=', '')->exists();
     }
 
-    private static function customerAllows(int $userId, bool $lock = false): bool
+    private static function customerAllows(int $clientId, bool $lock = false): bool
     {
-        $query = User::query()->whereKey($userId);
+        $query = Client::query()->whereKey($clientId);
 
         return (bool) (($lock ? $query->lockForUpdate() : $query)->value('credit_auto_apply') ?? true);
     }
@@ -201,11 +201,11 @@ class CreditAutoApply
     {
         DB::afterCommit(function () use ($transaction) {
             $invoice = $transaction->invoice()->first();
-            if ($invoice === null || $invoice->user === null || $invoice->status === Invoice::STATUS_PAID) {
+            if ($invoice === null || $invoice->client === null || $invoice->status === Invoice::STATUS_PAID) {
                 return;
             }
             try {
-                NotificationHelper::creditAppliedNotification($invoice->user, $invoice, $transaction);
+                NotificationHelper::creditAppliedNotification($invoice->client, $invoice, $transaction);
             } catch (\Throwable $e) {
                 report($e); // a notification never undoes the payment
             }

@@ -121,11 +121,11 @@ class Plesk extends Server
     {
         $returnData = [
             'domain' => $properties['domain'],
-            'username' => strtolower(preg_replace('/[^A-Za-z0-9\-]/', '', $service->user->name)),
+            'username' => strtolower(preg_replace('/[^A-Za-z0-9\-]/', '', $service->client->name)),
             'ftp_password' => Str::password(12),
         ];
 
-        $pleskCustomerId = $service->user->properties->where('key', 'plesk_id')->first();
+        $pleskCustomerId = $service->client->properties->where('key', 'plesk_id')->first();
 
         try {
             $user = $this->request('/clients/' . $pleskCustomerId->value)->json();
@@ -135,15 +135,15 @@ class Plesk extends Server
 
             $user = $this->request('/clients', 'post', [
                 'username' => $returnData['username'],
-                'email' => $service->user->email,
+                'email' => $service->client->email,
                 'password' => $returnData['password'],
-                'name' => $service->user->name,
+                'name' => $service->client->name,
                 'login' => $returnData['username'],
                 'type' => 'customer',
-                'external_id' => $service->user->id,
+                'external_id' => $service->client->id,
             ])->json();
 
-            $service->user->properties()->create([
+            $service->client->properties()->create([
                 'key' => 'plesk_id',
                 'name' => 'Plesk ID',
                 'value' => $user['id'],
@@ -159,7 +159,7 @@ class Plesk extends Server
                 'id' => $returnData['client_id'],
                 'login' => 'owner',
                 'guid' => $user['guid'],
-                'external_id' => $service->user->id,
+                'external_id' => $service->client->id,
             ],
             'hosting_type' => 'virtual',
             'hosting_settings' => [

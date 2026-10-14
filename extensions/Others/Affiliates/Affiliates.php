@@ -8,7 +8,7 @@ use App\Events\Invoice\Paid as InvoicePaid;
 use App\Events\Order\Created as OrderCreated;
 use App\Events\User\Created as UserCreated;
 use App\Helpers\ExtensionHelper;
-use App\Models\User;
+use App\Models\Client;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Lang;
@@ -91,8 +91,8 @@ class Affiliates extends Extension
 
         Livewire::component('affiliate', AffiliateComponent::class);
 
-        User::resolveRelationUsing('affiliate', function (User $userModel) {
-            return $userModel->hasOne(Affiliate::class, 'user_id');
+        Client::resolveRelationUsing('affiliate', function (Client $client) {
+            return $client->hasOne(Affiliate::class, 'client_id');
         });
 
         Gate::policy(Affiliate::class, Policies\AffiliatePolicy::class);

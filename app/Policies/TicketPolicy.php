@@ -21,7 +21,7 @@ class TicketPolicy extends BasePolicy
      */
     public function view(User|Staff $user, Ticket $ticket): bool
     {
-        return $this->adminPermission($user, 'admin.tickets.viewAny', $this->owns($user, $ticket->user_id));
+        return $this->adminPermission($user, 'admin.tickets.viewAny', $this->owns($user, $ticket->client_id));
     }
 
     /**
@@ -37,7 +37,7 @@ class TicketPolicy extends BasePolicy
      */
     public function update(User|Staff $user, Ticket $ticket): bool
     {
-        return $this->adminPermission($user, 'admin.tickets.update', $this->owns($user, $ticket->user_id));
+        return $this->adminPermission($user, 'admin.tickets.update', $this->owns($user, $ticket->client_id));
     }
 
     /**

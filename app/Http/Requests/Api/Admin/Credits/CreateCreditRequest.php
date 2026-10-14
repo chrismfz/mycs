@@ -11,7 +11,7 @@ class CreateCreditRequest extends AdminApiRequest
     public function rules(): array
     {
         return [
-            'user_id' => 'required|exists:users,id',
+            'client_id' => 'required|exists:clients,id',
             /**
              * @example USD
              */
@@ -19,7 +19,7 @@ class CreateCreditRequest extends AdminApiRequest
                 'required',
                 'string',
                 'exists:currencies,code',
-                'unique:credits,currency_code,NULL,id,user_id,' . $this->input('user_id'),
+                'unique:credits,currency_code,NULL,id,client_id,' . $this->input('client_id'),
             ],
             'amount' => 'required|numeric|min:0|max:9999999999.99',
             /**

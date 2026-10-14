@@ -2,20 +2,18 @@
 
 namespace App\Models;
 
-use App\Enums\InvoiceTransactionStatus;
-use App\Models\Traits\HasProperties;
 use App\Observers\UserObserver;
+use App\Support\CurrentClient;
 use Dedoc\Scramble\Attributes\SchemaName;
 use Filament\Models\Contracts\HasAvatar;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasManyThrough;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 use Laravel\Passport\Contracts\OAuthenticatable;
 use Laravel\Passport\HasApiTokens;
 use OwenIt\Auditing\Contracts\Auditable;
@@ -28,11 +26,12 @@ use OwenIt\Auditing\Contracts\Auditable;
 #[SchemaName('UserModel')]
 #[ObservedBy([UserObserver::class])]
 /**
- * A customer login. Never staff (docs/accounts.md, PR 1): staff are App\Models\Staff, with their own guard.
+ * A customer login. Never staff (docs/accounts.md, PR 1): staff are App\Models\Staff, with their own guard. Not the
+ * account either (PR 2a): services, invoices and credit are a Client's, which logins see through `client_user`.
  */
 class User extends Authenticatable implements Auditable, HasAvatar, OAuthenticatable
 {
-    use HasApiTokens, HasFactory, HasProperties, Notifiable, Traits\Auditable;
+    use HasApiTokens, HasFactory, Notifiable, Traits\Auditable;
 
     /**
      * The attributes that are mass assignable.
@@ -46,7 +45,6 @@ class User extends Authenticatable implements Auditable, HasAvatar, OAuthenticat
         'password',
         'tfa_secret',
         'email_verified_at',
-        'credit_auto_apply',
     ];
 
     /**
@@ -71,7 +69,6 @@ class User extends Authenticatable implements Auditable, HasAvatar, OAuthenticat
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'tfa_secret' => 'encrypted',
-            'credit_auto_apply' => 'boolean',
         ];
     }
 
@@ -144,109 +141,38 @@ class User extends Authenticatable implements Auditable, HasAvatar, OAuthenticat
     }
 
     /**
-     * Get the user's orders.
+     * The customer accounts this login sees (live grants), WHMCS `tblusers_clients`.
      *
-     * @return HasMany<Order, $this>
+     * @return BelongsToMany<Client, $this>
      */
-    public function orders(): HasMany
+    public function clients(): BelongsToMany
     {
-        return $this->hasMany(Order::class);
+        return $this->belongsToMany(Client::class)->using(ClientUser::class)
+            ->withPivot(['id', 'owner', 'permissions', 'granted_by', 'granted_at', 'revoked_at', 'last_login_at'])
+            ->withTimestamps()->wherePivotNull('revoked_at');
     }
 
     /**
-     * Get the user's services
+     * Every grant of this login, revoked ones too.
      *
-     * @return HasMany<Service, $this>
+     * @return HasMany<ClientUser, $this>
      */
-    public function services(): HasMany
+    public function grants(): HasMany
     {
-        return $this->hasMany(Service::class);
+        return $this->hasMany(ClientUser::class);
     }
 
     /**
-     * Get the user's invoices.
-     *
-     * @return HasMany<Invoice, $this>
+     * The account this login works on (docs/accounts.md, PR 2a): in the client area the current one (CurrentClient),
+     * otherwise the first it sees, its own first. Null for a login without any account.
      */
-    public function invoices(): HasMany
+    public function client(): ?Client
     {
-        return $this->hasMany(Invoice::class);
-    }
-
-    /**
-     * Get the user tickets
-     *
-     * @return HasMany<Ticket, $this>
-     */
-    public function tickets(): HasMany
-    {
-        return $this->hasMany(Ticket::class);
-    }
-
-    /**
-     * Money history (docs/money-trail.md §8): journal events, a payment (a processing one too: it lands later), or
-     * account credit ≠ 0 (set before the journal, or by a path MT-1b moves to the ledger). Such a customer is never
-     * deleted: their invoices would lose their customer and the credit would go by cascade.
-     */
-    public function hasMoneyHistory(): bool
-    {
-        return MoneyEvent::query()->where('user_id', $this->id)->exists()
-            || InvoiceTransaction::query()
-                ->whereIn('status', [InvoiceTransactionStatus::Succeeded->value, InvoiceTransactionStatus::Processing->value])
-                ->whereHas('invoice', fn ($query) => $query->where('user_id', $this->id))->exists()
-            || Credit::query()->where('user_id', $this->id)->where('amount', '!=', 0)->exists();
-    }
-
-    /** The customer lock of the payment paths is held through the guard (UserObserver::deleting) and the DELETE. */
-    public function delete(): ?bool
-    {
-        if (!$this->exists) {
-            return parent::delete();
+        if (Auth::guard('web')->id() === $this->id) {
+            return app(CurrentClient::class)->get();
         }
 
-        return DB::transaction(function () {
-            static::query()->whereKey($this->getKey())->lockForUpdate()->first();
-
-            return parent::delete();
-        });
-    }
-
-    /**
-     * Get the user's credits
-     *
-     * @return HasMany<Credit, $this>
-     */
-    public function credits(): HasMany
-    {
-        return $this->hasMany(Credit::class);
-    }
-
-    /**
-     * The customer's money journal (docs/money-trail.md §1): read only.
-     *
-     * @return HasMany<MoneyEvent, $this>
-     */
-    public function moneyEvents(): HasMany
-    {
-        return $this->hasMany(MoneyEvent::class);
-    }
-
-    /** @return HasOne<Cart, $this> */
-    public function cart(): HasOne
-    {
-        return $this->hasOne(Cart::class);
-    }
-
-    /** @return HasMany<BillingAgreement, $this> */
-    public function billingAgreements(): HasMany
-    {
-        return $this->hasMany(BillingAgreement::class);
-    }
-
-    /** @return HasManyThrough<InvoiceTransaction, Invoice, $this> */
-    public function transactions(): HasManyThrough
-    {
-        return $this->hasManyThrough(InvoiceTransaction::class, Invoice::class, 'user_id', 'invoice_id', 'id', 'id');
+        return CurrentClient::defaultFor($this);
     }
 
     /** @return HasMany<Notification, $this> */

@@ -42,7 +42,7 @@ final class InvoiceItemReference
             return ['reference_id', 'The selected reference_id is invalid for the given reference_type.'];
         }
         // The invoice is known on both paths (create: invoice_id is required and exists; update: the line's own).
-        if ($invoice !== null && $owner !== (int) $invoice->user_id) {
+        if ($invoice !== null && $owner !== (int) $invoice->client_id) {
             return ['reference_id', "The referenced service belongs to a different customer than the invoice's."];
         }
 
@@ -53,8 +53,8 @@ final class InvoiceItemReference
     public static function ownerOf(string $type, int $id): ?int
     {
         $owner = match ($type) {
-            Service::class => Service::query()->whereKey($id)->value('user_id'),
-            ServiceUpgrade::class => ServiceUpgrade::query()->whereKey($id)->first()?->service?->user_id,
+            Service::class => Service::query()->whereKey($id)->value('client_id'),
+            ServiceUpgrade::class => ServiceUpgrade::query()->whereKey($id)->first()?->service?->client_id,
             default => null,
         };
 

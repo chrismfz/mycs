@@ -4,7 +4,9 @@ namespace App\Livewire\Client;
 
 use App\Helpers\NotificationHelper;
 use App\Livewire\ComponentWithProperties;
+use App\Models\Client;
 use App\Models\User;
+use App\Support\CurrentClient;
 use Illuminate\Support\Facades\Auth;
 
 class Account extends ComponentWithProperties
@@ -23,7 +25,8 @@ class Account extends ComponentWithProperties
         $this->last_name = $user->last_name;
         $this->email = $user->email;
 
-        $this->initializeProperties($user, $user::class);
+        // The details (address, phone, company…) are the current account's (docs/accounts.md, PR 2a).
+        $this->initializeProperties(CurrentClient::model(), Client::class);
     }
 
     public function rules()
@@ -46,7 +49,7 @@ class Account extends ComponentWithProperties
 
         /** @var User $user */
         $user = Auth::user();
-        $user->update($validatedData);
+        $user->update(array_intersect_key($validatedData, array_flip(['first_name', 'last_name', 'email'])));
 
         // If email was changed, we should mark it as unverified and send a new verification email
         if ($user->wasChanged('email')) {
@@ -55,8 +58,8 @@ class Account extends ComponentWithProperties
             NotificationHelper::emailVerificationNotification($user);
         }
 
-        if (array_key_exists('properties', $validatedData)) {
-            $this->updateProperties($user, $validatedData['properties']);
+        if (array_key_exists('properties', $validatedData) && ($client = CurrentClient::model()) !== null) {
+            $this->updateProperties($client, $validatedData['properties']);
         }
 
         $this->notify(__('Account updated successfully.'));

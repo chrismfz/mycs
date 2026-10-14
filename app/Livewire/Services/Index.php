@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Services;
 
+use App\Support\CurrentClient;
 use App\Livewire\Component;
 use Illuminate\Support\Facades\Auth;
 use Livewire\WithPagination;
@@ -14,7 +15,7 @@ class Index extends Component
 
     public function render()
     {
-        $query = Auth::user()->services()->orderBy('created_at', 'desc');
+        $query = CurrentClient::model()->services()->orderBy('created_at', 'desc');
 
         if ($this->status) {
             $query->where('status', $this->status);

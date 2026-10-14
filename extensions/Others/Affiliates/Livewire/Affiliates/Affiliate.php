@@ -4,8 +4,7 @@ namespace Paymenter\Extensions\Others\Affiliates\Livewire\Affiliates;
 
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
-use App\Models\User;
-use Illuminate\Support\Facades\Auth;
+use App\Support\CurrentClient;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Paymenter\Extensions\Others\Affiliates\Models\Affiliate as AffiliateModel;
@@ -20,7 +19,7 @@ class Affiliate extends Component
 
     public function mount()
     {
-        $this->affiliate = Auth::guard('web')->user()->affiliate;
+        $this->affiliate = CurrentClient::model()?->affiliate;
         $this->signup_type = ExtensionHelper::getExtension('other', 'Affiliates')->config('type');
     }
 
@@ -35,17 +34,16 @@ class Affiliate extends Component
     {
         $this->validate();
 
-        /**
-         * @var User
-         */
-        $user = Auth::user();
-        if ($user->affiliate) {
+        // The account's affiliate (docs/accounts.md, PR 2a).
+        $client = CurrentClient::model();
+        abort_if($client === null, 403);
+        if ($client->affiliate) {
             $this->notify(__('affiliates::affiliate.you-are-already-affiliated'));
 
             return;
         }
 
-        $this->affiliate = $user->affiliate()->create([
+        $this->affiliate = $client->affiliate()->create([
             'code' => $this->signup_type === 'custom' ? $this->referral_code : Str::random(10),
             'visitors' => 0,
             'reward' => null,

@@ -94,10 +94,10 @@ class PaymentReminders
      */
     private function open()
     {
-        return Invoice::query()->where('status', Invoice::STATUS_UNPAID)->whereNotNull('user_id')->whereNotNull('due_at')
+        return Invoice::query()->where('status', Invoice::STATUS_UNPAID)->whereNotNull('client_id')->whereNotNull('due_at')
             ->whereDoesntHave('transactions', fn ($query) => $query->where('status', InvoiceTransactionStatus::Processing))
             ->whereHas('items', fn ($items) => $items->where(fn ($line) => $line->whereNull('reference_type')->orWhere('reference_type', '!=', Credit::class)))
-            ->with(['user', 'items.reference', 'transactions']);
+            ->with(['client.ownerGrant.user', 'items.reference', 'transactions']);
     }
 
     /** @var array<string, string> the latest due date each reminder went for, by «id|kind|days» */
@@ -138,7 +138,7 @@ class PaymentReminders
         // Read again (review A7): a run renders a PDF per mail and lasts; staff may have cancelled it, or a payment
         // started, meanwhile.
         $invoice = $this->open()->whereKey($invoice->id)->first();
-        if ($invoice === null || $invoice->due_at->toDateString() !== $dueOn || $invoice->remaining <= 0 || $invoice->user === null) {
+        if ($invoice === null || $invoice->due_at->toDateString() !== $dueOn || $invoice->remaining <= 0 || $invoice->client === null) {
             return 0;
         }
         $row = ['invoice_id' => $invoice->id, 'kind' => $kind, 'days' => $days, 'due_on' => $dueOn];
@@ -153,9 +153,9 @@ class PaymentReminders
         try {
             if ($kind === 'due') {
                 $key = self::chargedOnItsOwn($invoice) ? 'card_payment_due' : 'invoice_payment_reminder';
-                NotificationHelper::invoiceNotification($invoice->user, $invoice, $key);
+                NotificationHelper::invoiceNotification($invoice->client, $invoice, $key);
             } else {
-                NotificationHelper::invoiceNotification($invoice->user, $invoice, 'invoice_overdue', ['overdue' => [
+                NotificationHelper::invoiceNotification($invoice->client, $invoice, 'invoice_overdue', ['overdue' => [
                     'days' => max($days, $late), // how late it really is (a missed run, review A4)
                     'last' => $last,
                     'suspend_on' => $last ? self::suspendOn($invoice) : null,

@@ -181,7 +181,7 @@ class DirectAdmin extends Server
             'action' => 'create',
             'add' => 'Submit',
             'username' => $username,
-            'email' => $service->user->email,
+            'email' => $service->client->email,
             'passwd' => $password,
             'passwd2' => $password,
             'package' => $settings['package'],

@@ -133,13 +133,13 @@ class Virtfusion extends Server
     public function getUser(Service $service): string
     {
         try {
-            $response = $this->request('/users/' . $service->user->id . '/byExtRelation');
+            $response = $this->request('/users/' . $service->client->id . '/byExtRelation');
         } catch (Exception $e) {
             try {
                 $response = $this->request('/users', 'post', [
-                    'email' => $service->user->email,
-                    'name' => $service->user->name,
-                    'extRelationId' => $service->user->id,
+                    'email' => $service->client->email,
+                    'name' => $service->client->name,
+                    'extRelationId' => $service->client->id,
                 ]);
             } catch (Exception $e) {
                 throw new Exception('Failed to create user, this is probably due to a wrong extRelationId');
@@ -253,7 +253,7 @@ class Virtfusion extends Server
 
     public function ssoLink(Service $service): string
     {
-        $data = $this->request('/users/' . $service->user->id . '/authenticationTokens', 'post');
+        $data = $this->request('/users/' . $service->client->id . '/authenticationTokens', 'post');
 
         return rtrim($this->config('host'), '/') . $data['data']['authentication']['endpoint_complete'];
     }

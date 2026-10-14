@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Invoices;
 
+use App\Support\CurrentClient;
 use App\Classes\PDF;
 use App\Enums\InvoiceTransactionStatus;
 use App\Helpers\ExtensionHelper;
@@ -67,7 +68,7 @@ class Show extends Component
     #[Computed]
     public function savedPaymentMethods()
     {
-        return Auth::user()->billingAgreements()->with('gateway')->get();
+        return CurrentClient::model()->billingAgreements()->with('gateway')->get();
     }
 
     #[Computed]
@@ -123,7 +124,7 @@ class Show extends Component
 
         if ($this->setAsDefault) {
             $invoiceItems = $this->recurringServices()->get();
-            $agreement = Auth::user()->billingAgreements()->where('ulid', $this->selectedMethod)->first();
+            $agreement = CurrentClient::model()->billingAgreements()->where('ulid', $this->selectedMethod)->first();
 
             foreach ($invoiceItems as $invoiceItem) {
                 $service = $invoiceItem->reference;
@@ -167,7 +168,7 @@ class Show extends Component
 
     private function payWithSavedMethod($agreementUlid)
     {
-        $agreement = Auth::user()->billingAgreements()->where('ulid', $agreementUlid)->with('gateway')->first();
+        $agreement = CurrentClient::model()->billingAgreements()->where('ulid', $agreementUlid)->with('gateway')->first();
         if (!$agreement) {
             return $this->notify(__('Invalid payment method.'), 'error');
         }

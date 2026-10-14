@@ -15,7 +15,7 @@ class Cart extends Model
     use HasUlids;
 
     protected $fillable = [
-        'user_id',
+        'client_id',
         'currency_code',
         'coupon_id',
     ];
@@ -33,10 +33,10 @@ class Cart extends Model
         return $this->belongsTo(Currency::class, 'currency_code');
     }
 
-    /** @return BelongsTo<User, $this> */
-    public function user(): BelongsTo
+    /** @return BelongsTo<Client, $this> */
+    public function client(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(Client::class);
     }
 
     /** @return HasMany<CartItem, $this> */

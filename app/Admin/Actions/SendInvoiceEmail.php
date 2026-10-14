@@ -30,7 +30,7 @@ class SendInvoiceEmail extends Action
             ->icon('heroicon-o-envelope')
             // The permission, not the policy's update (review A8): with immutable invoices update is drafts only.
             ->authorize(fn () => Gate::allows('has-permission', 'admin.invoices.update'))
-            ->visible(fn (Invoice $record): bool => $record->status !== Invoice::STATUS_DRAFT && $record->user !== null)
+            ->visible(fn (Invoice $record): bool => $record->status !== Invoice::STATUS_DRAFT && $record->client !== null)
             ->schema([
                 Select::make('template')->label('Template')->required()->options(fn (Invoice $record) => array_filter([
                     'invoice_modified' => 'Invoice Modified',
@@ -43,7 +43,7 @@ class SendInvoiceEmail extends Action
             ])
             ->action(function (Invoice $record, array $data) {
                 $days = self::daysOverdue($record);
-                NotificationHelper::invoiceNotification($record->user, $record, $data['template'], ['overdue' => ['days' => $days, 'last' => false, 'suspend_on' => null]]);
+                NotificationHelper::invoiceNotification($record->client, $record, $data['template'], ['overdue' => ['days' => $days, 'last' => false, 'suspend_on' => null]]);
                 // Counted as the reminder of the day (review A9): the cron does not send it again.
                 if ($data['template'] === 'invoice_payment_reminder') {
                     PaymentReminders::recordSent($record, 'due', 0);
@@ -54,7 +54,7 @@ class SendInvoiceEmail extends Action
                         }
                     }
                 }
-                Notification::make()->success()->title('Email queued to ' . $record->user->email)->send();
+                Notification::make()->success()->title('Email queued to ' . $record->client->email)->send();
             });
     }
 

@@ -26,7 +26,7 @@ class UpdateServiceRequest extends AdminApiRequest
                     }
                 },
             ],
-            'user_id' => 'sometimes|required|exists:users,id',
+            'client_id' => 'sometimes|required|exists:clients,id',
             /**
              * @default 1
              */

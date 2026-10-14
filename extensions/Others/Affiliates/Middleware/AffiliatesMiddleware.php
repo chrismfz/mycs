@@ -2,6 +2,7 @@
 
 namespace Paymenter\Extensions\Others\Affiliates\Middleware;
 
+use App\Support\CurrentClient;
 use App\Helpers\ExtensionHelper;
 use Closure;
 use Illuminate\Http\Request;
@@ -25,7 +26,7 @@ class AffiliatesMiddleware
 
         $affiliate = Affiliate::where('code', request('ref'))->first();
 
-        if (!$affiliate || $affiliate->user->id === auth()->id()) {
+        if (!$affiliate || $affiliate->client_id === CurrentClient::id()) {
             return $next($request);
         }
 

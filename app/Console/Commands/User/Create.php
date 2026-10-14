@@ -2,7 +2,9 @@
 
 namespace App\Console\Commands\User;
 
+use App\Models\Client;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Console\PromptsForMissingInput;
 use Illuminate\Support\Facades\Config;
@@ -31,12 +33,13 @@ class Create extends Command implements PromptsForMissingInput
     public function handle()
     {
         Config::set('audit.console', true);
-        User::create([
+        // A customer: the login and the account it owns (docs/accounts.md, PR 2a), as registration does.
+        DB::transaction(fn () => Client::openFor(User::create([
             'first_name' => $this->argument('first_name'),
             'last_name' => $this->argument('last_name'),
             'email' => $this->argument('email'),
             'password' => $this->argument('password'),
-        ]);
+        ])));
     }
 
     protected function promptForMissingArgumentsUsing(): array

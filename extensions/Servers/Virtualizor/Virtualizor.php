@@ -6,7 +6,7 @@ use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Server;
 use App\Models\Product;
 use App\Models\Service;
-use App\Models\User;
+use App\Models\Client;
 use Exception;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -168,7 +168,7 @@ class Virtualizor extends Server
         return true;
     }
 
-    private function getUser(User $user)
+    private function getUser(Client $user)
     {
         $users = $this->request('users', data: ['email' => $user->email]);
         if (!empty($users['users'])) {
@@ -220,7 +220,7 @@ class Virtualizor extends Server
         $password = Str::random(12);
 
         // Create user
-        $user = $this->getUser($service->user);
+        $user = $this->getUser($service->client);
 
         $data = [
             'addvps' => 1,

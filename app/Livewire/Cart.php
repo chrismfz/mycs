@@ -2,6 +2,7 @@
 
 namespace App\Livewire;
 
+use App\Support\CurrentClient;
 use App\Classes\Cart as ClassesCart;
 use App\Classes\Price;
 use App\Exceptions\DisplayException;
@@ -11,7 +12,7 @@ use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Service;
-use App\Models\User;
+use App\Models\Client;
 use Exception;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -115,7 +116,10 @@ class Cart extends Component
         try {
             $cart = ClassesCart::get();
 
-            $user = User::where('id', Auth::id())->lockForUpdate()->first();
+            // The order is the current account's; a login without any account gets its own here (WHMCS opens the
+            // client account at checkout). Its row first, as every payment path locks it (no lock-order deadlock).
+            $client = CurrentClient::model() ?? Client::openFor(Auth::user());
+            Client::lock($client->id);
 
             if ($cart->coupon && !ClassesCart::validateAndRefreshCoupon()) {
                 DB::rollBack();
@@ -135,7 +139,7 @@ class Cart extends Component
                 $product = Product::where('id', $item->product->id)->lockForUpdate()->first();
 
                 if ($product->per_user_limit > 0) {
-                    $existingServiceCount = $user->services()->where('product_id', $product->id)->count();
+                    $existingServiceCount = $client->services()->where('product_id', $product->id)->count();
                     $cartQuantityForProduct = $cart->items->filter(fn ($it) => $it->product->id == $product->id)->sum(fn ($it) => $it->quantity);
 
                     if ($existingServiceCount >= $product->per_user_limit || ($cartQuantityForProduct + $existingServiceCount) > $product->per_user_limit) {
@@ -153,7 +157,7 @@ class Cart extends Component
             }
             // Create the order
             $order = new Order([
-                'user_id' => $user->id,
+                'client_id' => $client->id,
                 'currency_code' => $cart->currency_code,
             ]);
             $order->save();
@@ -161,7 +165,7 @@ class Cart extends Component
             // Create the invoice
             if ($this->total->price > 0) {
                 $invoice = new Invoice([
-                    'user_id' => $user->id,
+                    'client_id' => $client->id,
                     'due_at' => now()->addDays(7),
                     'currency_code' => $cart->currency_code,
                     'status' => Invoice::STATUS_UNPAID,
@@ -181,7 +185,7 @@ class Cart extends Component
                 }
                 // Create the service
                 $service = $order->services()->create([
-                    'user_id' => $user->id,
+                    'client_id' => $client->id,
                     'currency_code' => $cart->currency_code,
                     'product_id' => $item->product->id,
                     'plan_id' => $item->plan->id,

@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Client;
 
+use App\Support\CurrentClient;
 use App\Attributes\DisabledIf;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
@@ -9,10 +10,9 @@ use App\Livewire\Component;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
-use App\Models\User;
+use App\Models\Client;
 use App\Services\Money\MoneyHistory;
 use Exception;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
 use Livewire\Attributes\Locked;
@@ -39,7 +39,7 @@ class Credits extends Component
 
     public function mount()
     {
-        $this->autoApply = (bool) (Auth::user()->credit_auto_apply ?? true);
+        $this->autoApply = (bool) (CurrentClient::model()?->credit_auto_apply ?? true);
         $this->amount = config('settings.credits_minimum_deposit');
         $this->currency = session('currency', config('settings.default_currency'));
         $this->gateways = ExtensionHelper::getCheckoutGateways($this->amount, $this->currency, 'credits');
@@ -60,7 +60,7 @@ class Credits extends Component
 
     public function updatedAutoApply(bool $value): void
     {
-        Auth::user()->forceFill(['credit_auto_apply' => $value])->save();
+        CurrentClient::model()?->forceFill(['credit_auto_apply' => $value])->save();
         $this->notify($value ? __('account.credit_auto_apply_on') : __('account.credit_auto_apply_off'), 'success');
     }
 
@@ -77,10 +77,11 @@ class Credits extends Component
 
         try {
             // The customer first, as every payment path does (RecordPaymentService): no lock-order deadlock.
-            User::query()->whereKey(Auth::id())->lockForUpdate()->first();
-            // Lock the user's invoices and credits
-            Auth::user()->invoices()->lockForUpdate()->get();
-            $credits = Auth::user()->credits()->where('currency_code', $this->currency)->lockForUpdate()->get();
+            $client = CurrentClient::model();
+            Client::lock($client->id);
+            // Lock the account's invoices and credits
+            $client->invoices()->lockForUpdate()->get();
+            $credits = $client->credits()->where('currency_code', $this->currency)->lockForUpdate()->get();
 
             // Check if user has credits in this currency
             if ($credits->isNotEmpty()) {
@@ -94,7 +95,7 @@ class Credits extends Component
             }
 
             // Check if the user has any unpaid invoice items referencing credits
-            $unpaidInvoiceItems = Auth::user()->invoices()->where('status', Invoice::STATUS_UNPAID)->whereHas('items', function ($query) {
+            $unpaidInvoiceItems = $client->invoices()->where('status', Invoice::STATUS_UNPAID)->whereHas('items', function ($query) {
                 $query->where('reference_type', Credit::class);
             })->exists();
 
@@ -103,7 +104,7 @@ class Credits extends Component
             }
 
             $invoice = Invoice::create([
-                'user_id' => Auth::id(),
+                'client_id' => $client->id,
                 'currency_code' => $this->currency,
                 'due_at' => now(),
                 'status' => Invoice::STATUS_UNPAID,
@@ -140,7 +141,7 @@ class Credits extends Component
     public function render()
     {
         // The customer's credit history (decision 3, MT-1d): read only, without who, source or the staff reason.
-        $history = MoneyHistory::creditEvents((int) Auth::id())->with('invoice:id,user_id')
+        $history = MoneyHistory::creditEvents(CurrentClient::id())->with('invoice:id,client_id')
             ->paginate(config('settings.pagination', 15), pageName: 'history');
 
         return view('client.account.credits', ['history' => $history])->layoutData([

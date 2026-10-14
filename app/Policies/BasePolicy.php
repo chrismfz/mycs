@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Models\ClientUser;
 use App\Models\Staff;
 use App\Models\User;
 
@@ -16,9 +17,13 @@ class BasePolicy
         return $user instanceof Staff ? $user->hasPermission($permission) : $orCondition;
     }
 
-    /** It is the customer's own: only a customer owns anything, never staff with the same id. */
-    protected function owns(User|Staff $user, mixed $userId): bool
+    /**
+     * It is the account's, and the login has a live grant on that account (docs/accounts.md, PR 2a): only a customer
+     * login owns anything, never staff with the same id. 2b adds the grant's permission.
+     */
+    protected function owns(User|Staff $user, mixed $clientId): bool
     {
-        return $user instanceof User && $userId !== null && (int) $userId === $user->id;
+        return $user instanceof User && $clientId !== null
+            && ClientUser::query()->where('user_id', $user->id)->where('client_id', (int) $clientId)->whereNull('revoked_at')->exists();
     }
 }

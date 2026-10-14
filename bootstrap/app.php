@@ -3,6 +3,7 @@
 use App\Http\Middleware\Api\AdminApi;
 use App\Http\Middleware\CheckoutParameterMiddleware;
 use App\Http\Middleware\EnsureUserHasPermissions;
+use App\Http\Middleware\EnsureClientAccount;
 use App\Http\Middleware\ImpersonateMiddleware;
 use App\Http\Middleware\LockSession;
 use App\Http\Middleware\ProxyMiddleware;
@@ -36,6 +37,7 @@ return Application::configure(basePath: dirname(__DIR__))
             ResolveUserSession::class,
             LockSession::class,
             ImpersonateMiddleware::class,
+            EnsureClientAccount::class,
             SetLocale::class,
         ]);
         // Before `auth`, which the priority sort otherwise moves ahead of the web group's own middleware: the client

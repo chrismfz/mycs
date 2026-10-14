@@ -2,9 +2,9 @@
     <x-navigation.breadcrumb />
     <div class="px-2">
         <h4 class="text-2xl font-bold pb-3">{{ __('account.credits') }}</h4>
-        @if (Auth::user()->credits->count() > 0)
+        @if (\App\Support\CurrentClient::model()->credits->count() > 0)
         <div class="flex flex-wrap gap-4">
-            @foreach (Auth::user()->credits as $credit)
+            @foreach (\App\Support\CurrentClient::model()->credits as $credit)
             <div class="flex flex-col bg-background-secondary w-fit rounded-lg px-5 p-3 items-center gap-1">
                 <h5 class="text-lg font-bold">{{ $credit->currency->code }}</h5>
                 <p class="text-primary-100">{{ $credit->formattedAmount }}</p>
@@ -68,7 +68,7 @@
                         <td class="px-4 py-2 whitespace-nowrap">{{ $event->occurred_at?->translatedFormat('d M Y H:i') }}</td>
                         <td class="px-4 py-2">{{ \App\Services\Money\MoneyHistory::customerLabel($event) }}</td>
                         <td class="px-4 py-2">
-                            @if ($event->invoice && (int) $event->invoice->user_id === (int) Auth::id())
+                            @if ($event->invoice && (int) $event->invoice->client_id === \App\Support\CurrentClient::id())
                             <a href="{{ route('invoices.show', $event->invoice) }}" class="text-primary hover:underline" wire:navigate>#{{ $event->invoice_id }}</a>
                             @endif
                         </td>

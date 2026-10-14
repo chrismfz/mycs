@@ -27,7 +27,7 @@ class UpdateInvoiceRequest extends AdminApiRequest
     public function rules(): array
     {
         return [
-            'user_id' => 'sometimes|required|exists:users,id',
+            'client_id' => 'sometimes|required|exists:clients,id',
             /**
              * @example USD
              */

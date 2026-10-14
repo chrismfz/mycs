@@ -21,7 +21,7 @@ class ServiceResource extends JsonApiResource
 
     public $relationships = [
         'coupon' => CouponResource::class,
-        'user' => UserResource::class,
+        'client' => ClientResource::class,
         'order' => OrderResource::class,
         'product' => ProductResource::class,
         'invoices' => InvoiceResource::class,

@@ -6,6 +6,7 @@ use App\Enums\InvoiceTransactionStatus;
 use App\Enums\MoneyEventKind;
 use App\Exceptions\DisplayException;
 use App\Helpers\NotificationHelper;
+use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -14,7 +15,6 @@ use App\Models\InvoiceTransaction;
 use App\Models\MoneyEvent;
 use App\Models\PaymentGatewayEvent;
 use App\Models\Service;
-use App\Models\User;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\GatewayLog;
@@ -104,7 +104,7 @@ class RecordPaymentService
                     fn ($query) => $query->where('gateway_id', $gateway->id)->orWhereNull('gateway_id')
                 ))
                 ->orderByRaw('case when status = ? then 0 else 1 end', [InvoiceTransactionStatus::Succeeded->value])
-                ->whereHas('invoice', fn ($query) => $query->where('user_id', $invoice->user_id))
+                ->whereHas('invoice', fn ($query) => $query->where('client_id', $invoice->client_id))
                 ->lockForUpdate()
                 ->first();
 
@@ -146,7 +146,7 @@ class RecordPaymentService
             $excess = $status === InvoiceTransactionStatus::Succeeded ? $this->excessCents($target, $cents) : 0;
             // An invoice left without a customer (deleted before the journal): the money is still recorded, but
             // there is no account to credit what it cannot take. Staff are told.
-            if ($excess > 0 && $target->user_id === null) {
+            if ($excess > 0 && $target->client_id === null) {
                 $notices[] = sprintf('Invoice #%d has no customer: %s %s of a payment could not become account credit. Handle it by hand.',
                     $target->id, number_format($excess / 100, 2, '.', ''), $target->currency_code);
                 $excess = 0;
@@ -188,11 +188,11 @@ class RecordPaymentService
                 // commits. Not a subscription sale's: what it left pays the subscription's other services
                 // (allocateFromTransaction), never something else first.
                 if ($excess > 0 && !$this->paysSubscription($target)) {
-                    $userId = (int) $target->user_id;
+                    $clientId = (int) $target->client_id;
                     $currency = (string) $target->currency_code;
-                    DB::afterCommit(function () use ($userId, $currency) {
+                    DB::afterCommit(function () use ($clientId, $currency) {
                         try {
-                            (new CreditAutoApply)->forCustomer($userId, $currency);
+                            (new CreditAutoApply)->forCustomer($clientId, $currency);
                         } catch (\Throwable $e) {
                             report($e); // the payment stands; the daily pass tries again
                         }
@@ -258,7 +258,7 @@ class RecordPaymentService
             $source = InvoiceTransaction::query()->whereKey($source->getKey())->lockForUpdate()->first();
             $sourceInvoice = $source === null ? null : Invoice::query()->whereKey($source->invoice_id)->first();
             if ($source === null || $sourceInvoice === null || $source->status !== InvoiceTransactionStatus::Succeeded
-                || $sourceInvoice->user_id !== $invoice->user_id || $sourceInvoice->currency_code !== $invoice->currency_code
+                || $sourceInvoice->client_id !== $invoice->client_id || $sourceInvoice->currency_code !== $invoice->currency_code
                 || !in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true)) {
                 return null;
             }
@@ -393,11 +393,11 @@ class RecordPaymentService
             $credit = null;
             $balance = 0;
             if ($change !== 0 || $events->contains(fn (MoneyEvent $event) => $event->creditEffectCents() !== 0)) {
-                if ($invoice->user_id === null) {
+                if ($invoice->client_id === null) {
                     throw new DisplayException(__('This invoice has no customer, so the account credit this payment moved cannot be taken back: handle it by hand.'));
                 }
                 $credit = $this->lockCredit($invoice)
-                    ?? $invoice->user->credits()->create(['currency_code' => $invoice->currency_code, 'amount' => 0]);
+                    ?? $invoice->client->credits()->create(['currency_code' => $invoice->currency_code, 'amount' => 0]);
                 $balance = CreditLedger::cents($credit);
                 if ($balance + $change < 0 && !$allowNegativeCredit) {
                     throw new DisplayException(__('Part of this payment became account credit and the customer has already used it: delete it on its own and confirm that their credit goes negative (they owe it).'));
@@ -486,7 +486,7 @@ class RecordPaymentService
                 }
                 $payment->update(['credited_amount' => (self::toCents($payment->credited_amount) + $take) / 100]);
                 $source = MoneyTrail::sourceFor($payment->gateway, (bool) $payment->is_credit_transaction);
-                (new CreditLedger)->add($locked->user_id, $locked->currency_code, $take, MoneyTrail::CAUSE_INVOICE_REDUCED, $source, $locked, $payment);
+                (new CreditLedger)->add($locked->client_id, $locked->currency_code, $take, MoneyTrail::CAUSE_INVOICE_REDUCED, $source, $locked, $payment);
                 $credited += $take;
                 if ($credited === $over) {
                     break;
@@ -495,17 +495,17 @@ class RecordPaymentService
             if ($credited > 0) {
                 $message = sprintf('Invoice #%d came down below what was paid on it and was closed: %s %s became the customer\'s account credit.',
                     $locked->id, number_format($credited / 100, 2, '.', ''), $locked->currency_code);
-                $userId = (int) $locked->user_id;
+                $clientId = (int) $locked->client_id;
                 $currency = (string) $locked->currency_code;
                 // Not a subscription sale's: what it left pays the subscription's services (allocateFromTransaction).
                 $autoApply = !$this->paysSubscription($locked);
-                DB::afterCommit(function () use ($message, $id, $userId, $currency, $autoApply) {
+                DB::afterCommit(function () use ($message, $id, $clientId, $currency, $autoApply) {
                     PaymentsLog::info($message, ['invoice_id' => $id]);
                     if (!$autoApply) {
                         return;
                     }
                     try {
-                        (new CreditAutoApply)->forCustomer($userId, $currency); // decision 5, MT-1e
+                        (new CreditAutoApply)->forCustomer($clientId, $currency); // decision 5, MT-1e
                     } catch (\Throwable $e) {
                         report($e); // the invoice stays closed; the daily pass tries again
                     }
@@ -542,7 +542,7 @@ class RecordPaymentService
         if ($over > $kept) {
             return __('Its notes take off more than its lines and payments: fix the notes.');
         }
-        if ($invoice->user_id === null) {
+        if ($invoice->client_id === null) {
             return __('It has no customer to credit the part over to: handle it by hand.');
         }
         // A credit purchase brought down below its payment: the part over may be credit it already gave, or the money
@@ -572,14 +572,14 @@ class RecordPaymentService
      */
     public function lockInvoice(mixed $invoiceId): Invoice
     {
-        $userId = Invoice::query()->whereKey($invoiceId)->value('user_id');
-        if ($userId !== null) {
-            User::query()->whereKey($userId)->lockForUpdate()->first();
+        $clientId = Invoice::query()->whereKey($invoiceId)->value('client_id');
+        if ($clientId !== null) {
+            Client::lock((int) $clientId);
         }
 
         $invoice = Invoice::query()->whereKey($invoiceId)->lockForUpdate()->firstOrFail();
-        if ($invoice->user_id !== null && (int) $invoice->user_id !== (int) $userId) {
-            User::query()->whereKey($invoice->user_id)->lockForUpdate()->first();
+        if ($invoice->client_id !== null && (int) $invoice->client_id !== (int) $clientId) {
+            Client::lock((int) $invoice->client_id);
         }
 
         return $invoice;
@@ -619,7 +619,7 @@ class RecordPaymentService
 
     private function lockCredit(Invoice $invoice): ?Credit
     {
-        return Credit::query()->where('user_id', $invoice->user_id)->where('currency_code', $invoice->currency_code)
+        return Credit::query()->where('client_id', $invoice->client_id)->where('currency_code', $invoice->currency_code)
             ->lockForUpdate()->first();
     }
 
@@ -635,7 +635,7 @@ class RecordPaymentService
 
         // Credit one sale left, paying other invoices: its events are grouped under that sale's transaction.
         $group = $sourceId === null ? null : 'transaction:' . $sourceId;
-        (new CreditLedger)->remove($invoice->user_id, $invoice->currency_code, $cents, MoneyTrail::CAUSE_CREDIT_PAYMENT,
+        (new CreditLedger)->remove($invoice->client_id, $invoice->currency_code, $cents, MoneyTrail::CAUSE_CREDIT_PAYMENT,
             MoneyTrail::SOURCE_CREDIT, $invoice, $transaction, group: $group);
         (new MoneyTrail)->payment($invoice, $transaction, MoneyTrail::SOURCE_CREDIT, $group);
 
@@ -655,7 +655,7 @@ class RecordPaymentService
         if ($cents <= 0) {
             return;
         }
-        (new CreditLedger)->add($invoice->user_id, $invoice->currency_code, $cents, MoneyTrail::CAUSE_OVERPAYMENT, $source, $invoice, $transaction);
+        (new CreditLedger)->add($invoice->client_id, $invoice->currency_code, $cents, MoneyTrail::CAUSE_OVERPAYMENT, $source, $invoice, $transaction);
 
         $notices[] = sprintf(
             'Invoice #%d (%s) could not take %s %s of a payment; it was added to the customer\'s account credit.',

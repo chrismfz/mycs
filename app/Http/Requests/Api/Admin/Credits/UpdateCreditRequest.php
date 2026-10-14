@@ -19,7 +19,7 @@ class UpdateCreditRequest extends AdminApiRequest
                 'required',
                 'string',
                 'exists:currencies,code',
-                'unique:credits,currency_code,' . $this->route('credit')->id . ',id,user_id,' . $this->route('credit')->user_id,
+                'unique:credits,currency_code,' . $this->route('credit')->id . ',id,client_id,' . $this->route('credit')->client_id,
             ],
             /**
              * The new balance: the difference is journaled as a staff adjustment (docs/money-trail.md §2).

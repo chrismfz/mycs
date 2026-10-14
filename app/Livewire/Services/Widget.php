@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Services;
 
+use App\Support\CurrentClient;
 use App\Livewire\Component;
 use App\Models\Service;
 use Illuminate\Support\Facades\Auth;
@@ -15,7 +16,7 @@ class Widget extends Component
 
     public function render()
     {
-        $query = Auth::user()->services();
+        $query = CurrentClient::model()->services();
 
         if ($this->status) {
             $query->where('status', $this->status);

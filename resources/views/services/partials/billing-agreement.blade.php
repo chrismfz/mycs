@@ -1,4 +1,4 @@
-@if($service->plan->type == 'recurring' && $service->status == 'active' && Auth::user()->billingAgreements->count() > 0)
+@if($service->plan->type == 'recurring' && $service->status == 'active' && \App\Support\CurrentClient::model()->billingAgreements->count() > 0)
 <div class="flex items-center text-base">
     <!-- Auto paying using -->
     <span class="mr-2">{{ __(key: 'services.auto_pay') }}:</span>
@@ -31,7 +31,7 @@
         </div>
     </x-slot>
     <div class="space-y-4">
-        @foreach(Auth::user()->billingAgreements as $agreement)
+        @foreach(\App\Support\CurrentClient::model()->billingAgreements as $agreement)
         <div wire:click="$set('selectedMethod', '{{ $agreement->ulid }}')"
             class="flex items-center justify-between p-4 bg-background-secondary border rounded-lg cursor-pointer transition-all
                     {{ $selectedMethod === $agreement->ulid ? 'border-primary ring-2 ring-primary' : 'border-neutral hover:border-neutral-focus' }}"

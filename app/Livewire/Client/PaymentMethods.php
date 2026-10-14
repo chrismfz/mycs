@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Client;
 
+use App\Support\CurrentClient;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
 use App\Models\Currency;
@@ -55,7 +56,7 @@ class PaymentMethods extends Component
             return;
         }
 
-        $this->setup = ExtensionHelper::createBillingAgreement(Auth::user(), Gateway::find($this->gateway));
+        $this->setup = ExtensionHelper::createBillingAgreement(CurrentClient::model(), Gateway::find($this->gateway));
 
         // If setup is a string, it's a URL to redirect to
         if (is_string($this->setup)) {
@@ -65,7 +66,7 @@ class PaymentMethods extends Component
 
     public function removePaymentMethod($billingAgreementUlid)
     {
-        $billingAgreement = Auth::user()->billingAgreements()->where('ulid', $billingAgreementUlid)->first();
+        $billingAgreement = CurrentClient::model()->billingAgreements()->where('ulid', $billingAgreementUlid)->first();
         if (!$billingAgreement) {
             return $this->notify(__('Billing agreement not found'), 'error');
         }
@@ -89,8 +90,8 @@ class PaymentMethods extends Component
     public function render()
     {
         return view('client.account.payment-methods', [
-            'transactions' => Auth::user()->transactions()->with(['invoice', 'gateway'])->latest()->paginate(config('settings.pagination')),
-            'billingAgreements' => Auth::user()->billingAgreements()->latest()->get(),
+            'transactions' => CurrentClient::model()->transactions()->with(['invoice', 'gateway'])->latest()->paginate(config('settings.pagination')),
+            'billingAgreements' => CurrentClient::model()->billingAgreements()->latest()->get(),
         ])->layoutData([
             'sidebar' => true,
             'title' => 'Payment Methods',

@@ -2,22 +2,14 @@
 
 namespace App\Admin\Resources;
 
-use App\Admin\Resources\Common\RelationManagers\PropertiesRelationManager;
 use App\Admin\Resources\UserResource\Pages\CreateUser;
 use App\Admin\Resources\UserResource\Pages\EditUser;
 use App\Admin\Resources\UserResource\Pages\ListUsers;
-use App\Admin\Resources\UserResource\Pages\ShowBillingAgreements;
-use App\Admin\Resources\UserResource\Pages\ShowCreditHistory;
-use App\Admin\Resources\UserResource\Pages\ShowCredits;
-use App\Admin\Resources\UserResource\Pages\ShowInvoices;
-use App\Admin\Resources\UserResource\Pages\ShowServices;
-use App\Admin\Resources\UserResource\Pages\ShowTickets;
-use App\Models\Credit;
+use App\Admin\Resources\UserResource\RelationManagers\ClientsRelationManager;
 use App\Models\User;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
-use Filament\Resources\Pages\Page;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
@@ -27,6 +19,10 @@ use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Hash;
 
+/**
+ * The logins of the client area (docs/accounts.md, PR 2a), WHMCS «Users»: name, email, password, 2FA. What a login sees
+ * is on the Clients page (an account can have several users, a user several accounts).
+ */
 class UserResource extends Resource
 {
     protected static ?string $model = User::class;
@@ -76,12 +72,6 @@ class UserResource extends Resource
                         return $state ? $record->email_verified_at : null;
                     })
                     ->hiddenOn(['create']),
-
-                // The customer's choice, also set by staff (MT-1e): credit pays open invoices on its own, or is kept.
-                Toggle::make('credit_auto_apply')
-                    ->label(__('Credit pays open invoices automatically'))
-                    ->helperText(__('Off: the credit is kept until the customer or staff use it.'))
-                    ->default(true),
             ]);
     }
 
@@ -89,18 +79,7 @@ class UserResource extends Resource
     {
         return $table
             ->columns([
-                TextColumn::make('first_name')
-                    ->searchable()
-                    ->sortable()
-                    ->description(function (User $user) {
-                        if (count($user->credits) <= 0) {
-                            return null;
-                        }
-
-                        return 'Earnings - ' . implode(', ', $user->credits->map(function (Credit $credit) {
-                            return "$credit->currency_code: $credit->amount";
-                        })->toArray());
-                    }),
+                TextColumn::make('first_name')->searchable()->sortable(),
                 TextColumn::make('last_name')->searchable()->sortable(),
                 TextColumn::make('email')->searchable()->sortable(),
                 TextColumn::make('created_at')->dateTime()->sortable(),
@@ -110,11 +89,6 @@ class UserResource extends Resource
                     ->label('Email Verified')
                     // It filtered nothing (AUTH-15).
                     ->query(fn ($query) => $query->whereNotNull('email_verified_at')),
-                Filter::make('has_active_services')
-                    ->label('Has Active Services')
-                    ->query(fn ($query) => $query->whereHas('services', function ($q) {
-                        $q->where('status', 'active');
-                    })),
             ])
             ->recordActions([
                 EditAction::make(),
@@ -125,7 +99,7 @@ class UserResource extends Resource
     public static function getRelations(): array
     {
         return [
-            PropertiesRelationManager::class,
+            ClientsRelationManager::class,
         ];
     }
 
@@ -135,25 +109,6 @@ class UserResource extends Resource
             'index' => ListUsers::route('/'),
             'create' => CreateUser::route('/create'),
             'edit' => EditUser::route('/{record}/edit'),
-            'services' => ShowServices::route('/{record}/services'),
-            'invoices' => ShowInvoices::route('/{record}/invoices'),
-            'credits' => ShowCredits::route('/{record}/credits'),
-            'credit-history' => ShowCreditHistory::route('/{record}/credit-history'),
-            'tickets' => ShowTickets::route('/{record}/tickets'),
-            'billing-agreements' => ShowBillingAgreements::route('/{record}/billing-agreements'),
         ];
-    }
-
-    public static function getRecordSubNavigation(Page $page): array
-    {
-        return $page->generateNavigationItems([
-            EditUser::class,
-            ShowServices::class,
-            ShowInvoices::class,
-            ShowCredits::class,
-            ShowCreditHistory::class,
-            ShowTickets::class,
-            ShowBillingAgreements::class,
-        ]);
     }
 }

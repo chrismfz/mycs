@@ -2,10 +2,10 @@
 
 namespace App\Livewire\Tickets;
 
+use App\Support\CurrentClient;
 use App\Attributes\DisabledIf;
 use App\Livewire\Component;
 use App\Models\Ticket;
-use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\RateLimiter;
@@ -34,7 +34,7 @@ class Create extends Component
         // Add rules for the department
         $this->validate([
             'department' => count((array) config('settings.ticket_departments')) > 0 ? 'required|in:' . implode(',', array_values((array) config('settings.ticket_departments'))) : '',
-            'service' => 'nullable|exists:services,id,user_id,' . Auth::id(),
+            'service' => 'nullable|exists:services,id,client_id,' . CurrentClient::id(),
             'subject' => 'required|string',
             'message' => 'required|string',
             'priority' => 'required|in:low,medium,high',
@@ -51,7 +51,7 @@ class Create extends Component
         RateLimiter::increment($rateLimitKey, 30);
 
         $ticket = Ticket::create([
-            'user_id' => Auth::id(),
+            'client_id' => CurrentClient::id(),
             'department' => $this->department,
             'service_id' => $this->service,
             'subject' => $this->subject,
@@ -86,12 +86,9 @@ class Create extends Component
 
     public function render()
     {
-        /** @var User */
-        $user = Auth::user();
-
         return view('tickets.create', [
             'departments' => (array) config('settings.ticket_departments'),
-            'services' => $user->services()->orderBy('id', 'desc')->get(),
+            'services' => CurrentClient::model()->services()->orderBy('id', 'desc')->get(),
         ])->layoutData([
             'title' => 'Create Ticket',
             'sidebar' => true,

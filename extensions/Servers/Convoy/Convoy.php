@@ -262,12 +262,12 @@ class Convoy extends Server
             $ips = array_merge($ips, array_column($ip['data'], 'id'));
         }
 
-        $user = $this->getOrCreateUser($service->user);
+        $user = $this->getOrCreateUser($service->client);
 
         $data = [
             'node_id' => (int) $node,
             'user_id' => $user['id'],
-            'name' => Str::substr($hostname . ' ' . $service->user->name, 0, 40), // The server name must not be greater than 40 characters
+            'name' => Str::substr($hostname . ' ' . $service->client->name, 0, 40), // The server name must not be greater than 40 characters
             'hostname' => $hostname,
             'vmid' => null,
             'limits' => [
@@ -416,7 +416,7 @@ class Convoy extends Server
 
     public function ssoLink(Service $service): string
     {
-        $data = $this->request('users/' . $this->getOrCreateUser($service->user)['id'] . '/generate-sso-token', 'post');
+        $data = $this->request('users/' . $this->getOrCreateUser($service->client)['id'] . '/generate-sso-token', 'post');
 
         return rtrim($this->config('host'), '/') . '/authenticate?token=' . $data['data']['token'];
     }

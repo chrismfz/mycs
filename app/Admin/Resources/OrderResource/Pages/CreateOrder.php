@@ -20,7 +20,7 @@ class CreateOrder extends CreateRecord
     protected function afterCreate(): void
     {
         $invoice = new Invoice([
-            'user_id' => $this->record->user_id,
+            'client_id' => $this->record->client_id,
             'currency_code' => $this->record->currency_code,
             'due_at' => now()->addDays(7),
             'status' => config('settings.immutable_invoices_enabled', false) ? Invoice::STATUS_DRAFT : Invoice::STATUS_UNPAID,

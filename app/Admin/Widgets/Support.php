@@ -18,7 +18,7 @@ class Support extends BaseWidget
             ->query(
                 Ticket::query()
                     ->where('status', '!=', 'closed')
-                    ->with('user')
+                    ->with('client.ownerGrant.user')
                     ->withMax('messages', 'created_at')
                     ->orderByDesc('messages_max_created_at')
                     ->limit(5)
@@ -35,8 +35,8 @@ class Support extends BaseWidget
                         'replied' => 'warning',
                     })
                     ->formatStateUsing(fn (string $state) => ucfirst($state)),
-                TextColumn::make('user.name')
-                    ->label('User'),
+                TextColumn::make('client.name')
+                    ->label('Client'),
                 TextColumn::make('created_at')
                     ->label('Created At'),
             ])

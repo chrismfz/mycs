@@ -41,7 +41,7 @@ class CreateJob implements ShouldQueue
         }
 
         if ($this->sendNotification) {
-            NotificationHelper::serverCreatedNotification($this->service->user, $this->service, is_array($data) ? $data : []);
+            NotificationHelper::serverCreatedNotification($this->service->client, $this->service, is_array($data) ? $data : []);
         }
     }
 }

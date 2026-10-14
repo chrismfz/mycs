@@ -52,29 +52,29 @@ class SendMailListener implements ShouldQueue
     public function handle(InvoiceFinalized|OrderFinalized|UserCreated|CancellationCreated|InvoicePaid|InvoiceTransactionCreated|InvoiceTransactionUpdated $event): void
     {
         if ($event instanceof InvoiceFinalized) {
-            if ($event->invoice->user !== null) {
-                NotificationHelper::invoiceCreatedNotification($event->invoice->user, $event->invoice);
+            if ($event->invoice->client !== null) {
+                NotificationHelper::invoiceCreatedNotification($event->invoice->client, $event->invoice);
             }
         } elseif ($event instanceof InvoicePaid) {
             // An invoice left without a customer (deleted before money-trail §8) still records its money; no one to mail.
-            if ($event->invoice->user !== null) {
-                NotificationHelper::invoicePaidNotification($event->invoice->user, $event->invoice);
+            if ($event->invoice->client !== null) {
+                NotificationHelper::invoicePaidNotification($event->invoice->client, $event->invoice);
             }
         } elseif ($event instanceof InvoiceTransactionCreated || $event instanceof InvoiceTransactionUpdated) {
             $invoice = $event->invoiceTransaction->invoice;
-            if ($invoice?->user !== null) {
-                NotificationHelper::invoicePaymentFailedNotification($invoice->user, $invoice);
+            if ($invoice?->client !== null) {
+                NotificationHelper::invoicePaymentFailedNotification($invoice->client, $invoice);
             }
         } elseif ($event instanceof UserCreated) {
             NotificationHelper::emailVerificationNotification($event->user);
         } elseif ($event instanceof OrderFinalized) {
-            if ($event->order->user !== null) {
-                NotificationHelper::orderCreatedNotification($event->order->user, $event->order);
+            if ($event->order->client !== null) {
+                NotificationHelper::orderCreatedNotification($event->order->client, $event->order);
             }
         } elseif ($event instanceof CancellationCreated) {
             $cancellation = $event->cancellation;
-            if ($cancellation->service?->user !== null) {
-                NotificationHelper::serviceCancellationReceivedNotification($cancellation->service->user, $cancellation);
+            if ($cancellation->service?->client !== null) {
+                NotificationHelper::serviceCancellationReceivedNotification($cancellation->service->client, $cancellation);
             }
         }
     }

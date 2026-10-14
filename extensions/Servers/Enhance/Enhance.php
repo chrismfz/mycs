@@ -5,7 +5,7 @@ namespace Paymenter\Extensions\Servers\Enhance;
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Server;
 use App\Models\Service;
-use App\Models\User;
+use App\Models\Client;
 use App\Rules\Domain;
 use Exception;
 use Illuminate\Http\Client\Response;
@@ -129,7 +129,7 @@ class Enhance extends Server
         }
     }
 
-    private function fetchUserOrg(User $user)
+    private function fetchUserOrg(Client $user)
     {
         if ($user->properties()->where('key', 'enhance_orgId')->exists()) {
             return $user->properties()->where('key', 'enhance_orgId')->first()->value;
@@ -174,7 +174,7 @@ class Enhance extends Server
         if (isset($properties['subscription_id'])) {
             throw new Exception('Service has already been created');
         }
-        $user = $this->fetchUserOrg($service->user);
+        $user = $this->fetchUserOrg($service->client);
 
         $settings = array_merge($settings, $properties);
 
@@ -237,7 +237,7 @@ class Enhance extends Server
             throw new Exception('Missing user organization ID');
         }
 
-        $this->request('/orgs/' . $service->user->properties()->where('key', 'enhance_orgId')->first()->value . '/subscriptions/' . $properties['subscription_id'], 'patch', [
+        $this->request('/orgs/' . $service->client->properties()->where('key', 'enhance_orgId')->first()->value . '/subscriptions/' . $properties['subscription_id'], 'patch', [
             'isSuspended' => true,
         ]);
 
@@ -261,7 +261,7 @@ class Enhance extends Server
             throw new Exception('Missing user organization ID');
         }
 
-        $this->request('/orgs/' . $service->user->properties()->where('key', 'enhance_orgId')->first()->value . '/subscriptions/' . $properties['subscription_id'], 'patch', [
+        $this->request('/orgs/' . $service->client->properties()->where('key', 'enhance_orgId')->first()->value . '/subscriptions/' . $properties['subscription_id'], 'patch', [
             'isSuspended' => false,
         ]);
 
@@ -285,7 +285,7 @@ class Enhance extends Server
             throw new Exception('Missing user organization ID');
         }
 
-        $this->request('/orgs/' . $service->user->properties()->where('key', 'enhance_orgId')->first()->value . '/subscriptions/' . $properties['subscription_id'], 'delete');
+        $this->request('/orgs/' . $service->client->properties()->where('key', 'enhance_orgId')->first()->value . '/subscriptions/' . $properties['subscription_id'], 'delete');
 
         $service->properties()->where('key', 'subscription_id')->delete();
 
@@ -309,7 +309,7 @@ class Enhance extends Server
             throw new Exception('Missing user organization ID');
         }
 
-        $this->request('/orgs/' . $service->user->properties()->where('key', 'enhance_orgId')->first()->value . '/subscriptions/' . $properties['subscription_id'], 'patch', [
+        $this->request('/orgs/' . $service->client->properties()->where('key', 'enhance_orgId')->first()->value . '/subscriptions/' . $properties['subscription_id'], 'patch', [
             'planId' => (int) ($properties['plan'] ?? $settings['plan']),
         ]);
 
@@ -337,14 +337,14 @@ class Enhance extends Server
             throw new Exception('Missing user organization ID');
         }
 
-        $members = $this->request('/orgs/' . $service->user->properties()->where('key', 'enhance_orgId')->first()->value . '/members', 'get')->json();
+        $members = $this->request('/orgs/' . $service->client->properties()->where('key', 'enhance_orgId')->first()->value . '/members', 'get')->json();
 
         $member = collect($members['items'])->first(function ($item) {
             // Find user where roles contains 'Owner' and loginId is equal to the user's loginId
             return collect($item['roles'])->contains('Owner');
         });
 
-        $data = $this->request('/orgs/' . $service->user->properties()->where('key', 'enhance_orgId')->first()->value . '/members/' . $member['id'] . '/sso', 'get')->json();
+        $data = $this->request('/orgs/' . $service->client->properties()->where('key', 'enhance_orgId')->first()->value . '/members/' . $member['id'] . '/sso', 'get')->json();
 
         return $data;
     }

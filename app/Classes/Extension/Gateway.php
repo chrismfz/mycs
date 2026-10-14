@@ -6,7 +6,7 @@ use App\Models\BillingAgreement;
 use App\Models\Card;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
-use App\Models\User;
+use App\Models\Client;
 use Illuminate\Support\Facades\View;
 
 /**
@@ -31,12 +31,12 @@ abstract class Gateway extends Extension
     }
 
     /**
-     * Create a billing agreement for the given user.
+     * Create a billing agreement (a saved payment method) for the given customer account.
      *
      * @param  string  $currencyCode
      * @return View|string
      */
-    public function createBillingAgreement(User $user)
+    public function createBillingAgreement(Client $client)
     {
         throw new \Exception('Not implemented');
     }

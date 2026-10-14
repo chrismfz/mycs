@@ -17,13 +17,9 @@ use Spatie\QueryBuilder\QueryBuilder;
 #[Group(name: 'Users', weight: 1)]
 class UserController extends ApiController
 {
+    /** A user is a login (docs/accounts.md, PR 2a): what it sees is its clients. */
     protected const INCLUDES = [
-        'properties',
-        'orders',
-        'services',
-        'invoices',
-        'tickets',
-        'credits',
+        'clients',
     ];
 
     /**
@@ -86,9 +82,9 @@ class UserController extends ApiController
      */
     public function destroy(DeleteUserRequest $request, User $user)
     {
-        // A customer with money history is never deleted (UserObserver::deleting, docs/money-trail.md §8).
-        if ($user->hasMoneyHistory()) {
-            abort(422, 'A customer with payments or account credit history cannot be deleted.');
+        // A login that owns an account is not deleted (UserObserver::deleting): the account goes first.
+        if ($user->grants()->whereNotNull('owner_of_client_id')->exists()) {
+            abort(422, 'This user owns a client account: delete the account first.');
         }
         $user->delete();
 

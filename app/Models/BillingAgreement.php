@@ -16,7 +16,7 @@ class BillingAgreement extends Model implements Auditable
 
     protected $fillable = [
         'ulid',
-        'user_id',
+        'client_id',
         'gateway_id',
         'name', // e.g. Visa **** 4242
         'external_reference', // e.g. Stripe card id, PayPal billing agreement id
@@ -31,10 +31,10 @@ class BillingAgreement extends Model implements Auditable
         ];
     }
 
-    /** @return BelongsTo<User, $this> */
-    public function user(): BelongsTo
+    /** @return BelongsTo<Client, $this> */
+    public function client(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(Client::class);
     }
 
     /** @return BelongsTo<Gateway, $this> */

@@ -19,24 +19,6 @@ class UserResource extends JsonApiResource
     ];
 
     public $relationships = [
-        'properties' => PropertyResource::class,
-        'orders' => OrderResource::class,
-        'services' => ServiceResource::class,
-        'invoices' => InvoiceResource::class,
-        'tickets' => TicketResource::class,
-        'credits' => CreditResource::class,
+        'clients' => ClientResource::class,
     ];
-
-    public function toMeta($request): array
-    {
-        // Is properties loaded?
-        $meta = [];
-        if ($this->resource->relationLoaded('properties')) {
-            $meta['properties'] = $this->resource->properties->mapWithKeys(function ($property) {
-                return [$property->key => $property->value];
-            });
-        }
-
-        return $meta;
-    }
 }

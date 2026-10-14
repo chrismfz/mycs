@@ -62,18 +62,18 @@ final class MoneyCheck
      *
      * @return array<string, int>
      */
-    public static function journalCredits(?int $userId = null, ?string $currency = null): array
+    public static function journalCredits(?int $clientId = null, ?string $currency = null): array
     {
         $totals = [];
         MoneyEvent::query()->with('reverses')
             ->whereIn('kind', [MoneyEventKind::CreditIn->value, MoneyEventKind::CreditOut->value, MoneyEventKind::Reversal->value])
-            ->whereNotNull('user_id')
-            ->when($userId !== null, fn ($query) => $query->where('user_id', $userId)->where('currency_code', $currency))
+            ->whereNotNull('client_id')
+            ->when($clientId !== null, fn ($query) => $query->where('client_id', $clientId)->where('currency_code', $currency))
             ->orderBy('id')
             ->each(function (MoneyEvent $event) use (&$totals) {
                 $effect = $event->creditEffectCents();
                 if ($effect !== 0) {
-                    $key = $event->user_id . '|' . $event->currency_code;
+                    $key = $event->client_id . '|' . $event->currency_code;
                     $totals[$key] = ($totals[$key] ?? 0) + $effect;
                 }
             });
@@ -227,15 +227,15 @@ final class MoneyCheck
         // One snapshot for both reads (REPEATABLE READ): a move between them would show as a false mismatch.
         [$journal, $balances] = DB::transaction(fn () => [
             self::journalCredits(),
-            Credit::query()->get(['user_id', 'currency_code', 'amount'])
-                ->mapWithKeys(fn (Credit $credit) => [$credit->user_id . '|' . $credit->currency_code => (int) round((float) $credit->amount * 100)]),
+            Credit::query()->get(['client_id', 'currency_code', 'amount'])
+                ->mapWithKeys(fn (Credit $credit) => [$credit->client_id . '|' . $credit->currency_code => (int) round((float) $credit->amount * 100)]),
         ]);
         foreach ($balances->keys()->merge(array_keys($journal))->unique()->sort()->values() as $key) {
             $balance = $balances[$key] ?? 0;
             $expected = $journal[$key] ?? 0;
             if ($balance !== $expected) {
-                [$userId, $currency] = explode('|', $key, 2);
-                $this->add('credit_journal', "customer #{$userId} {$currency}", 'balance ' . self::money($balance)
+                [$clientId, $currency] = explode('|', $key, 2);
+                $this->add('credit_journal', "customer #{$clientId} {$currency}", 'balance ' . self::money($balance)
                     . ', journal ' . self::money($expected) . ' (mycs:credits-check --write rebuilds it from the journal)');
             }
         }
@@ -244,8 +244,8 @@ final class MoneyCheck
     /** A negative credit: money the customer owes (staff took back credit already spent, MT-1c). */
     private function creditNegative(): void
     {
-        Credit::query()->where('amount', '<', 0)->orderBy('id')->get(['user_id', 'currency_code', 'amount'])
-            ->each(fn (Credit $credit) => $this->add('credit_negative', "customer #{$credit->user_id} {$credit->currency_code}",
+        Credit::query()->where('amount', '<', 0)->orderBy('id')->get(['client_id', 'currency_code', 'amount'])
+            ->each(fn (Credit $credit) => $this->add('credit_negative', "customer #{$credit->client_id} {$credit->currency_code}",
                 "credit {$credit->amount}: the customer owes it"));
     }
 

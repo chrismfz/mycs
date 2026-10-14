@@ -20,15 +20,15 @@ class Ticket extends Model implements Auditable
         'status',
         'priority',
         'department',
-        'user_id',
+        'client_id',
         'assigned_to',
         'service_id',
     ];
 
-    /** @return BelongsTo<User, $this> */
-    public function user(): BelongsTo
+    /** @return BelongsTo<Client, $this> */
+    public function client(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(Client::class);
     }
 
     /** The member of staff it is assigned to. @return BelongsTo<Staff, $this> */

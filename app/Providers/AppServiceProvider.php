@@ -14,6 +14,7 @@ use App\Models\OauthClient;
 use App\Models\Staff;
 use App\Models\User;
 use App\Services\Money\GatewayLog;
+use App\Support\CurrentClient;
 use App\Support\BootFailure;
 use App\Support\Passport\ScopeRegistry;
 use Closure;
@@ -142,6 +143,7 @@ class AppServiceProvider extends ServiceProvider
 
         // The gateway log (MT-2a) lives for one request (or one Octane request).
         $this->app->scoped(GatewayLog::class);
+        $this->app->scoped(CurrentClient::class);
     }
 
     /**

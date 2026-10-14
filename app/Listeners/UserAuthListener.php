@@ -2,6 +2,8 @@
 
 namespace App\Listeners;
 
+use App\Models\User;
+use App\Support\CurrentClient;
 use App\Classes\Cart;
 use App\Events\Auth\Login;
 use Illuminate\Auth\Events\Logout;
@@ -20,12 +22,12 @@ class UserAuthListener
                 // Merge cart with user
                 $cart = Cart::getOnce();
                 if ($cart->exists) {
-                    $cart->user_id = $event->user->id;
+                    $cart->client_id = $event->user instanceof User ? CurrentClient::defaultFor($event->user)?->id : null;
                     $cart->save();
                 }
-            } elseif ($event->user->cart) {
-                // Set cart to user
-                Cookie::queue('cart', $event->user->cart->ulid, 60 * 24 * 30); // 30 days
+            } elseif ($event->user instanceof User && ($cart = CurrentClient::defaultFor($event->user)?->cart)) {
+                // The account's cart
+                Cookie::queue('cart', $cart->ulid, 60 * 24 * 30); // 30 days
             }
         } elseif ($event instanceof Logout) {
             // Does request have cart?

@@ -11,7 +11,7 @@ class UpdateAffiliateRequest extends AdminApiRequest
     public function rules(): array
     {
         return [
-            'user_id' => 'nullable|exists:users,id',
+            'client_id' => 'nullable|exists:clients,id',
             'code' => 'nullable|string|max:255|unique:Paymenter\Extensions\Others\Affiliates\Models\Affiliate,code,' . $this->route()->parameter('affiliate')->id,
             'enabled' => 'nullable|boolean',
             'reward' => 'nullable|numeric|min:0|max:100',

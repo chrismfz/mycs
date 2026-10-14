@@ -22,7 +22,7 @@ class InvoicePolicy extends BasePolicy
     public function view(User|Staff $user, Invoice $invoice): bool
     {
         // A draft is the staff's until it is issued: the customer neither lists, opens nor downloads it (AUTH-6, as WHMCS).
-        return $this->adminPermission($user, 'admin.invoices.viewAny', $this->owns($user, $invoice->user_id) && $invoice->status !== Invoice::STATUS_DRAFT);
+        return $this->adminPermission($user, 'admin.invoices.viewAny', $this->owns($user, $invoice->client_id) && $invoice->status !== Invoice::STATUS_DRAFT);
     }
 
     /**
@@ -42,7 +42,7 @@ class InvoicePolicy extends BasePolicy
             return $this->adminPermission($user, 'admin.invoices.update');
         }
 
-        $canEdit = $this->adminPermission($user, 'admin.invoices.update', $this->owns($user, $invoice->user_id));
+        $canEdit = $this->adminPermission($user, 'admin.invoices.update', $this->owns($user, $invoice->client_id));
 
         if (!config('settings.immutable_invoices_enabled', false)) {
             return $canEdit;

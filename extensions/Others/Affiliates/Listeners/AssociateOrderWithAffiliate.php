@@ -2,6 +2,7 @@
 
 namespace Paymenter\Extensions\Others\Affiliates\Listeners;
 
+use App\Support\CurrentClient;
 use App\Events\Order\Created;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\Auth;
@@ -25,7 +26,7 @@ class AssociateOrderWithAffiliate
     public function handle(Created $event): void
     {
         // Prevents admin created orders from being associated with an affiliate
-        if (Filament::getCurrentPanel()?->getId() === 'admin' || (int) Auth::id() !== (int) $event->order->user_id) {
+        if (Filament::getCurrentPanel()?->getId() === 'admin' || CurrentClient::id() !== (int) $event->order->client_id) {
             return;
         }
 
@@ -33,7 +34,7 @@ class AssociateOrderWithAffiliate
 
         /** @var Affiliate */
         $affiliate = Affiliate::where('code', $referral_code)->first();
-        if (!$affiliate || $affiliate->user->id === $event->order->user_id) {
+        if (!$affiliate || $affiliate->client_id === $event->order->client_id) {
             return;
         }
 

@@ -2,8 +2,11 @@
 
 namespace Database\Factories;
 
+use App\Models\Client;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Hash;
 
 /**
@@ -30,6 +33,39 @@ class UserFactory extends Factory
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
         ];
+    }
+
+    /**
+     * As registration does: the user owns an account (docs/accounts.md, PR 2a). Its id is far from the user's, so a
+     * test never passes by a user id standing in for an account id.
+     */
+    protected function callAfterCreating(Collection $instances, ?Model $parent = null)
+    {
+        parent::callAfterCreating($instances, $parent);
+        if ($this->withClient) {
+            $instances->each(fn (User $user) => Client::openFor($user, $user->id + self::CLIENT_ID_OFFSET));
+        }
+    }
+
+    public const CLIENT_ID_OFFSET = 100000;
+
+    protected bool $withClient = true;
+
+    /** A login without any account (WHMCS users without a client). */
+    public function withoutClient(): static
+    {
+        $factory = $this->newInstance();
+        $factory->withClient = false;
+
+        return $factory;
+    }
+
+    protected function newInstance(array $arguments = [])
+    {
+        $factory = parent::newInstance($arguments);
+        $factory->withClient = $this->withClient;
+
+        return $factory;
     }
 
     /**

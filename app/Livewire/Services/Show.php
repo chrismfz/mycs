@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Services;
 
+use App\Support\CurrentClient;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
 use App\Models\Service;
@@ -64,12 +65,12 @@ class Show extends Component
 
     public function updatedShowBillingAgreement()
     {
-        $this->selectedMethod = Auth::user()->billingAgreements()->where('id', $this->service->billing_agreement_id)->first()?->ulid;
+        $this->selectedMethod = CurrentClient::model()->billingAgreements()->where('id', $this->service->billing_agreement_id)->first()?->ulid;
     }
 
     public function updateBillingAgreement()
     {
-        $agreement = Auth::user()->billingAgreements()->where('ulid', $this->selectedMethod)->first();
+        $agreement = CurrentClient::model()->billingAgreements()->where('ulid', $this->selectedMethod)->first();
         $this->service->billing_agreement_id = $agreement->id;
         $this->service->save();
 

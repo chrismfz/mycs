@@ -3,7 +3,7 @@
 namespace App\Admin\Resources;
 
 use App\Admin\Actions\CancelSubscriptionAction;
-use App\Admin\Components\UserComponent;
+use App\Admin\Components\ClientComponent;
 use App\Admin\Resources\OrderResource\Pages\CreateOrder;
 use App\Admin\Resources\OrderResource\Pages\EditOrder;
 use App\Admin\Resources\OrderResource\Pages\ListOrders;
@@ -42,10 +42,10 @@ class OrderResource extends Resource
     {
         return $schema
             ->components([
-                UserComponent::make('user_id')
+                ClientComponent::make('client_id')
                     ->afterStateUpdated(function (Set $set, Get $get) {
-                        // update all the services user_id
-                        $set('services', collect($get('services'))->map(fn ($service) => array_merge($service, ['user_id' => $get('user_id')]))->toArray());
+                        // the services are the order's account's
+                        $set('services', collect($get('services'))->map(fn ($service) => array_merge($service, ['client_id' => $get('client_id')]))->toArray());
                     }),
                 Select::make('currency_code')
                     ->label('Currency')
@@ -64,8 +64,8 @@ class OrderResource extends Resource
                     ->columnSpanFull()
                     ->columns(2)
                     ->schema([
-                        Hidden::make('user_id')
-                            ->default(fn (Get $get) => $get('../../user_id')),
+                        Hidden::make('client_id')
+                            ->default(fn (Get $get) => $get('../../client_id')),
                         Hidden::make('currency_code')
                             ->default(fn (Get $get) => $get('../../currency_code')),
                         Select::make('product_id')
@@ -136,9 +136,9 @@ class OrderResource extends Resource
                     ->label('ID')
                     ->searchable()
                     ->sortable(),
-                TextColumn::make('user.name')
-                    ->label('User')
-                    ->searchable(query: fn (Builder $query, $search) => $query->whereHas('user', fn (Builder $query) => $query->where('first_name', 'like', "%$search%")->orWhere('last_name', 'like', "%$search%"))),
+                TextColumn::make('client.name')
+                    ->label('Client')
+                    ->searchable(query: fn (Builder $query, $search) => $query->whereHas('client.users', fn (Builder $query) => $query->where('first_name', 'like', "%$search%")->orWhere('last_name', 'like', "%$search%"))),
                 TextColumn::make('currency.code')
                     ->label('Currency')
                     ->searchable()

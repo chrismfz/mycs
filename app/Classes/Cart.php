@@ -2,6 +2,7 @@
 
 namespace App\Classes;
 
+use App\Support\CurrentClient;
 use App\Exceptions\DisplayException;
 use App\Models\Coupon;
 use App\Models\Plan;
@@ -45,7 +46,7 @@ class Cart
     {
         $cart = self::getOnce();
         if (!$cart->exists) {
-            $cart->user_id = Auth::id();
+            $cart->client_id = Auth::check() ? CurrentClient::model()?->id : null;
             $cart->currency_code = session('currency', session('currency', config('settings.default_currency')));
             $cart->save();
             Cookie::queue('cart', $cart->ulid, 60 * 24 * 30); // 30 days
@@ -189,7 +190,7 @@ class Cart
             if ($coupon->max_uses && $coupon->services()->count() >= $coupon->max_uses) {
                 throw new DisplayException('Coupon code has reached its maximum uses');
             }
-            if (Auth::check() && $coupon->hasExceededMaxUsesPerUser(Auth::id())) {
+            if (Auth::check() && $coupon->hasExceededMaxUsesPerUser(CurrentClient::id())) {
                 throw new DisplayException('You have already used this coupon the maximum number of times allowed');
             }
             if ($coupon->products->isNotEmpty()) {

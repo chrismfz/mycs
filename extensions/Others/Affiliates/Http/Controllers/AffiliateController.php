@@ -18,7 +18,7 @@ use Spatie\QueryBuilder\QueryBuilder;
 class AffiliateController extends ApiController
 {
     protected const INCLUDES = [
-        'user',
+        'client',
         'orders',
     ];
 

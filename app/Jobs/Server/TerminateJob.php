@@ -41,7 +41,7 @@ class TerminateJob implements ShouldQueue
         }
 
         if ($this->sendNotification) {
-            NotificationHelper::serverTerminatedNotification($this->service->user, $this->service, is_array($data) ? $data : []);
+            NotificationHelper::serverTerminatedNotification($this->service->client, $this->service, is_array($data) ? $data : []);
         }
     }
 }
