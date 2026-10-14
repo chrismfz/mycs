@@ -7,6 +7,7 @@ use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationMan
 use App\Enums\InvoiceTransactionStatus;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Invoices\Show;
+use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -123,7 +124,7 @@ class PaymentGuardsAdversarialTest extends TestCase
         $component = Livewire::test(Show::class, ['invoice' => $invoice])->set('selectedMethod', 'credit');
         if ($race !== null) {
             $fired = false;
-            User::retrieved(function () use (&$fired, $race) {
+            Client::retrieved(function () use (&$fired, $race) {
                 if ($fired) {
                     return;
                 }

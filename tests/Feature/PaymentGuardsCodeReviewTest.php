@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Invoices\Show;
+use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -104,7 +105,7 @@ class PaymentGuardsCodeReviewTest extends TestCase
 
         // The concurrent staff action lands before the payment takes its locks (after, it would wait for them).
         $fired = false;
-        User::retrieved(function () use (&$fired, $invoice) {
+        Client::retrieved(function () use (&$fired, $invoice) {
             $inRecord = collect(debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS))
                 ->contains(fn ($frame) => ($frame['class'] ?? null) === RecordPaymentService::class);
             if ($fired || !$inRecord) {
