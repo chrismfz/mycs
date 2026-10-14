@@ -91,7 +91,10 @@
             "Nixpal\\MyOpenprovider\\Tests\\": "packages/myopenprovider/tests/",
             "Nixpal\\Licensing\\Tests\\": "packages/nixpal-licensing/tests/",
             "Nixpal\\PaypalVault\\Tests\\": "packages/paypal-vault/tests/"
-        }
+        },
+        "exclude-from-classmap": [
+            "tests/Fixtures/FalseServer.php"
+        ]
     },
     "scripts": {
         "post-autoload-dump": [
