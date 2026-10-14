@@ -110,7 +110,7 @@ class ServiceUpgradeService
                     }
                 }));
 
-            if ($service->product->server) {
+            if ($service->provisioningServer()) {
                 UpgradeJob::dispatch($service);
             }
 
