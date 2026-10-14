@@ -34,7 +34,7 @@ class Upgrade extends Component
 
     public function mount()
     {
-        $this->authorize('view', $this->service);
+        $this->authorize('update', $this->service); // `manageproducts` (docs/accounts.md, PR 2b)
 
         if (!$this->service->upgradable) {
             $this->notify(__('This service is not upgradable.'), 'error', true);
@@ -147,6 +147,7 @@ class Upgrade extends Component
 
     public function doUpgrade()
     {
+        $this->authorize('update', $this->service);
         if (!$this->service->upgradable) {
             $this->notify(__('This service is not upgradable.'), 'error', true);
 

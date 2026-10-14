@@ -7,6 +7,7 @@ use App\Classes\Price;
 use App\Mail\Mail;
 use App\Mail\SystemMail;
 use App\Models\Client;
+use App\Models\ClientInvite;
 use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
@@ -206,6 +207,41 @@ class NotificationHelper
         } catch (Throwable $e) {
             report($e);
         }
+    }
+
+    /**
+     * An invitation to an account (PR 2b): to the invited address, which may not have a login yet. Not a user's
+     * notification (no preferences, no in-app); logged on the account.
+     */
+    public static function clientInviteNotification(ClientInvite $invite, string $token): void
+    {
+        $template = NotificationTemplate::where('key', 'client_invite')->first();
+        if (!$template || !$template->enabled || config('settings.mail_disable')) {
+            return;
+        }
+        $client = $invite->client;
+        $locale = self::localeFor($client);
+        $recipient = new User(['email' => $invite->email]);
+        $by = $invite->invitedByUser->name ?? config('app.name');
+
+        self::withLocale($locale, function () use ($template, $locale, $invite, $token, $client, $recipient, $by) {
+            $previous = self::$account;
+            self::$account = $client;
+            try {
+                $data = TemplateRenderer::context([
+                    'account' => ['name' => $client->name],
+                    'invite' => ['url' => route('invites.accept', ['token' => $token]), 'by' => $by, 'expires_at' => $invite->expires_at],
+                ], $recipient);
+                self::sendEmailNotification($template->inLocale($locale), $data, $recipient);
+                // The link is the invitation: the email log keeps the mail without it (only its hash is kept).
+                $log = EmailLog::query()->where('client_id', $client->id)->where('to', $invite->email)->latest('id')->first();
+                $log?->forceFill(['body' => str_replace($token, '…', (string) $log->body)])->save();
+            } catch (TemplateError $e) {
+                report($e);
+            } finally {
+                self::$account = $previous;
+            }
+        });
     }
 
     public static function loginDetectedNotification(User $user, array $data = []): void

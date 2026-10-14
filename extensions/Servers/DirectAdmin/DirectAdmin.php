@@ -307,6 +307,8 @@ class DirectAdmin extends Server
             [
                 'label' => 'Access DirectAdmin',
                 'type' => 'button',
+                // Into the panel: `productsso` (WHMCS; docs/accounts.md, PR 2b).
+                'sso' => true,
                 'function' => 'ssoLink',
             ],
         ];

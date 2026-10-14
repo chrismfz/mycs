@@ -55,7 +55,9 @@
                         </span>
                         @endif
                     </div>
+                    @can('update', $service)
                     @include('services.partials.billing-agreement')
+                    @endcan
                     <br>
                     @foreach ($fields as $field)
                     <div class="flex items-center text-base">
@@ -65,10 +67,11 @@
                     @endforeach
                 </div>
             </div>
-            @if($service->cancellable || $service->upgradable || count($buttons) > 0)
+            @if((Gate::allows('update', $service) && ($service->cancellable || $service->upgradable)) || count($buttons) > 0)
             <div>
                 <h4 class="text-lg font-semibold">{{ __('services.actions') }}:</h4>
                 <div class="mt-2 flex flex-row gap-2 flex-wrap">
+                    @can('update', $service)
                     @if($service->upgradable)
                     <a href="{{ route('services.upgrade', $service->id) }}">
                         <x-button.primary class="h-fit !w-fit">
@@ -89,6 +92,7 @@
                         <x-loading target="$set('showCancel', true)" />
                     </x-button.danger>
                     @endif
+                    @endcan
                     @if($showCancel)
                     <x-modal open="true"
                         title="{{ __('services.cancellation', ['service' => $service->product->name]) }}"

@@ -9,6 +9,7 @@ use App\Events\Order\Created as OrderCreated;
 use App\Events\User\Created as UserCreated;
 use App\Helpers\ExtensionHelper;
 use App\Models\Client;
+use App\Support\CurrentClient;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Lang;
@@ -146,6 +147,7 @@ class Affiliates extends Extension
             return [
                 'name' => __('affiliates::affiliate.affiliate'),
                 'route' => 'affiliate.index',
+                'condition' => CurrentClient::allows('affiliates'),
                 'priority' => 15,
             ];
         });

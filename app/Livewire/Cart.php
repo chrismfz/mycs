@@ -110,6 +110,11 @@ class Cart extends Component
         if (config('settings.tos') && !$this->tos) {
             return $this->notify(__('You must accept the terms of service'), 'error');
         }
+        // Ordering for the current account needs `orders` (docs/accounts.md, PR 2b). A login without any account gets
+        // its own below, which it owns.
+        if (CurrentClient::model() !== null && !CurrentClient::allows('orders')) {
+            return $this->notify(__('You do not have access to this area of the account.'), 'error');
+        }
 
         // Start database transaction
         DB::beginTransaction();

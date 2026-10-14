@@ -58,6 +58,7 @@ class NotificationTemplateTextsTest extends TestCase
             'new_server_created', 'server_suspended', 'server_unsuspended', 'server_terminated' => ['service' => $service],
             'new_ticket_message' => ['ticketMessage' => $ticket->messages()->create(['user_id' => $user->id, 'message' => 'Hello **there**'])],
             'email_verification', 'password_reset' => ['url' => 'https://example.test/link'],
+            'client_invite' => ['account' => ['name' => 'Acme'], 'invite' => ['url' => 'https://example.test/invite/x', 'by' => 'Maria', 'expires_at' => now()->addWeek()]],
             'service_cancellation_received' => ['service' => $service, 'cancellation' => ServiceCancellation::withoutEvents(fn () => ServiceCancellation::query()->create(['service_id' => $service->id, 'type' => 'end_of_period', 'reason' => 'Moving']))],
         };
     }

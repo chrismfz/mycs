@@ -7,6 +7,7 @@ use App\Livewire\ComponentWithProperties;
 use App\Models\Client;
 use App\Models\User;
 use App\Support\CurrentClient;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
 
 class Account extends ComponentWithProperties
@@ -25,8 +26,13 @@ class Account extends ComponentWithProperties
         $this->last_name = $user->last_name;
         $this->email = $user->email;
 
-        // The details (address, phone, company…) are the current account's (docs/accounts.md, PR 2a).
-        $this->initializeProperties(CurrentClient::model(), Client::class);
+        // The details (address, phone, company…) are the current account's (docs/accounts.md, PR 2a), shown and saved
+        // with `profile` (WHMCS, PR 2b); the login's own name and email always.
+        if (CurrentClient::allows('profile')) {
+            $this->initializeProperties(CurrentClient::model(), Client::class);
+        } else {
+            $this->custom_properties = new Collection;
+        }
     }
 
     public function rules()
@@ -58,7 +64,7 @@ class Account extends ComponentWithProperties
             NotificationHelper::emailVerificationNotification($user);
         }
 
-        if (array_key_exists('properties', $validatedData) && ($client = CurrentClient::model()) !== null) {
+        if (array_key_exists('properties', $validatedData) && CurrentClient::allows('profile') && ($client = CurrentClient::model()) !== null) {
             $this->updateProperties($client, $validatedData['properties']);
         }
 

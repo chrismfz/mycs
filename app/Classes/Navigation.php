@@ -4,6 +4,9 @@ namespace App\Classes;
 
 use App\Helpers\EventHelper;
 use App\Models\Category;
+use App\Models\User;
+use App\Support\Actor;
+use App\Support\CurrentClient;
 use Illuminate\Support\Facades\Auth;
 
 class Navigation
@@ -61,11 +64,16 @@ class Navigation
                 [
                     'name' => __('navigation.tickets'),
                     'url' => route('tickets'),
-                    'condition' => !config('settings.tickets_disabled', false),
+                    'condition' => !config('settings.tickets_disabled', false) && CurrentClient::allows('tickets'),
                 ],
                 [
                     'name' => __('navigation.account'),
                     'url' => route('account'),
+                ],
+                [
+                    'name' => __('navigation.switch_account'),
+                    'url' => route('account.accounts'),
+                    'condition' => Auth::check() && self::hasSeveralAccounts(),
                 ],
                 [
                     'name' => __('navigation.admin'),
@@ -101,7 +109,7 @@ class Navigation
                     'name' => __('navigation.services'),
                     'url' => route('services'),
                     'icon' => 'ri-archive-stack',
-                    'condition' => Auth::check(),
+                    'condition' => Auth::check() && CurrentClient::allows('products'),
                     'priority' => 20,
                 ],
                 [
@@ -109,7 +117,7 @@ class Navigation
                     'url' => route('invoices'),
                     'icon' => 'ri-receipt',
                     'separator' => true,
-                    'condition' => Auth::check(),
+                    'condition' => Auth::check() && CurrentClient::allows('invoices'),
                     'priority' => 30,
                 ],
                 [
@@ -117,7 +125,7 @@ class Navigation
                     'url' => route('tickets'),
                     'icon' => 'ri-customer-service',
                     'separator' => true,
-                    'condition' => Auth::check() && !config('settings.tickets_disabled', false),
+                    'condition' => Auth::check() && !config('settings.tickets_disabled', false) && CurrentClient::allows('tickets'),
                     'priority' => 40,
                 ],
                 [
@@ -144,18 +152,31 @@ class Navigation
                                 'name' => __('account.credits'),
                                 'url' => route('account.credits'),
                                 'params' => [],
-                                'condition' => config('settings.credits_enabled'),
+                                'condition' => config('settings.credits_enabled') && CurrentClient::allows('invoices'),
                                 'priority' => 30,
                             ],
                             [
                                 'name' => __('account.payment_methods'),
                                 'url' => route('account.payment-methods'),
+                                'condition' => CurrentClient::allows('invoices'),
                                 'priority' => 40,
                             ],
                             [
                                 'name' => __('navigation.notifications'),
                                 'url' => route('account.notifications'),
                                 'priority' => 50,
+                            ],
+                            [
+                                'name' => __('navigation.users'),
+                                'url' => route('account.users'),
+                                'condition' => self::ownsCurrentAccount(),
+                                'priority' => 60,
+                            ],
+                            [
+                                'name' => __('navigation.switch_account'),
+                                'url' => route('account.accounts'),
+                                'condition' => self::hasSeveralAccounts(),
+                                'priority' => 70,
                             ],
                         ]
                     ),
@@ -167,9 +188,32 @@ class Navigation
             $routes = array_filter($routes, function ($route) {
                 return isset($route['condition']) ? $route['condition'] : true;
             });
+            // Children too: an area the login's grant does not allow is not offered (docs/accounts.md, PR 2b).
+            foreach ($routes as &$route) {
+                if (isset($route['children'])) {
+                    $route['children'] = array_values(array_filter($route['children'], fn ($child) => $child['condition'] ?? true));
+                }
+            }
+            unset($route);
 
             return Navigation::markActiveRoute($routes);
         });
+    }
+
+    /** The login owns the current account (or staff act as its owner): it manages the account's users. */
+    private static function ownsCurrentAccount(): bool
+    {
+        $client = CurrentClient::model();
+
+        return $client !== null && (Actor::impersonating()
+            || $client->grants()->where('user_id', Auth::id())->whereNotNull('owner_of_client_id')->whereNull('revoked_at')->exists());
+    }
+
+    private static function hasSeveralAccounts(): bool
+    {
+        $user = Auth::guard('web')->user();
+
+        return $user instanceof User && !Actor::impersonating() && $user->clients()->count() > 1;
     }
 
     public static function getActiveRoute()

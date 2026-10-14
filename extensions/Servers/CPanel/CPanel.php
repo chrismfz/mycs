@@ -280,6 +280,8 @@ class CPanel extends Server
             [
                 'label' => 'Access cPanel',
                 'type' => 'button',
+                // Into the panel: `productsso` (WHMCS; docs/accounts.md, PR 2b).
+                'sso' => true,
                 'function' => 'getLoginUrl',
             ],
         ];

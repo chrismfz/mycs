@@ -16,6 +16,12 @@ class UserAuthListener
     public function handle(Login|Logout $event): void
     {
         if ($event instanceof Login) {
+            // As WHMCS keeps it per user and account: the login's last login on the account it starts on (PR 2b).
+            if (($client = CurrentClient::defaultFor($event->user)) !== null) {
+                $client->grants()->where('user_id', $event->user->id)->update(['last_login_at' => now()]);
+            }
+        }
+        if ($event instanceof Login) {
             // Does request have cart?
             if (Cookie::has('cart')) {
                 // Merge cart with user

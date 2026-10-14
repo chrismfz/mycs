@@ -75,7 +75,8 @@ class Tfa extends Component
 
         RateLimiter::clear('2fa:' . $session['user_id']);
 
-        return $this->redirect(route('dashboard'), true);
+        // Back where the login started from (an invitation's link, PR 2b), as Login does.
+        return $this->redirect(session()->pull('url.intended', route('dashboard')), true);
     }
 
     public function render()

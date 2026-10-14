@@ -20,7 +20,7 @@ class Cancel extends Component
 
     public function cancelService()
     {
-        $this->authorize('view', $this->service);
+        $this->authorize('update', $this->service); // `manageproducts` (docs/accounts.md, PR 2b)
 
         // The form shows only for a cancellable service without a request: checked here too, a direct call skips the
         // form (audit sweep SVC-12): a one-time or free service, or a second request.

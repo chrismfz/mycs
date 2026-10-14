@@ -610,6 +610,28 @@ class EmailTemplateSeeder extends Seeder
             'edit_preference_message' => 'Notify me when an invoice of mine is updated',
             'in_app_url' => '{{ urls.invoice }}',
         ],
+        'client_invite' => [
+            'subject' => 'Invitation to the account {{ account.name }} at {{ app.name }}',
+            'body' => <<<'HTML'
+                # You are invited
+
+                Hello,
+
+                {{ invite.by }} invited you to manage the account **{{ account.name }}** at {{ app.name }}.
+
+                <div class="action">
+                	<a class="button button-blue" href="{{ invite.url }}">
+                		Accept the invitation
+                	</a>
+                </div>
+
+                Log in with your existing login, or create one, to accept. The invitation is valid until {{ invite.expires_at|date("d/m/Y H:i") }} and can be used once.
+
+                If you did not expect this invitation, please ignore this email.
+                HTML,
+            'mail_enabled' => 'force',
+            'in_app_enabled' => 'never',
+        ],
     ];
 
     /**
@@ -1183,6 +1205,28 @@ class EmailTemplateSeeder extends Seeder
                     HTML,
                 'in_app_title' => 'Ενημέρωση προτιμολογίου #{{ invoice_number }}',
                 'in_app_body' => 'Το προτιμολόγιο #{{ invoice_number }} ενημερώθηκε: σύνολο {{ total }}.',
+            ],
+        ],
+        'client_invite' => [
+            'el' => [
+                'subject' => 'Πρόσκληση στον λογαριασμό {{ account.name }} στο {{ app.name }}',
+                'body' => <<<'HTML'
+                    # Σας προσκαλούν
+
+                    Γεια σας,
+
+                    Ο/Η {{ invite.by }} σας προσκάλεσε να διαχειρίζεστε τον λογαριασμό **{{ account.name }}** στο {{ app.name }}.
+
+                    <div class="action">
+                    	<a class="button button-blue" href="{{ invite.url }}">
+                    		Αποδοχή πρόσκλησης
+                    	</a>
+                    </div>
+
+                    Συνδεθείτε με τον λογαριασμό σύνδεσης που ήδη έχετε, ή δημιουργήστε νέο, για να την αποδεχτείτε. Η πρόσκληση ισχύει έως {{ invite.expires_at|date("d/m/Y H:i") }} και χρησιμοποιείται μία φορά.
+
+                    Αν δεν περιμένατε αυτή την πρόσκληση, αγνοήστε αυτό το email.
+                    HTML,
             ],
         ],
     ];

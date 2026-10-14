@@ -8,6 +8,7 @@
 
         <div class="grid gap-8 items-start">
             <!-- Active Services -->
+            @if(\App\Support\CurrentClient::allows('products'))
             <div class="">
                 <div class="flex items-center justify-between mb-6">
                     <div class="flex items-center gap-3">
@@ -29,9 +30,10 @@
                     <x-ri-arrow-right-fill class="size-5" />
                 </x-navigation.link>
             </div>
+            @endif
 
             <!-- Open Tickets -->
-            @if(!config('settings.tickets_disabled', false))
+            @if(!config('settings.tickets_disabled', false) && \App\Support\CurrentClient::allows('tickets'))
             <div class="">
                 <div class="flex items-center justify-between mb-6">
                     <div class="flex items-center gap-3">
@@ -62,6 +64,7 @@
 
         <div class="grid gap-8 items-start">
             <!-- Unpaid Invoices -->
+            @if(\App\Support\CurrentClient::allows('invoices'))
             <div class="">
                 <div class="flex items-center justify-between mb-6">
                     <div class="flex items-center gap-3">
@@ -83,6 +86,7 @@
                     <x-ri-arrow-right-fill class="size-5 h-5" />
                 </x-navigation.link>
             </div>
+            @endif
             {!! hook('pages.dashboard') !!}
         </div>
     </div>

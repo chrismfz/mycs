@@ -11,6 +11,7 @@ use App\Admin\Resources\ClientResource\Pages\ShowCredits;
 use App\Admin\Resources\ClientResource\Pages\ShowInvoices;
 use App\Admin\Resources\ClientResource\Pages\ShowServices;
 use App\Admin\Resources\ClientResource\Pages\ShowTickets;
+use App\Admin\Resources\ClientResource\RelationManagers\InvitesRelationManager;
 use App\Admin\Resources\ClientResource\RelationManagers\UsersRelationManager;
 use App\Admin\Resources\Common\RelationManagers\PropertiesRelationManager;
 use App\Models\Client;
@@ -114,6 +115,7 @@ class ClientResource extends Resource
     {
         return [
             UsersRelationManager::class,
+            InvitesRelationManager::class,
             PropertiesRelationManager::class,
         ];
     }

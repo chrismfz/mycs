@@ -135,6 +135,7 @@ class Notifications extends Component
                 'email_verification',
                 'password_reset',
                 'new_login_detected',
+                'client_invite', // to an address, not a login's preference (PR 2b)
             ])
             ->get()
             ->map(function ($notification) use ($userPreferences) {
