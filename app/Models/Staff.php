@@ -27,6 +27,8 @@ use SensitiveParameter;
  *
  * @property-read string $name
  * @property-read string $avatar
+ * @property string|null $app_authentication_secret
+ * @property array<string>|null $app_authentication_recovery_codes
  */
 class Staff extends Authenticatable implements Auditable, CanResetPasswordContract, FilamentUser, HasAppAuthentication, HasAppAuthenticationRecovery, HasAvatar, HasName
 {

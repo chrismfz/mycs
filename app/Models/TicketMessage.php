@@ -49,7 +49,10 @@ class TicketMessage extends Model implements Auditable
     /** Who wrote it, for display: the staff member or the customer. */
     public function author(): Staff|User|null
     {
-        return $this->isFromStaff() ? $this->staff : $this->user;
+        /** @var Staff|User|null */
+        $author = $this->isFromStaff() ? $this->staff : $this->user;
+
+        return $author;
     }
 
     /** @return HasMany<TicketMessageAttachment, $this> */

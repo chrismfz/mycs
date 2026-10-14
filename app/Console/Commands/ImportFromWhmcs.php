@@ -700,7 +700,7 @@ class ImportFromWhmcs extends Command
     private function getUserIdTicket($message, &$userId)
     {
         if (!$userId) {
-            if (!$userId && DB::table('users')->where('email', $message['email'])->exists()) {
+            if (DB::table('users')->where('email', $message['email'])->exists()) {
                 $userRecord = DB::table('users')->where('email', $message['email'])->first();
                 $userId = $userRecord->id;
             }

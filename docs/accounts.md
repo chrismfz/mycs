@@ -343,6 +343,37 @@ tickets, affiliates, emails, orders`. Στην πράξη: «όλα» ή μικ�
 ## Reviews
 Αλλάζει ιδιοκτησία χρημάτων (τιμολόγια/πιστώσεις → λογαριασμός) και auth: code review **και** adversarial review.
 
+## PR 1: τι έγινε (staff χωριστά)
+- **Πίνακας `staff`**, guard `staff`, provider και password broker δικά του (`staff_password_reset_tokens`, γιατί το ίδιο
+  email μπορεί να είναι και πελάτης). Το Filament panel: `authGuard('staff')`, δικό του login (`/admin/login`), reset,
+  προφίλ και **προαιρετικό 2FA** (MFA του Filament με TOTP και recovery codes, απόφαση 3). Rate limit στο login και
+  στο 2FA από το Filament.
+- **Ρόλοι μόνο στο staff:** το `users.role_id` φεύγει· `User::hasPermission()` είναι πάντα `false`. Το users API δεν
+  δέχεται `role_id` (ήταν δρόμος να γίνει πελάτης admin).
+- **Middleware `UseStaffGuard`** στο panel, και persistent για τα Livewire requests του (`/paymenter/update`): στο admin
+  ο `auth()->user()` και οι policies παίρνουν Staff, ποτέ πελάτη του ίδιου browser.
+- **Ids που συμπίπτουν:** staff και πελάτες έχουν δική τους αρίθμηση. Οι policies ελέγχουν «ανήκει σε» μόνο για
+  πελάτη (`BasePolicy::owns`) και δικαίωμα ρόλου μόνο για staff (`adminPermission`), ώστε ένα μέλος με το ίδιο id με
+  πελάτη να μη «κατέχει» τίποτα δικό του.
+- **Ποιος:** `App\Support\Actor` (staff στο admin και στο «Login as client», αλλιώς ο πελάτης) για τα audits
+  (`ActorResolver`) και τον `actor` του money trail. Το `MoneyHistory` γράφει «Όνομα (staff #id)».
+- **Tickets:** `ticket_messages.staff_id` (restrict), `user_id` nullable· η απάντηση staff ξεχωρίζει από τον
+  συντάκτη (`isFromStaff()`), όχι από σύγκριση ids. `tickets.assigned_to` → staff (AUTH-14).
+- **API keys:** `api_keys.staff_id` (cascade: φεύγουν με το μέλος)· κλάδεμα στα δικαιώματά του, τίποτα όταν
+  απενεργοποιηθεί.
+- **«Login as client»** (AUTH-19): μόνο με `admin.users.impersonate`, καταγράφεται ως audit `impersonated` στον πελάτη με
+  causer το μέλος του staff· η «Αποσύνδεση» στο client area γυρίζει στο admin.
+- **Staff με ιστορικό** (απαντήσεις, κινήσεις χρημάτων) δεν σβήνεται, απενεργοποιείται (DATA-3/AUTH-7)· κανείς δεν
+  σβήνει τον εαυτό του ή όποιον έχει περισσότερα δικαιώματα (`StaffPolicy`, `PermissionGuard::outranks`).
+- **AUTH-15** (φίλτρο «Email Verified» που δεν φίλτραρε), **AUTH-18** (νέος κωδικός από staff τερματίζει τις sessions
+  του πελάτη), **AUTH-20** (2FA πελάτη: 5 λάθη = 15 λεπτά κλείδωμα).
+- **Migration:** όποιος είχε ρόλο πάει στο `staff` με το ίδιο id· απαντήσεις, αναθέσεις, API keys, `actor` και audits
+  μεταφέρονται· η γραμμή του στο `users` σβήνεται, εκτός αν έχει και δεδομένα πελάτη (τότε δύο λογαριασμοί).
+- **Importer:** όλοι οι admins του WHMCS → staff (Full Administrator → `admin`, άλλοι ρόλοι με το όνομά τους και χωρίς
+  δικαιώματα), οι απενεργοποιημένοι ως ανενεργοί· απαντήσεις admin σε tickets → `staff_id` (άγνωστο όνομα → ανενεργό
+  μέλος με αυτό το όνομα, όχι ψεύτικος πελάτης).
+- **Εντολές:** `app:staff:create` (νέα)· το `app:user:create` φτιάχνει πλέον μόνο πελάτη· το `mycs:install` φτιάχνει staff.
+
 ## Από το audit sweep (Σ5), για αυτό το κομμάτι
 
 Μικρά ευρήματα δικαιωμάτων που τα ξαναγράφει ο διαχωρισμός staff/users, οπότε δεν διορθώθηκαν χωριστά (2026-10-14):

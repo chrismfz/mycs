@@ -60,8 +60,9 @@ class EditUser extends EditRecord
     /** A new password set by staff ends the customer's sessions everywhere (AUTH-18), as their own reset does. */
     protected function afterSave(): void
     {
-        if ($this->record->wasChanged('password')) {
-            $this->record->sessions()->delete();
+        $user = $this->getRecord();
+        if ($user instanceof User && $user->wasChanged('password')) {
+            $user->sessions()->delete();
         }
     }
 }
