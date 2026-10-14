@@ -68,7 +68,7 @@ class MoneyTrailFinalReviewTest extends TestCase
         $this->withToken($token)->putJson(route('api.v1.admin.invoices.update', $invoice), ['client_id' => $other->client()->id])
             ->assertStatus(422);
 
-        $this->assertSame($this->user->id, $invoice->fresh()->client_id);
+        $this->assertSame($this->user->client()->id, $invoice->fresh()->client_id);
     }
 
     /**
@@ -88,7 +88,7 @@ class MoneyTrailFinalReviewTest extends TestCase
             ->call('save')
             ->assertNotified();
 
-        $this->assertSame($this->user->id, $invoice->fresh()->client_id);
+        $this->assertSame($this->user->client()->id, $invoice->fresh()->client_id);
     }
 
     /**
@@ -109,7 +109,7 @@ class MoneyTrailFinalReviewTest extends TestCase
             $this->assertStringContainsString('refunded payment', $e->getMessage());
         }
 
-        $this->assertSame($this->user->id, $invoice->fresh()->client_id);
+        $this->assertSame($this->user->client()->id, $invoice->fresh()->client_id);
     }
 
     /** Held (verification): the EditUser delete action cancels with a notification, the customer stays. */
@@ -176,7 +176,7 @@ class MoneyTrailFinalReviewTest extends TestCase
         $locked = DB::transaction(fn () => (new RecordPaymentService)->lockInvoice($invoice->id));
 
         $this->assertTrue($moved);
-        $this->assertSame($other->id, $locked->client_id);
+        $this->assertSame($other->client()->id, $locked->client_id);
         $lockedUsers = collect(DB::getQueryLog())
             // The customer locks (SQLite drops "for update" from the SQL; MariaDB keeps it).
             ->filter(fn (array $query) => preg_match('/^select \* from [`"]users[`"]/', $query['query']))

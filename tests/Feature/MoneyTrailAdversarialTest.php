@@ -590,7 +590,7 @@ class MoneyTrailAdversarialTest extends TestCase
 
     /**
      * Deleting a (legacy) payment with a credited part on a customer-less invoice: lockCredit() finds nothing and
-     * `$invoice->user->credits()` is called on null (Error, a 500) instead of a DisplayException staff can read.
+     * `$invoice->client->credits()` is called on null (Error, a 500) instead of a DisplayException staff can read.
      */
     public function test_deleting_a_credited_payment_on_a_customer_less_invoice_fails_cleanly(): void
     {

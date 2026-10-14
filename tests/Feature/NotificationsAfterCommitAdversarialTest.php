@@ -102,12 +102,12 @@ class NotificationsAfterCommitAdversarialTest extends TestCase
 
         // First attempt of the queued job: fails after the key was taken.
         try {
-            NotificationHelper::invoicePaymentFailedNotification($invoice->user, $invoice);
+            NotificationHelper::invoicePaymentFailedNotification($invoice->client, $invoice);
             $this->fail('the first attempt was expected to throw');
         } catch (RuntimeException) {
         }
         // The queue retries the job (backoff 60s): same call.
-        NotificationHelper::invoicePaymentFailedNotification($invoice->user, $invoice->fresh());
+        NotificationHelper::invoicePaymentFailedNotification($invoice->client, $invoice->fresh());
 
         $this->assertSame(1, $this->failedMails(), 'the retry was swallowed by the dedupe key: «payment failed» never mailed');
     }

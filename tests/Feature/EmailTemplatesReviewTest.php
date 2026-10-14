@@ -89,7 +89,7 @@ class EmailTemplatesReviewTest extends TestCase
 
         foreach (['en', 'el'] as $locale) {
             config(['settings.app_language' => $locale]);
-            NotificationHelper::serviceCancellationReceivedNotification($user, $cancellation);
+            NotificationHelper::serviceCancellationReceivedNotification($user->client(), $cancellation);
         }
 
         foreach (MailFacade::queued(Mail::class) as $mail) {
@@ -181,7 +181,7 @@ class EmailTemplatesReviewTest extends TestCase
         EmailLog::creating(fn () => throw new \RuntimeException('database down'));
 
         try {
-            NotificationHelper::invoiceCreatedNotification($user, $invoice->fresh());
+            NotificationHelper::invoiceCreatedNotification($user->client(), $invoice->fresh());
             $this->fail('expected the exception');
         } catch (\RuntimeException) {
         }

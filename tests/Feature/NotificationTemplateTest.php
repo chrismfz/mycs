@@ -96,7 +96,7 @@ class NotificationTemplateTest extends TestCase
         ]);
         NotificationTemplate::where('key', 'new_server_created')->update(['in_app_body' => 'Ready: {{ service.product.name }} & co']);
 
-        NotificationHelper::serverCreatedNotification($user, $service);
+        NotificationHelper::serverCreatedNotification($user->client(), $service);
 
         $this->assertStringContainsString('Panel: <strong>Test Product</strong> &amp; more', $this->lastEmail()->body);
         $notification = $user->notifications()->latest('id')->firstOrFail();

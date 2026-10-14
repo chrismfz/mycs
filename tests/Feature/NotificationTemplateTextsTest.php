@@ -91,9 +91,9 @@ class NotificationTemplateTextsTest extends TestCase
         MailFacade::fake(); // forget the observer's own mail
 
         config(['settings.app_language' => 'el']);
-        NotificationHelper::invoiceCreatedNotification($user, $invoice->fresh());
+        NotificationHelper::invoiceCreatedNotification($user->client(), $invoice->fresh());
         config(['settings.app_language' => 'en']);
-        NotificationHelper::invoiceCreatedNotification($user, $invoice->fresh());
+        NotificationHelper::invoiceCreatedNotification($user->client(), $invoice->fresh());
 
         $subjects = MailFacade::queued(Mail::class)->map(fn (Mail $mail) => $mail->renderedSubject)->all();
         $this->assertStringStartsWith("Νέο προτιμολόγιο #{$invoice->number}", $subjects[0]);

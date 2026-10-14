@@ -48,13 +48,28 @@ class ClientSplitMigrationTest extends TestCase
         $this->assertContains('admin.clients.viewAny', json_decode((string) DB::table('roles')->where('id', $roleId)->value('permissions'), true));
     }
 
-    /** Rolling back gives each account back to its owner only while that is one user with the same id (not here). */
-    public function test_rolling_back_refuses_an_account_with_another_id_than_its_owner(): void
+    /** Rolling back gives each account back to its owner: not when a user owns two (they would merge into one). */
+    public function test_rolling_back_refuses_a_user_who_owns_two_accounts(): void
     {
         $migration = require database_path('migrations/2026_10_28_000000_split_clients_from_users.php');
-        User::factory()->create();
+        $user = User::factory()->create();
+        Client::openFor($user);
 
         $this->expectException(\RuntimeException::class);
         $migration->down();
+    }
+
+    /** Otherwise each account goes back to its owner, whatever its id. */
+    public function test_rolling_back_maps_each_account_to_its_owner(): void
+    {
+        $migration = require database_path('migrations/2026_10_28_000000_split_clients_from_users.php');
+        $user = User::factory()->create();
+        $clientId = $user->client()->id;
+        DB::table('credits')->insert(['client_id' => $clientId, 'currency_code' => 'USD', 'amount' => 3, 'created_at' => now(), 'updated_at' => now()]);
+
+        $migration->down();
+
+        $this->assertNotSame($clientId, $user->id);
+        $this->assertSame($user->id, (int) DB::table('credits')->where('currency_code', 'USD')->value('user_id'));
     }
 }

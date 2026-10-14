@@ -109,26 +109,30 @@ return new class extends Migration
 
     public function down(): void
     {
-        // By the owner: each account goes back to the user who owns it, which only works while there is one each.
+        // Each account goes back to the user who owns it: only while every account has an owner and no user owns two
+        // (two accounts would merge into one customer). Grants to other users have no place before the split: they go.
         $unowned = DB::table('clients')->whereNotIn('id', DB::table('client_user')->whereNotNull('owner_of_client_id')->select('client_id'))->count();
-        $shared = DB::table('client_user')->whereNull('revoked_at')->where('owner', false)->count();
-        $mismatched = DB::table('client_user')->whereNotNull('owner_of_client_id')->whereColumn('client_id', '!=', 'user_id')->count();
-        if ($unowned + $shared + $mismatched > 0) {
-            throw new RuntimeException('Accounts without an owner, shared, or with an owner of another id: cannot roll back.');
+        $ownersOfMany = DB::table('client_user')->whereNotNull('owner_of_client_id')->groupBy('user_id')->havingRaw('COUNT(*) > 1')->count();
+        if ($unowned + $ownersOfMany > 0) {
+            throw new RuntimeException('Accounts without an owner, or a user who owns several: cannot roll back.');
         }
+        $ownerOf = fn (string $column) => DB::raw("(SELECT user_id FROM client_user WHERE client_user.owner_of_client_id = {$column})");
 
-        Schema::withoutForeignKeyConstraints(function () {
+        Schema::withoutForeignKeyConstraints(function () use ($ownerOf) {
             Schema::table('users', function (Blueprint $table) {
                 $table->boolean('credit_auto_apply')->default(true);
             });
-            foreach (DB::table('clients')->get() as $client) {
-                DB::table('users')->where('id', $client->id)->update(['credit_auto_apply' => $client->credit_auto_apply]);
+            foreach (DB::table('clients')->join('client_user', 'client_user.owner_of_client_id', '=', 'clients.id')
+                ->get(['client_user.user_id', 'clients.credit_auto_apply']) as $row) {
+                DB::table('users')->where('id', $row->user_id)->update(['credit_auto_apply' => $row->credit_auto_apply]);
             }
-            DB::table('properties')->where('model_type', 'App\\Models\\Client')->update(['model_type' => 'App\\Models\\User']);
+            DB::table('properties')->where('model_type', 'App\\Models\\Client')
+                ->update(['model_type' => 'App\\Models\\User', 'model_id' => $ownerOf('properties.model_id')]);
             DB::table('custom_properties')->where('model', 'App\\Models\\Client')->update(['model' => 'App\\Models\\User']);
 
             foreach (self::ACCOUNT_TABLES as $name => $onDelete) {
                 if (Schema::hasTable($name) && Schema::hasColumn($name, 'client_id')) {
+                    DB::table($name)->whereNotNull('client_id')->update(['client_id' => $ownerOf("{$name}.client_id")]);
                     $this->repoint($name, 'client_id', 'user_id', 'users', $onDelete);
                 }
             }

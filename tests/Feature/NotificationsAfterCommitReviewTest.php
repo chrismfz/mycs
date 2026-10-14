@@ -151,7 +151,7 @@ class NotificationsAfterCommitReviewTest extends TestCase
 
         $transaction = ExtensionHelper::addFailedPayment($invoice->id, 'Stripe', 10, null, 'pi_failed');
         $transaction->update(['fee' => 0.30]);
-        NotificationHelper::invoicePaymentFailedNotification($invoice->user, $invoice);
+        NotificationHelper::invoicePaymentFailedNotification($invoice->client, $invoice);
 
         $this->assertCount(1, MailFacade::queued(Mail::class, fn (Mail $mail) => $mail->templateKey === 'invoice_payment_failed'));
     }
@@ -204,7 +204,7 @@ class NotificationsAfterCommitReviewTest extends TestCase
         $ticket = Ticket::query()->create(['client_id' => $user->client()->id, 'subject' => 'Help', 'priority' => 'low', 'status' => 'open']);
         $message = $ticket->messages()->create(['user_id' => $user->id, 'message' => 'Reply']);
 
-        NotificationHelper::ticketMessageNotification($user, $message);
+        NotificationHelper::ticketMessageNotification($user->client(), $message);
 
         $sent = app('mailer')->getSymfonyTransport()->messages();
         $this->assertNotEmpty($sent);

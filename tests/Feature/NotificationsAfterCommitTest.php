@@ -132,7 +132,7 @@ class NotificationsAfterCommitTest extends TestCase
         $user = User::factory()->create(['password' => 'a-password']);
         $invoice = $this->invoice(['client_id' => $user->client()->id]);
 
-        NotificationHelper::invoiceCreatedNotification($user, $invoice);
+        NotificationHelper::invoiceCreatedNotification($user->client(), $invoice);
 
         MailFacade::assertQueued(Mail::class, function (Mail $mail) use ($user) {
             $payload = serialize($mail);
@@ -165,7 +165,7 @@ class NotificationsAfterCommitTest extends TestCase
 
         $transaction = ExtensionHelper::addFailedPayment($invoice->id, 'Stripe', 10, null, 'pi_failed');
         $transaction->update(['fee' => 0.30]); // a later save of the same failed transaction
-        NotificationHelper::invoicePaymentFailedNotification($invoice->user, $invoice); // the cron's catch, same attempt
+        NotificationHelper::invoicePaymentFailedNotification($invoice->client, $invoice); // the cron's catch, same attempt
 
         $this->assertSame(InvoiceTransactionStatus::Failed, $transaction->fresh()->status);
         $this->assertCount(1, MailFacade::queued(Mail::class, fn (Mail $mail) => $mail->templateKey === 'invoice_payment_failed'));

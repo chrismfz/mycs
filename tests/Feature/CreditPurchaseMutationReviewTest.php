@@ -27,13 +27,13 @@ class CreditPurchaseMutationReviewTest extends TestCase
         $newOwner = User::factory()->create();
         $invoice = Invoice::factory()->create(['client_id' => $oldOwner->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => 50]);
-        $invoice->load('user');
+        $invoice->load('client');
 
         // MT-1c: staff mark it paid by recording the payment (its status alone no longer does), after moving it.
         $invoice->update(['client_id' => $newOwner->client()->id]);
         (new RecordPaymentService)->recordByStaff($invoice, null, '50.00');
 
-        $this->assertSame($newOwner->id, $invoice->fresh()->client_id);
+        $this->assertSame($newOwner->client()->id, $invoice->fresh()->client_id);
         $this->assertSame(['old_owner' => '0.00', 'new_owner' => '50.00'], [
             'old_owner' => $this->balance($oldOwner),
             'new_owner' => $this->balance($newOwner),
@@ -47,7 +47,7 @@ class CreditPurchaseMutationReviewTest extends TestCase
         Credit::create(['client_id' => $newOwner->client()->id, 'currency_code' => 'USD', 'amount' => 10]);
         $invoice = Invoice::factory()->create(['client_id' => $oldOwner->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => 50]);
-        $invoice->load('user');
+        $invoice->load('client');
 
         // MT-1c: staff mark it paid by recording the payment (its status alone no longer does), after moving it.
         $invoice->update(['client_id' => $newOwner->client()->id]);

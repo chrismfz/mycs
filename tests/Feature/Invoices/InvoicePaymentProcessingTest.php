@@ -162,7 +162,7 @@ class InvoicePaymentProcessingTest extends TestCase
         $this->assertEquals('paid', $invoice->status);
         // The excess is account credit, not a negative invoice balance (docs/payments.md, PR 2a).
         $this->assertEquals(0.00, $invoice->remaining);
-        $this->assertEquals(50.00, (float) $invoice->user->credits()->where('currency_code', $invoice->currency_code)->value('amount'));
+        $this->assertEquals(50.00, (float) $invoice->client->credits()->where('currency_code', $invoice->currency_code)->value('amount'));
     }
 
     public function test_service_is_activated_when_invoice_is_paid()
