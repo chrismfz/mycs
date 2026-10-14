@@ -94,7 +94,7 @@ class AutomationSettingsTest extends TestCase
     {
         config(['settings.cronjob_close_ticket' => 0]);
         $ticket = Ticket::factory()->create(['user_id' => User::factory()->create()->id, 'status' => 'replied']);
-        TicketMessage::factory()->create(['ticket_id' => $ticket->id, 'user_id' => User::factory()->create()->id, 'message' => 'Hi', 'created_at' => now()->subDays(30)]);
+        TicketMessage::factory()->create(['ticket_id' => $ticket->id, 'user_id' => null, 'staff_id' => Staff::factory()->admin()->create()->id, 'message' => 'Hi', 'created_at' => now()->subDays(30)]);
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
@@ -107,7 +107,7 @@ class AutomationSettingsTest extends TestCase
         $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
         config(['settings.system_email_address' => 'billing@example.test']); // required, empty in the test seed
 
-        Livewire::actingAs($owner)->test(Settings::class)
+        $this->livewireAs($owner)->test(Settings::class)
             ->assertSee('Automation')
             ->assertSee('Automatic Module Functions')
             ->assertSee('Billing Settings')

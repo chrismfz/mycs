@@ -34,7 +34,7 @@ class CreditsEnabledTest extends TestCase
         config(['settings.credits_enabled' => false]);
         [$user, $invoice] = $this->userWithCreditAndInvoice();
 
-        Livewire::actingAs($user)->test(Show::class, ['invoice' => $invoice])
+        $this->livewireAs($user)->test(Show::class, ['invoice' => $invoice])
             ->set('selectedMethod', 'credit')
             ->call('processPayment');
 
@@ -47,7 +47,7 @@ class CreditsEnabledTest extends TestCase
         config(['settings.credits_enabled' => true]);
         [$user, $invoice] = $this->userWithCreditAndInvoice();
 
-        Livewire::actingAs($user)->test(Show::class, ['invoice' => $invoice])
+        $this->livewireAs($user)->test(Show::class, ['invoice' => $invoice])
             ->set('selectedMethod', 'credit')
             ->call('processPayment');
 

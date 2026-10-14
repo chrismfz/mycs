@@ -227,7 +227,7 @@ class InvoiceSettleTest extends TestCase
         $invoice->items()->sole()->update(['price' => 80]);
         $staff = $this->owner();
 
-        Livewire::actingAs($staff)->test(EditInvoice::class, ['record' => $invoice->getKey()])
+        $this->livewireAs($staff)->test(EditInvoice::class, ['record' => $invoice->getKey()])
             ->assertActionVisible('closeAsPaid')
             ->callAction('closeAsPaid')
             ->assertHasNoActionErrors();
@@ -236,7 +236,7 @@ class InvoiceSettleTest extends TestCase
         $this->assertSame('20.00', $this->balance());
 
         $open = $this->invoice(10);
-        Livewire::actingAs($staff)->test(EditInvoice::class, ['record' => $open->getKey()])
+        $this->livewireAs($staff)->test(EditInvoice::class, ['record' => $open->getKey()])
             ->assertActionHidden('closeAsPaid');
     }
 

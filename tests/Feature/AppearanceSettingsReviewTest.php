@@ -38,7 +38,7 @@ class AppearanceSettingsReviewTest extends TestCase
     /** R-1: the Reset Colors action was a hint action of the old `theme` select; color pickers have no hintActions. */
     public function test_reset_colors_is_still_offered_and_resets(): void
     {
-        $page = Livewire::actingAs($this->owner)->test(Settings::class)
+        $page = $this->livewireAs($this->owner)->test(Settings::class)
             ->assertSee('Reset Colors');
 
         $field = collect($page->instance()->form->getFlatComponents(withHidden: true))
@@ -53,7 +53,7 @@ class AppearanceSettingsReviewTest extends TestCase
     {
         Storage::fake('public');
 
-        Livewire::actingAs($this->owner)->test(Settings::class)
+        $this->livewireAs($this->owner)->test(Settings::class)
             ->set('data.theme_assets', [UploadedFile::fake()->image('logo.png'), UploadedFile::fake()->image('hero.webp')])
             ->call('save')
             ->assertHasNoErrors();
@@ -71,7 +71,7 @@ class AppearanceSettingsReviewTest extends TestCase
         Setting::create(['key' => 'system_email_address', 'value' => 'billing@example.test']); // required, not in the test seed
         SettingsProvider::flushCache();
         $this->assertEqualsCanonicalizing(['brand/logo.png', 'brand/hero.webp'], array_values(config('settings.theme_assets')));
-        $page = Livewire::actingAs($this->owner)->test(Settings::class);
+        $page = $this->livewireAs($this->owner)->test(Settings::class);
         $this->assertCount(2, $page->get('data.theme_assets'));
         $page->call('save')->assertHasNoErrors();
         $this->assertEqualsCanonicalizing(['brand/logo.png', 'brand/hero.webp'],
@@ -85,7 +85,7 @@ class AppearanceSettingsReviewTest extends TestCase
         $this->assertSame('[]', DB::table('settings')->where('key', 'theme_assets')->value('value'));
         config(['settings.system_email_address' => 'billing@example.test']);
 
-        Livewire::actingAs($this->owner)->test(Settings::class)
+        $this->livewireAs($this->owner)->test(Settings::class)
             ->set('data.theme_custom_css', '.x{}')
             ->call('save')
             ->assertHasNoErrors();
@@ -100,7 +100,7 @@ class AppearanceSettingsReviewTest extends TestCase
         // wOF2 magic bytes, as a real font starts
         $font = UploadedFile::fake()->createWithContent('brand.woff2', "wOF2\x00\x01\x00\x00" . str_repeat("\x00", 64));
 
-        Livewire::actingAs($this->owner)->test(Settings::class)
+        $this->livewireAs($this->owner)->test(Settings::class)
             ->set('data.theme_assets', [$font])
             ->call('save')
             ->assertHasNoErrors();
@@ -156,7 +156,7 @@ class AppearanceSettingsReviewTest extends TestCase
         $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==');
         $polyglot = UploadedFile::fake()->createWithContent('x.php', $png . '<?php echo "pwned"; ?>');
 
-        Livewire::actingAs($this->owner)->test(Settings::class)
+        $this->livewireAs($this->owner)->test(Settings::class)
             ->set('data.theme_assets', [$polyglot])
             ->call('save');
 

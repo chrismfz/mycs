@@ -66,7 +66,7 @@ class PermissionNamesTest extends TestCase
         $viewer = $this->staff(['admin.failed_jobs.viewAny']);
         DB::table('failed_jobs')->insert(['uuid' => 'u-1', 'connection' => 'database', 'queue' => 'default', 'payload' => json_encode(['displayName' => 'App\\Jobs\\Server\\CreateJob', 'data' => []]), 'exception' => 'x', 'failed_at' => now()]);
 
-        Livewire::actingAs($viewer)->test(ListFailedJobs::class)
+        $this->livewireAs($viewer)->test(ListFailedJobs::class)
             ->assertTableActionHidden('retry', FailedJob::query()->first())
             ->assertTableActionHidden('delete', FailedJob::query()->first());
 

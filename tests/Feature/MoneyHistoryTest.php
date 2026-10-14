@@ -121,7 +121,7 @@ class MoneyHistoryTest extends TestCase
         $invoice = $this->invoice(100);
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 120.00, null, 'pi_tab', currency: 'USD');
 
-        Livewire::actingAs($this->owner())
+        $this->livewireAs($this->owner())
             ->test(MoneyEventsRelationManager::class, ['ownerRecord' => $invoice->fresh(), 'pageClass' => EditInvoice::class])
             ->assertSuccessful()
             ->assertSee('Credit in (overpayment)')
@@ -142,7 +142,7 @@ class MoneyHistoryTest extends TestCase
         $payment = MoneyEvent::query()->where('kind', 'payment')->sole();
         $credit = MoneyEvent::query()->where('kind', 'credit_in')->sole();
 
-        Livewire::actingAs($owner)->test(ShowCreditHistory::class, ['record' => $this->user->getKey()])
+        $this->livewireAs($owner)->test(ShowCreditHistory::class, ['record' => $this->user->getKey()])
             ->assertSuccessful()
             ->assertCanSeeTableRecords([$credit])
             ->assertCanNotSeeTableRecords([$payment])

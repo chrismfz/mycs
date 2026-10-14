@@ -568,7 +568,7 @@ class CreditLedgerAdversarialTest extends TestCase
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
-        $page = fn () => Livewire::actingAs($owner)->test(ShowCredits::class, ['record' => $this->user->getKey()]);
+        $page = fn () => $this->livewireAs($owner)->test(ShowCredits::class, ['record' => $this->user->getKey()]);
 
         $page()->callTableAction('addCredit', data: ['currency_code' => 'USD', 'amount' => '0.004', 'reason' => 'tiny'])
             ->assertHasTableActionErrors(['amount']);

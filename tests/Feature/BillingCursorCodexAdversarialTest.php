@@ -153,7 +153,7 @@ class BillingCursorCodexAdversarialTest extends TestCase
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
-        return Livewire::actingAs($admin)->test(EditService::class, ['record' => $service->getRouteKey()]);
+        return $this->livewireAs($admin)->test(EditService::class, ['record' => $service->getRouteKey()]);
     }
 
     // ---------------------------------------------------------------- admin form (real Livewire page)

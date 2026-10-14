@@ -102,7 +102,7 @@ class ConfigValuesReviewTest extends TestCase
         Invoice::factory()->create(['user_id' => User::factory()->create()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'EUR']);
 
         // Fixed by removing the bulk delete: currencies are deleted one at a time, through the edit page's checks.
-        Livewire::actingAs($this->admin())->test(ListCurrencies::class)->assertTableBulkActionDoesNotExist('delete');
+        $this->livewireAs($this->admin())->test(ListCurrencies::class)->assertTableBulkActionDoesNotExist('delete');
 
         $this->assertNotNull(Currency::find('EUR'), 'its invoices keep their currency');
     }
@@ -113,7 +113,7 @@ class ConfigValuesReviewTest extends TestCase
         [$option, $value] = $this->option();
         $this->service()->configs()->create(['config_option_id' => $option->id, 'config_value_id' => $value->id]);
 
-        $page = Livewire::actingAs($this->admin())->test(EditConfigOption::class, ['record' => $option->getRouteKey()]);
+        $page = $this->livewireAs($this->admin())->test(EditConfigOption::class, ['record' => $option->getRouteKey()]);
         $page->callAction(TestAction::make('delete')->schemaComponent('Options', 'form')->arguments(['item' => 'record-' . $value->id]));
         $page->assertNotified('Whoops!');
         $page->call('save');
@@ -125,7 +125,7 @@ class ConfigValuesReviewTest extends TestCase
     public function test_save_refuses_a_value_used_meanwhile(): void
     {
         [$option, $value] = $this->option();
-        $page = Livewire::actingAs($this->admin())->test(EditConfigOption::class, ['record' => $option->getRouteKey()]);
+        $page = $this->livewireAs($this->admin())->test(EditConfigOption::class, ['record' => $option->getRouteKey()]);
         $page->callAction(TestAction::make('delete')->schemaComponent('Options', 'form')->arguments(['item' => 'record-' . $value->id]));
         $this->service()->configs()->create(['config_option_id' => $option->id, 'config_value_id' => $value->id]);
         $page->set('data.name', 'Renamed')->call('save');
@@ -141,7 +141,7 @@ class ConfigValuesReviewTest extends TestCase
         [$option, $value] = $this->option();
         $this->service()->configs()->create(['config_option_id' => $option->id, 'config_value_id' => $value->id]);
 
-        Livewire::actingAs($this->admin())->test(EditConfigOption::class, ['record' => $option->getRouteKey()])->callAction('Delete');
+        $this->livewireAs($this->admin())->test(EditConfigOption::class, ['record' => $option->getRouteKey()])->callAction('Delete');
 
         $this->assertSame(0, ConfigOption::query()->count());
     }

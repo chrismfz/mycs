@@ -95,7 +95,7 @@ class AdminCancelSubscriptionTest extends TestCase
         $order = Order::query()->create(['user_id' => $this->service->user_id, 'currency_code' => 'USD']);
         $this->service->update(['order_id' => $order->id]);
 
-        return Livewire::actingAs($admin)->test(EditOrder::class, ['record' => $order->getRouteKey()]);
+        return $this->livewireAs($admin)->test(EditOrder::class, ['record' => $order->getRouteKey()]);
     }
 
     private function cancelOnOrderPage($page)

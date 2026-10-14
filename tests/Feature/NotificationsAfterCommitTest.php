@@ -192,7 +192,7 @@ class NotificationsAfterCommitTest extends TestCase
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
-        Livewire::actingAs($owner)->test(Settings::class)
+        $this->livewireAs($owner)->test(Settings::class)
             ->assertSet('data.invoice_number', 1234);
     }
 }

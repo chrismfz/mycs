@@ -134,7 +134,7 @@ class ConfigValuesAgreementsCurrenciesTest extends TestCase
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
-        Livewire::actingAs($owner)->test(EditCurrency::class, ['record' => 'EUR'])->callAction('delete');
+        $this->livewireAs($owner)->test(EditCurrency::class, ['record' => 'EUR'])->callAction('delete');
 
         $this->assertNotNull(Currency::find('EUR'));
     }

@@ -132,7 +132,7 @@ class CronOverlapAndOrderCancelTest extends TestCase
         $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
         config(['settings.system_email_address' => 'billing@example.test']);
 
-        Livewire::actingAs($owner)->test(Settings::class)->set('data.cronjob_time', '03:30')->call('save')->assertHasErrors('data.cronjob_time');
-        Livewire::actingAs($owner)->test(Settings::class)->set('data.cronjob_time', '02:30')->call('save')->assertHasNoErrors();
+        $this->livewireAs($owner)->test(Settings::class)->set('data.cronjob_time', '03:30')->call('save')->assertHasErrors('data.cronjob_time');
+        $this->livewireAs($owner)->test(Settings::class)->set('data.cronjob_time', '02:30')->call('save')->assertHasNoErrors();
     }
 }

@@ -121,7 +121,7 @@ class InvoiceItemReferenceTest extends TestCase
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
-        $form = Livewire::actingAs($owner)->test(EditInvoice::class, ['record' => $this->invoice->getKey()])->instance()->form;
+        $form = $this->livewireAs($owner)->test(EditInvoice::class, ['record' => $this->invoice->getKey()])->instance()->form;
         $repeater = $form->getComponent(fn ($component) => $component instanceof Repeater && $component->getName() === 'items');
         $this->assertNotNull($repeater);
 

@@ -71,7 +71,7 @@ class NotificationsAfterCommitReviewTest extends TestCase
         $customer = User::factory()->create();
         $undo = Repeater::fake();
 
-        Livewire::actingAs($owner)->test(CreateInvoice::class)
+        $this->livewireAs($owner)->test(CreateInvoice::class)
             ->fillForm([
                 'user_id' => $customer->id,
                 'status' => Invoice::STATUS_UNPAID,

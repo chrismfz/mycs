@@ -83,7 +83,7 @@ class MoneyTrailFinalReviewTest extends TestCase
         $invoice = $this->paidInvoice();
         $other = User::factory()->create();
 
-        Livewire::actingAs($this->owner())->test(EditInvoice::class, ['record' => $invoice->getKey()]) // the id: getRouteKey() is the invoice number
+        $this->livewireAs($this->owner())->test(EditInvoice::class, ['record' => $invoice->getKey()]) // the id: getRouteKey() is the invoice number
             ->set('data.user_id', $other->id)
             ->call('save')
             ->assertNotified();
@@ -117,7 +117,7 @@ class MoneyTrailFinalReviewTest extends TestCase
     {
         $this->paidInvoice();
 
-        Livewire::actingAs($this->owner())->test(EditUser::class, ['record' => $this->user->getRouteKey()])
+        $this->livewireAs($this->owner())->test(EditUser::class, ['record' => $this->user->getRouteKey()])
             ->callAction(DeleteAction::class)
             ->assertNotified(__('A customer with payments or account credit history cannot be deleted.'));
 
@@ -127,7 +127,7 @@ class MoneyTrailFinalReviewTest extends TestCase
     /** Held (verification): a customer without money history is still deleted from the admin. */
     public function test_the_edit_user_delete_action_deletes_a_customer_without_money(): void
     {
-        Livewire::actingAs($this->owner())->test(EditUser::class, ['record' => $this->user->getRouteKey()])
+        $this->livewireAs($this->owner())->test(EditUser::class, ['record' => $this->user->getRouteKey()])
             ->callAction(DeleteAction::class);
 
         $this->assertNull($this->user->fresh());

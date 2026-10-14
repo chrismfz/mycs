@@ -12,6 +12,8 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Once;
+use Livewire\Livewire;
+use Livewire\LivewireManager;
 
 abstract class TestCase extends BaseTestCase
 {
@@ -84,6 +86,12 @@ abstract class TestCase extends BaseTestCase
             'product' => $product,
             'plan' => $plan,
         ];
+    }
+
+    /** Livewire::actingAs() with the guard of who acts: staff on theirs, customers on the default one. */
+    protected function livewireAs(Authenticatable $user): LivewireManager
+    {
+        return Livewire::actingAs($user, $user instanceof Staff ? 'staff' : null);
     }
 
     /** Staff act on their own guard (docs/accounts.md, PR 1), customers on the default one. */

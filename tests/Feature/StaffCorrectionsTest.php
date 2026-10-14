@@ -153,7 +153,7 @@ class StaffCorrectionsTest extends TestCase
     {
         $invoice = $this->invoice();
 
-        Livewire::actingAs($this->owner())->test(EditInvoice::class, ['record' => $invoice->getKey()])
+        $this->livewireAs($this->owner())->test(EditInvoice::class, ['record' => $invoice->getKey()])
             ->set('data.status', Invoice::STATUS_PAID)
             ->call('save')
             ->assertHasFormErrors(['status']); // a disabled option
@@ -271,7 +271,7 @@ class StaffCorrectionsTest extends TestCase
         $invoice = $this->invoice();
 
         // On the edit page: the view page opens it while invoices are not immutable.
-        Livewire::actingAs($this->owner())->test(EditInvoice::class, ['record' => $invoice->getKey()])
+        $this->livewireAs($this->owner())->test(EditInvoice::class, ['record' => $invoice->getKey()])
             ->callAction('markPaid', data: ['amount' => '100.00', 'paid_at' => '2026-10-02', 'gateway_id' => null, 'transaction_id' => 'TRANSFER-2'])
             ->assertHasNoActionErrors();
 

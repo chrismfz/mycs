@@ -96,7 +96,7 @@ class PaymentGuardsIndependentReviewTest extends TestCase
         $this->assertSame('90.00', $this->credit());
         $transaction = InvoiceTransaction::query()->sole();
 
-        Livewire::actingAs($this->admin())->test(ListInvoiceTransactions::class)
+        $this->livewireAs($this->admin())->test(ListInvoiceTransactions::class)
             ->callTableAction('delete', $transaction);
 
         $deleted = InvoiceTransaction::query()->whereKey($transaction->id)->doesntExist();
@@ -157,7 +157,7 @@ class PaymentGuardsIndependentReviewTest extends TestCase
         $invoice = $this->invoiceFor($this->service());
         ExtensionHelper::addPayment($invoice->id, 'PayPal', 10.00, null, '5TY05013RG002845M', currency: 'USD');
 
-        Livewire::actingAs($this->admin())
+        $this->livewireAs($this->admin())
             ->test(TransactionsRelationManager::class, ['ownerRecord' => $invoice->fresh(), 'pageClass' => EditInvoice::class])
             ->callTableAction('create', data: ['amount' => '10.00', 'transaction_id' => '5TY05013RG002845M']);
 

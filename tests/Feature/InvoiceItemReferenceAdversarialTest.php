@@ -210,7 +210,7 @@ class InvoiceItemReferenceAdversarialTest extends TestCase
 
         // A second Livewire request is bounced to auth.logout by the session middleware in tests: drive the page in-process.
         $this->actingAs($owner);
-        $page = Livewire::actingAs($owner)->test(EditInvoice::class, ['record' => $this->invoice->getKey()])->instance();
+        $page = $this->livewireAs($owner)->test(EditInvoice::class, ['record' => $this->invoice->getKey()])->instance();
         $key = array_key_first($page->data['items']);
         $page->data['items'][$key]['price'] = '12.00';
         $page->data['items'][$key]['reference_type'] = Credit::class;

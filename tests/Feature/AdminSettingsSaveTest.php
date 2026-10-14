@@ -25,7 +25,7 @@ class AdminSettingsSaveTest extends TestCase
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
-        Livewire::actingAs($owner)->test(Settings::class)
+        $this->livewireAs($owner)->test(Settings::class)
             ->set('data.system_email_address', 'billing@example.test') // required, empty in the test seed
             ->set('data.app_language', 'el')
             ->call('save')
@@ -39,7 +39,7 @@ class AdminSettingsSaveTest extends TestCase
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
-        Livewire::actingAs($owner)->test(Settings::class)
+        $this->livewireAs($owner)->test(Settings::class)
             ->set('data.mail_header', '{% if app.name %}never closed')
             ->call('save')
             ->assertHasErrors('data.mail_header');

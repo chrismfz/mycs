@@ -189,7 +189,7 @@ class ServiceOrderDeleteReviewTest extends TestCase
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
-        Livewire::actingAs($admin)->test(ListOrders::class)
+        $this->livewireAs($admin)->test(ListOrders::class)
             ->callTableBulkAction('delete', [$service->order])
             ->assertNotNotified(__('filament-actions::delete.multiple.notifications.deleted.title'));
 

@@ -671,7 +671,7 @@ class GatewayLogAdversarialTest extends TestCase
         $this->assertFalse(PaymentGatewayEventResource::canEdit($row));
         $this->assertFalse(PaymentGatewayEventResource::canDelete($row));
         $this->assertFalse($owner->can('create', PaymentGatewayEvent::class));
-        Livewire::actingAs($owner)->test(ListPaymentGatewayEvents::class)
+        $this->livewireAs($owner)->test(ListPaymentGatewayEvents::class)
             ->assertSuccessful()
             ->assertTableActionDoesNotExist('edit')
             ->assertTableActionDoesNotExist('delete')
@@ -693,10 +693,10 @@ class GatewayLogAdversarialTest extends TestCase
         $boss = Staff::factory()->create(['role_id' => Role::create(['name' => 'Boss' . uniqid(), 'permissions' => ['admin.gateway_events.viewAny', 'admin.invoices.viewAny']])->id]);
         $url = InvoiceResource::getUrl('edit', ['record' => $invoice->id]);
 
-        $readerView = Livewire::actingAs($reader)->test(ListPaymentGatewayEvents::class)->assertSuccessful()->assertDontSeeHtml($url);
+        $readerView = $this->livewireAs($reader)->test(ListPaymentGatewayEvents::class)->assertSuccessful()->assertDontSeeHtml($url);
         foreach (['<script>alert(1)', '<img src=x', '<svg onload', '<b>gw</b>', '<i>ep</i>', '<u>recorded', '<marquee>'] as $raw) {
             $readerView->assertDontSeeHtml($raw);
         }
-        Livewire::actingAs($boss)->test(ListPaymentGatewayEvents::class)->assertSuccessful()->assertSeeHtml($url);
+        $this->livewireAs($boss)->test(ListPaymentGatewayEvents::class)->assertSuccessful()->assertSeeHtml($url);
     }
 }

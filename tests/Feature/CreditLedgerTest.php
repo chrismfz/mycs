@@ -166,7 +166,7 @@ class CreditLedgerTest extends TestCase
             'status' => 'active', 'price' => 10.00, 'currency_code' => 'USD', 'expires_at' => now()->addDays(20),
         ]);
 
-        Livewire::actingAs($this->user)->test(Upgrade::class, ['service' => $service])
+        $this->livewireAs($this->user)->test(Upgrade::class, ['service' => $service])
             ->set('upgrade', $to->product->id)
             ->call('doUpgrade');
 
@@ -207,7 +207,7 @@ class CreditLedgerTest extends TestCase
     {
         $owner = $this->owner();
         // A fresh page per action: a refused action stays mounted (its modal open) on the same component.
-        $page = fn () => Livewire::actingAs($owner)->test(ShowCredits::class, ['record' => $this->user->getKey()]);
+        $page = fn () => $this->livewireAs($owner)->test(ShowCredits::class, ['record' => $this->user->getKey()]);
 
         $page()->callTableAction('addCredit', data: ['currency_code' => 'USD', 'amount' => '20.00', 'reason' => ''])
             ->assertHasTableActionErrors(['reason' => 'required']);

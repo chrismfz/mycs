@@ -146,7 +146,7 @@ class PlanProductDeleteReviewTest extends TestCase
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
-        $page = Livewire::actingAs($admin)->test(EditProduct::class, ['record' => $service->product->getRouteKey()]);
+        $page = $this->livewireAs($admin)->test(EditProduct::class, ['record' => $service->product->getRouteKey()]);
         $key = array_key_first($page->get('data.plan'));
         $page->callAction(TestAction::make('delete')->schemaComponent('plan', 'form')->arguments(['item' => $key]));
         $page->assertNotified('Whoops!'); // the guard ran and cancelled the removal
@@ -169,7 +169,7 @@ class PlanProductDeleteReviewTest extends TestCase
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
-        $page = Livewire::actingAs($admin)->test(EditProduct::class, ['record' => $product->getRouteKey()]);
+        $page = $this->livewireAs($admin)->test(EditProduct::class, ['record' => $product->getRouteKey()]);
         $key = collect($page->get('data.plan'))->search(fn ($item) => ($item['id'] ?? null) === $spare->id);
         $this->assertNotFalse($key);
         $page->callAction(TestAction::make('delete')->schemaComponent('plan', 'form')->arguments(['item' => $key]));
@@ -198,7 +198,7 @@ class PlanProductDeleteReviewTest extends TestCase
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
-        $page = Livewire::actingAs($admin)->test(EditProduct::class, ['record' => $product->getRouteKey()]);
+        $page = $this->livewireAs($admin)->test(EditProduct::class, ['record' => $product->getRouteKey()]);
         foreach ([$other, $spare] as $plan) { // both unused when removed
             $key = collect($page->get('data.plan'))->search(fn ($item) => ($item['id'] ?? null) === $plan->id);
             $page->callAction(TestAction::make('delete')->schemaComponent('plan', 'form')->arguments(['item' => $key]));

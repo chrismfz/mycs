@@ -6,6 +6,7 @@ use App\Jobs\Server\SuspendJob;
 use App\Jobs\Server\TerminateJob;
 use App\Models\Invoice;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
@@ -297,12 +298,14 @@ class CronjobTest extends TestCase
             'status' => 'open',
         ]);
 
-        $differentUser = User::factory()->create();
+        // A reply by staff (docs/accounts.md, PR 1)
+        $staff = Staff::factory()->admin()->create();
 
         // Add message
         TicketMessage::factory()->create([
             'ticket_id' => $ticket->id,
-            'user_id' => $differentUser->id,
+            'user_id' => null,
+            'staff_id' => $staff->id,
             'message' => 'This is a test message.',
             'created_at' => now()->subDays(8), // Set created_at to 8 days ago
         ]);

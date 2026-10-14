@@ -73,7 +73,7 @@ class AdminSettingsCounterAdversarialTest extends TestCase
      */
     public function test_an_unrelated_save_does_not_wipe_trusted_proxies_set_meanwhile(): void
     {
-        $page = Livewire::actingAs($this->owner)->test(Settings::class);
+        $page = $this->livewireAs($this->owner)->test(Settings::class);
 
         // Another admin (or the CLI) sets trusted proxies while this page is open.
         Setting::query()->create(['key' => 'trusted_proxies', 'value' => ['10.0.0.1'], 'type' => 'array']);
@@ -94,7 +94,7 @@ class AdminSettingsCounterAdversarialTest extends TestCase
     {
         $this->store('invoice_number', 100);
 
-        Livewire::actingAs($this->owner)->test(Settings::class)
+        $this->livewireAs($this->owner)->test(Settings::class)
             ->set('data.invoice_number', '99999999999999999999')
             ->call('save')
             ->assertHasErrors('data.invoice_number');
@@ -104,7 +104,7 @@ class AdminSettingsCounterAdversarialTest extends TestCase
     public function test_numbering_still_works_after_staff_saves_a_huge_counter(): void
     {
         $this->store('invoice_number', 100);
-        Livewire::actingAs($this->owner)->test(Settings::class)
+        $this->livewireAs($this->owner)->test(Settings::class)
             ->set('data.invoice_number', '99999999999999999999')
             ->call('save')
             ->assertHasErrors('data.invoice_number'); // was accepted (float 1.0E+20, (int) wraps); now refused
@@ -128,7 +128,7 @@ class AdminSettingsCounterAdversarialTest extends TestCase
     public function test_a_value_changed_meanwhile_is_kept_said_and_shown(): void
     {
         $this->store('invoice_number_format', 'INV-{number}');
-        $page = Livewire::actingAs($this->owner)->test(Settings::class);
+        $page = $this->livewireAs($this->owner)->test(Settings::class);
 
         Setting::query()->where('key', 'invoice_number_format')->update(['value' => 'X-{number}']);
 
@@ -145,7 +145,7 @@ class AdminSettingsCounterAdversarialTest extends TestCase
     {
         $this->expectException(CannotUpdateLockedPropertyException::class);
 
-        Livewire::actingAs($this->owner)->test(Settings::class)->set('loaded.invoice_number', 999999);
+        $this->livewireAs($this->owner)->test(Settings::class)->set('loaded.invoice_number', 999999);
     }
 
     public function test_holds_view_only_staff_cannot_save(): void
@@ -153,7 +153,7 @@ class AdminSettingsCounterAdversarialTest extends TestCase
         $viewer = Staff::factory()->create(['role_id' => Role::create(['name' => 'Viewer', 'permissions' => ['admin.settings.view']])->id]);
         $this->store('invoice_number', 100);
 
-        Livewire::actingAs($viewer)->test(Settings::class)
+        $this->livewireAs($viewer)->test(Settings::class)
             ->set('data.invoice_number', 500)
             ->call('save')
             ->assertNotFound(); // Gate::defaultDenialResponse is denyAsNotFound
@@ -167,7 +167,7 @@ class AdminSettingsCounterAdversarialTest extends TestCase
         $this->issued('INV-1'); // so going back to 0 would reuse numbers
 
         foreach (['', null, '0', '-5', '150abc'] as $bad) {
-            Livewire::actingAs($this->owner)->test(Settings::class)
+            $this->livewireAs($this->owner)->test(Settings::class)
                 ->set('data.invoice_number', $bad)
                 ->call('save')
                 ->assertHasErrors('data.invoice_number');
@@ -178,7 +178,7 @@ class AdminSettingsCounterAdversarialTest extends TestCase
     public function test_holds_setting_the_counter_equal_to_the_last_number_used(): void
     {
         $this->store('invoice_number', 100);
-        $page = Livewire::actingAs($this->owner)->test(Settings::class);
+        $page = $this->livewireAs($this->owner)->test(Settings::class);
         Setting::query()->where('key', 'invoice_number')->update(['value' => 105]);
 
         $page->set('data.invoice_number', 105)->call('save')->assertHasNoErrors();
@@ -190,7 +190,7 @@ class AdminSettingsCounterAdversarialTest extends TestCase
     {
         Setting::query()->where('key', 'credit_note_number')->delete(); // fresh install: no credit note numbered yet
         config(['settings.credit_note_number' => null]);
-        $page = Livewire::actingAs($this->owner)->test(Settings::class);
+        $page = $this->livewireAs($this->owner)->test(Settings::class);
         $page->set('data.app_language', 'el')->call('save')->assertHasNoErrors();
         $this->assertNull($this->value('credit_note_number'));
 
@@ -206,7 +206,7 @@ class AdminSettingsCounterAdversarialTest extends TestCase
     public function test_holds_decimal_and_exponent_counters_keep_numbering_monotonic(): void
     {
         $this->store('invoice_number', 100);
-        Livewire::actingAs($this->owner)->test(Settings::class)
+        $this->livewireAs($this->owner)->test(Settings::class)
             ->set('data.invoice_number', '1e3')
             ->call('save');
 
@@ -223,7 +223,7 @@ class AdminSettingsCounterAdversarialTest extends TestCase
         $this->store('cronjob_time', '09:30');
         $this->store('invoice_number_padding', '4');
         $this->store('trusted_proxies', ['10.0.0.1'], 'array');
-        $page = Livewire::actingAs($this->owner)->test(Settings::class);
+        $page = $this->livewireAs($this->owner)->test(Settings::class);
 
         foreach ([
             'invoice_proforma' => true, 'ticket_departments' => ['Sales'], 'mail_password' => 'new-secret',
@@ -247,7 +247,7 @@ class AdminSettingsCounterAdversarialTest extends TestCase
         Storage::fake('public');
         Storage::disk('public')->put('logo-light.webp', 'x');
         $this->store('logo', 'logo-light.webp');
-        $page = Livewire::actingAs($this->owner)->test(Settings::class);
+        $page = $this->livewireAs($this->owner)->test(Settings::class);
 
         Setting::query()->where('key', 'logo')->update(['value' => 'logo-new.webp']);
         $page->set('data.app_language', 'el')->call('save')->assertHasNoErrors();
@@ -259,7 +259,7 @@ class AdminSettingsCounterAdversarialTest extends TestCase
     {
         $this->store('invoice_number', 100);
 
-        Livewire::actingAs($this->owner)->test(Settings::class)
+        $this->livewireAs($this->owner)->test(Settings::class)
             ->set('data.invoice_number', 500)
             ->set('data.invoice_number_format', 'no-placeholder')
             ->call('save')
@@ -271,7 +271,7 @@ class AdminSettingsCounterAdversarialTest extends TestCase
     public function test_holds_second_save_after_a_rejected_counter_still_compares_with_the_snapshot(): void
     {
         $this->store('invoice_number', 100);
-        $page = Livewire::actingAs($this->owner)->test(Settings::class);
+        $page = $this->livewireAs($this->owner)->test(Settings::class);
         Setting::query()->where('key', 'invoice_number')->update(['value' => 105]);
         $this->issued('INV-102');
 

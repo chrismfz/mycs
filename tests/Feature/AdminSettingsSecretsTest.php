@@ -48,7 +48,7 @@ class AdminSettingsSecretsTest extends TestCase
 
     public function test_view_only_staff_do_not_get_the_secret_in_the_page(): void
     {
-        $page = Livewire::actingAs($this->staff(['admin.settings.view']))->test(Settings::class);
+        $page = $this->livewireAs($this->staff(['admin.settings.view']))->test(Settings::class);
 
         $this->assertEmpty($page->get('data.mail_password'));
         $this->assertStringNotContainsString('s3cret-smtp', json_encode($page->snapshot));
@@ -57,7 +57,7 @@ class AdminSettingsSecretsTest extends TestCase
 
     public function test_saving_with_the_secret_left_empty_keeps_it(): void
     {
-        Livewire::actingAs($this->staff(['*']))->test(Settings::class)
+        $this->livewireAs($this->staff(['*']))->test(Settings::class)
             ->set('data.app_language', 'el')
             ->call('save')
             ->assertHasNoErrors(); // not required again while one is stored
@@ -68,7 +68,7 @@ class AdminSettingsSecretsTest extends TestCase
 
     public function test_a_new_secret_typed_in_is_saved_encrypted(): void
     {
-        Livewire::actingAs($this->staff(['*']))->test(Settings::class)
+        $this->livewireAs($this->staff(['*']))->test(Settings::class)
             ->set('data.mail_password', 'n3w-pass')
             ->call('save')
             ->assertHasNoErrors();
@@ -81,7 +81,7 @@ class AdminSettingsSecretsTest extends TestCase
 
     public function test_after_a_save_the_secret_is_not_in_the_page_either(): void
     {
-        $page = Livewire::actingAs($this->staff(['*']))->test(Settings::class)
+        $page = $this->livewireAs($this->staff(['*']))->test(Settings::class)
             ->set('data.app_language', 'el')
             ->call('save')
             ->assertHasNoErrors();
@@ -91,7 +91,7 @@ class AdminSettingsSecretsTest extends TestCase
 
     public function test_a_secret_typed_in_leaves_the_page_once_saved(): void
     {
-        $page = Livewire::actingAs($this->staff(['*']))->test(Settings::class)
+        $page = $this->livewireAs($this->staff(['*']))->test(Settings::class)
             ->set('data.mail_password', 'n3w-pass')
             ->call('save')
             ->assertHasNoErrors();
@@ -105,7 +105,7 @@ class AdminSettingsSecretsTest extends TestCase
         Setting::query()->where('key', 'mail_password')->delete();
         config(['settings.mail_password' => null]);
 
-        Livewire::actingAs($this->staff(['*']))->test(Settings::class)
+        $this->livewireAs($this->staff(['*']))->test(Settings::class)
             ->set('data.app_language', 'el')
             ->call('save')
             ->assertHasErrors('data.mail_password');

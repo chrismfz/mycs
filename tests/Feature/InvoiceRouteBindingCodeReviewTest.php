@@ -51,7 +51,7 @@ class InvoiceRouteBindingCodeReviewTest extends TestCase
         $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
         $invoice = $this->invoice('2026-15');
 
-        Livewire::actingAs($owner)->test(EditInvoice::class, ['record' => $invoice->id])
+        $this->livewireAs($owner)->test(EditInvoice::class, ['record' => $invoice->id])
             ->assertOk()
             ->call('$refresh')
             ->assertOk();

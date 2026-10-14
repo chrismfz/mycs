@@ -34,7 +34,7 @@ class UniqueKeysReviewTest extends TestCase
         $product = $this->createProduct()->product;
         $product->settings()->create(['key' => 'package', 'value' => 'basic']);
 
-        Livewire::actingAs($admin)->test(EditProduct::class, ['record' => $product->getRouteKey()])
+        $this->livewireAs($admin)->test(EditProduct::class, ['record' => $product->getRouteKey()])
             ->callAction('duplicate');
 
         $copy = $product->newQuery()->where('name', 'Copy of ' . $product->name)->firstOrFail();

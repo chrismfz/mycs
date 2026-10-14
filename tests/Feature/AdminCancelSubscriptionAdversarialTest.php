@@ -95,7 +95,7 @@ class AdminCancelSubscriptionAdversarialTest extends TestCase
             self::PAYPAL . '/v1/billing/subscriptions/I-SUB1/cancel' => Http::response(null, 204),
         ]);
 
-        $page = Livewire::actingAs($this->admin())->test(EditService::class, ['record' => $service->getRouteKey()]);
+        $page = $this->livewireAs($this->admin())->test(EditService::class, ['record' => $service->getRouteKey()]);
         $page->callAction(TestAction::make('Cancel Subscription ID')->schemaComponent('subscription_id', 'form'))
             ->assertNotified('The subscription has been successfully cancelled');
         $page->call('save')->assertHasNoErrors();
@@ -113,7 +113,7 @@ class AdminCancelSubscriptionAdversarialTest extends TestCase
         $service = $this->makeService('sub_123', ['has_stripe_subscription'], $order->id);
         Http::fake([self::STRIPE . '/subscriptions/sub_123' => Http::response(['id' => 'sub_123', 'status' => 'canceled'])]);
 
-        $page = Livewire::actingAs($this->admin())->test(EditOrder::class, ['record' => $order->getRouteKey()]);
+        $page = $this->livewireAs($this->admin())->test(EditOrder::class, ['record' => $order->getRouteKey()]);
         $this->cancelOnOrderPage($page, $service)->assertNotified('The subscription has been successfully cancelled');
         $page->call('save')->assertHasNoErrors();
 
@@ -134,7 +134,7 @@ class AdminCancelSubscriptionAdversarialTest extends TestCase
             self::PAYPAL . '/v1/billing/subscriptions/I-AAA/cancel' => Http::response(null, 204),
         ]);
 
-        $page = Livewire::actingAs($this->admin())->test(EditOrder::class, ['record' => $order->getRouteKey()]);
+        $page = $this->livewireAs($this->admin())->test(EditOrder::class, ['record' => $order->getRouteKey()]);
         $this->cancelOnOrderPage($page, $a)->assertNotified('The subscription has been successfully cancelled');
         $page->call('save')->assertHasNoErrors();
 
@@ -212,7 +212,7 @@ class AdminCancelSubscriptionAdversarialTest extends TestCase
         ]);
         $staff = $this->admin(['admin.orders.viewAny', 'admin.orders.viewAny', 'admin.orders.update']);
 
-        $page = Livewire::actingAs($staff)->test(EditOrder::class, ['record' => $order->getRouteKey()]);
+        $page = $this->livewireAs($staff)->test(EditOrder::class, ['record' => $order->getRouteKey()]);
         try {
             $this->cancelOnOrderPage($page, $service);
         } catch (\Throwable) {

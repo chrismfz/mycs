@@ -178,7 +178,7 @@ class InvoiceSettleAdversarialTest extends TestCase
         $invoice = $this->reducedBelowPayment();
         $clerk = $this->staff(['admin.invoices.viewAny', 'admin.invoices.viewAny', 'admin.invoices.update']);
 
-        Livewire::actingAs($clerk)->test(EditInvoice::class, ['record' => $invoice->getKey()])
+        $this->livewireAs($clerk)->test(EditInvoice::class, ['record' => $invoice->getKey()])
             ->assertActionHidden('closeAsPaid');
 
         // What the edit form's status select saves, twice.

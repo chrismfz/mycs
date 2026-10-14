@@ -472,7 +472,7 @@ class PaymentGuardsAdversarialTest extends TestCase
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
-        Livewire::actingAs($admin)
+        $this->livewireAs($admin)
             ->test(TransactionsRelationManager::class, ['ownerRecord' => $invoice->fresh(), 'pageClass' => EditInvoice::class])
             ->callTableAction('create', data: ['amount' => '10.00', 'transaction_id' => 'wire-1'])
             ->assertHasNoTableActionErrors();

@@ -133,7 +133,7 @@ class MoneyHistoryCodeReviewTest extends TestCase
         $staff->delete();
         $owner = $this->staff(['*']);
 
-        Livewire::actingAs($owner)->test(ShowCreditHistory::class, ['record' => $this->user->getKey()])
+        $this->livewireAs($owner)->test(ShowCreditHistory::class, ['record' => $this->user->getKey()])
             ->assertSuccessful()
             ->assertSee('Goodwill')
             ->assertDontSee('System')

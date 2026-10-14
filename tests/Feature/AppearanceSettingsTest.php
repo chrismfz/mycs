@@ -103,7 +103,7 @@ class AppearanceSettingsTest extends TestCase
         $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
         config(['settings.system_email_address' => 'billing@example.test']); // required, empty in the test seed
 
-        Livewire::actingAs($owner)->test(Settings::class)
+        $this->livewireAs($owner)->test(Settings::class)
             ->assertSee('Appearance')
             ->assertSee('Custom CSS')
             ->assertSee('Colors (dark mode)')
@@ -138,7 +138,7 @@ class AppearanceSettingsTest extends TestCase
             'admin.settings.view', 'admin.settings.update',
         ]])->id]);
 
-        $page = Livewire::actingAs($staff)->test(Settings::class);
+        $page = $this->livewireAs($staff)->test(Settings::class);
         $field = collect($page->instance()->form->getFlatComponents(withHidden: true))
             ->first(fn ($component) => $component instanceof Field && $component->getName() === 'theme_custom_header');
         $this->assertTrue($field->isDisabled());
@@ -149,7 +149,7 @@ class AppearanceSettingsTest extends TestCase
         $this->assertNull(Setting::query()->whereNull('settingable_type')->where('key', 'theme_custom_header')->value('value') ?: null);
 
         // The rest of the tab stays theirs.
-        Livewire::actingAs($staff)->test(Settings::class)->set('data.theme_primary', 'hsl(10, 50%, 50%)')->call('save')->assertHasNoErrors();
+        $this->livewireAs($staff)->test(Settings::class)->set('data.theme_primary', 'hsl(10, 50%, 50%)')->call('save')->assertHasNoErrors();
         $this->assertSame('hsl(10, 50%, 50%)', Setting::query()->whereNull('settingable_type')->where('key', 'theme_primary')->value('value'));
     }
 
@@ -160,7 +160,7 @@ class AppearanceSettingsTest extends TestCase
         config(['settings.system_email_address' => 'billing@example.test']);
         $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
-        Livewire::actingAs($owner)->test(Settings::class)
+        $this->livewireAs($owner)->test(Settings::class)
             ->set('data.theme_custom_css', str_repeat('a', 65001))
             ->call('save')
             ->assertHasErrors(['data.theme_custom_css']);

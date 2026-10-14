@@ -155,7 +155,7 @@ class ServiceTerminatedAdversarialTest extends TestCase
         config(['settings.credits_auto_use' => false]);
         $this->giveCredit(5000);
 
-        Livewire::actingAs($this->user)->test(InvoiceShow::class, ['invoice' => $invoice])
+        $this->livewireAs($this->user)->test(InvoiceShow::class, ['invoice' => $invoice])
             ->set('selectedMethod', 'credit')
             ->call('processPayment');
 
@@ -302,7 +302,7 @@ class ServiceTerminatedAdversarialTest extends TestCase
         Queue::fake();
         $service = $this->service(['status' => Service::STATUS_TERMINATED], ['stock' => 5]);
 
-        Livewire::actingAs($this->user)->test(Cancel::class, ['service' => $service])
+        $this->livewireAs($this->user)->test(Cancel::class, ['service' => $service])
             ->set('type', 'immediate')->set('reason', 'bye')->call('cancelService');
         $this->assertSame(0, ServiceCancellation::query()->count());
 

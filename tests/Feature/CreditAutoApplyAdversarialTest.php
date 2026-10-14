@@ -553,7 +553,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
-        Livewire::actingAs($owner)->test(EditUser::class, ['record' => $this->user->getRouteKey()])
+        $this->livewireAs($owner)->test(EditUser::class, ['record' => $this->user->getRouteKey()])
             ->assertFormSet(['credit_auto_apply' => true])
             ->fillForm(['credit_auto_apply' => false])
             ->call('save')

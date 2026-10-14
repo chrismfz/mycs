@@ -194,7 +194,7 @@ class GatewayLogTest extends TestCase
         $this->actingAs($owner);
         $this->assertFalse($owner->can('update', $row));
         $this->assertFalse($owner->can('delete', $row));
-        Livewire::actingAs($owner)->test(ListPaymentGatewayEvents::class)
+        $this->livewireAs($owner)->test(ListPaymentGatewayEvents::class)
             ->assertSuccessful()
             ->assertCanSeeTableRecords([$row]);
     }

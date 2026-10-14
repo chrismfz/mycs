@@ -126,7 +126,7 @@ class InvoiceSettleCodeReviewTest extends TestCase
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
-        $page = Livewire::actingAs($staff)->test(EditInvoice::class, ['record' => $draft->getKey()])
+        $page = $this->livewireAs($staff)->test(EditInvoice::class, ['record' => $draft->getKey()])
             ->fillForm(['status' => Invoice::STATUS_UNPAID])
             ->call('save')
             ->assertHasNoFormErrors();

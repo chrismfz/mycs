@@ -184,7 +184,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
         $service = $this->service();
         $invoice = $this->invoice(0, referenceType: Service::class, referenceId: $service->id);
 
-        $component = Livewire::actingAs($this->owner())->test(EditInvoice::class, ['record' => $invoice->getKey()]);
+        $component = $this->livewireAs($this->owner())->test(EditInvoice::class, ['record' => $invoice->getKey()]);
         $key = array_key_first($component->get('data.items'));
         $thrown = null;
         try {

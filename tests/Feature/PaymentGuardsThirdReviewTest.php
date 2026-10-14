@@ -89,7 +89,7 @@ class PaymentGuardsThirdReviewTest extends TestCase
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
-        return Livewire::actingAs($admin)
+        return $this->livewireAs($admin)
             ->test(TransactionsRelationManager::class, ['ownerRecord' => $invoice->fresh(), 'pageClass' => EditInvoice::class]);
     }
 

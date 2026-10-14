@@ -250,7 +250,7 @@ class RefundTest extends TestCase
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
-        Livewire::actingAs($staff)->test(TransactionsRelationManager::class, ['ownerRecord' => $invoice->fresh(), 'pageClass' => EditInvoice::class])
+        $this->livewireAs($staff)->test(TransactionsRelationManager::class, ['ownerRecord' => $invoice->fresh(), 'pageClass' => EditInvoice::class])
             ->assertTableActionVisible('refund', $payment)
             ->callTableAction('refund', $payment, data: ['amount' => '80.00', 'method' => 'credit'])
             ->assertHasNoTableActionErrors();

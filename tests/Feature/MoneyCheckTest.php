@@ -298,7 +298,7 @@ class MoneyCheckTest extends TestCase
         $applied = $this->paid();
         DB::table('invoices')->where('id', $waiting->id)->update(['apply_pending_since' => now()->subHour()]);
 
-        Livewire::actingAs($owner)->test(ListInvoices::class)
+        $this->livewireAs($owner)->test(ListInvoices::class)
             ->filterTable('paid_not_applied')
             ->assertCanSeeTableRecords([$waiting])
             ->assertCanNotSeeTableRecords([$applied]);

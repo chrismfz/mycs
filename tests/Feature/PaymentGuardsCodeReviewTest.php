@@ -99,7 +99,7 @@ class PaymentGuardsCodeReviewTest extends TestCase
         Setting::updateOrCreate(['key' => 'credits_enabled'], ['value' => true]);
         Cache::flush();
 
-        $component = Livewire::actingAs($this->user)->test(Show::class, ['invoice' => $invoice])
+        $component = $this->livewireAs($this->user)->test(Show::class, ['invoice' => $invoice])
             ->set('selectedMethod', 'credit');
 
         // The concurrent staff action lands before the payment takes its locks (after, it would wait for them).

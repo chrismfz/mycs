@@ -71,7 +71,7 @@ class AutomationSettingsReviewTest extends TestCase
      */
     public function test_r1_the_automation_tab_keeps_its_cronjob_query_string_key(): void
     {
-        $livewire = Livewire::actingAs($this->owner())->test(Settings::class);
+        $livewire = $this->livewireAs($this->owner())->test(Settings::class);
 
         $keys = array_map(fn (Tab $tab) => $tab->getKey(isAbsolute: false), $this->tabs($livewire));
 
@@ -83,14 +83,14 @@ class AutomationSettingsReviewTest extends TestCase
     {
         $owner = $this->owner();
 
-        Livewire::actingAs($owner)->test(Settings::class)
+        $this->livewireAs($owner)->test(Settings::class)
             ->set('data.cronjob_suspend_enabled', false)
             ->call('save')->assertHasNoErrors();
         SettingsProvider::flushCache();
         $this->assertFalse(config('settings.cronjob_suspend_enabled', true));
 
         config()->set('settings', config('settings')->put('system_email_address', 'billing@example.test'));
-        Livewire::actingAs($owner)->test(Settings::class)
+        $this->livewireAs($owner)->test(Settings::class)
             ->assertSet('data.cronjob_suspend_enabled', false)
             ->set('data.cronjob_suspend_enabled', true)
             ->call('save')->assertHasNoErrors();
@@ -101,7 +101,7 @@ class AutomationSettingsReviewTest extends TestCase
     /** Control: every other tab still renders its fields without sections; sections only on Automation. */
     public function test_control_other_tabs_have_no_sections(): void
     {
-        $livewire = Livewire::actingAs($this->owner())->test(Settings::class);
+        $livewire = $this->livewireAs($this->owner())->test(Settings::class);
         foreach ($this->tabs($livewire) as $tab) {
             $sections = array_filter($tab->getChildSchema()->getComponents(withHidden: true), fn ($c) => $c instanceof Section);
             $key = (string) $tab->getKey(isAbsolute: false);

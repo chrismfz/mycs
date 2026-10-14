@@ -284,7 +284,7 @@ class NotificationsAfterCommitAdversarialTest extends TestCase
         Setting::query()->updateOrCreate(['key' => 'invoice_number', 'settingable_type' => null], ['value' => 10]);
         config(['settings.invoice_number' => 2, 'settings.mail_disable' => true]); // mail fields required otherwise
 
-        $page = Livewire::actingAs($owner)->test(Settings::class)->assertSet('data.invoice_number', '10');
+        $page = $this->livewireAs($owner)->test(Settings::class)->assertSet('data.invoice_number', '10');
         $this->invoice();
         $this->invoice(); // counter 12, config still 2
 
