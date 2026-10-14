@@ -19,7 +19,8 @@ class ExtensionsNamespaceTest extends TestCase
         $old = 'Paymenter' . '\\Extensions\\Others\\Affiliates\\Models\\Affiliate';
         $id = DB::table('audits')->insertGetId(['event' => 'created', 'auditable_type' => $old, 'auditable_id' => 1,
             'user_type' => 'App\\Models\\Staff', 'user_id' => 1, 'old_values' => '[]', 'new_values' => '[]']);
-        DB::table('custom_properties')->insert(['key' => 'k', 'name' => 'K', 'model' => $old, 'type' => 'string']);
+        DB::table('custom_properties')->insert(['key' => 'k', 'name' => 'K', 'model' => $old, 'type' => 'string',
+            'non_editable' => false, 'required' => false, 'show_on_invoice' => false]);
         $migration = require database_path('migrations/2026_10_31_000000_extensions_namespace_mycs.php');
 
         $migration->up();
