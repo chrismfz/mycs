@@ -155,7 +155,7 @@ class ContactsTest extends TestCase
         $this->workOn($ticketsOnly, $client)->get(route('account.contacts'))->assertForbidden();
 
         $this->workOn($owner, $client);
-        $page = Livewire::test(Contacts::class)->call('create')
+        Livewire::test(Contacts::class)->call('create')
             ->set('contact.first_name', 'Billing')->set('contact.email', 'billing@example.test')->set('contact.document_type', 'invoice')
             ->call('save')->assertHasNoErrors();
         $contact = $client->contacts()->whereNull('primary_of_client_id')->sole();
@@ -163,13 +163,13 @@ class ContactsTest extends TestCase
 
         foreach ([$client->primaryContact->id, $foreign->id] as $id) {
             try {
-                $page->call('edit', $id);
+                Livewire::test(Contacts::class)->call('edit', $id);
                 $this->fail('opened a contact that is not one of the account\'s other contacts');
             } catch (\Throwable) {
             }
         }
 
-        $page->call('archive', $contact->id);
+        Livewire::test(Contacts::class)->call('archive', $contact->id);
         $this->assertNotNull($contact->fresh()->archived_at);
         $this->assertNull($foreign->fresh()->archived_at);
     }
