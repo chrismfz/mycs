@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Classes\Synths\PriceSynth;
 use App\Exceptions\ErrorHandler;
 use App\Helpers\ExtensionHelper;
+use App\Models\ApiKey;
 use App\Models\EmailLog;
 use App\Models\Extension;
 use App\Models\OauthClient;
@@ -144,9 +145,16 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // The admin API: 120 calls a minute per key (its bearer token, hashed), or per address without one (AUTH-17).
-        RateLimiter::for('admin-api', fn (Request $request) => Limit::perMinute(120)
-            ->by($request->bearerToken() ? hash('sha256', $request->bearerToken()) : $request->ip()));
+        // The admin API (AUTH-17): 120 calls a minute per key that exists and is enabled; anything else (no token, a
+        // junk one) shares 60 a minute per address, so a new junk token on every call gets no fresh bucket (R1 of #90).
+        RateLimiter::for('admin-api', function (Request $request) {
+            $hash = $request->bearerToken() ? hash('sha256', $request->bearerToken()) : null;
+            if ($hash !== null && ApiKey::query()->where('token', $hash)->where('enabled', true)->exists()) {
+                return Limit::perMinute(120)->by('key:' . $hash);
+            }
+
+            return Limit::perMinute(60)->by('bad:' . $request->ip());
+        });
 
         // Change livewire url
         Livewire::setUpdateRoute(function ($handle) {

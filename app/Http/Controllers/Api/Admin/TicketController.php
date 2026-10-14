@@ -35,7 +35,7 @@ class TicketController extends ApiController
             ->allowedFilters(['id', 'currency_code', 'user_id', 'status', 'priority', 'department'])
             ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
             ->allowedSorts(['id', 'created_at', 'updated_at', 'currency_code', 'status', 'priority', 'department'])
-            ->simplePaginate(min(max((int) min(max((int) request('per_page', 15), 1), 100), 1), 100));
+            ->simplePaginate(min(max((int) request('per_page', 15), 1), 100));
 
         // Return the tickets as a JSON response
         return TicketResource::collection($tickets);
