@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Exceptions\ServerHasAccounts;
 use App\Helpers\ExtensionHelper;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -29,6 +30,17 @@ class Extension extends Model implements Auditable
     ];
 
     protected $guarded = [];
+
+    protected static function booted(): void
+    {
+        // A server with accounts on it is not deleted: the admin's delete is a soft delete, so the services' key never
+        // refuses it, and its accounts would be left with no server (review F1b). Move or end them first.
+        static::deleting(function (Extension $extension) {
+            if ($extension->type === 'server' && ($accounts = Server::liveAccountsOn($extension->id)) > 0) {
+                throw new ServerHasAccounts("Server «{$extension->name}» still has {$accounts} account(s): move them to another server or end them first.");
+            }
+        });
+    }
 
     /**
      * Get the extension's settings.

@@ -23,6 +23,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
 
 class ServerResource extends Resource
 {
@@ -130,9 +131,28 @@ class ServerResource extends Resource
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+                    DeleteBulkAction::make()->before(fn (DeleteBulkAction $action, Collection $records) => self::refuseDeletingBusy($action, $records)),
                 ]),
             ]);
+    }
+
+    /**
+     * A server with accounts on it is not deleted (the model refuses it too): say which and stop before anything is
+     * deleted or disabled.
+     *
+     * @param  Collection<int, Server>  $servers
+     */
+    public static function refuseDeletingBusy(Action $action, Collection $servers): void
+    {
+        $busy = $servers->filter(fn (Server $server) => $server->accountsCount() > 0);
+        if ($busy->isEmpty()) {
+            return;
+        }
+        Notification::make()->danger()->title('Servers with accounts are not deleted')
+            ->body($busy->map(fn (Server $server) => "{$server->name}: {$server->accountsCount()} account(s)")->implode(', ')
+                . '. Move the accounts to another server or end them first.')
+            ->send();
+        $action->cancel();
     }
 
     public static function getRelations(): array

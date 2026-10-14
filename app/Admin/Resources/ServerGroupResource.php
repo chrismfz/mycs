@@ -33,8 +33,11 @@ class ServerGroupResource extends Resource
                 ServerGroup::FILL_LEAST_FULL => 'Add to the least full server',
                 ServerGroup::FILL_IN_ORDER => 'Fill the servers in order until full',
             ]),
+            // In the order chosen: «fill in order» goes by it (review F2).
             Select::make('servers')->label('Servers')->multiple()->relationship('servers', 'name')->preload()
-                ->helperText('Enabled servers of the product\'s module, with room under their max accounts.')
+                ->saveRelationshipsUsing(fn (ServerGroup $record, ?array $state) => $record->servers()->sync(
+                    collect($state ?? [])->values()->mapWithKeys(fn ($id, int $position) => [(int) $id => ['position' => $position]])->all()))
+                ->helperText('Enabled servers of the product\'s module, with room under their max accounts. «Fill in order» fills them in the order listed here.')
                 ->columnSpanFull(),
         ]);
     }

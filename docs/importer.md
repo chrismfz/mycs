@@ -88,5 +88,6 @@ Suspended) περνούν στα native πεδία της υπηρεσίας. Ο
 δεν μεταφέρονται· disk/bw usage τα ξαναδιαβάζει το sync του cPanel. Server ανά υπηρεσία: `services.server_id` (και server groups, `server_groups`). Ο importer θα φέρει τους servers
 του WHMCS (`tblservers`: όνομα, module, max accounts, χωρίς credentials, που τα συμπληρώνει το staff ή το βήμα των
 κωδικών), τα groups (`tblservergroups`, `tblservergroupsrel`, `filltype` 1 = least full, 2 = in order), το
-`servergroup` των προϊόντων και το `tblhosting.server` κάθε υπηρεσίας. myip: 6 cPanel servers (657 λογαριασμοί),
+`servergroup` των προϊόντων και το `tblhosting.server` κάθε υπηρεσίας. Το `maxaccounts` 0 του WHMCS γίνεται null
+(χωρίς όριο)· ένα `tblhosting.server` που δείχνει σε server που δεν υπάρχει μένει null (όχι ο server του προϊόντος). myip: 6 cPanel servers (657 λογαριασμοί),
 7 groups· nixpal: 1 server.

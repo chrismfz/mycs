@@ -29,7 +29,13 @@ class Server extends Extension
     /** Accounts it holds, as WHMCS counts them for «max accounts»: active, suspended and pending ones. */
     public function accountsCount(): int
     {
-        return $this->services()->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED, Service::STATUS_PENDING])->count();
+        return self::liveAccountsOn($this->id);
+    }
+
+    public static function liveAccountsOn(int $serverId): int
+    {
+        return Service::query()->where('server_id', $serverId)
+            ->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED, Service::STATUS_PENDING])->count();
     }
 
     public function hasRoom(): bool

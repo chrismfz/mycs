@@ -1440,6 +1440,10 @@ class ExtensionHelper
         // the product's server), then kept.
         $server = $action === 'createServer' ? ServerSelector::assign($service) : $service->provisioningServer();
 
+        if (!$server && $service->server_id !== null) {
+            // Its server was deleted: never quietly «nothing to do» (the jobs skip «no server»), nor another server.
+            throw new Exception("The service's server #{$service->server_id} no longer exists: set its server first");
+        }
         if (!$server) {
             throw new Exception('No server assigned to this product');
         }

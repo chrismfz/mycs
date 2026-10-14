@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Admin\Resources\ServerGroupResource\Pages\CreateServerGroup;
+use App\Admin\Resources\ServerResource\Pages\EditServer;
+use App\Admin\Resources\ServerResource\Pages\ListServers;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Helpers\ExtensionHelper;
 use App\Models\Product;
@@ -13,6 +15,8 @@ use App\Models\Service;
 use App\Models\Staff;
 use App\Models\User;
 use App\Services\Service\ServerSelector;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\DeleteBulkAction;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Select;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -167,5 +171,24 @@ class ServiceServersTest extends TestCase
         $this->assertSame($other->id, $service->fresh()->server_id);
         $this->assertTrue(DB::table('audits')->where('auditable_type', (new Service)->getMorphClass())->where('auditable_id', $service->id)
             ->where('new_values', 'like', '%server_id%')->exists(), 'the move is in the audit');
+    }
+
+    public function test_staff_cannot_delete_a_server_with_accounts_on_it(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $busy = $this->server('Busy');
+        $service = $this->service(['server_id' => $busy->id]);
+
+        $this->livewireAs($staff)->test(EditServer::class, ['record' => $busy->getRouteKey()])
+            ->callAction(DeleteAction::class)
+            ->assertNotified('Servers with accounts are not deleted');
+        $this->livewireAs($staff)->test(ListServers::class)
+            ->callTableBulkAction(DeleteBulkAction::class, [$busy]);
+        $this->assertNotNull(Server::query()->find($busy->id));
+
+        $service->update(['status' => 'cancelled']); // ended: its server may go
+        $this->livewireAs($staff)->test(EditServer::class, ['record' => $busy->getRouteKey()])->callAction(DeleteAction::class);
+        $this->assertNull(Server::query()->find($busy->id));
     }
 }

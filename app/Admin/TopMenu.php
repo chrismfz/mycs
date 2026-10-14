@@ -24,6 +24,7 @@ use App\Admin\Resources\OauthClientResource;
 use App\Admin\Resources\OrderResource;
 use App\Admin\Resources\ProductResource;
 use App\Admin\Resources\RoleResource;
+use App\Admin\Resources\ServerGroupResource;
 use App\Admin\Resources\ServerResource;
 use App\Admin\Resources\ServiceCancellationResource;
 use App\Admin\Resources\ServiceResource;
@@ -85,6 +86,7 @@ class TopMenu
             [TaxRateResource::class, 'index', 'Tax Rules'],
             [GatewayResource::class, 'index', 'Payment Gateways'],
             [ServerResource::class, 'index', 'Servers'],
+            [ServerGroupResource::class, 'index', 'Server Groups'],
             [NotificationTemplateResource::class, 'index', 'Email Templates'],
             [RoleResource::class, 'index', 'Staff Roles'],
             [ExtensionResource::class, 'index', 'Extensions'],

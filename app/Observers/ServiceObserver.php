@@ -6,6 +6,7 @@ use App\Events\Service as ServiceEvent;
 use App\Exceptions\DisplayException;
 use App\Models\BillingAgreement;
 use App\Models\Service;
+use App\Services\Service\ServerSelector;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -77,6 +78,7 @@ class ServiceObserver
         }
         if ($service->isDirty('product_id')) {
             $service->unsetRelation('product');
+            self::keepServerOfProductsModule($service);
         }
         if ($service->isDirty('plan_id')) {
             $service->unsetRelation('plan'); // a loaded relation still holds the old plan
@@ -95,6 +97,24 @@ class ServiceObserver
         if ($paid->greaterThan($service->paidUntilBase())) {
             $service->expires_at = $paid->toMutable();
         }
+    }
+
+    /**
+     * A new product of another module (an upgrade, staff, the API) takes the service to a server of its module: the old
+     * server would get the new product's settings, a module it does not speak (review F4). Of the same module the
+     * account stays where it is (WHMCS). A server set in the same save is staff's choice and kept.
+     */
+    private static function keepServerOfProductsModule(Service $service): void
+    {
+        if ($service->server_id === null || $service->isDirty('server_id')) {
+            return;
+        }
+        $module = $service->product?->server?->extension;
+        if ($service->server?->extension === $module) {
+            return;
+        }
+        $service->server_id = $service->product === null ? null : ServerSelector::forNewAccount($service->product)?->id;
+        $service->unsetRelation('server');
     }
 
     /**

@@ -592,11 +592,12 @@ class Service extends Model implements Auditable
 
     /**
      * The server its module actions go to: its own; its product's while it has none (a service not created yet, or one
-     * made before servers were the service's).
+     * made before servers were the service's). Its own deleted: none, never the product's, another machine where the
+     * same username may be someone else's account (review F1).
      */
     public function provisioningServer(): ?Server
     {
-        return $this->server ?? $this->product?->server;
+        return $this->server_id !== null ? $this->server : $this->product?->server;
     }
 
     /** @return BelongsTo<Product, $this> */

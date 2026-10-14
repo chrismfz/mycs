@@ -4,6 +4,7 @@ namespace App\Admin\Resources\ServerResource\Pages;
 
 use App\Admin\Resources\ServerResource;
 use App\Helpers\ExtensionHelper;
+use App\Models\Server;
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
 use Illuminate\Database\Eloquent\Model;
@@ -16,7 +17,10 @@ class EditServer extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
-            DeleteAction::make()->before(fn ($record) => ExtensionHelper::call($record, 'disabled', [$record], mayFail: true)),
+            DeleteAction::make()->before(function (DeleteAction $action, Server $record) {
+                ServerResource::refuseDeletingBusy($action, collect([$record]));
+                ExtensionHelper::call($record, 'disabled', [$record], mayFail: true);
+            }),
         ];
     }
 

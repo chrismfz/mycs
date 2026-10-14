@@ -46,16 +46,26 @@ return new class extends Migration
         $this->backfill();
     }
 
-    /** Every service so far lives on its product's server. */
+    /**
+     * Every service so far lives on its product's server: one still there (products.server_id has no key, so it may point
+     * at a row gone or deleted; on MariaDB a broken key would leave this migration half done, review F6).
+     */
     public function backfill(): void
     {
-        DB::table('services')->whereNull('server_id')->whereIn('product_id', DB::table('products')->whereNotNull('server_id')->select('id'))
+        $servers = DB::table('extensions')->where('type', 'server')->whereNull('deleted_at')->select('id');
+        DB::table('services')->whereNull('server_id')
+            ->whereIn('product_id', DB::table('products')->whereIn('server_id', $servers)->select('id'))
             ->update(['server_id' => DB::raw('(SELECT products.server_id FROM products WHERE products.id = services.product_id)')]);
     }
 
     public function down(): void
     {
-        // SQLite rebuilds a table to drop a column: the services' key to products would refuse it.
+        // SQLite rebuilds a table to drop a column: the keys to products and services would refuse dropping the old
+        // one. Turning the keys off does nothing inside a transaction (a rollback in the tests, review R0); deferring
+        // them to the commit does, and they hold again once the rebuilt table is in place.
+        if (DB::getDriverName() === 'sqlite') {
+            DB::statement('PRAGMA defer_foreign_keys = ON');
+        }
         Schema::disableForeignKeyConstraints();
         Schema::table('services', function (Blueprint $table) {
             $table->dropConstrainedForeignId('server_id');
