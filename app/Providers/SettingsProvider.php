@@ -9,11 +9,9 @@ use Exception;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Facades\Lang;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
-use Qirolab\Theme\Theme;
 
 class SettingsProvider extends ServiceProvider
 {
@@ -71,14 +69,6 @@ class SettingsProvider extends ServiceProvider
             include_once app_path('Classes/helpers.php');
 
             date_default_timezone_set(config('settings.timezone', 'UTC'));
-
-            $themeName = config('settings.theme', 'default');
-            Theme::set($themeName, 'default');
-
-            $themeLangPath = base_path("themes/{$themeName}/lang");
-            if (is_dir($themeLangPath)) {
-                Lang::addNamespace($themeName, $themeLangPath);
-            }
 
             if (Str::startsWith(config('app.url') ?? '', 'https://')) {
                 URL::forceScheme('https');

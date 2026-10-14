@@ -55,7 +55,7 @@ class Settings extends Page implements HasForms
     private const COUNTER_MAX = 999_999_999_999;
 
     /** Tabs named otherwise than their group key (the query string keeps the key). */
-    private const TAB_LABELS = ['cronjob' => 'Automation'];
+    private const TAB_LABELS = ['cronjob' => 'Automation', 'theme' => 'Appearance'];
 
     public function mount(): void
     {
@@ -88,6 +88,9 @@ class Settings extends Page implements HasForms
                     $sections = [];
                     foreach ($categories as $setting) {
                         $input = FilamentInput::convert($setting);
+                        if (!self::mayChange($setting)) {
+                            $input->disabled(); // shown, not sent back (and refused in save())
+                        }
                         if (self::isEncrypted($setting['name']) && self::hasStoredValue($setting['name'])) {
                             // Empty means "keep the stored one", so it is not required again.
                             $input->required(false)->placeholder(__('Stored: leave empty to keep it'));
@@ -134,6 +137,12 @@ class Settings extends Page implements HasForms
 
         $data = $this->form->getState();
         $data = array_filter($data, fn ($value, $key) => !array_key_exists($key, $this->loaded) || !self::same($value, $this->loaded[$key]), ARRAY_FILTER_USE_BOTH);
+        foreach (array_keys($data) as $key) {
+            $setting = collect(ClassesSettings::settings())->flatten(1)->firstWhere('name', $key);
+            if ($setting !== null && !self::mayChange($setting)) {
+                abort(403, "Changing {$key} needs the {$setting['permission']} permission.");
+            }
+        }
 
         DB::transaction(function () use (&$data) {
             $this->write($data); // normalises the counters in $data
@@ -242,6 +251,17 @@ class Settings extends Page implements HasForms
         return $prefix === 'invoice'
             ? Invoice::query()->where('number', $number)->exists()
             : AdjustmentNote::query()->where('number', $number)->exists();
+    }
+
+    /**
+     * Settings with their own permission on top of settings.update (the Appearance tab's custom code and files: they
+     * run in the client area, same origin as the admin).
+     *
+     * @param  array<string, mixed>  $setting
+     */
+    private static function mayChange(array $setting): bool
+    {
+        return !isset($setting['permission']) || Gate::allows('has-permission', $setting['permission']);
     }
 
     /** Settings stored encrypted: never sent to the browser. */

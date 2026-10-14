@@ -1,6 +1,7 @@
 /.phpunit.cache
 /node_modules
-/public/default/*
+/public/build
+/public/default
 /public/hot
 /public/storage
 /storage/*.key
@@ -20,11 +21,9 @@ yarn-error.log
 /.fleet
 /.idea
 /.vscode
-themes/*
 extensions/Others/Pages
 extensions/Servers/LicenseManager
 extensions/Servers/Proxmox
-!themes/default
 .DS_Store
 
 # Claude Code: per-machine overrides (template: .claude/settings.local.json.example)

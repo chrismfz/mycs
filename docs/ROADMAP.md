@@ -80,10 +80,8 @@ audit sweep: αφαίρεση theme system, Σ4, licensing (στο παράθυ�
       ό,τι ήταν μόνο για το Blesta (repository/plugin endpoint/importer του licensing, tests των modules). Μένουν
       ονόματα του Blesta στο API (π.χ. `VposReturn::blestaStatus()`, `ServiceLifecycle`): αλλάζουν όταν γραφτούν τα
       adapters του MyCS (Φάση 1/3). Το `gr-epp` ήταν άδειο (Φάση 4).
-- [x] `corwindev/laravel-themer` → `packages/laravel-themer` (MIT) με διορθώσεις για PHP 8.4 (implicit nullable):
-      τέλος τα `PHP Deprecated` σε κάθε `artisan` (2026-10-11). Το χρησιμοποιεί **μόνο το client area** (`themes/default`,
-      ρύθμιση `theme`, `app:make-theme`)· το admin είναι Filament. Υποψήφιο για αφαίρεση αν μείνουμε σε ένα theme:
-      μεταφορά του `themes/default` στο `resources/views` και κατάργηση του package.
+- [x] `corwindev/laravel-themer` → `packages/laravel-themer` (2026-10-11)· καταργήθηκε μαζί με το theme system
+      (2026-10-14, βλ. πιο κάτω).
 - [x] Ελληνικά στο client area: `lang/el` (όλα τα αρχεία), `lang/el.json` για τα 53 μηνύματα (toasts κ.λπ.) που ήταν hardcoded,
       ξεχωριστή γλώσσα για το admin (`Admin Language`, default English), γλωσσάρι `docs/glossary-el.md` και test
       που δεν αφήνει κλειδί/μήνυμα χωρίς ελληνικά (2026-10-11). Μένουν τα templates των emails (Φάση 1).
@@ -129,12 +127,13 @@ audit sweep: αφαίρεση theme system, Σ4, licensing (στο παράθυ�
       idempotency στα refunds (Stripe `Idempotency-Key`, PayPal request id). **Μένουν:** idempotency/lock στη χρέωση
       αποθηκευμένης κάρτας (PAY-3), ιδιοκτησία μεθόδου (PAY-8), webhooks κοινού λογαριασμού και prefix αναφοράς
       (PAY-10/11), χρήματα χωρίς τιμολόγιο (PAY-6), Stripe signature (PAY-14), floats/fees (PAY-16).
-- [ ] **Αφαίρεση του theme system του Paymenter** (ζητήθηκε 2026-10-14· πριν από το Σ4): ένα instance ανά εταιρεία,
-      ένα στυλ. Τα views του `themes/default` στο `resources/views`, ένα Vite build· φεύγουν ο επιλογέας theme, το
-      `app:make-theme`, οι ρυθμίσεις και οι μεταφράσεις ανά theme. Για την εμφάνιση ανά εταιρεία: λογότυπο, χρώματα (υπάρχουν)
-      και απλά πεδία header/footer (κείμενο ή περιορισμένο HTML, όχι Blade: `audit-security.md`). Λόγοι: τα tests της
-      σελίδας του πελάτη δεν τρέχουν έξω από το CI (views/build ανά theme), ένα theme είναι κώδικας PHP που διαλέγεται από
-      φάκελο. Πριν: τι μπαίνει σήμερα σε header/footer στις δύο εταιρείες.
+- [x] **Αφαίρεση του theme system του Paymenter** (2026-10-14): τα views του `themes/default` στο `resources/views`,
+      τα assets στο `resources/css|js`, ένα `vite.config.js` (build στο `public/build`). Έφυγαν ο επιλογέας theme, το
+      `app:theme:create`, το `vite.js`, οι μεταφράσεις ανά theme, το `packages/laravel-themer` και τα αρχεία Docker του
+      upstream. Οι ρυθμίσεις του theme έγιναν η καρτέλα **Appearance** (`theme_<όνομα>`, `theme('<όνομα>')`· migration
+      από `theme_default_<όνομα>`). Νέα πεδία, για να μη γράφεται τίποτα της εταιρείας μέσα στα views: custom CSS,
+      HTML στο `<head>`, header πριν από το μενού, footer αντί του ενσωματωμένου και αρχεία (`/storage/brand/…`). Το
+      HTML του staff βγαίνει όπως είναι, **δεν** γίνεται compile ως Blade· το γράφει όποιος έχει `admin.settings.update`.
 - [ ] Σ4 Ειδοποιήσεις μετά το commit (όχι `afterResponse`), PDF εκτός ροής πληρωμής, retries στο mail.
 - [ ] Σ5 Δικαιώματα staff: ονόματα permissions που δεν υπάρχουν, Filament «χωρίς μέθοδο = allow», upgrade/invoice
       items χωρίς validation, drafts ορατά στον πελάτη.

@@ -43,7 +43,6 @@
         "nixpal/paypal-vault": "^1.0",
         "minishlink/web-push": "^11.0",
         "owen-it/laravel-auditing": "^14.0",
-        "corwindev/laravel-themer": "^2.2.1",
         "robthree/twofactorauth": "^3.0",
         "socialiteproviders/discord": "^4.2",
         "spatie/color": "^1.8",

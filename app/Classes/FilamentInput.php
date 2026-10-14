@@ -138,6 +138,7 @@ class FilamentInput
 
             case 'textarea':
                 return Textarea::make($setting->name)
+                    ->rows($setting->rows ?? null)
                     ->label($setting->label ?? $setting->name)
                     ->helperText($setting->description ?? null)
                     ->placeholder($setting->placeholder ?? $setting->default ?? '')
@@ -220,6 +221,7 @@ class FilamentInput
                     ->hintColor('primary')
                     ->required($setting->required ?? false)
                     ->live(condition: $setting->live ?? true)
+                    ->hintActions(isset($setting->action) ? [($setting->action)::make()] : [])
                     ->default($setting->default ?? '')
                     ->suffix($setting->suffix ?? null)
                     ->prefix($setting->prefix ?? null)
@@ -254,6 +256,8 @@ class FilamentInput
                     ->live(condition: $setting->live ?? false)
                     ->default($setting->default ?? '')
                     ->disk($setting->disk ?? 'public')
+                    ->directory($setting->directory ?? null)
+                    ->multiple($setting->multiple ?? false)
                     ->preserveFilenames($setting->preserve_filenames ?? true)
                     ->disabled($setting->disabled ?? false)
                     ->visibility($setting->visibility ?? 'private')

@@ -8,6 +8,7 @@ return [
             'settings' => [
                 'view' => 'View Settings',
                 'update' => 'Update Settings',
+                'custom_code' => 'Update Custom Code and Files (Appearance)',
             ],
             'users' => [
                 'create' => 'Create Users',

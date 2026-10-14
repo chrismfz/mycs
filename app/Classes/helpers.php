@@ -1,23 +1,14 @@
 <?php
 
 use App\Helpers\EventHelper;
-use Illuminate\Config\Repository;
 
 if (!function_exists('theme')) {
     /**
-     * Get the specified configuration value.
-     *
-     * If an array is passed as the key, we will assume you want to set an array of values.
-     *
-     * @param  array|string  $key
-     * @param  mixed  $default
-     * @return mixed|Repository
+     * A setting of the client area's look (the Appearance tab, stored as theme_<key>).
      */
-    function theme($key, $default = null)
+    function theme(string $key, mixed $default = null): mixed
     {
-        $current_theme = config('settings.theme', 'default');
-
-        return config("settings.theme_$current_theme" . "_$key", $default) ?? $default;
+        return config("settings.theme_{$key}", $default) ?? $default;
     }
 }
 

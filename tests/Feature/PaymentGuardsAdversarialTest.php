@@ -20,7 +20,6 @@ use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\View;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -120,7 +119,6 @@ class PaymentGuardsAdversarialTest extends TestCase
     private function payWithCreditsInBrowser(Invoice $invoice, ?callable $race = null): void
     {
         $this->actingAs($this->user);
-        View::addLocation(base_path('themes/default/views'));
         $component = Livewire::test(Show::class, ['invoice' => $invoice])->set('selectedMethod', 'credit');
         if ($race !== null) {
             $fired = false;

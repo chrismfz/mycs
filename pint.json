@@ -5,8 +5,5 @@
             "spacing": "one"
         },
         "not_operator_with_successor_space": false
-    },
-    "exclude": [
-        "packages/laravel-themer"
-    ]
+    }
 }

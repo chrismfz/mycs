@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "6f3c14483b3643c5a8bd228ce0e82db1",
+    "content-hash": "9262ba2e06e4639a7b81c8568fcf7a2e",
     "packages": [
         {
             "name": "andreiio/blade-remix-icon",
@@ -851,87 +851,6 @@
                 }
             ],
             "time": "2026-06-07T11:47:49+00:00"
-        },
-        {
-            "name": "corwindev/laravel-themer",
-            "version": "2.5.1",
-            "dist": {
-                "type": "path",
-                "url": "packages/laravel-themer",
-                "reference": "9ef507f24ab37905689c79792a4b2ff973af08ba"
-            },
-            "require": {
-                "facade/ignition-contracts": "^1.0",
-                "illuminate/support": "^9.19|^10.0|^11.0|^12.0|^13.0",
-                "php": ">=7.1.0"
-            },
-            "require-dev": {
-                "orchestra/testbench": "^7.0|^8.0|^9.0|^10.0|^11.0",
-                "phpunit/phpunit": "^8.3|^9.0|^10.5|^11.5.3|^12.5.12",
-                "vimeo/psalm": "^4.0|^5.22|^6.7"
-            },
-            "type": "library",
-            "extra": {
-                "laravel": {
-                    "providers": [
-                        "Qirolab\\Theme\\ThemeServiceProvider"
-                    ]
-                }
-            },
-            "autoload": {
-                "psr-4": {
-                    "Qirolab\\Theme\\": "src",
-                    "Qirolab\\Theme\\Database\\Factories\\": "database/factories"
-                }
-            },
-            "autoload-dev": {
-                "psr-4": {
-                    "Qirolab\\Theme\\Tests\\": "tests"
-                }
-            },
-            "scripts": {
-                "psalm": [
-                    "vendor/bin/psalm"
-                ],
-                "test": [
-                    "vendor/bin/phpunit --colors=always"
-                ],
-                "test-coverage": [
-                    "vendor/bin/phpunit --coverage-html coverage"
-                ],
-                "format": [
-                    "vendor/bin/php-cs-fixer fix --allow-risky=yes"
-                ]
-            },
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Harish Kumar",
-                    "email": "harish@qirolab.com",
-                    "homepage": "https://qirolab.com",
-                    "role": "Developer"
-                }
-            ],
-            "description": "A Laravel theme manager, that will help you organize and maintain your themes inside Laravel projects. (vendored in MyCS with PHP 8.4 nullable fixes)",
-            "homepage": "https://qirolab.com",
-            "keywords": [
-                "laravel",
-                "laravel-theme",
-                "qirolab",
-                "theme"
-            ],
-            "funding": [
-                {
-                    "type": "other",
-                    "url": "https://www.buymeacoffee.com/qirolab"
-                }
-            ],
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
         },
         {
             "name": "danharrin/date-format-converter",
@@ -1814,59 +1733,6 @@
                 }
             ],
             "time": "2024-09-08T08:52:55+00:00"
-        },
-        {
-            "name": "facade/ignition-contracts",
-            "version": "1.0.2",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/facade/ignition-contracts.git",
-                "reference": "3c921a1cdba35b68a7f0ccffc6dffc1995b18267"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/facade/ignition-contracts/zipball/3c921a1cdba35b68a7f0ccffc6dffc1995b18267",
-                "reference": "3c921a1cdba35b68a7f0ccffc6dffc1995b18267",
-                "shasum": ""
-            },
-            "require": {
-                "php": "^7.3|^8.0"
-            },
-            "require-dev": {
-                "friendsofphp/php-cs-fixer": "^v2.15.8",
-                "phpunit/phpunit": "^9.3.11",
-                "vimeo/psalm": "^3.17.1"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "Facade\\IgnitionContracts\\": "src"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Freek Van der Herten",
-                    "email": "freek@spatie.be",
-                    "homepage": "https://flareapp.io",
-                    "role": "Developer"
-                }
-            ],
-            "description": "Solution contracts for Ignition",
-            "homepage": "https://github.com/facade/ignition-contracts",
-            "keywords": [
-                "contracts",
-                "flare",
-                "ignition"
-            ],
-            "support": {
-                "issues": "https://github.com/facade/ignition-contracts/issues",
-                "source": "https://github.com/facade/ignition-contracts/tree/1.0.2"
-            },
-            "time": "2020-10-16T08:27:54+00:00"
         },
         {
             "name": "filament/actions",
