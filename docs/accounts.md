@@ -1,6 +1,6 @@
 # Λογαριασμοί: staff, multi-user, προφίλ πελάτη
 
-> Κατάσταση: **απογραφή έτοιμη (2026-10-14), σχέδιο εκκρεμεί** (σημείωση 2026-10-12). Γίνεται **αμέσως μετά τα MT-x** (`money-trail.md`) και **πριν
+> Κατάσταση: **σχέδιο με αποφάσεις (2026-10-14)** (σημείωση 2026-10-12). Γίνεται **αμέσως μετά τα MT-x** (`money-trail.md`) και **πριν
 > τα migrations/cut-over της nixpal**, όσο δεν υπάρχουν ζωντανά δεδομένα. Ο importer (`importer.md`) και το bridge
 > προς Ekdosi χτίζονται πάνω στο σχήμα που θα αποφασιστεί εδώ.
 
@@ -63,7 +63,7 @@ WHMCS να έχει ένα σαφές σπίτι εδώ**. Ο importer τότε 
 | ΔΟΥ | text | 624 |
 | Δραστηριότητα επιχείρησης | text | 595 |
 | Σημειώσεις | textarea | 52 |
-| «Δύσκολος πελάτης» (σήμανση) | tickbox, admin only | 415 `on` |
+| «Γκρινιάρης» = **άμεση τιμολόγηση** (το Ekdosi κόβει χωρίς αναμονή, `needs_immediate_invoice`) | tickbox, admin only | 415 `on` |
 
 Η nixpal **δεν έχει** custom fields πελάτη· χρησιμοποιεί το `tax_id` του WHMCS (ΑΦΜ/VAT διεθνών). Δηλαδή το ίδιο
 στοιχείο ζει σε δύο διαφορετικά σημεία ανάλογα με την εταιρεία.
@@ -122,9 +122,9 @@ tickets, affiliates, emails, orders`. Στην πράξη: «όλα» ή μικ�
    τιμολόγησης (σημείο 4). Το `is_receipt` του bridge είναι το ίδιο ανά υπηρεσία.
 5. **Επαφές:** `tblcontacts` (κυρίως παραλήπτες emails) και `mod_ekdosi_contacts` (αποδέκτες τιμολόγησης) είναι
    σχεδόν ξένα σύνολα· γίνονται ένα: επαφή με ρόλους. Η ενοποίηση ανά ΑΦΜ αφορά λίγες περιπτώσεις.
-6. **Σήμανση «δύσκολος πελάτης»** (415) και ομάδες πελατών (`separateinvoices`, έκπτωση, `susptermexempt`) θέλουν
+6. **«Άμεση τιμολόγηση»** (το custom field «Γκρινιάρης», 415) και ομάδες πελατών (`separateinvoices`, έκπτωση, `susptermexempt`) θέλουν
    σπίτι.
-7. **Staff 2FA:** στη nixpal κανείς δεν έχει· το υποχρεωτικό 2FA θα θέλει ενεργοποίηση στο cut-over.
+7. **Staff 2FA:** στη nixpal κανείς δεν έχει· εδώ θα είναι διαθέσιμο, όχι υποχρεωτικό (απόφαση 3).
 8. **Δεν μεταφέρονται** (χωρίς χρήση): security questions, παλιά πεδία κάρτας/τράπεζας στο `tblclients`
    (1 εγγραφή), `authmodule`, `pwresetkey`, invites.
 9. **Bugs του σημερινού importer** (θα ξαναγραφτεί με το νέο σχήμα):
@@ -153,7 +153,7 @@ tickets, affiliates, emails, orders`. Στην πράξη: «όλα» ή μικ�
 
 ## Εύρος
 1. **Staff χωριστά από πελάτες** (όπως WHMCS `tbladmins`, Blesta, Ekdosi): δικός τους πίνακας και guard για το admin
-   panel (Filament `authGuard()`), δικό τους login, υποχρεωτικό 2FA, roles/permissions μόνο εκεί. Αγγίζει: απαντήσεις
+   panel (Filament `authGuard()`), δικό τους login, 2FA (διαθέσιμο), roles/permissions μόνο εκεί. Αγγίζει: απαντήσεις
    staff στα tickets, audits («ποιος»), ειδοποιήσεις προς admins, API keys, impersonation, importer.
 2. **Ένας χρήστης, πολλοί λογαριασμοί πελάτη** (Users του WHMCS 8): login (user) ↔ λογαριασμός πελάτη (client) με
    ρόλο/δικαιώματα ανά λογαριασμό (μοτίβο του Ekdosi: χρήστης ↔ εταιρείες), πρόσκληση χρήστη, επιλογέας λογαριασμού
@@ -182,22 +182,163 @@ tickets, affiliates, emails, orders`. Στην πράξη: «όλα» ή μικ�
    Έτσι το Ekdosi δεν χρειάζεται δικό του πίνακα επαφών ή routing: διαβάζει τον αποδέκτη του τιμολογίου. Το bridge
    (MARK/ΤΠΥ, write-back) και η αναζήτηση ΑΦΜ στην ΑΑΔΕ χτίζονται αργότερα· το σχήμα τα προβλέπει από τώρα.
 
-## Ανοιχτά για τον σχεδιασμό
-- Ονόματα: `users` (login) / `clients` (λογαριασμός) / `staff`; τι γίνεται με τα σημερινά `user_id` (rename ή νέο
-  `client_id` παντού).
-- Ποιος staff μπορεί να είναι και πελάτης: δύο ξεχωριστοί λογαριασμοί, ποτέ ο ίδιος.
-- Δικαιώματα ανά χρήστη λογαριασμού (WHMCS: profile, contacts, products, domains, invoices, tickets, orders).
-- Ποια στοιχεία «παγώνουν» στο snapshot του τιμολογίου (σήμερα `CreateInvoiceSnapshotService`).
-- Η απογραφή και το πλήρες mapping πεδίο-προς-πεδίο (βλ. «Αρχή: parity με το WHMCS»).
-- Επαφές (σημείο 4):
-  - **ένα τιμολόγιο ανά αποδέκτη:** υπηρεσίες του ίδιου λογαριασμού με διαφορετική επαφή τιμολόγησης δεν μπαίνουν
-    στο ίδιο τιμολόγιο (ο cron ομαδοποιεί ανά λογαριασμό και αποδέκτη);
-  - το **snapshot** του τιμολογίου κρατά τα στοιχεία του αποδέκτη τη στιγμή της έκδοσης· αλλαγή της επαφής μετά δεν
-    αλλάζει πληρωμένο τιμολόγιο;
-  - επαφή που χρησιμοποιείται (τιμολόγια, domains) δεν σβήνεται· αρχειοθετείται;
-  - importer: `tblcontacts` → επαφές· `mod_ekdosi_contacts` / `mod_ekdosi_routing` → επαφές (ενοποίηση ανά ΑΦΜ) και
-    επαφή τιμολόγησης ανά υπηρεσία. Πριν από αυτό, read-only απογραφή των δύο πινάκων (δομή, πλήθος, χρήση).
-- Ελληνικά και αγγλικά strings σε `lang/`.
+## Δύο εταιρείες, δύο ροές παραστατικών (2026-10-14)
+- **nixpal (Εσθονία):** το PDF που βγάζει το MyCS **είναι** το invoice· πάει στον λογιστή ή σε ετήσιο report. Χωρίς
+  Ekdosi. Αρίθμηση `{YEAR}-{NUMBER}` με proforma. Οι πελάτες είναι κυρίως διεθνείς: χρειάζεται EU VAT με VIES και
+  reverse charge, όχι ΔΟΥ/δραστηριότητα.
+- **myip (Ελλάδα):** το MyCS βγάζει **προτιμολόγιο**· το φορολογικό παραστατικό κόβεται στο Ekdosi μέσω του bridge
+  («Εισερχόμενα»). Μετρούν ο αποδέκτης ανά υπηρεσία, το είδος (τιμολόγιο/απόδειξη), ΑΦΜ, ΔΟΥ, δραστηριότητα, η
+  «άμεση τιμολόγηση» και το «τιμολόγιο πριν την πληρωμή».
+
+Ένα σχήμα για όλους, με όλα τα πεδία προαιρετικά. Ανά instance αλλάζουν **ρυθμίσεις**: ποια πεδία ζητούνται, αν
+υπάρχει bridge, ποια αρίθμηση (`settings-map.md`).
+
+## Πώς το διαβάζει το Ekdosi σήμερα (κώδικας στο `chrismfz/ekdosi`, production = main `79e5313`)
+- Το Ekdosi **τραβάει** τα πληρωμένα τιμολόγια του WHMCS κάθε 5 λεπτά (`whmcs:fetch-pending`, μέσω του plugin
+  `resolve.php op=invoices` ή του API) στα «Εισερχόμενα» (`PendingWhmcsInvoice`). Το κουμπί «Send to ekdosi» του
+  plugin κάνει το ίδιο για ένα τιμολόγιο.
+- **Πελάτης:** ταίριασμα με `whmcs_client_id`, αλλιώς με ΑΦΜ· ποτέ αυτόματη σύνδεση. Τα στοιχεία από τη ΓΓΠΣ
+  υπερισχύουν· email και τηλέφωνο έρχονται μόνο από το WHMCS.
+- **Custom fields** του WHMCS ανά ρόλο (`whmcs_custom_field_map`): `vatno`, `taxoffice`, `occupation`,
+  `wantsinvoice`, `griniaris`. Χωρίς ΑΦΜ ή με `wantsinvoice` = όχι → απόδειξη· «θέλει τιμολόγιο αλλά δεν έχει ΑΦΜ»
+  → hold «Αναμονή για ΑΦΜ».
+- **Άμεση τιμολόγηση** (`griniaris` → `needs_immediate_invoice`): `whmcs:auto-issue` κόβει χωρίς χειριστή όταν
+  όλα είναι καθαρά (ένας αποδέκτης, όχι mass pay, όχι 0% ΦΠΑ κ.λπ.)· τα υπόλοιπα περιμένουν έλεγχο.
+- **Τιμολόγιο πριν την πληρωμή** (`needs_invoice_before_payment`): απλήρωτα, επί πιστώσει· όταν πληρωθούν στο Ekdosi,
+  το `PushWhmcsPaymentJob` γράφει την πληρωμή πίσω στο WHMCS.
+- **Παραστατικά σε τρίτους:** `op=resolve` δίνει ανά γραμμή την επαφή (`mod_ekdosi_routing`, μία επαφή ανά υπηρεσία,
+  `is_receipt` ανά ανάθεση). Ένας αποδέκτης → τιμολογείται αυτός (ταίριασμα με ΑΦΜ)· πολλοί → hold και
+  «Διαχωρισμός σε προσχέδια» από τον χειριστή. Τα mass-pay/ενοποιημένα κρατιούνται πάντα.
+- Ανά γραμμή χρειάζεται `product_id`/`group_id` (κατηγορία εσόδων), περιγραφή, ΦΠΑ· ανά τιμολόγιο gateway,
+  transactions, νόμισμα (μόνο EUR), inclusive/exclusive.
+
+**Συμπέρασμα για εδώ:** αν το MyCS βγάζει **ένα προτιμολόγιο ανά αποδέκτη**, με τα στοιχεία του αποδέκτη και το
+είδος παραστατικού μέσα, το Ekdosi δεν χρειάζεται ούτε routing ούτε split: ο «διαχωρισμός» γίνεται εδώ, πριν
+την πληρωμή, όχι από τον χειριστή μετά.
+
+## Σχέδιο (πρόταση προς έγκριση)
+
+### Τρεις ταυτότητες, τρεις πίνακες
+| Πίνακας | Τι είναι | WHMCS | IDs |
+|---|---|---|---|
+| `staff` | το προσωπικό· μόνο αυτοί μπαίνουν στο admin | `tbladmins` (+ `tbladminroles`) | κρατιούνται |
+| `users` | πρόσωπα που κάνουν login στο client area | `tblusers` | κρατιούνται |
+| `clients` | ο λογαριασμός πελάτη: υπηρεσίες, τιμολόγια, πιστώσεις, tickets | `tblclients` | κρατιούνται |
+| `client_user` | ποιος user βλέπει ποιον λογαριασμό, owner ή με δικαιώματα | `tblusers_clients` | νέα |
+| `contacts` | επαφές του λογαριασμού: στοιχεία, αποδέκτες τιμολόγησης, επαφές domain, παραλήπτες emails | `tblcontacts` + `mod_ekdosi_contacts` | νέα + χάρτης παλιών ids |
+
+- Το ίδιο email μπορεί να υπάρχει σε `staff` και `users`: είναι δύο ξεχωριστοί λογαριασμοί και ποτέ δεν
+  συγχωνεύονται (σήμερα 2 + 1 τέτοιοι).
+- Ό,τι ανήκει στον **λογαριασμό** περνά σε `client_id`: orders, services, invoices, credits, money_events, carts,
+  billing_agreements, tickets, email_logs, properties, affiliates. Ό,τι ανήκει στο **login** μένει σε `user_id`:
+  sessions, 2FA, auth logs, notification preferences, push subscriptions, OAuth.
+
+### Staff
+- Δικός του guard `staff` και provider. Το Filament panel παίρνει `authGuard('staff')` και δικό του login στο
+  `/admin/login`. Ξεχωριστά password resets, throttle και session cookie.
+- **2FA (TOTP) διαθέσιμο, όχι υποχρεωτικό** (απόφαση 3). Τα 2FA του WHMCS δεν μεταφέρονται (κρυπτογραφημένα με
+  κλειδί του WHMCS)· όποιος το θέλει, το στήνει ξανά.
+- Οι roles και τα permissions υπάρχουν μόνο εδώ (`staff.role_id`). Το `users.role_id` φεύγει.
+- Ό,τι σήμερα δείχνει «ποιος από το staff» γίνεται `staff_id` ή morph: `tickets.assigned_to`, τα API keys, ο causer
+  στα audits, ο `actor` στα money_events (υπάρχει ήδη morph), οι συντάκτες των σημειώσεων.
+- Ειδοποιήσεις προς staff: σήμερα πάνε σε μία διεύθυνση (`system_email_address`), και μένει έτσι. Ειδοποιήσεις
+  ανά μέλος του staff έρχονται αργότερα.
+
+### Users και πρόσβαση σε λογαριασμούς
+- `client_user`: `owner` (ακριβώς ένας ανά λογαριασμό), `permissions` με τα ονόματα του WHMCS (`profile`,
+  `contacts`, `products`, `manageproducts`, `productsso`, `domains`, `managedomains`, `invoices`, `quotes`, `tickets`,
+  `affiliates`, `emails`, `orders`), `last_login_at`. Ο owner έχει όλα.
+- Το client area δουλεύει πάντα με έναν **τρέχοντα λογαριασμό** (session) και επιλογέα όταν ο user έχει πολλούς.
+  Policies: ο user ανήκει στον λογαριασμό **και** έχει το δικαίωμα.
+- Πρόσκληση user σε λογαριασμό (email) και αφαίρεση· ο owner δεν αφαιρείται και αλλάζει μόνο από το staff.
+- **Login as client** (staff): ανοίγει το client area στον λογαριασμό, ως ο owner, με σήμανση. Τα audits γράφουν
+  το μέλος του staff ως causer, όχι τον πελάτη.
+
+### Λογαριασμός πελάτη (`clients`)
+- Μόνο ό,τι αφορά τον λογαριασμό: `status` (Active / Inactive / Closed, `money-trail.md` §8–§9), `group_id`,
+  γλώσσα, νόμισμα, `credit_auto_apply`, `tax_exempt`, **`needs_immediate_invoice`** (Γκρινιάρης),
+  **`needs_invoice_before_payment`**, σημειώσεις staff (ξεχωριστός πίνακας, πολλές, με συντάκτη· εκεί πάνε και
+  το custom field «Σημειώσεις» και το `tblnotes`).
+- `client_groups`: όνομα, χρώμα, ποσοστό έκπτωσης, `separate_invoices`, `suspend_terminate_exempt`.
+- Τα στοιχεία ταυτότητας (όνομα, επωνυμία, ΑΦΜ, διεύθυνση…) **δεν** είναι στήλες του `clients`· ζουν στην
+  **κύρια επαφή** (ακριβώς μία ανά λογαριασμό). Ένα σχήμα, μία φόρμα, ίδιο validation. Είναι το μοτίβο του Blesta
+  (`contacts.contact_type = primary`) και του Odoo (`res.partner`)· το WHMCS είναι η εξαίρεση.
+  - **Η βάση εγγυάται το «ακριβώς μία»:** στήλη `contacts.primary_of_client_id` = `client_id` μόνο στην κύρια, NULL
+    στις άλλες, με **unique** (η MariaDB δεν έχει partial unique index· τα πολλά NULL επιτρέπονται σε MariaDB και
+    SQLite). Ο λογαριασμός δημιουργείται μαζί με την κύρια επαφή του σε ένα transaction.
+  - Η κύρια επαφή δεν σβήνεται ούτε αρχειοθετείται· ο ρόλος μεταφέρεται σε άλλη επαφή μέσα σε transaction (πρώτα
+    NULL στην παλιά, μετά στη νέα).
+  - Λίστες και αναζήτηση: eager loading της κύριας επαφής· αν χρειαστεί, αντίγραφο του ονόματος στον `clients`
+    μόνο για αναζήτηση, ποτέ ως πηγή.
+
+### Επαφές (`contacts`)
+- Πεδία, όλα προαιρετικά: `type` (ιδιώτης/επιχείρηση), ονοματεπώνυμο, επωνυμία, **`tax_id`** (ελληνικό ΑΦΜ ή
+  ξένο), **`vat_number`** (EU VAT για VIES, ξεχωριστό από το ΑΦΜ, όπως `gr_vatno`/`vies_vatno` στο bridge),
+  ΔΟΥ, δραστηριότητα, διεύθυνση 1/2, πόλη, νομός, ΤΚ, χώρα (ISO), email, τηλέφωνο, σχόλια.
+- **`document_type`**: `invoice` (τιμολόγιο) / `receipt` (απόδειξη) / `none`. Μόνο το myip το χρησιμοποιεί· η κύρια
+  επαφή το παίρνει από το «Θα ήθελα τιμολόγιο». Επαφή με `invoice` πρέπει να έχει επωνυμία, ΑΦΜ, ΔΟΥ και διεύθυνση
+  (το «Αναμονή για ΑΦΜ» του Ekdosi γίνεται validation εδώ).
+- **Παραλήπτης emails** ανά κατηγορία (general, invoice, support, product, domain, affiliate), όπως στο `tblcontacts`.
+- Επαφή που χρησιμοποιείται (σε τιμολόγιο ή domain) δεν σβήνεται· **αρχειοθετείται** (`archived_at`).
+- Validation όταν συμπληρώνεται: μορφή ΑΦΜ, VIES για EU VAT, ISO χώρα. Αναζήτηση ΑΦΜ στην ΑΑΔΕ αργότερα.
+
+### Αποδέκτης τιμολόγησης και προτιμολόγια
+- `services.billing_contact_id` (null = η κύρια επαφή)· αργότερα το ίδιο στα domains. Αντιστοιχεί 1:1 στο
+  `mod_ekdosi_routing` (μία επαφή ανά υπηρεσία). Το `is_receipt` της ανάθεσης γίνεται `document_type` της επαφής
+  (σήμερα 2 περιπτώσεις).
+- **Ένα προτιμολόγιο ανά (λογαριασμός, αποδέκτης):** ο cron και οι παραγγελίες ομαδοποιούν ανά αποδέκτη. Έτσι κάθε
+  προτιμολόγιο έχει έναν αποδέκτη και το Ekdosi δεν χρειάζεται split.
+- Το **snapshot** του τιμολογίου (`CreateInvoiceSnapshotService`) κρατά τα στοιχεία του αποδέκτη και το
+  `document_type` τη στιγμή της έκδοσης. Αλλαγή της επαφής μετά δεν αλλάζει εκδομένο τιμολόγιο.
+- Mass pay (ενοποίηση πολλών τιμολογίων σε μία πληρωμή) δεν ανήκει εδώ· είναι θέμα πληρωμών και, για το Ekdosi,
+  πληρωμή πολλών προτιμολογίων και όχι νέο παραστατικό.
+
+### Bridge προς Ekdosi (αργότερα, μόνο myip)
+- Ανά προτιμολόγιο: `client_id` (το Ekdosi το κρατά όπως σήμερα το `whmcs_client_id`), ο αποδέκτης (snapshot),
+  `document_type`, `needs_immediate_invoice`, `needs_invoice_before_payment`, γραμμές με `product_id`/`category_id`,
+  περιγραφή και ΦΠΑ, πληρωμές με gateway και transaction ids, νόμισμα, inclusive/exclusive.
+- Στο Ekdosi μένει ένα `MycsBillingSource` πάνω στο υπάρχον `BillingSource` contract και στους ουδέτερους
+  `/webhooks/billing/{slug}` (`bridges-connectors.md` §5, §9.5 του Ekdosi). Οι κανόνες «τι κόβεται αυτόματα» μένουν
+  στο Ekdosi.
+
+### Importer (ξαναγράφεται μαζί με το σχήμα)
+- `tblclients` → `clients` + κύρια επαφή. Το ΑΦΜ έρχεται από το custom field (myip) ή το `tax_id` (nixpal), με
+  ρύθμιση ανά instance όπως το `whmcs_custom_field_map` του Ekdosi. «Θα ήθελα τιμολόγιο» → `document_type`,
+  «Γκρινιάρης» → `needs_immediate_invoice`.
+- `tblusers` → `users` (ίδιοι κωδικοί· το WHMCS 8 κρατά bcrypt, να επιβεβαιωθεί στο parity). `tblusers_clients` →
+  `client_user`. Και οι users χωρίς λογαριασμό (108 στο myip), για να μη χαθεί κανένα login.
+- `tbladmins` → `staff`, όλοι οι ρόλοι (όχι μόνο Full Administrator)· οι ανενεργοί ως ανενεργοί.
+- `tblcontacts` → επαφές· οι παλιοί κωδικοί sub-account αγνοούνται (οι users υπάρχουν ήδη). `mod_ekdosi_contacts` →
+  επαφές τιμολόγησης· `mod_ekdosi_routing` → `services.billing_contact_id` (και domains όταν υπάρξει το πεδίο).
+  Ενοποίηση ανά ΑΦΜ μόνο μέσα στον ίδιο λογαριασμό.
+- `tblnotes` και το custom field «Σημειώσεις» → σημειώσεις staff· `tblclientgroups` → `client_groups`.
+- Τα tickets του WHMCS: οι απαντήσεις admin δείχνουν σε `staff` (ταίριασμα με `tbladmins`) αντί για ψεύτικους
+  users. Οι guests (περίπου τα μισά tickets του myip) μένουν tickets με email και χωρίς λογαριασμό.
+
+### Σειρά δουλειάς (PRs)
+1. **Staff χωριστά** (guard, Filament, 2FA, tickets/audits/API keys/assigned). Είναι το μεγαλύτερο
+   κέρδος ασφάλειας και δεν εξαρτάται από τα υπόλοιπα.
+2. **Clients και users:** `clients` + `client_user` και μετονομασία `user_id` → `client_id` στα δεδομένα του
+   λογαριασμού (~146 αρχεία εκτός tests), τρέχων λογαριασμός και δικαιώματα στο client area. Μηχανικό αλλά μεγάλο·
+   αγγίζει χρήματα, οπότε code + adversarial review.
+3. **Επαφές:** κύρια επαφή, πεδία, validation, φόρμες admin/client, `billing_contact_id`, προτιμολόγιο ανά αποδέκτη,
+   snapshot.
+4. **Importer** νέου σχήματος και parity (`importer.md`).
+5. **Bridge** προς Ekdosi (μαζί με την πλευρά του Ekdosi).
+
+Τα tickets ξεχωρίζουν πια απάντηση staff/πελάτη με τον συντάκτη (morph `staff`/`user`) και όχι με τη σύγκριση
+`message.user_id ≠ ticket.user_id`.
+
+### Αποφάσεις (2026-10-14)
+1. **Η κύρια επαφή κρατά τα στοιχεία του λογαριασμού.** Το WHMCS τα έχει ως στήλες στο `tblclients` και τα
+   contacts χωριστά· το parity μένει 1:1: κάθε `tblclients` → ένας `clients` + μία κύρια επαφή, πεδίο προς πεδίο
+   (και αντίστροφα σε export).
+2. **Users χωρίς λογαριασμό μεταφέρονται** (κανένα login δεν χάνεται). Γίνεται με το πλήρες import, όταν έρθει η ώρα
+   κάθε εταιρείας, όχι τώρα.
+3. **2FA staff: διαθέσιμο, όχι υποχρεωτικό.** Κάθε μέλος του staff μπορεί να το ενεργοποιήσει. Τα 2FA του WHMCS δεν
+   μεταφέρονται.
+4. **IDs του WHMCS κρατιούνται** για staff, users και λογαριασμούς. Το import γίνεται σε **άδεια εγκατάσταση**, όταν
+   είμαστε έτοιμοι και tested· η myip έρχεται πολύ αργότερα, πρώτα στρώνουμε το έδαφος.
 
 ## Reviews
 Αλλάζει ιδιοκτησία χρημάτων (τιμολόγια/πιστώσεις → λογαριασμός) και auth: code review **και** adversarial review.
