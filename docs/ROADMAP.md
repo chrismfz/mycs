@@ -21,6 +21,17 @@ MyCS (#104). Η σειρά ακολουθεί τις εξαρτήσεις: ό,τ
 | 7 | Λειτουργία (hosting, email, branding PDF, backups, παρακολούθηση, scheduler), **runbook cut-over**, έλεγχος σε browser, cut-over | Τελευταία, πάνω σε σταθερό σχήμα και δεδομένα. |
 | – | Domains (Φάση 2, με τους ρόλους επαφών ανά domain)· bridge προς Ekdosi (λογαριασμοί PR 5) | Τα domains μετά το cut-over της nixpal στα παραπάνω· το bridge μόνο για το myip, πολύ αργότερα. |
 
+**Notes του WHMCS που λείπουν** (2026-10-14, από τη session του audit sweep· κανένα δεν υπάρχει σήμερα ούτε το φέρνει ο
+importer):
+- Σημειώσεις παραγγελίας `tblorders.notes` (myip 570, nixpal 37) → `orders.notes`, γράφεται από το `PlaceOrderService`
+  (πεδίο στο checkout και στο «Create Order»). Αυτή η session, μετά το Σ7b.
+- Σημειώσεις τιμολογίου `tblinvoices.notes` (27 / 66, τυπώνονται στο τιμολόγιο) → `invoices.notes` στη σελίδα και στο
+  PDF, με το Σ8. Αυτή η session.
+- Admin notes πελάτη `tblclients.notes` (127 / 3) και `tblnotes` (13 / 2, με συντάκτη και sticky) → σημειώσεις
+  λογαριασμού (staff μόνο), με τον importer των λογαριασμών (5). Αυτή η session.
+- Admin notes υπηρεσίας `tblhosting.notes` → `services.notes` (έγινε, session του audit sweep). Εσωτερικά notes των
+  tickets (228 / 7) → με το support, session του audit sweep.
+
 **Ποιος πιάνει τι** (2026-10-14): αυτή η session: Σ7, SVC-14, 3b, EU VAT. Η session του audit sweep: licensing, Σ1.
 Πριν από PR που αγγίζει κοινά αρχεία, ενημέρωση της άλλης πλευράς (μέσω του χρήστη όταν τα μηνύματα δεν φτάνουν).
 
