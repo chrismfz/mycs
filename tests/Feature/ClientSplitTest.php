@@ -201,11 +201,11 @@ class ClientSplitTest extends TestCase
         $owner = User::factory()->create();
         $second = Client::openFor($owner, null);
         $staff = Staff::factory()->withPermissions(['admin.clients.viewAny', 'admin.clients.update', 'admin.users.impersonate'])->create();
+        $this->assertNotSame(CurrentClient::defaultFor($owner)?->id, $second->id, 'precondition: not the default account');
 
         $this->livewireAs($staff)->test(EditClient::class, ['record' => $second->getRouteKey()])->callAction('impersonate');
         $this->actingAs($staff)->withSession(Session::all())->get(route('dashboard'))->assertOk();
 
-        $this->assertNotSame($owner->client()?->id, $second->id, 'precondition: not the default account');
         $this->assertSame($second->id, CurrentClient::id());
     }
 

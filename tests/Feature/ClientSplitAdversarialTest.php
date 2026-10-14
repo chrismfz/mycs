@@ -212,7 +212,8 @@ class ClientSplitAdversarialTest extends TestCase
 
         NotificationHelper::invoiceCreatedNotification($client->fresh(), $invoice->fresh());
 
-        $this->assertFalse(EmailLog::query()->where('to', 'former-owner@example.test')->exists(),
+        // The account's mail (the login's own, e.g. its welcome mail, is not the account's).
+        $this->assertFalse(EmailLog::query()->where('to', 'former-owner@example.test')->where('client_id', $client->id)->exists(),
             'a login whose grant was revoked must not get the account\'s invoices');
         $this->assertNull($client->fresh()->owner());
     }
