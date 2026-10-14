@@ -73,7 +73,7 @@ class ClientUsersTest extends TestCase
         $this->workOn($billing, $client)->get(route('tickets.show', $ticket))->assertNotFound();
         $this->workOn($billing, $client)->get(route('services'))->assertForbidden();
         $this->workOn($billing, $client)->get(route('services.show', $service))->assertNotFound();
-        config(['settings.credits_enabled' => true]);
+        config(['settings.credits_enabled' => true, 'settings.default_currency' => 'USD']);
         $this->workOn($billing, $client)->get(route('account.credits'))->assertSuccessful();
     }
 
