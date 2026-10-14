@@ -7,6 +7,7 @@ use App\Models\Role;
 use App\Models\Setting;
 use App\Models\User;
 use Filament\Facades\Filament;
+use Filament\Forms\Components\Field;
 use Filament\Support\Facades\FilamentView;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -125,5 +126,42 @@ class AppearanceSettingsTest extends TestCase
         $head = FilamentView::renderHook('panels::head.end')->toHtml(); // AdminPanelProvider's hook
 
         $this->assertStringContainsString('--color-primary: 10 50% 50%', $head);
+    }
+
+    /** Review S-1: custom code runs in the client area, same origin as /admin: settings.update alone does not reach it. */
+    public function test_custom_code_and_files_need_their_own_permission(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        config(['settings.system_email_address' => 'billing@example.test']);
+        $staff = User::factory()->create(['role_id' => Role::create(['name' => 'Settings', 'permissions' => [
+            'admin.settings.view', 'admin.settings.update',
+        ]])->id]);
+
+        $page = Livewire::actingAs($staff)->test(Settings::class);
+        $field = collect($page->instance()->form->getFlatComponents(withHidden: true))
+            ->first(fn ($component) => $component instanceof Field && $component->getName() === 'theme_custom_header');
+        $this->assertTrue($field->isDisabled());
+
+        // Sent anyway (a crafted request): a disabled field is not taken from the page, nothing stored (save() also
+        // refuses one that would get through).
+        $page->set('data.theme_custom_header', '<script>steal()</script>')->call('save');
+        $this->assertNull(Setting::query()->whereNull('settingable_type')->where('key', 'theme_custom_header')->value('value') ?: null);
+
+        // The rest of the tab stays theirs.
+        Livewire::actingAs($staff)->test(Settings::class)->set('data.theme_primary', 'hsl(10, 50%, 50%)')->call('save')->assertHasNoErrors();
+        $this->assertSame('hsl(10, 50%, 50%)', Setting::query()->whereNull('settingable_type')->where('key', 'theme_primary')->value('value'));
+    }
+
+    /** Review I-2: the value column is TEXT (64 KB on MariaDB): a validation message, not a database error. */
+    public function test_custom_code_is_limited_to_what_the_column_holds(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        config(['settings.system_email_address' => 'billing@example.test']);
+        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+
+        Livewire::actingAs($owner)->test(Settings::class)
+            ->set('data.theme_custom_css', str_repeat('a', 65001))
+            ->call('save')
+            ->assertHasErrors(['data.theme_custom_css']);
     }
 }

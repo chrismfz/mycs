@@ -602,6 +602,7 @@ class Settings
             // The client area's look (audit: the theme system went, one set of views in resources/views). Stored as
             // theme_<name>, read with theme('<name>'). Custom CSS/HTML and the uploaded files are for a company's own
             // header, footer and styles, so nothing company-specific is written into the views (git pulls stay clean).
+            // They run as the client area's own code (same origin as /admin): their own permission, not settings.update.
             'theme' => [
                 [
                     'name' => 'theme_logo_display',
@@ -763,6 +764,8 @@ class Settings
                 ],
                 [
                     'name' => 'theme_custom_css',
+                    'permission' => 'admin.settings.custom_code',
+                    'validation' => 'max:65000',
                     'label' => 'Custom CSS',
                     'type' => 'textarea',
                     'rows' => 10,
@@ -772,6 +775,8 @@ class Settings
                 ],
                 [
                     'name' => 'theme_custom_head',
+                    'permission' => 'admin.settings.custom_code',
+                    'validation' => 'max:65000',
                     'label' => 'Custom <head> HTML',
                     'type' => 'textarea',
                     'rows' => 6,
@@ -781,6 +786,8 @@ class Settings
                 ],
                 [
                     'name' => 'theme_custom_header',
+                    'permission' => 'admin.settings.custom_code',
+                    'validation' => 'max:65000',
                     'label' => 'Custom header HTML',
                     'type' => 'textarea',
                     'rows' => 10,
@@ -790,6 +797,8 @@ class Settings
                 ],
                 [
                     'name' => 'theme_custom_footer',
+                    'permission' => 'admin.settings.custom_code',
+                    'validation' => 'max:65000',
                     'label' => 'Custom footer HTML',
                     'type' => 'textarea',
                     'rows' => 10,
@@ -799,6 +808,7 @@ class Settings
                 ],
                 [
                     'name' => 'theme_assets',
+                    'permission' => 'admin.settings.custom_code',
                     'label' => 'Files',
                     'type' => 'file',
                     'multiple' => true,

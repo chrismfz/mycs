@@ -221,6 +221,7 @@ class FilamentInput
                     ->hintColor('primary')
                     ->required($setting->required ?? false)
                     ->live(condition: $setting->live ?? true)
+                    ->hintActions(isset($setting->action) ? [($setting->action)::make()] : [])
                     ->default($setting->default ?? '')
                     ->suffix($setting->suffix ?? null)
                     ->prefix($setting->prefix ?? null)
