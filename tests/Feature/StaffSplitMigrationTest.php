@@ -33,11 +33,14 @@ class StaffSplitMigrationTest extends TestCase
 
     public function test_the_migration_moves_admins_to_staff_with_what_pointed_at_them(): void
     {
+        // Back to before both splits (the clients split came after this one, PR 2a), and forward again.
+        $clients = require database_path('migrations/2026_10_28_000000_split_clients_from_users.php');
+        $clients->down();
         $migration = require database_path('migrations/2026_10_26_000000_split_staff_from_users.php');
         $migration->down();
 
         $role = Role::query()->create(['name' => 'Old admin', 'permissions' => ['*']]);
-        $customer = User::factory()->create();
+        $customer = User::factory()->withoutClient()->create();
         $adminId = DB::table('users')->insertGetId([
             'first_name' => 'Ada', 'last_name' => 'Admin', 'email' => 'ada@example.test', 'password' => Hash::make('pw'),
             'role_id' => $role->id, 'created_at' => now(), 'updated_at' => now(),
@@ -52,6 +55,7 @@ class StaffSplitMigrationTest extends TestCase
             'created_at' => now(), 'updated_at' => now()]);
 
         $migration->up();
+        $clients->up();
 
         $staff = Staff::query()->findOrFail($adminId);
         $this->assertSame('ada@example.test', $staff->email);
@@ -67,10 +71,13 @@ class StaffSplitMigrationTest extends TestCase
     /** A former admin who was also a customer keeps both accounts; their own tickets stay the customer's (adversarial review). */
     public function test_the_migration_gives_an_admin_who_is_also_a_customer_two_accounts(): void
     {
+        // Back to before both splits (the clients split came after this one, PR 2a), and forward again.
+        $clients = require database_path('migrations/2026_10_28_000000_split_clients_from_users.php');
+        $clients->down();
         $migration = require database_path('migrations/2026_10_26_000000_split_staff_from_users.php');
         $migration->down();
         $role = Role::query()->create(['name' => 'Old admin', 'permissions' => ['*']]);
-        $other = User::factory()->create();
+        $other = User::factory()->withoutClient()->create();
         $id = DB::table('users')->insertGetId(['first_name' => 'Bo', 'last_name' => 'Both', 'email' => 'bo@example.test', 'password' => Hash::make('pw'), 'role_id' => $role->id, 'created_at' => now(), 'updated_at' => now()]);
         $own = DB::table('tickets')->insertGetId(['subject' => 'My own', 'user_id' => $id, 'status' => 'open', 'priority' => 'low', 'created_at' => now(), 'updated_at' => now()]);
         $theirs = DB::table('tickets')->insertGetId(['subject' => 'Theirs', 'user_id' => $other->id, 'status' => 'open', 'priority' => 'low', 'created_at' => now(), 'updated_at' => now()]);
@@ -80,6 +87,7 @@ class StaffSplitMigrationTest extends TestCase
         ]);
 
         $migration->up();
+        $clients->up();
 
         $this->assertNotNull(Staff::query()->find($id));
         $this->assertNotNull(User::query()->find($id));

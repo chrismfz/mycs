@@ -42,7 +42,7 @@ class BillingCursorTest extends TestCase
         $product = $this->createProduct(); // monthly, 1 month
 
         return Service::factory()->create(array_merge([
-            'user_id' => $this->user->id,
+            'client_id' => $this->user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'active',
@@ -54,7 +54,7 @@ class BillingCursorTest extends TestCase
 
     private function invoiceFor(Service $service, ?string $start, ?string $end, string $status = 'unpaid'): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id,
             'reference_type' => Service::class,
@@ -367,7 +367,7 @@ class BillingCursorTest extends TestCase
             // reported at the end of the run, after the other services were billed
         }
 
-        $this->assertSame(1, $fine->invoices()->count());
-        $this->assertSame(0, $broken->invoices()->count());
+        $this->assertSame(1, $fine->client()->invoices()->count());
+        $this->assertSame(0, $broken->client()->invoices()->count());
     }
 }

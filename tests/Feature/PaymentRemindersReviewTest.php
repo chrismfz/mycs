@@ -51,9 +51,9 @@ class PaymentRemindersReviewTest extends TestCase
     {
         $product = $this->createProduct();
         $user = User::factory()->create();
-        $svc = Service::factory()->create(array_merge(['user_id' => $user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+        $svc = Service::factory()->create(array_merge(['client_id' => $user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1, 'expires_at' => $due], $service));
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => $due]);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => $due]);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $svc->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => 10]);
         DB::table('invoices')->where('id', $invoice->id)->update(['created_at' => $created]);
         MailFacade::fake();
@@ -76,7 +76,7 @@ class PaymentRemindersReviewTest extends TestCase
     {
         $invoice = $this->invoice('2026-10-25');
         $gateway = Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway']);
-        $agreement = BillingAgreement::create(['user_id' => $invoice->user_id, 'gateway_id' => $gateway->id, 'name' => 'PayPal', 'external_reference' => 'VAULT-1', 'type' => 'paypal']);
+        $agreement = BillingAgreement::create(['client_id' => $invoice->client_id, 'gateway_id' => $gateway->id, 'name' => 'PayPal', 'external_reference' => 'VAULT-1', 'type' => 'paypal']);
         Service::query()->whereKey($invoice->items->first()->reference_id)->update(['billing_agreement_id' => $agreement->id]);
 
         (new PaymentReminders)->send();
@@ -169,7 +169,7 @@ class PaymentRemindersReviewTest extends TestCase
     public function test_an_abandoned_credit_deposit_gets_no_overdue_notices(): void
     {
         $user = User::factory()->create();
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-19']);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-19']);
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Credit deposit', 'quantity' => 1, 'price' => 50]);
         DB::table('invoices')->where('id', $invoice->id)->update(['created_at' => '2026-10-19']);
         MailFacade::fake();

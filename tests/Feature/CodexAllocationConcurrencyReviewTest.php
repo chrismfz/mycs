@@ -48,12 +48,12 @@ class CodexAllocationConcurrencyReviewTest extends TestCase
         $invoices = [];
         foreach (range(1, 2) as $n) {
             $service = Service::factory()->create([
-                'user_id' => $user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+                'client_id' => $user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
                 'status' => 'active', 'expires_at' => '2026-10-15', 'currency_code' => 'USD', 'price' => 10,
                 'subscription_id' => 'CONCURRENT-SUB',
             ]);
             foreach (['2026-10-15', '2026-11-15'] as $start) {
-                $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+                $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
                 $invoice->forceFill(['created_at' => $start])->save();
                 $invoice->items()->create(['reference_id' => $service->id, 'reference_type' => Service::class,
                     'description' => 'Renewal', 'quantity' => 1, 'price' => 10,
@@ -76,7 +76,7 @@ class CodexAllocationConcurrencyReviewTest extends TestCase
         $this->race([$worker, $worker]);
         $this->assertSame(1, InvoiceTransaction::where('transaction_id', 'CONCURRENT-SALE')->count());
         $this->assertSame(1, InvoiceTransaction::whereNotNull('source_transaction_id')->count());
-        $this->assertSame('10.00', Credit::where('user_id', $user->id)->value('amount'));
+        $this->assertSame('10.00', Credit::where('client_id', $user->client()->id)->value('amount'));
         $this->assertSame(['paid', 'unpaid', 'paid', 'unpaid'], array_map(fn ($invoice) => $invoice->fresh()->status, $invoices));
     }
 

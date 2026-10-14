@@ -88,7 +88,7 @@ class StaffSplitAdversarialTest extends TestCase
     {
         $support = Staff::factory()->withPermissions(['admin.tickets.viewAny', 'admin.tickets.update'])->create();
         $owner = Staff::factory()->admin()->create(['first_name' => 'Owner']);
-        $ticket = Ticket::factory()->create(['user_id' => User::factory()->create()->id]);
+        $ticket = Ticket::factory()->create(['client_id' => User::factory()->create()->client()->id]);
 
         $this->withToken($this->apiKey($support, ['admin.ticket_messages.create']))
             ->postJson('/api/v1/admin/ticket-messages', ['message' => 'Refund approved', 'ticket_id' => $ticket->id, 'staff_id' => $owner->id]);
@@ -173,7 +173,7 @@ class StaffSplitAdversarialTest extends TestCase
     {
         $customer = User::factory()->create();
         $staff = Staff::factory()->withPermissions(['admin.users.viewAny', 'admin.users.impersonate'])->create();
-        $ticket = Ticket::factory()->create(['user_id' => $customer->id]);
+        $ticket = Ticket::factory()->create(['client_id' => $customer->client()->id]);
 
         // A browser with the staff login and «Login as client»; the component's requests go through the web group
         // (ResolveUserSession, ImpersonateMiddleware), so the customer's session is a real one, not a guard set by hand.
@@ -234,7 +234,7 @@ class StaffSplitAdversarialTest extends TestCase
     public function test_holds_a_staff_session_never_opens_the_client_area_of_the_customer_with_its_id(): void
     {
         [$customer, $staff] = $this->twins(['*']);
-        $invoice = Invoice::factory()->create(['user_id' => $customer->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $customer->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
 
         $this->withSession($this->staffSession($staff))->get(route('invoices.show', $invoice))->assertRedirect(route('login'));
         $this->withSession($this->staffSession($staff))->get('/dashboard')->assertRedirect(route('login'));
@@ -387,6 +387,8 @@ class StaffSplitAdversarialTest extends TestCase
 
     public function test_holds_the_migration_keeps_the_admins_2fa(): void
     {
+        $clients = require database_path('migrations/2026_10_28_000000_split_clients_from_users.php');
+        $clients->down();
         $migration = require database_path('migrations/2026_10_26_000000_split_staff_from_users.php');
         $migration->down();
 
@@ -397,6 +399,7 @@ class StaffSplitAdversarialTest extends TestCase
         ]);
 
         $migration->up();
+        $clients->up();
 
         $this->assertSame('JBSWY3DPEHPK3PXP', Staff::query()->findOrFail($id)->getAppAuthenticationSecret());
     }

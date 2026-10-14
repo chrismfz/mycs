@@ -70,7 +70,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
 
     private function invoice(float $price = 100, string $status = Invoice::STATUS_UNPAID, ?string $referenceType = null, ?int $referenceId = null, ?User $user = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => ($user ?? $this->user)->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['client_id' => ($user ?? $this->user)->client()->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(array_filter([
             'description' => 'Line', 'quantity' => 1, 'price' => $price,
             'reference_type' => $referenceType, 'reference_id' => $referenceId,
@@ -99,7 +99,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
         Plan::query()->whereKey($product->plan->id)->update(['billing_unit' => 'month', 'billing_period' => 1]);
 
         return Service::factory()->create([
-            'user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'expires_at' => $expires, 'currency_code' => 'USD', 'price' => 100.00,
         ]);
     }
@@ -111,7 +111,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
 
     private function balanceCents(?User $user = null): int
     {
-        return self::cents(Credit::query()->where('user_id', ($user ?? $this->user)->id)->where('currency_code', 'USD')->value('amount') ?? 0);
+        return self::cents(Credit::query()->where('client_id', ($user ?? $this->user)->client()->id)->where('currency_code', 'USD')->value('amount') ?? 0);
     }
 
     private function apiToken(array $permissions): string
@@ -161,7 +161,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
     /** I1 via the admin API: an invoice with no line is «paid» (nothing to pay), then gets its lines. */
     public function test_api_lines_added_after_the_paid_flip_never_leave_a_paid_invoice_with_a_balance(): void
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $token = $this->apiToken(['admin.invoices.update', 'admin.invoice_items.create']);
 
         $this->withToken($token)->putJson(route('api.v1.admin.invoices.update', $invoice), ['status' => 'paid']);
@@ -275,7 +275,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
     public function test_an_invoice_is_never_created_paid(): void
     {
         try {
-            $invoice = Invoice::query()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_PAID, 'currency_code' => 'USD']);
+            $invoice = Invoice::query()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_PAID, 'currency_code' => 'USD']);
             $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 100]);
         } catch (DisplayException) {
             $this->assertSame(0, Invoice::query()->where('status', Invoice::STATUS_PAID)->count());
@@ -345,7 +345,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
 
     public function test_a_stale_model_with_cached_empty_lines_is_not_marked_paid(): void
     {
-        $stale = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $stale = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $stale->load('items', 'transactions', 'adjustmentNotes'); // total 0 in memory
         Invoice::query()->find($stale->id)->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 100]);
 
@@ -364,11 +364,11 @@ class StaffCorrectionsAdversarialTest extends TestCase
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 40.00, null, 'pi_40', currency: 'USD');
 
         try {
-            $invoice->fresh()->update(['status' => Invoice::STATUS_PAID, 'user_id' => $other->id, 'currency_code' => 'USD']);
+            $invoice->fresh()->update(['status' => Invoice::STATUS_PAID, 'client_id' => $other->client()->id, 'currency_code' => 'USD']);
         } catch (DisplayException) {
         }
 
-        $this->assertSame([Invoice::STATUS_UNPAID, $this->user->id], [$invoice->fresh()->status, $invoice->fresh()->user_id]);
+        $this->assertSame([Invoice::STATUS_UNPAID, $this->user->id], [$invoice->fresh()->status, $invoice->fresh()->client_id]);
     }
 
     public function test_mark_paid_overpayment_journals_payment_and_credit_in(): void
@@ -631,7 +631,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
                 ->mapWithKeys(fn (AdjustmentNote $n) => [$n->id => [$n->invoice_id, $n->type, (string) $n->amount, $n->description, $n->number, (bool) $n->is_refund, (bool) $n->is_cancellation, $n->status->value]])->all(),
             'transactions' => InvoiceTransaction::query()->orderBy('id')->get()
                 ->map(fn (InvoiceTransaction $t) => [$t->id, $t->invoice_id, $t->status->value, (string) $t->amount, (string) $t->credited_amount, (string) $t->refunded_amount])->all(),
-            'credits' => Credit::query()->get()->mapWithKeys(fn (Credit $c) => [$c->user_id . '/' . $c->currency_code => self::cents($c->amount)])->all(),
+            'credits' => Credit::query()->get()->mapWithKeys(fn (Credit $c) => [$c->client_id . '/' . $c->currency_code => self::cents($c->amount)])->all(),
             'events' => MoneyEvent::query()->count(),
         ];
     }
@@ -651,7 +651,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
         // I3: credit == journal; negative only after an allowed deletion.
         $journal = [];
         foreach (MoneyEvent::query()->orderBy('id')->get() as $event) {
-            $key = $event->user_id . '/' . $event->currency_code;
+            $key = $event->client_id . '/' . $event->currency_code;
             $journal[$key] = ($journal[$key] ?? 0) + $event->creditEffectCents();
         }
         foreach (array_unique(array_merge(array_keys($journal), array_keys($after['credits']))) as $key) {

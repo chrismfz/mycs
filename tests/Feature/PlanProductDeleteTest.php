@@ -50,7 +50,7 @@ class PlanProductDeleteTest extends TestCase
         $product = $this->createProduct();
 
         return Service::factory()->create(array_merge([
-            'user_id' => User::factory()->create()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1, 'expires_at' => '2026-11-15',
         ], $attributes));
     }
@@ -77,7 +77,7 @@ class PlanProductDeleteTest extends TestCase
             $service = $this->service(['status' => $status]);
             $target = $this->createProduct();
             ServiceUpgrade::query()->create(['service_id' => $service->id, 'plan_id' => $target->plan->id, 'product_id' => $target->product->id,
-                'invoice_id' => Invoice::factory()->create(['user_id' => $service->user_id, 'currency_code' => 'USD'])->id]);
+                'invoice_id' => Invoice::factory()->create(['client_id' => $service->client_id, 'currency_code' => 'USD'])->id]);
 
             $service->delete();
 
@@ -99,7 +99,7 @@ class PlanProductDeleteTest extends TestCase
         $service = $this->service();
         $target = $this->createProduct();
         ServiceUpgrade::query()->create(['service_id' => $service->id, 'plan_id' => $target->plan->id, 'product_id' => $target->product->id,
-            'invoice_id' => Invoice::factory()->create(['user_id' => $service->user_id, 'currency_code' => 'USD'])->id]);
+            'invoice_id' => Invoice::factory()->create(['client_id' => $service->client_id, 'currency_code' => 'USD'])->id]);
 
         $this->expectException(DisplayException::class);
         Plan::find($target->plan->id)->delete();
@@ -124,8 +124,8 @@ class PlanProductDeleteTest extends TestCase
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
-        $this->assertSame(1, $other->invoices()->count(), 'the others are billed');
-        $this->assertSame(0, $orphan->invoices()->count());
+        $this->assertSame(1, $other->client()->invoices()->count(), 'the others are billed');
+        $this->assertSame(0, $orphan->client()->invoices()->count());
         $this->assertTrue(EmailLog::query()->where('body', 'like', "%Service #{$orphan->id} has no plan%")->exists(), 'staff are told');
     }
 
@@ -133,7 +133,7 @@ class PlanProductDeleteTest extends TestCase
     {
         $service = $this->service();
         $target = $this->createProduct();
-        $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-20']);
+        $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-20']);
         $upgrade = ServiceUpgrade::query()->create(['service_id' => $service->id, 'plan_id' => $target->plan->id, 'product_id' => $target->product->id,
             'invoice_id' => $invoice->id]);
         $invoice->items()->create(['reference_type' => ServiceUpgrade::class, 'reference_id' => $upgrade->id, 'description' => 'Upgrade', 'quantity' => 1, 'price' => 5]);

@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Admin\Resources\UserResource\Pages\ShowCredits;
+use App\Admin\Resources\ClientResource\Pages\ShowCredits;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Services\Upgrade;
@@ -50,13 +50,13 @@ class CreditLedgerTest extends TestCase
 
     private function balance(?User $user = null, string $currency = 'USD'): string
     {
-        return number_format((float) (Credit::query()->where('user_id', ($user ?? $this->user)->id)->where('currency_code', $currency)->value('amount') ?? 0), 2, '.', '');
+        return number_format((float) (Credit::query()->where('client_id', ($user ?? $this->user)->client()->id)->where('currency_code', $currency)->value('amount') ?? 0), 2, '.', '');
     }
 
     /** Σ credit effects of the customer's events, as the ledger's check computes it. */
     private function journal(?User $user = null): string
     {
-        $cents = MoneyEvent::query()->where('user_id', ($user ?? $this->user)->id)->get()->sum(fn (MoneyEvent $event) => $event->creditEffectCents());
+        $cents = MoneyEvent::query()->where('client_id', ($user ?? $this->user)->client()->id)->get()->sum(fn (MoneyEvent $event) => $event->creditEffectCents());
 
         return number_format($cents / 100, 2, '.', '');
     }
@@ -127,20 +127,20 @@ class CreditLedgerTest extends TestCase
 
     public function test_one_credit_row_per_customer_and_currency(): void
     {
-        Credit::query()->create(['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 1]);
+        Credit::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 1]);
 
         $this->expectException(UniqueConstraintViolationException::class);
-        Credit::query()->create(['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 2]);
+        Credit::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 2]);
     }
 
     /** The payment paths (MT-1a) now go through the ledger: the journal still adds up to the balance. */
     public function test_payment_paths_still_add_up_through_the_ledger(): void
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 100]);
-        $other = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $other = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $other->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 30]);
-        $deposit = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $deposit = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $deposit->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => 50]);
 
         $payment = ExtensionHelper::addPayment($invoice->id, 'Stripe', 140.00, null, 'pi_l1', currency: 'USD'); // +40
@@ -162,7 +162,7 @@ class CreditLedgerTest extends TestCase
         Price::query()->where('plan_id', $to->plan->id)->update(['price' => 2.00]);
         DB::table('product_upgrades')->insert(['product_id' => $from->product->id, 'upgrade_id' => $to->product->id]);
         $service = Service::factory()->create([
-            'user_id' => $this->user->id, 'product_id' => $from->product->id, 'plan_id' => $from->plan->id,
+            'client_id' => $this->user->client()->id, 'product_id' => $from->product->id, 'plan_id' => $from->plan->id,
             'status' => 'active', 'price' => 10.00, 'currency_code' => 'USD', 'expires_at' => now()->addDays(20),
         ]);
 
@@ -181,7 +181,7 @@ class CreditLedgerTest extends TestCase
         $token = $this->apiToken(['admin.credits.create', 'admin.credits.update', 'admin.credits.delete']);
 
         $created = $this->withToken($token)->postJson(route('api.v1.admin.credits.store'), [
-            'user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 30, 'reason' => 'API goodwill',
+            'client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 30, 'reason' => 'API goodwill',
         ])->assertSuccessful()->json('data.id');
         $this->withToken($token)->putJson(route('api.v1.admin.credits.update', $created), ['amount' => 12])
             ->assertStatus(422); // a new amount needs a reason
@@ -230,7 +230,7 @@ class CreditLedgerTest extends TestCase
         (new CreditLedger)->add($this->user->id, 'USD', 1000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
         $this->assertSame(0, Artisan::call('mycs:credits-check'));
 
-        DB::table('credits')->where('user_id', $this->user->id)->update(['amount' => 99]); // a write that skipped the ledger
+        DB::table('credits')->where('client_id', $this->user->client()->id)->update(['amount' => 99]); // a write that skipped the ledger
 
         $this->assertSame(1, Artisan::call('mycs:credits-check'));
         $this->assertSame('99.00', $this->balance(), 'The check changed a balance without --write.');
@@ -247,13 +247,13 @@ class CreditLedgerTest extends TestCase
         $migration = require database_path('migrations/2026_10_15_000000_credit_ledger.php');
         $migration->down();
         DB::table('credits')->insert([
-            ['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 3.50, 'created_at' => now(), 'updated_at' => now()],
-            ['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 1.25, 'created_at' => now(), 'updated_at' => now()],
+            ['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 3.50, 'created_at' => now(), 'updated_at' => now()],
+            ['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 1.25, 'created_at' => now(), 'updated_at' => now()],
         ]);
 
         $migration->up();
 
-        $this->assertSame(1, Credit::query()->where('user_id', $this->user->id)->count());
+        $this->assertSame(1, Credit::query()->where('client_id', $this->user->client()->id)->count());
         $this->assertSame('4.75', $this->balance());
     }
 }

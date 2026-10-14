@@ -42,7 +42,7 @@ class SubscriptionSyncAdversarialTest extends TestCase
         $product = $this->createProduct();
 
         $service = Service::factory()->create(array_merge([
-            'user_id' => User::factory()->create()->id,
+            'client_id' => User::factory()->create()->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'active',

@@ -44,13 +44,13 @@ class CronOverlapAndOrderCancelTest extends TestCase
     {
         $product = $this->createProduct(['stock' => 5]);
         $service = Service::factory()->create([
-            'user_id' => User::factory()->create()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'pending', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1, 'expires_at' => null,
             'created_at' => '2026-10-01',
         ]);
         $invoice = null;
         if ($withInvoice) {
-            $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-01']);
+            $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-01']);
             $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Order', 'quantity' => 1, 'price' => 10]);
         }
 

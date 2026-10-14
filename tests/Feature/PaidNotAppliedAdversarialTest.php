@@ -68,7 +68,7 @@ class PaidNotAppliedAdversarialTest extends TestCase
         $product ??= $this->createProduct();
 
         return Service::factory()->create([
-            'user_id' => ($user ?? User::factory()->create())->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => ($user ?? User::factory()->create())->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1, 'expires_at' => '2026-10-15',
         ]);
     }
@@ -76,7 +76,7 @@ class PaidNotAppliedAdversarialTest extends TestCase
     /** @param  Service[]  $services */
     private function renewal(array $services): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $services[0]->user_id, 'status' => 'unpaid', 'currency_code' => 'USD',
+        $invoice = Invoice::factory()->create(['client_id' => $services[0]->client_id, 'status' => 'unpaid', 'currency_code' => 'USD',
             'due_at' => '2026-10-15', 'created_at' => '2026-10-08']);
         foreach ($services as $service) {
             $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => 10]);
@@ -135,13 +135,13 @@ class PaidNotAppliedAdversarialTest extends TestCase
         config(['settings.credits_enabled' => true, 'settings.credits_auto_use' => true]);
         $service = $this->service();
         $this->renewal([$service]);
-        (new CreditLedger)->add($service->user_id, 'USD', 1000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'seed');
+        (new CreditLedger)->add($service->client_id, 'USD', 1000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'seed');
 
         $this->failRenewal = true;
         $this->cron();
         $this->failRenewal = false;
 
-        $invoice = Invoice::query()->where('user_id', $service->user_id)->first();
+        $invoice = Invoice::query()->where('client_id', $service->client_id)->first();
         $this->assertSame('paid', $invoice->status, 'precondition: credit paid it');
         $this->assertNotNull($invoice->apply_pending_since, 'precondition: its application failed');
         $this->assertSame(Service::STATUS_ACTIVE, $service->fresh()->status, 'paid by credit in this run: suspended anyway');
@@ -187,7 +187,7 @@ class PaidNotAppliedAdversarialTest extends TestCase
         Carbon::setTestNow('2026-10-20 03:05:00');
         $this->cron();
 
-        $this->assertSame(0, Invoice::query()->where('user_id', $service->user_id)->where('status', 'unpaid')->count(),
+        $this->assertSame(0, Invoice::query()->where('client_id', $service->client_id)->where('status', 'unpaid')->count(),
             'the period just paid is billed again');
     }
 
@@ -281,7 +281,7 @@ class PaidNotAppliedAdversarialTest extends TestCase
         $new = $this->createProduct(['stock' => 5]);
         $service = $this->service(null, $old);
         $upgrade = ServiceUpgrade::query()->create(['service_id' => $service->id, 'plan_id' => $new->plan->id, 'product_id' => $new->product->id]);
-        $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-20']);
+        $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-20']);
         $invoice->items()->create(['reference_type' => ServiceUpgrade::class, 'reference_id' => $upgrade->id, 'description' => 'Upgrade', 'quantity' => 1, 'price' => 5]);
 
         $this->failUpgrade = true;
@@ -322,16 +322,16 @@ class PaidNotAppliedAdversarialTest extends TestCase
     {
         config(['settings.credits_enabled' => true]);
         $user = User::factory()->create();
-        $deposit = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $deposit = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $deposit->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => 20]);
         (new RecordPaymentService)->handle($deposit, null, 20, transactionId: 'tx-dep');
-        $this->assertSame(2000, RecordPaymentService::toCents(Credit::query()->where('user_id', $user->id)->value('amount')));
+        $this->assertSame(2000, RecordPaymentService::toCents(Credit::query()->where('client_id', $user->client()->id)->value('amount')));
 
         DB::table('invoices')->where('id', $deposit->id)->update(['apply_pending_since' => '2026-10-20 02:00:00']);
         $this->cron();
         $this->cron();
 
-        $this->assertSame(2000, RecordPaymentService::toCents(Credit::query()->where('user_id', $user->id)->value('amount')));
+        $this->assertSame(2000, RecordPaymentService::toCents(Credit::query()->where('client_id', $user->client()->id)->value('amount')));
         $this->assertNull($deposit->fresh()->apply_pending_since);
     }
 
@@ -354,7 +354,7 @@ class PaidNotAppliedAdversarialTest extends TestCase
     public function test_holds_imported_paid_invoice_without_marker_is_never_touched_even_with_unapplied_lines(): void
     {
         $service = $this->service();
-        $id = DB::table('invoices')->insertGetId(['user_id' => $service->user_id, 'status' => 'paid', 'currency_code' => 'USD',
+        $id = DB::table('invoices')->insertGetId(['client_id' => $service->client_id, 'status' => 'paid', 'currency_code' => 'USD',
             'due_at' => '2026-10-15', 'created_at' => '2026-10-08', 'updated_at' => '2026-10-08']);
         DB::table('invoice_items')->insert(['invoice_id' => $id, 'reference_type' => Service::class, 'reference_id' => $service->id,
             'description' => 'WHMCS renewal', 'quantity' => 1, 'price' => 10, 'created_at' => now(), 'updated_at' => now()]);

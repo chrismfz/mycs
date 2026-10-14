@@ -68,14 +68,14 @@ class ServiceTerminatedAdversarialTest extends TestCase
         Price::query()->where('plan_id', $created->plan->id)->update(['price' => 10.00]);
 
         return Service::factory()->create(array_merge([
-            'user_id' => $this->user->id, 'plan_id' => $created->plan->id, 'product_id' => $created->product->id,
+            'client_id' => $this->user->client()->id, 'plan_id' => $created->plan->id, 'product_id' => $created->product->id,
             'status' => Service::STATUS_ACTIVE, 'expires_at' => '2026-10-15', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1,
         ], $attributes));
     }
 
     private function renewal(Service $service, string $start = '2026-10-15', string $end = '2026-11-15'): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => $start]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => $start]);
         $invoice->items()->create(['reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Renewal',
             'quantity' => 1, 'price' => 10, 'period_start' => $start, 'period_end' => $end]);
 
@@ -89,7 +89,7 @@ class ServiceTerminatedAdversarialTest extends TestCase
 
     private function balance(): string
     {
-        return number_format((float) (Credit::query()->where('user_id', $this->user->id)->value('amount') ?? 0), 2, '.', '');
+        return number_format((float) (Credit::query()->where('client_id', $this->user->client()->id)->value('amount') ?? 0), 2, '.', '');
     }
 
     /** @return list<string> */
@@ -209,7 +209,7 @@ class ServiceTerminatedAdversarialTest extends TestCase
         Queue::fake();
         $service = $this->service(['expires_at' => '2026-11-15'], ['stock' => 5]);
         $target = $this->createProduct(['stock' => 5]);
-        $upInvoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => '2026-10-12']);
+        $upInvoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => '2026-10-12']);
         $upgrade = ServiceUpgrade::query()->create(['service_id' => $service->id, 'plan_id' => $target->plan->id, 'product_id' => $target->product->id,
             'invoice_id' => $upInvoice->id]);
         $upInvoice->items()->create(['reference_type' => ServiceUpgrade::class, 'reference_id' => $upgrade->id, 'description' => 'Upgrade', 'quantity' => 1, 'price' => 5]);
@@ -225,7 +225,7 @@ class ServiceTerminatedAdversarialTest extends TestCase
         Queue::fake();
         $service = $this->service(['expires_at' => '2026-11-15'], ['stock' => 5]);
         $target = $this->createProduct(['stock' => 5]);
-        $upInvoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => '2026-10-12']);
+        $upInvoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => '2026-10-12']);
         $upgrade = ServiceUpgrade::query()->create(['service_id' => $service->id, 'plan_id' => $target->plan->id, 'product_id' => $target->product->id,
             'invoice_id' => $upInvoice->id]);
         $upInvoice->items()->create(['reference_type' => ServiceUpgrade::class, 'reference_id' => $upgrade->id, 'description' => 'Upgrade', 'quantity' => 1, 'price' => 5]);

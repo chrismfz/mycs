@@ -36,7 +36,7 @@ class MoneyTrailCodeReviewTest extends TestCase
 
     private function invoice(float $price = 100.00): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => $price]);
 
         return $invoice->fresh();
@@ -55,7 +55,7 @@ class MoneyTrailCodeReviewTest extends TestCase
     /** P1: credit set outside the journal (admin page, API, before the journal) is not lost by cascade. */
     public function test_a_customer_with_account_credit_but_no_events_cannot_be_deleted(): void
     {
-        Credit::query()->create(['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 25]);
+        Credit::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 25]);
 
         try {
             $this->user->delete();
@@ -69,7 +69,7 @@ class MoneyTrailCodeReviewTest extends TestCase
 
     public function test_a_customer_whose_credit_is_zero_and_has_no_payments_can_be_deleted(): void
     {
-        Credit::query()->create(['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 0]);
+        Credit::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 0]);
         $invoice = $this->invoice();
         ExtensionHelper::addFailedPayment($invoice->id, 'Stripe', 100.00, null, 'pi_failed', currency: 'USD');
 
@@ -86,14 +86,14 @@ class MoneyTrailCodeReviewTest extends TestCase
     {
         $invoice = $this->invoice();
         ExtensionHelper::addProcessingPayment($invoice->id, 'Stripe', 100.00, null, 'pi_late', currency: 'USD');
-        DB::table('invoices')->where('id', $invoice->id)->update(['user_id' => null]); // as set null on a past delete
+        DB::table('invoices')->where('id', $invoice->id)->update(['client_id' => null]); // as set null on a past delete
 
         $transaction = ExtensionHelper::addPayment($invoice->id, 'Stripe', 120.00, null, 'pi_late', currency: 'USD');
 
         $this->assertSame(InvoiceTransactionStatus::Succeeded, $transaction?->fresh()->status);
         $this->assertSame('0.00', $transaction->fresh()->credited_amount);
         $event = MoneyEvent::query()->sole();
-        $this->assertNull($event->user_id);
+        $this->assertNull($event->client_id);
         $this->assertSame('payment', $event->kind->value);
         $this->assertSame(0, Credit::query()->count());
     }
@@ -169,9 +169,9 @@ class MoneyTrailCodeReviewTest extends TestCase
             $this->markTestSkipped('Re-running a migration inside the test transaction needs transactional DDL (sqlite).');
         }
         $other = User::factory()->create();
-        Credit::query()->create(['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 12.50]);
-        Credit::query()->create(['user_id' => $other->id, 'currency_code' => 'USD', 'amount' => -3.00]);
-        Credit::query()->create(['user_id' => $other->id, 'currency_code' => 'EUR', 'amount' => 0]);
+        Credit::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 12.50]);
+        Credit::query()->create(['client_id' => $other->client()->id, 'currency_code' => 'USD', 'amount' => -3.00]);
+        Credit::query()->create(['client_id' => $other->client()->id, 'currency_code' => 'EUR', 'amount' => 0]);
 
         $migration = require database_path('migrations/2026_10_14_000000_create_money_events_table.php');
         $migration->down();
@@ -181,7 +181,7 @@ class MoneyTrailCodeReviewTest extends TestCase
             ['credit_in', '12.50', $this->user->id, '12.50', 'opening_balance'],
             ['credit_out', '3.00', $other->id, '-3.00', 'opening_balance'],
         ], MoneyEvent::query()->orderBy('id')->get()->map(fn (MoneyEvent $event) => [
-            $event->kind->value, $event->amount, $event->user_id, $event->credit_balance_after, $event->cause,
+            $event->kind->value, $event->amount, $event->client_id, $event->credit_balance_after, $event->cause,
         ])->all());
     }
 }

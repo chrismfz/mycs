@@ -25,15 +25,15 @@ class CreditPurchaseMutationReviewTest extends TestCase
     {
         $oldOwner = User::factory()->create();
         $newOwner = User::factory()->create();
-        $invoice = Invoice::factory()->create(['user_id' => $oldOwner->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $oldOwner->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => 50]);
         $invoice->load('user');
 
         // MT-1c: staff mark it paid by recording the payment (its status alone no longer does), after moving it.
-        $invoice->update(['user_id' => $newOwner->id]);
+        $invoice->update(['client_id' => $newOwner->client()->id]);
         (new RecordPaymentService)->recordByStaff($invoice, null, '50.00');
 
-        $this->assertSame($newOwner->id, $invoice->fresh()->user_id);
+        $this->assertSame($newOwner->id, $invoice->fresh()->client_id);
         $this->assertSame(['old_owner' => '0.00', 'new_owner' => '50.00'], [
             'old_owner' => $this->balance($oldOwner),
             'new_owner' => $this->balance($newOwner),
@@ -44,23 +44,23 @@ class CreditPurchaseMutationReviewTest extends TestCase
     {
         $oldOwner = User::factory()->create();
         $newOwner = User::factory()->create();
-        Credit::create(['user_id' => $newOwner->id, 'currency_code' => 'USD', 'amount' => 10]);
-        $invoice = Invoice::factory()->create(['user_id' => $oldOwner->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        Credit::create(['client_id' => $newOwner->client()->id, 'currency_code' => 'USD', 'amount' => 10]);
+        $invoice = Invoice::factory()->create(['client_id' => $oldOwner->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => 50]);
         $invoice->load('user');
 
         // MT-1c: staff mark it paid by recording the payment (its status alone no longer does), after moving it.
-        $invoice->update(['user_id' => $newOwner->id]);
+        $invoice->update(['client_id' => $newOwner->client()->id]);
         (new RecordPaymentService)->recordByStaff($invoice, null, '50.00');
 
-        $this->assertSame('60.00', number_format((float) Credit::where('user_id', $newOwner->id)->where('currency_code', 'USD')->sum('amount'), 2, '.', ''));
-        $this->assertSame(0, Credit::where('user_id', $oldOwner->id)->count());
+        $this->assertSame('60.00', number_format((float) Credit::where('client_id', $newOwner->client()->id)->where('currency_code', 'USD')->sum('amount'), 2, '.', ''));
+        $this->assertSame(0, Credit::where('client_id', $oldOwner->client()->id)->count());
     }
 
     public function test_overpaid_credit_purchase_refund_preserves_only_excess_credit(): void
     {
         $owner = User::factory()->create();
-        $invoice = Invoice::factory()->create(['user_id' => $owner->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $owner->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => 50]);
         $payment = ExtensionHelper::addPayment($invoice->id, null, 70, transactionId: 'REVIEW-OVERPAY');
         $this->assertSame('20.00', $payment->fresh()->credited_amount);
@@ -75,7 +75,7 @@ class CreditPurchaseMutationReviewTest extends TestCase
     public function test_deleting_overpaid_credit_purchase_removes_bought_and_excess_credit(): void
     {
         $owner = User::factory()->create();
-        $invoice = Invoice::factory()->create(['user_id' => $owner->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $owner->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => 50]);
         $payment = ExtensionHelper::addPayment($invoice->id, null, 70, transactionId: 'REVIEW-DELETE');
         (new RecordPaymentService)->deleteTransaction($payment);
@@ -87,8 +87,8 @@ class CreditPurchaseMutationReviewTest extends TestCase
     public function test_credit_funded_purchase_and_deletion_do_not_change_available_credit(): void
     {
         $owner = User::factory()->create();
-        Credit::create(['user_id' => $owner->id, 'currency_code' => 'USD', 'amount' => 60]);
-        $invoice = Invoice::factory()->create(['user_id' => $owner->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        Credit::create(['client_id' => $owner->client()->id, 'currency_code' => 'USD', 'amount' => 60]);
+        $invoice = Invoice::factory()->create(['client_id' => $owner->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => 50]);
         $payments = new RecordPaymentService;
         $payment = $payments->payWithCredit($invoice);
@@ -104,7 +104,7 @@ class CreditPurchaseMutationReviewTest extends TestCase
     public function test_multiple_credit_lines_are_granted_once_and_refunded_together(): void
     {
         $owner = User::factory()->create();
-        $invoice = Invoice::factory()->create(['user_id' => $owner->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $owner->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         foreach ([20, 30] as $price) {
             $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => $price]);
         }
@@ -122,6 +122,6 @@ class CreditPurchaseMutationReviewTest extends TestCase
 
     private function balance(User $owner): string
     {
-        return number_format((float) Credit::where('user_id', $owner->id)->where('currency_code', 'USD')->sum('amount'), 2, '.', '');
+        return number_format((float) Credit::where('client_id', $owner->client()->id)->where('currency_code', 'USD')->sum('amount'), 2, '.', '');
     }
 }

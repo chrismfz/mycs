@@ -62,7 +62,7 @@ class PaymentGuardsAdversarialTest extends TestCase
         Price::query()->where('plan_id', $product->plan->id)->update(['price' => 10.00]);
 
         return Service::factory()->create(array_merge([
-            'user_id' => $this->user->id,
+            'client_id' => $this->user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'active',
@@ -74,7 +74,7 @@ class PaymentGuardsAdversarialTest extends TestCase
 
     private function invoiceFor(Service $service, string $start, string $end, string $status = 'unpaid', float $price = 10.00, string $currency = 'USD'): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => $currency]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => $currency]);
         $invoice->items()->create([
             'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Renewal',
             'quantity' => 1, 'price' => $price, 'period_start' => $start, 'period_end' => $end,
@@ -91,7 +91,7 @@ class PaymentGuardsAdversarialTest extends TestCase
 
     private function creditInvoice(float $amount): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Credit deposit', 'quantity' => 1, 'price' => $amount, 'reference_type' => Credit::class]);
 
         return $invoice->fresh();
@@ -99,12 +99,12 @@ class PaymentGuardsAdversarialTest extends TestCase
 
     private function credit(string $currency = 'USD'): string
     {
-        return number_format((float) Credit::query()->where('user_id', $this->user->id)->where('currency_code', $currency)->sum('amount'), 2, '.', '');
+        return number_format((float) Credit::query()->where('client_id', $this->user->client()->id)->where('currency_code', $currency)->sum('amount'), 2, '.', '');
     }
 
     private function setCredit(float $amount): void
     {
-        Credit::query()->updateOrCreate(['user_id' => $this->user->id, 'currency_code' => 'USD'], ['amount' => $amount]);
+        Credit::query()->updateOrCreate(['client_id' => $this->user->client()->id, 'currency_code' => 'USD'], ['amount' => $amount]);
     }
 
     private function expires(Service $service): string
@@ -230,7 +230,7 @@ class PaymentGuardsAdversarialTest extends TestCase
         $this->artisan('app:cron-job')->assertExitCode(0);
         $this->artisan('app:cron-job')->assertExitCode(0);
 
-        $invoices = Invoice::query()->where('user_id', $this->user->id)->get();
+        $invoices = Invoice::query()->where('client_id', $this->user->client()->id)->get();
         $this->assertCount(1, $invoices);
         $this->assertSame('paid', $invoices->first()->status);
         $this->assertSame('15.00', $this->credit());
@@ -241,7 +241,7 @@ class PaymentGuardsAdversarialTest extends TestCase
     public function test_cron_credit_in_another_currency_is_not_spent(): void
     {
         $service = $this->service();
-        Credit::query()->create(['user_id' => $this->user->id, 'currency_code' => 'EUR', 'amount' => 25.00]);
+        Credit::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'EUR', 'amount' => 25.00]);
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 

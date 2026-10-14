@@ -47,7 +47,7 @@ class PaymentConcurrencyTest extends TestCase
     {
         Gateway::query()->firstOrCreate(['extension' => 'Stripe'], ['name' => 'Stripe', 'type' => 'gateway']);
         $user = User::factory()->create();
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 100.00]);
 
         $this->race([
@@ -71,7 +71,7 @@ class PaymentConcurrencyTest extends TestCase
         $invoice = $invoice->fresh();
         $this->assertSame('paid', $invoice->status);
         $this->assertEquals(0.0, $invoice->remaining);
-        $this->assertSame('20.00', number_format((float) Credit::query()->where('user_id', $user->id)->value('amount'), 2, '.', ''));
+        $this->assertSame('20.00', number_format((float) Credit::query()->where('client_id', $user->client()->id)->value('amount'), 2, '.', ''));
         $this->assertEquals(20.00, (float) InvoiceTransaction::query()->sum('credited_amount'));
     }
 

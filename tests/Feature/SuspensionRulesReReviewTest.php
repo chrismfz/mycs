@@ -46,7 +46,7 @@ class SuspensionRulesReReviewTest extends TestCase
         $product = $this->createProduct();
 
         return Service::factory()->create(array_merge([
-            'user_id' => User::factory()->create()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1,
         ], $attributes));
     }
@@ -54,7 +54,7 @@ class SuspensionRulesReReviewTest extends TestCase
     private function invoice(Service $service, ?string $due, string $status = 'unpaid'): Invoice
     {
         $issued = $due !== null && Carbon::parse($due)->isPast() ? Carbon::parse($due) : now();
-        $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => $status, 'currency_code' => 'USD', 'due_at' => $due, 'created_at' => $issued]);
+        $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => $status, 'currency_code' => 'USD', 'due_at' => $due, 'created_at' => $issued]);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Line', 'quantity' => 1, 'price' => 10]);
 
         return $invoice;

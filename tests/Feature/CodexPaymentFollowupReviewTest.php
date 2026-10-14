@@ -48,7 +48,7 @@ class CodexPaymentFollowupReviewTest extends TestCase
         Price::query()->where('plan_id', $product->plan->id)->update(['price' => 10.00]);
 
         return Service::factory()->create(array_merge([
-            'user_id' => $this->user->id,
+            'client_id' => $this->user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'active',
@@ -60,7 +60,7 @@ class CodexPaymentFollowupReviewTest extends TestCase
 
     private function invoiceFor(Service $service, string $start, string $end, string $status = 'unpaid', float $price = 10.00): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Renewal',
             'quantity' => 1, 'price' => $price, 'period_start' => $start, 'period_end' => $end,
@@ -77,7 +77,7 @@ class CodexPaymentFollowupReviewTest extends TestCase
 
     private function credit(): string
     {
-        return number_format((float) (Credit::query()->where('user_id', $this->user->id)->where('currency_code', 'USD')->value('amount') ?? 0), 2, '.', '');
+        return number_format((float) (Credit::query()->where('client_id', $this->user->client()->id)->where('currency_code', 'USD')->value('amount') ?? 0), 2, '.', '');
     }
 
     public function test_subscription_sale_retries_finish_interrupted_allocation(): void

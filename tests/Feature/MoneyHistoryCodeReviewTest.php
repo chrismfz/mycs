@@ -5,8 +5,8 @@ namespace Tests\Feature;
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Admin\Resources\InvoiceResource\RelationManagers\MoneyEventsRelationManager;
 use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationManager;
-use App\Admin\Resources\UserResource\Pages\ShowCreditHistory;
-use App\Admin\Resources\UserResource\Pages\ShowCredits;
+use App\Admin\Resources\ClientResource\Pages\ShowCreditHistory;
+use App\Admin\Resources\ClientResource\Pages\ShowCredits;
 use App\Helpers\ExtensionHelper;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -48,7 +48,7 @@ class MoneyHistoryCodeReviewTest extends TestCase
 
     private function invoice(float $price = 100, ?User $user = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => ($user ?? $this->user)->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['client_id' => ($user ?? $this->user)->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => $price]);
 
         return $invoice->fresh();

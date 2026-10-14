@@ -78,13 +78,13 @@ class GatewayChargebackTest extends TestCase
         $product = $this->createProduct();
         Price::query()->where('plan_id', $product->plan->id)->update(['price' => 100.00]);
 
-        return Service::factory()->create(['user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+        return Service::factory()->create(['client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => Service::STATUS_ACTIVE, 'expires_at' => now()->addDays(20), 'currency_code' => 'USD', 'price' => 100.00]);
     }
 
     private function paidInvoice(string $gateway, string $transactionId, ?Service $service = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->subDays(3)]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->subDays(3)]);
         $invoice->items()->create(array_filter(['description' => 'Hosting', 'quantity' => 1, 'price' => 100,
             'reference_type' => $service ? Service::class : null, 'reference_id' => $service?->id,
             'period_start' => $service ? now()->subDays(10)->toDateString() : null, 'period_end' => $service ? now()->addDays(20)->toDateString() : null]));
@@ -173,7 +173,7 @@ class GatewayChargebackTest extends TestCase
         $this->stripeWebhook('charge.dispute.funds_reinstated', 'dp_twice', 'pi_twice', 10000)->assertOk();
 
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
-        $this->assertEquals(100, (float) Credit::query()->where('user_id', $this->user->id)->value('amount'), 'paid twice: 100.00 over');
+        $this->assertEquals(100, (float) Credit::query()->where('client_id', $this->user->client()->id)->value('amount'), 'paid twice: 100.00 over');
         $this->assertSame([], (new MoneyCheck)->run(), json_encode((new MoneyCheck)->run()));
     }
 

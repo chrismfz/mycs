@@ -48,7 +48,7 @@ class ConfigValuesAgreementsCurrenciesTest extends TestCase
         $product = $this->createProduct();
 
         return Service::factory()->create(array_merge([
-            'user_id' => User::factory()->create()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1, 'expires_at' => '2026-11-15',
         ], $attributes));
     }
@@ -104,8 +104,8 @@ class ConfigValuesAgreementsCurrenciesTest extends TestCase
     {
         $user = User::factory()->create();
         $gateway = Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway']);
-        $agreement = BillingAgreement::create(['user_id' => $user->id, 'gateway_id' => $gateway->id, 'name' => 'PayPal', 'external_reference' => 'VAULT-1', 'type' => 'paypal']);
-        $service = $this->service(['user_id' => $user->id, 'billing_agreement_id' => $agreement->id]);
+        $agreement = BillingAgreement::create(['client_id' => $user->client()->id, 'gateway_id' => $gateway->id, 'name' => 'PayPal', 'external_reference' => 'VAULT-1', 'type' => 'paypal']);
+        $service = $this->service(['client_id' => $user->client()->id, 'billing_agreement_id' => $agreement->id]);
 
         $agreement->delete(); // soft: the customer took it off
 
@@ -117,8 +117,8 @@ class ConfigValuesAgreementsCurrenciesTest extends TestCase
         config(['settings.cronjob_invoice' => 7, 'settings.credits_auto_use' => false]);
         $user = User::factory()->create();
         $gateway = Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway']);
-        $agreement = BillingAgreement::create(['user_id' => $user->id, 'gateway_id' => $gateway->id, 'name' => 'PayPal', 'external_reference' => 'VAULT-1', 'type' => 'paypal']);
-        $service = $this->service(['user_id' => $user->id, 'billing_agreement_id' => $agreement->id, 'expires_at' => '2026-10-25']);
+        $agreement = BillingAgreement::create(['client_id' => $user->client()->id, 'gateway_id' => $gateway->id, 'name' => 'PayPal', 'external_reference' => 'VAULT-1', 'type' => 'paypal']);
+        $service = $this->service(['client_id' => $user->client()->id, 'billing_agreement_id' => $agreement->id, 'expires_at' => '2026-10-25']);
         DB::table('billing_agreements')->where('id', $agreement->id)->update(['deleted_at' => now()]); // removed before this fix: the service kept it
 
         $this->artisan('app:cron-job')->assertExitCode(0);
@@ -129,7 +129,7 @@ class ConfigValuesAgreementsCurrenciesTest extends TestCase
     public function test_a_currency_with_invoices_is_not_deleted(): void
     {
         DB::table('currencies')->insertOrIgnore(['code' => 'EUR', 'name' => 'Euro', 'prefix' => '€', 'format' => '1.000,00']);
-        Invoice::factory()->create(['user_id' => User::factory()->create()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'EUR']);
+        Invoice::factory()->create(['client_id' => User::factory()->create()->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'EUR']);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 

@@ -35,8 +35,8 @@ class ClientDraftsAndUpgradeValuesTest extends TestCase
 
     public function test_the_customer_does_not_see_a_draft(): void
     {
-        $draft = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_DRAFT, 'currency_code' => 'USD']);
-        $issued = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $draft = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_DRAFT, 'currency_code' => 'USD']);
+        $issued = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
 
         $this->assertFalse($this->user->can('view', $draft));
         $this->assertTrue($this->user->can('view', $issued));
@@ -55,7 +55,7 @@ class ClientDraftsAndUpgradeValuesTest extends TestCase
         DB::table('config_option_products')->insert(['config_option_id' => $option->id, 'product_id' => $to->product->id]);
         $foreign = ConfigOption::query()->create(['name' => 'Other product value', 'env_variable' => 'x', 'type' => 'select']);
         $service = Service::factory()->create([
-            'user_id' => $this->user->id, 'product_id' => $from->product->id, 'plan_id' => $from->plan->id,
+            'client_id' => $this->user->client()->id, 'product_id' => $from->product->id, 'plan_id' => $from->plan->id,
             'status' => 'active', 'price' => 10.00, 'currency_code' => 'USD', 'expires_at' => now()->addDays(20),
         ]);
 
@@ -83,7 +83,7 @@ class ClientDraftsAndUpgradeValuesTest extends TestCase
         Price::query()->where('plan_id', $to->plan->id)->update(['price' => 2.00]);
         DB::table('product_upgrades')->insert(['product_id' => $from->product->id, 'upgrade_id' => $to->product->id]);
         $service = Service::factory()->create([
-            'user_id' => $this->user->id, 'product_id' => $from->product->id, 'plan_id' => $from->plan->id,
+            'client_id' => $this->user->client()->id, 'product_id' => $from->product->id, 'plan_id' => $from->plan->id,
             'status' => 'active', 'price' => 10.00, 'currency_code' => 'USD', 'expires_at' => now()->addDays(20),
         ]);
 
@@ -91,6 +91,6 @@ class ClientDraftsAndUpgradeValuesTest extends TestCase
             ->set('upgrade', $to->product->id)
             ->call('doUpgrade');
 
-        $this->assertSame(0, Credit::query()->where('user_id', $this->user->id)->where('amount', '>', 0)->count());
+        $this->assertSame(0, Credit::query()->where('client_id', $this->user->client()->id)->where('amount', '>', 0)->count());
     }
 }

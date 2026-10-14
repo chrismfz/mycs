@@ -42,7 +42,7 @@ class AdminCancelSubscriptionTest extends TestCase
 
         $product = $this->createProduct();
         $this->service = Service::factory()->create([
-            'user_id' => User::factory()->create()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'expires_at' => now()->addMonth(), 'currency_code' => 'USD', 'price' => 10.00,
             'subscription_id' => 'I-SUB1',
         ]);
@@ -91,7 +91,7 @@ class AdminCancelSubscriptionTest extends TestCase
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
-        $order = Order::query()->create(['user_id' => $this->service->user_id, 'currency_code' => 'USD']);
+        $order = Order::query()->create(['client_id' => $this->service->client_id, 'currency_code' => 'USD']);
         $this->service->update(['order_id' => $order->id]);
 
         return $this->livewireAs($admin)->test(EditOrder::class, ['record' => $order->getRouteKey()]);

@@ -41,13 +41,13 @@ class BillingCursorConcurrencyTest extends TestCase
                 $product = $this->createProduct();
                 $user = User::factory()->create();
                 $service = Service::factory()->create([
-                    'user_id' => $user->id, 'product_id' => $product->product->id, 'plan_id' => $product->plan->id,
+                    'client_id' => $user->client()->id, 'product_id' => $product->product->id, 'plan_id' => $product->plan->id,
                     'status' => 'active', 'expires_at' => '2026-10-15', 'currency_code' => 'USD', 'price' => 10,
                 ]);
                 $items = [];
                 for ($i = 0; $i < ($sameLine ? 1 : 2); $i++) {
                     // Stored paid, its line added while it was open (MT-1c: never created paid, a paid invoice keeps its lines).
-                    $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+                    $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
                     $items[] = $invoice->items()->create([
                         'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Concurrent callback',
                         'price' => 10, 'quantity' => 1,
@@ -75,11 +75,11 @@ class BillingCursorConcurrencyTest extends TestCase
         try {
             $product = $this->createProduct();
             $service = Service::factory()->create([
-                'user_id' => User::factory()->create()->id, 'product_id' => $product->product->id,
+                'client_id' => User::factory()->create()->client()->id, 'product_id' => $product->product->id,
                 'plan_id' => $product->plan->id, 'status' => 'suspended', 'dunning_suspended_at' => now(),
                 'expires_at' => '2026-10-15', 'currency_code' => 'USD', 'price' => 10,
             ]);
-            $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+            $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD']);
             $item = $invoice->items()->create([
                 'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Concurrent staff hold',
                 'price' => 10, 'quantity' => 1, 'period_start' => '2026-10-15', 'period_end' => '2026-11-15',

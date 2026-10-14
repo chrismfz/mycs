@@ -36,7 +36,7 @@ class ConfigValuesReviewTest extends TestCase
         $product = $this->createProduct();
 
         return Service::factory()->create(array_merge([
-            'user_id' => User::factory()->create()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1, 'expires_at' => '2026-11-15',
         ], $attributes));
     }
@@ -98,7 +98,7 @@ class ConfigValuesReviewTest extends TestCase
     public function test_the_bulk_delete_refuses_a_currency_with_invoices(): void
     {
         DB::table('currencies')->insertOrIgnore(['code' => 'EUR', 'name' => 'Euro', 'prefix' => '€', 'format' => '1.000,00']);
-        Invoice::factory()->create(['user_id' => User::factory()->create()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'EUR']);
+        Invoice::factory()->create(['client_id' => User::factory()->create()->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'EUR']);
 
         // Fixed by removing the bulk delete: currencies are deleted one at a time, through the edit page's checks.
         $this->livewireAs($this->admin())->test(ListCurrencies::class)->assertTableBulkActionDoesNotExist('delete');

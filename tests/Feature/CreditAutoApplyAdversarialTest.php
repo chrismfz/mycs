@@ -64,7 +64,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
 
     private function invoice(float $price = 100, string $due = '+7 days', ?string $reference = null, ?int $referenceId = null, ?User $user = null, string $currency = 'USD'): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => ($user ?? $this->user)->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => $currency, 'due_at' => now()->modify($due)]);
+        $invoice = Invoice::factory()->create(['client_id' => ($user ?? $this->user)->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => $currency, 'due_at' => now()->modify($due)]);
         $invoice->items()->create(array_filter(['description' => 'Line', 'quantity' => 1, 'price' => $price,
             'reference_type' => $reference, 'reference_id' => $referenceId], fn ($value) => $value !== null));
 
@@ -75,7 +75,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
     {
         $product = $this->createProduct();
 
-        return Service::factory()->create(array_merge(['user_id' => ($user ?? $this->user)->id, 'plan_id' => $product->plan->id,
+        return Service::factory()->create(array_merge(['client_id' => ($user ?? $this->user)->client()->id, 'plan_id' => $product->plan->id,
             'product_id' => $product->product->id, 'status' => 'active', 'currency_code' => 'USD', 'price' => 10,
             'expires_at' => now()->addMonth()], $attributes));
     }
@@ -120,7 +120,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
             if ($invoice->status !== Invoice::STATUS_UNPAID) {
                 $why[] = 'status ' . $invoice->status;
             }
-            if (!(bool) User::query()->whereKey($invoice->user_id)->value('credit_auto_apply')) {
+            if (!(bool) User::query()->whereKey($invoice->client_id)->value('credit_auto_apply')) {
                 $why[] = 'opted out';
             }
             if ($invoice->items()->where('reference_type', Credit::class)->exists()) {
@@ -157,7 +157,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
-        $renewal = Invoice::query()->whereKeyNot($overdue->id)->where('user_id', $this->user->id)->sole();
+        $renewal = Invoice::query()->whereKeyNot($overdue->id)->where('client_id', $this->user->client()->id)->sole();
         $this->assertSame(Invoice::STATUS_PAID, $overdue->fresh()->status,
             'credit paid the new renewal (due ' . $renewal->due_at . ', ' . $this->creditPayments($renewal) . ' credit payment) instead of the overdue invoice');
         $this->assertSame('active', $overdueService->fresh()->status, 'suspended although its credit covered the overdue invoice');
@@ -176,7 +176,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
         $this->artisan('app:cron-job')->assertExitCode(0);
         $this->artisan('app:cron-job')->assertExitCode(0);
 
-        $invoice = Invoice::query()->where('user_id', $this->user->id)->sole();
+        $invoice = Invoice::query()->where('client_id', $this->user->client()->id)->sole();
         $this->assertSame(Invoice::STATUS_PAID, $invoice->status);
         $this->assertSame($expires->copy()->addMonth()->toDateString(), $service->fresh()->expires_at->toDateString());
         $this->assertSame(4000, $this->balanceCents());
@@ -194,7 +194,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
-        $invoice = Invoice::query()->where('user_id', $this->user->id)->sole();
+        $invoice = Invoice::query()->where('client_id', $this->user->client()->id)->sole();
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->status);
         $this->assertSame(6.0, $invoice->remaining);
         $this->assertSame($expires, $service->fresh()->expires_at->toDateString());
@@ -742,7 +742,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
                 if ($this->balanceCents($user, $currency) <= 0) {
                     continue;
                 }
-                $open = Invoice::query()->where('user_id', $user->id)->where('currency_code', $currency)->where('status', Invoice::STATUS_UNPAID)->get()
+                $open = Invoice::query()->where('client_id', $user->client()->id)->where('currency_code', $currency)->where('status', Invoice::STATUS_UNPAID)->get()
                     ->filter(fn (Invoice $invoice) => $invoice->remaining > 0 && CreditAutoApply::eligible($invoice));
                 $this->assertSame([], $open->pluck('id')->all(), "credit left unused for user {$user->id} {$currency}\n" . implode("\n", array_slice($log, -12)));
             }

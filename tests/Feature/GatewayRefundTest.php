@@ -76,7 +76,7 @@ class GatewayRefundTest extends TestCase
 
     private function paidInvoice(string $gateway, string $transactionId, float $price = 100): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => $price]);
         ExtensionHelper::addPayment($invoice->id, $gateway, $price, transactionId: $transactionId, currency: 'usd');
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
@@ -208,14 +208,14 @@ class GatewayRefundTest extends TestCase
     public function test_a_dashboard_refund_of_a_credit_purchase_takes_back_the_credit_it_bought(): void
     {
         $this->stripe();
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => 50]);
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 50, transactionId: 'pi_credit', currency: 'usd');
-        $this->assertEquals(50, (float) Credit::query()->where('user_id', $this->user->id)->value('amount'));
+        $this->assertEquals(50, (float) Credit::query()->where('client_id', $this->user->client()->id)->value('amount'));
 
         $this->stripeWebhook($this->stripeRefund('re_credit', 'pi_credit', 5000))->assertOk();
 
-        $this->assertEquals(0, (float) Credit::query()->where('user_id', $this->user->id)->value('amount'));
+        $this->assertEquals(0, (float) Credit::query()->where('client_id', $this->user->client()->id)->value('amount'));
         $this->assertSame([], (new MoneyCheck)->run(), json_encode((new MoneyCheck)->run()));
     }
 

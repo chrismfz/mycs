@@ -36,7 +36,7 @@ class InvoiceDeletionConcurrencyTest extends TestCase
 
     private function invoice(): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => User::factory()->create()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => User::factory()->create()->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Test item', 'price' => 10, 'quantity' => 1]);
 
         return $invoice;
@@ -70,7 +70,7 @@ class InvoiceDeletionConcurrencyTest extends TestCase
 
         $this->assertNull($invoice->fresh());
         $this->assertSame(0, InvoiceTransaction::where('transaction_id', 'DELETE-RACE')->count());
-        $this->assertSame(0, Credit::where('user_id', $invoice->user_id)->count());
+        $this->assertSame(0, Credit::where('client_id', $invoice->client_id)->count());
     }
 
     public function test_deletion_waits_for_payment_then_refuses_to_cascade_its_transaction(): void
@@ -99,7 +99,7 @@ class InvoiceDeletionConcurrencyTest extends TestCase
 
         $this->assertNotNull($invoice->fresh());
         $this->assertSame(1, InvoiceTransaction::where('transaction_id', 'DELETE-RACE')->count());
-        $this->assertSame('20.00', Credit::where('user_id', $invoice->user_id)->sole()->amount);
+        $this->assertSame('20.00', Credit::where('client_id', $invoice->client_id)->sole()->amount);
     }
 
     public function test_deletion_guard_reads_payments_committed_after_its_transaction_snapshot(): void
@@ -123,7 +123,7 @@ class InvoiceDeletionConcurrencyTest extends TestCase
 
         $this->assertNotNull($invoice->fresh());
         $this->assertSame(1, InvoiceTransaction::where('transaction_id', 'DELETE-RACE')->count());
-        $this->assertSame('20.00', Credit::where('user_id', $invoice->user_id)->sole()->amount);
+        $this->assertSame('20.00', Credit::where('client_id', $invoice->client_id)->sole()->amount);
     }
 
     private function assertDeletionRefused(Invoice $invoice): void

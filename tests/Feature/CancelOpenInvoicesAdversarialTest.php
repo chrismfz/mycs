@@ -53,14 +53,14 @@ class CancelOpenInvoicesAdversarialTest extends TestCase
         $product = $this->createProduct();
 
         return Service::factory()->create(array_merge([
-            'user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'expires_at' => '2026-11-30', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1,
         ], $attributes));
     }
 
     private function emptyInvoice(string $status = 'unpaid'): Invoice
     {
-        return Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status, 'currency_code' => 'USD']);
+        return Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => $status, 'currency_code' => 'USD']);
     }
 
     private function renewal(Invoice $invoice, Service $service, float $price = 10): InvoiceItem
@@ -100,7 +100,7 @@ class CancelOpenInvoicesAdversarialTest extends TestCase
 
     private function credit(): float
     {
-        return (float) (Credit::query()->where('user_id', $this->user->id)->where('currency_code', 'USD')->value('amount') ?? 0);
+        return (float) (Credit::query()->where('client_id', $this->user->client()->id)->where('currency_code', 'USD')->value('amount') ?? 0);
     }
 
     private function bills(Invoice $invoice, Service $service): bool
@@ -201,7 +201,7 @@ class CancelOpenInvoicesAdversarialTest extends TestCase
         $a = $this->service();
         $b = $this->service();
         $invoice = $this->invoice([$a, $b]);
-        Credit::query()->create(['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 15]);
+        Credit::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 15]);
         (new RecordPaymentService)->payWithCredit($invoice); // the customer applied their credit by hand
 
         $this->request($a);
@@ -242,7 +242,7 @@ class CancelOpenInvoicesAdversarialTest extends TestCase
         $a = $this->service();
         $invoice = $this->emptyInvoice();
         $upgrade = $this->upgrade($a, $invoice, 20.00); // the same-price product: calculatePrice() comes to 0.00
-        Credit::query()->create(['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 15]);
+        Credit::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 15]);
         (new RecordPaymentService)->payWithCredit($invoice);
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
 
@@ -280,7 +280,7 @@ class CancelOpenInvoicesAdversarialTest extends TestCase
     {
         $a = $this->service();
         $invoice = $this->invoice([$a, $a]);
-        $open = $a->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->get(); // has-many-through: twice
+        $open = $a->client()->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->get(); // has-many-through: twice
 
         $this->assertCount(2, $open);
         $this->assertSame([], CancelOpenInvoices::handle($open, 'Cancelled.', $a));
@@ -306,7 +306,7 @@ class CancelOpenInvoicesAdversarialTest extends TestCase
     {
         $a = $this->service();
         $invoice = $this->invoice([$a]);
-        Credit::query()->create(['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 4]);
+        Credit::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 4]);
         (new RecordPaymentService)->payWithCredit($invoice);
         $this->assertEqualsWithDelta(0.0, $this->credit(), 0.001);
 
@@ -350,7 +350,7 @@ class CancelOpenInvoicesAdversarialTest extends TestCase
     {
         $a = $this->service();
         $invoice = $this->invoice([$a]);
-        Invoice::query()->whereKey($invoice->id)->update(['user_id' => null]);
+        Invoice::query()->whereKey($invoice->id)->update(['client_id' => null]);
 
         $this->assertSame([], CancelOpenInvoices::handle([$invoice->fresh()], 'Cancelled.'));
 

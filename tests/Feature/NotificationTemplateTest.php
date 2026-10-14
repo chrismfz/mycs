@@ -41,7 +41,7 @@ class NotificationTemplateTest extends TestCase
     {
         MailFacade::fake();
         $user = User::factory()->create();
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid']);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid']);
         $invoice->items()->create(['description' => 'Hosting <b>Pro</b>', 'quantity' => 2, 'price' => 10]);
         $invoice->items()->create(['description' => 'Domain', 'quantity' => 1, 'price' => 5]);
 
@@ -89,7 +89,7 @@ class NotificationTemplateTest extends TestCase
         $user = User::factory()->create();
         $product = $this->createProduct(['email_template' => 'Panel: **{{ service.product.name }}** & more']);
         $service = Service::factory()->create([
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'product_id' => $product->product->id,
             'plan_id' => $product->plan->id,
             'status' => 'active',

@@ -42,7 +42,7 @@ class StaffSplitTest extends TestCase
 
     private function invoiceOf(User $user): Invoice
     {
-        return Invoice::factory()->create(['user_id' => $user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        return Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
     }
 
     /** A customer and a member of staff with the same id: the coincidence the split must never confuse. */
@@ -84,8 +84,8 @@ class StaffSplitTest extends TestCase
     {
         [$customer, $staff] = $this->twins(['admin.widgets.overview']);
         $invoice = $this->invoiceOf($customer);
-        $service = Service::factory()->create(['user_id' => $customer->id]);
-        $ticket = Ticket::factory()->create(['user_id' => $customer->id]);
+        $service = Service::factory()->create(['client_id' => $customer->client()->id]);
+        $ticket = Ticket::factory()->create(['client_id' => $customer->client()->id]);
 
         $this->assertSame($customer->id, $staff->id);
         foreach (['view', 'update'] as $ability) {
@@ -120,7 +120,7 @@ class StaffSplitTest extends TestCase
     public function test_a_staff_reply_is_told_by_its_author_not_by_ids(): void
     {
         [$customer, $staff] = $this->twins(['admin.tickets.viewAny', 'admin.tickets.update']);
-        $ticket = Ticket::factory()->create(['user_id' => $customer->id, 'status' => 'open']);
+        $ticket = Ticket::factory()->create(['client_id' => $customer->client()->id, 'status' => 'open']);
 
         $this->actingAs($staff);
         Livewire::test(EditTicket::class, ['record' => $ticket->getRouteKey()])
@@ -142,7 +142,7 @@ class StaffSplitTest extends TestCase
     public function test_a_ticket_is_assigned_to_staff(): void
     {
         $staff = Staff::factory()->admin()->create();
-        $ticket = Ticket::factory()->create(['user_id' => User::factory()->create()->id, 'assigned_to' => $staff->id]);
+        $ticket = Ticket::factory()->create(['client_id' => User::factory()->create()->client()->id, 'assigned_to' => $staff->id]);
 
         $this->assertTrue($ticket->assignedTo->is($staff));
     }
@@ -211,7 +211,7 @@ class StaffSplitTest extends TestCase
     public function test_staff_open_ticket_attachments_in_the_admin(): void
     {
         $customer = User::factory()->create();
-        $ticket = Ticket::factory()->create(['user_id' => $customer->id]);
+        $ticket = Ticket::factory()->create(['client_id' => $customer->client()->id]);
         $message = TicketMessage::factory()->create(['ticket_id' => $ticket->id, 'user_id' => $customer->id]);
         $path = 'tickets/staff-split-' . uniqid() . '.txt';
         File::ensureDirectoryExists(storage_path('app/tickets'));
@@ -238,7 +238,7 @@ class StaffSplitTest extends TestCase
         $token = 'PAYM' . bin2hex(random_bytes(8));
         ApiKey::create(['name' => 'k', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
             'staff_id' => $owner->id, 'permissions' => ['admin.ticket_messages.create']]);
-        $ticket = Ticket::factory()->create(['user_id' => User::factory()->create()->id]);
+        $ticket = Ticket::factory()->create(['client_id' => User::factory()->create()->client()->id]);
         $headers = ['Authorization' => 'Bearer ' . $token, 'Accept' => 'application/json'];
 
         $this->postJson('/api/v1/admin/ticket-messages', ['ticket_id' => $ticket->id, 'message' => 'x', 'staff_id' => $other->id], $headers)
@@ -265,7 +265,7 @@ class StaffSplitTest extends TestCase
     public function test_a_member_with_history_is_disabled_not_deleted(): void
     {
         $staff = Staff::factory()->admin()->create();
-        $ticket = Ticket::factory()->create(['user_id' => User::factory()->create()->id]);
+        $ticket = Ticket::factory()->create(['client_id' => User::factory()->create()->client()->id]);
         $ticket->messages()->create(['staff_id' => $staff->id, 'message' => 'Hello']);
         $boss = Staff::factory()->admin()->create();
 

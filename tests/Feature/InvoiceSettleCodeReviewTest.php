@@ -39,12 +39,12 @@ class InvoiceSettleCodeReviewTest extends TestCase
 
     private function newInvoice(string $status = Invoice::STATUS_UNPAID): Invoice
     {
-        return Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        return Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => $status, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
     }
 
     private function balance(): string
     {
-        return number_format((float) (Credit::query()->where('user_id', $this->user->id)->value('amount') ?? 0), 2, '.', '');
+        return number_format((float) (Credit::query()->where('client_id', $this->user->client()->id)->value('amount') ?? 0), 2, '.', '');
     }
 
     /**

@@ -36,7 +36,7 @@ class CreditLedgerCodeReviewTest extends TestCase
 
     private function balance(): string
     {
-        return number_format((float) (Credit::query()->where('user_id', $this->user->id)->where('currency_code', 'USD')->value('amount') ?? 0), 2, '.', '');
+        return number_format((float) (Credit::query()->where('client_id', $this->user->client()->id)->where('currency_code', 'USD')->value('amount') ?? 0), 2, '.', '');
     }
 
     private function apiToken(): string
@@ -52,7 +52,7 @@ class CreditLedgerCodeReviewTest extends TestCase
     private function assertBalanceAfterIsRunningSum(): void
     {
         $running = 0;
-        foreach (MoneyEvent::query()->where('user_id', $this->user->id)->orderBy('id')->get() as $event) {
+        foreach (MoneyEvent::query()->where('client_id', $this->user->client()->id)->orderBy('id')->get() as $event) {
             $effect = $event->creditEffectCents();
             if ($effect === 0) {
                 continue;
@@ -66,7 +66,7 @@ class CreditLedgerCodeReviewTest extends TestCase
     public function test_paying_a_credit_purchase_with_credit_keeps_the_journal_consistent(): void
     {
         (new CreditLedger)->add($this->user->id, 'USD', 5000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'seed');
-        $deposit = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $deposit = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $deposit->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => 20]);
 
         $paid = (new RecordPaymentService)->payWithCredit($deposit);
@@ -80,7 +80,7 @@ class CreditLedgerCodeReviewTest extends TestCase
 
     public function test_the_check_counts_reversals_of_a_deleted_overpayment(): void
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 10]);
         $payment = ExtensionHelper::addPayment($invoice->id, 'Stripe', 25.00, null, 'pi_rv1', currency: 'USD');
         (new RecordPaymentService)->deleteTransaction($payment);
@@ -96,7 +96,7 @@ class CreditLedgerCodeReviewTest extends TestCase
             (new CreditLedger)->remove($this->user->id, 'EUR', 100, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'x');
         } catch (DisplayException) {
         }
-        $this->assertSame(0, Credit::query()->where('user_id', $this->user->id)->count());
+        $this->assertSame(0, Credit::query()->where('client_id', $this->user->client()->id)->count());
         $this->assertSame(0, MoneyEvent::query()->count());
     }
 
@@ -104,7 +104,7 @@ class CreditLedgerCodeReviewTest extends TestCase
     public function test_api_update_with_an_out_of_range_amount_is_refused_not_turned_into_zero(): void
     {
         (new CreditLedger)->add($this->user->id, 'USD', 4200, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'seed');
-        $credit = Credit::query()->where('user_id', $this->user->id)->sole();
+        $credit = Credit::query()->where('client_id', $this->user->client()->id)->sole();
 
         $response = $this->withToken($this->apiToken())->putJson(route('api.v1.admin.credits.update', $credit),
             ['amount' => '10000000000000', 'reason' => 'typo']);
@@ -117,7 +117,7 @@ class CreditLedgerCodeReviewTest extends TestCase
     public function test_the_api_refuses_a_currency_change_or_delete_of_a_balance(): void
     {
         (new CreditLedger)->add($this->user->id, 'USD', 4200, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'seed');
-        $credit = Credit::query()->where('user_id', $this->user->id)->sole();
+        $credit = Credit::query()->where('client_id', $this->user->client()->id)->sole();
         DB::table('currencies')->insertOrIgnore(['code' => 'EUR', 'name' => 'Euro', 'format' => '1.000,00']); // a valid target
         $token = $this->apiToken();
 

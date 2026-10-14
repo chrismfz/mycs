@@ -55,7 +55,7 @@ class MoneyCheckAdversarialTest extends TestCase
 
     private function invoice(float $price = 10, ?User $user = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => ($user ?? $this->user)->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => ($user ?? $this->user)->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => $price]);
 
         return $invoice->fresh();
@@ -65,13 +65,13 @@ class MoneyCheckAdversarialTest extends TestCase
     {
         $product = $this->createProduct();
 
-        return Service::factory()->create(['user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+        return Service::factory()->create(['client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => $status, 'currency_code' => 'USD', 'price' => 10]);
     }
 
     private function serviceInvoice(Service $service, float $price = 10): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => $price]);
 
         return $invoice->fresh();
@@ -141,7 +141,7 @@ class MoneyCheckAdversarialTest extends TestCase
         $this->cancelledBefore2c($invoice, 'Customer asked');
 
         $this->assertSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status);
-        $this->assertSame(0, (int) round((float) (Credit::query()->where('user_id', $this->user->id)->value('amount') ?? 0) * 100), 'no credit given');
+        $this->assertSame(0, (int) round((float) (Credit::query()->where('client_id', $this->user->client()->id)->value('amount') ?? 0) * 100), 'no credit given');
         $this->assertNotSame([], (new MoneyCheck)->run(), 'a cancelled invoice holding 4.00 of the customer\'s money is not reported');
     }
 
@@ -164,7 +164,7 @@ class MoneyCheckAdversarialTest extends TestCase
         (new RecordPaymentService)->payWithCredit($invoice);
         $this->cancelledBefore2c($invoice, 'Duplicate');
 
-        $this->assertSame(0, (int) round((float) Credit::query()->where('user_id', $this->user->id)->value('amount') * 100));
+        $this->assertSame(0, (int) round((float) Credit::query()->where('client_id', $this->user->client()->id)->value('amount') * 100));
         $this->assertNotSame([], (new MoneyCheck)->run(), '6.00 of credit sits on a cancelled invoice and nothing is reported');
     }
 
@@ -410,7 +410,7 @@ class MoneyCheckAdversarialTest extends TestCase
 
     public function test_holds_a_credit_purchase_and_its_refund(): void
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Credit::class, 'reference_id' => null, 'description' => 'Credit', 'quantity' => 1, 'price' => 25]);
         (new RecordPaymentService)->handle($invoice->fresh(), null, 25.0, transactionId: 'wire-104');
         $this->assertSame([], (new MoneyCheck)->run());
@@ -423,7 +423,7 @@ class MoneyCheckAdversarialTest extends TestCase
     {
         $cancelledService = $this->service(Service::STATUS_ACTIVE);
         $keptService = $this->service(Service::STATUS_ACTIVE);
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $cancelledService->id, 'description' => 'A', 'quantity' => 1, 'price' => 10]);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $keptService->id, 'description' => 'B', 'quantity' => 1, 'price' => 5]);
         (new CreditLedger)->add($this->user->id, 'USD', 1200, 'staff_adjustment', 'staff', note: 'Goodwill');
@@ -477,7 +477,7 @@ class MoneyCheckAdversarialTest extends TestCase
         $this->assertSame(1, $this->moneyCheckMails());
 
         (new CreditLedger)->add($this->user->id, 'USD', 100, 'staff_adjustment', 'staff', note: 'Goodwill');
-        DB::table('credits')->where('user_id', $this->user->id)->update(['amount' => 3]);
+        DB::table('credits')->where('client_id', $this->user->client()->id)->update(['amount' => 3]);
         $this->artisan('mycs:money-check')->assertExitCode(1);
         $this->assertSame(2, $this->moneyCheckMails(), 'a new finding is mailed');
     }

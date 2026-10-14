@@ -53,7 +53,7 @@ class CronOverlapAndOrderCancelReviewTest extends TestCase
         $product = $this->createProduct(['stock' => 5]);
 
         return Service::factory()->create([
-            'user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'pending', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1, 'expires_at' => null,
             'created_at' => '2026-10-01',
         ]);
@@ -61,7 +61,7 @@ class CronOverlapAndOrderCancelReviewTest extends TestCase
 
     private function orderInvoice(Service ...$services): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-01']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-01']);
         foreach ($services as $service) {
             $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Order', 'quantity' => 1, 'price' => 10]);
         }
@@ -109,7 +109,7 @@ class CronOverlapAndOrderCancelReviewTest extends TestCase
 
         $this->assertSame(Service::STATUS_CANCELLED, $service->fresh()->status, 'abandoned order kept alive by the credit sweep');
         $this->assertSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status);
-        $this->assertEqualsWithDelta(3.00, (float) Credit::query()->where('user_id', $this->user->id)->value('amount'), 0.001, 'credit back');
+        $this->assertEqualsWithDelta(3.00, (float) Credit::query()->where('client_id', $this->user->client()->id)->value('amount'), 0.001, 'credit back');
     }
 
     /**

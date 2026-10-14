@@ -45,7 +45,7 @@ class StaffCorrectionsCodeReviewTest extends TestCase
 
     private function invoice(float $price = 100, string $status = Invoice::STATUS_UNPAID): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => $price]);
 
         // A paid fixture (a period paid in the past): stored paid, its lines added while it was open (MT-1c: a paid
@@ -66,7 +66,7 @@ class StaffCorrectionsCodeReviewTest extends TestCase
 
     private function balance(): string
     {
-        return number_format((float) (Credit::query()->where('user_id', $this->user->id)->value('amount') ?? 0), 2, '.', '');
+        return number_format((float) (Credit::query()->where('client_id', $this->user->client()->id)->value('amount') ?? 0), 2, '.', '');
     }
 
     /**

@@ -50,7 +50,7 @@ class PlanProductDeleteReviewTest extends TestCase
         $product = $this->createProduct();
 
         return Service::factory()->create(array_merge([
-            'user_id' => User::factory()->create()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1, 'expires_at' => '2026-11-15',
         ], $attributes));
     }
@@ -126,7 +126,7 @@ class PlanProductDeleteReviewTest extends TestCase
     public function test_a_payment_on_a_planless_service_is_kept_and_left_to_apply(): void
     {
         $service = $this->planless($this->service(['expires_at' => '2026-10-25']));
-        $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-25']);
+        $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-25']);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal',
             'quantity' => 1, 'price' => 10, 'period_start' => '2026-10-25', 'period_end' => '2026-11-25']);
 

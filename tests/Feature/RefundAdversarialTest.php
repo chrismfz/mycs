@@ -60,7 +60,7 @@ class RefundAdversarialTest extends TestCase
 
     private function invoice(float $price = 100, ?string $reference = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(array_filter(['description' => 'Hosting', 'quantity' => 1, 'price' => $price,
             'reference_type' => $reference], fn ($value) => $value !== null));
 
@@ -77,7 +77,7 @@ class RefundAdversarialTest extends TestCase
 
     private function balance(): string
     {
-        return number_format((float) (Credit::query()->where('user_id', $this->user->id)->value('amount') ?? 0), 2, '.', '');
+        return number_format((float) (Credit::query()->where('client_id', $this->user->client()->id)->value('amount') ?? 0), 2, '.', '');
     }
 
     private function cents(mixed $amount): int
@@ -336,7 +336,7 @@ class RefundAdversarialTest extends TestCase
     public function test_guard_no_customer_no_refund_to_credit(): void
     {
         $invoice = $this->paid(40);
-        DB::table('invoices')->where('id', $invoice->id)->update(['user_id' => null]);
+        DB::table('invoices')->where('id', $invoice->id)->update(['client_id' => null]);
 
         try {
             ExtensionHelper::refundToCredit($invoice->transactions()->sole(), 40.0);

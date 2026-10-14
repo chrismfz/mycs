@@ -46,7 +46,7 @@ class AdminSettingsCounterTest extends TestCase
     private function issued(string $number): void
     {
         $counter = $this->value('invoice_number');
-        Invoice::factory()->create(['user_id' => User::factory()->create()->id])->forceFill(['number' => $number])->saveQuietly();
+        Invoice::factory()->create(['client_id' => User::factory()->create()->client()->id])->forceFill(['number' => $number])->saveQuietly();
         Setting::query()->where('key', 'invoice_number')->whereNull('settingable_type')->update(['value' => $counter]);
         config(['settings.invoice_number' => $counter]); // the listener's save moved config too
     }

@@ -42,7 +42,7 @@ class RefundCodeReviewTest extends TestCase
 
     private function invoice(float $price = 100, array $line = []): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(array_merge(['description' => 'Hosting', 'quantity' => 1, 'price' => $price], $line));
 
         return $invoice->fresh();
@@ -58,7 +58,7 @@ class RefundCodeReviewTest extends TestCase
 
     private function balance(): string
     {
-        return number_format((float) (Credit::query()->where('user_id', $this->user->id)->value('amount') ?? 0), 2, '.', '');
+        return number_format((float) (Credit::query()->where('client_id', $this->user->client()->id)->value('amount') ?? 0), 2, '.', '');
     }
 
     private function assertBooksClean(): void
@@ -166,7 +166,7 @@ class RefundCodeReviewTest extends TestCase
     {
         $product = $this->createProduct();
         $start = Carbon::now()->addDays(3)->startOfDay();
-        $service = Service::factory()->create(['user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+        $service = Service::factory()->create(['client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => Service::STATUS_ACTIVE, 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1, 'expires_at' => $start]);
         $invoice = $this->invoice(10, ['reference_type' => Service::class, 'reference_id' => $service->id,
             'period_start' => $start, 'period_end' => $start->copy()->addMonth()]);

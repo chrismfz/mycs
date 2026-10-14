@@ -47,9 +47,9 @@ class PaymentRemindersTest extends TestCase
     {
         $product = $this->createProduct();
         $user = User::factory()->create();
-        $svc = Service::factory()->create(array_merge(['user_id' => $user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+        $svc = Service::factory()->create(array_merge(['client_id' => $user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1, 'expires_at' => $due], $service));
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => $due]);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => $due]);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $svc->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => 10]);
         DB::table('invoices')->where('id', $invoice->id)->update(['created_at' => $created]);
         MailFacade::fake(); // forget the «new invoice» mail

@@ -82,13 +82,13 @@ class GatewayChargebackAdversarialTest extends TestCase
         $product = $this->createProduct();
         Price::query()->where('plan_id', $product->plan->id)->update(['price' => 100.00]);
 
-        return Service::factory()->create(['user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+        return Service::factory()->create(['client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => Service::STATUS_ACTIVE, 'expires_at' => now()->addDays(20), 'currency_code' => 'USD', 'price' => 100.00]);
     }
 
     private function openInvoice(?Service $service = null, string $type = 'line', float $price = 100): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->subDays(3)]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->subDays(3)]);
         if ($type === 'credit') {
             $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => $price]);
         } else {
@@ -141,7 +141,7 @@ class GatewayChargebackAdversarialTest extends TestCase
 
     private function credit(): float
     {
-        return (float) (Credit::query()->where('user_id', $this->user->id)->where('currency_code', 'USD')->value('amount') ?? 0);
+        return (float) (Credit::query()->where('client_id', $this->user->client()->id)->where('currency_code', 'USD')->value('amount') ?? 0);
     }
 
     private function assertMoneyCheckClean(): void

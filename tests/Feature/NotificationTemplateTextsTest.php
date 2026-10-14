@@ -40,13 +40,13 @@ class NotificationTemplateTextsTest extends TestCase
     private function data(string $key, User $user): array
     {
         $product = $this->createProduct();
-        $service = Service::factory()->create(['user_id' => $user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+        $service = Service::factory()->create(['client_id' => $user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1, 'expires_at' => '2026-11-15']);
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-11-15']);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-11-15']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 10]);
         $invoice = $invoice->fresh();
-        $order = Order::query()->create(['user_id' => $user->id, 'currency_code' => 'USD']);
-        $ticket = Ticket::query()->create(['user_id' => $user->id, 'subject' => 'Help', 'priority' => 'low', 'status' => 'open']);
+        $order = Order::query()->create(['client_id' => $user->client()->id, 'currency_code' => 'USD']);
+        $ticket = Ticket::query()->create(['client_id' => $user->client()->id, 'subject' => 'Help', 'priority' => 'low', 'status' => 'open']);
 
         return match ($key) {
             'new_login_detected' => ['ip' => '192.0.2.1', 'device' => 'Firefox', 'time' => '2026-10-14 10:00'],
@@ -86,7 +86,7 @@ class NotificationTemplateTextsTest extends TestCase
     {
         MailFacade::fake();
         $user = User::factory()->create(['first_name' => 'Maria']);
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-11-15']);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-11-15']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 10]);
         MailFacade::fake(); // forget the observer's own mail
 
@@ -155,7 +155,7 @@ class NotificationTemplateTextsTest extends TestCase
         MailFacade::fake();
         $user = User::factory()->create();
         $product = $this->createProduct();
-        $service = Service::factory()->create(['user_id' => $user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+        $service = Service::factory()->create(['client_id' => $user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1]);
 
         (new UnsuspendJob($service))->handle();
@@ -166,7 +166,7 @@ class NotificationTemplateTextsTest extends TestCase
     public function test_a_proforma_without_a_number_is_named_by_its_id(): void
     {
         $user = User::factory()->create();
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'draft', 'currency_code' => 'USD', 'due_at' => '2026-11-15']);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'draft', 'currency_code' => 'USD', 'due_at' => '2026-11-15']);
         $invoice->number = null;
 
         $this->assertSame((string) $invoice->id, TemplateRenderer::context(['invoice' => $invoice], $user)['invoice_number']);

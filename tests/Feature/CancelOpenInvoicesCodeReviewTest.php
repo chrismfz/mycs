@@ -46,7 +46,7 @@ class CancelOpenInvoicesCodeReviewTest extends TestCase
         $product = $this->createProduct();
 
         return Service::factory()->create(array_merge([
-            'user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'expires_at' => '2026-11-30', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1,
         ], $attributes));
     }
@@ -54,7 +54,7 @@ class CancelOpenInvoicesCodeReviewTest extends TestCase
     /** @param  array<int, Service>  $services */
     private function invoice(array $services, ?string $periodStart = null, ?string $periodEnd = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         foreach ($services as $service) {
             $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal',
                 'quantity' => 1, 'price' => 10, 'period_start' => $periodStart, 'period_end' => $periodEnd]);
@@ -70,7 +70,7 @@ class CancelOpenInvoicesCodeReviewTest extends TestCase
 
     private function credit(): float
     {
-        return (float) (Credit::query()->where('user_id', $this->user->id)->where('currency_code', 'USD')->value('amount') ?? 0);
+        return (float) (Credit::query()->where('client_id', $this->user->client()->id)->where('currency_code', 'USD')->value('amount') ?? 0);
     }
 
     /** @return array<int, int> */
@@ -108,7 +108,7 @@ class CancelOpenInvoicesCodeReviewTest extends TestCase
         $a = $this->service();
         $b = $this->service();
         $invoice = $this->invoice([$a, $b]);
-        Credit::query()->create(['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 15]);
+        Credit::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 15]);
         (new RecordPaymentService)->payWithCredit($invoice); // «pay with credit» on the invoice page
 
         $this->request($a);

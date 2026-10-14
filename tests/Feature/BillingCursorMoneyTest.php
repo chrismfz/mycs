@@ -60,7 +60,7 @@ class BillingCursorMoneyTest extends TestCase
         $product ??= $this->product();
 
         return Service::factory()->create(array_merge([
-            'user_id' => $this->user->id,
+            'client_id' => $this->user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'active',
@@ -72,7 +72,7 @@ class BillingCursorMoneyTest extends TestCase
 
     private function invoiceFor(Service $service, ?string $start, ?string $end, string $status = 'unpaid', float $price = 10.00): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id,
             'reference_type' => Service::class,

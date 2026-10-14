@@ -71,7 +71,7 @@ class InvoiceSettleAdversarialTest extends TestCase
 
     private function invoice(float $price = 100, ?string $reference = null, ?int $referenceId = null, ?int $userId = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $userId ?? $this->user->id, 'status' => Invoice::STATUS_UNPAID,
+        $invoice = Invoice::factory()->create(['client_id' => $userId ?? $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID,
             'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(array_filter(['description' => 'Line', 'quantity' => 1, 'price' => $price,
             'reference_type' => $reference, 'reference_id' => $referenceId], fn ($value) => $value !== null));
@@ -86,7 +86,7 @@ class InvoiceSettleAdversarialTest extends TestCase
 
     private function balanceCents(): int
     {
-        return RecordPaymentService::toCents(Credit::query()->where('user_id', $this->user->id)->where('currency_code', 'USD')->value('amount') ?? 0);
+        return RecordPaymentService::toCents(Credit::query()->where('client_id', $this->user->client()->id)->where('currency_code', 'USD')->value('amount') ?? 0);
     }
 
     private function stripe(): Gateway
@@ -266,10 +266,10 @@ class InvoiceSettleAdversarialTest extends TestCase
     public function test_guard_the_cron_never_reprices_an_upgrade_below_zero(): void
     {
         $product = $this->createProduct();
-        $service = Service::factory()->create(['user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+        $service = Service::factory()->create(['client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => Service::STATUS_ACTIVE, 'currency_code' => 'USD', 'price' => 50, 'quantity' => 1, 'expires_at' => now()->addDays(20)]);
         $target = $this->createProduct();
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $upgrade = ServiceUpgrade::query()->create(['service_id' => $service->id, 'plan_id' => $target->plan->id, 'product_id' => $target->product->id, 'invoice_id' => $invoice->id]);
         $invoice->items()->create(['reference_type' => ServiceUpgrade::class, 'reference_id' => $upgrade->id, 'description' => 'Upgrade', 'quantity' => 1, 'price' => 5]);
 
@@ -338,7 +338,7 @@ class InvoiceSettleAdversarialTest extends TestCase
     public function test_guard_an_invoice_without_customer_with_a_part_over_is_not_closed(): void
     {
         $invoice = $this->reducedBelowPayment();
-        DB::table('invoices')->where('id', $invoice->id)->update(['user_id' => null]);
+        DB::table('invoices')->where('id', $invoice->id)->update(['client_id' => null]);
 
         $this->assertFalse((new RecordPaymentService)->settle($invoice->id));
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
@@ -349,7 +349,7 @@ class InvoiceSettleAdversarialTest extends TestCase
     public function test_guard_a_free_line_of_a_cancelled_service_does_not_revive_it(): void
     {
         $product = $this->createProduct();
-        $service = Service::factory()->create(['user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+        $service = Service::factory()->create(['client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => Service::STATUS_CANCELLED, 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1, 'expires_at' => now()->subDay()]);
         $invoice = $this->invoice(10, Service::class, $service->id);
 

@@ -57,14 +57,14 @@ class PaymentGuardsThirdReviewTest extends TestCase
         Price::query()->where('plan_id', $product->plan->id)->update(['price' => 10.00]);
 
         return Service::factory()->create(array_merge([
-            'user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'expires_at' => '2026-10-15', 'currency_code' => 'USD', 'price' => 10.00,
         ], $attributes));
     }
 
     private function invoiceFor(Service $service, string $start = '2026-10-15', string $end = '2026-11-15'): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Renewal',
             'quantity' => 1, 'price' => 10.00, 'period_start' => $start, 'period_end' => $end,
@@ -75,7 +75,7 @@ class PaymentGuardsThirdReviewTest extends TestCase
 
     private function credit(): string
     {
-        return number_format((float) (Credit::query()->where('user_id', $this->user->id)->where('currency_code', 'USD')->value('amount') ?? 0), 2, '.', '');
+        return number_format((float) (Credit::query()->where('client_id', $this->user->client()->id)->where('currency_code', 'USD')->value('amount') ?? 0), 2, '.', '');
     }
 
     private function expires(Service $service): string
@@ -219,7 +219,7 @@ class PaymentGuardsThirdReviewTest extends TestCase
     public function test_deleting_a_credit_payment_gives_the_credit_back(): void
     {
         $invoice = $this->invoiceFor($this->service());
-        $this->user->credits()->create(['currency_code' => 'USD', 'amount' => 10.00]);
+        $this->user->client()->credits()->create(['currency_code' => 'USD', 'amount' => 10.00]);
         $paid = (new RecordPaymentService)->payWithCredit($invoice);
         $this->assertSame('0.00', $this->credit());
 
@@ -232,7 +232,7 @@ class PaymentGuardsThirdReviewTest extends TestCase
     public function test_deleting_an_overpaid_credit_payment_returns_what_the_invoice_took(): void
     {
         $invoice = $this->invoiceFor($this->service());
-        $this->user->credits()->create(['currency_code' => 'USD', 'amount' => 3.00]); // what is left after spending 15
+        $this->user->client()->credits()->create(['currency_code' => 'USD', 'amount' => 3.00]); // what is left after spending 15
         $paid = ExtensionHelper::addPayment($invoice->id, null, 15.00, isCreditTransaction: true); // 5 back to credit
         $this->assertSame('8.00', $this->credit());
 
@@ -258,7 +258,7 @@ class PaymentGuardsThirdReviewTest extends TestCase
     /** Credit bought with a card and already spent: the purchase cannot be refunded. */
     public function test_a_spent_credit_purchase_cannot_be_refunded(): void
     {
-        $purchase = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $purchase = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $purchase->items()->create(['reference_id' => null, 'reference_type' => Credit::class, 'description' => 'Credit', 'quantity' => 1, 'price' => 10.00]);
         $paid = ExtensionHelper::addPayment($purchase->id, 'Stripe', 10.00, null, 'pi_buy', currency: 'usd');
         $this->assertSame('10.00', $this->credit());
@@ -360,7 +360,7 @@ class PaymentGuardsThirdReviewTest extends TestCase
         $b = $this->service(['subscription_id' => 'I-SUB']);
         $invoiceA = $this->invoiceFor($a);
         $invoiceB = $this->invoiceFor($b);
-        $this->user->credits()->create(['currency_code' => 'USD', 'amount' => 50.00]);
+        $this->user->client()->credits()->create(['currency_code' => 'USD', 'amount' => 50.00]);
 
         (new PayPal([]))->recordSubscriptionSale($this->sale('SALE-15', '15.00'));
         $sale = InvoiceTransaction::query()->where('transaction_id', 'SALE-15')->sole();

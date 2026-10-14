@@ -57,7 +57,7 @@ class SettingsTaxRateAdversarialTest extends TestCase
 
         $fresh = User::findOrFail($user->id);
         $invoice = Invoice::create([
-            'user_id' => $fresh->id,
+            'client_id' => $fresh->client()->id,
             'currency_code' => 'USD',
             'due_at' => now()->addDays(7),
             'status' => Invoice::STATUS_UNPAID,
@@ -152,7 +152,7 @@ class SettingsTaxRateAdversarialTest extends TestCase
         $expected = [];
         foreach (['GR', 'DE', 'GR', 'DE'] as $c) {
             $u = $this->customer($c);
-            $inv = Invoice::create(['user_id' => $u->id, 'currency_code' => 'USD', 'due_at' => now(), 'status' => Invoice::STATUS_UNPAID]);
+            $inv = Invoice::create(['client_id' => $u->client()->id, 'currency_code' => 'USD', 'due_at' => now(), 'status' => Invoice::STATUS_UNPAID]);
             $expected[$inv->id] = $c === 'GR' ? 24.0 : 19.0;
             unset($u, $inv);
         }

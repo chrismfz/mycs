@@ -68,7 +68,7 @@ class PayPalApiErrorsTest extends TestCase
 
     private function paidInvoice(float $amount = 20.00): InvoiceTransaction
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => $amount]);
 
         return ExtensionHelper::addPayment($invoice->id, 'PayPal', $amount, null, 'CAPTURE-1', currency: 'USD');
@@ -131,13 +131,13 @@ class PayPalApiErrorsTest extends TestCase
     private function agreement(): BillingAgreement
     {
         return BillingAgreement::create([
-            'user_id' => $this->user->id, 'gateway_id' => $this->gateway->id, 'name' => 'PayPal', 'external_reference' => 'VAULT-1', 'type' => 'paypal',
+            'client_id' => $this->user->client()->id, 'gateway_id' => $this->gateway->id, 'name' => 'PayPal', 'external_reference' => 'VAULT-1', 'type' => 'paypal',
         ]);
     }
 
     private function unpaidInvoice(): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 20.00]);
 
         return $invoice->fresh();
@@ -202,7 +202,7 @@ class PayPalApiErrorsTest extends TestCase
     {
         $product = $this->createProduct();
         $service = Service::factory()->create([
-            'user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'expires_at' => now()->addMonth(), 'currency_code' => 'USD', 'price' => 10.00,
             'subscription_id' => 'I-SUB1',
         ]);

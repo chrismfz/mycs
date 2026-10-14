@@ -16,7 +16,7 @@ class InvoiceStatusUnpaidTest extends TestCase
     private function rawInvoice(array $attributes = []): int
     {
         return DB::table('invoices')->insertGetId(array_merge([
-            'user_id' => User::factory()->create()->id, 'currency_code' => 'USD', 'created_at' => now(), 'updated_at' => now(),
+            'client_id' => User::factory()->create()->client()->id, 'currency_code' => 'USD', 'created_at' => now(), 'updated_at' => now(),
         ], $attributes));
     }
 
@@ -29,12 +29,12 @@ class InvoiceStatusUnpaidTest extends TestCase
     public function test_an_unknown_status_is_refused_on_create(): void
     {
         $this->expectException(\LogicException::class);
-        Invoice::factory()->create(['user_id' => User::factory()->create()->id, 'status' => 'pending', 'currency_code' => 'USD']);
+        Invoice::factory()->create(['client_id' => User::factory()->create()->client()->id, 'status' => 'pending', 'currency_code' => 'USD']);
     }
 
     public function test_an_unknown_status_is_refused_on_update(): void
     {
-        $invoice = Invoice::factory()->create(['user_id' => User::factory()->create()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => User::factory()->create()->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
 
         try {
             $invoice->update(['status' => 'pending']);

@@ -20,7 +20,7 @@ class ServiceRenewalTest extends TestCase
 
         // Create a subscription for the user
         $service = Service::factory()->create([
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'pending',
@@ -30,7 +30,7 @@ class ServiceRenewalTest extends TestCase
 
         // Create an invoice for the service renewal
         $invoice = Invoice::factory()->create([
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'status' => 'unpaid',
             'currency_code' => 'USD',
         ]);
@@ -63,7 +63,7 @@ class ServiceRenewalTest extends TestCase
 
         // Create a subscription for the user
         $service = Service::factory()->create([
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'active',
@@ -74,7 +74,7 @@ class ServiceRenewalTest extends TestCase
 
         // Create an invoice for the service renewal
         $invoice = Invoice::factory()->create([
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'status' => 'unpaid',
             'currency_code' => 'USD',
         ]);
@@ -110,7 +110,7 @@ class ServiceRenewalTest extends TestCase
 
         // Create a subscription for the user
         $service = Service::factory()->create([
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'suspended',
@@ -122,7 +122,7 @@ class ServiceRenewalTest extends TestCase
 
         // Create an invoice for the service renewal
         $invoice = Invoice::factory()->create([
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'status' => 'unpaid',
             'currency_code' => 'USD',
         ]);

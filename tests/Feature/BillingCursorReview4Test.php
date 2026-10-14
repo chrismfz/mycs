@@ -57,7 +57,7 @@ class BillingCursorReview4Test extends TestCase
         $product ??= $this->product();
 
         return Service::factory()->create(array_merge([
-            'user_id' => $this->user->id,
+            'client_id' => $this->user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'active',
@@ -69,7 +69,7 @@ class BillingCursorReview4Test extends TestCase
 
     private function invoiceFor(Service $service, ?string $start, ?string $end, string $status = 'unpaid', float $price = 10.00): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id,
             'reference_type' => Service::class,
@@ -149,7 +149,7 @@ class BillingCursorReview4Test extends TestCase
     public function test_two_upgrades_on_one_invoice_keep_their_own_prices(): void
     {
         $service = $this->service();
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $upgrades = collect([20.00, 40.00])->map(function ($price) use ($service, $invoice) {
             $product = $this->product($price);
             $upgrade = ServiceUpgrade::create([

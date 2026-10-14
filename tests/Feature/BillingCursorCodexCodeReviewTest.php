@@ -52,7 +52,7 @@ class BillingCursorCodexCodeReviewTest extends TestCase
         $product ??= $this->product();
 
         return Service::factory()->create(array_merge([
-            'user_id' => $this->user->id,
+            'client_id' => $this->user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'active',
@@ -64,7 +64,7 @@ class BillingCursorCodexCodeReviewTest extends TestCase
 
     private function invoiceFor(Service $service, ?string $start, ?string $end, string $status = 'unpaid', float $price = 10.00): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id,
             'reference_type' => Service::class,
@@ -95,7 +95,7 @@ class BillingCursorCodexCodeReviewTest extends TestCase
         return array_merge([
             'product_id' => $service->product_id,
             'plan_id' => $service->plan_id,
-            'user_id' => $service->user_id,
+            'client_id' => $service->client_id,
             'status' => $service->status,
             'quantity' => $service->quantity,
             'expires_at' => $service->expires_at?->toDateString(),

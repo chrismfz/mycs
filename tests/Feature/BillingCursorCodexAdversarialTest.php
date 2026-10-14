@@ -68,7 +68,7 @@ class BillingCursorCodexAdversarialTest extends TestCase
         $product ??= $this->product();
 
         return Service::factory()->create(array_merge([
-            'user_id' => $this->user->id,
+            'client_id' => $this->user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'active',
@@ -81,7 +81,7 @@ class BillingCursorCodexAdversarialTest extends TestCase
     private function invoiceFor(Service $service, ?string $start, ?string $end, string $status = 'unpaid', float $price = 10.00): Invoice
     {
         // Due when its period starts, as the cron's renewal invoices (suspension needs an overdue invoice, BIL-5).
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD', 'due_at' => $start ?? now()]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD', 'due_at' => $start ?? now()]);
         $invoice->items()->create([
             'reference_id' => $service->id,
             'reference_type' => Service::class,
@@ -360,7 +360,7 @@ class BillingCursorCodexAdversarialTest extends TestCase
         $service->forceFill(['coupon_started_at' => '2026-10-12'])->saveQuietly();
         $this->invoiceFor($service, '2026-10-12', '2026-11-12', 'paid', 5);
         $target = $this->product(20);
-        $upgradeInvoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $upgradeInvoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $upgrade = ServiceUpgrade::create(['service_id' => $service->id, 'plan_id' => $target->plan->id, 'product_id' => $target->product->id, 'status' => 'pending', 'invoice_id' => $upgradeInvoice->id]);
         $upgradeInvoice->items()->create(['reference_id' => $upgrade->id, 'reference_type' => ServiceUpgrade::class, 'description' => 'Upgrade', 'quantity' => 1, 'price' => 1]);
         $this->pay($upgradeInvoice->fresh());
@@ -395,7 +395,7 @@ class BillingCursorCodexAdversarialTest extends TestCase
         $future = $this->invoiceFor($service, '2026-10-20', '2026-11-20');
         $this->pay($future);
         $target = $this->product(20);
-        $upgradeInvoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $upgradeInvoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $upgrade = ServiceUpgrade::create(['service_id' => $service->id, 'plan_id' => $target->plan->id, 'product_id' => $target->product->id, 'status' => 'pending', 'invoice_id' => $upgradeInvoice->id]);
         $upgradeInvoice->items()->create(['reference_id' => $upgrade->id, 'reference_type' => ServiceUpgrade::class, 'description' => 'Upgrade', 'quantity' => 1, 'price' => 1]);
         $this->pay($upgradeInvoice->fresh());
