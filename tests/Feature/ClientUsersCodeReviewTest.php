@@ -2,10 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Helpers\NotificationHelper;
+use App\Livewire\Auth\Register;
 use App\Livewire\Auth\Tfa;
 use App\Livewire\Client\AcceptInvite;
 use App\Livewire\Client\Notifications;
-use App\Livewire\Client\Users;
 use App\Models\ClientInvite;
 use App\Models\ClientUser;
 use App\Models\EmailLog;
@@ -60,14 +61,19 @@ class ClientUsersCodeReviewTest extends TestCase
     public function test_an_invitation_sent_by_staff_as_the_client_is_not_attributed_to_the_customer(): void
     {
         Mail::fake();
+        config(['settings.default_currency' => 'USD']);
         $owner = User::factory()->create();
-        $client = $owner->client();
         $staff = Staff::factory()->withPermissions(['admin.users.impersonate'])->create();
-        $this->actingAs($owner)->withSession($this->loginUser($owner, [CurrentClient::SESSION_KEY => $client->id]));
-        $this->actingAs($staff, 'staff');
-        session()->put('impersonating', $owner->id);
 
-        $this->livewireAs($owner)->test(Users::class)->set('email', 'x@example.test')->call('invite')->assertHasNoErrors();
+        // Real requests, as staff in «Login as client» (the session carries the impersonation).
+        $html = $this->actingAs($staff, 'staff')->withSession(['impersonating' => $owner->id])
+            ->get(route('account.users'))->assertOk()->getContent();
+        preg_match_all('/wire:snapshot="([^"]+)"/', $html, $m);
+        $snapshot = collect($m[1])->map(fn ($s) => html_entity_decode($s))->first(fn ($s) => str_contains($s, '"name":"client.users"'));
+        $this->assertNotNull($snapshot);
+        $this->withHeaders(['X-Livewire' => 'true'])->postJson(app('livewire')->getUpdateUri(), ['_token' => csrf_token(), 'components' => [[
+            'snapshot' => $snapshot, 'updates' => ['email' => 'x@example.test'], 'calls' => [['method' => 'invite', 'params' => [], 'metadata' => []]],
+        ]]])->assertOk();
 
         $invite = ClientInvite::query()->sole();
         $this->assertNull($invite->invited_by_user_id, 'staff acted, the owner did not invite anyone');
@@ -84,7 +90,7 @@ class ClientUsersCodeReviewTest extends TestCase
         $client = $owner->client();
         [$invite, $token] = ClientInvite::issue($client, 'helper@example.test', null, $owner);
 
-        \App\Helpers\NotificationHelper::clientInviteNotification($invite, $token);
+        NotificationHelper::clientInviteNotification($invite, $token);
 
         $body = (string) EmailLog::query()->where('to', 'helper@example.test')->sole()->body;
         $this->assertStringNotContainsString($token, $body);
@@ -98,7 +104,7 @@ class ClientUsersCodeReviewTest extends TestCase
         [, $token] = ClientInvite::issue($client, 'new@example.test', ['tickets'], $owner);
         session()->put('url.intended', route('invites.accept', ['token' => $token]));
 
-        Livewire::test(\App\Livewire\Auth\Register::class)
+        Livewire::test(Register::class)
             ->set('first_name', 'New')->set('last_name', 'Person')->set('email', 'new@example.test')
             ->set('password', 'secret-pass-1')->set('password_confirmation', 'secret-pass-1')
             ->call('submit');
