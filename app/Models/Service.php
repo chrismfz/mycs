@@ -672,8 +672,9 @@ class Service extends Model implements Auditable
 
         $discount = null;
         if ($applyCoupon && $this->coupon && $this->coupon_expired_at === null) {
-            // The cycle this price is for: the one after those already paid.
-            $cycle = $this->invoices()->where('status', 'paid')->count() + 1;
+            // The cycle this price is for: the next renewal, after those already paid, and never the first (its
+            // invoice was made with the order): a first-cycle coupon is never in it, even before the first payment (ADV-4).
+            $cycle = max($this->invoices()->where('status', 'paid')->count(), 1) + 1;
             if ($this->coupon->cycles() === 0 || $cycle <= $this->coupon->cycles()) {
                 $discount = OrderPricing::discount($this->coupon, (int) $this->product_id);
             }

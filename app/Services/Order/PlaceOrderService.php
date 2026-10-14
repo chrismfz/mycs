@@ -15,6 +15,7 @@ use App\Models\Service;
 use App\Services\Service\RenewServiceService;
 use Brick\Math\BigDecimal;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\DB;
 use MyCS\Pricing\LinePrice;
 
@@ -42,6 +43,13 @@ final class PlaceOrderService
             if ($line->quantity < 1) {
                 throw new DisplayException(__('The quantity must be at least 1.'));
             }
+            // The service trusts no caller for these (ADV-6/7 of the adversarial review).
+            if ($line->plan->priceable_type !== Product::class || (int) $line->plan->priceable_id !== $line->product->id) {
+                throw new DisplayException(__('product.not_available', ['product' => $line->product->name]));
+            }
+            if ($line->price !== null && BigDecimal::of($line->price)->isNegative()) {
+                throw new DisplayException(__('A price cannot be negative.'));
+            }
         }
 
         return DB::transaction(function () use ($client, $currency, $lines, $coupon, $dueAt, $invoiceStatus) {
@@ -67,7 +75,8 @@ final class PlaceOrderService
 
             $this->takeStock($client, $lines);
             if ($coupon !== null) {
-                $this->checkCoupon($client, $coupon, count(array_filter($priced, fn ($p) => $p[2] !== null)));
+                // A use is a unit: a line of five discounted units is five uses (ADV-1/2).
+                $this->checkCoupon($client, $coupon, array_sum(array_map(fn ($p) => $p[2] !== null ? $p[0]->quantity : 0, $priced)));
             }
 
             $order = Order::query()->create(['client_id' => $client->id, 'currency_code' => $currency]);
@@ -121,9 +130,10 @@ final class PlaceOrderService
             $product = Product::query()->whereKey($productId)->lockForUpdate()->firstOrFail();
 
             if ($product->per_user_limit > 0) {
-                // Cancelled services do not count (CART-18): an order that was never paid does not use the limit up.
-                $existing = $client->services()->where('product_id', $product->id)
-                    ->whereNotIn('status', [Service::STATUS_CANCELLED])->count();
+                // In units, as the new lines (ADV-3). Cancelled services do not count (CART-18): an order that was
+                // never paid does not use the limit up.
+                $existing = (int) $client->services()->where('product_id', $product->id)
+                    ->whereNotIn('status', [Service::STATUS_CANCELLED])->sum('quantity');
                 if ($existing + $quantity > $product->per_user_limit) {
                     throw new DisplayException(__('product.user_limit', ['product' => $product->name]));
                 }
@@ -140,7 +150,7 @@ final class PlaceOrderService
 
     /**
      * Under the coupon's lock, counted with locking reads so a concurrent order's uses are seen (CART-5): every
-     * discounted line is a use, not the checkout once.
+     * discounted unit is a use, not the checkout once.
      */
     private function checkCoupon(Client $client, Coupon $coupon, int $uses): void
     {
@@ -151,13 +161,19 @@ final class PlaceOrderService
         if ($uses === 0) {
             return;
         }
-        if ($coupon->max_uses && $coupon->services()->lockForUpdate()->count() + $uses > $coupon->max_uses) {
+        if ($coupon->max_uses && $this->unitsUsed($coupon->services()) + $uses > $coupon->max_uses) {
             throw new CouponUnusableException(__('This coupon can no longer be used'));
         }
         if ($coupon->max_uses_per_user
-            && $coupon->services()->where('client_id', $client->id)->lockForUpdate()->count() + $uses > $coupon->max_uses_per_user) {
+            && $this->unitsUsed($coupon->services()->where('client_id', $client->id)) + $uses > $coupon->max_uses_per_user) {
             throw new CouponUnusableException(__('This coupon can no longer be used'));
         }
+    }
+
+    /** @param  HasMany<Service, Coupon>  $services */
+    private function unitsUsed(HasMany $services): int
+    {
+        return (int) $services->lockForUpdate()->get(['id', 'quantity'])->sum('quantity');
     }
 
     private function createService(Order $order, Client $client, string $currency, OrderLine $line, LinePrice $price, ?LinePrice $fullPrice, ?Coupon $coupon): Service

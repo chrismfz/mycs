@@ -31,14 +31,15 @@ final class OrderPricing
     public static function catalog(Product $product, Plan $plan, array $configOptions, string $currency): ?array
     {
         if ($plan->type === 'free') {
-            return ['price' => '0.00', 'setup_fee' => '0.00'];
+            $price = $setupFee = '0.00';
+        } else {
+            $row = $plan->prices->where('currency_code', $currency)->first();
+            if ($row === null) {
+                return null;
+            }
+            $price = self::amount($row->price);
+            $setupFee = self::amount($row->setup_fee);
         }
-        $row = $plan->prices->where('currency_code', $currency)->first();
-        if ($row === null) {
-            return null;
-        }
-        $price = self::amount($row->price);
-        $setupFee = self::amount($row->setup_fee);
 
         /** @var ConfigOption $option */
         foreach ($product->configOptions as $option) {
@@ -53,6 +54,10 @@ final class OrderPricing
             }
             $childPrice = $child->price(billing_period: $plan->billing_period, billing_unit: $plan->billing_unit, currency: $currency);
             if (!$childPrice->available) {
+                return null;
+            }
+            // A free plan has no cycle to charge an option in: a paid option makes it unavailable, not free (ADV-5).
+            if ($plan->type === 'free' && ((float) $childPrice->price > 0 || (float) $childPrice->setup_fee > 0)) {
                 return null;
             }
             $price = (string) BigDecimal::of($price)->plus(self::amount($childPrice->price));

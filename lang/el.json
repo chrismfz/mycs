@@ -238,5 +238,6 @@
     "Archive": "Αρχειοθέτηση",
     "Restore": "Επαναφορά",
     "The primary contact is the account's details: make another contact primary first.": "Η κύρια επαφή είναι τα στοιχεία του λογαριασμού: ορίστε πρώτα άλλη επαφή ως κύρια.",
-    "The quantity must be at least 1.": "Η ποσότητα πρέπει να είναι τουλάχιστον 1."
+    "The quantity must be at least 1.": "Η ποσότητα πρέπει να είναι τουλάχιστον 1.",
+    "A price cannot be negative.": "Η τιμή δεν μπορεί να είναι αρνητική."
 }
