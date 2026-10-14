@@ -270,6 +270,10 @@ audit sweep: αφαίρεση theme system, Σ4, licensing (στο παράθυ�
       πυκνές λίστες με φίλτρα, αναζήτηση παντού (πελάτης, domain, τιμολόγιο, IP)· όροι και διάταξη του WHMCS στις
       φόρμες· γρήγορες ενέργειες (Mark Paid, Add Payment, Login as Client, Send Email)· dashboard με εκκρεμότητες·
       client area με καθαρή αρχική (υπηρεσίες, απλήρωτα, tickets) και branding ανά εταιρεία. Ελληνικά/αγγλικά.
+      Πλοήγηση client area (2026-10-14): η Home, ο κατάλογος και το καλάθι δεν έχουν το μενού αριστερά (design του
+      Paymenter: «βιτρίνα» ίδια με ή χωρίς login, ανά σελίδα `'sidebar' => true`). Να αποφασιστεί μαζί με το
+      header/footer του myip.gr (Appearance → Custom code): μετά το login η Home με μενού ή κατευθείαν στο Dashboard
+      (όπως το clientarea του WHMCS).
 - [ ] Shadow-run του licensing → cut-over της nixpal, **μετά τα domains της Φάσης 2** (Openprovider, CNIC).
 
 ## Φάση 2: Domains (2–4 εβδομάδες, μετά το spike)
