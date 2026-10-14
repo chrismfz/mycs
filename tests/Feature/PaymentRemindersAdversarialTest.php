@@ -10,8 +10,8 @@ use App\Models\BillingAgreement;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
-use App\Models\Role;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\PaymentReminders;
 use Filament\Facades\Filament;
@@ -21,7 +21,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail as MailFacade;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Validator;
-use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
@@ -71,7 +70,7 @@ class PaymentRemindersAdversarialTest extends TestCase
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 
-        return User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        return Staff::factory()->admin()->create();
     }
 
     // ---------------------------------------------------------------- findings
@@ -215,7 +214,7 @@ class PaymentRemindersAdversarialTest extends TestCase
         $invoice = $this->invoice('2026-10-25');
 
         try {
-            Livewire::actingAs($owner)->test(ViewInvoice::class, ['record' => $invoice->getRouteKey()])
+            $this->livewireAs($owner)->test(ViewInvoice::class, ['record' => $invoice->getRouteKey()])
                 ->callAction('sendEmail', ['template' => 'invoice_modified']);
         } catch (\Throwable) {
             // forbidden: counted below
@@ -230,7 +229,7 @@ class PaymentRemindersAdversarialTest extends TestCase
         $owner = $this->owner();
         $invoice = $this->invoice('2026-10-19'); // 1 day late
 
-        Livewire::actingAs($owner)->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])
+        $this->livewireAs($owner)->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])
             ->callAction('sendEmail', ['template' => 'invoice_overdue'])->assertHasNoActionErrors();
         (new PaymentReminders)->send();
 
@@ -351,11 +350,11 @@ class PaymentRemindersAdversarialTest extends TestCase
     public function test_holds_staff_without_invoice_update_rights_cannot_send_email(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $viewer = User::factory()->create(['role_id' => Role::create(['name' => 'Viewer', 'permissions' => ['admin.invoices.viewAny', 'admin.invoices.view']])->id]);
+        $viewer = Staff::factory()->withPermissions(['admin.invoices.viewAny', 'admin.invoices.view'])->create();
         $invoice = $this->invoice('2026-10-25');
 
         try {
-            Livewire::actingAs($viewer)->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])
+            $this->livewireAs($viewer)->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])
                 ->callAction('sendEmail', ['template' => 'invoice_overdue']);
         } catch (\Throwable) {
             // forbidden

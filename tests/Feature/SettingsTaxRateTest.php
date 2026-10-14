@@ -22,7 +22,7 @@ class SettingsTaxRateTest extends TestCase
     private function customer(string $country): User
     {
         $user = User::factory()->create();
-        $user->properties()->create(['key' => 'country', 'name' => 'Country', 'value' => $country]);
+        $user->client()->properties()->create(['key' => 'country', 'name' => 'Country', 'value' => $country]);
 
         return $user;
     }

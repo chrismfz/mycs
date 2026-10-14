@@ -10,8 +10,8 @@ use App\Models\BillingAgreement;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
-use App\Models\Role;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\PaymentReminders;
 use Filament\Facades\Filament;
@@ -20,7 +20,6 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail as MailFacade;
 use Illuminate\Support\Facades\Queue;
-use Livewire\Livewire;
 use ReflectionMethod;
 use Tests\TestCase;
 
@@ -181,11 +180,11 @@ class PaymentRemindersReviewTest extends TestCase
     public function test_send_email_on_the_due_day_is_not_zero_days_overdue(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->admin()->create();
         $invoice = $this->invoice('2026-10-20');
 
         // Fixed: on the due day the overdue notice is not offered.
-        Livewire::actingAs($owner)->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])
+        $this->livewireAs($owner)->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])
             ->callAction('sendEmail', ['template' => 'invoice_overdue'])
             ->assertHasActionErrors(['template']);
 

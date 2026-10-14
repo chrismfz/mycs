@@ -332,13 +332,14 @@ class MoneyTrailTest extends TestCase
         $invoice = $this->invoice();
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 100.00, null, 'pi_14', currency: 'USD');
 
+        $client = $this->user->client();
         try {
-            $this->user->delete();
+            $client->delete();
             $this->fail('A customer with money events was deleted.');
         } catch (DisplayException) {
         }
 
-        $this->assertNotNull($this->user->fresh());
+        $this->assertNotNull($client->fresh());
         $this->assertSame(1, MoneyEvent::query()->count());
     }
 
@@ -348,16 +349,17 @@ class MoneyTrailTest extends TestCase
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 100.00, null, 'pi_15', currency: 'USD');
 
         $this->expectException(QueryException::class);
-        DB::table('users')->where('id', $this->user->id)->delete();
+        DB::table('clients')->where('id', $this->user->client()->id)->delete();
     }
 
     public function test_a_customer_without_money_events_can_still_be_deleted(): void
     {
         $other = User::factory()->create();
 
-        $other->delete();
+        $client = $other->client();
+        $client->delete();
 
-        $this->assertNull($other->fresh());
+        $this->assertNull($client->fresh());
     }
 
     public function test_events_hold_no_personal_data(): void

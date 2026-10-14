@@ -6,6 +6,7 @@ use App\Enums\InvoiceTransactionStatus;
 use App\Enums\MoneyEventKind;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
+use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -633,12 +634,12 @@ class MoneyTrailAdversarialTest extends TestCase
         $other = User::factory()->create();
         Credit::query()->create(['client_id' => $other->client()->id, 'currency_code' => 'USD', 'amount' => 0.01]);
 
-        foreach ([$this->user, $other] as $customer) {
+        foreach ([$this->user->client(), $other->client()] as $customer) {
             try {
                 $customer->delete();
             } catch (DisplayException) {
             }
-            $this->assertNotNull(User::query()->find($customer->id));
+            $this->assertNotNull(Client::query()->find($customer->id));
         }
     }
 
@@ -648,11 +649,11 @@ class MoneyTrailAdversarialTest extends TestCase
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 100.00, null, 'pi_md', currency: 'USD');
 
         try {
-            User::query()->whereKey($this->user->id)->delete();
+            Client::query()->whereKey($this->user->client()->id)->delete();
         } catch (QueryException|DisplayException) {
         }
 
-        $this->assertNotNull(User::query()->find($this->user->id));
+        $this->assertNotNull(Client::query()->find($this->user->client()->id));
         $this->assertSame(1, MoneyEvent::query()->count());
     }
 }

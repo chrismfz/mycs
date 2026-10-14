@@ -29,7 +29,7 @@ class SettingsTaxRateAdversarialTest extends TestCase
     {
         $user = User::factory()->create();
         if ($country !== null) {
-            $user->properties()->create(['key' => 'country', 'name' => 'Country', 'value' => $country]);
+            $user->client()->properties()->create(['key' => 'country', 'name' => 'Country', 'value' => $country]);
         }
 
         return $user;
@@ -53,7 +53,7 @@ class SettingsTaxRateAdversarialTest extends TestCase
         $user = $this->customer('GR');
         $this->assertEquals(24, Settings::tax($user)->rate); // e.g. a product page / cart price earlier in the request
 
-        $user->properties()->where('key', 'country')->update(['value' => 'DE']);
+        $user->client()->properties()->where('key', 'country')->update(['value' => 'DE']);
 
         $fresh = User::findOrFail($user->id);
         $invoice = Invoice::create([

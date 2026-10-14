@@ -49,7 +49,7 @@ class MoneyTrailCodeReviewTest extends TestCase
         ExtensionHelper::addProcessingPayment($invoice->id, 'Stripe', 100.00, null, 'pi_sepa', currency: 'USD');
 
         $this->expectException(DisplayException::class);
-        $this->user->delete();
+        $this->user->client()->delete();
     }
 
     /** P1: credit set outside the journal (admin page, API, before the journal) is not lost by cascade. */
@@ -57,14 +57,15 @@ class MoneyTrailCodeReviewTest extends TestCase
     {
         Credit::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 25]);
 
+        $client = $this->user->client();
         try {
-            $this->user->delete();
+            $client->delete();
             $this->fail('A customer with account credit was deleted.');
         } catch (DisplayException) {
         }
 
         $this->assertSame(1, Credit::query()->count());
-        $this->assertNotNull($this->user->fresh());
+        $this->assertNotNull($client->fresh());
     }
 
     public function test_a_customer_whose_credit_is_zero_and_has_no_payments_can_be_deleted(): void
@@ -73,9 +74,10 @@ class MoneyTrailCodeReviewTest extends TestCase
         $invoice = $this->invoice();
         ExtensionHelper::addFailedPayment($invoice->id, 'Stripe', 100.00, null, 'pi_failed', currency: 'USD');
 
-        $this->user->delete();
+        $client = $this->user->client();
+        $client->delete();
 
-        $this->assertNull($this->user->fresh());
+        $this->assertNull($client->fresh());
     }
 
     /**
