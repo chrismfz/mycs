@@ -25,7 +25,9 @@ return new class extends Migration
 
     public function up(): void
     {
-        Schema::create('contacts', function (Blueprint $table) {
+        // Re-runnable: a run stopped half way (no transaction for DDL) goes on from where it was.
+        if (!Schema::hasTable('contacts')) {
+            Schema::create('contacts', function (Blueprint $table) {
             $table->id();
             $table->foreignId('client_id')->constrained()->cascadeOnDelete();
             // = client_id for the primary contact, NULL otherwise: one primary per account (as client_user's owner).
@@ -43,10 +45,10 @@ return new class extends Migration
             $table->string('address2')->nullable();
             $table->string('city')->nullable();
             $table->string('state')->nullable();
-            $table->string('postcode', 20)->nullable();
+            $table->string('postcode')->nullable(); // the properties were up to 255: nothing is cut
             $table->string('country', 2)->nullable(); // ISO 3166-1 alpha-2
             $table->string('email')->nullable();
-            $table->string('phone', 50)->nullable();
+            $table->string('phone')->nullable();
             $table->text('notes')->nullable();
             // What an invoice to this contact is: invoice (τιμολόγιο), receipt (απόδειξη), none. NULL = not chosen.
             $table->string('document_type', 20)->nullable();
@@ -56,12 +58,15 @@ return new class extends Migration
             $table->timestamp('archived_at')->nullable();
             $table->timestamps();
             $table->index(['client_id', 'archived_at']);
-        });
+            });
+        }
 
         $countries = (array) config('app.countries', []);
         $owners = DB::table('client_user')->whereNotNull('owner_of_client_id')->join('users', 'users.id', '=', 'client_user.user_id')
             ->pluck('users.id', 'client_user.client_id');
-        DB::table('clients')->orderBy('id')->select('id', 'created_at')->chunk(500, function ($clients) use ($countries, $owners) {
+        DB::table('clients')->orderBy('id')->select('id', 'created_at')
+            ->whereNotExists(fn ($query) => $query->from('contacts')->whereColumn('contacts.primary_of_client_id', 'clients.id'))
+            ->chunk(500, function ($clients) use ($countries, $owners) {
             $ids = $clients->pluck('id')->all();
             $properties = DB::table('properties')->where('model_type', 'App\\Models\\Client')->whereIn('model_id', $ids)
                 ->whereIn('key', array_keys(self::PROPERTIES))->get(['model_id', 'key', 'value'])->groupBy('model_id');
@@ -72,7 +77,7 @@ return new class extends Migration
                 $row = [
                     'client_id' => $client->id, 'primary_of_client_id' => $client->id, 'type' => 'individual',
                     'first_name' => $user?->first_name, 'last_name' => $user?->last_name, 'email' => $user?->email,
-                    'created_at' => $client->created_at ?? now(), 'updated_at' => now(),
+                    'notes' => null, 'created_at' => $client->created_at ?? now(), 'updated_at' => now(),
                 ];
                 foreach (array_values(self::PROPERTIES) as $column) {
                     $row[$column] = null;
@@ -81,10 +86,12 @@ return new class extends Migration
                     $value = trim((string) $property->value);
                     $row[self::PROPERTIES[$property->key]] = $value === '' ? null : $value;
                 }
-                if ($row['country'] !== null && strlen($row['country']) !== 2) {
-                    $row['country'] = array_search($row['country'], $countries, true) ?: null; // the name → its ISO code
+                $legacy = $row['country'];
+                $row['country'] = self::isoCountry($legacy, $countries);
+                if ($legacy !== null && $row['country'] === null) {
+                    // Kept where staff see it, not lost: the account has no VAT country until it is set.
+                    $row['notes'] = 'Country (before the contacts): ' . $legacy;
                 }
-                $row['country'] = $row['country'] !== null ? strtoupper($row['country']) : null;
                 $row['type'] = $row['company_name'] !== null ? 'business' : 'individual';
                 $rows[] = $row;
             }
@@ -93,6 +100,34 @@ return new class extends Migration
 
         DB::table('properties')->where('model_type', 'App\\Models\\Client')->whereIn('key', array_keys(self::PROPERTIES))->delete();
         DB::table('custom_properties')->where('model', 'App\\Models\\Client')->whereIn('key', array_keys(self::PROPERTIES))->delete();
+    }
+
+    /**
+     * A stored country (a name, in any case, or a code) as its ISO code; null when it is none.
+     *
+     * @param  array<string, string>  $countries
+     */
+    private static function isoCountry(?string $value, array $countries): ?string
+    {
+        if ($value === null || trim($value) === '') {
+            return null;
+        }
+        $value = trim($value);
+        $aliases = ['UK' => 'GB', 'EL' => 'GR'];
+        $code = strtoupper($value);
+        if (isset($aliases[$code])) {
+            return $aliases[$code];
+        }
+        if (strlen($code) === 2 && $code !== '' && isset($countries[$code])) {
+            return $code;
+        }
+        foreach ($countries as $iso => $name) {
+            if ($iso !== '' && mb_strtolower($name) === mb_strtolower($value)) {
+                return $iso;
+            }
+        }
+
+        return null;
     }
 
     public function down(): void

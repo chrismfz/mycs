@@ -304,6 +304,10 @@ class Invoice extends Model implements Auditable
                 ])
             );
         }
+        // Issued without VAT (no rate for the country then): it stays so, whatever the account's country becomes.
+        if (config('settings.invoice_snapshot', true) && $this->snapshot !== null) {
+            return Attribute::make(get: fn () => 0);
+        }
 
         return Attribute::make(
             get: fn () => Settings::tax($this->client)
@@ -313,9 +317,10 @@ class Invoice extends Model implements Auditable
     /** @return Attribute<mixed, mixed> */
     public function userProperties(): Attribute
     {
-        if (config('settings.invoice_snapshot', true) && $this->snapshot?->properties) {
+        // An issued invoice keeps the recipient it was issued to, also when it had no details then (PR 3a review).
+        if (config('settings.invoice_snapshot', true) && $this->snapshot !== null) {
             return Attribute::make(
-                get: fn () => $this->snapshot->properties
+                get: fn () => (array) ($this->snapshot->properties ?? [])
             );
         }
 

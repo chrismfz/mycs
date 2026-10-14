@@ -33,7 +33,8 @@ class Contacts extends Component
     /** One of the account's own contacts, never its primary (that is the account page) nor another account's. */
     private function contactOf(int $id): Contact
     {
-        return $this->account()->contacts()->whereKey($id)->whereNull('primary_of_client_id')->firstOrFail();
+        // Not an archived one either: it is off the list, and may be on documents (or domains).
+        return $this->account()->contacts()->whereKey($id)->whereNull('primary_of_client_id')->whereNull('archived_at')->firstOrFail();
     }
 
     public function create(): void

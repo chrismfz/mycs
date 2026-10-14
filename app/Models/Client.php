@@ -114,6 +114,20 @@ class Client extends Model implements Auditable
         return $this->hasOne(Contact::class, 'primary_of_client_id');
     }
 
+    /** Its primary contact, made from the owner when an account has none (legacy rows, factories). */
+    public function ensurePrimaryContact(): Contact
+    {
+        if ($this->primaryContact !== null) {
+            return $this->primaryContact;
+        }
+        $owner = $this->owner();
+        $contact = $this->contacts()->make(['first_name' => $owner?->first_name, 'last_name' => $owner?->last_name, 'email' => $owner?->email]);
+        $contact->forceFill(['primary_of_client_id' => $this->id])->save();
+        $this->setRelation('primaryContact', $contact);
+
+        return $contact;
+    }
+
     /**
      * The account's name: its primary contact's (the company for a business), else its owner's.
      *
