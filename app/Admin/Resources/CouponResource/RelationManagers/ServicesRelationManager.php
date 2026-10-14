@@ -2,7 +2,6 @@
 
 namespace App\Admin\Resources\CouponResource\RelationManagers;
 
-use Illuminate\Database\Eloquent\Builder;
 use App\Admin\Resources\ServiceResource;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -10,6 +9,7 @@ use Filament\Actions\BulkActionGroup;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 
 class ServicesRelationManager extends RelationManager

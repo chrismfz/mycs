@@ -2,12 +2,12 @@
 
 namespace App\Admin\Resources\ClientResource\Pages;
 
-use Illuminate\Database\Eloquent\Builder;
 use App\Admin\Resources\ClientResource;
 use App\Models\Ticket;
 use Filament\Resources\Pages\ManageRelatedRecords;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class ShowTickets extends ManageRelatedRecords
 {
