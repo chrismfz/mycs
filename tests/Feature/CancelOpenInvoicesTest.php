@@ -235,7 +235,7 @@ class CancelOpenInvoicesTest extends TestCase
         $this->artisan('app:cron-job')->assertExitCode(0);
 
         $this->assertSame(Service::STATUS_ACTIVE, $a->fresh()->status);
-        $this->assertTrue($a->client()->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->exists(), 'its period is billed again');
+        $this->assertTrue($a->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->exists(), 'its period is billed again');
     }
 
     public function test_paying_the_rest_does_not_renew_the_service_taken_off(): void

@@ -280,7 +280,7 @@ class CancelOpenInvoicesAdversarialTest extends TestCase
     {
         $a = $this->service();
         $invoice = $this->invoice([$a, $a]);
-        $open = $a->client()->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->get(); // has-many-through: twice
+        $open = $a->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->get(); // has-many-through: twice
 
         $this->assertCount(2, $open);
         $this->assertSame([], CancelOpenInvoices::handle($open, 'Cancelled.', $a));

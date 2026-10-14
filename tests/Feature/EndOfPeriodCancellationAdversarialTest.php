@@ -127,7 +127,7 @@ class EndOfPeriodCancellationAdversarialTest extends TestCase
         $this->request($a);
 
         $this->assertTrue(
-            $b->client()->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->exists(),
+            $b->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->exists(),
             "service B's renewal (invoice #{$invoice->id}, status {$invoice->fresh()->status}) was cancelled by a request on service A"
         );
     }
@@ -274,7 +274,7 @@ class EndOfPeriodCancellationAdversarialTest extends TestCase
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
-        $this->assertTrue($b->client()->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->exists());
+        $this->assertTrue($b->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->exists());
     }
 
     public function test_holds_credit_is_not_applied_to_a_requested_service_invoice_by_the_sweep(): void

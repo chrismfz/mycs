@@ -367,7 +367,7 @@ class BillingCursorTest extends TestCase
             // reported at the end of the run, after the other services were billed
         }
 
-        $this->assertSame(1, $fine->client()->invoices()->count());
-        $this->assertSame(0, $broken->client()->invoices()->count());
+        $this->assertSame(1, $fine->invoices()->count());
+        $this->assertSame(0, $broken->invoices()->count());
     }
 }

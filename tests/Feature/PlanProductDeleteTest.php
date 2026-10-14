@@ -125,7 +125,7 @@ class PlanProductDeleteTest extends TestCase
         $this->artisan('app:cron-job')->assertExitCode(0);
 
         $this->assertSame(1, $other->client()->invoices()->count(), 'the others are billed');
-        $this->assertSame(0, $orphan->client()->invoices()->count());
+        $this->assertSame(0, $orphan->invoices()->count());
         $this->assertTrue(EmailLog::query()->where('body', 'like', "%Service #{$orphan->id} has no plan%")->exists(), 'staff are told');
     }
 

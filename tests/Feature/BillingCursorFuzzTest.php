@@ -264,7 +264,7 @@ class BillingCursorFuzzTest extends TestCase
             case 'pay_oldest':
             case 'pay_random':
             case 'pay_twice':
-                $pending = $this->client()->invoices('unpaid');
+                $pending = $this->invoices('unpaid');
                 if ($pending->isEmpty()) {
                     return null;
                 }
@@ -277,7 +277,7 @@ class BillingCursorFuzzTest extends TestCase
                 $detail = "#{$inv->id}";
                 break;
             case 'reverse_pay':
-                $pending = $this->client()->invoices('unpaid');
+                $pending = $this->invoices('unpaid');
                 if ($pending->count() < 2) {
                     return null;
                 }
@@ -287,7 +287,7 @@ class BillingCursorFuzzTest extends TestCase
                 $detail = "#{$pending->last()->id} then #{$pending->first()->id}";
                 break;
             case 'pay_cancelled':
-                $cancelled = $this->client()->invoices('cancelled');
+                $cancelled = $this->invoices('cancelled');
                 if ($cancelled->isEmpty()) {
                     return null;
                 }
@@ -302,7 +302,7 @@ class BillingCursorFuzzTest extends TestCase
                 $detail = "#{$inv->id}";
                 break;
             case 'cancel':
-                $pending = $this->client()->invoices('unpaid');
+                $pending = $this->invoices('unpaid');
                 if ($pending->isEmpty()) {
                     return null;
                 }
@@ -327,7 +327,7 @@ class BillingCursorFuzzTest extends TestCase
             case 'repay': // admin flips a paid invoice back to unpaid and to paid again
                 // Only one its payments still cover: with a balance (a price changed since) staff record the payment,
                 // its status alone no longer makes it paid (MT-1c).
-                $done = $this->client()->invoices('paid')->filter(fn (Invoice $invoice) => $invoice->remaining <= 0)->values();
+                $done = $this->invoices('paid')->filter(fn (Invoice $invoice) => $invoice->remaining <= 0)->values();
                 if ($done->isEmpty()) {
                     return null;
                 }
@@ -339,7 +339,7 @@ class BillingCursorFuzzTest extends TestCase
                 $detail = "#{$inv->id}";
                 break;
             case 'cancel_paid': // staff take back a paid invoice: refunded in full since 2c (a paid one is never cancelled)
-                $done = $this->client()->invoices('paid');
+                $done = $this->invoices('paid');
                 if ($done->isEmpty()) {
                     return null;
                 }

@@ -23,7 +23,7 @@ class InvoiceNumberTest extends TestCase
         Setting::updateOrCreate(['key' => 'invoice_number_format'], ['value' => '{number}']);
 
         $invoice = new Invoice;
-        $invoice->client_id = $user->id;
+        $invoice->client_id = $user->client()->id;
         $invoice->status = Invoice::STATUS_DRAFT;
         $invoice->currency_code = 'USD';
         $invoice->save();
@@ -60,7 +60,7 @@ class InvoiceNumberTest extends TestCase
         Setting::updateOrCreate(['key' => 'invoice_proforma'], ['value' => true]);
 
         $invoice = new Invoice;
-        $invoice->client_id = $user->id;
+        $invoice->client_id = $user->client()->id;
         $invoice->status = Invoice::STATUS_DRAFT;
         $invoice->currency_code = 'USD';
         $invoice->save();
