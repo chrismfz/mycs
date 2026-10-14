@@ -194,11 +194,11 @@ namespace Tests\Feature {
          */
         public function test_a_manual_create_without_payment_does_not_give_a_free_service_for_ever(): void
         {
-            $this->markTestSkipped('Open, to Σ1-b (same as review R7): a service made before payment gets its due date and the cron\'s reach there.');
             $this->orderInvoice(); // the order's invoice, never paid
             ExtensionHelper::createServer($this->service->fresh());
             $this->assertSame('active', $this->service->fresh()->status);
-            $this->assertNull($this->service->fresh()->expires_at);
+            // Σ1-b: due from the order date (was null: never billed, suspended or cancelled).
+            $this->assertNotNull($this->service->fresh()->expires_at);
 
             $this->travel(90)->days();
             $this->artisan('app:cron-job');

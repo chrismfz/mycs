@@ -608,6 +608,8 @@ class ImportFromWhmcs extends Command
                     'hidden' => $record['hidden'],
                     // WHMCS «Apply Tax» (Δ1).
                     'taxable' => (bool) ($record['tax'] ?? true),
+                    // When its service is set up (Σ1-b): '' (never), on (Accept), order, payment.
+                    'autosetup' => Product::AUTOSETUP_FROM_WHMCS[$record['autosetup'] ?? 'payment'] ?? Product::AUTOSETUP_PAYMENT,
                     'stock' => $record['stockcontrol'] ? $record['qty'] : null,
                     'allow_quantity' => match ($record['allowqty']) {
                         1 => 'separated',

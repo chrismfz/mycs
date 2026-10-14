@@ -17,6 +17,24 @@ class Product extends Model implements Auditable
 {
     use HasFactory, HasPlans, Traits\Auditable;
 
+    /** When its service is set up (WHMCS «Auto Setup», Σ1-b): with the order, the first payment, staff's Accept, never. */
+    public const AUTOSETUP_ORDER = 'order';
+
+    public const AUTOSETUP_PAYMENT = 'payment';
+
+    public const AUTOSETUP_ACCEPT = 'accept';
+
+    public const AUTOSETUP_NEVER = 'never';
+
+    /** WHMCS's tblproducts.autosetup → ours. */
+    public const AUTOSETUP_FROM_WHMCS = ['order' => self::AUTOSETUP_ORDER, 'payment' => self::AUTOSETUP_PAYMENT, 'on' => self::AUTOSETUP_ACCEPT, '' => self::AUTOSETUP_NEVER];
+
+    /** Set up by the app when paid (or ordered): not waiting for staff. */
+    public function setsUpOnPayment(): bool
+    {
+        return in_array($this->autosetup ?? self::AUTOSETUP_PAYMENT, [self::AUTOSETUP_ORDER, self::AUTOSETUP_PAYMENT], true);
+    }
+
     protected $guarded = [];
 
     protected $casts = [

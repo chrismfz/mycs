@@ -559,6 +559,34 @@ class Service extends Model implements Auditable
         return $cycle;
     }
 
+    /**
+     * Its dates when it starts (pending → active: its account made, staff's Accept or status; Σ1-b). Paid while it
+     * waited (a server that failed, a dedicated server built by hand for ten days): the period paid counts from today,
+     * the paid-until date moving by the days waited, as staff's grace would (its invoice lines stay). Not paid yet (set
+     * up on order, or by staff before payment): due from the order date, as WHMCS's next due date = registration date,
+     * so its unpaid first invoice suspends and terminates it as any overdue one. One-time and free plans have none.
+     */
+    public function datesOnStart(): void
+    {
+        if ($this->plan === null || in_array($this->plan->type, ['one-time', 'free'], true)) {
+            return;
+        }
+        if ($this->expires_at === null) {
+            $this->expires_at = CarbonImmutable::parse($this->created_at ?? now())->startOfDay()->toMutable();
+
+            return;
+        }
+        $paidFrom = $this->livePeriodLines()->filter(fn (InvoiceItem $line) => $line->invoice?->status === Invoice::STATUS_PAID)
+            ->min(fn (InvoiceItem $line) => $line->period_start);
+        if ($paidFrom === null) {
+            return;
+        }
+        $waited = (int) CarbonImmutable::parse($paidFrom)->startOfDay()->diffInDays(CarbonImmutable::today(), false);
+        if ($waited > 0) {
+            $this->expires_at = CarbonImmutable::parse($this->expires_at)->addDays($waited)->toMutable();
+        }
+    }
+
     /** The paid-until date the chains start from (today for a service that never started). */
     public function paidUntilBase(): CarbonImmutable
     {

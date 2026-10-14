@@ -176,7 +176,6 @@ class ModuleActionsReviewTest extends TestCase
      */
     public function test_r7_a_manual_create_on_an_unpaid_order_stays_in_reach_of_the_cron(): void
     {
-        $this->markTestSkipped('Open, to Σ1-b: a service made before payment (staff, or Auto Setup «on order») gets its due date and the cron\'s reach there.');
         $invoice = Invoice::factory()->create(['client_id' => $this->service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD',
             'due_at' => now()->subDays(20)]);
         $invoice->items()->create(['reference_id' => $this->service->id, 'reference_type' => Service::class, 'description' => 'Order',

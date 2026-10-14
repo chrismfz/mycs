@@ -83,6 +83,13 @@ class ServiceObserver
         if ($service->isDirty('plan_id')) {
             $service->unsetRelation('plan'); // a loaded relation still holds the old plan
         }
+        if ($service->isDirty('status') && $service->getOriginal('status') === Service::STATUS_PENDING
+            && $service->status === Service::STATUS_ACTIVE && !$service->isDirty('expires_at') && !self::$renewing) {
+            // Started now, with no date of staff's in the same save: the period counts from today (Σ1-b).
+            $service->datesOnStart();
+
+            return;
+        }
         if (self::$renewing || !$service->isDirty('expires_at') || $service->expires_at === null
             || $service->plan === null || in_array($service->plan->type, ['one-time', 'free'], true)) {
             return;

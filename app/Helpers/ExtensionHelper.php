@@ -25,14 +25,12 @@ use App\Models\PaymentGatewayEvent;
 use App\Models\Product;
 use App\Models\Server;
 use App\Models\Service;
-use App\Observers\ServiceObserver;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\GatewayLog;
 use App\Services\Money\MoneyTrail;
 use App\Services\Service\ServerSelector;
-use Carbon\CarbonImmutable;
 use Exception;
 use Filament\Forms\Components\Placeholder;
 use Illuminate\Database\Eloquent\Collection;
@@ -1514,27 +1512,6 @@ class ExtensionHelper
     }
 
     /**
-     * Paid while its account could not be made (the server failed, Pending Module Actions): the customer gets the
-     * period they paid for from the day the account exists, so a service made late is not overdue the day it starts
-     * (adversarial A1). The paid-until date moves by the days waited, as staff's grace would; its invoice lines stay.
-     */
-    private static function giveBackTheWait(Service $service): void
-    {
-        if ($service->expires_at === null) {
-            return;
-        }
-        $paidFrom = $service->livePeriodLines()->filter(fn ($line) => $line->invoice?->status === Invoice::STATUS_PAID)
-            ->min(fn ($line) => $line->period_start);
-        if ($paidFrom === null) {
-            return;
-        }
-        $waited = (int) CarbonImmutable::parse($paidFrom)->startOfDay()->diffInDays(CarbonImmutable::today(), false);
-        if ($waited > 0) {
-            $service->expires_at = CarbonImmutable::parse($service->expires_at)->addDays($waited)->toMutable();
-        }
-    }
-
-    /**
      * The account exists (made, made by hand, or nothing to make): a pending service starts (an ended one stays as it
      * is).
      */
@@ -1546,14 +1523,8 @@ class ExtensionHelper
                 return;
             }
             if ($locked->status === Service::STATUS_PENDING) {
-                $locked->status = Service::STATUS_ACTIVE;
-                self::giveBackTheWait($locked);
-                ServiceObserver::$renewing = true; // the date moved here is the paid one, not a staff edit to re-chain
-                try {
-                    $locked->save();
-                } finally {
-                    ServiceObserver::$renewing = false;
-                }
+                $locked->status = Service::STATUS_ACTIVE; // its dates follow (ServiceObserver: Service::datesOnStart)
+                $locked->save();
             }
             $service->setRawAttributes($locked->getAttributes(), true);
         });
