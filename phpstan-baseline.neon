@@ -1333,13 +1333,13 @@ parameters:
 			path: extensions/Gateways/Stripe/Stripe.php
 
 		-
-			message: '#^Access to an undefined property Paymenter\\Extensions\\Others\\Affiliates\\Models\\Affiliate\:\:\$earnings\.$#'
+			message: '#^Access to an undefined property MyCS\\Extensions\\Others\\Affiliates\\Models\\Affiliate\:\:\$earnings\.$#'
 			identifier: property.notFound
 			count: 3
 			path: extensions/Others/Affiliates/Admin/Resources/AffiliateResource.php
 
 		-
-			message: '#^Call to an undefined method Paymenter\\Extensions\\Others\\Affiliates\\Admin\\Resources\\AffiliateResource\:\:getCreateFormAction\(\)\.$#'
+			message: '#^Call to an undefined method MyCS\\Extensions\\Others\\Affiliates\\Admin\\Resources\\AffiliateResource\:\:getCreateFormAction\(\)\.$#'
 			identifier: method.notFound
 			count: 1
 			path: extensions/Others/Affiliates/Admin/Resources/AffiliateResource.php
@@ -1399,7 +1399,7 @@ parameters:
 			path: extensions/Others/Affiliates/Listeners/RewardAffiliate.php
 
 		-
-			message: '#^Access to an undefined property Paymenter\\Extensions\\Others\\Affiliates\\Models\\Affiliate\:\:\$reward\.$#'
+			message: '#^Access to an undefined property MyCS\\Extensions\\Others\\Affiliates\\Models\\Affiliate\:\:\$reward\.$#'
 			identifier: property.notFound
 			count: 1
 			path: extensions/Others/Affiliates/Listeners/RewardAffiliate.php
@@ -1435,7 +1435,7 @@ parameters:
 			path: extensions/Others/Affiliates/Middleware/AffiliatesMiddleware.php
 
 		-
-			message: '#^Access to an undefined property Paymenter\\Extensions\\Others\\Affiliates\\Models\\Affiliate\:\:\$code\.$#'
+			message: '#^Access to an undefined property MyCS\\Extensions\\Others\\Affiliates\\Models\\Affiliate\:\:\$code\.$#'
 			identifier: property.notFound
 			count: 2
 			path: extensions/Others/Affiliates/Middleware/AffiliatesMiddleware.php
@@ -1465,7 +1465,7 @@ parameters:
 			path: extensions/Others/Affiliates/Models/AffiliateOrder.php
 
 		-
-			message: '#^Call to method each\(\) on an unknown class Paymenter\\Extensions\\Others\\Affiliates\\Models\\Collection\.$#'
+			message: '#^Call to method each\(\) on an unknown class MyCS\\Extensions\\Others\\Affiliates\\Models\\Collection\.$#'
 			identifier: class.notFound
 			count: 1
 			path: extensions/Others/Affiliates/Models/AffiliateOrder.php
@@ -1477,7 +1477,7 @@ parameters:
 			path: extensions/Others/Affiliates/Models/AffiliateOrder.php
 
 		-
-			message: '#^PHPDoc tag @var contains unknown class Paymenter\\Extensions\\Others\\Affiliates\\Models\\Collection\.$#'
+			message: '#^PHPDoc tag @var contains unknown class MyCS\\Extensions\\Others\\Affiliates\\Models\\Collection\.$#'
 			identifier: class.notFound
 			count: 1
 			path: extensions/Others/Affiliates/Models/AffiliateOrder.php
@@ -1495,13 +1495,13 @@ parameters:
 			path: extensions/Others/Announcements/Livewire/Announcements/Index.php
 
 		-
-			message: '#^Access to an undefined property Paymenter\\Extensions\\Others\\Announcements\\Models\\Announcement\:\:\$is_active\.$#'
+			message: '#^Access to an undefined property MyCS\\Extensions\\Others\\Announcements\\Models\\Announcement\:\:\$is_active\.$#'
 			identifier: property.notFound
 			count: 1
 			path: extensions/Others/Announcements/Livewire/Announcements/Show.php
 
 		-
-			message: '#^Access to an undefined property Paymenter\\Extensions\\Others\\Announcements\\Models\\Announcement\:\:\$published_at\.$#'
+			message: '#^Access to an undefined property MyCS\\Extensions\\Others\\Announcements\\Models\\Announcement\:\:\$published_at\.$#'
 			identifier: property.notFound
 			count: 1
 			path: extensions/Others/Announcements/Livewire/Announcements/Show.php
@@ -1531,31 +1531,31 @@ parameters:
 			path: extensions/Servers/Convoy/Convoy.php
 
 		-
-			message: '#^Method Paymenter\\Extensions\\Servers\\Convoy\\Convoy\:\:createServer\(\) should return bool but returns array\<string, mixed\>\.$#'
+			message: '#^Method MyCS\\Extensions\\Servers\\Convoy\\Convoy\:\:createServer\(\) should return bool but returns array\<string, mixed\>\.$#'
 			identifier: return.type
 			count: 1
 			path: extensions/Servers/Convoy/Convoy.php
 
 		-
-			message: '#^Method Paymenter\\Extensions\\Servers\\Convoy\\Convoy\:\:suspendServer\(\) should return bool but return statement is missing\.$#'
+			message: '#^Method MyCS\\Extensions\\Servers\\Convoy\\Convoy\:\:suspendServer\(\) should return bool but return statement is missing\.$#'
 			identifier: return.missing
 			count: 1
 			path: extensions/Servers/Convoy/Convoy.php
 
 		-
-			message: '#^Method Paymenter\\Extensions\\Servers\\Convoy\\Convoy\:\:terminateServer\(\) should return bool but return statement is missing\.$#'
+			message: '#^Method MyCS\\Extensions\\Servers\\Convoy\\Convoy\:\:terminateServer\(\) should return bool but return statement is missing\.$#'
 			identifier: return.missing
 			count: 1
 			path: extensions/Servers/Convoy/Convoy.php
 
 		-
-			message: '#^Method Paymenter\\Extensions\\Servers\\Convoy\\Convoy\:\:unsuspendServer\(\) should return bool but return statement is missing\.$#'
+			message: '#^Method MyCS\\Extensions\\Servers\\Convoy\\Convoy\:\:unsuspendServer\(\) should return bool but return statement is missing\.$#'
 			identifier: return.missing
 			count: 1
 			path: extensions/Servers/Convoy/Convoy.php
 
 		-
-			message: '#^Method Paymenter\\Extensions\\Servers\\DirectAdmin\\DirectAdmin\:\:createServer\(\) should return bool but returns array\<string, mixed\>\.$#'
+			message: '#^Method MyCS\\Extensions\\Servers\\DirectAdmin\\DirectAdmin\:\:createServer\(\) should return bool but returns array\<string, mixed\>\.$#'
 			identifier: return.type
 			count: 1
 			path: extensions/Servers/DirectAdmin/DirectAdmin.php
@@ -1567,7 +1567,7 @@ parameters:
 			path: extensions/Servers/DirectAdmin/DirectAdmin.php
 
 		-
-			message: '#^Method Paymenter\\Extensions\\Servers\\Plesk\\Plesk\:\:createServer\(\) should return bool but returns array\<string, mixed\>\.$#'
+			message: '#^Method MyCS\\Extensions\\Servers\\Plesk\\Plesk\:\:createServer\(\) should return bool but returns array\<string, mixed\>\.$#'
 			identifier: return.type
 			count: 1
 			path: extensions/Servers/Plesk/Plesk.php
@@ -1603,7 +1603,7 @@ parameters:
 			path: extensions/Servers/Virtualizor/Virtualizor.php
 
 		-
-			message: '#^Method Paymenter\\Extensions\\Servers\\Virtualizor\\Virtualizor\:\:createServer\(\) should return bool but returns array\<string, mixed\>\.$#'
+			message: '#^Method MyCS\\Extensions\\Servers\\Virtualizor\\Virtualizor\:\:createServer\(\) should return bool but returns array\<string, mixed\>\.$#'
 			identifier: return.type
 			count: 1
 			path: extensions/Servers/Virtualizor/Virtualizor.php

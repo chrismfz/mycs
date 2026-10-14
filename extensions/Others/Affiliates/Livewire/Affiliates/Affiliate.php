@@ -1,13 +1,13 @@
 <?php
 
-namespace Paymenter\Extensions\Others\Affiliates\Livewire\Affiliates;
+namespace MyCS\Extensions\Others\Affiliates\Livewire\Affiliates;
 
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
 use App\Support\CurrentClient;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
-use Paymenter\Extensions\Others\Affiliates\Models\Affiliate as AffiliateModel;
+use MyCS\Extensions\Others\Affiliates\Models\Affiliate as AffiliateModel;
 
 class Affiliate extends Component
 {

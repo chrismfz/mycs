@@ -19,7 +19,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
-use Paymenter\Extensions\Gateways\PayPal\PayPal;
+use MyCS\Extensions\Gateways\PayPal\PayPal;
 use Tests\TestCase;
 
 /** Code review of PR 2a (feat/payment-guards, docs/payments.md): the defects it found, now fixed, and a money-conservation check. */

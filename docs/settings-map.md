@@ -3,15 +3,15 @@
 > Αρχή: **ένας κώδικας, διαφορετικές ρυθμίσεις ανά instance.** Ό,τι στο WHMCS είναι επιλογή (αρίθμηση, proforma,
 > αυτόματη πίστωση, ομαδοποίηση γραμμών, …) γίνεται ρύθμιση και στο MyCS, όχι κώδικας για τη μία εταιρεία.
 > Πηγές: screenshots General Settings του WHMCS (Ordering, Domains, Invoices) και `whmcs-usage.md`. Τα κλειδιά του
-> Paymenter είναι από το `app/Classes/Settings.php` στο `5b69d45`.
-> **P** = υπάρχει στο Paymenter · **P~** = υπάρχει μερικώς · **Ν** = νέα ρύθμιση.
+> upstream είναι από το `app/Classes/Settings.php` στο `5b69d45`.
+> **P** = υπάρχει στο upstream · **P~** = υπάρχει μερικώς · **Ν** = νέα ρύθμιση.
 
 ## Τιμολόγια
 | WHMCS | myip | nixpal | MyCS |
 |---|---|---|---|
 | Αριθμός τιμολογίου | = invoice ID· «Invoice Starting #» ελάχιστο **32.477** σήμερα | Sequential paid numbering **`{YEAR}-{NUMBER}`**, επόμενο **6819**· τα IDs των proforma φτάνουν το 7.214 | **P:** `invoice_number`, `invoice_number_format` (`{number}{year}{month}{day}`), `invoice_number_padding`, `invoice_proforma` (αριθμός μόνο στην πληρωμή, ξεχωριστός από το id). Ο μετρητής κρατάει τον **τελευταίο** αριθμό (myip: 32.476, nixpal: 6818). Τα IDs του WHMCS κρατιούνται και στα δύο instances |
 | Enable Proforma Invoicing | off | **on** | **P:** `invoice_proforma` |
-| Continuous Invoice Generation | off | off | **Ν** (default off = συμπεριφορά Paymenter: δεν βγάζει νέο τιμολόγιο αν υπάρχει unpaid) |
+| Continuous Invoice Generation | off | off | **Ν** (default off = συμπεριφορά upstream: δεν βγάζει νέο τιμολόγιο αν υπάρχει unpaid) |
 | Enable PDF Invoices (συνημμένο στο email) | off | on | **Ν** |
 | PDF font/μέγεθος | Freesans, A4 | Helvetica, A4 | P~ (dompdf)· Freesans/DejaVu για τα ελληνικά |
 | Store Client Data Snapshot | off | off | **P:** `invoice_snapshot` |
@@ -45,7 +45,7 @@
 |---|---|---|
 | Register / transfer / χρήση δικού domain | on / on / on | Ν (domains από το Ekdosi) |
 | Enable Renewal Orders (πρόωρη ανανέωση domain) | on | Ν |
-| **Auto Renew on Payment** | on | Ν: πολιτική on-paid (default)· on-issue ανά πελάτη· prepaid (`platform-evaluation.md`) |
+| **Auto Renew on Payment** | on | Ν: πολιτική on-paid (default)· on-issue ανά πελάτη· prepaid (`history/platform-evaluation.md`) |
 | Auto Renew Requires Product (δωρεάν domain) | on | Ν |
 | Default Auto Renewal Setting | on | Ν (το Ekdosi έχει `auto_renew` ανά domain) |
 | To-Do entries για αποτυχίες | on | Ν (λίστα εκκρεμοτήτων admin / ειδοποίηση) |
@@ -61,7 +61,7 @@
 
 | WHMCS | Τιμή | MyCS |
 |---|---|---|
-| Support Module | Built-in | E (tickets του Ekdosi, όχι του Paymenter) |
+| Support Module | Built-in | E (tickets του Ekdosi, όχι του upstream) |
 | Ticket Mask Format | `%n%n%n%n%n%n` (6 ψηφία) | E? (το Ekdosi κάνει threading με `[TK-…]`) → **Ν:** μορφή ρυθμιζόμενη· τα παλιά νούμερα από τον importer |
 | Reply list order | Νεότερο πρώτα | Ν (ρύθμιση UI) |
 | Ticket Reply Email Limit | 10 ανά 15' | E? → Ν (rate limit εξερχόμενων ανά ticket, κατά των loops) |
@@ -124,7 +124,7 @@ nixpal (pilot). Τιμές από το `tblconfiguration` των δύο WHMCS, 2
 | Φόρος | 24% exclusive, ένας κανόνας | EU VAT 27 χώρες, VIES, reverse charge | P~ `tax_enabled`, `tax_type` → **Ν** (`whmcs-usage.md`) |
 
 ## Συμπέρασμα
-Η αρίθμηση και το proforma της nixpal **υπάρχουν ήδη ως ρυθμίσεις στο Paymenter** (`invoice_number_format`
+Η αρίθμηση και το proforma της nixpal **υπάρχουν ήδη ως ρυθμίσεις στο upstream** (`invoice_number_format`
 `{year}-{number}`, `invoice_proforma`). Ο ίδιος κώδικας δουλεύει και στις δύο εταιρείες. Νέες ρυθμίσεις, όλες γενικές
 και όχι ανά εταιρεία:
 - Mass Pay

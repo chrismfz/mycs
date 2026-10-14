@@ -1,8 +1,8 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use Paymenter\Extensions\Others\Announcements\Livewire\Announcements\Index;
-use Paymenter\Extensions\Others\Announcements\Livewire\Announcements\Show;
+use MyCS\Extensions\Others\Announcements\Livewire\Announcements\Index;
+use MyCS\Extensions\Others\Announcements\Livewire\Announcements\Show;
 
 Route::group(['middleware' => ['web']], function () {
     Route::get('/announcements', Index::class)->name('announcements.index');

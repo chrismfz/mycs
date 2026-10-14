@@ -1,6 +1,6 @@
 <?php
 
-namespace Paymenter\Extensions\Gateways\PayPal;
+namespace MyCS\Extensions\Gateways\PayPal;
 
 use Exception;
 use Illuminate\Http\Client\Response;

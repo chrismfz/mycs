@@ -20,7 +20,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use LogicException;
-use Paymenter\Extensions\Gateways\AdvFakeGw\AdvFakeGw;
+use MyCS\Extensions\Gateways\AdvFakeGw\AdvFakeGw;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -391,7 +391,7 @@ class MoneyTrailAdversarialTest extends TestCase
     private function fakeRefundGateway(): void
     {
         if (!class_exists(AdvFakeGw::class, false)) {
-            eval('namespace Paymenter\Extensions\Gateways\AdvFakeGw;
+            eval('namespace MyCS\Extensions\Gateways\AdvFakeGw;
                 class AdvFakeGw {
                     public static int $refunds = 0;
                     public function __construct($config = []) {}

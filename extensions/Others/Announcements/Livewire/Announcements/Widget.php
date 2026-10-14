@@ -1,9 +1,9 @@
 <?php
 
-namespace Paymenter\Extensions\Others\Announcements\Livewire\Announcements;
+namespace MyCS\Extensions\Others\Announcements\Livewire\Announcements;
 
 use Livewire\Component;
-use Paymenter\Extensions\Others\Announcements\Models\Announcement;
+use MyCS\Extensions\Others\Announcements\Models\Announcement;
 
 class Widget extends Component
 {

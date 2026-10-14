@@ -107,7 +107,7 @@ class AdminPanelProvider extends PanelProvider
                 DispatchServingFilamentEvent::class,
             ])
             // Persistent: Livewire updates inside the panel use the admin language too.
-            // Persistent: Livewire requests of the panel (its actions, forms, tables) go through /paymenter/update, and
+            // Persistent: Livewire requests of the panel (its actions, forms, tables) go through /mycs/update, and
             // they too must see the staff member, never a customer logged in in the same browser.
             // LockSession too: the IP/agent lock covers the panel's actions, not only its pages.
             ->middleware([UseStaffGuard::class, LockSession::class, AdminLocale::class], isPersistent: true)

@@ -35,7 +35,7 @@ class Create extends Command implements PromptsForMissingInput
         $stub = file_get_contents(__DIR__ . '/stubs/' . $type . '.stub');
         // Replace placeholders with actual values
         $stub = str_replace('{{ class }}', ucfirst($name), $stub);
-        $stub = str_replace('{{ namespace }}', 'Paymenter\\Extensions\\' . ucfirst($type) . 's' . '\\' . ucfirst($name), $stub);
+        $stub = str_replace('{{ namespace }}', 'MyCS\\Extensions\\' . ucfirst($type) . 's' . '\\' . ucfirst($name), $stub);
 
         // Create the extension file
         $path = base_path('extensions/' . ucfirst($type) . 's/' . ucfirst($name) . '/' . ucfirst($name) . '.php');

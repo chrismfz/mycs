@@ -2,7 +2,7 @@
 
 > Πρότυπο: το `migrate:firebird` του Ekdosi (`app/Console/Commands/MigrateFromFirebird.php`, 1264 γρ.), που έφερε
 > περίπου 7.000 παραστατικά από το Ekdosi Legacy σε λεπτά και χωρίς απώλειες, και το `ekdosi:go-live-check`. Ο
-> importer του Paymenter **δεν** χρησιμοποιείται (`audit-importer-health.md`: σβήνει τη βάση σε κάθε run, δεν
+> importer του upstream **δεν** χρησιμοποιείται (`history/audit-importer-health.md`: σβήνει τη βάση σε κάθε run, δεν
 > περνάει ποσά, domains ή tokens).
 
 ## Αρχές (από το `migrate:firebird`)
@@ -40,7 +40,7 @@
 
 ## Status τιμολογίων (2026-10-13)
 Το MyCS λέει ό,τι και το WHMCS, στη βάση και στις οθόνες: το «Unpaid» είναι `unpaid` (μέχρι 2026-10-13 ήταν `pending`,
-λέξη του Paymenter· το migration `rename_invoice_status_pending_to_unpaid` μετέτρεψε τα παλιά). Οι οθόνες γράφουν
+λέξη του upstream· το migration `rename_invoice_status_pending_to_unpaid` μετέτρεψε τα παλιά). Οι οθόνες γράφουν
 «Unpaid» / «Απλήρωτο» (`Invoice::statusLabel`). Status εκτός `Invoice::STATUSES` απορρίπτεται από το `InvoiceObserver`.
 Αντιστοίχιση για τον importer:
 
@@ -53,7 +53,7 @@
 | Refunded | `refunded` (PR 2c) |
 | Collections | να αποφασιστεί (δεν χρησιμοποιείται σήμερα· πρόταση: `unpaid` με σημείωση) |
 
-Ο importer του Paymenter (`ImportFromWhmcs.php`) γράφει πλέον τις λέξεις του πίνακα για τα τιμολόγια. Δεν
+Ο importer του upstream (`ImportFromWhmcs.php`) γράφει πλέον τις λέξεις του πίνακα για τα τιμολόγια. Δεν
 χρησιμοποιείται· ο νέος importer ακολουθεί τον πίνακα.
 
 ## Status υπηρεσιών (2026-10-13)

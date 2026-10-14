@@ -1,6 +1,6 @@
 <?php
 
-namespace Paymenter\Extensions\Others\Affiliates\Admin\Resources;
+namespace MyCS\Extensions\Others\Affiliates\Admin\Resources;
 
 use App\Admin\Components\ClientComponent;
 use App\Helpers\ExtensionHelper;
@@ -13,10 +13,10 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
-use Paymenter\Extensions\Others\Affiliates\Admin\Resources\AffiliateResource\Pages\EditAffiliate;
-use Paymenter\Extensions\Others\Affiliates\Admin\Resources\AffiliateResource\Pages\ListAffiliates;
-use Paymenter\Extensions\Others\Affiliates\Admin\Resources\AffiliateResource\RelationManagers\AffiliatesRelationManager;
-use Paymenter\Extensions\Others\Affiliates\Models\Affiliate;
+use MyCS\Extensions\Others\Affiliates\Admin\Resources\AffiliateResource\Pages\EditAffiliate;
+use MyCS\Extensions\Others\Affiliates\Admin\Resources\AffiliateResource\Pages\ListAffiliates;
+use MyCS\Extensions\Others\Affiliates\Admin\Resources\AffiliateResource\RelationManagers\AffiliatesRelationManager;
+use MyCS\Extensions\Others\Affiliates\Models\Affiliate;
 
 class AffiliateResource extends Resource
 {

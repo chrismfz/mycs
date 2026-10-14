@@ -39,7 +39,7 @@ class RegisterTest extends TestCase
         $response = Livewire::test(Register::class)
             ->set('first_name', 'Corwin')
             ->set('last_name', 'Corwin')
-            ->set('email', 'corwin@paymenter.org')
+            ->set('email', 'corwin@example.test')
             ->set('password', 'passw0rd')
             ->set('password_confirmation', 'passw0rd')
             ->call('submit');
@@ -47,7 +47,7 @@ class RegisterTest extends TestCase
         $response->assertHasNoErrors();
 
         $this->assertDatabaseHas('users', [
-            'email' => 'corwin@paymenter.org',
+            'email' => 'corwin@example.test',
         ]);
     }
 
@@ -59,7 +59,7 @@ class RegisterTest extends TestCase
         $response = Livewire::test(Register::class)
             ->set('first_name', 'Corwin')
             ->set('last_name', 'Corwin')
-            ->set('email', 'corwin@paymenter.org')
+            ->set('email', 'corwin@example.test')
             ->set('password', 'passw0rd')
             ->set('password_confirmation', 'pswrd')
             ->call('submit');
@@ -78,7 +78,7 @@ class RegisterTest extends TestCase
         });
 
         $response = Livewire::test(Register::class)
-            ->set('email', 'corwin@paymenter.org')
+            ->set('email', 'corwin@example.test')
             ->set('password', 'passw0rd')
             ->set('password_confirmation', 'passw0rd')
             ->call('submit');

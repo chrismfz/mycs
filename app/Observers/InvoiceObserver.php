@@ -132,7 +132,7 @@ class InvoiceObserver
     }
 
     /**
-     * Only the statuses MyCS knows (Invoice::STATUSES). One it does not know (Paymenter's old «pending», a typo) would
+     * Only the statuses MyCS knows (Invoice::STATUSES). One it does not know (the old «pending» from before the fork's rename, a typo) would
      * hide the invoice from every list, payment and cron step that looks for open ones (adversarial review of 2b).
      */
     private static function refuseUnknownStatus(Invoice $invoice): void

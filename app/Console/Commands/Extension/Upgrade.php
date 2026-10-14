@@ -26,7 +26,7 @@ class Upgrade extends Command
      */
     public function handle()
     {
-        $extensionClass = 'Paymenter\\Extensions\\' . ucfirst($this->argument('type')) . 's\\' . ucfirst($this->argument('name')) . '\\' . ucfirst($this->argument('name'));
+        $extensionClass = 'MyCS\\Extensions\\' . ucfirst($this->argument('type')) . 's\\' . ucfirst($this->argument('name')) . '\\' . ucfirst($this->argument('name'));
         if (!class_exists($extensionClass)) {
             return $this->error("The extension class {$extensionClass} does not exist.");
         }

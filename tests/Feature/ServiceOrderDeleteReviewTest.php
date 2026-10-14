@@ -27,8 +27,8 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
-use Paymenter\Extensions\Gateways\Stripe\Stripe;
-use Paymenter\Extensions\Others\DiscordNotifications\DiscordNotifications;
+use MyCS\Extensions\Gateways\Stripe\Stripe;
+use MyCS\Extensions\Others\DiscordNotifications\DiscordNotifications;
 use Tests\TestCase;
 
 /**

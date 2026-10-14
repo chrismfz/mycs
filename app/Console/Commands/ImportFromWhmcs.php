@@ -63,7 +63,7 @@ class ImportFromWhmcs extends Command
         $dbname = $this->argument('dbname');
         $host = $this->askOrUseENV(argument: 'host', env: 'DB_HOST', question: 'Enter the host:', placeholder: 'localhost');
         $port = $this->askOrUseENV(argument: 'port', env: 'DB_PORT', question: 'Enter the port:', placeholder: '3306');
-        $username = $this->askOrUseENV(argument: 'username', env: 'DB_USERNAME', question: 'Enter the username:', placeholder: 'paymenter');
+        $username = $this->askOrUseENV(argument: 'username', env: 'DB_USERNAME', question: 'Enter the username:', placeholder: 'mycs');
         $password = password("Enter the password for user '$username':", required: true);
 
         try {

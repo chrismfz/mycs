@@ -13,7 +13,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Paymenter\Extensions\Gateways\PayPal\PayPal;
+use MyCS\Extensions\Gateways\PayPal\PayPal;
 use Tests\TestCase;
 
 /**

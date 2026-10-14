@@ -1,13 +1,13 @@
 <?php
 
-namespace Paymenter\Extensions\Others\Affiliates\Middleware;
+namespace MyCS\Extensions\Others\Affiliates\Middleware;
 
 use App\Helpers\ExtensionHelper;
 use App\Support\CurrentClient;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cookie;
-use Paymenter\Extensions\Others\Affiliates\Models\Affiliate;
+use MyCS\Extensions\Others\Affiliates\Models\Affiliate;
 use Symfony\Component\HttpFoundation\Response;
 
 class AffiliatesMiddleware

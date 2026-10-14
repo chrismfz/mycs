@@ -20,8 +20,8 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Livewire\Livewire;
-use Paymenter\Extensions\Gateways\PayPal\PayPal;
-use Paymenter\Extensions\Gateways\PayPal\PayPalApiException;
+use MyCS\Extensions\Gateways\PayPal\PayPal;
+use MyCS\Extensions\Gateways\PayPal\PayPalApiException;
 use RuntimeException;
 use Tests\TestCase;
 

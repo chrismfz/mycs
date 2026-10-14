@@ -134,7 +134,7 @@ tickets, affiliates, emails, orders`. Στην πράξη: «όλα» ή μικ�
      `address2`, `city`, `state`, `country`)· τα custom fields του WHMCS (ΑΦΜ, ΔΟΥ κ.λπ.) δεν διαβάζονται καθόλου;
    - πελάτης χωρίς owner παραλείπεται σιωπηλά (σήμερα 0 τέτοιοι).
 
-## Σήμερα (κληρονομιά Paymenter)
+## Σήμερα (κληρονομιά upstream)
 - Ένας πίνακας `users` για όλους. Admin = user με `role_id` (`User::canAccessPanel()`).
 - Ίδιο login, session και «ξέχασα τον κωδικό» για πελάτες και staff· τίποτα δεν υποχρεώνει το staff σε 2FA.
 - Χρήστης = πελάτης: ένας login βλέπει μόνο τον εαυτό του, χωρίς χρήστες με πρόσβαση σε πολλούς λογαριασμούς.
@@ -361,7 +361,7 @@ tickets, affiliates, emails, orders`. Στην πράξη: «όλα» ή μικ�
   στο 2FA από το Filament.
 - **Ρόλοι μόνο στο staff:** το `users.role_id` φεύγει· `User::hasPermission()` είναι πάντα `false`. Το users API δεν
   δέχεται `role_id` (ήταν δρόμος να γίνει πελάτης admin).
-- **Middleware `UseStaffGuard`** στο panel, και persistent για τα Livewire requests του (`/paymenter/update`): στο admin
+- **Middleware `UseStaffGuard`** στο panel, και persistent για τα Livewire requests του (`/mycs/update`): στο admin
   ο `auth()->user()` και οι policies παίρνουν Staff, ποτέ πελάτη του ίδιου browser.
 - **Ids που συμπίπτουν:** staff και πελάτες έχουν δική τους αρίθμηση. Οι policies ελέγχουν «ανήκει σε» μόνο για
   πελάτη (`BasePolicy::owns`) και δικαίωμα ρόλου μόνο για staff (`adminPermission`), ώστε ένα μέλος με το ίδιο id με

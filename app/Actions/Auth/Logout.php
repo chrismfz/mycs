@@ -21,7 +21,7 @@ class Logout
         // Clear session and cookie
         Session::invalidate();
         Session::regenerateToken();
-        Cookie::queue(Cookie::forget('paymenter_remember'));
+        Cookie::queue(Cookie::forget('mycs_remember'));
 
         // One session for both: invalidated, so neither the customer nor staff stay logged in it.
         Auth::guard('web')->logout();

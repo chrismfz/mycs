@@ -3,7 +3,7 @@
 > Για όποιον (άνθρωπο ή agent) πιάνει τη δουλειά. Ενημερώνεται σε κάθε βήμα· τελευταία 2026-10-11.
 
 ## Κατάσταση
-- **Repo:** `chrismfz/mycs`, hard fork του Paymenter στο `5b69d45` (v1.5.8+41), χωρίς ιστορικό upstream.
+- **Repo:** `chrismfz/mycs`, hard fork του upstream στο `5b69d45` (v1.5.8+41), χωρίς ιστορικό upstream.
   Αλλαγές μέχρι τώρα: αφαίρεση όσων «τηλεφωνούν σπίτι» (Φάση 0, `ROADMAP.md`).
 - **Φάση:** 0 σε εξέλιξη (`ROADMAP.md`). Το devbox είναι το VM `devbox` (το dev του Ekdosi: MariaDB, PHP, git, gh),
   στο `mycs.myip.gr` (+ wildcard `*.mycs.myip.gr` για δοκιμές).
@@ -16,7 +16,7 @@
 1. `README.md` (αυτού του φακέλου): η απόφαση και ευρετήριο.
 2. `ROADMAP.md`: τι γίνεται, με ποια σειρά.
 3. `whmcs-usage.md` + `settings-map.md`: τι χρησιμοποιούν πραγματικά οι δύο εταιρείες και με ποιες ρυθμίσεις.
-4. `audit-billing.md`, `audit-security.md`: τι είναι στραβό στον πυρήνα που κληρονομήσαμε.
+4. `history/audit-billing.md`, `history/audit-security.md`: τι είναι στραβό στον πυρήνα που κληρονομήσαμε.
 5. `../CLAUDE.md`: κανόνες (secrets, δεδομένα πελατών, contracts).
 
 ## Περιβάλλοντα και πρόσβαση
@@ -38,7 +38,7 @@
 - **php-fpm pool** `/etc/php-fpm.d/mycs.conf` → `/run/php-fpm/mycs.sock` (user `mycs`, `pm.max_children = 10`),
   log `/var/log/php-fpm/mycs-error.log`.
 - **nginx** `/etc/nginx/conf.d/mycs.myip.gr.conf`: root `/var/www/mycs/public`, security headers όπως του Ekdosi,
-  χωρίς deny στο `/storage` (το Paymenter σερβίρει uploads μέσω του symlink `public/storage`).
+  χωρίς deny στο `/storage` (το upstream σερβίρει uploads μέσω του symlink `public/storage`).
   HTTPS με Let's Encrypt (certbot --nginx, redirect 80→443). Τα `*.mycs.myip.gr` δεν έχουν ακόμα vhost/πιστοποιητικό
   (wildcard θέλει DNS-01· ή ένα πιστοποιητικό ανά subdomain).
 - **MariaDB:** βάση `mycs` (utf8mb4_unicode_ci), χρήστης `mycs`@`localhost` με δικαιώματα μόνο στη `mycs`. Τα
@@ -86,13 +86,16 @@ Fixtures του zlic και η λογική του: `history/blesta-modules/lice
 - Φάση 1: η εκτίμηση ανέβηκε σε 3–5 εβδομάδες μετά την απογραφή (EU VAT, mass pay, promotions/ομάδες, αλλαγή κύκλου).
 
 ## Ημερολόγιο
-- **2026-10-10:** audits του Paymenter (χρέωση, ασφάλεια, importer, υγεία)· σύγκριση με Blesta.
+- **2026-10-10:** audits του upstream (χρέωση, ασφάλεια, importer, υγεία)· σύγκριση με Blesta.
 - **2026-10-11:** DNS `mycs.myip.gr` + `*.mycs.myip.gr` → devbox (84.54.49.31)· η ίδια IP δηλώθηκε στο Μητρώο .GR για τις
   δοκιμές EPP.
 - **2026-10-11:** απόφαση για hard fork· σύγκριση με Ekdosi· απογραφή χρήσης του WHMCS· triage του upstream· χάρτης
   ρυθμίσεων· repo `chrismfz/mycs` (fork + docs).
 - **2026-10-13:** audit sweep όλου του κληρονομημένου κώδικα (8 reviewers, ~165 ευρήματα) → `audit-sweep.md` και
   «Φάση 1a: Σταθεροποίηση» στο ROADMAP, μετά τα MT-x. 8 κρίσιμα (ένα regression δικό μας: `afterCommit` και συνδρομές).
+- **2026-10-14:** λογαριασμοί PR 1–3a (staff, clients, πολλοί users, επαφές). Το MyCS παίρνει οριστικά τον δρόμο του:
+  δεν παίρνουμε κώδικα από το upstream· το όνομά του φεύγει από κώδικα, URLs, cookies και docs (namespace
+  `MyCS\Extensions`)· μένουν μόνο η σημείωση copyright στο `LICENSE` (MIT) και το `docs/history/`.
 
 
 ### PR #32 — διορθώσεις δεύτερου εξωτερικού review (2026-10-12)

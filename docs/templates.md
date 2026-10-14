@@ -1,9 +1,9 @@
 # Templates email και ειδοποιήσεων
 
-> Από 2026-10-11. Αντικαθιστά το Blade των templates του Paymenter (`audit-security.md` H1–H2).
+> Από 2026-10-11. Αντικαθιστά το Blade των templates του upstream (`history/audit-security.md` H1–H2).
 
 ## Γιατί
-Στο Paymenter τα templates που επεξεργάζεται το staff (θέμα και σώμα email, in-app ειδοποιήσεις, `mail_header`,
+Στο upstream τα templates που επεξεργάζεται το staff (θέμα και σώμα email, in-app ειδοποιήσεις, `mail_header`,
 `mail_footer`, το «email template» του προϊόντος) γίνονταν **compile ως Blade**. Άρα όποιος μπορούσε να τα αλλάξει
 μπορούσε και να τρέξει PHP στον server. Τώρα ένας μικρός renderer (`packages/mail-template`, χωρίς Laravel, με δικά του
 tests) **διαβάζει μόνο δεδομένα**: δεν καλεί συναρτήσεις ή μεθόδους, δεν κάνει compile σε PHP.

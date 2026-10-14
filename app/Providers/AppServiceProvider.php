@@ -111,7 +111,7 @@ class AppServiceProvider extends ServiceProvider
             // Somehow people manage to have no route
             $route = request()->route();
 
-            if ($route && $route->named('paymenter.livewire.update')) {
+            if ($route && $route->named('mycs.livewire.update')) {
                 $previousUrl = url()->previous();
 
                 return $previousUrl !== null ? $previousUrl : request()->fullUrl();
@@ -122,7 +122,7 @@ class AppServiceProvider extends ServiceProvider
 
         Request::macro('livewireRoute', function () {
             // Return name of current route
-            if (request()->route()->named('paymenter.livewire.update')) {
+            if (request()->route()->named('mycs.livewire.update')) {
                 $previousUrl = url()->previous();
 
                 if ($previousUrl !== null) {
@@ -132,7 +132,7 @@ class AppServiceProvider extends ServiceProvider
                     }
                 }
 
-                return 'paymenter.livewire.update';
+                return 'mycs.livewire.update';
             }
 
             return request()->route()->getName();
@@ -165,7 +165,7 @@ class AppServiceProvider extends ServiceProvider
 
         // Change livewire url
         Livewire::setUpdateRoute(function ($handle) {
-            return Route::post('/paymenter/update', $handle)->middleware('web')->name('paymenter.');
+            return Route::post('/mycs/update', $handle)->middleware('web')->name('mycs.');
         });
         Livewire::propertySynthesizer(PriceSynth::class);
         // A page's area check holds for its Livewire calls too, not only the first load (docs/accounts.md, PR 2b).

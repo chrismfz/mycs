@@ -24,7 +24,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail as MailFacade;
-use Paymenter\Extensions\Others\DiscordNotifications\DiscordNotifications;
+use MyCS\Extensions\Others\DiscordNotifications\DiscordNotifications;
 use RuntimeException;
 use Tests\TestCase;
 

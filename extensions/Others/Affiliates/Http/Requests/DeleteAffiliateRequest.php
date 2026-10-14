@@ -1,6 +1,6 @@
 <?php
 
-namespace Paymenter\Extensions\Others\Affiliates\Http\Requests;
+namespace MyCS\Extensions\Others\Affiliates\Http\Requests;
 
 use App\Http\Requests\Api\Admin\AdminApiRequest;
 

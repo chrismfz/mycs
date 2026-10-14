@@ -3,7 +3,7 @@
 Σχέδιο των PR 2a–2c (σπάσιμο του «PR 2» του `docs/billing-cursor.md`). Η λογική ακολουθεί το Ekdosi
 (`docs/payment-gateways-design.md` εκεί: Τ2 idempotency, Τ3 ποσό/νόμισμα, Τ7 πληρωμή σε ακυρωμένο τιμολόγιο).
 
-## Σήμερα (Paymenter)
+## Σήμερα (upstream)
 - Όλα τα gateways (Stripe, PayPal, PayPal IPN, Mollie) και οι πληρωμές με πιστώσεις γράφουν μέσω
   `ExtensionHelper::addPayment`. Το staff προσθέτει συναλλαγές και από το admin (relation manager).
 - Ο listener `InvoiceTransactionCreatedListener` κάνει το τιμολόγιο `paid` όταν «υπόλοιπο ≤ 0», χωρίς άλλο έλεγχο.
@@ -249,7 +249,7 @@ context του συγγραφέα), οκτώ ευρήματα, όλα επιβε
   staff πρώτα επιστρέφει, πίσω ή σε πίστωση. Το μοντέλο το αρνείται από παντού (κουμπιά, dropdown, API)· τα κουμπιά
   «Cancel» δεν εμφανίζονται σε paid ή refunded.
 - **Ετικέτες σαν του WHMCS:** οι οθόνες γράφουν Unpaid / Paid / Cancelled / Refunded / Draft (στα ελληνικά Απλήρωτο,
-  Εξοφλημένο, Ακυρωμένο, Επιστράφηκε, Πρόχειρο). Από το 2026-10-13 η βάση γράφει κι αυτή `unpaid` (μετονομασία από το `pending` του Paymenter, migration
+  Εξοφλημένο, Ακυρωμένο, Επιστράφηκε, Πρόχειρο). Από το 2026-10-13 η βάση γράφει κι αυτή `unpaid` (μετονομασία από το `pending` του upstream, migration
   `rename_invoice_status_pending_to_unpaid`)· άγνωστο status τιμολογίου το απορρίπτει το `InvoiceObserver`.
   Στο deploy κώδικας και δεδομένα αλλάζουν μαζί: `migrate` μέσα σε `artisan down`, με τον cron σε παύση και
   `queue:restart` (αλλιώς ο cron δεν βλέπει τα ανοιχτά `pending` ως ανοιχτά και ξαναχρεώνει).

@@ -170,7 +170,7 @@ class BillingCursorMoneyTest extends TestCase
      */
     public function test_a_downgrade_that_drops_a_part_paid_renewal_below_the_paid_amount_still_renews(): void
     {
-        $this->markTestIncomplete('Known since Paymenter, fixed in PR 2 (payments): re-check the invoice balance after a line price changes.');
+        $this->markTestIncomplete('Known since the fork, fixed in PR 2 (payments): re-check the invoice balance after a line price changes.');
 
         $service = $this->service();
         $renewal = $this->invoiceFor($service, '2026-10-15', '2026-11-15');
@@ -221,7 +221,7 @@ class BillingCursorMoneyTest extends TestCase
      */
     public function test_a_downgrade_of_an_overdue_service_credits_nothing_for_unpaid_days(): void
     {
-        $this->markTestIncomplete('Known since Paymenter, fixed in the plan/cycle change PR (ROADMAP Phase 1): prorate only days left before the expiry.');
+        $this->markTestIncomplete('Known since the fork, fixed in the plan/cycle change PR (ROADMAP Phase 1): prorate only days left before the expiry.');
 
         $service = $this->service(['expires_at' => '2026-09-22', 'suspend_hold_until' => '2026-12-31']);
         $this->invoiceFor($service, '2026-09-22', '2026-10-22'); // the unpaid renewal
@@ -282,7 +282,7 @@ class BillingCursorMoneyTest extends TestCase
      */
     public function test_an_invoice_created_paid_renews_its_service_line(): void
     {
-        $this->markTestIncomplete('Known since Paymenter, fixed in PR 2 (payments): an invoice created as paid must renew (not the WHMCS import).');
+        $this->markTestIncomplete('Known since the fork, fixed in PR 2 (payments): an invoice created as paid must renew (not the WHMCS import).');
 
         $service = $this->service();
         $invoice = $this->invoiceFor($service, null, null, 'paid');

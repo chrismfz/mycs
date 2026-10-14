@@ -51,7 +51,7 @@ validator. Ο importer γράφει `null` στο reference των γραμμώ�
 - Πολλαπλά νομίσματα: ναι, χωρίς ισοτιμίες.
 - ΦΠΑ: ένας συντελεστής ανά χώρα, χωρίς ΑΦΜ και χωρίς reverse charge.
 - Email: templates σε DB (12 κλειδιά, μία γλώσσα), email log. **Δεν υπάρχουν υπενθυμίσεις πληρωμής.**
-- Tickets: βασικά (`audit-security.md`, `ekdosi-vs-paymenter.md` §12).
+- Tickets: βασικά (`audit-security.md`, `ekdosi-vs-upstream.md` §12).
 - Admin: Filament 5. Client area: Livewire. Admin REST API. Δεν υπάρχουν ελληνικά.
 
 ## Μοντέλο επέκτασης: workable

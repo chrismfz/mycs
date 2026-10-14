@@ -50,7 +50,7 @@ class Extension extends Model implements Auditable
     public function namespace(): Attribute
     {
         return Attribute::make(
-            get: fn () => 'Paymenter\\Extensions\\' . ucfirst($this->type) . 's\\' . ucfirst($this->extension)
+            get: fn () => 'MyCS\\Extensions\\' . ucfirst($this->type) . 's\\' . ucfirst($this->extension)
         );
     }
 

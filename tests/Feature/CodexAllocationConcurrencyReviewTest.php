@@ -11,7 +11,7 @@ use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\DatabaseTruncation;
 use Illuminate\Support\Facades\DB;
-use Paymenter\Extensions\Gateways\PayPal\PayPal;
+use MyCS\Extensions\Gateways\PayPal\PayPal;
 use Tests\TestCase;
 use Throwable;
 
