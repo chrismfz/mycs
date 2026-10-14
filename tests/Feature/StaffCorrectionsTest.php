@@ -56,7 +56,7 @@ class StaffCorrectionsTest extends TestCase
 
     private function invoice(float $price = 100, string $status = Invoice::STATUS_UNPAID, ?string $reference = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(array_filter(['description' => 'Hosting', 'quantity' => 1, 'price' => $price, 'reference_type' => $reference], fn ($value) => $value !== null));
 
         // A paid fixture (a period paid in the past): stored paid, its lines added while it was open (MT-1c: a paid
@@ -70,7 +70,7 @@ class StaffCorrectionsTest extends TestCase
 
     private function balance(): string
     {
-        return number_format((float) (Credit::query()->where('user_id', $this->user->id)->value('amount') ?? 0), 2, '.', '');
+        return number_format((float) (Credit::query()->where('client_id', $this->user->client()->id)->value('amount') ?? 0), 2, '.', '');
     }
 
     private function owner(): Staff
@@ -137,7 +137,7 @@ class StaffCorrectionsTest extends TestCase
     {
         $token = $this->apiToken(['admin.invoices.create']);
 
-        $this->withToken($token)->postJson(route('api.v1.admin.invoices.store'), ['user_id' => $this->user->id, 'currency_code' => 'USD', 'status' => 'paid'])
+        $this->withToken($token)->postJson(route('api.v1.admin.invoices.store'), ['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'status' => 'paid'])
             ->assertStatus(422)
             ->assertJsonValidationErrors('status');
         $this->assertSame(0, Invoice::query()->count());

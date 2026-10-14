@@ -53,7 +53,7 @@ class CancelOpenInvoicesTest extends TestCase
         $product = $this->createProduct();
 
         return Service::factory()->create(array_merge([
-            'user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'expires_at' => '2026-11-30', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1,
         ], $attributes));
     }
@@ -61,7 +61,7 @@ class CancelOpenInvoicesTest extends TestCase
     /** @param  array<int, Service|float>  $lines  a service's renewal line, or a line with no reference (its price) */
     private function invoice(array $lines, ?string $periodStart = null, ?string $periodEnd = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         foreach ($lines as $line) {
             $invoice->items()->create($line instanceof Service
                 ? ['reference_type' => Service::class, 'reference_id' => $line->id, 'description' => 'Renewal', 'quantity' => 1,
@@ -79,7 +79,7 @@ class CancelOpenInvoicesTest extends TestCase
 
     private function credit(): float
     {
-        return (float) (Credit::query()->where('user_id', $this->user->id)->where('currency_code', 'USD')->value('amount') ?? 0);
+        return (float) (Credit::query()->where('client_id', $this->user->client()->id)->where('currency_code', 'USD')->value('amount') ?? 0);
     }
 
     /** @return array<int, int> */
@@ -138,7 +138,7 @@ class CancelOpenInvoicesTest extends TestCase
         $a = $this->service();
         $b = $this->service();
         $invoice = $this->invoice([$a, $b], '2026-11-30', '2026-12-30');
-        Credit::query()->create(['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 15]);
+        Credit::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 15]);
         (new RecordPaymentService)->payWithCredit($invoice);
         $this->assertEqualsWithDelta(0.0, $this->credit(), 0.001);
 
@@ -158,7 +158,7 @@ class CancelOpenInvoicesTest extends TestCase
         $a = $this->service();
         $b = $this->service();
         $invoice = $this->invoice([$a, $b]);
-        Credit::query()->create(['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 4]);
+        Credit::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 4]);
         (new RecordPaymentService)->payWithCredit($invoice);
 
         $this->request($a);

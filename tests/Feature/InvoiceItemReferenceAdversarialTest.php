@@ -33,7 +33,7 @@ class InvoiceItemReferenceAdversarialTest extends TestCase
         DB::table('currencies')->insertOrIgnore(['code' => 'USD', 'name' => 'US Dollar', 'prefix' => '$', 'format' => '1,000.00']);
         Cache::flush();
         $this->customer = User::factory()->create();
-        $this->invoice = Invoice::factory()->create(['user_id' => $this->customer->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $this->invoice = Invoice::factory()->create(['client_id' => $this->customer->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
     }
 
     private function token(array $permissions = ['admin.invoice_items.create', 'admin.invoice_items.update']): string
@@ -49,7 +49,7 @@ class InvoiceItemReferenceAdversarialTest extends TestCase
         $product = $this->createProduct();
 
         return Service::factory()->create([
-            'user_id' => $user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => $user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'expires_at' => now()->addMonth(), 'currency_code' => 'USD', 'price' => 10.00,
         ]);
     }
@@ -125,11 +125,11 @@ class InvoiceItemReferenceAdversarialTest extends TestCase
         $other = User::factory()->create();
 
         $this->withToken($this->token(['admin.invoices.update']))
-            ->putJson(route('api.v1.admin.invoices.update', $this->invoice), ['user_id' => $other->id]);
+            ->putJson(route('api.v1.admin.invoices.update', $this->invoice), ['client_id' => $other->client()->id]);
 
         $invoice = $this->invoice->fresh();
         $crossCustomer = $invoice->items()->where('reference_type', Service::class)
-            ->whereIn('reference_id', Service::query()->where('user_id', '!=', $invoice->user_id)->select('id'))->exists();
+            ->whereIn('reference_id', Service::query()->where('client_id', '!=', $invoice->client_id)->select('id'))->exists();
         $this->assertFalse($crossCustomer, 'invoice of customer B renews customer A\'s service');
     }
 
@@ -195,7 +195,7 @@ class InvoiceItemReferenceAdversarialTest extends TestCase
     {
         $own = $this->serviceOf($this->customer);
         $item = $this->invoice->items()->create(['description' => 'Renewal', 'price' => 10, 'quantity' => 1, 'reference_type' => Service::class, 'reference_id' => $own->id]);
-        $foreign = Invoice::factory()->create(['user_id' => User::factory()->create()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $foreign = Invoice::factory()->create(['client_id' => User::factory()->create()->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
 
         $this->withToken($this->token())->putJson(route('api.v1.admin.invoice-items.update', $item), ['invoice_id' => $foreign->id])->assertSuccessful();
         $this->assertSame($this->invoice->id, (int) $item->fresh()->invoice_id);

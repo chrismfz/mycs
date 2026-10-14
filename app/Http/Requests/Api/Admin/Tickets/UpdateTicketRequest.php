@@ -12,7 +12,7 @@ class UpdateTicketRequest extends AdminApiRequest
     {
         return [
             'subject' => 'sometimes|required|string|max:255',
-            'user_id' => 'sometimes|required|exists:users,id',
+            'client_id' => 'sometimes|required|exists:clients,id',
             'department' => 'sometimes|nullable|string|in:' . implode(',', config('settings.ticket_departments', [])),
             'priority' => 'sometimes|required|string|in:low,medium,high',
             'status' => 'sometimes|required|string|in:open,closed,replied',

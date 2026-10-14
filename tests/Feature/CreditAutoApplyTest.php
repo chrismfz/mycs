@@ -46,7 +46,7 @@ class CreditAutoApplyTest extends TestCase
 
     private function invoice(float $price = 100, string $due = '+7 days', ?string $reference = null, ?int $referenceId = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->modify($due)]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->modify($due)]);
         $invoice->items()->create(array_filter(['description' => 'Line', 'quantity' => 1, 'price' => $price,
             'reference_type' => $reference, 'reference_id' => $referenceId], fn ($value) => $value !== null));
 
@@ -55,12 +55,12 @@ class CreditAutoApplyTest extends TestCase
 
     private function giveCredit(int $cents): void
     {
-        (new CreditLedger)->add($this->user->id, 'USD', $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
+        (new CreditLedger)->add($this->user->client()->id, 'USD', $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
     }
 
     private function balance(): string
     {
-        return number_format((float) (Credit::query()->where('user_id', $this->user->id)->value('amount') ?? 0), 2, '.', '');
+        return number_format((float) (Credit::query()->where('client_id', $this->user->client()->id)->value('amount') ?? 0), 2, '.', '');
     }
 
     public function test_credit_pays_part_of_an_invoice_and_the_customer_is_told(): void
@@ -99,7 +99,7 @@ class CreditAutoApplyTest extends TestCase
         $older = $this->invoice(50, '+2 days');
         $this->giveCredit(7000);
 
-        $this->assertSame(2, (new CreditAutoApply)->forCustomer($this->user->id, 'USD'));
+        $this->assertSame(2, (new CreditAutoApply)->forCustomer($this->user->client()->id, 'USD'));
 
         $this->assertSame(Invoice::STATUS_PAID, $older->fresh()->status);
         $this->assertSame(30.0, $newer->fresh()->remaining);
@@ -113,13 +113,13 @@ class CreditAutoApplyTest extends TestCase
         $processing = $this->invoice(50);
         (new RecordPaymentService)->handle($processing, Gateway::query()->sole(), '50.00', transactionId: 'pi_sepa', status: InvoiceTransactionStatus::Processing);
         $product = $this->createProduct();
-        $service = Service::factory()->create(['user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+        $service = Service::factory()->create(['client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 50, 'subscription_id' => 'I-SUB1']);
         $subscription = $this->invoice(50, reference: Service::class, referenceId: $service->id);
 
-        $this->assertSame(0, (new CreditAutoApply)->forCustomer($this->user->id, 'USD'));
+        $this->assertSame(0, (new CreditAutoApply)->forCustomer($this->user->client()->id, 'USD'));
 
-        $this->user->forceFill(['credit_auto_apply' => false])->save();
+        $this->user->client()->forceFill(['credit_auto_apply' => false])->save();
         $plain = $this->invoice(50);
         $this->assertNull((new CreditAutoApply)->toInvoice($plain));
 
@@ -156,7 +156,7 @@ class CreditAutoApplyTest extends TestCase
     public function test_a_subscription_sales_overpayment_is_left_for_the_subscription(): void
     {
         $product = $this->createProduct();
-        $service = Service::factory()->create(['user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+        $service = Service::factory()->create(['client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 50, 'subscription_id' => 'I-SUB2']);
         $sale = $this->invoice(50, reference: Service::class, referenceId: $service->id);
         $other = $this->invoice(30, '+1 day');
@@ -170,7 +170,7 @@ class CreditAutoApplyTest extends TestCase
     public function test_the_daily_pass_pays_before_anything_is_suspended(): void
     {
         $product = $this->createProduct();
-        $service = Service::factory()->create(['user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+        $service = Service::factory()->create(['client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10, 'expires_at' => now()->subDays(5)]);
         $overdue = $this->invoice(10, '-5 days', Service::class, $service->id);
         $overdue->items()->sole()->update(['period_start' => now()->subDays(5)->toDateString(), 'period_end' => now()->addDays(25)->toDateString()]);
@@ -187,14 +187,14 @@ class CreditAutoApplyTest extends TestCase
     public function test_the_renewal_the_cron_makes_takes_what_credit_covers(): void
     {
         $product = $this->createProduct();
-        Service::factory()->create(['user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+        Service::factory()->create(['client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10, 'expires_at' => now()->addDays(2)]);
         $this->giveCredit(400);
         config(['settings.cronjob_invoice' => 7]);
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
-        $invoice = Invoice::query()->where('user_id', $this->user->id)->sole();
+        $invoice = Invoice::query()->where('client_id', $this->user->client()->id)->sole();
         $this->assertSame(6.0, $invoice->remaining);
         $this->assertSame('0.00', $this->balance());
         $this->assertSame(1, InvoiceTransaction::query()->where('is_credit_transaction', true)->count());
@@ -207,6 +207,6 @@ class CreditAutoApplyTest extends TestCase
 
         Livewire::test(Credits::class)->assertSet('autoApply', true)->set('autoApply', false);
 
-        $this->assertFalse($this->user->fresh()->credit_auto_apply);
+        $this->assertFalse($this->user->client()->fresh()->credit_auto_apply);
     }
 }

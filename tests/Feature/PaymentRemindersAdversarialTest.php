@@ -10,8 +10,8 @@ use App\Models\BillingAgreement;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
-use App\Models\Role;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\PaymentReminders;
 use Filament\Facades\Filament;
@@ -21,7 +21,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail as MailFacade;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Validator;
-use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
@@ -51,9 +50,9 @@ class PaymentRemindersAdversarialTest extends TestCase
     {
         $product = $this->createProduct();
         $user = User::factory()->create();
-        $svc = Service::factory()->create(array_merge(['user_id' => $user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+        $svc = Service::factory()->create(array_merge(['client_id' => $user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => $price, 'quantity' => 1, 'expires_at' => $due], $service));
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => $due]);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => $due]);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $svc->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => $price]);
         DB::table('invoices')->where('id', $invoice->id)->update(['created_at' => $created]);
         MailFacade::fake();
@@ -67,11 +66,11 @@ class PaymentRemindersAdversarialTest extends TestCase
         return MailFacade::queued(Mail::class)->map(fn (Mail $mail) => $mail->templateKey)->values()->all();
     }
 
-    private function owner(): User
+    private function owner(): Staff
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 
-        return User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        return Staff::factory()->admin()->create();
     }
 
     // ---------------------------------------------------------------- findings
@@ -115,13 +114,13 @@ class PaymentRemindersAdversarialTest extends TestCase
         $product = $this->createProduct();
         $user = User::factory()->create();
         $gateway = Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway']);
-        $agreement = BillingAgreement::create(['user_id' => $user->id, 'gateway_id' => $gateway->id, 'name' => 'PayPal', 'external_reference' => 'VAULT-A2', 'type' => 'paypal']);
-        Service::factory()->create(['user_id' => $user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+        $agreement = BillingAgreement::create(['client_id' => $user->client()->id, 'gateway_id' => $gateway->id, 'name' => 'PayPal', 'external_reference' => 'VAULT-A2', 'type' => 'paypal']);
+        Service::factory()->create(['client_id' => $user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1, 'expires_at' => '2026-10-25', 'billing_agreement_id' => $agreement->id]);
         MailFacade::fake();
 
         $this->artisan('app:cron-job'); // bills it and tries the agreement once: the charge fails (gateway not set up)
-        $invoice = Invoice::query()->where('user_id', $user->id)->sole();
+        $invoice = Invoice::query()->where('client_id', $user->client()->id)->sole();
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->status, 'precondition: the one automatic charge failed');
         MailFacade::fake();
 
@@ -163,7 +162,7 @@ class PaymentRemindersAdversarialTest extends TestCase
     public function test_a5_an_abandoned_credit_deposit_invoice_gets_no_overdue_notice(): void
     {
         $user = User::factory()->create();
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-19']);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-19']);
         $invoice->items()->create(['description' => 'Credit deposit', 'quantity' => 1, 'price' => 50, 'reference_type' => Credit::class]);
         DB::table('invoices')->where('id', $invoice->id)->update(['created_at' => '2026-10-19']);
         MailFacade::fake();
@@ -215,7 +214,7 @@ class PaymentRemindersAdversarialTest extends TestCase
         $invoice = $this->invoice('2026-10-25');
 
         try {
-            Livewire::actingAs($owner)->test(ViewInvoice::class, ['record' => $invoice->getRouteKey()])
+            $this->livewireAs($owner)->test(ViewInvoice::class, ['record' => $invoice->getRouteKey()])
                 ->callAction('sendEmail', ['template' => 'invoice_modified']);
         } catch (\Throwable) {
             // forbidden: counted below
@@ -230,7 +229,7 @@ class PaymentRemindersAdversarialTest extends TestCase
         $owner = $this->owner();
         $invoice = $this->invoice('2026-10-19'); // 1 day late
 
-        Livewire::actingAs($owner)->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])
+        $this->livewireAs($owner)->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])
             ->callAction('sendEmail', ['template' => 'invoice_overdue'])->assertHasNoActionErrors();
         (new PaymentReminders)->send();
 
@@ -326,7 +325,7 @@ class PaymentRemindersAdversarialTest extends TestCase
         $invoice = $this->invoice('2026-10-25', ['subscription_id' => 'sub_x']);
         $service = $invoice->items->first()->reference;
         $gateway = Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway']);
-        $agreement = BillingAgreement::create(['user_id' => $service->user_id, 'gateway_id' => $gateway->id, 'name' => 'PayPal', 'external_reference' => 'VAULT-H', 'type' => 'paypal']);
+        $agreement = BillingAgreement::create(['client_id' => $service->client_id, 'gateway_id' => $gateway->id, 'name' => 'PayPal', 'external_reference' => 'VAULT-H', 'type' => 'paypal']);
         $service->update(['subscription_id' => null, 'billing_agreement_id' => $agreement->id]); // subscription cancelled
         $agreement->delete(); // method removed
 
@@ -351,11 +350,11 @@ class PaymentRemindersAdversarialTest extends TestCase
     public function test_holds_staff_without_invoice_update_rights_cannot_send_email(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $viewer = User::factory()->create(['role_id' => Role::create(['name' => 'Viewer', 'permissions' => ['admin.invoices.viewAny', 'admin.invoices.view']])->id]);
+        $viewer = Staff::factory()->withPermissions(['admin.invoices.viewAny', 'admin.invoices.view'])->create();
         $invoice = $this->invoice('2026-10-25');
 
         try {
-            Livewire::actingAs($viewer)->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])
+            $this->livewireAs($viewer)->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])
                 ->callAction('sendEmail', ['template' => 'invoice_overdue']);
         } catch (\Throwable) {
             // forbidden
@@ -368,7 +367,7 @@ class PaymentRemindersAdversarialTest extends TestCase
     {
         config(['settings.credits_enabled' => true, 'settings.credits_auto_use' => true]);
         $invoice = $this->invoice('2026-10-19');
-        Credit::create(['user_id' => $invoice->user_id, 'currency_code' => 'USD', 'amount' => 50]);
+        Credit::create(['client_id' => $invoice->client_id, 'currency_code' => 'USD', 'amount' => 50]);
 
         $this->artisan('app:cron-job');
 

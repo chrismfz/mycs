@@ -136,7 +136,7 @@ class AutomationSettingsReviewTest extends TestCase
         config(['settings.cronjob_order_cancel' => 0]);
         $product = $this->createProduct();
         $service = Service::factory()->create([
-            'user_id' => User::factory()->create()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'pending', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1,
             'created_at' => now()->subMinute(),
         ]);

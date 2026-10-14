@@ -45,8 +45,8 @@ class ViewInvoice extends ViewRecord
                     ->schema([
                         TextEntry::make('number')
                             ->label('Invoice Number'),
-                        TextEntry::make('user.name')
-                            ->label('User'),
+                        TextEntry::make('client.name')
+                            ->label('Client'),
                         TextEntry::make('status')
                             ->label('Status')
                             ->badge()

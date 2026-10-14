@@ -57,9 +57,9 @@ class EmailTemplatesReviewTest extends TestCase
         $user = User::factory()->create();
         $product = $this->createProduct();
         $this->assertNull($product->product->server_id, 'fixture: a product without a server');
-        $service = Service::factory()->create(['user_id' => $user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+        $service = Service::factory()->create(['client_id' => $user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'expires_at' => '2026-10-08', 'currency_code' => 'USD', 'price' => 10.00]);
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-08']);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-08']);
         $invoice->items()->create(['reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Renewal',
             'quantity' => 1, 'price' => 10.00, 'period_start' => '2026-10-08', 'period_end' => '2026-11-08']);
 
@@ -82,14 +82,14 @@ class EmailTemplatesReviewTest extends TestCase
         MailFacade::fake();
         $user = User::factory()->create();
         $product = $this->createProduct();
-        $service = Service::factory()->create(['user_id' => $user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+        $service = Service::factory()->create(['client_id' => $user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'pending', 'expires_at' => null, 'currency_code' => 'USD', 'price' => 10.00]);
         $this->assertTrue($service->cancellable, 'fixture: a pending service can be cancelled by the customer');
         $cancellation = ServiceCancellation::withoutEvents(fn () => ServiceCancellation::query()->create(['service_id' => $service->id, 'type' => 'end_of_period']));
 
         foreach (['en', 'el'] as $locale) {
             config(['settings.app_language' => $locale]);
-            NotificationHelper::serviceCancellationReceivedNotification($user, $cancellation);
+            NotificationHelper::serviceCancellationReceivedNotification($user->client(), $cancellation);
         }
 
         foreach (MailFacade::queued(Mail::class) as $mail) {
@@ -177,11 +177,11 @@ class EmailTemplatesReviewTest extends TestCase
         app()->setLocale('en');
         config(['settings.app_language' => 'el']);
         $user = User::factory()->create();
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-11-15']);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-11-15']);
         EmailLog::creating(fn () => throw new \RuntimeException('database down'));
 
         try {
-            NotificationHelper::invoiceCreatedNotification($user, $invoice->fresh());
+            NotificationHelper::invoiceCreatedNotification($user->client(), $invoice->fresh());
             $this->fail('expected the exception');
         } catch (\RuntimeException) {
         }

@@ -50,7 +50,7 @@ class CodexRefundPaymentRaceReviewTest extends TestCase
     {
         Gateway::query()->firstOrCreate(['extension' => 'Stripe'], ['name' => 'Stripe', 'type' => 'gateway']);
         $user = User::factory()->create();
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 100]);
         $txn = ExtensionHelper::addPayment($invoice->id, 'Stripe', 60, transactionId: 'INITIAL', currency: 'USD');
         $this->race([
@@ -77,7 +77,7 @@ class CodexRefundPaymentRaceReviewTest extends TestCase
         $this->assertSame(1, InvoiceTransaction::query()->where('transaction_id', 'NEXT')->count());
         // MT-1c: a refund on an open invoice is not forgiven (no refund note): 100 still due, 60 - 10 + 10 paid.
         $this->assertEquals(40.00, $invoice->fresh()->remaining, '100 due; 60 - 10 refunded + 10 paid');
-        $this->assertEquals(0.0, (float) Credit::query()->where('user_id', $user->id)->value('amount'));
+        $this->assertEquals(0.0, (float) Credit::query()->where('client_id', $user->client()->id)->value('amount'));
     }
 
     private function waitFor(string $file): void

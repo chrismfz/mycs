@@ -1,16 +1,17 @@
 <?php
 
-namespace App\Admin\Resources\UserResource\Pages;
+namespace App\Admin\Resources\ClientResource\Pages;
 
-use App\Admin\Resources\UserResource;
+use App\Admin\Resources\ClientResource;
 use App\Models\Ticket;
 use Filament\Resources\Pages\ManageRelatedRecords;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class ShowTickets extends ManageRelatedRecords
 {
-    protected static string $resource = UserResource::class;
+    protected static string $resource = ClientResource::class;
 
     protected static string $relationship = 'tickets';
 
@@ -24,6 +25,8 @@ class ShowTickets extends ManageRelatedRecords
     public function table(Table $table): Table
     {
         return $table
+            // The account's name is its owner's (until the contacts, PR 3): loaded with the rows, not per row.
+            ->modifyQueryUsing(fn (Builder $query) => $query->with('client.ownerGrant.user'))
             ->recordTitleAttribute('name')
             ->columns([
                 TextColumn::make('subject')
@@ -49,7 +52,7 @@ class ShowTickets extends ManageRelatedRecords
                     ->formatStateUsing(fn (string $state) => ucfirst($state)),
                 TextColumn::make('department')
                     ->sortable(),
-                TextColumn::make('user.name')
+                TextColumn::make('client.name')
                     ->searchable(['first_name', 'last_name'])
                     ->sortable(['first_name', 'last_name']),
             ]);

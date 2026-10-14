@@ -22,7 +22,7 @@ use Spatie\QueryBuilder\QueryBuilder;
 class CreditController extends ApiController
 {
     protected const INCLUDES = [
-        'user',
+        'client',
     ];
 
     /**
@@ -34,7 +34,7 @@ class CreditController extends ApiController
     {
         // Fetch credits with pagination
         $credits = QueryBuilder::for(Credit::class)
-            ->allowedFilters(['id', 'currency_code', 'user_id'])
+            ->allowedFilters(['id', 'currency_code', 'client_id'])
             ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
             ->allowedSorts(['id', 'created_at', 'updated_at', 'currency_code'])
             ->simplePaginate(min(max((int) request('per_page', 15), 1), 100));
@@ -53,8 +53,8 @@ class CreditController extends ApiController
         $data = $request->validated();
         $cents = RecordPaymentService::toCents($data['amount']);
         $credit = $cents > 0
-            ? (new CreditLedger)->add((int) $data['user_id'], $data['currency_code'], $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_API, note: $data['reason'] ?? null)
-            : Credit::query()->create(['user_id' => $data['user_id'], 'currency_code' => $data['currency_code'], 'amount' => 0]);
+            ? (new CreditLedger)->add((int) $data['client_id'], $data['currency_code'], $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_API, note: $data['reason'] ?? null)
+            : Credit::query()->create(['client_id' => $data['client_id'], 'currency_code' => $data['currency_code'], 'amount' => 0]);
 
         // Return the created credit as a JSON response
         return new CreditResource($this->loadAllowedIncludes($credit, self::INCLUDES));
@@ -87,7 +87,7 @@ class CreditController extends ApiController
         if (array_key_exists('currency_code', $data) && $data['currency_code'] !== $credit->currency_code) {
             // Checked and changed under the ledger's lock: a payment can move this balance in between.
             DB::transaction(function () use ($credit, $data) {
-                $locked = (new CreditLedger)->lock((int) $credit->user_id, $credit->currency_code);
+                $locked = (new CreditLedger)->lock((int) $credit->client_id, $credit->currency_code);
                 if ($locked === null || !CreditLedger::isZero($locked)) {
                     abort(422, 'The currency of a credit changes only while its balance is zero.');
                 }
@@ -96,7 +96,7 @@ class CreditController extends ApiController
             $credit->refresh();
         }
         if (array_key_exists('amount', $data)) {
-            (new CreditLedger)->setBalance((int) $credit->user_id, $credit->currency_code, RecordPaymentService::toCents($data['amount']),
+            (new CreditLedger)->setBalance((int) $credit->client_id, $credit->currency_code, RecordPaymentService::toCents($data['amount']),
                 MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_API, $data['reason'] ?? null);
             $credit->refresh();
         }
@@ -116,7 +116,7 @@ class CreditController extends ApiController
     {
         // Checked and deleted under the ledger's lock: a payment can move this balance in between.
         DB::transaction(function () use ($credit) {
-            $locked = (new CreditLedger)->lock((int) $credit->user_id, $credit->currency_code);
+            $locked = (new CreditLedger)->lock((int) $credit->client_id, $credit->currency_code);
             if ($locked !== null && !CreditLedger::isZero($locked)) {
                 abort(422, 'A credit with a balance cannot be deleted: set its amount to 0 first (with a reason).');
             }

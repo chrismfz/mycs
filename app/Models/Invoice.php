@@ -40,6 +40,7 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property-read mixed $bill_to
  * @property-read mixed $billTo
  * @property-read mixed $pdf
+ * @property int|null $client_id
  */
 #[ObservedBy([InvoiceObserver::class])]
 class Invoice extends Model implements Auditable
@@ -100,7 +101,7 @@ class Invoice extends Model implements Auditable
     /** Not settled yet: what a cancellation gives up on (a draft too: finalised later, it would bill it). */
     public const OPEN_STATUSES = [self::STATUS_UNPAID, self::STATUS_DRAFT];
 
-    protected $fillable = ['number', 'user_id', 'currency_code', 'due_at', 'status', 'cancellation_reason'];
+    protected $fillable = ['number', 'client_id', 'currency_code', 'due_at', 'status', 'cancellation_reason'];
 
     protected $casts = [
         'due_at' => 'date',
@@ -119,7 +120,7 @@ class Invoice extends Model implements Auditable
             || ($this->getOriginal('status') === self::STATUS_CANCELLED
                 && in_array($this->status, [self::STATUS_UNPAID, self::STATUS_DRAFT], true))))
             // Moving the invoice (customer, currency) is checked against its payments under the same locks.
-            || $this->isDirty(['user_id', 'currency_code']))) {
+            || $this->isDirty(['client_id', 'currency_code']))) {
             return DB::transaction(function () use ($options) {
                 $locked = (new RecordPaymentService)->lockInvoice($this->getKey());
                 // The model may have been loaded before another request changed the status. Only when this save
@@ -305,7 +306,7 @@ class Invoice extends Model implements Auditable
         }
 
         return Attribute::make(
-            get: fn () => Settings::tax($this->user)
+            get: fn () => Settings::tax($this->client)
         );
     }
 
@@ -319,7 +320,7 @@ class Invoice extends Model implements Auditable
         }
 
         return Attribute::make(
-            get: fn () => $this->user?->properties()->with('parent_property')->whereHas('parent_property', function ($query) {
+            get: fn () => $this->client?->properties()->with('parent_property')->whereHas('parent_property', function ($query) {
                 $query->where('show_on_invoice', true);
             })->pluck('value', 'key')->toArray() ?? []
         );
@@ -335,7 +336,7 @@ class Invoice extends Model implements Auditable
         }
 
         return Attribute::make(
-            get: fn () => $this->user->name ?? __('invoices.deleted_user')
+            get: fn () => $this->client->name ?? __('invoices.deleted_user')
         );
     }
 
@@ -359,10 +360,10 @@ class Invoice extends Model implements Auditable
         return $this->belongsTo(Currency::class, 'currency_code');
     }
 
-    /** @return BelongsTo<User, $this> */
-    public function user(): BelongsTo
+    /** @return BelongsTo<Client, $this> */
+    public function client(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(Client::class);
     }
 
     /** @return HasMany<InvoiceItem, $this> */

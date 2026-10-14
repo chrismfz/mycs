@@ -19,7 +19,7 @@ class TicketController extends ApiController
 {
     protected const INCLUDES = [
         'messages',
-        'user',
+        'client',
         'assigned_to',
     ];
 
@@ -32,7 +32,7 @@ class TicketController extends ApiController
     {
         // Fetch tickets with pagination
         $tickets = QueryBuilder::for(Ticket::class)
-            ->allowedFilters(['id', 'currency_code', 'user_id', 'status', 'priority', 'department'])
+            ->allowedFilters(['id', 'currency_code', 'client_id', 'status', 'priority', 'department'])
             ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
             ->allowedSorts(['id', 'created_at', 'updated_at', 'currency_code', 'status', 'priority', 'department'])
             ->simplePaginate(min(max((int) request('per_page', 15), 1), 100));

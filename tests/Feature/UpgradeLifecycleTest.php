@@ -48,7 +48,7 @@ class UpgradeLifecycleTest extends TestCase
         $product = $this->createProduct(['stock' => 5]);
 
         return Service::factory()->create(array_merge([
-            'user_id' => User::factory()->create()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1, 'expires_at' => '2026-11-15',
         ], $attributes));
     }
@@ -57,7 +57,7 @@ class UpgradeLifecycleTest extends TestCase
     private function upgrade(Service $service): ServiceUpgrade
     {
         $target = $this->createProduct(['stock' => 5]);
-        $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-20']);
+        $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-20']);
         $upgrade = ServiceUpgrade::query()->create(['service_id' => $service->id, 'plan_id' => $target->plan->id, 'product_id' => $target->product->id,
             'invoice_id' => $invoice->id]);
         $invoice->items()->create(['reference_type' => ServiceUpgrade::class, 'reference_id' => $upgrade->id, 'description' => 'Upgrade', 'quantity' => 1, 'price' => 5]);
@@ -156,7 +156,7 @@ class UpgradeLifecycleTest extends TestCase
     public function test_a_new_recurring_amount_keeps_the_line_of_an_invoice_with_a_payment_on_it(): void
     {
         $service = $this->service(['expires_at' => '2026-10-25']);
-        $renewal = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-25']);
+        $renewal = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-25']);
         $line = $renewal->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal',
             'quantity' => 1, 'price' => 10, 'period_start' => '2026-10-25', 'period_end' => '2026-11-25']);
         (new RecordPaymentService)->handle($renewal, null, 4, transactionId: 'part'); // part of it paid
@@ -172,7 +172,7 @@ class UpgradeLifecycleTest extends TestCase
     public function test_a_new_recurring_amount_reprices_an_open_line_with_nothing_paid(): void
     {
         $service = $this->service(['expires_at' => '2026-10-25']);
-        $renewal = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-25']);
+        $renewal = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-25']);
         $line = $renewal->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal',
             'quantity' => 1, 'price' => 10, 'period_start' => '2026-10-25', 'period_end' => '2026-11-25']);
         $upgrade = $this->upgrade($service);

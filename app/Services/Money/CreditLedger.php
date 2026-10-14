@@ -3,10 +3,10 @@
 namespace App\Services\Money;
 
 use App\Exceptions\DisplayException;
+use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
-use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use LogicException;
 
@@ -24,19 +24,19 @@ class CreditLedger
     public const MAX_CENTS = 999_999_999_999;
 
     /** The customer's credit row in this currency, locked after the customer; null when there is none. */
-    public function lock(int $userId, string $currency): ?Credit
+    public function lock(int $clientId, string $currency): ?Credit
     {
-        User::query()->whereKey($userId)->lockForUpdate()->first();
+        Client::lock((int) $clientId);
 
-        return Credit::query()->where('user_id', $userId)->where('currency_code', $currency)->lockForUpdate()->first();
+        return Credit::query()->where('client_id', $clientId)->where('currency_code', $currency)->lockForUpdate()->first();
     }
 
     /**
      * Credit up by $cents (> 0). Returns the saved row.
      */
-    public function add(int $userId, string $currency, int $cents, string $cause, string $source, ?Invoice $invoice = null, ?InvoiceTransaction $transaction = null, ?string $note = null, ?string $group = null): Credit
+    public function add(int $clientId, string $currency, int $cents, string $cause, string $source, ?Invoice $invoice = null, ?InvoiceTransaction $transaction = null, ?string $note = null, ?string $group = null): Credit
     {
-        return $this->move(1, $userId, $currency, $cents, $cause, $source, $invoice, $transaction, $note, $group, false);
+        return $this->move(1, $clientId, $currency, $cents, $cause, $source, $invoice, $transaction, $note, $group, false);
     }
 
     /**
@@ -45,32 +45,32 @@ class CreditLedger
      *
      * @throws DisplayException
      */
-    public function remove(int $userId, string $currency, int $cents, string $cause, string $source, ?Invoice $invoice = null, ?InvoiceTransaction $transaction = null, ?string $note = null, ?string $group = null, bool $mayGoNegative = false): Credit
+    public function remove(int $clientId, string $currency, int $cents, string $cause, string $source, ?Invoice $invoice = null, ?InvoiceTransaction $transaction = null, ?string $note = null, ?string $group = null, bool $mayGoNegative = false): Credit
     {
-        return $this->move(-1, $userId, $currency, $cents, $cause, $source, $invoice, $transaction, $note, $group, $mayGoNegative);
+        return $this->move(-1, $clientId, $currency, $cents, $cause, $source, $invoice, $transaction, $note, $group, $mayGoNegative);
     }
 
     /**
      * Set the balance to $targetCents (≥ 0): the difference, computed under the lock, is journaled as one move.
      * Returns the saved row (null when there was none and the target is zero).
      */
-    public function setBalance(int $userId, string $currency, int $targetCents, string $cause, string $source, ?string $note = null): ?Credit
+    public function setBalance(int $clientId, string $currency, int $targetCents, string $cause, string $source, ?string $note = null): ?Credit
     {
         if ($targetCents < 0) {
             throw new LogicException('A balance is set to zero or more.');
         }
         self::requireReason($cause, $note);
 
-        return DB::transaction(function () use ($userId, $currency, $targetCents, $cause, $source, $note) {
-            $credit = $this->lock($userId, $currency);
+        return DB::transaction(function () use ($clientId, $currency, $targetCents, $cause, $source, $note) {
+            $credit = $this->lock($clientId, $currency);
             $difference = $targetCents - ($credit === null ? 0 : self::cents($credit));
             if ($difference === 0) {
                 return $credit;
             }
 
             return $difference > 0
-                ? $this->add($userId, $currency, $difference, $cause, $source, note: $note)
-                : $this->remove($userId, $currency, -$difference, $cause, $source, note: $note);
+                ? $this->add($clientId, $currency, $difference, $cause, $source, note: $note)
+                : $this->remove($clientId, $currency, -$difference, $cause, $source, note: $note);
         });
     }
 
@@ -83,9 +83,9 @@ class CreditLedger
     }
 
     /** The balance in cents (no lock: for display and checks). */
-    public function balanceCents(int $userId, string $currency): int
+    public function balanceCents(int $clientId, string $currency): int
     {
-        $credit = Credit::query()->where('user_id', $userId)->where('currency_code', $currency)->first();
+        $credit = Credit::query()->where('client_id', $clientId)->where('currency_code', $currency)->first();
 
         return $credit === null ? 0 : self::cents($credit);
     }
@@ -110,16 +110,16 @@ class CreditLedger
         return (float) $credit->amount === 0.0;
     }
 
-    private function move(int $sign, int $userId, string $currency, int $cents, string $cause, string $source, ?Invoice $invoice, ?InvoiceTransaction $transaction, ?string $note, ?string $group, bool $mayGoNegative): Credit
+    private function move(int $sign, int $clientId, string $currency, int $cents, string $cause, string $source, ?Invoice $invoice, ?InvoiceTransaction $transaction, ?string $note, ?string $group, bool $mayGoNegative): Credit
     {
         if ($cents <= 0) {
             throw new LogicException('A credit move has a positive amount in cents.');
         }
         self::requireReason($cause, $note);
 
-        return DB::transaction(function () use ($sign, $userId, $currency, $cents, $cause, $source, $invoice, $transaction, $note, $group, $mayGoNegative) {
-            $credit = $this->lock($userId, $currency)
-                ?? Credit::query()->create(['user_id' => $userId, 'currency_code' => $currency, 'amount' => 0]);
+        return DB::transaction(function () use ($sign, $clientId, $currency, $cents, $cause, $source, $invoice, $transaction, $note, $group, $mayGoNegative) {
+            $credit = $this->lock($clientId, $currency)
+                ?? Credit::query()->create(['client_id' => $clientId, 'currency_code' => $currency, 'amount' => 0]);
             $before = self::cents($credit);
             $balance = $before + $sign * $cents;
             // Adding is always allowed: on a negative balance (decision 1) it repays part of what the customer owes.

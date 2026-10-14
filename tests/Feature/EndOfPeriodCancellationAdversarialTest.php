@@ -45,7 +45,7 @@ class EndOfPeriodCancellationAdversarialTest extends TestCase
         $product->product->update(['stock' => $stock]);
 
         return Service::factory()->create([
-            'user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => $status, 'expires_at' => $expires, 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1,
         ]);
     }
@@ -53,7 +53,7 @@ class EndOfPeriodCancellationAdversarialTest extends TestCase
     /** @param array<int, Service> $services */
     private function openInvoiceFor(array $services, ?string $periodStart = null, ?string $periodEnd = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         foreach ($services as $service) {
             $invoice->items()->create([
                 'reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal',
@@ -71,7 +71,7 @@ class EndOfPeriodCancellationAdversarialTest extends TestCase
 
     private function credit(): float
     {
-        return (float) (Credit::query()->where('user_id', $this->user->id)->where('currency_code', 'USD')->value('amount') ?? 0);
+        return (float) (Credit::query()->where('client_id', $this->user->client()->id)->where('currency_code', 'USD')->value('amount') ?? 0);
     }
 
     // ---------------------------------------------------------------- findings (fail on the PR head)
@@ -282,7 +282,7 @@ class EndOfPeriodCancellationAdversarialTest extends TestCase
         Queue::fake(); // listener never ran: the open invoice is still there when the cron starts
         $service = $this->service('2026-10-20');
         $invoice = $this->openInvoiceFor([$service]);
-        Credit::query()->create(['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 25]);
+        Credit::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 25]);
         $this->request($service);
 
         $this->artisan('app:cron-job')->assertExitCode(0);
@@ -297,7 +297,7 @@ class EndOfPeriodCancellationAdversarialTest extends TestCase
         Queue::fake([TerminateJob::class]);
         $service = $this->service('2026-10-25');
         $invoice = $this->openInvoiceFor([$service]);
-        Credit::query()->create(['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 4]);
+        Credit::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 4]);
         (new RecordPaymentService)->payWithCredit($invoice);
         $this->assertEqualsWithDelta(0.0, $this->credit(), 0.001);
 

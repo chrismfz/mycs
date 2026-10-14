@@ -51,7 +51,7 @@ class BillingCursorAdversarialRound2Test extends TestCase
         }
 
         return Service::factory()->create(array_merge([
-            'user_id' => $this->user->id,
+            'client_id' => $this->user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'active',
@@ -64,7 +64,7 @@ class BillingCursorAdversarialRound2Test extends TestCase
     /** @param array<int, array{0: ?string, 1: ?string}> $periods */
     private function invoiceWith(Service $service, array $periods, string $status = 'unpaid'): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
         foreach ($periods as [$start, $end]) {
             $invoice->items()->create([
                 'reference_id' => $service->id,
@@ -327,7 +327,7 @@ class BillingCursorAdversarialRound2Test extends TestCase
     public function test_cron_credit_auto_pay_renews_once_after_commit(): void
     {
         config(['settings.credits_enabled' => true, 'settings.credits_auto_use' => true]);
-        $this->user->credits()->create(['currency_code' => 'USD', 'amount' => 100]);
+        $this->user->client()->credits()->create(['currency_code' => 'USD', 'amount' => 100]);
         $service = $this->service();
 
         $this->artisan('app:cron-job')->assertExitCode(0);

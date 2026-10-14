@@ -39,7 +39,7 @@ class PermissionReviewTest extends TestCase
         config(['settings.immutable_invoices_enabled' => true]);
 
         $viewer = $this->staff(['admin.invoices.viewAny']);
-        $invoice = Invoice::factory()->create(['user_id' => User::factory()->create()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => User::factory()->create()->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 10]);
 
         $this->actingAs($viewer);

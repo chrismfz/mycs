@@ -39,13 +39,13 @@ class CreditAutoApplyCodeReviewTest extends TestCase
     {
         $product = $this->createProduct();
 
-        return Service::factory()->create(array_merge(['user_id' => $this->user->id, 'plan_id' => $product->plan->id,
+        return Service::factory()->create(array_merge(['client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id,
             'product_id' => $product->product->id, 'status' => 'active', 'currency_code' => 'USD', 'price' => 10], $attributes));
     }
 
     private function invoice(float $price, string $due, ?Service $service = null, ?string $start = null, ?string $end = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID,
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID,
             'currency_code' => 'USD', 'due_at' => now()->modify($due)]);
         $invoice->items()->create(array_filter(['description' => 'Line', 'quantity' => 1, 'price' => $price,
             'reference_type' => $service ? Service::class : null, 'reference_id' => $service?->id,
@@ -56,12 +56,12 @@ class CreditAutoApplyCodeReviewTest extends TestCase
 
     private function giveCredit(int $cents): void
     {
-        (new CreditLedger)->add($this->user->id, 'USD', $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
+        (new CreditLedger)->add($this->user->client()->id, 'USD', $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
     }
 
     private function balance(): string
     {
-        return number_format((float) (Credit::query()->where('user_id', $this->user->id)->value('amount') ?? 0), 2, '.', '');
+        return number_format((float) (Credit::query()->where('client_id', $this->user->client()->id)->value('amount') ?? 0), 2, '.', '');
     }
 
     /**
@@ -100,7 +100,7 @@ class CreditAutoApplyCodeReviewTest extends TestCase
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
-        $renewal = Invoice::query()->where('user_id', $this->user->id)->whereKeyNot($previous->id)->sole();
+        $renewal = Invoice::query()->where('client_id', $this->user->client()->id)->whereKeyNot($previous->id)->sole();
         $this->assertSame(Invoice::STATUS_PAID, $renewal->status, 'the subscription\'s own sale no longer pays its renewal');
     }
 

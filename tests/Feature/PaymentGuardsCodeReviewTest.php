@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Invoices\Show;
+use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -50,7 +51,7 @@ class PaymentGuardsCodeReviewTest extends TestCase
         Price::query()->where('plan_id', $product->plan->id)->update(['price' => 10.00]);
 
         return Service::factory()->create(array_merge([
-            'user_id' => $this->user->id,
+            'client_id' => $this->user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'active',
@@ -62,7 +63,7 @@ class PaymentGuardsCodeReviewTest extends TestCase
 
     private function invoiceFor(Service $service, string $start, string $end, string $status = 'unpaid', float $price = 10.00): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Renewal',
             'quantity' => 1, 'price' => $price, 'period_start' => $start, 'period_end' => $end,
@@ -79,7 +80,7 @@ class PaymentGuardsCodeReviewTest extends TestCase
 
     private function credit(): string
     {
-        return number_format((float) (Credit::query()->where('user_id', $this->user->id)->where('currency_code', 'USD')->value('amount') ?? 0), 2, '.', '');
+        return number_format((float) (Credit::query()->where('client_id', $this->user->client()->id)->where('currency_code', 'USD')->value('amount') ?? 0), 2, '.', '');
     }
 
     /**
@@ -93,7 +94,7 @@ class PaymentGuardsCodeReviewTest extends TestCase
     {
         $service = $this->service();
         $invoice = $this->invoiceFor($service, '2026-10-15', '2026-11-15');
-        $this->user->credits()->create(['currency_code' => 'USD', 'amount' => 5.00]);
+        $this->user->client()->credits()->create(['currency_code' => 'USD', 'amount' => 5.00]);
 
         // The Livewire request reloads settings from the database: persist the switch, not just config().
         Setting::updateOrCreate(['key' => 'credits_enabled'], ['value' => true]);
@@ -104,7 +105,7 @@ class PaymentGuardsCodeReviewTest extends TestCase
 
         // The concurrent staff action lands before the payment takes its locks (after, it would wait for them).
         $fired = false;
-        User::retrieved(function () use (&$fired, $invoice) {
+        Client::retrieved(function () use (&$fired, $invoice) {
             $inRecord = collect(debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS))
                 ->contains(fn ($frame) => ($frame['class'] ?? null) === RecordPaymentService::class);
             if ($fired || !$inRecord) {

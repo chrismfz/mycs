@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\ClientResource\Pages\EditClient;
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
-use App\Admin\Resources\UserResource\Pages\EditUser;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\ApiKey;
@@ -43,7 +43,7 @@ class MoneyTrailFinalReviewTest extends TestCase
 
     private function paidInvoice(): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 100]);
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 100.00, null, 'pi_' . $invoice->id, currency: 'USD');
 
@@ -65,10 +65,10 @@ class MoneyTrailFinalReviewTest extends TestCase
         $token = 'PAYM' . bin2hex(random_bytes(8));
         ApiKey::create(['staff_id' => Staff::factory()->admin()->create()->id, 'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => ['admin.invoices.update']]);
 
-        $this->withToken($token)->putJson(route('api.v1.admin.invoices.update', $invoice), ['user_id' => $other->id])
+        $this->withToken($token)->putJson(route('api.v1.admin.invoices.update', $invoice), ['client_id' => $other->client()->id])
             ->assertStatus(422);
 
-        $this->assertSame($this->user->id, $invoice->fresh()->user_id);
+        $this->assertSame($this->user->client()->id, $invoice->fresh()->client_id);
     }
 
     /**
@@ -84,11 +84,11 @@ class MoneyTrailFinalReviewTest extends TestCase
         $other = User::factory()->create();
 
         $this->livewireAs($this->owner())->test(EditInvoice::class, ['record' => $invoice->getKey()]) // the id: getRouteKey() is the invoice number
-            ->set('data.user_id', $other->id)
+            ->set('data.client_id', $other->client()->id)
             ->call('save')
             ->assertNotified();
 
-        $this->assertSame($this->user->id, $invoice->fresh()->user_id);
+        $this->assertSame($this->user->client()->id, $invoice->fresh()->client_id);
     }
 
     /**
@@ -103,39 +103,42 @@ class MoneyTrailFinalReviewTest extends TestCase
         ExtensionHelper::refundLocally($invoice->transactions()->sole(), 100.00);
 
         try {
-            $invoice->update(['user_id' => $other->id]);
+            $invoice->update(['client_id' => $other->client()->id]);
             $this->fail('An invoice with a refunded payment was moved.');
         } catch (DisplayException $e) {
             $this->assertStringContainsString('refunded payment', $e->getMessage());
         }
 
-        $this->assertSame($this->user->id, $invoice->fresh()->user_id);
+        $this->assertSame($this->user->client()->id, $invoice->fresh()->client_id);
     }
 
-    /** Held (verification): the EditUser delete action cancels with a notification, the customer stays. */
-    public function test_the_edit_user_delete_action_refuses_with_a_notification(): void
+    /** Held (verification): the EditClient delete action cancels with a notification, the account stays. */
+    public function test_the_edit_client_delete_action_refuses_with_a_notification(): void
     {
         $this->paidInvoice();
+        $client = $this->user->client();
 
-        $this->livewireAs($this->owner())->test(EditUser::class, ['record' => $this->user->getRouteKey()])
+        $this->livewireAs($this->owner())->test(EditClient::class, ['record' => $client->getRouteKey()])
             ->callAction(DeleteAction::class)
             ->assertNotified(__('A customer with payments or account credit history cannot be deleted.'));
 
-        $this->assertNotNull($this->user->fresh());
+        $this->assertNotNull($client->fresh());
     }
 
-    /** Held (verification): a customer without money history is still deleted from the admin. */
-    public function test_the_edit_user_delete_action_deletes_a_customer_without_money(): void
+    /** Held (verification): an account without money history is still deleted from the admin. */
+    public function test_the_edit_client_delete_action_deletes_an_account_without_money(): void
     {
-        $this->livewireAs($this->owner())->test(EditUser::class, ['record' => $this->user->getRouteKey()])
+        $client = $this->user->client();
+
+        $this->livewireAs($this->owner())->test(EditClient::class, ['record' => $client->getRouteKey()])
             ->callAction(DeleteAction::class);
 
-        $this->assertNull($this->user->fresh());
+        $this->assertNull($client->fresh());
     }
 
     private function unpaidInvoice(): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 100]);
 
         return $invoice->fresh();
@@ -151,7 +154,7 @@ class MoneyTrailFinalReviewTest extends TestCase
         $stale = $invoice->fresh(); // loaded while pending
         $invoice->fresh()->update(['status' => 'cancelled']);
 
-        $stale->update(['user_id' => User::factory()->create()->id]);
+        $stale->update(['client_id' => User::factory()->create()->client()->id]);
 
         $this->assertSame('cancelled', $invoice->fresh()->status);
     }
@@ -166,9 +169,9 @@ class MoneyTrailFinalReviewTest extends TestCase
         $invoice = $this->unpaidInvoice();
         $moved = false;
         DB::listen(function ($query) use (&$moved, $invoice, $other) {
-            if (!$moved && preg_match('/^select [`"]user_id[`"] from [`"]invoices[`"]/', $query->sql)) {
+            if (!$moved && preg_match('/^select [`"]client_id[`"] from [`"]invoices[`"]/', $query->sql)) {
                 $moved = true;
-                DB::table('invoices')->where('id', $invoice->id)->update(['user_id' => $other->id]);
+                DB::table('invoices')->where('id', $invoice->id)->update(['client_id' => $other->client()->id]);
             }
         });
         DB::enableQueryLog();
@@ -176,11 +179,11 @@ class MoneyTrailFinalReviewTest extends TestCase
         $locked = DB::transaction(fn () => (new RecordPaymentService)->lockInvoice($invoice->id));
 
         $this->assertTrue($moved);
-        $this->assertSame($other->id, $locked->user_id);
-        $lockedUsers = collect(DB::getQueryLog())
-            // The customer locks (SQLite drops "for update" from the SQL; MariaDB keeps it).
-            ->filter(fn (array $query) => preg_match('/^select \* from [`"]users[`"]/', $query['query']))
+        $this->assertSame($other->client()->id, $locked->client_id);
+        $lockedClients = collect(DB::getQueryLog())
+            // The account locks (SQLite drops "for update" from the SQL; MariaDB keeps it).
+            ->filter(fn (array $query) => preg_match('/^select \* from [`"]clients[`"]/', $query['query']))
             ->map(fn (array $query) => $query['bindings'][0])->values()->all();
-        $this->assertContains($other->id, $lockedUsers, 'The payment went ahead for the new owner without that customer lock.');
+        $this->assertContains($other->client()->id, $lockedClients, 'The payment went ahead for the new owner without that account lock.');
     }
 }

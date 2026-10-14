@@ -2,11 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\ClientResource\Pages\ShowCreditHistory;
+use App\Admin\Resources\ClientResource\Pages\ShowCredits;
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Admin\Resources\InvoiceResource\RelationManagers\MoneyEventsRelationManager;
 use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationManager;
-use App\Admin\Resources\UserResource\Pages\ShowCreditHistory;
-use App\Admin\Resources\UserResource\Pages\ShowCredits;
 use App\Helpers\ExtensionHelper;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -48,7 +48,7 @@ class MoneyHistoryCodeReviewTest extends TestCase
 
     private function invoice(float $price = 100, ?User $user = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => ($user ?? $this->user)->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['client_id' => ($user ?? $this->user)->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => $price]);
 
         return $invoice->fresh();
@@ -73,8 +73,8 @@ class MoneyHistoryCodeReviewTest extends TestCase
         $support = $this->staff(['admin.tickets.viewAny']);
         $this->actingAs($support);
 
-        $this->assertFalse(ShowCredits::canAccess(['record' => $this->user]), 'sanity: the Credits page is closed to this role');
-        $this->assertFalse(ShowCreditHistory::canAccess(['record' => $this->user]), 'the credit history (with staff reasons) is open to any staff role');
+        $this->assertFalse(ShowCredits::canAccess(['record' => $this->user->client()]), 'sanity: the Credits page is closed to this role');
+        $this->assertFalse(ShowCreditHistory::canAccess(['record' => $this->user->client()]), 'the credit history (with staff reasons) is open to any staff role');
     }
 
     /**
@@ -127,13 +127,13 @@ class MoneyHistoryCodeReviewTest extends TestCase
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $staff = Staff::factory()->create(['first_name' => 'Quentin', 'last_name' => 'Gone', 'role_id' => Role::create(['name' => 'Gone' . uniqid(), 'permissions' => ['*']])->id]);
         $this->actingAs($staff);
-        (new CreditLedger)->add($this->user->id, 'USD', 500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
         $staffId = $staff->id;
         // Staff with money history are disabled, not deleted (DATA-3): one gone anyway, straight from the database.
         DB::table('staff')->where('id', $staffId)->delete();
         $owner = $this->staff(['*']);
 
-        $this->livewireAs($owner)->test(ShowCreditHistory::class, ['record' => $this->user->getKey()])
+        $this->livewireAs($owner)->test(ShowCreditHistory::class, ['record' => $this->user->client()->getKey()])
             ->assertSuccessful()
             ->assertSee('Goodwill')
             ->assertDontSee('System')

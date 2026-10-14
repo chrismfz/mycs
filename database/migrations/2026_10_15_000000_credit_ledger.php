@@ -14,20 +14,29 @@ use Illuminate\Support\Facades\Schema;
  */
 return new class extends Migration
 {
+    /** The key keeps its first name; the column is the account's (client_id) once replayed after PR 2a. */
+    private const UNIQUE = 'credits_user_id_currency_code_unique';
+
+    private function owner(): string
+    {
+        return Schema::hasColumn('credits', 'client_id') ? 'client_id' : 'user_id';
+    }
+
     public function up(): void
     {
-        $duplicates = DB::table('credits')->select('user_id', 'currency_code')
-            ->groupBy('user_id', 'currency_code')->havingRaw('count(*) > 1')->get();
+        $owner = $this->owner();
+        $duplicates = DB::table('credits')->select($owner, 'currency_code')
+            ->groupBy($owner, 'currency_code')->havingRaw('count(*) > 1')->get();
         foreach ($duplicates as $duplicate) {
-            $rows = DB::table('credits')->where('user_id', $duplicate->user_id)
+            $rows = DB::table('credits')->where($owner, $duplicate->{$owner})
                 ->where('currency_code', $duplicate->currency_code)->orderBy('id')->get();
             $total = $rows->sum(fn (object $row) => (int) round((float) $row->amount * 100));
             DB::table('credits')->where('id', $rows->first()->id)->update(['amount' => $total / 100]);
             DB::table('credits')->whereIn('id', $rows->skip(1)->pluck('id'))->delete();
         }
 
-        Schema::table('credits', function (Blueprint $table) {
-            $table->unique(['user_id', 'currency_code']);
+        Schema::table('credits', function (Blueprint $table) use ($owner) {
+            $table->unique([$owner, 'currency_code'], self::UNIQUE);
         });
 
         Schema::create('money_event_notes', function (Blueprint $table) {
@@ -41,11 +50,12 @@ return new class extends Migration
     public function down(): void
     {
         Schema::dropIfExists('money_event_notes');
-        Schema::table('credits', function (Blueprint $table) {
-            // MariaDB/MySQL use the unique key for the user_id foreign key (it replaced the FK's own index): give the
+        $owner = $this->owner();
+        Schema::table('credits', function (Blueprint $table) use ($owner) {
+            // MariaDB/MySQL use the unique key for the owner's foreign key (it replaced the FK's own index): give the
             // foreign key an index of its own first, or the unique key cannot be dropped.
-            $table->index('user_id');
-            $table->dropUnique(['user_id', 'currency_code']);
+            $table->index($owner);
+            $table->dropUnique(self::UNIQUE);
         });
     }
 };

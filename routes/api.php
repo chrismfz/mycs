@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Admin\CategoryController;
+use App\Http\Controllers\Api\Admin\ClientController;
 use App\Http\Controllers\Api\Admin\CreditController;
 use App\Http\Controllers\Api\Admin\InvoiceController;
 use App\Http\Controllers\Api\Admin\InvoiceItemController;
@@ -26,6 +27,7 @@ Route::group(['middleware' => ['throttle:admin-api', 'api.admin'], 'prefix' => '
     Route::apiResources([
         'categories' => CategoryController::class,
         'credits' => CreditController::class,
+        'clients' => ClientController::class,
         'users' => UserController::class,
         'products' => ProductController::class,
         'services' => ServiceController::class,

@@ -5,11 +5,12 @@ namespace App\Classes;
 use App\Admin\Actions\ResetColorsAction;
 use App\Admin\Actions\SendTestEmailAction;
 use App\Helpers\TemplateRenderer;
+use App\Models\Client;
 use App\Models\Currency;
 use App\Models\Setting;
 use App\Models\TaxRate;
-use App\Models\User;
 use App\Rules\Cidr;
+use App\Support\CurrentClient;
 use DateTimeZone;
 use Exception;
 use Filament\Schemas\Components\Utilities\Get;
@@ -979,11 +980,11 @@ class Settings
         );
     }
 
-    public static function tax(?User $user = null)
+    public static function tax(?Client $client = null)
     {
-        $user ??= Auth::user();
-        // Get country from user properties
-        $country = $user?->properties->where('key', 'country')->value('value') ?? null;
+        // The account's country (docs/accounts.md, PR 2a): the given one, or in the client area the current one.
+        $client ??= Auth::guard('web')->check() ? CurrentClient::model() : null;
+        $country = $client?->properties->where('key', 'country')->value('value') ?? null;
 
         // Change country to a two-letter country code if it's not already
         if ($country) {

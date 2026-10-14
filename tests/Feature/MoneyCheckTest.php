@@ -51,7 +51,7 @@ class MoneyCheckTest extends TestCase
 
     private function invoice(float $price = 10, string $status = Invoice::STATUS_UNPAID): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => $status, 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => $price]);
 
         return $invoice->fresh();
@@ -75,7 +75,7 @@ class MoneyCheckTest extends TestCase
     {
         $paid = $this->paid();
         $this->invoice();
-        $credit = (new CreditLedger)->add($this->user->id, 'USD', 500, 'staff_adjustment', 'staff', note: 'Goodwill');
+        $credit = (new CreditLedger)->add($this->user->client()->id, 'USD', 500, 'staff_adjustment', 'staff', note: 'Goodwill');
         $refunded = $this->paid(20);
         ExtensionHelper::refundLocally($refunded->transactions()->sole(), 5.0);
 
@@ -122,9 +122,9 @@ class MoneyCheckTest extends TestCase
     public function test_an_open_invoice_of_cancelled_services_only(): void
     {
         $product = $this->createProduct();
-        $service = Service::factory()->create(['user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id, 'status' => Service::STATUS_CANCELLED, 'currency_code' => 'USD']);
-        $other = Service::factory()->create(['user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id, 'status' => Service::STATUS_ACTIVE, 'currency_code' => 'USD']);
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $service = Service::factory()->create(['client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id, 'status' => Service::STATUS_CANCELLED, 'currency_code' => 'USD']);
+        $other = Service::factory()->create(['client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id, 'status' => Service::STATUS_ACTIVE, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => 10]);
         $this->assertSame(['open_for_cancelled'], $this->rules(['open_for_cancelled']));
 
@@ -135,18 +135,18 @@ class MoneyCheckTest extends TestCase
     public function test_a_paid_invoice_for_a_cancelled_service_only_when_mycs_took_the_money_and_still_holds_it(): void
     {
         $product = $this->createProduct();
-        $service = Service::factory()->create(['user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id, 'status' => Service::STATUS_CANCELLED, 'currency_code' => 'USD']);
+        $service = Service::factory()->create(['client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id, 'status' => Service::STATUS_CANCELLED, 'currency_code' => 'USD']);
         $line = fn (Invoice $invoice) => $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => 10]);
 
         // Imported history (paid in WHMCS, applied before MyCS kept applied_at): not a finding.
-        $imported = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $imported = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $line($imported);
         $transaction = $imported->transactions()->create(['amount' => 10, 'status' => InvoiceTransactionStatus::Succeeded, 'transaction_id' => 'whmcs-1']);
         (new MoneyTrail)->payment($imported->fresh(), $transaction, MoneyTrail::SOURCE_IMPORT);
         DB::table('invoices')->where('id', $imported->id)->update(['status' => Invoice::STATUS_PAID]);
         $this->assertSame([], $this->rules(['paid_for_cancelled']), 'an imported paid invoice is history');
 
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $line($invoice);
         (new RecordPaymentService)->handle($invoice->fresh(), null, 10.0, transactionId: 'wire-1');
         $this->assertSame(['paid_for_cancelled'], $this->rules(['paid_for_cancelled']));
@@ -157,7 +157,7 @@ class MoneyCheckTest extends TestCase
 
     public function test_a_credit_balance_the_journal_does_not_add_up_to_and_a_negative_one(): void
     {
-        $credit = (new CreditLedger)->add($this->user->id, 'USD', 500, 'staff_adjustment', 'staff', note: 'Goodwill');
+        $credit = (new CreditLedger)->add($this->user->client()->id, 'USD', 500, 'staff_adjustment', 'staff', note: 'Goodwill');
         DB::table('credits')->where('id', $credit->id)->update(['amount' => -2]);
 
         $this->assertSame(['credit_journal', 'credit_negative'], $this->rules(['credit_journal', 'credit_negative']));
@@ -231,7 +231,7 @@ class MoneyCheckTest extends TestCase
 
     public function test_credits_check_still_rebuilds_from_the_journal(): void
     {
-        $credit = (new CreditLedger)->add($this->user->id, 'USD', 500, 'staff_adjustment', 'staff', note: 'Goodwill');
+        $credit = (new CreditLedger)->add($this->user->client()->id, 'USD', 500, 'staff_adjustment', 'staff', note: 'Goodwill');
         DB::table('credits')->where('id', $credit->id)->update(['amount' => 1]);
 
         $this->artisan('mycs:credits-check')->assertExitCode(1);

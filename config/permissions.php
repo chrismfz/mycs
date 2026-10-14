@@ -10,6 +10,14 @@ return [
                 'update' => 'Update Settings',
                 'custom_code' => 'Update Custom Code and Files (Appearance)',
             ],
+            // The customer accounts (docs/accounts.md, PR 2a), WHMCS «Clients».
+            'clients' => [
+                'create' => 'Create Clients',
+                'update' => 'Update Clients',
+                'viewAny' => 'View Clients',
+                'delete' => 'Delete Clients',
+            ],
+            // The logins of the client area, WHMCS «Users».
             'users' => [
                 'create' => 'Create Users',
                 'update' => 'Update Users',
@@ -215,6 +223,12 @@ return [
     ],
     'api' => [
         'admin' => [
+            'clients' => [
+                'create' => 'Create Clients',
+                'update' => 'Update Clients',
+                'view' => 'View Clients',
+                'delete' => 'Delete Clients',
+            ],
             'users' => [
                 'create' => 'Create Users',
                 'update' => 'Update Users',

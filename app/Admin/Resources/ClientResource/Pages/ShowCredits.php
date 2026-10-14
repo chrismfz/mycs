@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Admin\Resources\UserResource\Pages;
+namespace App\Admin\Resources\ClientResource\Pages;
 
-use App\Admin\Resources\UserResource;
+use App\Admin\Resources\ClientResource;
 use App\Exceptions\DisplayException;
 use App\Models\Credit;
 use App\Models\Currency;
@@ -28,7 +28,7 @@ use Filament\Tables\Table;
  */
 class ShowCredits extends ManageRelatedRecords
 {
-    protected static string $resource = UserResource::class;
+    protected static string $resource = ClientResource::class;
 
     protected static string $relationship = 'credits';
 
@@ -65,7 +65,7 @@ class ShowCredits extends ManageRelatedRecords
                 Select::make('currency_code')
                     ->label(__('Currency'))
                     ->options(fn () => Currency::query()->pluck('code', 'code'))
-                    ->default(fn () => Credit::query()->where('user_id', $this->getOwnerRecord()->getKey())->value('currency_code') ?? config('settings.default_currency'))
+                    ->default(fn () => Credit::query()->where('client_id', $this->getOwnerRecord()->getKey())->value('currency_code') ?? config('settings.default_currency'))
                     ->live()
                     ->required(),
                 TextInput::make('amount')
@@ -93,12 +93,12 @@ class ShowCredits extends ManageRelatedRecords
             ])
             ->action(function (array $data) use ($add, $label): void {
                 $ledger = new CreditLedger;
-                $userId = (int) $this->getOwnerRecord()->getKey();
+                $clientId = (int) $this->getOwnerRecord()->getKey();
                 $cents = RecordPaymentService::toCents($data['amount']);
                 try {
                     $add
-                        ? $ledger->add($userId, $data['currency_code'], $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: $data['reason'])
-                        : $ledger->remove($userId, $data['currency_code'], $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: $data['reason']);
+                        ? $ledger->add($clientId, $data['currency_code'], $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: $data['reason'])
+                        : $ledger->remove($clientId, $data['currency_code'], $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: $data['reason']);
                 } catch (DisplayException $e) {
                     Notification::make()->danger()->title(__('Credit not changed'))->body($e->getMessage())->send();
 

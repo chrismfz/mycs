@@ -6,6 +6,7 @@ use App\Enums\InvoiceTransactionStatus;
 use App\Enums\MoneyEventKind;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
+use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -51,7 +52,7 @@ class MoneyTrailAdversarialTest extends TestCase
 
     private function invoiceFor(User $user, int $cents = 10000, bool $creditPurchase = false): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(array_filter([
             'reference_type' => $creditPurchase ? Credit::class : null,
             'description' => $creditPurchase ? 'Deposit' : 'Hosting',
@@ -72,12 +73,12 @@ class MoneyTrailAdversarialTest extends TestCase
     {
         $journal = [];
         foreach (MoneyEvent::query()->orderBy('id')->get() as $event) {
-            $key = $event->user_id . '/' . $event->currency_code;
+            $key = $event->client_id . '/' . $event->currency_code;
             $journal[$key] = ($journal[$key] ?? 0) + $event->creditEffectCents();
         }
         $actual = [];
         foreach (Credit::query()->get() as $credit) {
-            $key = $credit->user_id . '/' . $credit->currency_code;
+            $key = $credit->client_id . '/' . $credit->currency_code;
             $actual[$key] = ($actual[$key] ?? 0) + self::cents($credit->amount);
         }
         foreach (array_unique(array_merge(array_keys($journal), array_keys($actual))) as $key) {
@@ -315,10 +316,10 @@ class MoneyTrailAdversarialTest extends TestCase
 
         // Fixed by refusing the move (InvoiceObserver::updating): an invoice with payments keeps its customer.
         try {
-            $mine->update(['user_id' => $other->id]); // issued to the wrong customer, staff fix it
+            $mine->update(['client_id' => $other->client()->id]); // issued to the wrong customer, staff fix it
         } catch (DisplayException) {
         }
-        $this->assertSame($this->user->id, $mine->fresh()->user_id);
+        $this->assertSame($this->user->client()->id, $mine->fresh()->client_id);
 
         try {
             (new RecordPaymentService)->deleteTransaction($payment);
@@ -339,7 +340,7 @@ class MoneyTrailAdversarialTest extends TestCase
         $this->assertNotNull($creditPayment);
 
         try {
-            $invoice->update(['user_id' => $other->id]);
+            $invoice->update(['client_id' => $other->client()->id]);
         } catch (DisplayException) {
         }
         (new RecordPaymentService)->deleteTransaction($creditPayment);
@@ -478,7 +479,7 @@ class MoneyTrailAdversarialTest extends TestCase
 
         (new RecordPaymentService)->deleteTransaction($transaction);
 
-        $this->assertSame(0, self::cents(Credit::query()->where('user_id', $this->user->id)->value('amount')));
+        $this->assertSame(0, self::cents(Credit::query()->where('client_id', $this->user->client()->id)->value('amount')));
         $this->assertAll();
     }
 
@@ -517,7 +518,7 @@ class MoneyTrailAdversarialTest extends TestCase
         $deposit = $this->invoiceFor($this->user, 5000, creditPurchase: true);
         ExtensionHelper::addProcessingPayment($deposit->id, 'Stripe', 65.00, null, 'pi_cp', currency: 'USD');
         $transaction = ExtensionHelper::addPayment($deposit->id, 'Stripe', 65.00, null, 'pi_cp', currency: 'USD');
-        $this->assertSame(6500, self::cents(Credit::query()->where('user_id', $this->user->id)->value('amount')));
+        $this->assertSame(6500, self::cents(Credit::query()->where('client_id', $this->user->client()->id)->value('amount')));
         $this->assertAll('after payment');
 
         (new RecordPaymentService)->deleteTransaction($transaction);
@@ -527,7 +528,7 @@ class MoneyTrailAdversarialTest extends TestCase
 
     private function giveCredit(float $amount): void
     {
-        Credit::query()->firstOrCreate(['user_id' => $this->user->id, 'currency_code' => 'USD'], ['amount' => $amount]);
+        Credit::query()->firstOrCreate(['client_id' => $this->user->client()->id, 'currency_code' => 'USD'], ['amount' => $amount]);
     }
 
     // ---------------------------------------------------------------- I5 / I6
@@ -565,7 +566,7 @@ class MoneyTrailAdversarialTest extends TestCase
 
     private function orphan(Invoice $invoice): Invoice
     {
-        DB::table('invoices')->where('id', $invoice->id)->update(['user_id' => null]); // customer deleted before §8
+        DB::table('invoices')->where('id', $invoice->id)->update(['client_id' => null]); // customer deleted before §8
 
         return $invoice->fresh();
     }
@@ -590,7 +591,7 @@ class MoneyTrailAdversarialTest extends TestCase
 
     /**
      * Deleting a (legacy) payment with a credited part on a customer-less invoice: lockCredit() finds nothing and
-     * `$invoice->user->credits()` is called on null (Error, a 500) instead of a DisplayException staff can read.
+     * `$invoice->client->credits()` is called on null (Error, a 500) instead of a DisplayException staff can read.
      */
     public function test_deleting_a_credited_payment_on_a_customer_less_invoice_fails_cleanly(): void
     {
@@ -621,7 +622,7 @@ class MoneyTrailAdversarialTest extends TestCase
 
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 130.00, null, 'pi_orphan', currency: 'USD');
 
-        $this->assertSame([['payment', null]], MoneyEvent::query()->get()->map(fn ($e) => [$e->kind->value, $e->user_id])->all());
+        $this->assertSame([['payment', null]], MoneyEvent::query()->get()->map(fn ($e) => [$e->kind->value, $e->client_id])->all());
         $this->assertSame(0, Credit::query()->count());
     }
 
@@ -631,14 +632,14 @@ class MoneyTrailAdversarialTest extends TestCase
         $invoice = $this->invoiceFor($this->user);
         ExtensionHelper::addProcessingPayment($invoice->id, 'Stripe', 100.00, null, 'pi_sepa', currency: 'USD');
         $other = User::factory()->create();
-        Credit::query()->create(['user_id' => $other->id, 'currency_code' => 'USD', 'amount' => 0.01]);
+        Credit::query()->create(['client_id' => $other->client()->id, 'currency_code' => 'USD', 'amount' => 0.01]);
 
-        foreach ([$this->user, $other] as $customer) {
+        foreach ([$this->user->client(), $other->client()] as $customer) {
             try {
                 $customer->delete();
             } catch (DisplayException) {
             }
-            $this->assertNotNull(User::query()->find($customer->id));
+            $this->assertNotNull(Client::query()->find($customer->id));
         }
     }
 
@@ -648,11 +649,11 @@ class MoneyTrailAdversarialTest extends TestCase
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 100.00, null, 'pi_md', currency: 'USD');
 
         try {
-            User::query()->whereKey($this->user->id)->delete();
+            Client::query()->whereKey($this->user->client()->id)->delete();
         } catch (QueryException|DisplayException) {
         }
 
-        $this->assertNotNull(User::query()->find($this->user->id));
+        $this->assertNotNull(Client::query()->find($this->user->client()->id));
         $this->assertSame(1, MoneyEvent::query()->count());
     }
 }

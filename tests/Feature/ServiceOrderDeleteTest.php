@@ -48,17 +48,17 @@ class ServiceOrderDeleteTest extends TestCase
     {
         $product = $this->createProduct(['stock' => 5]);
         $user = User::factory()->create();
-        $order = Order::query()->create(['user_id' => $user->id, 'currency_code' => 'USD']);
+        $order = Order::query()->create(['client_id' => $user->client()->id, 'currency_code' => 'USD']);
 
         return Service::factory()->create(array_merge([
-            'user_id' => $user->id, 'order_id' => $order->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => $user->client()->id, 'order_id' => $order->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1, 'expires_at' => '2026-11-15',
         ], $attributes));
     }
 
     private function invoiceFor(Service $service, string $status): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => '2026-10-15']);
+        $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => '2026-10-15']);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Hosting', 'quantity' => 1, 'price' => 10]);
         if ($status === Invoice::STATUS_PAID) {
             DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PAID]);
@@ -73,7 +73,7 @@ class ServiceOrderDeleteTest extends TestCase
         $open = $this->invoiceFor($service, Invoice::STATUS_UNPAID);
         $paid = $this->invoiceFor($service, Invoice::STATUS_PAID);
         $target = $this->createProduct();
-        $upgradeInvoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $upgradeInvoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $upgrade = ServiceUpgrade::query()->create(['service_id' => $service->id, 'plan_id' => $target->plan->id, 'product_id' => $target->product->id, 'invoice_id' => $upgradeInvoice->id]);
         $upgradeInvoice->items()->create(['reference_type' => ServiceUpgrade::class, 'reference_id' => $upgrade->id, 'description' => 'Upgrade', 'quantity' => 1, 'price' => 5]);
         $service->properties()->create(['key' => 'domain', 'name' => 'Domain', 'value' => 'example.test']);

@@ -37,7 +37,7 @@ class InvoiceItemReferenceTest extends TestCase
         DB::table('currencies')->insertOrIgnore(['code' => 'USD', 'name' => 'US Dollar', 'prefix' => '$', 'format' => '1,000.00']);
         Cache::flush();
         $this->customer = User::factory()->create();
-        $this->invoice = Invoice::factory()->create(['user_id' => $this->customer->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $this->invoice = Invoice::factory()->create(['client_id' => $this->customer->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
     }
 
     private function token(): string
@@ -54,7 +54,7 @@ class InvoiceItemReferenceTest extends TestCase
         $product = $this->createProduct();
 
         return Service::factory()->create([
-            'user_id' => $user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => $user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'expires_at' => now()->addMonth(), 'currency_code' => 'USD', 'price' => 10.00,
         ]);
     }
@@ -66,7 +66,7 @@ class InvoiceItemReferenceTest extends TestCase
 
     public function test_the_api_refuses_a_line_on_credit(): void
     {
-        $credit = Credit::query()->create(['user_id' => $this->customer->id, 'currency_code' => 'USD', 'amount' => 0]);
+        $credit = Credit::query()->create(['client_id' => $this->customer->client()->id, 'currency_code' => 'USD', 'amount' => 0]);
 
         $this->withToken($this->token())
             ->postJson(route('api.v1.admin.invoice-items.store'), $this->line(['reference_type' => Credit::class, 'reference_id' => $credit->id]))
@@ -105,7 +105,7 @@ class InvoiceItemReferenceTest extends TestCase
     public function test_the_api_cannot_repoint_a_line_at_credit(): void
     {
         $item = $this->invoice->items()->create(['description' => 'Line', 'price' => 50, 'quantity' => 1]);
-        $credit = Credit::query()->create(['user_id' => $this->customer->id, 'currency_code' => 'USD', 'amount' => 0]);
+        $credit = Credit::query()->create(['client_id' => $this->customer->client()->id, 'currency_code' => 'USD', 'amount' => 0]);
 
         $this->withToken($this->token())
             ->putJson(route('api.v1.admin.invoice-items.update', $item), ['reference_type' => Credit::class, 'reference_id' => $credit->id])

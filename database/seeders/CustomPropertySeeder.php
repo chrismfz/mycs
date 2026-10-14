@@ -18,7 +18,7 @@ class CustomPropertySeeder extends Seeder
             [
                 'key' => 'phone',
                 'name' => 'Phone',
-                'model' => 'App\Models\User',
+                'model' => 'App\Models\Client',
                 'type' => 'string',
                 'non_editable' => 0,
                 'required' => 1,
@@ -28,7 +28,7 @@ class CustomPropertySeeder extends Seeder
             [
                 'key' => 'company_name',
                 'name' => 'Company Name',
-                'model' => 'App\Models\User',
+                'model' => 'App\Models\Client',
                 'type' => 'string',
                 'non_editable' => 0,
                 'required' => 0,
@@ -38,7 +38,7 @@ class CustomPropertySeeder extends Seeder
             [
                 'key' => 'address',
                 'name' => 'Address',
-                'model' => 'App\Models\User',
+                'model' => 'App\Models\Client',
                 'type' => 'string',
                 'non_editable' => 0,
                 'required' => 1,
@@ -48,7 +48,7 @@ class CustomPropertySeeder extends Seeder
             [
                 'key' => 'address2',
                 'name' => 'Address 2',
-                'model' => 'App\Models\User',
+                'model' => 'App\Models\Client',
                 'type' => 'string',
                 'non_editable' => 0,
                 'required' => 0,
@@ -58,7 +58,7 @@ class CustomPropertySeeder extends Seeder
             [
                 'key' => 'city',
                 'name' => 'City',
-                'model' => 'App\Models\User',
+                'model' => 'App\Models\Client',
                 'type' => 'string',
                 'non_editable' => 0,
                 'required' => 1,
@@ -68,7 +68,7 @@ class CustomPropertySeeder extends Seeder
             [
                 'key' => 'state',
                 'name' => 'State',
-                'model' => 'App\Models\User',
+                'model' => 'App\Models\Client',
                 'type' => 'string',
                 'non_editable' => 0,
                 'required' => 1,
@@ -78,7 +78,7 @@ class CustomPropertySeeder extends Seeder
             [
                 'key' => 'zip',
                 'name' => 'ZIP',
-                'model' => 'App\Models\User',
+                'model' => 'App\Models\Client',
                 'type' => 'string',
                 'non_editable' => 0,
                 'required' => 1,
@@ -91,7 +91,7 @@ class CustomPropertySeeder extends Seeder
             [
                 'key' => 'country',
                 'name' => 'Country',
-                'model' => 'App\Models\User',
+                'model' => 'App\Models\Client',
                 'type' => 'select',
                 'non_editable' => 0,
                 'required' => 1,

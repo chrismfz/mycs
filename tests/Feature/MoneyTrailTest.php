@@ -41,7 +41,7 @@ class MoneyTrailTest extends TestCase
 
     private function invoice(float $price = 100.00, string $status = 'unpaid'): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => $price]);
 
         // A paid fixture (a period paid in the past): stored paid, its lines added while it was open (MT-1c: a paid
@@ -55,7 +55,7 @@ class MoneyTrailTest extends TestCase
 
     private function creditInvoice(float $price): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => $price]);
 
         return $invoice->fresh();
@@ -63,12 +63,12 @@ class MoneyTrailTest extends TestCase
 
     private function giveCredit(float $amount): void
     {
-        Credit::query()->create(['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => $amount]);
+        Credit::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => $amount]);
     }
 
     private function balance(): string
     {
-        return number_format((float) (Credit::query()->where('user_id', $this->user->id)->where('currency_code', 'USD')->value('amount') ?? 0), 2, '.', '');
+        return number_format((float) (Credit::query()->where('client_id', $this->user->client()->id)->where('currency_code', 'USD')->value('amount') ?? 0), 2, '.', '');
     }
 
     /** @return list<array{0: string, 1: string, 2: string, 3: ?string}> kind, amount, source, cause */
@@ -81,7 +81,7 @@ class MoneyTrailTest extends TestCase
     /** The balance the journal gives, from an opening balance that predates it. */
     private function journalBalance(float $opening = 0): string
     {
-        $cents = (int) round($opening * 100) + MoneyEvent::query()->where('user_id', $this->user->id)->get()
+        $cents = (int) round($opening * 100) + MoneyEvent::query()->where('client_id', $this->user->client()->id)->get()
             ->sum(fn (MoneyEvent $event) => $event->creditEffectCents());
 
         return number_format($cents / 100, 2, '.', '');
@@ -97,7 +97,7 @@ class MoneyTrailTest extends TestCase
         $event = MoneyEvent::query()->sole();
         $this->assertSame($invoice->id, $event->invoice_id);
         $this->assertSame('pi_1', $event->external_reference);
-        $this->assertSame($this->user->id, $event->user_id);
+        $this->assertSame($this->user->client()->id, $event->client_id);
         $this->assertSame('USD', $event->currency_code);
     }
 
@@ -332,13 +332,14 @@ class MoneyTrailTest extends TestCase
         $invoice = $this->invoice();
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 100.00, null, 'pi_14', currency: 'USD');
 
+        $client = $this->user->client();
         try {
-            $this->user->delete();
+            $client->delete();
             $this->fail('A customer with money events was deleted.');
         } catch (DisplayException) {
         }
 
-        $this->assertNotNull($this->user->fresh());
+        $this->assertNotNull($client->fresh());
         $this->assertSame(1, MoneyEvent::query()->count());
     }
 
@@ -348,16 +349,17 @@ class MoneyTrailTest extends TestCase
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 100.00, null, 'pi_15', currency: 'USD');
 
         $this->expectException(QueryException::class);
-        DB::table('users')->where('id', $this->user->id)->delete();
+        DB::table('clients')->where('id', $this->user->client()->id)->delete();
     }
 
     public function test_a_customer_without_money_events_can_still_be_deleted(): void
     {
         $other = User::factory()->create();
 
-        $other->delete();
+        $client = $other->client();
+        $client->delete();
 
-        $this->assertNull($other->fresh());
+        $this->assertNull($client->fresh());
     }
 
     public function test_events_hold_no_personal_data(): void
@@ -370,7 +372,7 @@ class MoneyTrailTest extends TestCase
         ExtensionHelper::refundLocally($transaction, 5.00);
 
         $this->assertSame(
-            ['id', 'kind', 'amount', 'currency_code', 'user_id', 'invoice_id', 'invoice_transaction_id', 'credit_balance_after',
+            ['id', 'kind', 'amount', 'currency_code', 'client_id', 'invoice_id', 'invoice_transaction_id', 'credit_balance_after',
                 'source', 'cause', 'external_reference', 'group_reference', 'actor_type', 'actor_id', 'reason', 'reverses_id', 'occurred_at'],
             array_keys((array) DB::table('money_events')->first()),
         );

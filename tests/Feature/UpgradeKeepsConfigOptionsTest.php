@@ -46,7 +46,7 @@ class UpgradeKeepsConfigOptionsTest extends TestCase
         $backup = $this->option('Backups', upgradable: false, values: [['Off', 0], ['On', 2]], productId: $productId, hidden: true);
 
         $service = Service::factory()->create([
-            'user_id' => User::factory()->create()->id, 'plan_id' => $product->plan->id, 'product_id' => $productId,
+            'client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $productId,
             'status' => 'active', 'expires_at' => now()->addMonth(), 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1,
         ]);
         foreach ([[$ram, 0], [$ip, 1], [$backup, 1]] as [$option, $index]) {
@@ -75,7 +75,7 @@ class UpgradeKeepsConfigOptionsTest extends TestCase
         $ip = $this->option('Extra IP', upgradable: false, values: [['None', 0], ['1 IP', 3]], productId: $from->product->id);
 
         $service = Service::factory()->create([
-            'user_id' => User::factory()->create()->id, 'plan_id' => $from->plan->id, 'product_id' => $from->product->id,
+            'client_id' => User::factory()->create()->client()->id, 'plan_id' => $from->plan->id, 'product_id' => $from->product->id,
             'status' => 'active', 'expires_at' => now()->addMonth(), 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1,
         ]);
         $service->configs()->create(['config_option_id' => $ip->id, 'config_value_id' => $ip->children[1]->id]);
@@ -92,7 +92,7 @@ class UpgradeKeepsConfigOptionsTest extends TestCase
         $product = $this->createProduct();
         $ip = $this->option('Extra IP', upgradable: false, values: [['None', 0], ['1 IP', 3]], productId: $product->product->id);
         $service = Service::factory()->create([
-            'user_id' => User::factory()->create()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'expires_at' => now()->addMonth(), 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1,
         ]);
         $service->configs()->create(['config_option_id' => $ip->id, 'config_value_id' => $ip->children[1]->id]);

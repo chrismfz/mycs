@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Admin\Resources\UserResource\Pages;
+namespace App\Admin\Resources\ClientResource\Pages;
 
+use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\InvoiceResource;
-use App\Admin\Resources\UserResource;
 use App\Models\Currency;
 use App\Models\MoneyEvent;
 use App\Services\Money\MoneyHistory;
@@ -20,7 +20,7 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class ShowCreditHistory extends ManageRelatedRecords
 {
-    protected static string $resource = UserResource::class;
+    protected static string $resource = ClientResource::class;
 
     protected static string $relationship = 'moneyEvents';
 

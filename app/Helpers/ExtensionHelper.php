@@ -9,6 +9,7 @@ use App\Enums\InvoiceTransactionStatus;
 use App\Enums\MoneyEventKind;
 use App\Exceptions\DisplayException;
 use App\Models\BillingAgreement;
+use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Extension;
 use App\Models\Gateway;
@@ -20,7 +21,6 @@ use App\Models\PaymentGatewayEvent;
 use App\Models\Product;
 use App\Models\Server;
 use App\Models\Service;
-use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
@@ -448,6 +448,11 @@ class ExtensionHelper
 
     public static function charge(Gateway $gateway, Invoice $invoice, BillingAgreement $billingAgreement): bool
     {
+        // Only the invoice's own account's payment method pays it (docs/accounts.md, PR 2a).
+        if ($invoice->client_id === null || (int) $billingAgreement->client_id !== (int) $invoice->client_id) {
+            throw new DisplayException(__('This payment method belongs to another account.'));
+        }
+
         return self::getExtension('gateway', $gateway->extension, $gateway->settings)->charge($invoice, $invoice->remaining, $billingAgreement);
     }
 
@@ -469,13 +474,13 @@ class ExtensionHelper
     /**
      * Create billing agreement
      *
-     * @param  User  $user
+     * @param  Client  $client  the account the payment method is saved on
      * @param  Gateway  $gateway
      * @return mixed
      */
-    public static function createBillingAgreement($user, $gateway)
+    public static function createBillingAgreement(Client $client, $gateway)
     {
-        return self::getExtension('gateway', $gateway->extension, $gateway->settings)->createBillingAgreement($user);
+        return self::getExtension('gateway', $gateway->extension, $gateway->settings)->createBillingAgreement($client);
     }
 
     /**
@@ -488,13 +493,13 @@ class ExtensionHelper
         return self::getExtension('gateway', $billingAgreement->gateway->extension, $billingAgreement->gateway->settings)->cancelBillingAgreement($billingAgreement);
     }
 
-    public static function makeBillingAgreement(User $user, $gateway, $name, $externalReference, $type = null, $expiry = null)
+    public static function makeBillingAgreement(Client $client, $gateway, $name, $externalReference, $type = null, $expiry = null)
     {
         $gateway = Gateway::where('extension', $gateway)->firstOrFail();
 
         $billingAgreement = BillingAgreement::updateOrCreate([
             'external_reference' => $externalReference,
-            'user_id' => $user->id,
+            'client_id' => $client->id,
             'gateway_id' => $gateway->id,
         ], [
             'name' => $name,
@@ -699,7 +704,7 @@ class ExtensionHelper
         if (!(new RecordPaymentService)->lockBoughtCredit($invoice)) {
             return [$transaction, null];
         }
-        $credit = Credit::query()->where('user_id', $invoice->user_id)->where('currency_code', $invoice->currency_code)
+        $credit = Credit::query()->where('client_id', $invoice->client_id)->where('currency_code', $invoice->currency_code)
             ->lockForUpdate()->first();
         if (RecordPaymentService::toCents($credit === null ? 0 : $credit->amount) < RecordPaymentService::toCents($amount)) {
             throw new \InvalidArgumentException('The account credit this payment bought was already used: it cannot be refunded.');
@@ -749,11 +754,11 @@ class ExtensionHelper
             throw new \InvalidArgumentException('Refund amount must be greater than 0.');
         }
 
-        $userId = null;
+        $clientId = null;
         $currency = null;
-        DB::transaction(function () use (&$transaction, $amount, $cents, $notify, &$userId, &$currency) {
+        DB::transaction(function () use (&$transaction, $amount, $cents, $notify, &$clientId, &$currency) {
             $invoice = (new RecordPaymentService)->lockInvoice($transaction->invoice_id);
-            if ($invoice->user_id === null) {
+            if ($invoice->client_id === null) {
                 throw new \InvalidArgumentException('This invoice has no customer whose credit could take it.');
             }
             if ($invoice->items()->where('reference_type', Credit::class)->exists()) {
@@ -762,19 +767,19 @@ class ExtensionHelper
             [$transaction] = self::prepareRefund($transaction, $amount);
 
             $transaction->increment('credited_amount', $cents / 100);
-            (new CreditLedger)->add((int) $invoice->user_id, $invoice->currency_code, $cents, MoneyTrail::CAUSE_REFUND_TO_CREDIT,
+            (new CreditLedger)->add((int) $invoice->client_id, $invoice->currency_code, $cents, MoneyTrail::CAUSE_REFUND_TO_CREDIT,
                 MoneyTrail::sourceFor($transaction->gateway, (bool) $transaction->is_credit_transaction), $invoice, $transaction);
             self::afterRefund($transaction, $cents, 'Refund to account credit for transaction #' . $transaction->id);
-            [$userId, $currency] = [(int) $invoice->user_id, (string) $invoice->currency_code];
+            [$clientId, $currency] = [(int) $invoice->client_id, (string) $invoice->currency_code];
             if ($notify) {
                 self::notifyRefund($transaction, $cents, toCredit: true, byGateway: false);
             }
         });
 
         // The credit pays the customer's other open invoices (decision 5, MT-1e), as an overpayment's does.
-        DB::afterCommit(function () use ($userId, $currency) {
+        DB::afterCommit(function () use ($clientId, $currency) {
             try {
-                (new CreditAutoApply)->forCustomer($userId, $currency);
+                (new CreditAutoApply)->forCustomer($clientId, $currency);
             } catch (\Throwable $e) {
                 report($e); // the refund stands; the daily pass tries again
             }
@@ -968,7 +973,7 @@ class ExtensionHelper
             $staff = "{$gateway} refunded {$refundReference} on invoice #{$invoice->id}: " . $e->getMessage();
         }
         if ($boughtCredit) {
-            $credit = Credit::query()->where('user_id', $invoice->user_id)->where('currency_code', $invoice->currency_code)->lockForUpdate()->first();
+            $credit = Credit::query()->where('client_id', $invoice->client_id)->where('currency_code', $invoice->currency_code)->lockForUpdate()->first();
             $creditCents = min($record, max(0, RecordPaymentService::toCents($credit === null ? 0 : $credit->amount)));
             if ($creditCents < $record) {
                 $staff = "{$gateway} refunded {$refundReference} for a credit purchase whose credit was spent: " . self::cents($record - $creditCents)
@@ -1144,10 +1149,10 @@ class ExtensionHelper
                         $staff = $e->getMessage() . ' ';
                     }
                     if ($boughtCredit) {
-                        $credit = Credit::query()->where('user_id', $invoice->user_id)->where('currency_code', $invoice->currency_code)->lockForUpdate()->first();
+                        $credit = Credit::query()->where('client_id', $invoice->client_id)->where('currency_code', $invoice->currency_code)->lockForUpdate()->first();
                         $take = min($record, max(0, RecordPaymentService::toCents($credit === null ? 0 : $credit->amount)));
                         if ($take > 0) {
-                            (new CreditLedger)->remove((int) $invoice->user_id, $invoice->currency_code, $take, MoneyTrail::CAUSE_CHARGEBACK, $source, $invoice, $payment);
+                            (new CreditLedger)->remove((int) $invoice->client_id, $invoice->currency_code, $take, MoneyTrail::CAUSE_CHARGEBACK, $source, $invoice, $payment);
                         }
                         // All the credit it bought taken back: not bought any more, so paying the invoice again (or the
                         // dispute won) buys it again (code review H1 / adversarial F6). Part of it: staff.
@@ -1303,9 +1308,9 @@ class ExtensionHelper
                 $invoice = Invoice::query()->whereKey($invoice->id)->lockForUpdate()->firstOrFail()->withLockedBalance();
                 $remaining = RecordPaymentService::toCents($invoice->remaining);
                 $toCredit = in_array($invoice->status, [Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED], true) ? $recorded : min($recorded, max(0, -$remaining));
-                if ($toCredit > 0 && $invoice->user_id !== null) {
+                if ($toCredit > 0 && $invoice->client_id !== null) {
                     $payment->increment('credited_amount', $toCredit / 100);
-                    (new CreditLedger)->add((int) $invoice->user_id, $invoice->currency_code, $toCredit, MoneyTrail::CAUSE_CHARGEBACK_WON, $source, $invoice, $payment);
+                    (new CreditLedger)->add((int) $invoice->client_id, $invoice->currency_code, $toCredit, MoneyTrail::CAUSE_CHARGEBACK_WON, $source, $invoice, $payment);
                     $staff = self::cents($toCredit) . " {$invoice->currency_code} of it became the customer's account credit (the invoice is {$invoice->status}"
                         . ($invoice->status === Invoice::STATUS_PAID ? ', paid again in the meantime' : '') . ').';
                 }
@@ -1359,12 +1364,12 @@ class ExtensionHelper
     private static function notifyRefund(InvoiceTransaction $transaction, int $cents, bool $toCredit, bool $byGateway): void
     {
         $invoice = $transaction->invoice;
-        if ($invoice === null || $invoice->user === null) {
+        if ($invoice === null || $invoice->client === null) {
             return;
         }
         DB::afterCommit(function () use ($invoice, $cents, $toCredit, $byGateway) {
             try {
-                NotificationHelper::invoiceRefundedNotification($invoice->user, $invoice->fresh(), $cents, $toCredit, $byGateway);
+                NotificationHelper::invoiceRefundedNotification($invoice->client, $invoice->fresh(), $cents, $toCredit, $byGateway);
             } catch (\Throwable $e) {
                 report($e);
             }
@@ -1386,7 +1391,7 @@ class ExtensionHelper
         $creditCents ??= $cents;
         $trail = new MoneyTrail;
         if ($credit !== null && $creditCents > 0) { // checked in prepareRefund (or refundedAtGateway), under the same locks
-            (new CreditLedger)->remove((int) $credit->user_id, $credit->currency_code, $creditCents, MoneyTrail::CAUSE_PURCHASE_REFUNDED,
+            (new CreditLedger)->remove((int) $credit->client_id, $credit->currency_code, $creditCents, MoneyTrail::CAUSE_PURCHASE_REFUNDED,
                 $source, $transaction->invoice, $transaction);
         }
         // One rounded amount for the transaction, the note and the journal.

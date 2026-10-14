@@ -11,7 +11,7 @@ class CreateAffiliateRequest extends AdminApiRequest
     public function rules(): array
     {
         return [
-            'user_id' => 'required|exists:users,id',
+            'client_id' => 'required|exists:clients,id',
             'code' => 'required|string|max:255|unique:Paymenter\Extensions\Others\Affiliates\Models\Affiliate,code',
             'enabled' => 'nullable|boolean',
             'reward' => 'nullable|numeric|min:0|max:100',

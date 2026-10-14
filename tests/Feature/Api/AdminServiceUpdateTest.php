@@ -27,7 +27,7 @@ class AdminServiceUpdateTest extends TestCase
         $from = $this->createProduct();
         $to = $this->createProduct();
         $service = Service::factory()->create([
-            'user_id' => User::factory()->create()->id,
+            'client_id' => User::factory()->create()->client()->id,
             'product_id' => $from->product->id,
             'plan_id' => $from->plan->id,
         ]);
@@ -44,7 +44,7 @@ class AdminServiceUpdateTest extends TestCase
         $from = $this->createProduct();
         $to = $this->createProduct();
         $service = Service::factory()->create([
-            'user_id' => User::factory()->create()->id,
+            'client_id' => User::factory()->create()->client()->id,
             'product_id' => $from->product->id,
             'plan_id' => $from->plan->id,
         ]);
@@ -58,7 +58,7 @@ class AdminServiceUpdateTest extends TestCase
     {
         $product = $this->createProduct();
         $service = Service::factory()->create([
-            'user_id' => User::factory()->create()->id, 'product_id' => $product->product->id,
+            'client_id' => User::factory()->create()->client()->id, 'product_id' => $product->product->id,
             'plan_id' => $product->plan->id, 'status' => 'suspended', 'dunning_suspended_at' => now(),
         ]);
         $this->withToken($this->token())

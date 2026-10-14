@@ -106,7 +106,7 @@ class EditService extends EditRecord
                                 if ($data['sendNotification']) {
                                     // The service's user (order is null for services made by staff or the API); adapters
                                     // return true or the data for the email.
-                                    NotificationHelper::serverCreatedNotification($record->user, $record, is_array($sdata) ? $sdata : []);
+                                    NotificationHelper::serverCreatedNotification($record->client, $record, is_array($sdata) ? $sdata : []);
                                 }
                                 break;
                             case 'suspend':
@@ -121,7 +121,7 @@ class EditService extends EditRecord
                                     $record->applyStaffChanges(['status' => Service::STATUS_ACTIVE]);
                                     if ($data['sendNotification']) {
                                         // WHMCS's «Service Unsuspension Notification» on a manual unsuspend too.
-                                        NotificationHelper::serverUnsuspendedNotification($record->user, $record, is_array($sdata) ? $sdata : []);
+                                        NotificationHelper::serverUnsuspendedNotification($record->client, $record, is_array($sdata) ? $sdata : []);
                                     }
                                 }
                                 break;

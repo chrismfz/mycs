@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\AdjustmentNoteType;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
+use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -42,7 +43,7 @@ class RefundCodeReviewTest extends TestCase
 
     private function invoice(float $price = 100, array $line = []): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(array_merge(['description' => 'Hosting', 'quantity' => 1, 'price' => $price], $line));
 
         return $invoice->fresh();
@@ -58,7 +59,7 @@ class RefundCodeReviewTest extends TestCase
 
     private function balance(): string
     {
-        return number_format((float) (Credit::query()->where('user_id', $this->user->id)->value('amount') ?? 0), 2, '.', '');
+        return number_format((float) (Credit::query()->where('client_id', $this->user->client()->id)->value('amount') ?? 0), 2, '.', '');
     }
 
     private function assertBooksClean(): void
@@ -71,7 +72,7 @@ class RefundCodeReviewTest extends TestCase
     public function test_refund_to_credit_then_cancel_works_with_credit_auto_apply_on(): void
     {
         config(['settings.credits_auto_use' => true]);
-        User::whereKey($this->user->id)->update(['credit_auto_apply' => true]);
+        Client::whereKey($this->user->client()->id)->update(['credit_auto_apply' => true]);
         $part = $this->invoice(100);
         (new RecordPaymentService)->handle($part, null, 40.0, transactionId: 'wire-part');
 
@@ -86,8 +87,8 @@ class RefundCodeReviewTest extends TestCase
     public function test_an_open_invoice_with_a_credit_payment_can_be_cancelled_by_staff_with_auto_apply_on(): void
     {
         config(['settings.credits_auto_use' => true]);
-        User::whereKey($this->user->id)->update(['credit_auto_apply' => true]);
-        (new CreditLedger)->add($this->user->id, 'USD', 3000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT,
+        Client::whereKey($this->user->client()->id)->update(['credit_auto_apply' => true]);
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 3000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT,
             MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
         $invoice = $this->invoice(100);
         (new RecordPaymentService)->payWithCredit($invoice);
@@ -166,7 +167,7 @@ class RefundCodeReviewTest extends TestCase
     {
         $product = $this->createProduct();
         $start = Carbon::now()->addDays(3)->startOfDay();
-        $service = Service::factory()->create(['user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+        $service = Service::factory()->create(['client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => Service::STATUS_ACTIVE, 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1, 'expires_at' => $start]);
         $invoice = $this->invoice(10, ['reference_type' => Service::class, 'reference_id' => $service->id,
             'period_start' => $start, 'period_end' => $start->copy()->addMonth()]);

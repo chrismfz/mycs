@@ -15,6 +15,6 @@ class CreditResource extends JsonApiResource
     ];
 
     public $relationships = [
-        'user' => UserResource::class,
+        'client' => ClientResource::class,
     ];
 }

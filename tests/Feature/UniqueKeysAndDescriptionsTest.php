@@ -91,7 +91,7 @@ class UniqueKeysAndDescriptionsTest extends TestCase
     public function test_a_long_multi_line_description_is_kept_whole(): void
     {
         $user = User::factory()->create();
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $text = "Hosting Pro - example.test (14/10/2026 - 13/11/2026)\n" . str_repeat('Extra option: value; ', 40);
 
         $item = $invoice->items()->create(['description' => $text, 'price' => 10, 'quantity' => 1]);
@@ -104,7 +104,7 @@ class UniqueKeysAndDescriptionsTest extends TestCase
     {
         DB::table('currencies')->insertOrIgnore(['code' => 'USD', 'name' => 'US Dollar', 'prefix' => '$', 'format' => '1,000.00']);
         $user = User::factory()->create();
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $token = 'PAYM' . bin2hex(random_bytes(8));
         ApiKey::create(['staff_id' => Staff::factory()->admin()->create()->id, 'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => ['admin.invoice_items.create']]);
 

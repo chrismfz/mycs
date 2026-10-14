@@ -20,7 +20,7 @@ class InvoiceResource extends JsonApiResource
     ];
 
     public $relationships = [
-        'user' => UserResource::class,
+        'client' => ClientResource::class,
         'items' => InvoiceItemResource::class,
     ];
 }

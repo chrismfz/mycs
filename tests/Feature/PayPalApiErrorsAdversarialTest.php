@@ -74,14 +74,14 @@ class PayPalApiErrorsAdversarialTest extends TestCase
         Price::query()->where('plan_id', $product->plan->id)->update(['price' => 20.00]);
 
         return Service::factory()->create([
-            'user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'expires_at' => now()->addDays(3)->toDateString(), 'currency_code' => 'USD', 'price' => 20.00,
         ]);
     }
 
     private function invoice(?Service $service = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(array_filter([
             'description' => 'Hosting', 'quantity' => 1, 'price' => 20.00,
             'reference_type' => $service ? Service::class : null, 'reference_id' => $service?->id,
@@ -95,7 +95,7 @@ class PayPalApiErrorsAdversarialTest extends TestCase
     private function agreement(): BillingAgreement
     {
         return BillingAgreement::create([
-            'user_id' => $this->user->id, 'gateway_id' => $this->gateway->id, 'name' => 'PayPal', 'external_reference' => 'VAULT-1', 'type' => 'paypal',
+            'client_id' => $this->user->client()->id, 'gateway_id' => $this->gateway->id, 'name' => 'PayPal', 'external_reference' => 'VAULT-1', 'type' => 'paypal',
         ]);
     }
 

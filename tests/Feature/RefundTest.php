@@ -7,6 +7,7 @@ use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationMan
 use App\Enums\MoneyEventKind;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
+use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -52,7 +53,7 @@ class RefundTest extends TestCase
 
     private function invoice(float $price = 100, ?string $reference = null, ?int $referenceId = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(array_filter(['description' => 'Hosting', 'quantity' => 1, 'price' => $price,
             'reference_type' => $reference, 'reference_id' => $referenceId], fn ($value) => $value !== null));
 
@@ -69,7 +70,7 @@ class RefundTest extends TestCase
 
     private function balance(): string
     {
-        return number_format((float) (Credit::query()->where('user_id', $this->user->id)->value('amount') ?? 0), 2, '.', '');
+        return number_format((float) (Credit::query()->where('client_id', $this->user->client()->id)->value('amount') ?? 0), 2, '.', '');
     }
 
     private function assertBooksClean(): void
@@ -97,7 +98,7 @@ class RefundTest extends TestCase
     public function test_the_service_stays_as_it_is_after_a_full_refund(): void
     {
         $product = $this->createProduct();
-        $service = Service::factory()->create(['user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+        $service = Service::factory()->create(['client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => Service::STATUS_ACTIVE, 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1, 'expires_at' => now()->addDays(3)]);
         $invoice = $this->invoice(10, Service::class, $service->id);
         (new RecordPaymentService)->handle($invoice, null, 10.0, transactionId: 'wire-s');
@@ -156,7 +157,7 @@ class RefundTest extends TestCase
     public function test_the_credit_pays_the_customers_other_open_invoices(): void
     {
         config(['settings.credits_auto_use' => true]);
-        User::whereKey($this->user->id)->update(['credit_auto_apply' => true]);
+        Client::whereKey($this->user->client()->id)->update(['credit_auto_apply' => true]);
         $paid = $this->paid(100);
         $open = $this->invoice(25);
 
@@ -168,7 +169,7 @@ class RefundTest extends TestCase
 
     public function test_a_credit_payment_goes_back_to_credit_only(): void
     {
-        (new CreditLedger)->add($this->user->id, 'USD', 4000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 4000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
         $invoice = $this->invoice(40);
         (new RecordPaymentService)->payWithCredit($invoice);
         $payment = $invoice->transactions()->sole();

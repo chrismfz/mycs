@@ -10,6 +10,7 @@ use OwenIt\Auditing\Contracts\Auditable;
 /**
  * @property-read mixed $formatted_amount
  * @property-read mixed $formattedAmount
+ * @property int $client_id
  */
 class Credit extends Model implements Auditable
 {
@@ -18,13 +19,13 @@ class Credit extends Model implements Auditable
     protected $fillable = [
         'currency_code',
         'amount',
-        'user_id',
+        'client_id',
     ];
 
-    /** @return BelongsTo<User, $this> */
-    public function user(): BelongsTo
+    /** @return BelongsTo<Client, $this> */
+    public function client(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(Client::class);
     }
 
     /** @return BelongsTo<Currency, $this> */

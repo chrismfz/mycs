@@ -121,11 +121,11 @@ class InvoiceObserver
         // Invoice::save holds the payment locks for this change, so a webhook cannot land in between.
         // Its lines renew services of its customer (AUTH-8): moved to another customer, it would renew the first
         // customer's services with the second one's money. Staff make a new invoice instead.
-        if ($invoice->isDirty('user_id') && $invoice->items()->whereIn('reference_type', InvoiceItemReference::TYPES)->get()
-            ->contains(fn (InvoiceItem $item) => InvoiceItemReference::ownerOf($item->reference_type, (int) $item->reference_id) !== (int) $invoice->user_id)) {
+        if ($invoice->isDirty('client_id') && $invoice->items()->whereIn('reference_type', InvoiceItemReference::TYPES)->get()
+            ->contains(fn (InvoiceItem $item) => InvoiceItemReference::ownerOf($item->reference_type, (int) $item->reference_id) !== (int) $invoice->client_id)) {
             throw new DisplayException(__('This invoice renews services of its customer: it cannot move to another customer.'));
         }
-        if ($invoice->isDirty(['user_id', 'currency_code']) && $invoice->hasPayments(lock: true)) {
+        if ($invoice->isDirty(['client_id', 'currency_code']) && $invoice->hasPayments(lock: true)) {
             throw new DisplayException(__('An invoice with payments keeps its customer and currency: delete its payments first (a refunded payment keeps the invoice where it is).'));
         }
         event(new InvoiceEvent\Updating($invoice));

@@ -2,11 +2,11 @@
 
 namespace Paymenter\Extensions\Others\DiscordNotifications;
 
+use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\InvoiceResource;
 use App\Admin\Resources\OrderResource;
 use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\TicketResource;
-use App\Admin\Resources\UserResource;
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Extension;
 use App\Events\Invoice;
@@ -176,8 +176,8 @@ class DiscordNotifications extends Extension
             if (str_contains($value, '_id') || $value === 'id') {
                 if ($value === 'id') {
                     $value = $this->mapId($event->{$model}->{$value}, $model . '_id');
-                } elseif ($value === 'user_id') {
-                    $value = '[User ' . $event->{$model}->user->name . '](' . UserResource::getUrl('edit', ['record' => $event->{$model}->user_id]) . ')';
+                } elseif ($value === 'client_id') {
+                    $value = '[Client ' . $event->{$model}->client?->name . '](' . ClientResource::getUrl('edit', ['record' => $event->{$model}->client_id]) . ')';
                 } else {
                     $value = $this->mapId($event->{$model}->{$value}, $value);
                 }
@@ -224,7 +224,7 @@ class DiscordNotifications extends Extension
             'Invoice Created' => fn ($event) => $this->invoiceCreated($event->invoice),
             'Invoice Updated' => fn ($event) => $this->updatedEvent($event, 'invoice'),
             'Invoice Paid' => fn ($event) => $this->createdEvent($event, 'invoice', ['id']),
-            'Ticket Created' => fn ($event) => $this->createdEvent($event, 'ticket', ['id', 'user_id']),
+            'Ticket Created' => fn ($event) => $this->createdEvent($event, 'ticket', ['id', 'client_id']),
             'Ticket Updated' => fn ($event) => $this->updatedEvent($event, 'ticket'),
             'Ticket Replied' => fn ($event) => $this->createdEvent($event, 'ticketMessage', ['ticket_id', 'message']),
             'Service Created' => fn ($event) => $this->serviceCreated($event->service),
@@ -283,15 +283,6 @@ class DiscordNotifications extends Extension
             ],
         ];
 
-        // Add properties
-        foreach ($user->properties as $key => $value) {
-            $fields[] = [
-                'name' => ucfirst(str_replace('_', ' ', $key)),
-                'value' => (string) $value,
-                'inline' => true,
-            ];
-        }
-
         return $fields;
     }
 
@@ -304,8 +295,8 @@ class DiscordNotifications extends Extension
                 'inline' => true,
             ],
             [
-                'name' => 'User',
-                'value' => '[User ' . $order->user->name . '](' . UserResource::getUrl('edit', ['record' => $order->user_id]) . ')',
+                'name' => 'Client',
+                'value' => '[Client ' . $order->client?->name . '](' . ClientResource::getUrl('edit', ['record' => $order->client_id]) . ')',
                 'inline' => true,
             ],
             [
@@ -336,8 +327,8 @@ class DiscordNotifications extends Extension
                 'inline' => true,
             ],
             [
-                'name' => 'User',
-                'value' => '[User ' . $service->user->name . '](' . UserResource::getUrl('edit', ['record' => $service->user_id]) . ')',
+                'name' => 'Client',
+                'value' => '[Client ' . $service->client?->name . '](' . ClientResource::getUrl('edit', ['record' => $service->client_id]) . ')',
                 'inline' => true,
             ],
             [
@@ -364,8 +355,8 @@ class DiscordNotifications extends Extension
                 'inline' => true,
             ],
             [
-                'name' => 'User',
-                'value' => '[User ' . $invoice->user->name . '](' . UserResource::getUrl('edit', ['record' => $invoice->user_id]) . ')',
+                'name' => 'Client',
+                'value' => '[Client ' . $invoice->client?->name . '](' . ClientResource::getUrl('edit', ['record' => $invoice->client_id]) . ')',
                 'inline' => true,
             ],
             [

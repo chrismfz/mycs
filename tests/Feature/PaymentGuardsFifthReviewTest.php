@@ -42,12 +42,12 @@ class PaymentGuardsFifthReviewTest extends TestCase
 
     private function credit(): string
     {
-        return number_format((float) (Credit::query()->where('user_id', $this->user->id)->where('currency_code', 'USD')->value('amount') ?? 0), 2, '.', '');
+        return number_format((float) (Credit::query()->where('client_id', $this->user->client()->id)->where('currency_code', 'USD')->value('amount') ?? 0), 2, '.', '');
     }
 
     private function creditInvoice(float $price): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Credit deposit', 'quantity' => 1, 'price' => $price]);
 
         return $invoice->fresh();
@@ -58,10 +58,10 @@ class PaymentGuardsFifthReviewTest extends TestCase
         $product = $this->createProduct();
         Price::query()->where('plan_id', $product->plan->id)->update(['price' => 10.00]);
         $service = Service::factory()->create([
-            'user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'expires_at' => '2026-10-15', 'currency_code' => 'USD', 'price' => 10.00,
         ]);
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Renewal',
             'quantity' => 1, 'price' => 10.00, 'period_start' => '2026-10-15', 'period_end' => '2026-11-15',
@@ -78,7 +78,7 @@ class PaymentGuardsFifthReviewTest extends TestCase
      */
     public function test_refund_of_a_partial_payment_on_an_unpaid_credit_purchase_does_not_take_existing_credit(): void
     {
-        Credit::query()->create(['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 200.00]);
+        Credit::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 200.00]);
         $invoice = $this->creditInvoice(100.00);
         $payment = ExtensionHelper::addPayment($invoice->id, null, 50.00, null, 'wire-partial');
         $this->assertSame('unpaid', $invoice->fresh()->status);
@@ -165,7 +165,7 @@ class PaymentGuardsFifthReviewTest extends TestCase
     /** Deleting a partial payment of an unpaid credit purchase takes back none of the customer's other credit. */
     public function test_deleting_a_partial_payment_of_an_unpaid_credit_purchase_keeps_the_other_credit(): void
     {
-        Credit::query()->create(['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 200.00]);
+        Credit::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 200.00]);
         $invoice = $this->creditInvoice(100.00);
         $payment = ExtensionHelper::addPayment($invoice->id, null, 50.00, null, 'wire-partial-del');
 

@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Admin\Resources\UserResource\Pages\ShowCredits;
+use App\Admin\Resources\ClientResource\Pages\ShowCredits;
 use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
@@ -70,7 +70,7 @@ class CreditLedgerAdversarialTest extends TestCase
 
     private function balanceCents(User $user, string $currency = 'USD'): ?int
     {
-        $amount = Credit::query()->where('user_id', $user->id)->where('currency_code', $currency)->value('amount');
+        $amount = Credit::query()->where('client_id', $user->client()->id)->where('currency_code', $currency)->value('amount');
 
         return $amount === null ? null : self::cents($amount);
     }
@@ -86,7 +86,7 @@ class CreditLedgerAdversarialTest extends TestCase
 
     private function invoiceFor(User $user, int $cents, string $currency = 'USD', bool $creditPurchase = false): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => $currency]);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => $currency]);
         $invoice->items()->create(array_filter([
             'reference_type' => $creditPurchase ? Credit::class : null,
             'description' => $creditPurchase ? 'Deposit' : 'Hosting',
@@ -104,13 +104,13 @@ class CreditLedgerAdversarialTest extends TestCase
         foreach (MoneyEvent::query()->orderBy('id')->get() as $event) {
             $effect = $event->creditEffectCents();
             if ($effect !== 0 || in_array($event->kind->value, ['credit_in', 'credit_out', 'reversal'], true)) {
-                $key = $event->user_id . '/' . $event->currency_code;
+                $key = $event->client_id . '/' . $event->currency_code;
                 $journal[$key] = ($journal[$key] ?? 0) + $effect;
             }
         }
         $actual = [];
         foreach (Credit::query()->get() as $credit) {
-            $key = $credit->user_id . '/' . $credit->currency_code;
+            $key = $credit->client_id . '/' . $credit->currency_code;
             $this->assertArrayNotHasKey($key, $actual, "C3 two credit rows for {$key}. {$context}");
             $actual[$key] = self::cents($credit->amount);
         }
@@ -243,20 +243,20 @@ class CreditLedgerAdversarialTest extends TestCase
                     $reason = 'adv-staff-' . $seed . '-' . (++$n);
                     $reasons[] = $reason;
                     if (mt_rand(0, 1)) {
-                        $ledger->add($user->id, $currency, $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: $reason);
+                        $ledger->add($user->client()->id, $currency, $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: $reason);
                         $op = "staff add {$user->id} {$currency} {$cents}c";
                     } else {
                         $op = "staff remove {$user->id} {$currency} {$cents}c";
-                        $ledger->remove($user->id, $currency, $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: $reason);
+                        $ledger->remove($user->client()->id, $currency, $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: $reason);
                     }
                 } elseif ($roll <= 82) {
                     $reason = 'adv-api-' . $seed . '-' . (++$n);
                     $reasons[] = $reason;
-                    $row = Credit::query()->where('user_id', $user->id)->where('currency_code', $currency)->first();
+                    $row = Credit::query()->where('client_id', $user->client()->id)->where('currency_code', $currency)->first();
                     if ($row === null) {
                         $amount = mt_rand(0, 3) === 0 ? 0 : mt_rand(1, 9000) / 100;
                         $status = $this->withToken($token)->postJson(route('api.v1.admin.credits.store'),
-                            ['user_id' => $user->id, 'currency_code' => $currency, 'amount' => $amount, 'reason' => $reason])->status();
+                            ['client_id' => $user->client()->id, 'currency_code' => $currency, 'amount' => $amount, 'reason' => $reason])->status();
                         $op = "api store {$user->id} {$currency} {$amount} -> {$status}";
                     } elseif (mt_rand(0, 3) === 0) {
                         $before = self::cents($row->amount);
@@ -283,12 +283,12 @@ class CreditLedgerAdversarialTest extends TestCase
                         }
                     }
                 } elseif ($roll <= 90) {
-                    $snapshot = Credit::query()->orderBy('id')->get(['id', 'user_id', 'currency_code', 'amount'])->toArray();
+                    $snapshot = Credit::query()->orderBy('id')->get(['id', 'client_id', 'currency_code', 'amount'])->toArray();
                     $write = (bool) mt_rand(0, 1);
                     $code = Artisan::call('mycs:credits-check', $write ? ['--write' => true] : []);
                     $op = 'credits-check' . ($write ? ' --write' : '') . " -> {$code}";
                     $this->assertSame(0, $code, "C5 the check found a difference that should not exist. {$op}\n" . Artisan::output());
-                    $this->assertEquals($snapshot, Credit::query()->orderBy('id')->get(['id', 'user_id', 'currency_code', 'amount'])->toArray(),
+                    $this->assertEquals($snapshot, Credit::query()->orderBy('id')->get(['id', 'client_id', 'currency_code', 'amount'])->toArray(),
                         "C5 the check changed balances that matched. {$op}");
                 } else {
                     $op = "cancel #{$invoiceId}: not open";
@@ -320,17 +320,17 @@ class CreditLedgerAdversarialTest extends TestCase
     {
         $ledger = new CreditLedger;
         try {
-            $ledger->add($this->user->id, 'USD', 100_000_000_000_000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'typo: extra zeros');
+            $ledger->add($this->user->client()->id, 'USD', 100_000_000_000_000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'typo: extra zeros');
             $this->fail('A balance of 1,000,000,000,000.00 was accepted.');
         } catch (DisplayException) {
         }
-        $ledger->add($this->user->id, 'USD', CreditLedger::MAX_CENTS, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'up to the cap');
+        $ledger->add($this->user->client()->id, 'USD', CreditLedger::MAX_CENTS, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'up to the cap');
         try {
-            $ledger->add($this->user->id, 'USD', 1, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'one past the cap');
+            $ledger->add($this->user->client()->id, 'USD', 1, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'one past the cap');
             $this->fail('A balance past the cap was accepted.');
         } catch (DisplayException) {
         }
-        $ledger->remove($this->user->id, 'USD', 100, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'one');
+        $ledger->remove($this->user->client()->id, 'USD', 100, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'one');
 
         $this->assertSame(CreditLedger::MAX_CENTS - 100, $this->balanceCents($this->user));
         $this->assertCreditsMatchJournal('balance at the cap');
@@ -342,8 +342,8 @@ class CreditLedgerAdversarialTest extends TestCase
      */
     public function test_the_api_does_not_silently_zero_a_balance_given_a_huge_amount(): void
     {
-        (new CreditLedger)->add($this->user->id, 'USD', 5000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'x');
-        $id = Credit::query()->where('user_id', $this->user->id)->value('id');
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 5000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'x');
+        $id = Credit::query()->where('client_id', $this->user->client()->id)->value('id');
 
         $response = $this->withToken($this->apiToken())->putJson(route('api.v1.admin.credits.update', $id),
             ['amount' => 10_000_000_000_000, 'reason' => 'set']);
@@ -360,7 +360,7 @@ class CreditLedgerAdversarialTest extends TestCase
      */
     public function test_the_api_never_deletes_a_non_zero_balance_even_above_the_cap(): void
     {
-        $credit = Credit::query()->create(['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 0]);
+        $credit = Credit::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 0]);
         DB::table('credits')->where('id', $credit->id)->update(['amount' => '1000000000001.00']);
 
         $token = $this->apiToken();
@@ -374,7 +374,7 @@ class CreditLedgerAdversarialTest extends TestCase
         $this->assertSame(1, Artisan::call('mycs:credits-check'), 'The check read a balance of 1,000,000,000,001.00 as zero.');
 
         $this->expectException(LogicException::class);
-        (new CreditLedger)->add($this->user->id, 'USD', 100, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'y');
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 100, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'y');
     }
 
     // ---------------------------------------------------------------- C4 / decision 2: the reason
@@ -387,7 +387,7 @@ class CreditLedgerAdversarialTest extends TestCase
     {
         $refused = false;
         try {
-            (new CreditLedger)->add($this->user->id, 'USD', 1000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF);
+            (new CreditLedger)->add($this->user->client()->id, 'USD', 1000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF);
         } catch (DisplayException|LogicException|InvalidArgumentException) {
             $refused = true;
         }
@@ -401,9 +401,9 @@ class CreditLedgerAdversarialTest extends TestCase
     {
         $token = $this->apiToken();
         $this->withToken($token)->postJson(route('api.v1.admin.credits.store'),
-            ['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 10, 'reason' => '   '])->assertStatus(422);
+            ['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 10, 'reason' => '   '])->assertStatus(422);
         $id = $this->withToken($token)->postJson(route('api.v1.admin.credits.store'),
-            ['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 10, 'reason' => '  Customer Jane Doe, jane@example.test  '])
+            ['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 10, 'reason' => '  Customer Jane Doe, jane@example.test  '])
             ->assertSuccessful()->json('data.id');
         $this->withToken($token)->putJson(route('api.v1.admin.credits.update', $id), ['amount' => 4, 'reason' => ''])->assertStatus(422);
 
@@ -418,11 +418,11 @@ class CreditLedgerAdversarialTest extends TestCase
     {
         $token = $this->apiToken();
         $usd = $this->withToken($token)->postJson(route('api.v1.admin.credits.store'),
-            ['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 0])->assertSuccessful()->json('data.id');
+            ['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 0])->assertSuccessful()->json('data.id');
         $this->withToken($token)->postJson(route('api.v1.admin.credits.store'),
-            ['user_id' => $this->user->id, 'currency_code' => 'USD', 'amount' => 5, 'reason' => 'dup'])->assertStatus(422);
+            ['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'amount' => 5, 'reason' => 'dup'])->assertStatus(422);
         $eur = $this->withToken($token)->postJson(route('api.v1.admin.credits.store'),
-            ['user_id' => $this->user->id, 'currency_code' => 'EUR', 'amount' => 7, 'reason' => 'eur'])->assertSuccessful()->json('data.id');
+            ['client_id' => $this->user->client()->id, 'currency_code' => 'EUR', 'amount' => 7, 'reason' => 'eur'])->assertSuccessful()->json('data.id');
 
         $this->withToken($token)->putJson(route('api.v1.admin.credits.update', $usd), ['currency_code' => 'EUR'])->assertStatus(422);
         $this->withToken($token)->putJson(route('api.v1.admin.credits.update', $eur), ['currency_code' => 'USD'])->assertStatus(422);
@@ -440,7 +440,7 @@ class CreditLedgerAdversarialTest extends TestCase
     {
         try {
             DB::transaction(function () {
-                (new CreditLedger)->add($this->user->id, 'USD', 1234, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'gone');
+                (new CreditLedger)->add($this->user->client()->id, 'USD', 1234, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'gone');
                 throw new \RuntimeException('caller fails afterwards');
             });
         } catch (\RuntimeException) {
@@ -455,7 +455,7 @@ class CreditLedgerAdversarialTest extends TestCase
     public function test_a_refused_removal_leaves_nothing_behind(): void
     {
         try {
-            (new CreditLedger)->remove($this->user->id, 'EUR', 1, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'n');
+            (new CreditLedger)->remove($this->user->client()->id, 'EUR', 1, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'n');
         } catch (DisplayException) {
         }
 
@@ -470,11 +470,11 @@ class CreditLedgerAdversarialTest extends TestCase
     {
         $other = User::factory()->create();
         $ledger = new CreditLedger;
-        $ledger->add($this->user->id, 'USD', 1000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'a');
-        $ledger->add($other->id, 'EUR', 500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'b');
-        DB::table('credits')->where('user_id', $this->user->id)->update(['amount' => 3]);
-        DB::table('credits')->where('user_id', $other->id)->delete();
-        DB::table('credits')->insert(['user_id' => $other->id, 'currency_code' => 'USD', 'amount' => 9, 'created_at' => now(), 'updated_at' => now()]);
+        $ledger->add($this->user->client()->id, 'USD', 1000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'a');
+        $ledger->add($other->client()->id, 'EUR', 500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'b');
+        DB::table('credits')->where('client_id', $this->user->client()->id)->update(['amount' => 3]);
+        DB::table('credits')->where('client_id', $other->client()->id)->delete();
+        DB::table('credits')->insert(['client_id' => $other->client()->id, 'currency_code' => 'USD', 'amount' => 9, 'created_at' => now(), 'updated_at' => now()]);
         $credits = DB::table('credits')->orderBy('id')->get()->toArray();
         $events = DB::table('money_events')->count();
 
@@ -499,9 +499,9 @@ class CreditLedgerAdversarialTest extends TestCase
     public function test_the_check_with_write_matches_the_journal_when_a_move_commits_before_the_lock(): void
     {
         $ledger = new CreditLedger;
-        $ledger->add($this->user->id, 'USD', 1000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'a');
-        DB::table('credits')->where('user_id', $this->user->id)->update(['amount' => 1]); // a real difference to rebuild
-        $this->injectAfterFirstQueryOn('"credits"', fn () => $ledger->add($this->user->id, 'USD', 333, MoneyTrail::CAUSE_OVERPAYMENT, MoneyTrail::SOURCE_MANUAL));
+        $ledger->add($this->user->client()->id, 'USD', 1000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'a');
+        DB::table('credits')->where('client_id', $this->user->client()->id)->update(['amount' => 1]); // a real difference to rebuild
+        $this->injectAfterFirstQueryOn('"credits"', fn () => $ledger->add($this->user->client()->id, 'USD', 333, MoneyTrail::CAUSE_OVERPAYMENT, MoneyTrail::SOURCE_MANUAL));
 
         Artisan::call('mycs:credits-check', ['--write' => true]);
 
@@ -512,9 +512,9 @@ class CreditLedgerAdversarialTest extends TestCase
     public function test_the_check_with_write_matches_the_journal_when_a_move_lands_at_the_lock(): void
     {
         $ledger = new CreditLedger;
-        $ledger->add($this->user->id, 'USD', 1000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'a');
-        DB::table('credits')->where('user_id', $this->user->id)->update(['amount' => 1]);
-        $this->injectAfterFirstQueryOn('from "users"', fn () => $ledger->add($this->user->id, 'USD', 444, MoneyTrail::CAUSE_OVERPAYMENT, MoneyTrail::SOURCE_MANUAL));
+        $ledger->add($this->user->client()->id, 'USD', 1000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'a');
+        DB::table('credits')->where('client_id', $this->user->client()->id)->update(['amount' => 1]);
+        $this->injectAfterFirstQueryOn('from "users"', fn () => $ledger->add($this->user->client()->id, 'USD', 444, MoneyTrail::CAUSE_OVERPAYMENT, MoneyTrail::SOURCE_MANUAL));
 
         Artisan::call('mycs:credits-check', ['--write' => true]);
 
@@ -539,21 +539,21 @@ class CreditLedgerAdversarialTest extends TestCase
     {
         Artisan::call('migrate', ['--path' => 'extensions/Others/Affiliates/database/migrations', '--force' => true]);
         $affiliateUser = User::factory()->create();
-        $affiliate = Affiliate::query()->create(['user_id' => $affiliateUser->id, 'code' => 'ADV', 'reward' => 10]);
+        $affiliate = Affiliate::query()->create(['client_id' => $affiliateUser->client()->id, 'code' => 'ADV', 'reward' => 10]);
         $product = $this->createProduct();
-        $order = Order::query()->create(['user_id' => $this->user->id, 'currency_code' => 'USD']);
-        $service = Service::factory()->create(['user_id' => $this->user->id, 'order_id' => $order->id, 'product_id' => $product->product->id,
+        $order = Order::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD']);
+        $service = Service::factory()->create(['client_id' => $this->user->client()->id, 'order_id' => $order->id, 'product_id' => $product->product->id,
             'plan_id' => $product->plan->id, 'status' => 'active', 'price' => 33.33, 'currency_code' => 'USD']);
         AffiliateOrder::query()->create(['order_id' => $order->id, 'affiliate_id' => $affiliate->id]);
         // Stored paid, its line added while it was open (MT-1c: never created paid, a paid invoice keeps its lines).
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 33.33, 'reference_type' => Service::class, 'reference_id' => $service->id]);
         DB::table('invoices')->where('id', $invoice->id)->update(['status' => 'paid']);
 
         (new RewardAffiliate)->handle((object) ['invoice' => $invoice->fresh()]);
 
         $this->assertSame(333, $this->balanceCents($affiliateUser));
-        $event = MoneyEvent::query()->where('user_id', $affiliateUser->id)->sole();
+        $event = MoneyEvent::query()->where('client_id', $affiliateUser->client()->id)->sole();
         $this->assertSame([MoneyTrail::CAUSE_AFFILIATE_REWARD, 'system'], [$event->cause, $event->source]);
         $this->assertCreditsMatchJournal();
         $this->assertSame(0, Artisan::call('mycs:credits-check'));
@@ -567,7 +567,7 @@ class CreditLedgerAdversarialTest extends TestCase
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
-        $page = fn () => $this->livewireAs($owner)->test(ShowCredits::class, ['record' => $this->user->getKey()]);
+        $page = fn () => $this->livewireAs($owner)->test(ShowCredits::class, ['record' => $this->user->client()->getKey()]);
 
         $page()->callTableAction('addCredit', data: ['currency_code' => 'USD', 'amount' => '0.004', 'reason' => 'tiny'])
             ->assertHasTableActionErrors(['amount']);

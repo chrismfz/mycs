@@ -418,13 +418,13 @@ parameters:
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$credits\.$#'
 			identifier: property.notFound
 			count: 2
-			path: app/Admin/Resources/UserResource/Pages/ShowCredits.php
+			path: app/Admin/Resources/ClientResource/Pages/ShowCredits.php
 
 		-
 			message: '#^Match expression does not handle remaining value\: string$#'
 			identifier: match.unhandled
 			count: 2
-			path: app/Admin/Resources/UserResource/Pages/ShowTickets.php
+			path: app/Admin/Resources/ClientResource/Pages/ShowTickets.php
 
 		-
 			message: '#^Match expression does not handle remaining values\: string\|null$#'
@@ -1333,12 +1333,6 @@ parameters:
 			path: extensions/Gateways/Stripe/Stripe.php
 
 		-
-			message: '#^Parameter \#2 \$code of class Exception constructor expects int, App\\Models\\User\|null given\.$#'
-			identifier: argument.type
-			count: 1
-			path: extensions/Gateways/Stripe/Stripe.php
-
-		-
 			message: '#^Access to an undefined property Paymenter\\Extensions\\Others\\Affiliates\\Models\\Affiliate\:\:\$earnings\.$#'
 			identifier: property.notFound
 			count: 3
@@ -1417,13 +1411,13 @@ parameters:
 			path: extensions/Others/Affiliates/Listeners/RewardAffiliate.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\User\:\:\$affiliate\.$#'
+			message: '#^Access to an undefined property App\\Models\\Client\:\:\$affiliate\.$#'
 			identifier: property.notFound
 			count: 2
 			path: extensions/Others/Affiliates/Livewire/Affiliates/Affiliate.php
 
 		-
-			message: '#^Call to an undefined method App\\Models\\User\:\:affiliate\(\)\.$#'
+			message: '#^Call to an undefined method App\\Models\\Client\:\:affiliate\(\)\.$#'
 			identifier: method.notFound
 			count: 1
 			path: extensions/Others/Affiliates/Livewire/Affiliates/Affiliate.php

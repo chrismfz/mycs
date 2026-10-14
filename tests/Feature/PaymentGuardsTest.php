@@ -51,7 +51,7 @@ class PaymentGuardsTest extends TestCase
         Price::query()->where('plan_id', $product->plan->id)->update(['price' => 10.00]);
 
         return Service::factory()->create(array_merge([
-            'user_id' => $this->user->id,
+            'client_id' => $this->user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'active',
@@ -63,7 +63,7 @@ class PaymentGuardsTest extends TestCase
 
     private function invoiceFor(Service $service, string $start, string $end, string $status = 'unpaid', float $price = 10.00): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Renewal',
             'quantity' => 1, 'price' => $price, 'period_start' => $start, 'period_end' => $end,
@@ -80,7 +80,7 @@ class PaymentGuardsTest extends TestCase
 
     private function credit(): string
     {
-        return number_format((float) (Credit::query()->where('user_id', $this->user->id)->where('currency_code', 'USD')->value('amount') ?? 0), 2, '.', '');
+        return number_format((float) (Credit::query()->where('client_id', $this->user->client()->id)->where('currency_code', 'USD')->value('amount') ?? 0), 2, '.', '');
     }
 
     private function expires(Service $service): string
@@ -240,8 +240,8 @@ class PaymentGuardsTest extends TestCase
     {
         $service = $this->service();
         $invoice = $this->invoiceFor($service, '2026-10-15', '2026-11-15');
-        $this->user->credits()->create(['currency_code' => 'USD', 'amount' => 25.00]);
-        $credit = Credit::query()->where('user_id', $this->user->id)->sole();
+        $this->user->client()->credits()->create(['currency_code' => 'USD', 'amount' => 25.00]);
+        $credit = Credit::query()->where('client_id', $this->user->client()->id)->sole();
         $credit->update(['amount' => 15.00]); // the caller deducts first, then records the payment
 
         ExtensionHelper::addPayment($invoice->id, null, amount: 10.00, isCreditTransaction: true);
@@ -258,7 +258,7 @@ class PaymentGuardsTest extends TestCase
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 10.00, null, 'shared-id');
 
         $other = User::factory()->create();
-        $otherInvoice = Invoice::factory()->create(['user_id' => $other->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $otherInvoice = Invoice::factory()->create(['client_id' => $other->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $otherInvoice->items()->create(['description' => 'Other', 'quantity' => 1, 'price' => 5.00]);
 
         $this->assertNotNull(ExtensionHelper::addPayment($otherInvoice->id, 'Stripe', 5.00, null, 'shared-id'));
@@ -274,7 +274,7 @@ class PaymentGuardsTest extends TestCase
         $b = $this->service(['subscription_id' => 'I-SUB']);
         $this->invoiceFor($a, '2026-10-15', '2026-11-15');
         $invoiceB = $this->invoiceFor($b, '2026-10-15', '2026-11-15');
-        $this->user->credits()->create(['currency_code' => 'USD', 'amount' => 50.00]); // the customer's own credit
+        $this->user->client()->credits()->create(['currency_code' => 'USD', 'amount' => 50.00]); // the customer's own credit
         $paypal = new PayPal([]);
 
         // refused: wrong currency, nothing recorded, nothing spent
@@ -298,7 +298,7 @@ class PaymentGuardsTest extends TestCase
         $octoberB = $this->invoiceFor($b, '2026-10-15', '2026-11-15');
         Carbon::setTestNow('2026-10-13 10:00:00');
         $novemberB = $this->invoiceFor($b, '2026-11-15', '2026-12-15'); // next cycle, already billed
-        $this->user->credits()->create(['currency_code' => 'USD', 'amount' => 50.00]);
+        $this->user->client()->credits()->create(['currency_code' => 'USD', 'amount' => 50.00]);
 
         (new PayPal([]))->recordSubscriptionSale(['id' => 'SALE-1', 'billing_agreement_id' => 'I-SUB', 'amount' => ['total' => '20.00', 'currency' => 'USD'], 'transaction_fee' => ['value' => '1.00']]);
 

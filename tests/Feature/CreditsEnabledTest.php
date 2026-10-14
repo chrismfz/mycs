@@ -21,8 +21,8 @@ class CreditsEnabledTest extends TestCase
     private function userWithCreditAndInvoice(): array
     {
         $user = User::factory()->create();
-        $user->credits()->create(['currency_code' => 'USD', 'amount' => 50.00]);
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid']);
+        $user->client()->credits()->create(['currency_code' => 'USD', 'amount' => 50.00]);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid']);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 20.00]);
 
         return [$user, $invoice->fresh()];
@@ -38,7 +38,7 @@ class CreditsEnabledTest extends TestCase
             ->call('processPayment');
 
         $this->assertSame('unpaid', $invoice->fresh()->status);
-        $this->assertEquals(50.00, $user->credits()->value('amount'));
+        $this->assertEquals(50.00, $user->client()->credits()->value('amount'));
     }
 
     public function test_the_invoice_page_pays_with_credit_when_credits_are_on(): void
@@ -51,17 +51,17 @@ class CreditsEnabledTest extends TestCase
             ->call('processPayment');
 
         $this->assertSame('paid', $invoice->fresh()->status);
-        $this->assertEquals(30.00, $user->credits()->value('amount'));
+        $this->assertEquals(30.00, $user->client()->credits()->value('amount'));
     }
 
     public function test_the_cron_never_auto_spends_credit_when_credits_are_off(): void
     {
         config(['settings.credits_enabled' => false, 'settings.credits_auto_use' => true, 'settings.cronjob_invoice' => 7]);
         $user = User::factory()->create();
-        $user->credits()->create(['currency_code' => 'USD', 'amount' => 10.00]);
+        $user->client()->credits()->create(['currency_code' => 'USD', 'amount' => 10.00]);
         $product = $this->createProduct();
         Service::factory()->create([
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'active',
@@ -72,7 +72,7 @@ class CreditsEnabledTest extends TestCase
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
-        $this->assertDatabaseHas('invoices', ['user_id' => $user->id, 'status' => 'unpaid']);
-        $this->assertEquals(10.00, $user->credits()->value('amount'));
+        $this->assertDatabaseHas('invoices', ['client_id' => $user->client()->id, 'status' => 'unpaid']);
+        $this->assertEquals(10.00, $user->client()->credits()->value('amount'));
     }
 }

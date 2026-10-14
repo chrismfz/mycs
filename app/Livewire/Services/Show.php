@@ -6,7 +6,6 @@ use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
 use App\Models\Service;
 use Exception;
-use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
 
@@ -64,12 +63,16 @@ class Show extends Component
 
     public function updatedShowBillingAgreement()
     {
-        $this->selectedMethod = Auth::user()->billingAgreements()->where('id', $this->service->billing_agreement_id)->first()?->ulid;
+        $this->selectedMethod = $this->service->client->billingAgreements()->where('id', $this->service->billing_agreement_id)->first()?->ulid;
     }
 
     public function updateBillingAgreement()
     {
-        $agreement = Auth::user()->billingAgreements()->where('ulid', $this->selectedMethod)->first();
+        // The service's account's payment methods (docs/accounts.md, PR 2a), whichever account the client area is on.
+        $agreement = $this->service->client->billingAgreements()->where('ulid', $this->selectedMethod)->first();
+        if (!$agreement) {
+            return $this->notify(__('Invalid payment method.'), 'error');
+        }
         $this->service->billing_agreement_id = $agreement->id;
         $this->service->save();
 

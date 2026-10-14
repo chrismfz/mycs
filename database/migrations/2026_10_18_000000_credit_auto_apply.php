@@ -13,11 +13,19 @@ use Illuminate\Support\Facades\Schema;
  */
 return new class extends Migration
 {
+    /** The flag is the account's: users then; clients once they are apart (docs/accounts.md, PR 2a), when replayed. */
+    private function table(): string
+    {
+        return Schema::hasTable('clients') ? 'clients' : 'users';
+    }
+
     public function up(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            $table->boolean('credit_auto_apply')->default(true);
-        });
+        if (!Schema::hasColumn($this->table(), 'credit_auto_apply')) {
+            Schema::table($this->table(), function (Blueprint $table) {
+                $table->boolean('credit_auto_apply')->default(true);
+            });
+        }
         DB::table('notification_templates')->insertOrIgnore(
             array_merge(EmailTemplateSeeder::mapping['credit_applied'], ['key' => 'credit_applied', 'enabled' => true])
         );
@@ -26,8 +34,10 @@ return new class extends Migration
     public function down(): void
     {
         DB::table('notification_templates')->where('key', 'credit_applied')->delete();
-        Schema::table('users', function (Blueprint $table) {
-            $table->dropColumn('credit_auto_apply');
-        });
+        if (Schema::hasColumn($this->table(), 'credit_auto_apply')) {
+            Schema::table($this->table(), function (Blueprint $table) {
+                $table->dropColumn('credit_auto_apply');
+            });
+        }
     }
 };

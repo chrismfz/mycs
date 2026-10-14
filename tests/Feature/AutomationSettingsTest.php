@@ -42,7 +42,7 @@ class AutomationSettingsTest extends TestCase
         $product = $this->createProduct();
 
         return Service::factory()->create(array_merge([
-            'user_id' => User::factory()->create()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1,
         ], $attributes));
     }
@@ -92,7 +92,7 @@ class AutomationSettingsTest extends TestCase
     public function test_close_inactive_tickets_zero_disables(): void
     {
         config(['settings.cronjob_close_ticket' => 0]);
-        $ticket = Ticket::factory()->create(['user_id' => User::factory()->create()->id, 'status' => 'replied']);
+        $ticket = Ticket::factory()->create(['client_id' => User::factory()->create()->client()->id, 'status' => 'replied']);
         TicketMessage::factory()->create(['ticket_id' => $ticket->id, 'user_id' => null, 'staff_id' => Staff::factory()->admin()->create()->id, 'message' => 'Hi', 'created_at' => now()->subDays(30)]);
 
         $this->artisan('app:cron-job')->assertExitCode(0);

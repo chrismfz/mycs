@@ -17,7 +17,7 @@ class InvoicePaymentProcessingTest extends TestCase
     private function createInvoiceWithItem($total = 100.00)
     {
         $user = User::factory()->create();
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid']);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid']);
 
         $invoice->items()->create([
             'description' => 'Test Item',
@@ -31,7 +31,7 @@ class InvoicePaymentProcessingTest extends TestCase
     public function test_invoice_starts_with_draft_status()
     {
         $user = User::factory()->create();
-        $invoice = Invoice::factory()->create(['user_id' => $user->id]);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id]);
 
         $invoice->items()->create([
             'description' => 'Test Item',
@@ -51,7 +51,7 @@ class InvoicePaymentProcessingTest extends TestCase
 
         $user = User::factory()->create();
         $invoice = Invoice::factory()->create([
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'status' => Invoice::STATUS_UNPAID,
         ]);
 
@@ -162,7 +162,7 @@ class InvoicePaymentProcessingTest extends TestCase
         $this->assertEquals('paid', $invoice->status);
         // The excess is account credit, not a negative invoice balance (docs/payments.md, PR 2a).
         $this->assertEquals(0.00, $invoice->remaining);
-        $this->assertEquals(50.00, (float) $invoice->user->credits()->where('currency_code', $invoice->currency_code)->value('amount'));
+        $this->assertEquals(50.00, (float) $invoice->client->credits()->where('currency_code', $invoice->currency_code)->value('amount'));
     }
 
     public function test_service_is_activated_when_invoice_is_paid()
@@ -170,9 +170,9 @@ class InvoicePaymentProcessingTest extends TestCase
         $user = User::factory()->create();
         $product = $this->createProduct();
 
-        $service = Service::factory()->create(['status' => 'pending', 'user_id' => $user->id, 'product_id' => $product->product->id, 'plan_id' => $product->plan->id]);
+        $service = Service::factory()->create(['status' => 'pending', 'client_id' => $user->client()->id, 'product_id' => $product->product->id, 'plan_id' => $product->plan->id]);
         $invoice = Invoice::factory()->create([
-            'user_id' => $service->user_id,
+            'client_id' => $service->client_id,
             'status' => 'unpaid',
             'due_at' => now()->addDays(7),
             'currency_code' => $service->currency_code,

@@ -92,7 +92,7 @@ class EditInvoice extends EditRecord
     {
         /** @var Invoice $invoice */
         $invoice = $this->record;
-        $moves = (array_key_exists('user_id', $this->data) && (int) $this->data['user_id'] !== (int) $invoice->user_id)
+        $moves = (array_key_exists('client_id', $this->data) && (int) $this->data['client_id'] !== (int) $invoice->client_id)
             || (array_key_exists('currency_code', $this->data) && $this->data['currency_code'] !== $invoice->currency_code);
         if ($moves && $invoice->hasPayments()) {
             Notification::make()->danger()->title(__('Invoice not saved'))

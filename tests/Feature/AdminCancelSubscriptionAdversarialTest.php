@@ -60,7 +60,7 @@ class AdminCancelSubscriptionAdversarialTest extends TestCase
     {
         $product = $this->createProduct();
         $service = Service::factory()->create([
-            'user_id' => User::factory()->create()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'expires_at' => now()->addMonth(), 'currency_code' => 'USD', 'price' => 10.00,
             'subscription_id' => $subscriptionId, 'order_id' => $orderId,
         ]);
@@ -108,7 +108,7 @@ class AdminCancelSubscriptionAdversarialTest extends TestCase
         $this->stripeGateway();
         (new Stripe(['stripe_secret_key' => 'sk_test']))->boot();
         (new PayPal(['test_mode' => true, 'client_id' => 'id', 'client_secret' => 'secret']))->boot();
-        $order = Order::query()->create(['user_id' => User::factory()->create()->id, 'currency_code' => 'USD']);
+        $order = Order::query()->create(['client_id' => User::factory()->create()->client()->id, 'currency_code' => 'USD']);
         $service = $this->makeService('sub_123', ['has_stripe_subscription'], $order->id);
         Http::fake([self::STRIPE . '/subscriptions/sub_123' => Http::response(['id' => 'sub_123', 'status' => 'canceled'])]);
 
@@ -125,7 +125,7 @@ class AdminCancelSubscriptionAdversarialTest extends TestCase
     public function test_holds_order_page_cancelling_one_service_keeps_the_others_id(): void
     {
         $this->paypalGateway();
-        $order = Order::query()->create(['user_id' => User::factory()->create()->id, 'currency_code' => 'USD']);
+        $order = Order::query()->create(['client_id' => User::factory()->create()->client()->id, 'currency_code' => 'USD']);
         $a = $this->makeService('I-AAA', ['has_paypal_subscription'], $order->id);
         $b = $this->makeService('I-BBB', ['has_paypal_subscription'], $order->id);
         Http::fake([
@@ -203,7 +203,7 @@ class AdminCancelSubscriptionAdversarialTest extends TestCase
     public function test_staff_without_services_update_cannot_cancel_from_the_order_page(): void
     {
         $this->paypalGateway();
-        $order = Order::query()->create(['user_id' => User::factory()->create()->id, 'currency_code' => 'USD']);
+        $order = Order::query()->create(['client_id' => User::factory()->create()->client()->id, 'currency_code' => 'USD']);
         $service = $this->makeService('I-SUB1', ['has_paypal_subscription'], $order->id);
         Http::fake([
             self::PAYPAL . '/v1/oauth2/token' => Http::response(['access_token' => 'token']),

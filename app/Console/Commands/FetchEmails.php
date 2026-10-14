@@ -91,8 +91,9 @@ class FetchEmails extends Command
 
                 $ticket = $ticketMessage->ticket;
 
-                // Check if from email matches ticket's email
-                if ($email->from()->email() !== $ticket->user->email) {
+                // From a login of the ticket's account (docs/accounts.md, PR 2a): that user wrote the reply.
+                $author = $ticket->client?->users()->where('email', $email->from()->email())->first();
+                if ($author === null) {
                     $this->failedEmailLog($email, $body);
 
                     continue;
@@ -111,7 +112,7 @@ class FetchEmails extends Command
                 // // Add reply to ticket
                 $message = $ticket->messages()->create([
                     'message' => $body,
-                    'user_id' => $ticket->user_id,
+                    'user_id' => $author->id,
                     'ticket_mail_log_id' => $ticketMailLog->id,
                 ]);
 

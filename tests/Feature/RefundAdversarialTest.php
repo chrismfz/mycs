@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\AdjustmentNoteType;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
+use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -60,7 +61,7 @@ class RefundAdversarialTest extends TestCase
 
     private function invoice(float $price = 100, ?string $reference = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(array_filter(['description' => 'Hosting', 'quantity' => 1, 'price' => $price,
             'reference_type' => $reference], fn ($value) => $value !== null));
 
@@ -77,7 +78,7 @@ class RefundAdversarialTest extends TestCase
 
     private function balance(): string
     {
-        return number_format((float) (Credit::query()->where('user_id', $this->user->id)->value('amount') ?? 0), 2, '.', '');
+        return number_format((float) (Credit::query()->where('client_id', $this->user->client()->id)->value('amount') ?? 0), 2, '.', '');
     }
 
     private function cents(mixed $amount): int
@@ -151,7 +152,7 @@ class RefundAdversarialTest extends TestCase
     public function test_r2_refund_to_credit_on_an_open_invoice_is_paid_straight_back_into_it(): void
     {
         config(['settings.credits_auto_use' => true]);
-        User::whereKey($this->user->id)->update(['credit_auto_apply' => true]);
+        Client::whereKey($this->user->client()->id)->update(['credit_auto_apply' => true]);
         $invoice = $this->invoice(100);
         (new RecordPaymentService)->handle($invoice, null, 40.0, transactionId: 'wire-part');
 
@@ -170,12 +171,12 @@ class RefundAdversarialTest extends TestCase
     public function test_r2b_a_credit_payment_refunded_to_credit_comes_straight_back(): void
     {
         config(['settings.credits_auto_use' => true]);
-        User::whereKey($this->user->id)->update(['credit_auto_apply' => false]);
-        (new CreditLedger)->add($this->user->id, 'USD', 4000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
+        Client::whereKey($this->user->client()->id)->update(['credit_auto_apply' => false]);
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 4000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
         $invoice = $this->invoice(100);
         (new RecordPaymentService)->payWithCredit($invoice);
         $this->assertSame('0.00', $this->balance());
-        User::whereKey($this->user->id)->update(['credit_auto_apply' => true]);
+        Client::whereKey($this->user->client()->id)->update(['credit_auto_apply' => true]);
 
         $payment = $invoice->transactions()->sole();
         ExtensionHelper::refundToCredit($payment, 40.0);
@@ -312,7 +313,7 @@ class RefundAdversarialTest extends TestCase
     /** A credit payment and a gateway payment on one paid invoice: each back its own way; refunded; books clean. */
     public function test_guard_credit_and_gateway_payment_on_one_invoice(): void
     {
-        (new CreditLedger)->add($this->user->id, 'USD', 3000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 3000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
         $invoice = $this->invoice(100);
         (new RecordPaymentService)->payWithCredit($invoice);
         (new RecordPaymentService)->handle($invoice, null, 70.0, transactionId: 'wire-mix');
@@ -336,7 +337,7 @@ class RefundAdversarialTest extends TestCase
     public function test_guard_no_customer_no_refund_to_credit(): void
     {
         $invoice = $this->paid(40);
-        DB::table('invoices')->where('id', $invoice->id)->update(['user_id' => null]);
+        DB::table('invoices')->where('id', $invoice->id)->update(['client_id' => null]);
 
         try {
             ExtensionHelper::refundToCredit($invoice->transactions()->sole(), 40.0);

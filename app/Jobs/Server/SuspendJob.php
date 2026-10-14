@@ -45,7 +45,7 @@ class SuspendJob implements ShouldQueue
         }
 
         if ($this->sendNotification) {
-            NotificationHelper::serverSuspendedNotification($this->service->user, $this->service, is_array($data) ? $data : []);
+            NotificationHelper::serverSuspendedNotification($this->service->client, $this->service, is_array($data) ? $data : []);
         }
     }
 }

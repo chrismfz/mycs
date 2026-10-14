@@ -9,6 +9,7 @@ use App\Events\ServiceCancellation\Created;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\BillingAgreement;
+use App\Models\Client;
 use App\Models\Extension;
 use App\Models\GatewayRefund;
 use App\Models\Invoice;
@@ -199,7 +200,7 @@ class Stripe extends Gateway
 
         try {
             $includeDetails = (bool) $this->config('stripe_create_customers');
-            $customer = $this->createOrGetStripeCustomer($invoice->user, $includeDetails);
+            $customer = $this->createOrGetStripeCustomer($invoice->client, $includeDetails);
             if (!empty($customer->id)) {
                 $intentData['customer'] = $customer->id;
             }
@@ -359,11 +360,11 @@ class Stripe extends Gateway
     private function setupSubscription($setupIntent)
     {
         $invoice = Invoice::findOrFail($setupIntent->metadata->invoice_id);
-        $user = $invoice->user;
+        $user = $invoice->client;
         $stripeCustomerId = $user->properties->where('key', 'stripe_id')->first();
         // Create customer if not exists
         if (!$stripeCustomerId) {
-            throw new Exception('Stripe customer not found', $user);
+            throw new Exception('Stripe customer not found');
         } else {
             $customer = $this->request('get', '/customers/' . $stripeCustomerId->value);
         }
@@ -619,13 +620,13 @@ class Stripe extends Gateway
     }
 
     /**
-     * Ensure a Stripe Customer exists for the given user. If a customer already
+     * Ensure a Stripe Customer exists for the given customer account (its stripe_id property). If a customer already
      * exists it will be returned; otherwise a new customer will be created.
      *
      * @param  bool  $includeDetails  Whether to include address, phone, and company details
      * @return object Stripe customer object
      */
-    private function createOrGetStripeCustomer($user, $includeDetails = true)
+    private function createOrGetStripeCustomer(Client $user, $includeDetails = true)
     {
         $stripeCustomerId = $user->properties()->where('key', 'stripe_id')->first();
 
@@ -644,7 +645,7 @@ class Stripe extends Gateway
         $payload = [
             'email' => $user->email,
             'name' => $user->name,
-            'metadata' => ['user_id' => $user->id],
+            'metadata' => ['client_id' => $user->id],
         ];
 
         // Add detailed information if requested
@@ -680,7 +681,7 @@ class Stripe extends Gateway
         return $customer;
     }
 
-    public function createBillingAgreement($user)
+    public function createBillingAgreement(Client $user)
     {
         // Create or fetch a Stripe customer for this user, use detailed info based on setting
         $includeDetails = (bool) $this->config('stripe_create_customers');
@@ -688,7 +689,7 @@ class Stripe extends Gateway
 
         $setupIntent = $this->request('post', '/setup_intents', [
             'metadata' => [
-                'user_id' => $user->id,
+                'client_id' => $user->id,
                 'is_billing_agreement' => '1',
             ],
             'usage' => 'off_session',
@@ -724,8 +725,10 @@ class Stripe extends Gateway
                 'message' => 'Could not add payment method, setup not completed successfully.',
             ]);
         }
-        // Validate if user id matches
-        if (Auth::id() != $setupIntent->metadata->user_id) {
+        // The account the method is saved on must be one the logged-in user sees (docs/accounts.md, PR 2a). Intents made
+        // before the split carry the user id, which was the account's id.
+        $clientId = (int) ($setupIntent->metadata->client_id ?? $setupIntent->metadata->user_id ?? 0);
+        if (!Auth::user() instanceof User || !Auth::user()->clients()->whereKey($clientId)->exists()) {
             abort(403, 'Unauthorized');
         }
 
@@ -739,7 +742,7 @@ class Stripe extends Gateway
 
     private function setupBillingAgreement($setupIntent)
     {
-        $user = User::findOrFail($setupIntent->metadata->user_id);
+        $user = Client::findOrFail((int) ($setupIntent->metadata->client_id ?? $setupIntent->metadata->user_id));
 
         // Get setup intent with expanded data
         $setupIntent = $this->request('get', '/setup_intents/' . $setupIntent->id, [
@@ -828,7 +831,7 @@ class Stripe extends Gateway
 
     public function charge(Invoice $invoice, $amount, BillingAgreement $billingAgreement)
     {
-        $user = $invoice->user;
+        $user = $invoice->client;
         $stripeCustomerId = $user->properties->where('key', 'stripe_id')->first();
         // Create customer if not exists
         if (!$stripeCustomerId) {

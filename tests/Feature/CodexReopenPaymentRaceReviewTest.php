@@ -50,10 +50,10 @@ class CodexReopenPaymentRaceReviewTest extends TestCase
         $product = $this->createProduct();
         Price::query()->where('plan_id', $product->plan->id)->update(['price' => 10.00]);
         $service = Service::factory()->create([
-            'user_id' => $user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => $user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'expires_at' => '2026-10-15', 'currency_code' => 'USD', 'price' => 10.00,
         ]);
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Renewal',
             'quantity' => 1, 'price' => 10.00, 'period_start' => '2026-10-15', 'period_end' => '2026-11-15',
@@ -86,7 +86,7 @@ class CodexReopenPaymentRaceReviewTest extends TestCase
         $this->assertSame('paid', $invoice->status);
         $this->assertEquals(0.0, $invoice->remaining);
         $this->assertSame('2026-11-15', $service->fresh()->expires_at->toDateString());
-        $this->assertEquals(0.0, (float) Credit::query()->where('user_id', $user->id)->value('amount'), 'paid service plus spendable credit');
+        $this->assertEquals(0.0, (float) Credit::query()->where('client_id', $user->client()->id)->value('amount'), 'paid service plus spendable credit');
     }
 
     private function waitFor(string $file): void

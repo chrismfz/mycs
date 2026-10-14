@@ -34,6 +34,7 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property-read mixed $description
  * @property-read mixed $cancellable
  * @property-read mixed $upgradable
+ * @property int $client_id
  */
 #[ObservedBy([ServiceObserver::class])]
 class Service extends Model implements Auditable
@@ -97,7 +98,7 @@ class Service extends Model implements Auditable
         'subscription_id',
         'status',
         'coupon_id',
-        'user_id',
+        'client_id',
         'currency_code',
         'billing_agreement_id',
         'suspend_hold_until',
@@ -142,13 +143,13 @@ class Service extends Model implements Auditable
     }
 
     /**
-     * Get the user that owns the service.
+     * The account the service belongs to.
      *
-     * @return BelongsTo<User, $this>
+     * @return BelongsTo<Client, $this>
      */
-    public function user(): BelongsTo
+    public function client(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(Client::class);
     }
 
     /**
@@ -680,7 +681,7 @@ class Service extends Model implements Auditable
         $price = (new Price([
             'price' => $price,
             'currency' => $this->currency,
-        ], apply_exclusive_tax: true, tax: Settings::tax($this->user)))->price;
+        ], apply_exclusive_tax: true, tax: Settings::tax($this->client)))->price;
 
         return number_format($price, 2, '.', '');
     }

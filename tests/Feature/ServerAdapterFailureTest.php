@@ -46,7 +46,7 @@ class ServerAdapterFailureTest extends TestCase
         $product->product->settings()->create(['key' => 'package', 'value' => 'basic']);
 
         $this->service = Service::factory()->create([
-            'user_id' => User::factory()->create()->id,
+            'client_id' => User::factory()->create()->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'active',

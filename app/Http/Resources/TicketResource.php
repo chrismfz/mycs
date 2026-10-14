@@ -12,7 +12,7 @@ class TicketResource extends JsonApiResource
         'status',
         'priority',
         'assigned_to',
-        'user_id',
+        'client_id',
         'department',
         'updated_at',
         'created_at',
@@ -20,7 +20,7 @@ class TicketResource extends JsonApiResource
 
     public $relationships = [
         'messages' => TicketMessageResource::class,
-        'user' => UserResource::class,
+        'client' => ClientResource::class,
         'assigned_to' => StaffResource::class,
     ];
 }

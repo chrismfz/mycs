@@ -16,7 +16,7 @@ class TicketMessageCreatedListener
             // Update ticket status
             $event->ticketMessage->ticket->update(['status' => 'replied']);
             // Send notification to ticket owner
-            NotificationHelper::ticketMessageNotification($event->ticketMessage->ticket->user, $event->ticketMessage);
+            NotificationHelper::ticketMessageNotification($event->ticketMessage->ticket->client, $event->ticketMessage);
         } else {
             // Update ticket status
             $event->ticketMessage->ticket->update(['status' => 'open']);

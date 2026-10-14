@@ -48,7 +48,7 @@ class UpgradeKeepsConfigOptionsAdversarialTest extends TestCase
     private function service(object $product, array $configs, int $daysLeft = 15): Service
     {
         $service = Service::factory()->create([
-            'user_id' => User::factory()->create()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'expires_at' => now()->startOfDay()->addDays($daysLeft), 'currency_code' => 'USD', 'price' => 0, 'quantity' => 1,
         ]);
         foreach ($configs as [$option, $index]) {
@@ -140,7 +140,7 @@ class UpgradeKeepsConfigOptionsAdversarialTest extends TestCase
         $ram = $this->option('RAM', upgradable: true, values: [['2 GB', 0], ['4 GB', 5]], productIds: [$p->product->id]);
         $ip = $this->option('Extra IP', upgradable: false, values: [['None', 0], ['1 IP', 3]], productIds: [$p->product->id]);
         $service = $this->service($p, [[$ram, 0], [$ip, 1]]);
-        $invoice = Invoice::create(['user_id' => $service->user_id, 'currency_code' => 'USD', 'status' => 'unpaid', 'due_at' => now()]);
+        $invoice = Invoice::create(['client_id' => $service->client_id, 'currency_code' => 'USD', 'status' => 'unpaid', 'due_at' => now()]);
         $line = $invoice->items()->create(['description' => 'renewal', 'price' => 13, 'quantity' => 1,
             'reference_type' => Service::class, 'reference_id' => $service->id]);
 

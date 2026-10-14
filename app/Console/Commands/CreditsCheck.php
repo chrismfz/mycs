@@ -26,8 +26,8 @@ class CreditsCheck extends Command
         // are read exactly, any size (not through toCents, which reads a huge amount as zero), so they show here.
         [$journal, $balances] = DB::transaction(fn () => [
             MoneyCheck::journalCredits(),
-            Credit::query()->get(['user_id', 'currency_code', 'amount'])
-                ->mapWithKeys(fn (Credit $credit) => [$credit->user_id . '|' . $credit->currency_code => (int) round((float) $credit->amount * 100)]),
+            Credit::query()->get(['client_id', 'currency_code', 'amount'])
+                ->mapWithKeys(fn (Credit $credit) => [$credit->client_id . '|' . $credit->currency_code => (int) round((float) $credit->amount * 100)]),
         ]);
 
         $rows = [];
@@ -35,8 +35,8 @@ class CreditsCheck extends Command
             $balance = $balances[$key] ?? 0;
             $expected = $journal[$key] ?? 0;
             if ($balance !== $expected) {
-                [$userId, $currency] = explode('|', $key, 2);
-                $rows[] = [$userId, $currency, self::money($balance), self::money($expected), self::money($balance - $expected)];
+                [$clientId, $currency] = explode('|', $key, 2);
+                $rows[] = [$clientId, $currency, self::money($balance), self::money($expected), self::money($balance - $expected)];
             }
         }
 
@@ -53,13 +53,13 @@ class CreditsCheck extends Command
             return self::FAILURE;
         }
 
-        foreach ($rows as [$userId, $currency]) {
-            DB::transaction(function () use ($userId, $currency) {
+        foreach ($rows as [$clientId, $currency]) {
+            DB::transaction(function () use ($clientId, $currency) {
                 // Under the ledger's locks, recomputed: the journal may have moved since the read above.
-                $credit = (new CreditLedger)->lock((int) $userId, $currency);
-                $expected = MoneyCheck::journalCredits((int) $userId, $currency)[$userId . '|' . $currency] ?? 0;
+                $credit = (new CreditLedger)->lock((int) $clientId, $currency);
+                $expected = MoneyCheck::journalCredits((int) $clientId, $currency)[$clientId . '|' . $currency] ?? 0;
                 if ($credit === null) {
-                    Credit::query()->create(['user_id' => (int) $userId, 'currency_code' => $currency, 'amount' => $expected / 100]);
+                    Credit::query()->create(['client_id' => (int) $clientId, 'currency_code' => $currency, 'amount' => $expected / 100]);
                 } else {
                     $credit->amount = $expected / 100;
                     $credit->save();

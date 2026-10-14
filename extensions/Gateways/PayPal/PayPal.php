@@ -10,18 +10,18 @@ use App\Events\ServiceCancellation\Created;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\BillingAgreement;
+use App\Models\Client;
 use App\Models\GatewayRefund;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
 use App\Models\Service;
-use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\GatewayLog;
+use App\Support\CurrentClient;
 use Exception;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -45,7 +45,7 @@ class PayPal extends Gateway
         return $this->config('paypal_support_billing_agreements') ?? false;
     }
 
-    public function createBillingAgreement(User $user)
+    public function createBillingAgreement(Client $user)
     {
         // Using PayPal Vaulting
         $url = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
@@ -106,8 +106,10 @@ class PayPal extends Gateway
             ],
         ]);
 
+        $client = CurrentClient::model();
+        abort_if($client === null, 403);
         ExtensionHelper::makeBillingAgreement(
-            Auth::user(),
+            $client,
             'PayPal',
             'PayPal ' . $request->payment_source->paypal->email_address,
             $request->id,
@@ -436,7 +438,7 @@ class PayPal extends Gateway
             $sale = InvoiceTransaction::query()->where('transaction_id', (string) $resource['id'])
                 ->where('status', InvoiceTransactionStatus::Succeeded)
                 ->whereHas('gateway', fn ($query) => $query->where('extension', 'PayPal'))
-                ->whereHas('invoice', fn ($query) => $query->where('user_id', $first->user_id))
+                ->whereHas('invoice', fn ($query) => $query->where('client_id', $first->client_id))
                 ->first();
         }
 

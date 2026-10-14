@@ -55,7 +55,7 @@ class RewardAffiliate
         // The reward becomes the affiliate's account credit, through the ledger (docs/money-trail.md §2).
         $cents = RecordPaymentService::toCents($reward_amount);
         if ($cents > 0) {
-            (new CreditLedger)->add((int) $affiliate->user->getKey(), $invoice->currency_code, $cents,
+            (new CreditLedger)->add((int) $affiliate->client_id, $invoice->currency_code, $cents,
                 MoneyTrail::CAUSE_AFFILIATE_REWARD, MoneyTrail::SOURCE_SYSTEM, $invoice);
         }
     }

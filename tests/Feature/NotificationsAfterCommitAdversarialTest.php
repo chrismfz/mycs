@@ -52,7 +52,7 @@ class NotificationsAfterCommitAdversarialTest extends TestCase
     private function invoice(array $attributes = []): Invoice
     {
         $invoice = Invoice::factory()->create(array_merge([
-            'user_id' => User::factory()->create()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addDays(7),
+            'client_id' => User::factory()->create()->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addDays(7),
         ], $attributes));
         if ($invoice->status !== Invoice::STATUS_DRAFT) {
             $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 10]);
@@ -102,12 +102,12 @@ class NotificationsAfterCommitAdversarialTest extends TestCase
 
         // First attempt of the queued job: fails after the key was taken.
         try {
-            NotificationHelper::invoicePaymentFailedNotification($invoice->user, $invoice);
+            NotificationHelper::invoicePaymentFailedNotification($invoice->client, $invoice);
             $this->fail('the first attempt was expected to throw');
         } catch (RuntimeException) {
         }
         // The queue retries the job (backoff 60s): same call.
-        NotificationHelper::invoicePaymentFailedNotification($invoice->user, $invoice->fresh());
+        NotificationHelper::invoicePaymentFailedNotification($invoice->client, $invoice->fresh());
 
         $this->assertSame(1, $this->failedMails(), 'the retry was swallowed by the dedupe key: «payment failed» never mailed');
     }
@@ -240,11 +240,11 @@ class NotificationsAfterCommitAdversarialTest extends TestCase
         MailFacade::fake();
         $product = $this->createProduct();
         $services = collect([1, 2])->map(fn () => Service::factory()->create([
-            'user_id' => User::factory()->create()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1, 'expires_at' => '2026-10-25',
         ]));
         $invoices = $services->map(function (Service $service) {
-            $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-25']);
+            $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-25']);
             $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => 10]);
 
             return $invoice;
@@ -320,7 +320,7 @@ class NotificationsAfterCommitAdversarialTest extends TestCase
     {
         MailFacade::fake();
         $a = $this->invoice();
-        $b = $this->invoice(['user_id' => $a->user_id]);
+        $b = $this->invoice(['client_id' => $a->client_id]);
 
         ExtensionHelper::addFailedPayment($a->id, null, 10, null, 'pi_a');
         ExtensionHelper::addFailedPayment($b->id, null, 10, null, 'pi_b');

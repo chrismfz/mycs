@@ -51,16 +51,16 @@ class Coupon extends Model implements Auditable
     /**
      * Check if the user has exceeded the maximum allowed uses of this coupon
      *
-     * @param  int  $userId
+     * @param  int  $clientId
      */
-    public function hasExceededMaxUsesPerUser($userId): bool
+    public function hasExceededMaxUsesPerUser($clientId): bool
     {
         if (empty($this->max_uses_per_user)) {
             return false;
         }
 
         return $this->services()
-            ->where('user_id', $userId)
+            ->where('client_id', $clientId)
             ->count() >= $this->max_uses_per_user;
     }
 

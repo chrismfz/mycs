@@ -7,8 +7,8 @@ use App\Classes\Settings;
 use App\Enums\InvoiceTransactionStatus;
 use App\Mail\Mail;
 use App\Models\Invoice;
-use App\Models\Role;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\PaymentReminders;
 use Filament\Facades\Filament;
@@ -17,7 +17,6 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail as MailFacade;
 use Illuminate\Support\Facades\Queue;
-use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
@@ -47,9 +46,9 @@ class PaymentRemindersTest extends TestCase
     {
         $product = $this->createProduct();
         $user = User::factory()->create();
-        $svc = Service::factory()->create(array_merge(['user_id' => $user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+        $svc = Service::factory()->create(array_merge(['client_id' => $user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1, 'expires_at' => $due], $service));
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => $due]);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => $due]);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $svc->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => 10]);
         DB::table('invoices')->where('id', $invoice->id)->update(['created_at' => $created]);
         MailFacade::fake(); // forget the «new invoice» mail
@@ -163,10 +162,10 @@ class PaymentRemindersTest extends TestCase
     public function test_staff_send_the_invoice_modified_email(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->admin()->create();
         $invoice = $this->invoice('2026-10-25');
 
-        Livewire::actingAs($owner)->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])
+        $this->livewireAs($owner)->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])
             ->callAction('sendEmail', ['template' => 'invoice_modified'])
             ->assertHasNoActionErrors();
 

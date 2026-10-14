@@ -47,7 +47,7 @@ class NotificationsAfterCommitReviewTest extends TestCase
     private function invoice(array $attributes = []): Invoice
     {
         return Invoice::factory()->create(array_merge([
-            'user_id' => User::factory()->create()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addDays(7),
+            'client_id' => User::factory()->create()->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addDays(7),
         ], $attributes));
     }
 
@@ -72,7 +72,7 @@ class NotificationsAfterCommitReviewTest extends TestCase
 
         $this->livewireAs($owner)->test(CreateInvoice::class)
             ->fillForm([
-                'user_id' => $customer->id,
+                'client_id' => $customer->client()->id,
                 'status' => Invoice::STATUS_UNPAID,
                 'currency_code' => 'USD',
                 'send_email' => true,
@@ -82,7 +82,7 @@ class NotificationsAfterCommitReviewTest extends TestCase
             ->assertHasNoFormErrors();
         $undo();
 
-        $invoice = Invoice::query()->where('user_id', $customer->id)->sole();
+        $invoice = Invoice::query()->where('client_id', $customer->client()->id)->sole();
         $this->assertSame(1, $invoice->items()->count());
         $this->assertSame(1, $linesWhenFired, 'Finalized fired before the invoice had its lines');
         MailFacade::assertQueued(Mail::class, fn (Mail $mail) => $mail->templateKey === 'new_invoice_created'
@@ -151,7 +151,7 @@ class NotificationsAfterCommitReviewTest extends TestCase
 
         $transaction = ExtensionHelper::addFailedPayment($invoice->id, 'Stripe', 10, null, 'pi_failed');
         $transaction->update(['fee' => 0.30]);
-        NotificationHelper::invoicePaymentFailedNotification($invoice->user, $invoice);
+        NotificationHelper::invoicePaymentFailedNotification($invoice->client, $invoice);
 
         $this->assertCount(1, MailFacade::queued(Mail::class, fn (Mail $mail) => $mail->templateKey === 'invoice_payment_failed'));
     }
@@ -201,10 +201,10 @@ class NotificationsAfterCommitReviewTest extends TestCase
     {
         config(['mail.default' => 'array']);
         $user = User::factory()->create();
-        $ticket = Ticket::query()->create(['user_id' => $user->id, 'subject' => 'Help', 'priority' => 'low', 'status' => 'open']);
+        $ticket = Ticket::query()->create(['client_id' => $user->client()->id, 'subject' => 'Help', 'priority' => 'low', 'status' => 'open']);
         $message = $ticket->messages()->create(['user_id' => $user->id, 'message' => 'Reply']);
 
-        NotificationHelper::ticketMessageNotification($user, $message);
+        NotificationHelper::ticketMessageNotification($user->client(), $message);
 
         $sent = app('mailer')->getSymfonyTransport()->messages();
         $this->assertNotEmpty($sent);

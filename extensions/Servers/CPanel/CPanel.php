@@ -153,7 +153,7 @@ class CPanel extends Server
 
         $this->whm('/createacct', [
             'username' => $username,
-            'contactemail' => $service->user->email,
+            'contactemail' => $service->client->email,
             'domain' => $properties['domain'],
             'plan' => $properties['package'] ?? $settings['package'],
         ]);

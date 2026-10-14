@@ -6,6 +6,7 @@ use App\Enums\InvoiceTransactionStatus;
 use App\Events\ServiceCancellation\Created;
 use App\Exceptions\DisplayException;
 use App\Listeners\CancellationCreatedListener;
+use App\Models\Client;
 use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\Plan;
@@ -56,7 +57,7 @@ class UpgradeLifecycleAdversarialTest extends TestCase
         $product = $this->createProduct(['stock' => 5]);
 
         return Service::factory()->create(array_merge([
-            'user_id' => User::factory()->create()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1, 'expires_at' => '2026-11-15',
         ], $attributes));
     }
@@ -64,7 +65,7 @@ class UpgradeLifecycleAdversarialTest extends TestCase
     private function upgrade(Service $service, ?Invoice $invoice = null, float $price = 5): ServiceUpgrade
     {
         $target = $this->createProduct(['stock' => 5]);
-        $invoice ??= Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-20']);
+        $invoice ??= Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-20']);
         $upgrade = ServiceUpgrade::query()->create(['service_id' => $service->id, 'plan_id' => $target->plan->id, 'product_id' => $target->product->id,
             'invoice_id' => $invoice->id]);
         $invoice->items()->create(['reference_type' => ServiceUpgrade::class, 'reference_id' => $upgrade->id, 'description' => 'Upgrade', 'quantity' => 1, 'price' => $price]);
@@ -201,9 +202,9 @@ class UpgradeLifecycleAdversarialTest extends TestCase
     {
         config(['settings.credits_enabled' => true, 'settings.credits_auto_use' => true]);
         $service = $this->service(['expires_at' => '2026-10-19']);
-        User::whereKey($service->user_id)->update(['credit_auto_apply' => true]);
+        Client::whereKey($service->client_id)->update(['credit_auto_apply' => true]);
         $upgrade = $this->upgrade($service);
-        (new CreditLedger)->add((int) $service->user_id, 'USD', 10000, MoneyTrail::CAUSE_DOWNGRADE, MoneyTrail::SOURCE_SYSTEM);
+        (new CreditLedger)->add((int) $service->client_id, 'USD', 10000, MoneyTrail::CAUSE_DOWNGRADE, MoneyTrail::SOURCE_SYSTEM);
 
         $this->artisan('app:cron-job');
 
@@ -219,7 +220,7 @@ class UpgradeLifecycleAdversarialTest extends TestCase
     public function test_a7_a_renewal_line_kept_at_the_old_price_is_surfaced(): void
     {
         $service = $this->service(['expires_at' => '2026-10-25']);
-        $renewal = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-25']);
+        $renewal = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-25']);
         $line = $renewal->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal',
             'quantity' => 1, 'price' => 10, 'period_start' => '2026-10-25', 'period_end' => '2026-11-25']);
         (new RecordPaymentService)->handle($renewal, null, 4, transactionId: 'part');
@@ -316,7 +317,7 @@ class UpgradeLifecycleAdversarialTest extends TestCase
     public function test_holds_a_renewal_line_on_a_paid_invoice_is_not_repriced(): void
     {
         $service = $this->service(['expires_at' => '2026-10-25']);
-        $renewal = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-25']);
+        $renewal = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-25']);
         $line = $renewal->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal',
             'quantity' => 1, 'price' => 10, 'period_start' => '2026-10-25', 'period_end' => '2026-11-25']);
         DB::table('invoices')->where('id', $renewal->id)->update(['status' => 'paid']);
@@ -342,8 +343,8 @@ class UpgradeLifecycleAdversarialTest extends TestCase
     public function test_holds_an_expired_upgrade_on_an_invoice_billing_another_service_takes_only_its_line(): void
     {
         $service = $this->service(['expires_at' => '2026-10-19']);
-        $other = $this->service(['user_id' => $service->user_id, 'expires_at' => '2026-12-01']);
-        $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-20']);
+        $other = $this->service(['client_id' => $service->client_id, 'expires_at' => '2026-12-01']);
+        $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-20']);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $other->id, 'description' => 'Other',
             'quantity' => 1, 'price' => 10, 'period_start' => '2026-12-01', 'period_end' => '2027-01-01']);
         $upgrade = $this->upgrade($service, $invoice);
@@ -358,7 +359,7 @@ class UpgradeLifecycleAdversarialTest extends TestCase
     public function test_holds_an_expired_upgrade_on_a_draft_invoice_is_cancelled_with_it(): void
     {
         $service = $this->service(['expires_at' => '2026-10-19']);
-        $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'draft', 'currency_code' => 'USD', 'due_at' => '2026-10-20']);
+        $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'draft', 'currency_code' => 'USD', 'due_at' => '2026-10-20']);
         $upgrade = $this->upgrade($service, $invoice);
 
         $this->artisan('app:cron-job');

@@ -24,7 +24,7 @@ class PermissionGuard
         'admin.invoice_items.view' => 'admin.invoices.viewAny',
         'admin.ticket_messages.create' => 'admin.tickets.update',
         'admin.ticket_messages.view' => 'admin.tickets.viewAny',
-        'admin.properties.view' => 'admin.users.viewAny',
+        'admin.properties.view' => 'admin.clients.viewAny', // the account's details (PR 2a)
     ];
 
     public static function isFullAdmin(?Staff $actor): bool

@@ -5,7 +5,7 @@ namespace App\Livewire\Tickets;
 use App\Attributes\DisabledIf;
 use App\Livewire\Component;
 use App\Models\Ticket;
-use Illuminate\Support\Facades\Auth;
+use App\Support\CurrentClient;
 use Livewire\WithPagination;
 
 #[DisabledIf('tickets_disabled')]
@@ -16,7 +16,7 @@ class Index extends Component
     public function render()
     {
         return view('tickets.index', [
-            'tickets' => Ticket::where('user_id', Auth::id())->latest()->paginate(config('settings.pagination')),
+            'tickets' => Ticket::where('client_id', CurrentClient::id())->latest()->paginate(config('settings.pagination')),
         ])->layoutData([
             'title' => 'Tickets',
             'sidebar' => true,

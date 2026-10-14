@@ -4,7 +4,7 @@ namespace App\Admin\Resources;
 
 use App\Admin\Actions\CancelSubscriptionAction;
 use App\Admin\Clusters\Services;
-use App\Admin\Components\UserComponent;
+use App\Admin\Components\ClientComponent;
 use App\Admin\Resources\Common\RelationManagers\PropertiesRelationManager;
 use App\Admin\Resources\ServiceResource\Pages\CreateService;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
@@ -83,7 +83,7 @@ class ServiceResource extends Resource
                     ->preload()
                     ->disabled(fn (Get $get) => !$get('product_id'))
                     ->placeholder('Select the plan'),
-                UserComponent::make('user_id'),
+                ClientComponent::make('client_id'),
                 Select::make('status')
                     ->label('Status')
                     ->required()
@@ -157,7 +157,7 @@ class ServiceResource extends Resource
                     ),
                 Select::make('billing_agreement_id')
                     ->label('Billing Agreement')
-                    ->relationship('billingAgreement', 'name', fn (Builder $query, Get $get) => $query->where('user_id', $get('user_id')))
+                    ->relationship('billingAgreement', 'name', fn (Builder $query, Get $get) => $query->where('client_id', $get('client_id')))
                     ->searchable()
                     ->preload()
                     ->placeholder('Select the billing agreement'),
@@ -174,14 +174,16 @@ class ServiceResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            // The account's name is its owner's (until the contacts, PR 3): loaded with the rows, not per row.
+            ->modifyQueryUsing(fn (Builder $query) => $query->with('client.ownerGrant.user'))
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
                     ->sortable()
                     ->searchable(),
-                TextColumn::make('user.name')
-                    ->label('User')
-                    ->searchable(true, fn (Builder $query, string $search) => $query->whereHas('user', fn (Builder $query) => $query->where('first_name', 'like', "%$search%")->orWhere('last_name', 'like', "%$search%"))),
+                TextColumn::make('client.name')
+                    ->label('Client')
+                    ->searchable(true, fn (Builder $query, string $search) => $query->whereHas('client.users', fn (Builder $query) => $query->where('first_name', 'like', "%$search%")->orWhere('last_name', 'like', "%$search%"))),
                 TextColumn::make('product.name')
                     ->label('Product')
                     ->searchable()
@@ -203,12 +205,11 @@ class ServiceResource extends Resource
                 SelectFilter::make('status')
                     ->label('Status')
                     ->options(Service::statusOptions()),
-                SelectFilter::make('user')
-                    ->label('User')
-                    ->relationship('user', 'id')
-                    ->getOptionLabelFromRecordUsing(fn ($record) => $record->name . ' (' . $record->email . ')')
-                    ->searchable()
-                    ->preload(),
+                SelectFilter::make('client')
+                    ->label('Client')
+                    ->relationship('client', 'id')
+                    ->getOptionLabelFromRecordUsing(fn ($record) => ClientComponent::optionLabel($record))
+                    ->searchable(),
                 SelectFilter::make('product')
                     ->label('Product')
                     ->relationship('product', 'name')

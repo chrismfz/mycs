@@ -2,27 +2,30 @@
 
 namespace Paymenter\Extensions\Others\Affiliates\Models;
 
-use App\Models\User;
+use App\Models\Client;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * @property int $client_id
+ */
 class Affiliate extends Model
 {
     protected $table = 'ext_affiliates';
 
     protected $fillable = [
-        'user_id',
+        'client_id',
         'code',
         'visitors',
         'reward',
         'discount',
     ];
 
-    public function user(): BelongsTo
+    public function client(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(Client::class);
     }
 
     public function orders(): HasMany

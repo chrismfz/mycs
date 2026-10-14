@@ -2,14 +2,14 @@
 
 namespace App\Admin\Resources;
 
-use App\Admin\Components\UserComponent;
+use App\Admin\Components\ClientComponent;
 use App\Admin\Resources\TicketResource\Pages\CreateTicket;
 use App\Admin\Resources\TicketResource\Pages\EditTicket;
 use App\Admin\Resources\TicketResource\Pages\ListTickets;
 use App\Admin\Resources\TicketResource\Widgets\TicketsOverView;
+use App\Models\Client;
 use App\Models\Staff;
 use App\Models\Ticket;
-use App\Models\User;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -96,7 +96,7 @@ class TicketResource extends Resource
                     ->columnSpan(function ($record) {
                         return $record ? 2 : 1;
                     }),
-                UserComponent::make('user_id')->columnSpan(function ($record) {
+                ClientComponent::make('client_id')->columnSpan(function ($record) {
                     return $record ? 2 : 1;
                 }),
                 Select::make('assigned_to')
@@ -112,13 +112,13 @@ class TicketResource extends Resource
                 Select::make('service_id')
                     ->label('Service')
                     ->relationship('service', 'id', function (Builder $query, Get $get) {
-                        $query->where('user_id', $get('user_id'));
+                        $query->where('client_id', $get('client_id'));
                     })
                     ->getOptionLabelFromRecordUsing(fn ($record) => "{$record->product?->name} #{$record->id} - " . ucfirst($record->status) . ($record->label == $record->baseLabel ? '' : " ({$record->label})"))
                     ->columnSpan(function ($record) {
                         return $record ? 2 : 1;
                     })
-                    ->disabled(fn (Get $get) => !$get('user_id')),
+                    ->disabled(fn (Get $get) => !$get('client_id')),
                 MarkdownEditor::make('message')
                     ->columnSpan(2)
                     ->label('Initial Message')
@@ -133,6 +133,8 @@ class TicketResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            // The account's name is its owner's (until the contacts, PR 3): loaded with the rows, not per row.
+            ->modifyQueryUsing(fn (Builder $query) => $query->with('client.ownerGrant.user'))
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -160,16 +162,17 @@ class TicketResource extends Resource
                     ->formatStateUsing(fn (string $state) => ucfirst($state)),
                 TextColumn::make('department')
                     ->sortable(),
-                TextColumn::make('user.name')
-                    ->searchable(['first_name', 'last_name'])
-                    ->sortable(['first_name', 'last_name']),
+                TextColumn::make('client.name')
+                    ->label('Client')
+                    ->searchable(query: fn (Builder $query, string $search) => $query->whereHas('client.users', fn (Builder $query) => $query
+                        ->where('first_name', 'like', "%$search%")->orWhere('last_name', 'like', "%$search%")->orWhere('email', 'like', "%$search%"))),
             ])
             ->filters([
-                SelectFilter::make('user')
-                    ->label('User')
-                    ->relationship('user', 'id')
-                    ->indicateUsing(fn ($data) => $data['value'] ? 'User: ' . User::find($data['value'])->name : null)
-                    ->getOptionLabelFromRecordUsing(fn ($record) => $record->name),
+                SelectFilter::make('client')
+                    ->label('Client')
+                    ->relationship('client', 'id')
+                    ->indicateUsing(fn ($data) => $data['value'] ? 'Client: ' . Client::find($data['value'])?->name : null)
+                    ->getOptionLabelFromRecordUsing(fn (Client $record) => ClientComponent::optionLabel($record)),
                 SelectFilter::make('priority')
                     ->options([
                         'low' => 'Low',

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Classes\Price;
 use App\Classes\Settings;
+use App\Models\Client;
 use App\Models\Invoice;
 use App\Models\Property;
 use App\Models\TaxRate;
@@ -29,7 +30,7 @@ class SettingsTaxRateAdversarialTest extends TestCase
     {
         $user = User::factory()->create();
         if ($country !== null) {
-            $user->properties()->create(['key' => 'country', 'name' => 'Country', 'value' => $country]);
+            $user->client()->properties()->create(['key' => 'country', 'name' => 'Country', 'value' => $country]);
         }
 
         return $user;
@@ -51,13 +52,13 @@ class SettingsTaxRateAdversarialTest extends TestCase
     {
         $this->rates();
         $user = $this->customer('GR');
-        $this->assertEquals(24, Settings::tax($user)->rate); // e.g. a product page / cart price earlier in the request
+        $this->assertEquals(24, Settings::tax($user->client())->rate); // e.g. a product page / cart price earlier in the request
 
-        $user->properties()->where('key', 'country')->update(['value' => 'DE']);
+        $user->client()->properties()->where('key', 'country')->update(['value' => 'DE']);
 
         $fresh = User::findOrFail($user->id);
         $invoice = Invoice::create([
-            'user_id' => $fresh->id,
+            'client_id' => $fresh->client()->id,
             'currency_code' => 'USD',
             'due_at' => now()->addDays(7),
             'status' => Invoice::STATUS_UNPAID,
@@ -76,7 +77,7 @@ class SettingsTaxRateAdversarialTest extends TestCase
         $this->rates();
         TaxRate::create(['name' => 'VAT', 'rate' => 20, 'country' => 'all']);
 
-        $unsaved = new User;
+        $unsaved = new Client;
         $unsaved->setRelation('properties', collect([new Property(['key' => 'country', 'value' => 'DE'])]));
 
         $this->assertEquals(19, Settings::tax($unsaved)->rate);
@@ -100,7 +101,7 @@ class SettingsTaxRateAdversarialTest extends TestCase
         $this->assertEquals(20, Settings::tax()->rate);
         // Explicit user wins over Auth::user()
         Auth::login($gr);
-        $this->assertEquals(19, Settings::tax($de)->rate);
+        $this->assertEquals(19, Settings::tax($de->client())->rate);
     }
 
     public function test_holds_all_rate_fallback_and_specific_country_wins(): void
@@ -108,20 +109,20 @@ class SettingsTaxRateAdversarialTest extends TestCase
         TaxRate::create(['name' => 'VAT', 'rate' => 20, 'country' => 'all']);
         TaxRate::create(['name' => 'MwSt', 'rate' => 19, 'country' => 'DE']);
 
-        $this->assertEquals(19, Settings::tax($this->customer('DE'))->rate);
-        $this->assertEquals(20, Settings::tax($this->customer('US'))->rate);
-        $this->assertEquals(20, Settings::tax($this->customer(null))->rate);
+        $this->assertEquals(19, Settings::tax($this->customer('DE')->client())->rate);
+        $this->assertEquals(20, Settings::tax($this->customer('US')->client())->rate);
+        $this->assertEquals(20, Settings::tax($this->customer(null)->client())->rate);
     }
 
     public function test_holds_zero_is_memoised_and_returned_as_zero(): void
     {
         $user = $this->customer('US');
-        $this->assertSame(0, Settings::tax($user));
+        $this->assertSame(0, Settings::tax($user->client()));
         TaxRate::create(['name' => 'VAT', 'rate' => 20, 'country' => 'all']);
         // memoised within the request (documented behaviour), still the int 0, not null/false
-        $this->assertSame(0, Settings::tax($user));
+        $this->assertSame(0, Settings::tax($user->client()));
         $this->app->forgetScopedInstances();
-        $this->assertEquals(20, Settings::tax($user)->rate);
+        $this->assertEquals(20, Settings::tax($user->client())->rate);
     }
 
     public function test_holds_tax_disabled_adds_no_tax(): void
@@ -141,7 +142,7 @@ class SettingsTaxRateAdversarialTest extends TestCase
         $ids = [$this->customer('GR')->id => 124.0, $this->customer('DE')->id => 119.0, $this->customer('GR')->id => 124.0];
         $got = [];
         foreach (User::query()->whereIn('id', array_keys($ids))->orderBy('id')->cursor() as $u) {
-            $got[$u->id] = (float) (new Price(['price' => 100, 'currency' => (object) ['code' => 'USD', 'prefix' => '$', 'suffix' => '', 'format' => '1.000,00']], apply_exclusive_tax: true, tax: Settings::tax($u)))->price;
+            $got[$u->id] = (float) (new Price(['price' => 100, 'currency' => (object) ['code' => 'USD', 'prefix' => '$', 'suffix' => '', 'format' => '1.000,00']], apply_exclusive_tax: true, tax: Settings::tax($u->client())))->price;
         }
         $this->assertEquals($ids, $got);
     }
@@ -152,7 +153,7 @@ class SettingsTaxRateAdversarialTest extends TestCase
         $expected = [];
         foreach (['GR', 'DE', 'GR', 'DE'] as $c) {
             $u = $this->customer($c);
-            $inv = Invoice::create(['user_id' => $u->id, 'currency_code' => 'USD', 'due_at' => now(), 'status' => Invoice::STATUS_UNPAID]);
+            $inv = Invoice::create(['client_id' => $u->client()->id, 'currency_code' => 'USD', 'due_at' => now(), 'status' => Invoice::STATUS_UNPAID]);
             $expected[$inv->id] = $c === 'GR' ? 24.0 : 19.0;
             unset($u, $inv);
         }
@@ -184,9 +185,9 @@ class SettingsTaxRateAdversarialTest extends TestCase
     {
         $rate = TaxRate::create(['name' => 'ΦΠΑ', 'rate' => 24, 'country' => 'GR']);
         $user = $this->customer('GR');
-        $this->assertEquals(24, Settings::tax($user)->rate);
+        $this->assertEquals(24, Settings::tax($user->client())->rate);
         $rate->update(['rate' => 13]);
-        $this->assertEquals(24, Settings::tax(User::find($user->id))->rate);
+        $this->assertEquals(24, Settings::tax(User::find($user->id)?->client())->rate);
     }
 }
 
@@ -201,7 +202,7 @@ class TaxProbeJob implements ShouldQueue
 
     public function handle(): void
     {
-        self::$seen[] = (float) Settings::tax(User::findOrFail($this->userId))->rate;
+        self::$seen[] = (float) Settings::tax(User::findOrFail($this->userId)->client())->rate;
         if ($this->rateId) {
             TaxRate::whereKey($this->rateId)->update(['rate' => $this->newRate]);
         }

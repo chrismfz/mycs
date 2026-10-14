@@ -42,7 +42,7 @@ class CustomPropertyResource extends Resource
                     ->maxLength(255),
                 TextInput::make('key')->required(),
                 Select::make('model')->options([
-                    'App\Models\User' => 'User',
+                    'App\Models\Client' => 'Client',
                 ])->required(),
                 Select::make('type')->options([
                     'string' => 'Short Text',

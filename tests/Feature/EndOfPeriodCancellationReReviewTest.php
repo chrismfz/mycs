@@ -58,14 +58,14 @@ class EndOfPeriodCancellationReReviewTest extends TestCase
         $product->product->update(['stock' => $stock]);
 
         return Service::factory()->create(array_merge([
-            'user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => $status, 'expires_at' => $expires, 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1,
         ], $extra));
     }
 
     private function openInvoiceFor(Service $service, float $price = 10): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal',
             'quantity' => 1, 'price' => $price,
@@ -76,7 +76,7 @@ class EndOfPeriodCancellationReReviewTest extends TestCase
 
     private function credit(): float
     {
-        return (float) (Credit::query()->where('user_id', $this->user->id)->where('currency_code', 'USD')->value('amount') ?? 0);
+        return (float) (Credit::query()->where('client_id', $this->user->client()->id)->where('currency_code', 'USD')->value('amount') ?? 0);
     }
 
     // ---------------------------------------------------------------- findings (fail on the PR head)
@@ -98,7 +98,7 @@ class EndOfPeriodCancellationReReviewTest extends TestCase
         $this->assertSame(Service::STATUS_TERMINATED, $service->fresh()->status);
 
         // Later the customer gets credit (overpayment elsewhere, staff, refund to credit).
-        (new CreditLedger)->add($this->user->id, 'USD', 600, MoneyTrail::CAUSE_OPENING_BALANCE, MoneyTrail::SOURCE_SYSTEM);
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 600, MoneyTrail::CAUSE_OPENING_BALANCE, MoneyTrail::SOURCE_SYSTEM);
         Carbon::setTestNow('2026-10-21 03:00:00');
         $this->cron();
 
@@ -148,7 +148,7 @@ class EndOfPeriodCancellationReReviewTest extends TestCase
         Queue::fake([TerminateJob::class]);
         $service = $this->service('2026-11-15', stock: 5);
         $target = $this->createProduct();
-        $upgradeInvoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $upgradeInvoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $upgrade = ServiceUpgrade::create(['service_id' => $service->id, 'plan_id' => $target->plan->id, 'product_id' => $target->product->id, 'status' => 'pending', 'invoice_id' => $upgradeInvoice->id]);
         $upgradeInvoice->items()->create(['reference_id' => $upgrade->id, 'reference_type' => ServiceUpgrade::class, 'description' => 'Upgrade', 'quantity' => 1, 'price' => 3]);
 
@@ -228,7 +228,7 @@ class EndOfPeriodCancellationReReviewTest extends TestCase
     {
         Queue::fake();
         $service = $this->service('2026-10-20');
-        $paid = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $paid = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $paid->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'R', 'quantity' => 1, 'price' => 10, 'period_start' => '2026-09-20', 'period_end' => '2026-10-20']);
         Invoice::query()->whereKey($paid->id)->update(['status' => 'paid']);
         ServiceCancellation::query()->create(['service_id' => $service->id, 'type' => 'end_of_period', 'reason' => 'Leaving']);
@@ -245,7 +245,7 @@ class EndOfPeriodCancellationReReviewTest extends TestCase
     {
         Queue::fake();
         $service = $this->service('2026-10-20 12:00:00');
-        $paid = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        $paid = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
         $paid->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'R', 'quantity' => 1, 'price' => 10, 'period_start' => '2026-10-20', 'period_end' => '2026-11-20']);
         Invoice::query()->whereKey($paid->id)->update(['status' => 'paid']);
         ServiceCancellation::query()->create(['service_id' => $service->id, 'type' => 'end_of_period', 'reason' => 'Leaving']);

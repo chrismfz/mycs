@@ -40,7 +40,7 @@ class CronjobTest extends TestCase
 
         // Create a subscription for the user
         $service = Service::factory()->create([
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'active',
@@ -55,7 +55,7 @@ class CronjobTest extends TestCase
 
         // Check if an invoice was created
         $this->assertDatabaseHas('invoices', [
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'status' => 'unpaid',
             'due_at' => $service->expires_at,
             'currency_code' => 'USD',
@@ -66,7 +66,7 @@ class CronjobTest extends TestCase
     {
         $user = User::factory()->create();
 
-        $user->credits()->create([
+        $user->client()->credits()->create([
             'currency_code' => 'USD',
             'amount' => 10.00,
         ]);
@@ -79,7 +79,7 @@ class CronjobTest extends TestCase
 
         // Create a subscription for the user
         $service = Service::factory()->create([
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'active',
@@ -94,7 +94,7 @@ class CronjobTest extends TestCase
 
         // Check if an invoice was created
         $this->assertDatabaseHas('invoices', [
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'status' => 'paid',
             'due_at' => $service->expires_at,
             'currency_code' => 'USD',
@@ -114,7 +114,7 @@ class CronjobTest extends TestCase
 
         // Create a subscription for the user
         $service = Service::factory()->create([
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'active',
@@ -147,7 +147,7 @@ class CronjobTest extends TestCase
 
         // Create a subscription for the user
         $service = Service::factory()->create([
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'pending',
@@ -156,7 +156,7 @@ class CronjobTest extends TestCase
             'created_at' => now()->subDays(8), // Set created_at to 8 days ago
         ]);
         // Its order's invoice, unpaid (BIL-12: a pending service without one is staff's, not an unpaid order).
-        $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => now()->subDays(8)]);
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => now()->subDays(8)]);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Order', 'quantity' => 1, 'price' => 10]);
 
         // Run the cron job
@@ -182,7 +182,7 @@ class CronjobTest extends TestCase
 
         // Create a subscription for the user
         $service = Service::factory()->create([
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'active',
@@ -199,7 +199,7 @@ class CronjobTest extends TestCase
 
         // Check if an invoice was created
         $this->assertDatabaseHas('invoices', [
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'status' => 'unpaid',
             'due_at' => $service->expires_at,
             'currency_code' => 'USD',
@@ -229,7 +229,7 @@ class CronjobTest extends TestCase
 
         // Create a subscription for the user
         $service = Service::factory()->create([
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'active',
@@ -244,7 +244,7 @@ class CronjobTest extends TestCase
 
         // Now it should have generated an invoice
         $this->assertDatabaseHas('invoices', [
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'status' => 'unpaid',
             'due_at' => $service->expires_at,
             'currency_code' => 'USD',
@@ -272,7 +272,7 @@ class CronjobTest extends TestCase
         });
 
         $this->assertDatabaseHas('invoices', [
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'status' => 'cancelled',
             'currency_code' => 'USD',
         ]);
@@ -288,13 +288,13 @@ class CronjobTest extends TestCase
 
         // Create a ticket for the user
         $ticket = Ticket::factory()->create([
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'status' => 'open',
         ]);
 
         $this->assertDatabaseHas('tickets', [
             'id' => $ticket->id,
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'status' => 'open',
         ]);
 
@@ -332,7 +332,7 @@ class CronjobTest extends TestCase
             'status' => 'suspended',
             'dunning_suspended_at' => now()->subDays(13), // suspended long enough to be terminated (BIL-4)
             'expires_at' => now()->subDays(15),
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'currency_code' => 'USD',
             'price' => 10.00,
             'quantity' => 2,
@@ -366,7 +366,7 @@ class CronjobTest extends TestCase
             'status' => 'suspended',
             'dunning_suspended_at' => now()->subDays(13), // suspended long enough to be terminated (BIL-4)
             'expires_at' => now()->subDays(15),
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'currency_code' => 'USD',
             'price' => 10.00,
         ]);
@@ -393,7 +393,7 @@ class CronjobTest extends TestCase
             'status' => 'suspended',
             'dunning_suspended_at' => now()->subDays(13), // suspended long enough to be terminated (BIL-4)
             'expires_at' => now()->subDays(15),
-            'user_id' => $user->id,
+            'client_id' => $user->client()->id,
             'currency_code' => 'USD',
             'price' => 10.00,
         ]);

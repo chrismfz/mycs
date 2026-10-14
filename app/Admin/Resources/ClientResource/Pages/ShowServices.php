@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Admin\Resources\UserResource\Pages;
+namespace App\Admin\Resources\ClientResource\Pages;
 
+use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ServiceResource;
-use App\Admin\Resources\UserResource;
 use App\Models\Service;
 use Filament\Actions\ViewAction;
 use Filament\Resources\Pages\ManageRelatedRecords;
@@ -12,7 +12,7 @@ use Filament\Tables\Table;
 
 class ShowServices extends ManageRelatedRecords
 {
-    protected static string $resource = UserResource::class;
+    protected static string $resource = ClientResource::class;
 
     protected static string $relationship = 'services';
 

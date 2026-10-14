@@ -11,7 +11,7 @@ class CreateOrderRequest extends AdminApiRequest
     public function rules(): array
     {
         return [
-            'user_id' => 'required|exists:users,id',
+            'client_id' => 'required|exists:clients,id',
             /**
              * @example USD
              */

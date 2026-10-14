@@ -81,7 +81,7 @@ class GatewayRefundAdversarialTest extends TestCase
 
     private function openInvoice(float $price = 100): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => $price]);
 
         return $invoice->fresh();
@@ -144,7 +144,7 @@ class GatewayRefundAdversarialTest extends TestCase
         Price::query()->where('plan_id', $product->plan->id)->update(['price' => 10.00]);
 
         return Service::factory()->create([
-            'user_id' => $this->user->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => $this->user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'expires_at' => now()->addDays(3), 'currency_code' => 'USD', 'price' => 10.00,
             'subscription_id' => 'I-SUB',
         ]);
@@ -152,7 +152,7 @@ class GatewayRefundAdversarialTest extends TestCase
 
     private function invoiceFor(Service $service): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id, 'reference_type' => Service::class, 'description' => 'Renewal',
             'quantity' => 1, 'price' => 10.00, 'period_start' => now()->addDays(3), 'period_end' => now()->addDays(3)->addMonth(),
@@ -401,18 +401,18 @@ class GatewayRefundAdversarialTest extends TestCase
     public function test_guard_credit_purchase_partly_spent_takes_back_only_what_is_left_over_two_refund_ids(): void
     {
         $this->stripe();
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Deposit', 'quantity' => 1, 'price' => 50]);
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 50, transactionId: 'pi_dep', currency: 'usd');
         $other = $this->openInvoice(30);
         (new RecordPaymentService)->payWithCredit($other);
-        $this->assertEquals(20, (float) Credit::query()->where('user_id', $this->user->id)->value('amount'));
+        $this->assertEquals(20, (float) Credit::query()->where('client_id', $this->user->client()->id)->value('amount'));
 
         $this->stripeWebhook($this->stripeRefund('re_d1', 'pi_dep', 1500))->assertOk();
         $this->stripeWebhook($this->stripeRefund('re_d2', 'pi_dep', 3500))->assertOk();
         $this->stripeWebhook($this->stripeRefund('re_d2', 'pi_dep', 3500, type: 'refund.updated'))->assertOk();
 
-        $this->assertEquals(0, (float) Credit::query()->where('user_id', $this->user->id)->value('amount'), 'credit taken once, never negative');
+        $this->assertEquals(0, (float) Credit::query()->where('client_id', $this->user->client()->id)->value('amount'), 'credit taken once, never negative');
         $this->assertSame('50.00', (string) $invoice->transactions()->sole()->refunded_amount);
         $this->assertSame(1, $this->staffMails());
         $this->assertMoneyCheckClean();

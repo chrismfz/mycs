@@ -1,0 +1,35 @@
+<?php
+
+namespace App\Admin\Resources\ClientResource\Pages;
+
+use App\Admin\Resources\ClientResource;
+use App\Models\Client;
+use App\Models\Staff;
+use App\Models\User;
+use Filament\Resources\Pages\CreateRecord;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+
+/** A new account with its owner, as WHMCS «Add New Client» (docs/accounts.md, PR 2a). */
+class CreateClient extends CreateRecord
+{
+    protected static string $resource = ClientResource::class;
+
+    protected function handleRecordCreation(array $data): Model
+    {
+        return DB::transaction(function () use ($data) {
+            $owner = User::query()->create([
+                'first_name' => $data['first_name'],
+                'last_name' => $data['last_name'],
+                'email' => $data['email'],
+                'password' => $data['password'],
+            ]);
+            $staff = Auth::guard('staff')->user();
+            $client = Client::openFor($owner, grantedBy: $staff instanceof Staff ? $staff : null);
+            $client->forceFill(['credit_auto_apply' => (bool) ($data['credit_auto_apply'] ?? true)])->save();
+
+            return $client;
+        });
+    }
+}

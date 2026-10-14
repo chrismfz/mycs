@@ -4,6 +4,7 @@ namespace App\Observers;
 
 use App\Events\User as UserEvent;
 use App\Exceptions\DisplayException;
+use App\Models\ClientUser;
 use App\Models\User;
 
 class UserObserver
@@ -33,18 +34,13 @@ class UserObserver
     }
 
     /**
-     * A customer with money history is never deleted (docs/money-trail.md §8): their invoices would lose their
-     * customer and their credit would go by cascade. The journal's foreign key refuses it too; this gives the reason.
+     * A login that owns an account is not deleted while the account is there (docs/accounts.md, PR 2a): the account
+     * would be left without its owner. The account goes first (with its own guards), or another user becomes owner.
      */
     public function deleting(User $user): void
     {
-        if ($user->hasMoneyHistory()) {
-            throw new DisplayException(__('A customer with payments or account credit history cannot be deleted.'));
-        }
-        // Their services are deleted first, one way (DeleteService: the server, the subscription, the invoices): the
-        // database cascade took them silently, and on MariaDB it now fails on the orders' restrict (R7 of #82).
-        if ($user->services()->exists()) {
-            throw new DisplayException(__('This customer has services: delete them first.'));
+        if (ClientUser::query()->where('user_id', $user->id)->whereNotNull('owner_of_client_id')->exists()) {
+            throw new DisplayException(__('This user owns a client account: delete the account first.'));
         }
     }
 

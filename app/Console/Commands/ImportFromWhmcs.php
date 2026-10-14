@@ -3,13 +3,13 @@
 namespace App\Console\Commands;
 
 use App\Models\Category;
+use App\Models\Client;
 use App\Models\ConfigOption;
 use App\Models\CustomProperty;
 use App\Models\Product;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\Setting;
-use App\Models\User;
 use App\Providers\SettingsProvider;
 use App\Services\Money\MoneyTrail;
 use Closure;
@@ -245,10 +245,11 @@ class ImportFromWhmcs extends Command
     private function importUsers()
     {
         $this->info('Importing users... (' . $this->count('tblclients') . ' records)');
-        $customProperties = CustomProperty::where('model', User::class)->get()->keyBy('key');
+        $customProperties = CustomProperty::where('model', Client::class)->get()->keyBy('key');
 
         $this->migrateInBatch('tblclients', 'SELECT * FROM tblclients LIMIT :limit OFFSET :offset', function ($records) use ($customProperties) {
             $data = [];
+            $clients = [];
             $properties = [];
             $credits = [];
 
@@ -272,6 +273,8 @@ class ImportFromWhmcs extends Command
                     'updated_at' => $record['updated_at'] == '0000-00-00 00:00:00' ? now() : $record['updated_at'],
                     'created_at' => $record['created_at'] == '0000-00-00 00:00:00' ? now() : $record['created_at'],
                 ];
+                // The account keeps the WHMCS client id; its owner is the login (docs/accounts.md, PR 2a).
+                $clients[] = ['id' => $record['id'], 'created_at' => end($data)['created_at'], 'updated_at' => end($data)['updated_at']];
 
                 // Custom properties
                 foreach ($customProperties as $key => $property) {
@@ -288,7 +291,7 @@ class ImportFromWhmcs extends Command
                             'key' => $key,
                             'value' => $record[$whmcsKey],
                             'model_id' => $record['id'],
-                            'model_type' => User::class,
+                            'model_type' => Client::class,
                             'name' => $property->name,
                             'custom_property_id' => $property->id,
                             'created_at' => now(),
@@ -304,7 +307,7 @@ class ImportFromWhmcs extends Command
                     $currency->execute();
                     $currency = $currency->fetch(PDO::FETCH_ASSOC);
                     array_push($credits, [
-                        'user_id' => $record['id'],
+                        'client_id' => $record['id'],
                         'amount' => $record['credit'],
                         'currency_code' => $currency['code'] ?? null,
                         'created_at' => now(),
@@ -314,6 +317,11 @@ class ImportFromWhmcs extends Command
             }
 
             DB::table('users')->insert($data);
+            DB::table('clients')->insert($clients);
+            DB::table('client_user')->insert(array_map(fn (array $client) => [
+                'client_id' => $client['id'], 'user_id' => $client['id'], 'owner' => true, 'owner_of_client_id' => $client['id'],
+                'granted_at' => $client['created_at'], 'created_at' => now(), 'updated_at' => now(),
+            ], $clients));
             if (count($properties) > 0) {
                 DB::table('properties')->insert($properties);
             }
@@ -324,7 +332,7 @@ class ImportFromWhmcs extends Command
                     'kind' => 'credit_in',
                     'amount' => $credit['amount'],
                     'currency_code' => $credit['currency_code'],
-                    'user_id' => $credit['user_id'],
+                    'client_id' => $credit['client_id'],
                     'credit_balance_after' => $credit['amount'],
                     'source' => MoneyTrail::SOURCE_IMPORT,
                     'cause' => MoneyTrail::CAUSE_OPENING_BALANCE,
@@ -708,6 +716,20 @@ class ImportFromWhmcs extends Command
         });
     }
 
+    /** The account of a login: the one it owns, or a new one (a guest of a WHMCS ticket). */
+    private function clientIdOfUser(int $userId): int
+    {
+        $owned = DB::table('client_user')->where('user_id', $userId)->whereNotNull('owner_of_client_id')->value('client_id');
+        if ($owned !== null) {
+            return (int) $owned;
+        }
+        $clientId = DB::table('clients')->insertGetId(['created_at' => now(), 'updated_at' => now()]);
+        DB::table('client_user')->insert(['client_id' => $clientId, 'user_id' => $userId, 'owner' => true, 'owner_of_client_id' => $clientId,
+            'granted_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+
+        return $clientId;
+    }
+
     private function getUserIdTicket($message, &$userId)
     {
         if (!$userId) {
@@ -786,7 +808,7 @@ class ImportFromWhmcs extends Command
 
                 $data[] = [
                     'id' => $record['id'],
-                    'user_id' => $user,
+                    'client_id' => $this->clientIdOfUser($user),
                     'subject' => $record['title'],
                     'status' => match ($record['status']) {
                         'Answered' => 'replied',
@@ -848,7 +870,7 @@ class ImportFromWhmcs extends Command
 
                 $data[] = [
                     'id' => $record['id'],
-                    'user_id' => $record['userid'],
+                    'client_id' => $record['userid'],
                     'currency_code' => $user['code'],
                     'created_at' => $this->validateDate($record['date']),
                     'updated_at' => $this->validateDate($record['date']),
@@ -906,7 +928,7 @@ class ImportFromWhmcs extends Command
                     },
                     'price' => $record['amount'],
                     'quantity' => $record['qty'],
-                    'user_id' => $record['userid'],
+                    'client_id' => $record['userid'],
                     'plan_id' => $planId,
                     'currency_code' => $user['code'],
                     'expires_at' => $this->validateDate($record['nextduedate']),
@@ -975,7 +997,7 @@ class ImportFromWhmcs extends Command
                 $data[] = [
                     'id' => $record['id'],
                     'number' => $invoiceNumber,
-                    'user_id' => $record['userid'],
+                    'client_id' => $record['userid'],
                     'status' => match ($record['status']) {
                         'Draft' => 'draft',
                         'Paid' => 'paid',

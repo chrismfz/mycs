@@ -136,8 +136,8 @@ class RenewServiceService
             DB::afterCommit(function () use ($id) {
                 try {
                     $renewed = Service::query()->find($id);
-                    if ($renewed?->user !== null) {
-                        NotificationHelper::serverUnsuspendedNotification($renewed->user, $renewed);
+                    if ($renewed?->client !== null) {
+                        NotificationHelper::serverUnsuspendedNotification($renewed->client, $renewed);
                     }
                 } catch (Throwable $e) {
                     report($e);

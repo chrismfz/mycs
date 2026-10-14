@@ -2,9 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\ClientResource\Pages\ShowCreditHistory;
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Admin\Resources\InvoiceResource\RelationManagers\MoneyEventsRelationManager;
-use App\Admin\Resources\UserResource\Pages\ShowCreditHistory;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Client\Credits;
 use App\Models\Gateway;
@@ -49,7 +49,7 @@ class MoneyHistoryTest extends TestCase
 
     private function invoice(float $price = 100, ?User $user = null): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => ($user ?? $this->user)->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
+        $invoice = Invoice::factory()->create(['client_id' => ($user ?? $this->user)->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addWeek()]);
         $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => $price]);
 
         return $invoice->fresh();
@@ -88,10 +88,10 @@ class MoneyHistoryTest extends TestCase
     {
         $invoice = $this->invoice(100);
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 130.00, null, 'pi_h', currency: 'USD'); // +30
-        (new CreditLedger)->remove($this->user->id, 'USD', 500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Duplicate refund');
+        (new CreditLedger)->remove($this->user->client()->id, 'USD', 500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Duplicate refund');
         (new RecordPaymentService)->payWithCredit($this->invoice(10)); // −10
 
-        $events = MoneyHistory::creditEvents($this->user->id)->get();
+        $events = MoneyHistory::creditEvents($this->user->client()->id)->get();
 
         $this->assertSame(['credit_out', 'credit_out', 'credit_in'], $events->map(fn (MoneyEvent $event) => $event->kind->value)->all(), 'newest first, no payments');
         $this->assertSame(['−$10.00', '−$5.00', '+$30.00'], $events->map(fn (MoneyEvent $event) => MoneyHistory::signedCredit($event))->all());
@@ -106,7 +106,7 @@ class MoneyHistoryTest extends TestCase
         $payment = ExtensionHelper::addPayment($invoice->id, 'Stripe', 130.00, null, 'pi_del', currency: 'USD');
         (new RecordPaymentService)->deleteTransaction($payment);
 
-        $latest = MoneyHistory::creditEvents($this->user->id)->first();
+        $latest = MoneyHistory::creditEvents($this->user->client()->id)->first();
 
         $this->assertSame('Payment correction', MoneyHistory::customerLabel($latest));
         $this->assertSame('−$30.00', MoneyHistory::signedCredit($latest));
@@ -136,13 +136,13 @@ class MoneyHistoryTest extends TestCase
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $owner = $this->owner();
         $this->actingAs($owner);
-        (new CreditLedger)->add($this->user->id, 'USD', 2500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill for the outage');
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 2500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill for the outage');
         $invoice = $this->invoice(100);
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 100.00, null, 'pi_exact', currency: 'USD');
         $payment = MoneyEvent::query()->where('kind', 'payment')->sole();
         $credit = MoneyEvent::query()->where('kind', 'credit_in')->sole();
 
-        $this->livewireAs($owner)->test(ShowCreditHistory::class, ['record' => $this->user->getKey()])
+        $this->livewireAs($owner)->test(ShowCreditHistory::class, ['record' => $this->user->client()->getKey()])
             ->assertSuccessful()
             ->assertCanSeeTableRecords([$credit])
             ->assertCanNotSeeTableRecords([$payment])
@@ -158,9 +158,9 @@ class MoneyHistoryTest extends TestCase
         Setting::query()->updateOrCreate(['key' => 'credits_enabled', 'settingable_type' => null], ['value' => true, 'type' => 'boolean']);
         $staff = $this->owner();
         $this->actingAs($staff);
-        (new CreditLedger)->add($this->user->id, 'USD', 2500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Internal: angry customer');
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 2500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Internal: angry customer');
         $other = User::factory()->create();
-        (new CreditLedger)->add($other->id, 'USD', 77700, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Other customer');
+        (new CreditLedger)->add($other->client()->id, 'USD', 77700, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Other customer');
         $own = $this->invoice(10);
         (new RecordPaymentService)->payWithCredit($own);
 

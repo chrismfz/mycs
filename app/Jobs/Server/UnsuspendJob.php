@@ -44,6 +44,6 @@ class UnsuspendJob implements ShouldQueue
         }
 
         // WHMCS's «Service Unsuspension Notification» (sent at both companies).
-        NotificationHelper::serverUnsuspendedNotification($this->service->user, $this->service, is_array($data) ? $data : []);
+        NotificationHelper::serverUnsuspendedNotification($this->service->client, $this->service, is_array($data) ? $data : []);
     }
 }

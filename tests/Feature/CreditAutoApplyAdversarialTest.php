@@ -2,11 +2,12 @@
 
 namespace Tests\Feature;
 
-use App\Admin\Resources\UserResource\Pages\EditUser;
+use App\Admin\Resources\ClientResource\Pages\EditClient;
 use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Client\Credits;
+use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -64,7 +65,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
 
     private function invoice(float $price = 100, string $due = '+7 days', ?string $reference = null, ?int $referenceId = null, ?User $user = null, string $currency = 'USD'): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => ($user ?? $this->user)->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => $currency, 'due_at' => now()->modify($due)]);
+        $invoice = Invoice::factory()->create(['client_id' => ($user ?? $this->user)->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => $currency, 'due_at' => now()->modify($due)]);
         $invoice->items()->create(array_filter(['description' => 'Line', 'quantity' => 1, 'price' => $price,
             'reference_type' => $reference, 'reference_id' => $referenceId], fn ($value) => $value !== null));
 
@@ -75,19 +76,19 @@ class CreditAutoApplyAdversarialTest extends TestCase
     {
         $product = $this->createProduct();
 
-        return Service::factory()->create(array_merge(['user_id' => ($user ?? $this->user)->id, 'plan_id' => $product->plan->id,
+        return Service::factory()->create(array_merge(['client_id' => ($user ?? $this->user)->client()->id, 'plan_id' => $product->plan->id,
             'product_id' => $product->product->id, 'status' => 'active', 'currency_code' => 'USD', 'price' => 10,
             'expires_at' => now()->addMonth()], $attributes));
     }
 
     private function giveCredit(int $cents, ?User $user = null, string $currency = 'USD'): void
     {
-        (new CreditLedger)->add(($user ?? $this->user)->id, $currency, $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
+        (new CreditLedger)->add(($user ?? $this->user)->client()->id, $currency, $cents, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
     }
 
     private function balanceCents(?User $user = null, string $currency = 'USD'): int
     {
-        return (new CreditLedger)->balanceCents(($user ?? $this->user)->id, $currency);
+        return (new CreditLedger)->balanceCents(($user ?? $this->user)->client()->id, $currency);
     }
 
     private function creditPayments(Invoice $invoice): int
@@ -120,7 +121,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
             if ($invoice->status !== Invoice::STATUS_UNPAID) {
                 $why[] = 'status ' . $invoice->status;
             }
-            if (!(bool) User::query()->whereKey($invoice->user_id)->value('credit_auto_apply')) {
+            if (!(bool) Client::query()->whereKey($invoice->client_id)->value('credit_auto_apply')) {
                 $why[] = 'opted out';
             }
             if ($invoice->items()->where('reference_type', Credit::class)->exists()) {
@@ -157,7 +158,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
-        $renewal = Invoice::query()->whereKeyNot($overdue->id)->where('user_id', $this->user->id)->sole();
+        $renewal = Invoice::query()->whereKeyNot($overdue->id)->where('client_id', $this->user->client()->id)->sole();
         $this->assertSame(Invoice::STATUS_PAID, $overdue->fresh()->status,
             'credit paid the new renewal (due ' . $renewal->due_at . ', ' . $this->creditPayments($renewal) . ' credit payment) instead of the overdue invoice');
         $this->assertSame('active', $overdueService->fresh()->status, 'suspended although its credit covered the overdue invoice');
@@ -176,7 +177,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
         $this->artisan('app:cron-job')->assertExitCode(0);
         $this->artisan('app:cron-job')->assertExitCode(0);
 
-        $invoice = Invoice::query()->where('user_id', $this->user->id)->sole();
+        $invoice = Invoice::query()->where('client_id', $this->user->client()->id)->sole();
         $this->assertSame(Invoice::STATUS_PAID, $invoice->status);
         $this->assertSame($expires->copy()->addMonth()->toDateString(), $service->fresh()->expires_at->toDateString());
         $this->assertSame(4000, $this->balanceCents());
@@ -194,7 +195,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
-        $invoice = Invoice::query()->where('user_id', $this->user->id)->sole();
+        $invoice = Invoice::query()->where('client_id', $this->user->client()->id)->sole();
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->status);
         $this->assertSame(6.0, $invoice->remaining);
         $this->assertSame($expires, $service->fresh()->expires_at->toDateString());
@@ -254,11 +255,11 @@ class CreditAutoApplyAdversarialTest extends TestCase
         $this->giveCredit(5000);
         InvoiceTransaction::created(function (InvoiceTransaction $transaction) use ($first) {
             if ((int) $transaction->invoice_id === $first->id) {
-                DB::table('users')->where('id', $this->user->id)->update(['credit_auto_apply' => false]);
+                DB::table('clients')->where('id', $this->user->client()->id)->update(['credit_auto_apply' => false]);
             }
         });
 
-        (new CreditAutoApply)->forCustomer($this->user->id, 'USD');
+        (new CreditAutoApply)->forCustomer($this->user->client()->id, 'USD');
 
         $this->assertSame(Invoice::STATUS_PAID, $first->fresh()->status);
         $this->assertSame(0, $this->creditPayments($second));
@@ -280,7 +281,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
             }
         });
 
-        (new CreditAutoApply)->forCustomer($this->user->id, 'USD');
+        (new CreditAutoApply)->forCustomer($this->user->client()->id, 'USD');
 
         $this->assertSame(1, $this->creditPayments($first));
         $this->assertSame(0, $this->creditPayments($second));
@@ -339,7 +340,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
         // 50 of credit from an overpayment, 10 spent at once on $open, the 40 left taken by staff; the payment deleted: -50 owed.
         ExtensionHelper::addPayment($overpaid->id, 'Stripe', 150, null, 'pi_neg', currency: 'USD');
         $this->assertSame(4000, $this->balanceCents());
-        (new CreditLedger)->remove($this->user->id, 'USD', 4000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
+        (new CreditLedger)->remove($this->user->client()->id, 'USD', 4000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
         (new RecordPaymentService)->deleteTransaction($overpaid->transactions()->where('transaction_id', 'pi_neg')->sole(), allowNegativeCredit: true);
         $this->assertSame(-5000, $this->balanceCents());
 
@@ -362,7 +363,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
     {
         $overpaid = $this->invoice(100, '+10 days');
         ExtensionHelper::addPayment($overpaid->id, 'Stripe', 150, null, 'pi_debt', currency: 'USD');
-        (new CreditLedger)->remove($this->user->id, 'USD', 5000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
+        (new CreditLedger)->remove($this->user->client()->id, 'USD', 5000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Test');
         (new RecordPaymentService)->deleteTransaction($overpaid->transactions()->sole(), allowNegativeCredit: true);
         $this->assertSame(-5000, $this->balanceCents());
         $third = $this->invoice(30, '+2 days');
@@ -397,7 +398,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
     /** Held: an opted-out customer's overpayment stays credit. */
     public function test_an_opted_out_overpayment_stays_credit(): void
     {
-        $this->user->forceFill(['credit_auto_apply' => false])->save();
+        $this->user->client()->forceFill(['credit_auto_apply' => false])->save();
         $paid = $this->invoice(100);
         $other = $this->invoice(30, '+1 day');
 
@@ -483,8 +484,8 @@ class CreditAutoApplyAdversarialTest extends TestCase
         $partial = $this->invoice(100, '+2 days');
         $this->giveCredit(5000);
 
-        (new CreditAutoApply)->forCustomer($this->user->id, 'USD');
-        (new CreditAutoApply)->forCustomer($this->user->id, 'USD'); // nothing left: nothing more is said
+        (new CreditAutoApply)->forCustomer($this->user->client()->id, 'USD');
+        (new CreditAutoApply)->forCustomer($this->user->client()->id, 'USD'); // nothing left: nothing more is said
 
         $this->assertSame(Invoice::STATUS_PAID, $paidInFull->fresh()->status);
         $note = Notification::query()->where('user_id', $this->user->id)->where('title', 'Account credit applied')->sole();
@@ -540,8 +541,8 @@ class CreditAutoApplyAdversarialTest extends TestCase
 
         Livewire::test(Credits::class)->set('autoApply', false)->set('autoApply', true)->set('autoApply', false);
 
-        $this->assertFalse($this->user->fresh()->credit_auto_apply);
-        $this->assertTrue($victim->fresh()->credit_auto_apply);
+        $this->assertFalse($this->user->client()->fresh()->credit_auto_apply);
+        $this->assertTrue($victim->client()->fresh()->credit_auto_apply);
     }
 
     #[RunInSeparateProcess]
@@ -553,29 +554,31 @@ class CreditAutoApplyAdversarialTest extends TestCase
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
-        $this->livewireAs($owner)->test(EditUser::class, ['record' => $this->user->getRouteKey()])
+        $this->livewireAs($owner)->test(EditClient::class, ['record' => $this->user->client()->getRouteKey()])
             ->assertFormSet(['credit_auto_apply' => true])
             ->fillForm(['credit_auto_apply' => false])
             ->call('save')
             ->assertHasNoFormErrors();
 
-        $this->assertFalse($this->user->fresh()->credit_auto_apply);
+        $this->assertFalse($this->user->client()->fresh()->credit_auto_apply);
     }
 
     /** Held: the migration goes down and up, and its template is there once, also after the seeder. */
     public function test_the_migration_goes_down_and_up_with_one_template(): void
     {
         $migration = require base_path('database/migrations/2026_10_18_000000_credit_auto_apply.php');
+        $clientId = $this->user->client()->id;
 
         $migration->down();
-        $this->assertFalse(Schema::hasColumn('users', 'credit_auto_apply'));
+        // The flag is the account's since PR 2a: the migration replayed now changes the clients table.
+        $this->assertFalse(Schema::hasColumn('clients', 'credit_auto_apply'));
         $this->assertSame(0, DB::table('notification_templates')->where('key', 'credit_applied')->count());
 
         $migration->up();
         (new EmailTemplateSeeder)->run();
-        $this->assertTrue(Schema::hasColumn('users', 'credit_auto_apply'));
+        $this->assertTrue(Schema::hasColumn('clients', 'credit_auto_apply'));
         $this->assertSame(1, DB::table('notification_templates')->where('key', 'credit_applied')->count());
-        $this->assertTrue((bool) DB::table('users')->where('id', $this->user->id)->value('credit_auto_apply'));
+        $this->assertTrue((bool) DB::table('clients')->where('id', $clientId)->value('credit_auto_apply'));
     }
 
     /**
@@ -680,7 +683,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
                         $log[] = 'credit +';
                         break;
                     case 7:
-                        $user->forceFill(['credit_auto_apply' => !$user->fresh()->credit_auto_apply])->save();
+                        $user->client()->forceFill(['credit_auto_apply' => !$user->client()->fresh()->credit_auto_apply])->save();
                         $log[] = 'flip opt-out ' . $user->id;
                         break;
                     case 8: case 9:
@@ -735,14 +738,14 @@ class CreditAutoApplyAdversarialTest extends TestCase
             return;
         }
         foreach ($users as $user) {
-            if (!$user->fresh()->credit_auto_apply) {
+            if (!$user->client()->fresh()->credit_auto_apply) {
                 continue;
             }
             foreach (['USD', 'EUR'] as $currency) {
                 if ($this->balanceCents($user, $currency) <= 0) {
                     continue;
                 }
-                $open = Invoice::query()->where('user_id', $user->id)->where('currency_code', $currency)->where('status', Invoice::STATUS_UNPAID)->get()
+                $open = Invoice::query()->where('client_id', $user->client()->id)->where('currency_code', $currency)->where('status', Invoice::STATUS_UNPAID)->get()
                     ->filter(fn (Invoice $invoice) => $invoice->remaining > 0 && CreditAutoApply::eligible($invoice));
                 $this->assertSame([], $open->pluck('id')->all(), "credit left unused for user {$user->id} {$currency}\n" . implode("\n", array_slice($log, -12)));
             }

@@ -12,6 +12,8 @@ use LogicException;
 /**
  * One money movement (docs/money-trail.md §1). Append-only: written only by App\Services\Money\MoneyTrail, inside
  * the transaction of the movement itself, and never updated or deleted. A mistake is undone by a reversal.
+ *
+ * @property int|null $client_id
  */
 class MoneyEvent extends Model
 {
@@ -21,7 +23,7 @@ class MoneyEvent extends Model
         'kind',
         'amount',
         'currency_code',
-        'user_id',
+        'client_id',
         'invoice_id',
         'invoice_transaction_id',
         'credit_balance_after',
@@ -62,10 +64,10 @@ class MoneyEvent extends Model
         static::deleting(fn () => throw new LogicException('Money events are append-only: write a reversal instead.'));
     }
 
-    /** @return BelongsTo<User, $this> */
-    public function user(): BelongsTo
+    /** @return BelongsTo<Client, $this> */
+    public function client(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(Client::class);
     }
 
     /** @return BelongsTo<Invoice, $this> */

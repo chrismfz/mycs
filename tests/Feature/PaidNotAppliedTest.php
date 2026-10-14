@@ -51,14 +51,14 @@ class PaidNotAppliedTest extends TestCase
         $product = $this->createProduct();
 
         return Service::factory()->create([
-            'user_id' => User::factory()->create()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1, 'expires_at' => '2026-10-15',
         ]);
     }
 
     private function renewal(Service $service): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-15',
+        $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-15',
             'created_at' => '2026-10-08']);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => 10]);
 
@@ -139,7 +139,7 @@ class PaidNotAppliedTest extends TestCase
     public function test_imported_and_older_paid_invoices_are_never_applied_again(): void
     {
         $service = $this->service();
-        $id = DB::table('invoices')->insertGetId(['user_id' => $service->user_id, 'status' => 'paid', 'currency_code' => 'USD',
+        $id = DB::table('invoices')->insertGetId(['client_id' => $service->client_id, 'status' => 'paid', 'currency_code' => 'USD',
             'due_at' => '2026-09-15', 'created_at' => '2026-09-08', 'updated_at' => '2026-09-08']);
         DB::table('invoice_items')->insert(['invoice_id' => $id, 'reference_type' => Service::class, 'reference_id' => $service->id,
             'description' => 'WHMCS renewal', 'quantity' => 1, 'price' => 10, 'created_at' => now(), 'updated_at' => now()]);
@@ -168,7 +168,7 @@ class PaidNotAppliedTest extends TestCase
         $service = $this->service();
         $target = $this->createProduct();
         $upgrade = ServiceUpgrade::query()->create(['service_id' => $service->id, 'plan_id' => $target->plan->id, 'product_id' => $target->product->id]);
-        $id = DB::table('invoices')->insertGetId(['user_id' => $service->user_id, 'status' => 'paid', 'currency_code' => 'USD',
+        $id = DB::table('invoices')->insertGetId(['client_id' => $service->client_id, 'status' => 'paid', 'currency_code' => 'USD',
             'due_at' => '2026-10-19', 'created_at' => '2026-10-19', 'updated_at' => '2026-10-19', 'apply_pending_since' => '2026-10-19 12:00:00']);
         DB::table('invoice_items')->insert(['invoice_id' => $id, 'reference_type' => ServiceUpgrade::class, 'reference_id' => $upgrade->id,
             'description' => 'Upgrade', 'quantity' => 1, 'price' => 5, 'created_at' => now(), 'updated_at' => now()]);

@@ -3,7 +3,7 @@
 namespace App\Admin\Resources;
 
 use App\Admin\Clusters\InvoiceCluster;
-use App\Admin\Components\UserComponent;
+use App\Admin\Components\ClientComponent;
 use App\Admin\Resources\InvoiceResource\Pages\CreateInvoice;
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Admin\Resources\InvoiceResource\Pages\ListInvoices;
@@ -67,7 +67,7 @@ class InvoiceResource extends Resource
     {
         return $schema
             ->components([
-                UserComponent::make('user_id'),
+                ClientComponent::make('client_id'),
                 TextInput::make('number')
                     ->label('Invoice Number')
                     ->helperText('The invoice number will be generated automatically')
@@ -159,6 +159,8 @@ class InvoiceResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            // The account's name is its owner's (until the contacts, PR 3): loaded with the rows, not per row.
+            ->modifyQueryUsing(fn (Builder $query) => $query->with('client.ownerGrant.user'))
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -167,9 +169,9 @@ class InvoiceResource extends Resource
                 TextColumn::make('number')
                     ->searchable()
                     ->sortable(),
-                TextColumn::make('user.name')
-                    ->label('User')
-                    ->searchable(true, fn (Builder $query, string $search) => $query->whereHas('user', fn (Builder $query) => $query->where('first_name', 'like', "%$search%")->orWhere('last_name', 'like', "%$search%"))),
+                TextColumn::make('client.name')
+                    ->label('Client')
+                    ->searchable(true, fn (Builder $query, string $search) => $query->whereHas('client.users', fn (Builder $query) => $query->where('first_name', 'like', "%$search%")->orWhere('last_name', 'like', "%$search%"))),
                 TextColumn::make('status')
                     ->label('Status')
                     ->formatStateUsing(fn (string $state): string => Invoice::statusLabel($state))

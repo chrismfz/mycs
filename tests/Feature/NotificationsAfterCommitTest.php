@@ -47,7 +47,7 @@ class NotificationsAfterCommitTest extends TestCase
     private function invoice(array $attributes = []): Invoice
     {
         return Invoice::factory()->create(array_merge([
-            'user_id' => User::factory()->create()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addDays(7),
+            'client_id' => User::factory()->create()->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addDays(7),
         ], $attributes));
     }
 
@@ -86,8 +86,8 @@ class NotificationsAfterCommitTest extends TestCase
 
         DB::transaction(function () use (&$fired) {
             $user = User::factory()->create();
-            $this->invoice(['user_id' => $user->id]);
-            Order::query()->create(['user_id' => $user->id, 'currency_code' => 'USD']);
+            $this->invoice(['client_id' => $user->client()->id]);
+            Order::query()->create(['client_id' => $user->client()->id, 'currency_code' => 'USD']);
             $this->assertSame([], $fired, 'announced before the commit');
         });
 
@@ -130,9 +130,9 @@ class NotificationsAfterCommitTest extends TestCase
     {
         MailFacade::fake();
         $user = User::factory()->create(['password' => 'a-password']);
-        $invoice = $this->invoice(['user_id' => $user->id]);
+        $invoice = $this->invoice(['client_id' => $user->client()->id]);
 
-        NotificationHelper::invoiceCreatedNotification($user, $invoice);
+        NotificationHelper::invoiceCreatedNotification($user->client(), $invoice);
 
         MailFacade::assertQueued(Mail::class, function (Mail $mail) use ($user) {
             $payload = serialize($mail);
@@ -165,7 +165,7 @@ class NotificationsAfterCommitTest extends TestCase
 
         $transaction = ExtensionHelper::addFailedPayment($invoice->id, 'Stripe', 10, null, 'pi_failed');
         $transaction->update(['fee' => 0.30]); // a later save of the same failed transaction
-        NotificationHelper::invoicePaymentFailedNotification($invoice->user, $invoice); // the cron's catch, same attempt
+        NotificationHelper::invoicePaymentFailedNotification($invoice->client, $invoice); // the cron's catch, same attempt
 
         $this->assertSame(InvoiceTransactionStatus::Failed, $transaction->fresh()->status);
         $this->assertCount(1, MailFacade::queued(Mail::class, fn (Mail $mail) => $mail->templateKey === 'invoice_payment_failed'));

@@ -22,7 +22,7 @@ class ServiceController extends ApiController
     protected const INCLUDES = [
         'order',
         'coupon',
-        'user',
+        'client',
         'product',
         'invoices',
         'properties',

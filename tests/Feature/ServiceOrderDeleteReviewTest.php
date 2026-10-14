@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Admin\Resources\OrderResource\Pages\ListOrders;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
+use App\Models\Client;
 use App\Models\EmailLog;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -59,17 +60,17 @@ class ServiceOrderDeleteReviewTest extends TestCase
     {
         $product = $this->createProduct(['stock' => 5]);
         $user = User::factory()->create();
-        $order = Order::query()->create(['user_id' => $user->id, 'currency_code' => 'USD']);
+        $order = Order::query()->create(['client_id' => $user->client()->id, 'currency_code' => 'USD']);
 
         return Service::factory()->create(array_merge([
-            'user_id' => $user->id, 'order_id' => $order->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => $user->client()->id, 'order_id' => $order->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1, 'expires_at' => '2026-11-15',
         ], $attributes));
     }
 
     private function renewal(Service $service): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $service->user_id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => '2026-11-15']);
+        $invoice = Invoice::factory()->create(['client_id' => $service->client_id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => '2026-11-15']);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal',
             'quantity' => 1, 'price' => 10, 'period_start' => '2026-11-15', 'period_end' => '2026-12-15']);
 
@@ -207,15 +208,15 @@ class ServiceOrderDeleteReviewTest extends TestCase
         $service = $this->service(['status' => Service::STATUS_PENDING]);
 
         try {
-            User::query()->findOrFail($service->user_id)->delete();
+            Client::query()->findOrFail($service->client_id)->delete();
         } catch (DisplayException) {
-            $this->assertNotNull(User::find($service->user_id));
+            $this->assertNotNull(Client::find($service->client_id));
 
             return; // refused with a reason: fine
         } catch (QueryException $e) {
             $this->fail('a raw foreign-key error: ' . $e->getMessage());
         }
-        $this->assertNull(User::find($service->user_id));
+        $this->assertNull(Client::find($service->client_id));
         $this->assertNull(Order::find($service->order_id));
     }
 

@@ -4,6 +4,7 @@ namespace App\Admin\Resources\OrderResource\Pages;
 
 use App\Admin\Resources\OrderResource;
 use App\Models\Invoice;
+use App\Models\Order;
 use App\Services\Invoice\RecordPaymentService;
 use Filament\Resources\Pages\CreateRecord;
 
@@ -19,9 +20,11 @@ class CreateOrder extends CreateRecord
 
     protected function afterCreate(): void
     {
+        /** @var Order $order */
+        $order = $this->record;
         $invoice = new Invoice([
-            'user_id' => $this->record->user_id,
-            'currency_code' => $this->record->currency_code,
+            'client_id' => $order->client_id,
+            'currency_code' => $order->currency_code,
             'due_at' => now()->addDays(7),
             'status' => config('settings.immutable_invoices_enabled', false) ? Invoice::STATUS_DRAFT : Invoice::STATUS_UNPAID,
         ]);

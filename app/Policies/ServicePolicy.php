@@ -21,7 +21,7 @@ class ServicePolicy extends BasePolicy
      */
     public function view(User|Staff $user, Service $service): bool
     {
-        return $this->adminPermission($user, 'admin.services.viewAny', $this->owns($user, $service->user_id));
+        return $this->adminPermission($user, 'admin.services.viewAny', $this->owns($user, $service->client_id));
     }
 
     /**
@@ -37,7 +37,7 @@ class ServicePolicy extends BasePolicy
      */
     public function update(User|Staff $user, Service $service): bool
     {
-        return $this->adminPermission($user, 'admin.services.update', $this->owns($user, $service->user_id));
+        return $this->adminPermission($user, 'admin.services.update', $this->owns($user, $service->client_id));
     }
 
     /**

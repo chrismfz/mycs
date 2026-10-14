@@ -20,7 +20,7 @@ class InvoiceController extends ApiController
 {
     protected const INCLUDES = [
         'items',
-        'user',
+        'client',
     ];
 
     /**
@@ -32,7 +32,7 @@ class InvoiceController extends ApiController
     {
         // Fetch invoices with pagination
         $invoices = QueryBuilder::for(Invoice::class)
-            ->allowedFilters(['id', 'currency_code', 'user_id', 'status'])
+            ->allowedFilters(['id', 'currency_code', 'client_id', 'status'])
             ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
             ->allowedSorts(['id', 'created_at', 'updated_at', 'currency_code'])
             ->simplePaginate(min(max((int) request('per_page', 15), 1), 100));
@@ -75,7 +75,7 @@ class InvoiceController extends ApiController
     {
         $data = $request->validated();
         // An invoice with payments keeps its customer and currency (InvoiceObserver::updating, docs/money-trail.md §8).
-        $moves = (array_key_exists('user_id', $data) && (int) $data['user_id'] !== (int) $invoice->user_id)
+        $moves = (array_key_exists('client_id', $data) && (int) $data['client_id'] !== (int) $invoice->client_id)
             || (array_key_exists('currency_code', $data) && $data['currency_code'] !== $invoice->currency_code);
         if ($moves && $invoice->hasPayments()) {
             abort(422, 'An invoice with payments keeps its customer and currency: delete its payments first (a refunded payment keeps the invoice where it is).');

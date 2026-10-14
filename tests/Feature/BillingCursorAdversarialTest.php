@@ -48,7 +48,7 @@ class BillingCursorAdversarialTest extends TestCase
         }
 
         return Service::factory()->create(array_merge([
-            'user_id' => $this->user->id,
+            'client_id' => $this->user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'active',
@@ -61,7 +61,7 @@ class BillingCursorAdversarialTest extends TestCase
     /** @param array<int, array{0: ?string, 1: ?string}> $periods */
     private function invoiceWith(Service $service, array $periods, string $status = 'unpaid'): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
         foreach ($periods as [$start, $end]) {
             $invoice->items()->create([
                 'reference_id' => $service->id,

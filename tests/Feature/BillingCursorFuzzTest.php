@@ -171,7 +171,7 @@ class BillingCursorFuzzTest extends TestCase
         $product = $this->createProduct();
         Plan::query()->whereKey($product->plan->id)->update(['billing_unit' => $this->unit, 'billing_period' => 1]);
         $this->service = Service::factory()->create([
-            'user_id' => $this->user->id,
+            'client_id' => $this->user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'active',
@@ -628,7 +628,7 @@ class BillingCursorFuzzTest extends TestCase
     private function invoiceFor(?string $start, ?string $end, string $status = 'unpaid', ?Service $service = null): Invoice
     {
         $service ??= $this->service;
-        $invoice = Invoice::factory()->create(['user_id' => $this->user->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => $status === Invoice::STATUS_PAID ? Invoice::STATUS_UNPAID : $status, 'currency_code' => 'USD']);
         $invoice->items()->create([
             'reference_id' => $service->id,
             'reference_type' => Service::class,
@@ -678,7 +678,7 @@ class BillingCursorFuzzTest extends TestCase
         Plan::query()->whereKey($product->plan->id)->update(['billing_unit' => $unit, 'billing_period' => 1]);
 
         return $this->service = Service::factory()->create(array_merge([
-            'user_id' => $this->user->id,
+            'client_id' => $this->user->client()->id,
             'plan_id' => $product->plan->id,
             'product_id' => $product->product->id,
             'status' => 'active',

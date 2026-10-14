@@ -22,9 +22,9 @@ use OwenIt\Auditing\Models\Audit;
 class MoneyHistory
 {
     /** The events that moved a customer's credit (each has the balance after it), newest first. */
-    public static function creditEvents(int $userId): Builder
+    public static function creditEvents(int $clientId): Builder
     {
-        return MoneyEvent::query()->where('user_id', $userId)->whereNotNull('credit_balance_after')
+        return MoneyEvent::query()->where('client_id', $clientId)->whereNotNull('credit_balance_after')
             ->with('reverses')->orderByDesc('id');
     }
 

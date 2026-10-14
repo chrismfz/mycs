@@ -60,7 +60,7 @@ class PaidNotAppliedReReviewTest extends TestCase
         $product = $this->createProduct();
 
         return Service::factory()->create([
-            'user_id' => ($user ?? User::factory()->create())->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'client_id' => ($user ?? User::factory()->create())->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10.00, 'quantity' => 1, 'expires_at' => '2026-10-15',
         ]);
     }
@@ -68,7 +68,7 @@ class PaidNotAppliedReReviewTest extends TestCase
     /** @param  Service[]  $services */
     private function renewal(array $services): Invoice
     {
-        $invoice = Invoice::factory()->create(['user_id' => $services[0]->user_id, 'status' => 'unpaid', 'currency_code' => 'USD',
+        $invoice = Invoice::factory()->create(['client_id' => $services[0]->client_id, 'status' => 'unpaid', 'currency_code' => 'USD',
             'due_at' => '2026-10-15', 'created_at' => '2026-10-08']);
         foreach ($services as $service) {
             $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => 10]);
@@ -120,7 +120,7 @@ class PaidNotAppliedReReviewTest extends TestCase
         $this->failRenewal = false;
 
         $this->assertNotNull($invoice->fresh()->apply_pending_since, 'precondition: still pending');
-        $billed = Invoice::query()->where('user_id', $user->id)->where('status', 'unpaid')
+        $billed = Invoice::query()->where('client_id', $user->client()->id)->where('status', 'unpaid')
             ->whereHas('items', fn ($q) => $q->where('reference_type', Service::class)->where('reference_id', $healthy->id))->exists();
         $this->assertTrue($billed || $healthy->fresh()->status === Service::STATUS_SUSPENDED,
             'healthy service 10 days past its paid period: neither billed nor suspended');
@@ -143,7 +143,7 @@ class PaidNotAppliedReReviewTest extends TestCase
         $this->failRenewal = false;
 
         $this->assertNotNull($invoice->fresh()->apply_pending_since);
-        $billed = Invoice::query()->where('user_id', $service->user_id)->where('status', 'unpaid')->exists();
+        $billed = Invoice::query()->where('client_id', $service->client_id)->where('status', 'unpaid')->exists();
         $this->assertTrue($billed || $service->fresh()->status !== Service::STATUS_ACTIVE,
             'three months of unpaid periods: still active and never billed');
     }
@@ -184,7 +184,7 @@ class PaidNotAppliedReReviewTest extends TestCase
         config(['settings.credits_enabled' => true]);
         $service = $this->service();
         $invoice = $this->renewal([$service]);
-        (new CreditLedger)->add($service->user_id, 'USD', 1000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'seed');
+        (new CreditLedger)->add($service->client_id, 'USD', 1000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'seed');
         $this->failRenewal = true;
         (new RecordPaymentService)->payWithCredit($invoice);
         $this->failRenewal = false;

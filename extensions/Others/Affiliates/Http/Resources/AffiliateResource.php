@@ -2,7 +2,7 @@
 
 namespace Paymenter\Extensions\Others\Affiliates\Http\Resources;
 
-use App\Http\Resources\UserResource;
+use App\Http\Resources\ClientResource;
 use App\Models\Affiliate;
 use TiMacDonald\JsonApi\JsonApiResource;
 
@@ -22,7 +22,7 @@ class AffiliateResource extends JsonApiResource
     ];
 
     public $relationships = [
-        'user' => UserResource::class,
+        'client' => ClientResource::class,
         'orders' => AffiliateOrderResource::class,
     ];
 }

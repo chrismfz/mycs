@@ -56,7 +56,7 @@ class ClientDraftsReviewTest extends TestCase
         $this->priced($child, 6.00);
         DB::table('config_option_products')->insert(['config_option_id' => $option->id, 'product_id' => $product->product->id]);
         $service = Service::factory()->create([
-            'user_id' => $this->user->id, 'product_id' => $product->product->id, 'plan_id' => $product->plan->id,
+            'client_id' => $this->user->client()->id, 'product_id' => $product->product->id, 'plan_id' => $product->plan->id,
             'status' => 'active', 'price' => $on ? 16.00 : 10.00, 'currency_code' => 'USD', 'expires_at' => now()->addDays(30),
         ]);
         if ($on) {
@@ -91,7 +91,7 @@ class ClientDraftsReviewTest extends TestCase
         $shown = round((float) $component->instance()->totalToday()->price, 2);
 
         $component->call('doUpgrade');
-        $invoice = Invoice::query()->where('user_id', $this->user->id)->latest('id')->first();
+        $invoice = Invoice::query()->where('client_id', $this->user->client()->id)->latest('id')->first();
         $charged = round((float) ($invoice?->items()->sum('price') ?? 0), 2);
 
         $this->assertGreaterThan(0, $charged, 'the ticked checkbox is charged');
@@ -105,7 +105,7 @@ class ClientDraftsReviewTest extends TestCase
         $text = ConfigOption::query()->create(['name' => 'Hostname', 'env_variable' => 'hostname', 'type' => 'text', 'upgradable' => true]);
         DB::table('config_option_products')->insert(['config_option_id' => $text->id, 'product_id' => $product->product->id]);
         $service = Service::factory()->create([
-            'user_id' => $this->user->id, 'product_id' => $product->product->id, 'plan_id' => $product->plan->id,
+            'client_id' => $this->user->client()->id, 'product_id' => $product->product->id, 'plan_id' => $product->plan->id,
             'status' => 'active', 'price' => 10.00, 'currency_code' => 'USD', 'expires_at' => now()->addDays(30),
         ]);
         $service->properties()->create(['key' => 'hostname', 'name' => 'Hostname', 'value' => 'host.example.test']);

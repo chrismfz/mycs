@@ -241,7 +241,7 @@ class Upgrade extends Component
                 // The difference of a downgrade becomes account credit, through the ledger (docs/money-trail.md §2).
                 $cents = RecordPaymentService::toCents(abs($price->price));
                 if ($cents > 0) {
-                    (new CreditLedger)->add((int) $service->user_id, $price->currency->code, $cents, MoneyTrail::CAUSE_DOWNGRADE, MoneyTrail::SOURCE_SYSTEM);
+                    (new CreditLedger)->add((int) $service->client_id, $price->currency->code, $cents, MoneyTrail::CAUSE_DOWNGRADE, MoneyTrail::SOURCE_SYSTEM);
                 }
 
                 DB::commit();
@@ -259,7 +259,7 @@ class Upgrade extends Component
                 'currency_code' => $service->currency_code,
                 'status' => Invoice::STATUS_UNPAID,
                 'due_at' => Carbon::now()->addDays(7),
-                'user_id' => $service->user_id,
+                'client_id' => $service->client_id,
             ]);
             $invoice->save();
 

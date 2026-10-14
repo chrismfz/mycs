@@ -13,6 +13,6 @@ class TicketMessageAttachmentPolicy extends BasePolicy
      */
     public function view(User|Staff $user, TicketMessageAttachment $attachment): bool
     {
-        return $user->hasPermission('admin.tickets.viewAny') || $this->owns($user, $attachment->ticketMessage->ticket->user_id);
+        return $user->hasPermission('admin.tickets.viewAny') || $this->owns($user, $attachment->ticketMessage->ticket->client_id);
     }
 }

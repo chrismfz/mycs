@@ -44,7 +44,7 @@ class UniqueKeysReviewTest extends TestCase
     public function test_the_importer_takes_a_service_with_two_whmcs_cancellation_requests(): void
     {
         $service = Service::factory()->create([
-            'user_id' => User::factory()->create()->id, 'plan_id' => ($p = $this->createProduct())->plan->id,
+            'client_id' => User::factory()->create()->client()->id, 'plan_id' => ($p = $this->createProduct())->plan->id,
             'product_id' => $p->product->id, 'currency_code' => 'USD', 'price' => 10,
         ]);
         $whmcs = new PDO('sqlite::memory:');

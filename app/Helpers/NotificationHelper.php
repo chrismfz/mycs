@@ -6,6 +6,7 @@ use App\Classes\PDF;
 use App\Classes\Price;
 use App\Mail\Mail;
 use App\Mail\SystemMail;
+use App\Models\Client;
 use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
@@ -28,6 +29,31 @@ use Throwable;
 
 class NotificationHelper
 {
+    /** The account a mail is about (docs/accounts.md, PR 2a): its email log is the account's. */
+    private static ?Client $account = null;
+
+    /**
+     * A notification about the account (invoice, service, ticket…): to its owner until the contacts (PR 3) choose
+     * the recipients per kind; none when the account has no owner left.
+     *
+     * @param  array<string, mixed>  $data
+     * @param  array<int, array<string, mixed>>  $attachments
+     */
+    private static function toAccount(Client $client, string $key, array $data, array $attachments = []): void
+    {
+        $owner = $client->owner();
+        if ($owner === null) {
+            return;
+        }
+        $previous = self::$account;
+        self::$account = $client;
+        try {
+            self::sendNotification($key, $data, $owner, $attachments);
+        } finally {
+            self::$account = $previous;
+        }
+    }
+
     /**
      * Send an email notification.
      */
@@ -42,7 +68,7 @@ class NotificationHelper
         $mail->locale(app()->getLocale());
 
         $emailLog = EmailLog::create([
-            'user_id' => $user->id,
+            'client_id' => self::$account?->id,
             'subject' => $mail->envelope()->subject,
             'to' => $user->email,
             'body' => $mail->render(),
@@ -148,7 +174,7 @@ class NotificationHelper
      * The language a customer's mails are written in. The company's default language for now; the customer's own when
      * the accounts work gives clients one (docs/accounts.md: `language`, imported from WHMCS).
      */
-    public static function localeFor(User $user): string
+    public static function localeFor(User|Client|null $recipient): string
     {
         return (string) config('settings.app_language', config('app.locale', 'en'));
     }
@@ -188,7 +214,7 @@ class NotificationHelper
     }
 
     /** @param  array<string, mixed>  $extra  more for the template (an overdue notice's days) */
-    public static function invoiceNotification(User $user, Invoice $invoice, $key = 'new_invoice_created', array $extra = []): void
+    public static function invoiceNotification(Client $client, Invoice $invoice, $key = 'new_invoice_created', array $extra = []): void
     {
         $data = $extra + [
             'invoice' => $invoice,
@@ -202,7 +228,7 @@ class NotificationHelper
         ];
 
         // Generate the invoice PDF, in the customer's language
-        $pdf = self::withLocale(self::localeFor($user), fn () => PDF::generateInvoice($invoice));
+        $pdf = self::withLocale(self::localeFor($client), fn () => PDF::generateInvoice($invoice));
         // Generate path
         if (!file_exists(storage_path('app/invoices'))) {
             // Create the directory if it doesn't exist
@@ -220,47 +246,47 @@ class NotificationHelper
             ],
         ];
 
-        self::sendNotification($key, $data, $user, $attachments);
+        self::toAccount($client, $key, $data, $attachments);
     }
 
-    public static function invoiceCreatedNotification(User $user, Invoice $invoice): void
+    public static function invoiceCreatedNotification(Client $client, Invoice $invoice): void
     {
-        self::invoiceNotification($user, $invoice, 'new_invoice_created');
+        self::invoiceNotification($client, $invoice, 'new_invoice_created');
     }
 
-    public static function invoicePaidNotification(User $user, Invoice $invoice): void
+    public static function invoicePaidNotification(Client $client, Invoice $invoice): void
     {
-        self::invoiceNotification($user, $invoice, 'invoice_paid');
+        self::invoiceNotification($client, $invoice, 'invoice_paid');
     }
 
     /** Account credit paid part of an invoice on its own (MT-1e): how much, and what is left to pay. */
-    public static function creditAppliedNotification(User $user, Invoice $invoice, InvoiceTransaction $transaction): void
+    public static function creditAppliedNotification(Client $client, Invoice $invoice, InvoiceTransaction $transaction): void
     {
         $price = new Price(['price' => 0, 'currency' => $invoice->currency]);
-        self::sendNotification('credit_applied', [
+        self::toAccount($client, 'credit_applied', [
             'invoice' => $invoice,
             'credit' => [
                 'applied' => $price->format((float) $transaction->amount),
                 'remaining' => $price->format(max(0, (float) $invoice->remaining)),
             ],
-        ], $user);
+        ]);
     }
 
     /**
      * A payment of the customer's went back (PR 2c-2, WHMCS's «Invoice Refund Confirmation»): to them (through the
      * gateway, or by hand) or to their account credit.
      */
-    public static function invoiceRefundedNotification(User $user, Invoice $invoice, int $cents, bool $toCredit, bool $byGateway): void
+    public static function invoiceRefundedNotification(Client $client, Invoice $invoice, int $cents, bool $toCredit, bool $byGateway): void
     {
         $price = new Price(['price' => 0, 'currency' => $invoice->currency]);
-        self::sendNotification('invoice_refunded', [
+        self::toAccount($client, 'invoice_refunded', [
             'invoice' => $invoice,
             'refund' => [
                 'amount' => $price->format($cents / 100),
                 'to_credit' => $toCredit,
                 'by_gateway' => $byGateway,
             ],
-        ], $user);
+        ]);
     }
 
     /**
@@ -268,14 +294,14 @@ class NotificationHelper
      * transaction for the same attempt (its webhook, minutes later) are one failure to the customer. A new attempt
      * later (another card) is mailed again. Not sent (the PDF or the mail failed): the key goes, so the retry sends it.
      */
-    public static function invoicePaymentFailedNotification(User $user, Invoice $invoice): void
+    public static function invoicePaymentFailedNotification(Client $client, Invoice $invoice): void
     {
         $key = "invoice:{$invoice->id}:payment-failed-mailed";
         if (!Cache::add($key, true, now()->addHour())) {
             return;
         }
         try {
-            self::invoiceNotification($user, $invoice, 'invoice_payment_failed');
+            self::invoiceNotification($client, $invoice, 'invoice_payment_failed');
         } catch (Throwable $e) {
             Cache::forget($key);
 
@@ -283,44 +309,44 @@ class NotificationHelper
         }
     }
 
-    public static function orderCreatedNotification(User $user, Order $order, array $data = []): void
+    public static function orderCreatedNotification(Client $client, Order $order, array $data = []): void
     {
         $data = [
             'order' => $order,
             'items' => $order->services,
             'total' => $order->formattedTotal,
         ];
-        self::sendNotification('new_order_created', $data, $user);
+        self::toAccount($client, 'new_order_created', $data);
     }
 
-    public static function serverCreatedNotification(User $user, Service $service, array $data = []): void
+    public static function serverCreatedNotification(Client $client, Service $service, array $data = []): void
     {
         $data['service'] = $service;
-        self::sendNotification('new_server_created', $data, $user);
+        self::toAccount($client, 'new_server_created', $data);
     }
 
-    public static function serverSuspendedNotification(User $user, Service $service, array $data = []): void
+    public static function serverSuspendedNotification(Client $client, Service $service, array $data = []): void
     {
         $data['service'] = $service;
-        self::sendNotification('server_suspended', $data, $user);
+        self::toAccount($client, 'server_suspended', $data);
     }
 
-    public static function serverUnsuspendedNotification(User $user, Service $service, array $data = []): void
+    public static function serverUnsuspendedNotification(Client $client, Service $service, array $data = []): void
     {
         $data['service'] = $service;
-        self::sendNotification('server_unsuspended', $data, $user);
+        self::toAccount($client, 'server_unsuspended', $data);
     }
 
-    public static function serverTerminatedNotification(User $user, Service $service, array $data = []): void
+    public static function serverTerminatedNotification(Client $client, Service $service, array $data = []): void
     {
         $data['service'] = $service;
-        self::sendNotification('server_terminated', $data, $user);
+        self::toAccount($client, 'server_terminated', $data);
     }
 
-    public static function ticketMessageNotification(User $user, TicketMessage $ticketMessage, array $data = []): void
+    public static function ticketMessageNotification(Client $client, TicketMessage $ticketMessage, array $data = []): void
     {
         $data['ticketMessage'] = $ticketMessage;
-        self::sendNotification('new_ticket_message', $data, $user);
+        self::toAccount($client, 'new_ticket_message', $data);
     }
 
     public static function emailVerificationNotification(User $user, array $data = []): void
@@ -343,10 +369,10 @@ class NotificationHelper
         self::sendNotification('password_reset', $data, $user);
     }
 
-    public static function serviceCancellationReceivedNotification(User $user, ServiceCancellation $cancellation, array $data = []): void
+    public static function serviceCancellationReceivedNotification(Client $client, ServiceCancellation $cancellation, array $data = []): void
     {
         $data['cancellation'] = $cancellation;
         $data['service'] = $cancellation->service;
-        self::sendNotification('service_cancellation_received', $data, $user);
+        self::toAccount($client, 'service_cancellation_received', $data);
     }
 }

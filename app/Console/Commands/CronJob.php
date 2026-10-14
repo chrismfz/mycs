@@ -651,7 +651,7 @@ class CronJob extends Command
 
         // Create invoice
         $invoice = $service->invoices()->make([
-            'user_id' => $service->user_id,
+            'client_id' => $service->client_id,
             'status' => Invoice::STATUS_UNPAID,
             'due_at' => $periodStart,
             'currency_code' => $service->currency_code,
@@ -695,7 +695,7 @@ class CronJob extends Command
                     if (!$e instanceof DisplayException) {
                         report($e);
                     }
-                    NotificationHelper::invoicePaymentFailedNotification($invoice->user, $invoice);
+                    NotificationHelper::invoicePaymentFailedNotification($invoice->client, $invoice);
                 }
             });
         }
