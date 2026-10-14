@@ -22,7 +22,6 @@ use Exception;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -523,10 +522,9 @@ class PayPal extends Gateway
             $currency = $body['resource']['dispute_amount']['currency_code'] ?? $disputed['gross_amount']['currency_code'] ?? null;
             if ($body['event_type'] === 'CUSTOMER.DISPUTE.CREATED') {
                 ExtensionHelper::chargebackOpened('PayPal', $captureId, (string) $body['resource']['dispute_id'], $amount, $currency);
-            } elseif (in_array($body['resource']['dispute_outcome']['outcome_code'] ?? null, ['RESOLVED_SELLER_FAVOUR', 'CANCELED_BY_BUYER'], true)
-                && $captureId !== '' && Cache::add('paypal-dispute-won:' . $body['resource']['dispute_id'], true, now()->addDays(180))) {
-                // Won (or withdrawn): a chargeback of that amount on the capture is undone, once per dispute.
-                ExtensionHelper::chargebackReversedAtGateway('PayPal', $captureId, null, $amount, $currency);
+            } elseif (in_array($body['resource']['dispute_outcome']['outcome_code'] ?? null, ['RESOLVED_SELLER_FAVOUR', 'CANCELED_BY_BUYER'], true) && $captureId !== '') {
+                // Won (or withdrawn): the capture's chargeback is undone, once per dispute (kept by its id).
+                ExtensionHelper::chargebackReversedAtGateway('PayPal', $captureId, null, $amount, $currency, (string) $body['resource']['dispute_id']);
             }
         } elseif ($body['event_type'] === 'PAYMENT.CAPTURE.REFUNDED' && isset($body['resource']['id'])) {
             // A refund made here or in PayPal's dashboard (PR 2c-2): recorded once, by its id. Its capture is the «up» link.

@@ -286,11 +286,13 @@ class Stripe extends Gateway
                     break;
                 }
                 $paymentIntent = is_string($dispute->payment_intent) ? $dispute->payment_intent : ($dispute->payment_intent->id ?? '');
-                match ($event->type) {
-                    'charge.dispute.created' => ExtensionHelper::chargebackOpened('Stripe', $paymentIntent, $dispute->id, $dispute->amount / 100, $dispute->currency ?? null),
-                    'charge.dispute.funds_withdrawn' => ExtensionHelper::chargebackAtGateway('Stripe', $paymentIntent, $dispute->id, $dispute->amount / 100, $dispute->currency ?? null),
-                    default => ExtensionHelper::chargebackReversedAtGateway('Stripe', $paymentIntent, $dispute->id, $dispute->amount / 100, $dispute->currency ?? null),
-                };
+                if ($event->type === 'charge.dispute.created') {
+                    ExtensionHelper::chargebackOpened('Stripe', $paymentIntent, $dispute->id, $dispute->amount / 100, $dispute->currency ?? null);
+                } elseif ($event->type === 'charge.dispute.funds_withdrawn') {
+                    ExtensionHelper::chargebackAtGateway('Stripe', $paymentIntent, $dispute->id, $dispute->amount / 100, $dispute->currency ?? null);
+                } else {
+                    ExtensionHelper::chargebackReversedAtGateway('Stripe', $paymentIntent, $dispute->id, $dispute->amount / 100, $dispute->currency ?? null);
+                }
                 break;
             case 'setup_intent.succeeded':
                 $setupIntent = $event->data->object; // contains a StripeSetupIntent

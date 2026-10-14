@@ -896,10 +896,13 @@ class ExtensionHelper
     public static function applyWaitingRefunds(string $gateway, string $paymentReference): void
     {
         GatewayRefund::query()->where('gateway', $gateway)->where('payment_reference', $paymentReference)
-            ->where('origin', GatewayRefund::ORIGIN_WAITING)->orderBy('id')->get()
+            ->whereIn('origin', [GatewayRefund::ORIGIN_WAITING, GatewayRefund::ORIGIN_CHARGEBACK_WAITING])->orderBy('id')->get()
             ->each(function (GatewayRefund $waiting) use ($gateway, $paymentReference) {
                 try {
-                    self::refundedAtGateway($gateway, $paymentReference, $waiting->reference, (float) $waiting->amount, $waiting->currency_code !== '' ? $waiting->currency_code : null);
+                    $currency = $waiting->currency_code !== '' ? $waiting->currency_code : null;
+                    $waiting->origin === GatewayRefund::ORIGIN_CHARGEBACK_WAITING
+                        ? self::chargebackAtGateway($gateway, $paymentReference, $waiting->reference, (float) $waiting->amount, $currency)
+                        : self::refundedAtGateway($gateway, $paymentReference, $waiting->reference, (float) $waiting->amount, $currency);
                 } catch (\Throwable $e) {
                     report($e); // it keeps waiting: the next payment event or the gateway's retry applies it
                 }
@@ -941,7 +944,8 @@ class ExtensionHelper
         // Refunded by hand here first (WHMCS's habit: refund in the dashboard, then record it): the same money, matched to
         // it rather than recorded twice. Only a whole match; staff check it either way (F1).
         $byHand = (int) MoneyEvent::query()->where('kind', MoneyEventKind::Refund->value)->where('invoice_transaction_id', $payment->id)
-            ->where('source', MoneyTrail::SOURCE_LOCAL)->get()->sum(fn (MoneyEvent $event) => RecordPaymentService::toCents($event->amount));
+            ->where('source', MoneyTrail::SOURCE_LOCAL)->where(fn ($query) => $query->whereNull('cause')->orWhere('cause', '!=', MoneyTrail::CAUSE_CHARGEBACK))
+            ->get()->sum(fn (MoneyEvent $event) => RecordPaymentService::toCents($event->amount));
         $matched = (int) GatewayRefund::query()->where('invoice_transaction_id', $payment->id)->where('origin', GatewayRefund::ORIGIN_HAND)
             ->get()->sum(fn (GatewayRefund $refund) => RecordPaymentService::toCents($refund->amount));
         if ($byHand - $matched >= $cents) {
@@ -1036,7 +1040,15 @@ class ExtensionHelper
             'amount' => $amount, 'currency_code' => $currency !== null ? strtoupper($currency) : null, 'external_id' => $disputeReference,
             'invoice_id' => $payment?->invoice_id, 'invoice_transaction_id' => $payment?->id,
         ]);
-        if ($payment === null || !Cache::add('gateway-dispute-opened:' . $gateway . ':' . $disputeReference, true, now()->addDays(120))) {
+        if ($payment === null) {
+            return;
+        }
+        // Kept (reference «opened:<id>»): told once, and a won PayPal dispute knows how many disputes the payment had.
+        try {
+            GatewayRefund::create(['invoice_transaction_id' => $payment->id, 'gateway' => $gateway, 'reference' => 'opened:' . $disputeReference,
+                'payment_reference' => $payment->transaction_id, 'amount' => RecordPaymentService::toCents($amount) / 100,
+                'currency_code' => strtoupper((string) ($currency ?? '')), 'recorded_amount' => 0, 'origin' => GatewayRefund::ORIGIN_DISPUTE]);
+        } catch (UniqueConstraintViolationException) {
             return;
         }
         NotificationHelper::sendSystemEmailNotification('Payment disputed at the gateway', e(
@@ -1067,22 +1079,19 @@ class ExtensionHelper
 
             return false;
         }
-        if (GatewayRefund::query()->where('gateway', $gateway)->where('reference', $chargebackReference)->exists()) {
+        if (GatewayRefund::query()->where('gateway', $gateway)->where('reference', $chargebackReference)
+            ->where('origin', '!=', GatewayRefund::ORIGIN_CHARGEBACK_WAITING)->exists()) {
             $log(PaymentGatewayEvent::OUTCOME_IGNORED, 'replay');
 
             return false;
         }
         if ($payment === null || $payment->status !== InvoiceTransactionStatus::Succeeded) {
+            // Its payment not money here yet (late webhook, processing): kept, recorded when it is (F7, as refunds).
             $log(PaymentGatewayEvent::OUTCOME_IGNORED, 'chargeback_unknown_payment');
-            if (Cache::add('gateway-chargeback-unknown:' . $gateway . ':' . $chargebackReference, true, now()->addDays(120))) {
-                Log::warning('Chargeback for no succeeded payment of ours.', ['gateway' => $gateway, 'payment' => $paymentReference, 'chargeback' => $chargebackReference]);
-                if ($payment !== null) {
-                    NotificationHelper::sendSystemEmailNotification('Chargeback needs staff attention', e(
-                        "{$gateway} took back " . self::cents($cents) . " ({$chargebackReference}) on payment #{$payment->id} of invoice #{$payment->invoice_id},"
-                        . " which is {$payment->status->value} here: not recorded, check it with the gateway."
-                    ));
-                }
-            }
+            GatewayRefund::query()->updateOrCreate(['gateway' => $gateway, 'reference' => $chargebackReference], [
+                'invoice_transaction_id' => $payment?->id, 'payment_reference' => $paymentReference, 'amount' => $cents / 100,
+                'currency_code' => strtoupper((string) ($currency ?? '')), 'recorded_amount' => 0, 'origin' => GatewayRefund::ORIGIN_CHARGEBACK_WAITING,
+            ]);
 
             return false;
         }
@@ -1093,11 +1102,13 @@ class ExtensionHelper
                 $invoice = (new RecordPaymentService)->lockInvoice($payment->invoice_id);
                 $invoice->transactions()->lockForUpdate()->get(['id']);
                 $payment = InvoiceTransaction::whereKey($payment->id)->lockForUpdate()->firstOrFail();
-                if (GatewayRefund::query()->where('gateway', $gateway)->where('reference', $chargebackReference)->lockForUpdate()->exists()) {
+                $known = GatewayRefund::query()->where('gateway', $gateway)->where('reference', $chargebackReference)->lockForUpdate()->first();
+                if ($known !== null && $known->origin !== GatewayRefund::ORIGIN_CHARGEBACK_WAITING) {
                     $log(PaymentGatewayEvent::OUTCOME_IGNORED, 'replay');
 
                     return 0;
                 }
+                $known?->delete(); // it waited for this payment: recorded now
                 $row = ['invoice_transaction_id' => $payment->id, 'gateway' => $gateway, 'reference' => $chargebackReference,
                     'payment_reference' => $payment->transaction_id, 'amount' => $cents / 100, 'currency_code' => $invoice->currency_code,
                     'origin' => GatewayRefund::ORIGIN_CHARGEBACK];
@@ -1126,6 +1137,13 @@ class ExtensionHelper
                         if ($take > 0) {
                             (new CreditLedger)->remove((int) $invoice->user_id, $invoice->currency_code, $take, MoneyTrail::CAUSE_CHARGEBACK, $source, $invoice, $payment);
                         }
+                        // All the credit it bought taken back: not bought any more, so paying the invoice again (or the
+                        // dispute won) buys it again (code review H1 / adversarial F6). Part of it: staff.
+                        $bought = (int) $invoice->items()->where('reference_type', Credit::class)->get()
+                            ->sum(fn ($line) => RecordPaymentService::toCents($line->price * $line->quantity));
+                        if ($take === $record && $take === $bought) {
+                            $invoice->items()->where('reference_type', Credit::class)->update(['applied_at' => null]);
+                        }
                         if ($take < $record) {
                             $staff = ($staff ?? '') . 'The credit this payment bought was spent: ' . self::cents($record - $take) . " {$invoice->currency_code} of it could not be taken back. ";
                         }
@@ -1133,14 +1151,15 @@ class ExtensionHelper
                     $payment->increment('refunded_amount', $record / 100);
                     $event = (new MoneyTrail)->refund($payment, $invoice, $record, $source, MoneyTrail::CAUSE_CHARGEBACK);
                     // Owed again: a paid invoice keeps its total and becomes unpaid (no refund note: it is not a refund).
-                    $invoice->refresh();
+                    // Read under the locks: refresh() would read this transaction's older snapshot (code review M4).
+                    $invoice = Invoice::query()->whereKey($invoice->id)->lockForUpdate()->firstOrFail()->withLockedBalance();
                     if ($invoice->status === Invoice::STATUS_PAID && $invoice->remaining > 0) {
                         $invoice->update(['status' => Invoice::STATUS_UNPAID]);
                     }
                 }
                 GatewayRefund::create(['recorded_amount' => $record / 100, 'money_event_id' => $event?->id] + $row);
                 $staff = "{$gateway} took back " . self::cents($cents) . " {$invoice->currency_code} for a dispute ({$chargebackReference}) on payment #{$payment->id}"
-                    . " of invoice #{$invoice->id}: recorded " . self::cents($record) . ", the invoice is {$invoice->status} again."
+                    . " of invoice #{$invoice->id}: recorded " . self::cents($record) . ", the invoice is {$invoice->status}" . ($record > 0 ? ' (owed again).' : ', unchanged.')
                     . ' Its services are as they were; the cron treats the invoice as any unpaid one (put the service on hold to wait for the dispute). '
                     . ($record < $cents ? self::cents($cents - $record) . ' of it was no longer on the payment (credit or refunds): settle it by hand. ' : '')
                     . ($staff ?? '');
@@ -1165,78 +1184,135 @@ class ExtensionHelper
 
     /**
      * The dispute was won and the gateway gave the money back (PR 2c-2b): the chargeback is undone (its journal event
-     * reversed, the payment holds the money again) and an invoice covered again is paid again. Once per chargeback.
-     * $chargebackReference names it (Stripe: the dispute); without one (PayPal) the payment's oldest chargeback of that
-     * amount still standing. Credit a credit purchase gave back is staff's to restore.
+     * reversed, the payment holds the money again), and the invoice is settled again under the same locks:
+     * - covered again: paid (a credit purchase whose credit the chargeback took gives it again, as on any payment);
+     * - paid again in the meantime: the part over becomes the customer's credit;
+     * - cancelled or refunded in the meantime (e.g. the service was terminated while the dispute ran): the money back
+     *   becomes the customer's credit (code review of 2c-2b, M3).
+     * Once per chargeback; $resolutionReference (PayPal's dispute id) is kept so a replay changes nothing (M1).
+     * $chargebackReference names the chargeback (Stripe: the dispute); without one (PayPal) the payment's only standing
+     * chargeback, else the one of that amount; none: staff are told (M2). A win told before its chargeback (Stripe, out of
+     * order) is kept, so the late chargeback is not recorded (M5).
      */
-    public static function chargebackReversedAtGateway(string $gateway, string $paymentReference, ?string $chargebackReference, float $amount, ?string $currency = null): bool
+    public static function chargebackReversedAtGateway(string $gateway, string $paymentReference, ?string $chargebackReference, float $amount, ?string $currency = null, ?string $resolutionReference = null): bool
     {
         $cents = RecordPaymentService::toCents($amount);
-        $payment = self::gatewayPayment($gateway, $paymentReference);
-        $find = fn () => GatewayRefund::query()->where('gateway', $gateway)->where('origin', GatewayRefund::ORIGIN_CHARGEBACK)
-            ->when($chargebackReference !== null, fn ($query) => $query->where('reference', $chargebackReference),
-                fn ($query) => $query->where('invoice_transaction_id', $payment?->id)->where('amount', $cents / 100))
-            ->orderBy('id');
+        $payment = $paymentReference !== '' ? self::gatewayPayment($gateway, $paymentReference) : null;
         $log = fn (string $outcome, string $reason, ?GatewayRefund $row = null) => GatewayLog::current()->result($outcome, $reason, [
             'amount' => $cents / 100, 'currency_code' => $currency !== null ? strtoupper($currency) : null,
-            'external_id' => $chargebackReference ?? $row?->reference, 'invoice_id' => $payment?->invoice_id, 'invoice_transaction_id' => $row?->invoice_transaction_id,
+            'external_id' => $resolutionReference ?? $chargebackReference ?? $row?->reference,
+            'invoice_id' => $payment?->invoice_id, 'invoice_transaction_id' => $row?->invoice_transaction_id ?? $payment?->id,
         ]);
-        $row = $find()->first();
-        if ($row === null || $payment === null) {
-            $log(PaymentGatewayEvent::OUTCOME_IGNORED, 'chargeback_unknown');
+        if ($resolutionReference !== null && GatewayRefund::query()->where('gateway', $gateway)->where('reference', $resolutionReference)->exists()) {
+            $log(PaymentGatewayEvent::OUTCOME_IGNORED, 'replay');
 
             return false;
         }
 
-        $invoiceId = null;
-        $reversed = DB::transaction(function () use ($row, $payment, $log, &$invoiceId) {
-            $invoice = (new RecordPaymentService)->lockInvoice($payment->invoice_id);
-            $invoice->transactions()->lockForUpdate()->get(['id']);
-            $payment = InvoiceTransaction::whereKey($payment->id)->lockForUpdate()->firstOrFail();
-            $row = GatewayRefund::query()->whereKey($row->id)->lockForUpdate()->first();
-            if ($row === null || $row->origin !== GatewayRefund::ORIGIN_CHARGEBACK) {
-                $log(PaymentGatewayEvent::OUTCOME_IGNORED, 'replay', $row);
+        $row = null;
+        if ($chargebackReference !== null) {
+            $row = GatewayRefund::query()->where('gateway', $gateway)->where('reference', $chargebackReference)->first();
+        } elseif ($payment !== null) {
+            // PayPal does not name the reversal a dispute took: undone only when it can be no other (one dispute ever
+            // opened on the payment, one chargeback standing); otherwise staff decide (adversarial F3: a won dispute
+            // must never undo another dispute's lost chargeback).
+            $standing = GatewayRefund::query()->where('gateway', $gateway)->where('invoice_transaction_id', $payment->id)
+                ->where('origin', GatewayRefund::ORIGIN_CHARGEBACK)->orderBy('id')->get();
+            $disputes = GatewayRefund::query()->where('gateway', $gateway)->where('invoice_transaction_id', $payment->id)
+                ->where('origin', GatewayRefund::ORIGIN_DISPUTE)->count();
+            $row = $standing->count() === 1 && $disputes <= 1 ? $standing->first() : null;
+        }
 
-                return 0;
+        if ($row === null) {
+            $log(PaymentGatewayEvent::OUTCOME_IGNORED, 'chargeback_unknown');
+            if ($payment === null) {
+                return false;
             }
-            $recorded = RecordPaymentService::toCents($row->recorded_amount);
-            $event = $row->money_event_id !== null ? MoneyEvent::query()->find($row->money_event_id) : null;
-            if ($recorded > 0 && $event !== null) {
+            // Kept: a late chargeback (Stripe) is then a replay, a replayed win (PayPal) changes nothing.
+            try {
+                GatewayRefund::create(['invoice_transaction_id' => $payment->id, 'gateway' => $gateway,
+                    'reference' => $resolutionReference ?? (string) $chargebackReference, 'payment_reference' => $payment->transaction_id,
+                    'amount' => $cents / 100, 'currency_code' => strtoupper((string) ($currency ?? '')), 'recorded_amount' => 0,
+                    'origin' => GatewayRefund::ORIGIN_CHARGEBACK_WON]);
+            } catch (UniqueConstraintViolationException) {
+                return false;
+            }
+            NotificationHelper::sendSystemEmailNotification('Chargeback needs staff attention', e(
+                "{$gateway} reports the dispute " . ($resolutionReference ?? $chargebackReference) . ' on payment #' . $payment->id . " of invoice #{$payment->invoice_id}"
+                . ' won (' . self::cents($cents) . '), but no chargeback of it is recorded here: nothing changed. If money was taken back and recorded by hand, undo it by hand.'
+            ));
+
+            return false;
+        }
+
+        $staff = null;
+        try {
+            $reversed = DB::transaction(function () use ($row, $gateway, $resolutionReference, $log, &$staff) {
+                // The chargeback's own payment (not whatever the gateway's reference finds now: L2 of the code review).
+                $owner = InvoiceTransaction::query()->find($row->invoice_transaction_id);
+                if ($owner === null) {
+                    return 0;
+                }
+                $invoice = (new RecordPaymentService)->lockInvoice($owner->invoice_id);
+                $invoice->transactions()->lockForUpdate()->get(['id']);
+                $payment = InvoiceTransaction::whereKey($owner->id)->lockForUpdate()->firstOrFail();
+                $row = GatewayRefund::query()->whereKey($row->id)->lockForUpdate()->first();
+                if ($row === null || $row->origin !== GatewayRefund::ORIGIN_CHARGEBACK) {
+                    $log(PaymentGatewayEvent::OUTCOME_IGNORED, 'replay', $row);
+
+                    return 0;
+                }
+                if ($resolutionReference !== null) { // once per dispute, under the same locks (M1)
+                    GatewayRefund::create(['invoice_transaction_id' => $payment->id, 'gateway' => $gateway, 'reference' => $resolutionReference,
+                        'payment_reference' => $payment->transaction_id, 'amount' => $row->amount, 'currency_code' => $row->currency_code,
+                        'recorded_amount' => 0, 'origin' => GatewayRefund::ORIGIN_CHARGEBACK_WON]);
+                }
+                $row->update(['origin' => GatewayRefund::ORIGIN_CHARGEBACK_WON]);
+                $recorded = RecordPaymentService::toCents($row->recorded_amount);
+                $event = $row->money_event_id !== null ? MoneyEvent::query()->find($row->money_event_id) : null;
+                if ($recorded <= 0 || $event === null) {
+                    $staff = "{$gateway} reports the dispute {$row->reference} on invoice #{$invoice->id} won, but its chargeback recorded nothing here"
+                        . ' (another currency, or nothing was left on the payment): anything entered by hand for it is to undo by hand.';
+                    $log(PaymentGatewayEvent::OUTCOME_IGNORED, 'chargeback_won_nothing_recorded', $row);
+
+                    return 0;
+                }
+
                 $payment->decrement('refunded_amount', $recorded / 100);
                 (new MoneyTrail)->reverse($event, MoneyTrail::CAUSE_CHARGEBACK_WON);
-            }
-            $row->update(['origin' => GatewayRefund::ORIGIN_CHARGEBACK_WON]);
-            // Paid again in the meantime (the customer paid once more): the money back is over the invoice and becomes
-            // the customer's credit, from this payment, as settle() credits a part over.
-            $invoice->refresh();
-            $over = -RecordPaymentService::toCents($invoice->remaining);
-            if ($recorded > 0 && $invoice->status === Invoice::STATUS_PAID && $over > 0 && $invoice->user_id !== null) {
-                $over = min($over, $recorded);
-                $payment->increment('credited_amount', $over / 100);
-                (new CreditLedger)->add((int) $invoice->user_id, $invoice->currency_code, $over, MoneyTrail::CAUSE_CHARGEBACK_WON,
-                    MoneyTrail::sourceFor($payment->gateway), $invoice, $payment);
-            }
-            $invoiceId = $invoice->id;
-            $log(PaymentGatewayEvent::OUTCOME_RECORDED, 'chargeback_won', $row);
-
-            return $recorded;
-        });
-
-        if ($invoiceId !== null) {
-            // Covered again: paid again (a part over becomes credit, as for any settled invoice).
-            try {
-                $invoice = Invoice::query()->find($invoiceId);
-                if ($invoice !== null && $invoice->status === Invoice::STATUS_UNPAID && $invoice->remaining <= 0) {
-                    (new RecordPaymentService)->settle($invoice);
+                $source = MoneyTrail::sourceFor($payment->gateway);
+                // The invoice as it is now, read under the locks (a plain refresh() reads this transaction's older
+                // snapshot on MariaDB's repeatable read: M4 of the code review).
+                $invoice = Invoice::query()->whereKey($invoice->id)->lockForUpdate()->firstOrFail()->withLockedBalance();
+                $remaining = RecordPaymentService::toCents($invoice->remaining);
+                $toCredit = in_array($invoice->status, [Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED], true) ? $recorded : min($recorded, max(0, -$remaining));
+                if ($toCredit > 0 && $invoice->user_id !== null) {
+                    $payment->increment('credited_amount', $toCredit / 100);
+                    (new CreditLedger)->add((int) $invoice->user_id, $invoice->currency_code, $toCredit, MoneyTrail::CAUSE_CHARGEBACK_WON, $source, $invoice, $payment);
+                    $staff = self::cents($toCredit) . " {$invoice->currency_code} of it became the customer's account credit (the invoice is {$invoice->status}"
+                        . ($invoice->status === Invoice::STATUS_PAID ? ', paid again in the meantime' : '') . ').';
                 }
-            } catch (\Throwable $e) {
-                report($e); // money-check reports an unpaid invoice with nothing to pay (open_settled)
-            }
-            $credit = Invoice::query()->whereKey($invoiceId)->whereHas('items', fn ($query) => $query->where('reference_type', Credit::class))->exists();
-            NotificationHelper::sendSystemEmailNotification('Chargeback reversed (dispute won)', e(
-                "{$gateway} gave back " . self::cents($reversed) . " for the dispute {$row->reference} on invoice #{$invoiceId}: the chargeback is undone"
-                . ($credit ? '. It is a credit purchase: give the customer back the credit the chargeback took, by hand.' : '.')
-            ));
+                if ($invoice->status === Invoice::STATUS_UNPAID) {
+                    $invoice->unsetRelations();
+                    if (RecordPaymentService::toCents($invoice->withLockedBalance()->remaining) <= 0) {
+                        // Covered again: paid (InvoiceObserver gives a credit purchase its credit again).
+                        $invoice->update(['status' => Invoice::STATUS_PAID]);
+                    }
+                }
+                $log(PaymentGatewayEvent::OUTCOME_RECORDED, 'chargeback_won', $row);
+                $staff = "{$gateway} gave back " . self::cents($recorded) . " for the dispute {$row->reference} on invoice #{$invoice->id}: the chargeback is undone,"
+                    . " the invoice is {$invoice->fresh()->status}. " . ($staff ?? '');
+
+                return $recorded;
+            });
+        } catch (UniqueConstraintViolationException) {
+            $log(PaymentGatewayEvent::OUTCOME_IGNORED, 'replay', $row);
+
+            return false;
+        }
+
+        if ($staff !== null) {
+            NotificationHelper::sendSystemEmailNotification($reversed > 0 ? 'Chargeback reversed (dispute won)' : 'Chargeback needs staff attention', e(trim($staff)));
         }
 
         return $reversed > 0;
