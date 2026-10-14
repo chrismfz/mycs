@@ -225,6 +225,8 @@ guards στους observers για άγνωστα status (`importer.md`). Fraud:
 - Verification email σε ήδη verified· new-login email χωρίς opt-out. EVT-18
 
 ## Σειρά που προτείνεται
+> Ενημερώθηκε 2026-10-14: η τρέχουσα σειρά, μαζί με τους λογαριασμούς, είναι στο `ROADMAP.md` → «Σειρά εργασιών».
+
 1. **ΚΡ-1..ΚΡ-8** (τα περισσότερα S, ένα ή δύο PRs ανά θέμα, με failing test πρώτα). Το ΚΡ-1 και το ΚΡ-2 αγγίζουν
    χρήματα → και adversarial review.
 2. **Αποφάσεις Δ1–Δ4** (συζήτηση, γράφονται στο `decisions.md`), παράλληλα με το MT-x.
