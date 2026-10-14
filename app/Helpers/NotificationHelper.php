@@ -17,6 +17,7 @@ use App\Models\ServiceCancellation;
 use App\Models\TicketMessage;
 use App\Models\User;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Mail as FacadesMail;
@@ -119,10 +120,43 @@ class NotificationHelper
         if (!$notification || !$notification->enabled) {
             return;
         }
+        $locale = self::localeFor($user);
+        self::withLocale($locale, fn () => self::deliver($notification, $locale, $data, $user, $attachments, $show_in_app, $show_as_push));
+    }
 
+    /**
+     * @template T
+     *
+     * @param  \Closure(): T  $callback
+     * @return T
+     */
+    private static function withLocale(string $locale, \Closure $callback): mixed
+    {
+        $previous = App::getLocale();
+        App::setLocale($locale);
+        try {
+            return $callback();
+        } finally {
+            App::setLocale($previous);
+        }
+    }
+
+    /**
+     * The language a customer's mails are written in. The company's default language for now; the customer's own when
+     * the accounts work gives clients one (docs/accounts.md: `language`, imported from WHMCS).
+     */
+    public static function localeFor(User $user): string
+    {
+        return (string) config('settings.app_language', config('app.locale', 'en'));
+    }
+
+    private static function deliver(NotificationTemplate $template, string $locale, array $data, User $user, array $attachments, bool $show_in_app, bool $show_as_push): void
+    {
+        // Preferences are kept on the template itself, whatever the language it is written in.
+        $notification = $template->inLocale($locale);
         $data = TemplateRenderer::context($data, $user);
 
-        $userPreference = $user->notificationsPreferences()->where('notification_template_id', $notification->id)->first();
+        $userPreference = $user->notificationsPreferences()->where('notification_template_id', $template->id)->first();
 
         // A template that does not parse must not break what triggered it (provisioning, cron, …):
         // the error is reported and that notification is skipped.
@@ -159,8 +193,8 @@ class NotificationHelper
             'has_subscription' => $invoice->items->filter(fn ($item) => $item->reference_type === Service::class && $item->reference?->subscription_id)->isNotEmpty(),
         ];
 
-        // Generate the invoice PDF
-        $pdf = PDF::generateInvoice($invoice);
+        // Generate the invoice PDF, in the customer's language
+        $pdf = self::withLocale(self::localeFor($user), fn () => PDF::generateInvoice($invoice));
         // Generate path
         if (!file_exists(storage_path('app/invoices'))) {
             // Create the directory if it doesn't exist
@@ -261,6 +295,12 @@ class NotificationHelper
     {
         $data['service'] = $service;
         self::sendNotification('server_suspended', $data, $user);
+    }
+
+    public static function serverUnsuspendedNotification(User $user, Service $service, array $data = []): void
+    {
+        $data['service'] = $service;
+        self::sendNotification('server_unsuspended', $data, $user);
     }
 
     public static function serverTerminatedNotification(User $user, Service $service, array $data = []): void

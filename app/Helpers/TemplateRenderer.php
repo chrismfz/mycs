@@ -74,8 +74,13 @@ class TemplateRenderer
 
         $data['app'] = self::app();
         $data['user'] ??= $user;
+        // As WHMCS's {$invoice_num}: the number, or the id while a proforma has none yet.
+        if ($invoice instanceof Invoice) {
+            $data['invoice_number'] ??= $invoice->number ?: (string) $invoice->id;
+        }
         $data['urls'] = array_filter([
             'services' => route('services'),
+            'invoices' => route('invoices'),
             'new_ticket' => route('tickets.create'),
             'password_reset' => route('password.request'),
             'security' => route('account.security'),
