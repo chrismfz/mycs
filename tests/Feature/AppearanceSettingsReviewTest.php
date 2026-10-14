@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Admin\Pages\Settings;
 use App\Models\Role;
 use App\Models\Setting;
-use App\Models\User;
 use App\Models\Staff;
 use App\Providers\SettingsProvider;
 use Database\Seeders\DatabaseSeeder;
@@ -17,7 +16,6 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use Livewire\Livewire;
 use Tests\TestCase;
 
 /** Review of refactor/remove-theme-system. */

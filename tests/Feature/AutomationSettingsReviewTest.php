@@ -6,8 +6,8 @@ use App\Admin\Pages\Settings;
 use App\Models\EmailLog;
 use App\Models\Role;
 use App\Models\Service;
-use App\Models\User;
 use App\Models\Staff;
+use App\Models\User;
 use App\Providers\SettingsProvider;
 use Filament\Facades\Filament;
 use Filament\Schemas\Components\Section;
@@ -15,7 +15,6 @@ use Filament\Schemas\Components\Tabs\Tab;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Queue;
-use Livewire\Livewire;
 use Tests\TestCase;
 
 /**

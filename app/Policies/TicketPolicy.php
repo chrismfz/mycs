@@ -2,8 +2,8 @@
 
 namespace App\Policies;
 
-use App\Models\Ticket;
 use App\Models\Staff;
+use App\Models\Ticket;
 use App\Models\User;
 
 class TicketPolicy extends BasePolicy

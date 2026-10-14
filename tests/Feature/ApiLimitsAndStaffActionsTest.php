@@ -7,8 +7,8 @@ use App\Models\Category;
 use App\Models\ConfigOption;
 use App\Models\Product;
 use App\Models\Role;
-use App\Models\User;
 use App\Models\Staff;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 

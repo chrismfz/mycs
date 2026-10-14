@@ -2,8 +2,8 @@
 
 namespace App\Policies;
 
-use App\Models\TaxRate;
 use App\Models\Staff;
+use App\Models\TaxRate;
 use App\Models\User;
 
 class TaxRatePolicy

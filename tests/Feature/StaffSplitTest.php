@@ -25,8 +25,8 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Session;
-use LogicException;
 use Livewire\Livewire;
+use LogicException;
 use OwenIt\Auditing\Models\Audit;
 use Tests\TestCase;
 

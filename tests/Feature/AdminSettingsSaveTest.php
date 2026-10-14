@@ -5,11 +5,9 @@ namespace Tests\Feature;
 use App\Admin\Pages\Settings;
 use App\Models\Role;
 use App\Models\Setting;
-use App\Models\User;
 use App\Models\Staff;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Livewire\Livewire;
 use Tests\TestCase;
 
 /**

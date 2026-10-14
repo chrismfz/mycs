@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Admin\TopMenu;
 use App\Models\Role;
-use App\Models\User;
 use App\Models\Staff;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;

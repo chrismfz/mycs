@@ -22,6 +22,7 @@ use Dedoc\Scramble\Support\Generator\OpenApi;
 use Dedoc\Scramble\Support\Generator\SecurityScheme;
 use Exception;
 use Illuminate\Auth\Access\Response;
+use Illuminate\Auth\Events\Login;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Exceptions\Handler;
 use Illuminate\Foundation\Http\Events\RequestHandled;
@@ -193,7 +194,7 @@ class AppServiceProvider extends ServiceProvider
         });
 
         // When a member of staff last logged in (the staff list shows it).
-        Event::listen(function (\Illuminate\Auth\Events\Login $event) {
+        Event::listen(function (Login $event) {
             if ($event->guard === 'staff' && $event->user instanceof Staff) {
                 $event->user->forceFill(['last_login_at' => now()])->saveQuietly();
             }

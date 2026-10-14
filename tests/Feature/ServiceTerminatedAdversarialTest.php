@@ -25,7 +25,6 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
-use Livewire\Livewire;
 use Paymenter\Extensions\Gateways\Stripe\Stripe;
 use Tests\TestCase;
 

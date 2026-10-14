@@ -2,8 +2,8 @@
 
 namespace App\Policies;
 
-use App\Models\TicketMessage;
 use App\Models\Staff;
+use App\Models\TicketMessage;
 use App\Models\User;
 
 class TicketMessagePolicy
