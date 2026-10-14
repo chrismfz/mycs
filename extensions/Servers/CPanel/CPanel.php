@@ -163,6 +163,8 @@ class CPanel extends Server
             'name' => 'cPanel username',
             'value' => strtolower($username),
         ]);
+        // The service's own fields too, as WHMCS keeps them (shown to staff and the customer, searched).
+        $service->forceFill(['username' => strtolower($username), 'domain' => $service->domain ?? $properties['domain']])->save();
 
         return true;
     }
@@ -224,8 +226,10 @@ class CPanel extends Server
             'user' => $properties['cpanel_username'],
         ]);
 
-        // Delete the properties
+        // Delete the properties, and the native username (review R2): the account is gone, a later action must not name
+        // it (the same username may belong to another customer's account by then).
         $service->properties()->where('key', 'cpanel_username')->delete();
+        $service->forceFill(['username' => null])->save();
 
         return true;
     }

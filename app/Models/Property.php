@@ -27,4 +27,17 @@ class Property extends Model implements Auditable
     {
         return $this->morphTo();
     }
+
+    /**
+     * The checkout's «domain» (the server extensions' field) is the service's domain too (services.domain, WHMCS's
+     * tblhosting.domain): listed and searched; a domain staff set on the service is kept.
+     */
+    protected static function booted(): void
+    {
+        static::saved(function (self $property) {
+            if ($property->key === 'domain' && $property->model_type === Service::class && filled($property->value)) {
+                Service::query()->whereKey($property->model_id)->whereNull('domain')->update(['domain' => mb_substr((string) $property->value, 0, 255)]);
+            }
+        });
+    }
 }

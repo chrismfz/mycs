@@ -55,6 +55,14 @@
                         </span>
                         @endif
                     </div>
+                    @if($service->status == 'suspended' && filled($service->suspend_reason))
+                    <div class="flex items-center text-base">
+                        <span class="mr-2">{{ __('services.suspend_reason') }}:</span>
+                        {{-- The cron's (WHMCS's) reason in the customer's language; staff's own as written (review F4). --}}
+                        <span class="text-base/50">{{ $service->suspend_reason === 'Overdue on Payment' ? __('services.suspend_reasons.overdue') : $service->suspend_reason }}</span>
+                    </div>
+                    @endif
+                    @include('services.partials.account')
                     @can('update', $service)
                     @include('services.partials.billing-agreement')
                     @endcan

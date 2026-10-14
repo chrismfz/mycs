@@ -1416,6 +1416,18 @@ class ExtensionHelper
         foreach ($service->configs as $config) {
             $properties[$config->configOption->env_variable] = $config->configValue->env_variable ?? $config->configValue->name;
         }
+        // The service's own fields (WHMCS's tblhosting) for every module: a property set by its module or the checkout
+        // wins. cpanel_username: an account imported from WHMCS has only the native username.
+        // A product setting of the same name wins too (review R3: Pterodactyl's «dedicated_ip» is a yes/no setting); a
+        // password the current key cannot read is left out rather than failing every server action (review R4).
+        $settings = $service->product ? self::settingsToArray($service->product->settings) : [];
+        $password = rescue(fn () => $service->password, null); // reported
+        foreach (['domain' => $service->domain, 'username' => $service->username, 'password' => $password,
+            'dedicated_ip' => $service->dedicated_ip, 'assigned_ips' => $service->assigned_ips, 'cpanel_username' => $service->username] as $key => $value) {
+            if (!isset($properties[$key]) && !array_key_exists($key, $settings) && $value !== null && $value !== '') {
+                $properties[$key] = $value;
+            }
+        }
 
         return $properties;
     }

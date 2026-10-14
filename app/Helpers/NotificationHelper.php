@@ -358,6 +358,9 @@ class NotificationHelper
     public static function serverCreatedNotification(Client $client, Service $service, array $data = []): void
     {
         $data['service'] = $service;
+        // The welcome mail only (WHMCS's {$service_password}): customers keep their login from it. No other template
+        // can read the password (Service::TEMPLATE_HIDDEN).
+        $data['service_password'] ??= rescue(fn () => $service->password, null);
         self::toAccount($client, 'new_server_created', $data);
     }
 

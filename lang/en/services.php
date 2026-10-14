@@ -79,4 +79,13 @@ return [
 
     'update_label' => 'Update Label',
 
+    'domain' => 'Domain',
+    'dedicated_ip' => 'Dedicated IP',
+    'assigned_ips' => 'Assigned IPs',
+    'username' => 'Username',
+    'password' => 'Password',
+    'show' => 'Show',
+    'hide' => 'Hide',
+    'suspend_reason' => 'Suspension reason',
+    'suspend_reasons' => ['overdue' => 'Overdue on payment'],
 ];

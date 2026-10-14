@@ -17,6 +17,12 @@ class ServiceResource extends JsonApiResource
         'updated_at',
         'created_at',
         'label',
+        // WHMCS's tblhosting fields; never the password (it stays on the service's pages).
+        'domain',
+        'username',
+        'dedicated_ip',
+        'assigned_ips',
+        'suspend_reason',
     ];
 
     public $relationships = [

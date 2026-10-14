@@ -872,6 +872,14 @@ class ImportFromWhmcs extends Command
         });
     }
 
+    /** A WHMCS text column as stored here: trimmed, null when empty, cut to the column's length. */
+    private static function text(mixed $value, ?int $max = null): ?string
+    {
+        $value = trim((string) $value);
+
+        return $value === '' ? null : ($max === null ? $value : mb_substr($value, 0, $max));
+    }
+
     private function importServices()
     {
         $this->info('Importing services... (' . $this->count('tblhosting') . ' records)');
@@ -927,6 +935,14 @@ class ImportFromWhmcs extends Command
                     // (or none) was staff's: a manual hold (docs/billing-cursor.md).
                     'dunning_suspended_at' => $record['domainstatus'] === 'Suspended'
                         && strcasecmp(trim((string) ($record['suspendreason'] ?? '')), 'Overdue on Payment') === 0 ? now() : null,
+                    // tblhosting's own fields (native here). The password is WHMCS-encrypted (its cc_encryption_hash, not in
+                    // the database): brought by its own step through WHMCS's DecryptPassword, before the cut-over.
+                    'domain' => self::text($record['domain'] ?? null, 255),
+                    'username' => self::text($record['username'] ?? null, 255),
+                    'dedicated_ip' => self::text($record['dedicatedip'] ?? null, 45),
+                    'assigned_ips' => self::text(str_replace("\r\n", "\n", (string) ($record['assignedips'] ?? ''))),
+                    'notes' => self::text($record['notes'] ?? null),
+                    'suspend_reason' => $record['domainstatus'] === 'Suspended' ? self::text($record['suspendreason'] ?? null, 255) : null,
                     'created_at' => $this->validateDate($record['regdate']),
                     'updated_at' => $this->validateDate($record['regdate']),
                 ];

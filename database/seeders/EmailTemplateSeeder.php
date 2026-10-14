@@ -257,6 +257,14 @@ class EmailTemplateSeeder extends Seeder
                 - Renewal date: **{{ service.expires_at|date("d/m/Y") }}**
                 {% endif %}
 
+                {% if service.username %}
+                **Login details**
+                - Username: {{ service.username }}
+                {% if service_password %}
+                - Password: {{ service_password }}
+                {% endif %}
+                {% endif %}
+
                 {% if product_info %}
                 {{ product_info }}
                 {% endif %}
@@ -873,6 +881,14 @@ class EmailTemplateSeeder extends Seeder
                     - Υπηρεσία: **{{ service.product.name }}**
                     {% if service.expires_at %}
                     - Ημερομηνία ανανέωσης: **{{ service.expires_at|date("d/m/Y") }}**
+                    {% endif %}
+
+                    {% if service.username %}
+                    **Στοιχεία σύνδεσης**
+                    - Όνομα χρήστη: {{ service.username }}
+                    {% if service_password %}
+                    - Κωδικός: {{ service_password }}
+                    {% endif %}
                     {% endif %}
 
                     {% if product_info %}
