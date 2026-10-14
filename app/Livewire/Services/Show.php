@@ -44,6 +44,11 @@ class Show extends Component
 
     public function mount()
     {
+        // A link (`?cancel=1`, `?label=1`) opens no form for a login that may not manage the service (PR 2b).
+        if (Gate::denies('update', $this->service)) {
+            $this->showCancel = false;
+            $this->editLabel = false;
+        }
         // Only fetch the actions if the service is active
         if ($this->service->status == Service::STATUS_ACTIVE) {
             $actions = [];
@@ -74,6 +79,11 @@ class Show extends Component
 
     public function updatedShowBillingAgreement()
     {
+        if (Gate::denies('update', $this->service)) {
+            $this->showBillingAgreement = false;
+
+            return;
+        }
         $this->selectedMethod = $this->service->client->billingAgreements()->where('id', $this->service->billing_agreement_id)->first()?->ulid;
     }
 

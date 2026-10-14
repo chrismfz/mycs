@@ -8,6 +8,7 @@ use App\Livewire\ComponentWithProperties;
 use App\Models\Client;
 use App\Models\User;
 use App\Traits\Captchable;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules\Password;
@@ -32,6 +33,18 @@ class Register extends ComponentWithProperties
     public function mount()
     {
         $this->initializeProperties(null, Client::class);
+        if ($this->forInvite()) {
+            $this->custom_properties = new Collection; // no account of their own: no account details to ask for
+        }
+    }
+
+    /**
+     * Registering to accept an invitation (PR 2b): the login works on the account it was invited to, so it does not
+     * open one of its own (it would become its default). Should it never accept, EnsureClientAccount opens one later.
+     */
+    private function forInvite(): bool
+    {
+        return str_starts_with((string) session('url.intended'), url('/invite/'));
     }
 
     public function rules()
@@ -64,9 +77,11 @@ class Register extends ComponentWithProperties
                 'email' => $this->email,
                 'password' => Hash::make($this->password),
             ]);
-            $client = Client::openFor($user);
-            if (array_key_exists('properties', $validatedData)) {
-                $this->updateProperties($client, $validatedData['properties']);
+            if (!$this->forInvite()) {
+                $client = Client::openFor($user);
+                if (array_key_exists('properties', $validatedData)) {
+                    $this->updateProperties($client, $validatedData['properties']);
+                }
             }
 
             return $user;

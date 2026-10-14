@@ -234,6 +234,11 @@ class Client extends Model implements Auditable
         return DB::transaction(function () use ($user, $permissions, $by) {
             $grant = $this->grants()->where('user_id', $user->id)->lockForUpdate()->first();
             if ($grant?->owner) {
+                // The owner has everything; a revoked owner's grant (imported data) only comes back.
+                if ($grant->revoked_at !== null) {
+                    $grant->forceFill(['revoked_at' => null])->save();
+                }
+
                 return $grant;
             }
             $grant ??= new ClientUser(['client_id' => $this->id, 'user_id' => $user->id]);

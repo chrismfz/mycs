@@ -233,6 +233,9 @@ class NotificationHelper
                     'invite' => ['url' => route('invites.accept', ['token' => $token]), 'by' => $by, 'expires_at' => $invite->expires_at],
                 ], $recipient);
                 self::sendEmailNotification($template->inLocale($locale), $data, $recipient);
+                // The link is the invitation: the email log keeps the mail without it (only its hash is kept).
+                $log = EmailLog::query()->where('client_id', $client->id)->where('to', $invite->email)->latest('id')->first();
+                $log?->forceFill(['body' => str_replace($token, '…', (string) $log->body)])->save();
             } catch (TemplateError $e) {
                 report($e);
             } finally {

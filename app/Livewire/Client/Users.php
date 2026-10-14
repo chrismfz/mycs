@@ -7,6 +7,8 @@ use App\Livewire\Component;
 use App\Models\Client;
 use App\Models\ClientInvite;
 use App\Models\ClientUser;
+use App\Models\Staff;
+use App\Models\User;
 use App\Support\Actor;
 use App\Support\CurrentClient;
 use Illuminate\Support\Facades\Auth;
@@ -78,7 +80,10 @@ class Users extends Component
             RateLimiter::hit("client-invite:{$window}:{$client->id}", $decay);
         }
 
-        [$invite, $token] = ClientInvite::issue($client, $this->email, $this->allPermissions ? null : $this->permissions, Auth::user());
+        // Staff in «Login as client» invite as themselves, not as the customer.
+        $by = Actor::impersonating() ? Auth::guard('staff')->user() : Auth::user();
+        [$invite, $token] = ClientInvite::issue($client, $this->email, $this->allPermissions ? null : $this->permissions,
+            $by instanceof Staff || $by instanceof User ? $by : null);
         NotificationHelper::clientInviteNotification($invite, $token);
 
         $this->reset('email', 'permissions');
