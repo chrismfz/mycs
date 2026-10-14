@@ -6,12 +6,15 @@ use App\Http\Middleware\LockSession;
 use App\Http\Middleware\UseStaffGuard;
 use App\Models\Staff;
 use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
 class LockSessionTest extends TestCase
 {
+    use RefreshDatabase;
+
     protected function setUp(): void
     {
         parent::setUp();
