@@ -69,9 +69,10 @@ class ClientUsersTest extends TestCase
         $this->workOn($billing, $client)->get(route('invoices'))->assertOk();
         $this->workOn($billing, $client)->get(route('invoices.show', $invoice))->assertOk();
         $this->workOn($billing, $client)->get(route('tickets'))->assertForbidden();
-        $this->workOn($billing, $client)->get(route('tickets.show', $ticket))->assertForbidden();
+        // A record the login may not open is not found, as for any record that is not theirs.
+        $this->workOn($billing, $client)->get(route('tickets.show', $ticket))->assertNotFound();
         $this->workOn($billing, $client)->get(route('services'))->assertForbidden();
-        $this->workOn($billing, $client)->get(route('services.show', $service))->assertForbidden();
+        $this->workOn($billing, $client)->get(route('services.show', $service))->assertNotFound();
         $this->workOn($billing, $client)->get(route('account.credits'))->assertSuccessful();
     }
 
@@ -84,7 +85,7 @@ class ClientUsersTest extends TestCase
 
         $this->assertTrue(Gate::forUser($viewer)->allows('view', $service));
         $this->assertFalse(Gate::forUser($viewer)->allows('update', $service));
-        $this->workOn($viewer, $client)->get(route('services.upgrade', $service))->assertForbidden();
+        $this->workOn($viewer, $client)->get(route('services.upgrade', $service))->assertNotFound();
         $this->assertTrue(Gate::forUser($manager)->allows('update', $service));
     }
 
