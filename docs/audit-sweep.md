@@ -212,7 +212,7 @@ guards στους observers για άγνωστα status (`importer.md`). Fraud:
 ## Parity με WHMCS που χρειάζεται η nixpal πριν το go-live
 Μπαίνουν στα υπάρχοντα items του ROADMAP:
 - **Auto-charge**: σήμερα μία προσπάθεια, 7–20 ημέρες πριν τη λήξη, χωρίς retry, μόνο για τιμολόγια ανανέωσης, χωρίς ειδοποίηση staff. WHMCS: χρέωση στη λήξη + N retries. nixpal: 62% Stripe auto-charge. BIL-3, PAY-2
-- **Refunds/chargebacks από το dashboard του gateway** δεν φτάνουν ποτέ (invoice μένει paid). PAY-5 (με 2c/MT-1· επιστροφές από το gateway: 2c-2a· chargebacks: 2c-2b)
+- **Refunds/chargebacks από το dashboard του gateway** δεν φτάνουν ποτέ (invoice μένει paid). PAY-5 (με 2c/MT-1· επιστροφές από το gateway: 2c-2a· chargebacks: 2c-2b· κλείνει)
 - **Υπενθυμίσεις**: καμία πριν την αναστολή· η ρύθμιση `cronjob_invoice_reminder` φαίνεται στο admin αλλά δεν κάνει τίποτα. EVT-5
 - **Tickets της nixpal ως το port**: το `FetchEmails` σταματά σε ένα κακό μήνυμα για όλα τα επόμενα, χάνει απαντήσεις (case-sensitive From, log πριν το create)· **καμία ειδοποίηση staff** για νέο ticket ή απάντηση πελάτη· οποιοσδήποτε γράφει σε ticket άλλου με πλαστό From. EVT-3, EVT-6, EVT-4 (σχέδιο token τώρα)
 - Templates email που λείπουν (unsuspended, refund, credit, upgrade, admin notifications…)· γλώσσα ανά πελάτη. EVT-7, EVT-8

@@ -15,6 +15,8 @@ return [
         'affiliate_reward' => 'αμοιβή συνεργάτη',
         'invoice_reduced' => 'μείωση τιμολογίου',
         'refund_to_credit' => 'επιστροφή σε πίστωση',
+        'chargeback' => 'chargeback',
+        'chargeback_won' => 'αναίρεση chargeback (κερδίσαμε το dispute)',
     ],
     'statuses' => [
         'draft' => 'πρόχειρο',

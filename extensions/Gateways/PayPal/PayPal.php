@@ -511,10 +511,30 @@ class PayPal extends Gateway
             if ($billingAgreement) {
                 $billingAgreement->delete();
             }
+        } elseif ($body['event_type'] === 'PAYMENT.CAPTURE.REVERSED' && isset($body['resource']['id'])) {
+            // The capture taken back for a dispute or chargeback (PR 2c-2b): the invoice is owed again.
+            $captureId = self::upCapture($body['resource']);
+            if ($captureId !== '') {
+                ExtensionHelper::chargebackAtGateway('PayPal', $captureId, (string) $body['resource']['id'],
+                    abs((float) ($body['resource']['amount']['value'] ?? 0)), $body['resource']['amount']['currency_code'] ?? null);
+            }
+        } elseif (in_array($body['event_type'], ['CUSTOMER.DISPUTE.CREATED', 'CUSTOMER.DISPUTE.RESOLVED'], true) && isset($body['resource']['dispute_id'])) {
+            $disputed = $body['resource']['disputed_transactions'][0] ?? [];
+            $captureId = (string) ($disputed['seller_transaction_id'] ?? '');
+            $amount = (float) ($body['resource']['dispute_amount']['value'] ?? $disputed['gross_amount']['value'] ?? 0);
+            $currency = $body['resource']['dispute_amount']['currency_code'] ?? $disputed['gross_amount']['currency_code'] ?? null;
+            if ($body['event_type'] === 'CUSTOMER.DISPUTE.CREATED') {
+                ExtensionHelper::chargebackOpened('PayPal', $captureId, (string) $body['resource']['dispute_id'], $amount, $currency);
+            } elseif (in_array($body['resource']['dispute_outcome']['outcome_code'] ?? null, ['RESOLVED_SELLER_FAVOUR', 'CANCELED_BY_BUYER'], true) && $captureId !== '') {
+                // Won (or withdrawn): the capture's chargeback is undone, once per dispute (kept by its id).
+                ExtensionHelper::chargebackReversedAtGateway('PayPal', $captureId, null, $amount, $currency, (string) $body['resource']['dispute_id']);
+            } elseif ($captureId !== '') {
+                // Lost: its chargeback stays; kept, so another dispute's win on this capture never undoes it.
+                ExtensionHelper::disputeLostAtGateway('PayPal', $captureId, (string) $body['resource']['dispute_id'], $amount, $currency);
+            }
         } elseif ($body['event_type'] === 'PAYMENT.CAPTURE.REFUNDED' && isset($body['resource']['id'])) {
             // A refund made here or in PayPal's dashboard (PR 2c-2): recorded once, by its id. Its capture is the «up» link.
-            $capture = collect($body['resource']['links'] ?? [])->firstWhere('rel', 'up')['href'] ?? '';
-            $captureId = basename((string) parse_url($capture, PHP_URL_PATH));
+            $captureId = self::upCapture($body['resource']);
             if ($captureId !== '' && in_array($body['resource']['status'] ?? null, ['COMPLETED', 'PENDING'], true)) {
                 ExtensionHelper::refundedAtGateway('PayPal', $captureId, (string) $body['resource']['id'],
                     (float) ($body['resource']['amount']['value'] ?? 0), $body['resource']['amount']['currency_code'] ?? null);
@@ -601,6 +621,18 @@ class PayPal extends Gateway
         $service->unsetRelation('properties');
 
         return true;
+    }
+
+    /**
+     * The capture a refund or reversal belongs to: its «up» link.
+     *
+     * @param  array<string, mixed>  $resource
+     */
+    private static function upCapture(array $resource): string
+    {
+        $capture = collect($resource['links'] ?? [])->firstWhere('rel', 'up')['href'] ?? '';
+
+        return basename((string) parse_url((string) $capture, PHP_URL_PATH));
     }
 
     public function supportsRefunds(): bool

@@ -22,6 +22,24 @@ class GatewayRefund extends Model
     /** Reported failed by the gateway before anything was recorded: a late «created» records nothing. */
     public const ORIGIN_FAILED = 'failed';
 
+    /** The gateway took the payment back for a dispute (PR 2c-2b); money_event_id is its journal event. */
+    public const ORIGIN_CHARGEBACK = 'chargeback';
+
+    /** A chargeback whose dispute was won: its money came back and its journal event is reversed. */
+    public const ORIGIN_CHARGEBACK_WON = 'chargeback_won';
+
+    /** A chargeback for a payment not recorded (or not succeeded) here yet: applied when it is. */
+    public const ORIGIN_CHARGEBACK_WAITING = 'chargeback_waiting';
+
+    /** A dispute opened on the payment (reference «opened:<id>»): staff told once; counted for PayPal's wins. */
+    public const ORIGIN_DISPUTE = 'dispute';
+
+    /** A dispute resolved (PayPal, its id), won or lost: told once, and counted so a win never undoes another's chargeback. */
+    public const ORIGIN_DISPUTE_RESOLVED = 'dispute_resolved';
+
+    /** A dispute won before its chargeback arrived (PayPal, its id): the chargeback that arrives then records nothing. */
+    public const ORIGIN_DISPUTE_WON_EARLY = 'dispute_won_early';
+
     /**
      * What MyCS itself refunded on a payment through its gateway, in cents: the gateways' idempotency key for a refund
      * (a retry of an attempt whose answer was lost keeps its key, whatever the webhook recorded meanwhile).
@@ -41,6 +59,7 @@ class GatewayRefund extends Model
         'currency_code',
         'recorded_amount',
         'origin',
+        'money_event_id',
     ];
 
     protected $casts = [

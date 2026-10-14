@@ -325,3 +325,40 @@ context του συγγραφέα), οκτώ ευρήματα, όλα επιβε
   προεπιλογή), όπως το «Send Email» του WHMCS· οι επιστροφές από το dashboard του gateway το στέλνουν πάντα.
 - **Μένει για το 2c-2b:** chargebacks/disputes (Stripe `charge.dispute.*`, PayPal `CUSTOMER.DISPUTE.*` /
   `PAYMENT.CAPTURE.REVERSED`): θέλει απόφαση για το τι παθαίνουν τιμολόγιο και υπηρεσίες.
+
+## PR 2c-2b: chargebacks (2026-10-14)
+Απόφαση (2026-10-14): **καταγραφή, και το staff αποφασίζει.** Το dunning λειτουργεί κανονικά.
+- **Dispute ανοίγει** (Stripe `charge.dispute.created`, PayPal `CUSTOMER.DISPUTE.CREATED`): τίποτα δεν κινείται· email
+  στο staff μία φορά, να απαντήσει στο gateway.
+- **Τα χρήματα φεύγουν** (Stripe `charge.dispute.funds_withdrawn`, PayPal `PAYMENT.CAPTURE.REVERSED`): καταγράφεται στην
+  πληρωμή, μία φορά ανά id (`gateway_refunds`, origin `chargeback`):
+  - βγαίνει από την πληρωμή (`refunded_amount`, κίνηση `refund` με cause `chargeback`), όσο μένει πάνω της·
+  - το τιμολόγιο **κρατά το σύνολό του** (όχι σημείωμα επιστροφής: δεν είναι επιστροφή) και, αν ήταν paid, γίνεται
+    **unpaid**: χρωστιέται ξανά, και ο cron το χειρίζεται όπως κάθε απλήρωτο (υπενθυμίσεις, αναστολή, τερματισμός κατά
+    τις ρυθμίσεις του Automation)·
+  - οι υπηρεσίες **δεν αγγίζονται**· email στο staff με το τι έγινε· για να περιμένει την έκβαση του dispute βάζει hold
+    στην υπηρεσία·
+  - αγορά πίστωσης: παίρνει πίσω όση πίστωση έχει μείνει (το υπόλοιπο στο staff).
+- **Κερδίσαμε** (Stripe `charge.dispute.funds_reinstated`, PayPal `CUSTOMER.DISPUTE.RESOLVED` με
+  `RESOLVED_SELLER_FAVOUR` ή `CANCELED_BY_BUYER`): το chargeback αναιρείται (η κίνησή του αντιστρέφεται με cause
+  `chargeback_won`, τα χρήματα ξαναμπαίνουν στην πληρωμή) και το τιμολόγιο, αν καλύπτεται πάλι, ξαναγίνεται paid
+  (`settle`). Αν ο πελάτης είχε πληρώσει στο μεταξύ, το επιπλέον γίνεται πίστωση. Σε αγορά πίστωσης, την πίστωση που
+  πήρε το chargeback την ξαναδίνει το staff.
+- **Χάσαμε**: τίποτα άλλο· η καταγραφή του chargeback μένει.
+- **Από τα reviews (code + adversarial):**
+  - Αγορά πίστωσης: αν το chargeback πήρε πίσω **όλη** την πίστωση που αγόρασε, οι γραμμές της ξαναγίνονται «μη
+    εφαρμοσμένες», άρα όταν ξαναπληρωθεί (ή κερδίσουμε) η πίστωση ξαναδίνεται· μέρος της (ξοδεύτηκε): staff.
+  - Κερδίσαμε αφού το τιμολόγιο **ακυρώθηκε** ή έγινε **refunded** στο μεταξύ (π.χ. τερματισμός όσο κρατούσε το
+    dispute): τα χρήματα που επιστρέφουν γίνονται πίστωση του πελάτη. Πληρώθηκε ξανά στο μεταξύ: το επιπλέον γίνεται
+    πίστωση (και σε αγορά πίστωσης). Όλα κάτω από τα ίδια locks, με locking reads (όχι `refresh()`).
+  - Εκτός σειράς: «κερδίσαμε» πριν από το «πήραν τα χρήματα» (Stripe) κρατιέται, και το αργότερο chargeback δεν
+    καταγράφεται. Chargeback πριν η πληρωμή ολοκληρωθεί εδώ περιμένει (όπως οι επιστροφές) και καταγράφεται μετά.
+  - PayPal: το «κερδίσαμε» γράφεται μία φορά ανά dispute στη βάση (όχι στο cache)· αναιρεί chargeback μόνο όταν δεν
+    μπορεί να είναι άλλο (ένα dispute στην πληρωμή, ένα chargeback), αλλιώς email στο staff. Τα disputes που ανοίγουν
+    κρατιούνται (origin `dispute`).
+  - Γνωστά, μένουν: η ανταμοιβή affiliate δίνεται ξανά σε κάθε paid→unpaid→paid (υπήρχε ήδη, π.χ. με διαγραφή
+    συναλλαγής)· η αποθηκευμένη κάρτα του dispute μένει (το staff αποφασίζει)· όσο το τιμολόγιο του chargeback είναι
+    ανοιχτό ο cron δεν βγάζει νέο τιμολόγιο ανανέωσης για την υπηρεσία (όπως σε κάθε ανοιχτό τιμολόγιο).
+  - Υπάρχον Stripe endpoint: χρειάζεται τα `charge.dispute.*` (dashboard, ή άδειασμα του webhook secret και Save).
+- **Webhooks:** Stripe: τα τρία `charge.dispute.*` (το endpoint που φτιάχνει το extension τα ζητά). PayPal:
+  `PAYMENT.CAPTURE.REVERSED`, `CUSTOMER.DISPUTE.CREATED`, `CUSTOMER.DISPUTE.RESOLVED` στο webhook της εφαρμογής.
