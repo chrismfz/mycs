@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Auth\EditProfile;
 use App\Admin\Resources\TicketResource\Pages\EditTicket;
 use App\Admin\Resources\UserResource\Pages\EditUser;
 use App\Helpers\ExtensionHelper;
@@ -229,6 +230,19 @@ class StaffSplitTest extends TestCase
         $this->assertFalse(Gate::forUser($support)->allows('delete', $owner));
         $this->assertFalse(Gate::forUser($support)->allows('update', $owner));
         $this->assertTrue(Gate::forUser($owner)->allows('update', $support));
+    }
+
+    public function test_staff_edit_their_own_profile(): void
+    {
+        $staff = Staff::factory()->admin()->create(['first_name' => 'Old']);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+
+        $this->livewireAs($staff)->test(EditProfile::class)
+            ->set('data.first_name', 'New')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertSame('New', $staff->fresh()->first_name);
     }
 
     public function test_customer_2fa_backs_off_for_fifteen_minutes(): void

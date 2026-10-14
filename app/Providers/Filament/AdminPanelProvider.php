@@ -2,6 +2,7 @@
 
 namespace App\Providers\Filament;
 
+use App\Admin\Auth\EditProfile;
 use App\Http\Middleware\AdminLocale;
 use App\Http\Middleware\LockSession;
 use App\Http\Middleware\UseStaffGuard;
@@ -48,7 +49,7 @@ class AdminPanelProvider extends PanelProvider
             ->authPasswordBroker('staff')
             ->login()
             ->passwordReset()
-            ->profile(isSimple: false)
+            ->profile(EditProfile::class, isSimple: false)
             ->multiFactorAuthentication([AppAuthentication::make()->recoverable()])
             ->spa()
             ->colors([
