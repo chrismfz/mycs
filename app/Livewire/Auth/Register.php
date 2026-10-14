@@ -5,6 +5,7 @@ namespace App\Livewire\Auth;
 use App\Actions\Auth\Login;
 use App\Attributes\DisabledIf;
 use App\Livewire\ComponentWithProperties;
+use App\Livewire\Traits\EditsContact;
 use App\Models\Client;
 use App\Models\User;
 use App\Traits\Captchable;
@@ -16,7 +17,7 @@ use Illuminate\Validation\Rules\Password;
 #[DisabledIf('registration_disabled')]
 class Register extends ComponentWithProperties
 {
-    use Captchable;
+    use Captchable, EditsContact;
 
     public string $first_name = '';
 
@@ -33,6 +34,7 @@ class Register extends ComponentWithProperties
     public function mount()
     {
         $this->initializeProperties(null, Client::class);
+        $this->fillContact(null);
         if ($this->forInvite()) {
             $this->custom_properties = new Collection; // no account of their own: no account details to ask for
         }
@@ -60,7 +62,7 @@ class Register extends ComponentWithProperties
             $rules['tos'] = 'accepted';
         }
 
-        return array_merge($rules, $this->getRulesForProperties());
+        return array_merge($rules, $this->forInvite() ? [] : $this->contactRules(), $this->getRulesForProperties());
     }
 
     public function submit(Login $login)
@@ -79,6 +81,8 @@ class Register extends ComponentWithProperties
             ]);
             if (!$this->forInvite()) {
                 $client = Client::openFor($user);
+                // The account's details (its primary contact, PR 3a): the login's name and email where left empty.
+                $client->primaryContact?->update(array_filter($this->contactValues(), fn ($value) => $value !== null && $value !== []));
                 if (array_key_exists('properties', $validatedData)) {
                     $this->updateProperties($client, $validatedData['properties']);
                 }

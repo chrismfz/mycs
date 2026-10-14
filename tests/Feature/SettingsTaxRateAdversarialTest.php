@@ -5,8 +5,8 @@ namespace Tests\Feature;
 use App\Classes\Price;
 use App\Classes\Settings;
 use App\Models\Client;
+use App\Models\Contact;
 use App\Models\Invoice;
-use App\Models\Property;
 use App\Models\TaxRate;
 use App\Models\User;
 use Illuminate\Bus\Queueable;
@@ -30,7 +30,7 @@ class SettingsTaxRateAdversarialTest extends TestCase
     {
         $user = User::factory()->create();
         if ($country !== null) {
-            $user->client()->properties()->create(['key' => 'country', 'name' => 'Country', 'value' => $country]);
+            $user->client()->primaryContact->update(['country' => $country]);
         }
 
         return $user;
@@ -54,7 +54,7 @@ class SettingsTaxRateAdversarialTest extends TestCase
         $user = $this->customer('GR');
         $this->assertEquals(24, Settings::tax($user->client())->rate); // e.g. a product page / cart price earlier in the request
 
-        $user->client()->properties()->where('key', 'country')->update(['value' => 'DE']);
+        $user->client()->primaryContact->update(['country' => 'DE']);
 
         $fresh = User::findOrFail($user->id);
         $invoice = Invoice::create([
@@ -78,7 +78,7 @@ class SettingsTaxRateAdversarialTest extends TestCase
         TaxRate::create(['name' => 'VAT', 'rate' => 20, 'country' => 'all']);
 
         $unsaved = new Client;
-        $unsaved->setRelation('properties', collect([new Property(['key' => 'country', 'value' => 'DE'])]));
+        $unsaved->setRelation('primaryContact', new Contact(['country' => 'DE']));
 
         $this->assertEquals(19, Settings::tax($unsaved)->rate);
         Auth::logout();

@@ -650,27 +650,28 @@ class Stripe extends Gateway
 
         // Add detailed information if requested
         if ($includeDetails) {
-            $props = $user->properties()->pluck('value', 'key')->toArray();
+            // The account's details are its primary contact's (docs/accounts.md, PR 3a).
+            $contact = $user->primaryContact;
 
-            if (!empty($props['company_name'])) {
-                $payload['description'] = $props['company_name'];
+            if (!empty($contact?->company_name)) {
+                $payload['description'] = $contact->company_name;
             }
 
             $address = array_filter([
-                'line1' => $props['address'] ?? null,
-                'line2' => $props['address2'] ?? null,
-                'city' => $props['city'] ?? null,
-                'state' => $props['state'] ?? null,
-                'postal_code' => $props['zip'] ?? null,
-                'country' => $props['country'] ?? null,
+                'line1' => $contact?->address1,
+                'line2' => $contact?->address2,
+                'city' => $contact?->city,
+                'state' => $contact?->state,
+                'postal_code' => $contact?->postcode,
+                'country' => $contact?->country,
             ]);
 
             if ($address) {
                 $payload['address'] = $address;
             }
 
-            if (!empty($props['phone'])) {
-                $payload['phone'] = $props['phone'];
+            if (!empty($contact?->phone)) {
+                $payload['phone'] = $contact->phone;
             }
         }
 

@@ -16,5 +16,6 @@ return [
     'admin' => 'Διαχείριση',
     'notifications' => 'Ειδοποιήσεις',
     'users' => 'Χρήστες',
+    'contacts' => 'Επαφές',
     'switch_account' => 'Αλλαγή λογαριασμού',
 ];

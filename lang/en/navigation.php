@@ -16,5 +16,6 @@ return [
     'admin' => 'Admin',
     'notifications' => 'Notifications',
     'users' => 'Users',
+    'contacts' => 'Contacts',
     'switch_account' => 'Switch account',
 ];

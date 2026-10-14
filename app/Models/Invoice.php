@@ -319,10 +319,25 @@ class Invoice extends Model implements Auditable
             );
         }
 
+        // The recipient's details: the account's primary contact (PR 3a; the bill-to contact per service in 3b), then
+        // the custom fields shown on invoices.
         return Attribute::make(
-            get: fn () => $this->client?->properties()->with('parent_property')->whereHas('parent_property', function ($query) {
-                $query->where('show_on_invoice', true);
-            })->pluck('value', 'key')->toArray() ?? []
+            get: function () {
+                $contact = $this->client?->primaryContact;
+                $lines = $contact === null ? [] : array_filter([
+                    'company_name' => $contact->type === 'business' || $contact->company_name ? $contact->company_name : null,
+                    'tax_id' => $contact->tax_id ? __('invoices.tax_id_line', ['tax_id' => $contact->tax_id]) : null,
+                    'vat_number' => $contact->vat_number ? __('invoices.vat_number_line', ['vat_number' => $contact->vat_number]) : null,
+                    'tax_office' => $contact->tax_office ? __('invoices.tax_office_line', ['tax_office' => $contact->tax_office]) : null,
+                ]);
+                foreach ($contact?->addressLines() ?? [] as $i => $line) {
+                    $lines['address_' . $i] = $line;
+                }
+
+                return $lines + ($this->client?->properties()->with('parent_property')->whereHas('parent_property', function ($query) {
+                    $query->where('show_on_invoice', true);
+                })->pluck('value', 'key')->toArray() ?? []);
+            }
         );
     }
 

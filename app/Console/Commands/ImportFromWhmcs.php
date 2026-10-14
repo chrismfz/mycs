@@ -5,7 +5,6 @@ namespace App\Console\Commands;
 use App\Models\Category;
 use App\Models\Client;
 use App\Models\ConfigOption;
-use App\Models\CustomProperty;
 use App\Models\Product;
 use App\Models\Role;
 use App\Models\Service;
@@ -108,7 +107,6 @@ class ImportFromWhmcs extends Command
         $this->call('migrate:fresh', ['--force' => true]);
         // Seed default data
         $this->call('db:seed', ['--force' => true]);
-        $this->call('db:seed', ['--class' => 'CustomPropertySeeder', '--force' => true]);
     }
 
     protected function askOrUseENV(string $argument, string $env, string $question, string $placeholder): string
@@ -245,12 +243,11 @@ class ImportFromWhmcs extends Command
     private function importUsers()
     {
         $this->info('Importing users... (' . $this->count('tblclients') . ' records)');
-        $customProperties = CustomProperty::where('model', Client::class)->get()->keyBy('key');
 
-        $this->migrateInBatch('tblclients', 'SELECT * FROM tblclients LIMIT :limit OFFSET :offset', function ($records) use ($customProperties) {
+        $this->migrateInBatch('tblclients', 'SELECT * FROM tblclients LIMIT :limit OFFSET :offset', function ($records) {
             $data = [];
             $clients = [];
-            $properties = [];
+            $contacts = [];
             $credits = [];
 
             foreach ($records as $record) {
@@ -276,29 +273,18 @@ class ImportFromWhmcs extends Command
                 // The account keeps the WHMCS client id; its owner is the login (docs/accounts.md, PR 2a).
                 $clients[] = ['id' => $record['id'], 'created_at' => end($data)['created_at'], 'updated_at' => end($data)['updated_at']];
 
-                // Custom properties
-                foreach ($customProperties as $key => $property) {
-                    // address1 -> address, companyname -> company_name
-                    $whmcsKey = match ($key) {
-                        'address' => 'address1',
-                        'company_name' => 'companyname',
-                        'postcode' => 'zip',
-                        'phonenumber' => 'phone',
-                        default => $key,
-                    };
-                    if (isset($record[$key]) && $record[$key] !== '') {
-                        array_push($properties, [
-                            'key' => $key,
-                            'value' => $record[$whmcsKey],
-                            'model_id' => $record['id'],
-                            'model_type' => Client::class,
-                            'name' => $property->name,
-                            'custom_property_id' => $property->id,
-                            'created_at' => now(),
-                            'updated_at' => now(),
-                        ]);
-                    }
-                }
+                // The account's details are its primary contact, field for field (docs/accounts.md, PR 3a).
+                $value = fn (string $key) => isset($record[$key]) && trim((string) $record[$key]) !== '' ? trim((string) $record[$key]) : null;
+                $contacts[] = [
+                    'client_id' => $record['id'], 'primary_of_client_id' => $record['id'],
+                    'type' => $value('companyname') !== null ? 'business' : 'individual',
+                    'first_name' => $value('firstname'), 'last_name' => $value('lastname'), 'company_name' => $value('companyname'),
+                    'tax_id' => $value('tax_id'), 'email' => $value('email'), 'phone' => $value('phonenumber'),
+                    'address1' => $value('address1'), 'address2' => $value('address2'), 'city' => $value('city'),
+                    'state' => $value('state'), 'postcode' => $value('postcode'),
+                    'country' => $value('country') !== null ? strtoupper(substr($value('country'), 0, 2)) : null,
+                    'created_at' => end($data)['created_at'], 'updated_at' => now(),
+                ];
 
                 // Credits
                 if ($record['credit'] > 0) {
@@ -322,8 +308,8 @@ class ImportFromWhmcs extends Command
                 'client_id' => $client['id'], 'user_id' => $client['id'], 'owner' => true, 'owner_of_client_id' => $client['id'],
                 'granted_at' => $client['created_at'], 'created_at' => now(), 'updated_at' => now(),
             ], $clients));
-            if (count($properties) > 0) {
-                DB::table('properties')->insert($properties);
+            if (count($contacts) > 0) {
+                DB::table('contacts')->insert($contacts);
             }
             if (count($credits) > 0) {
                 DB::table('credits')->insert($credits);

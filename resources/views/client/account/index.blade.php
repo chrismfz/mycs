@@ -12,8 +12,16 @@
             <x-form.input name="email" type="email" :label="__('general.input.email')"
                 :placeholder="__('general.input.email_placeholder')" required wire:model="email" dirty />
 
+        </div>
+
+        @if($canEditDetails)
+        <h3 class="text-lg font-semibold mt-8 mb-2">{{ __('account.account_details') }}</h3>
+        <p class="text-sm text-base/70 mb-3">{{ __('account.account_details_description') }}</p>
+        <x-contact-fields />
+        <div class="grid md:grid-cols-2 gap-3 mt-3">
             <x-form.properties :custom_properties="$custom_properties" :properties="$properties" dirty />
         </div>
+        @endif
 
 
         <x-button.primary wire:click="submit" class="w-full mt-4">
