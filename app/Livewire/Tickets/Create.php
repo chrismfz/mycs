@@ -34,7 +34,8 @@ class Create extends Component
         // Add rules for the department
         $this->validate([
             'department' => count((array) config('settings.ticket_departments')) > 0 ? 'required|in:' . implode(',', array_values((array) config('settings.ticket_departments'))) : '',
-            'service' => 'nullable|exists:services,id,client_id,' . CurrentClient::id(),
+            // A service of the account, named only by a login that may see the services (`products`, PR 2b).
+            'service' => CurrentClient::allows('products') ? 'nullable|exists:services,id,client_id,' . CurrentClient::id() : 'prohibited',
             'subject' => 'required|string',
             'message' => 'required|string',
             'priority' => 'required|in:low,medium,high',
@@ -88,7 +89,7 @@ class Create extends Component
     {
         return view('tickets.create', [
             'departments' => (array) config('settings.ticket_departments'),
-            'services' => CurrentClient::model()->services()->orderBy('id', 'desc')->get(),
+            'services' => CurrentClient::allows('products') ? CurrentClient::model()->services()->orderBy('id', 'desc')->get() : collect(),
         ])->layoutData([
             'title' => 'Create Ticket',
             'sidebar' => true,

@@ -46,6 +46,9 @@ Route::group(['middleware' => ['web', 'auth', MustVerfiyEmail::class]], function
 
     Route::get('/services', Services\Index::class)->name('services')->middleware('client.can:products');
     Route::get('/services/{service}', Services\Show::class)->name('services.show')->middleware('can:view,service');
+    // The account's users (docs/accounts.md, PR 2b): it mails invitations, so only a verified login.
+    Route::get('/account/users', Client\Users::class)->name('account.users');
+
     Route::get('/services/{service}/upgrade', Services\Upgrade::class)->name('services.upgrade')->middleware('can:update,service');
 });
 
@@ -55,8 +58,6 @@ Route::group(['middleware' => ['web', 'auth']], function () {
     Route::get('/account/credits', Client\Credits::class)->name('account.credits')->middleware('client.can:invoices');
     Route::get('/account/payment-methods', Client\PaymentMethods::class)->name('account.payment-methods')->middleware('client.can:invoices');
     Route::get('/account/notifications', Client\Notifications::class)->name('account.notifications');
-    // The account's users and switching account (docs/accounts.md, PR 2b).
-    Route::get('/account/users', Client\Users::class)->name('account.users');
     Route::get('/account/accounts', Client\Accounts::class)->name('account.accounts');
 
     Route::get('/email/verify', Auth\VerifyEmail::class)->name('verification.notice');

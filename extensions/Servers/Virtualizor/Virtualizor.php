@@ -342,6 +342,8 @@ class Virtualizor extends Server
         return [
             [
                 'type' => 'button',
+                // Into the panel: `productsso` (WHMCS; docs/accounts.md, PR 2b).
+                'sso' => true,
                 'label' => 'Go to Server',
                 'function' => 'ssoLink',
             ],

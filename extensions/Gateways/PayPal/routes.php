@@ -9,5 +9,6 @@ Route::post('/extensions/paypal/capture/{invoice}/{orderID}', [PayPal::class, 'c
     ->middleware(['web', 'auth', 'can:view,invoice'])
     ->name('extensions.gateways.paypal.capture');
 Route::get('/extensions/paypal/setup-agreement', [PayPal::class, 'setupAgreement'])
-    ->middleware(['web', 'auth'])
+    // Saving a payment method on the account needs `invoices`, as its page (docs/accounts.md, PR 2b).
+    ->middleware(['web', 'auth', 'client.can:invoices'])
     ->name('extensions.gateways.paypal.setup-agreement');

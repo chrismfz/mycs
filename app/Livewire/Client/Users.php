@@ -60,14 +60,23 @@ class Users extends Component
             'permissions' => ['array'],
             'permissions.*' => [Rule::in(ClientUser::PERMISSIONS)],
         ]);
-        // A few invitations a minute per account: the mail goes to any address.
-        $key = 'client-invite:' . $client->id;
-        if (RateLimiter::tooManyAttempts($key, 5)) {
-            $this->notify(__('Too many attempts. Please try again later.'), 'error');
+        // The mail goes to any address: only from a verified login, and a few a minute, an hour and a day per account.
+        if (config('settings.mail_must_verify') && !Auth::user()?->hasVerifiedEmail()) {
+            $this->notify(__('Please verify your email address first.'), 'error');
 
             return;
         }
-        RateLimiter::hit($key, 60);
+        $limits = ['minute' => [5, 60], 'hour' => [20, 3600], 'day' => [50, 86400]];
+        foreach ($limits as $window => [$max]) {
+            if (RateLimiter::tooManyAttempts("client-invite:{$window}:{$client->id}", $max)) {
+                $this->notify(__('Too many attempts. Please try again later.'), 'error');
+
+                return;
+            }
+        }
+        foreach ($limits as $window => [, $decay]) {
+            RateLimiter::hit("client-invite:{$window}:{$client->id}", $decay);
+        }
 
         [$invite, $token] = ClientInvite::issue($client, $this->email, $this->allPermissions ? null : $this->permissions, Auth::user());
         NotificationHelper::clientInviteNotification($invite, $token);

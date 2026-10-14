@@ -14,6 +14,7 @@ use App\Models\Service;
 use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Request;
+use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
@@ -140,12 +141,18 @@ class Show extends Component
                 return $this->notify(__('Invalid payment method.'), 'error');
             }
 
+            // A service's payment method is managing it (`manageproducts`, docs/accounts.md PR 2b): only those the
+            // login may manage take it.
+            $updated = 0;
             foreach ($invoiceItems as $invoiceItem) {
                 $service = $invoiceItem->reference;
-                $service->update(['billing_agreement_id' => $agreement->id]);
+                if (Gate::allows('update', $service)) {
+                    $service->update(['billing_agreement_id' => $agreement->id]);
+                    $updated++;
+                }
             }
 
-            if ($invoiceItems->count() > 0) {
+            if ($updated > 0) {
                 $this->notify(__('Default payment method has been updated for recurring services.'), 'success');
             }
         }
