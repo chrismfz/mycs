@@ -6,6 +6,9 @@ use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Console\Commands\ImportFromWhmcs;
 use App\Helpers\ExtensionHelper;
+use App\Helpers\NotificationHelper;
+use App\Helpers\TemplateRenderer;
+use App\Mail\Mail;
 use App\Models\ClientUser;
 use App\Models\Role;
 use App\Models\Service;
@@ -192,5 +195,30 @@ class ServiceFieldsTest extends TestCase
 
         $this->service->properties()->where('key', 'domain')->first()->update(['value' => 'changed.gr']);
         $this->assertSame('neworder.gr', $this->service->fresh()->domain, 'a domain already on the service is kept');
+    }
+
+    public function test_the_welcome_mail_gives_the_login_and_no_other_template_can(): void
+    {
+        \Illuminate\Support\Facades\Mail::fake();
+        config(['settings.mail_disable' => false]);
+
+        NotificationHelper::serverCreatedNotification($this->owner->client(), $this->service->fresh());
+
+        $mail = \Illuminate\Support\Facades\Mail::queued(Mail::class)->first(fn ($mail) => $mail->templateKey === 'new_server_created');
+        $this->assertNotNull($mail);
+        $this->assertStringContainsString('examplegr', $mail->renderedHtml);
+        $this->assertStringContainsString('S3cret!pw', $mail->renderedHtml);
+        $this->assertSame('', TemplateRenderer::render('{{ service.password }}{{ service_password }}', ['service' => $this->service->fresh()]),
+            'any other template: neither the attribute nor the variable');
+    }
+
+    public function test_the_live_welcome_mail_takes_the_login_block_unless_staff_rewrote_it(): void
+    {
+        $migration = require database_path('migrations/2026_11_02_000001_welcome_mail_login_details.php');
+        DB::table('notification_templates')->where('key', 'new_server_created')->update(['body' => 'Our own welcome']);
+
+        $migration->up();
+
+        $this->assertSame('Our own welcome', DB::table('notification_templates')->where('key', 'new_server_created')->value('body'));
     }
 }

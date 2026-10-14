@@ -49,7 +49,7 @@ class NotificationTemplateResource extends Resource
                     ->hint('This message will be shown to users when they edit their notification preferences for this template.')
                     ->columnSpanFull(),
                 Section::make('Email Template')
-                    ->description('Markdown or HTML. Values: {{ invoice_number }} (the number, or the id of a proforma without one), {{ user.first_name }}, {{ service.product.name }}, {{ urls.invoice }}; blocks: {% if … %}…{% else %}…{% endif %}, {% for item in items %}…{% endfor %}; filters: date("F j, Y"), default("…"), upper, lower, raw. No PHP or Blade.')
+                    ->description('Markdown or HTML. Values: {{ invoice_number }} (the number, or the id of a proforma without one), {{ user.first_name }}, {{ service_password }} (the welcome mail only), {{ service.product.name }}, {{ urls.invoice }}; blocks: {% if … %}…{% else %}…{% endif %}, {% for item in items %}…{% endfor %}; filters: date("F j, Y"), default("…"), upper, lower, raw. No PHP or Blade.')
                     ->columns(2)
                     ->columnSpanFull()
                     ->collapsible()
