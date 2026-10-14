@@ -574,11 +574,20 @@ class Service extends Model implements Auditable
         }
         if ($this->expires_at === null) {
             $this->expires_at = CarbonImmutable::parse($this->created_at ?? now())->startOfDay()->toMutable();
+            // Not suspended before its first invoice is due (adversarial A3: staff may give an order 30 days): a hold
+            // through its due date, as staff would set one; Suspend Days count as usual after it.
+            $due = $this->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->min('invoices.due_at');
+            if ($due !== null && CarbonImmutable::parse($due)->startOfDay()->greaterThan($this->expires_at)
+                && ($this->suspend_hold_until === null || CarbonImmutable::parse($due)->greaterThan($this->suspend_hold_until))) {
+                $this->suspend_hold_until = CarbonImmutable::parse($due)->startOfDay()->toMutable();
+            }
 
             return;
         }
+        // Its first period began when it was paid, or, with nothing to pay (a free first period), when it was ordered
+        // (adversarial A6).
         $paidFrom = $this->livePeriodLines()->filter(fn (InvoiceItem $line) => $line->invoice?->status === Invoice::STATUS_PAID)
-            ->min(fn (InvoiceItem $line) => $line->period_start);
+            ->min(fn (InvoiceItem $line) => $line->period_start) ?? $this->created_at;
         if ($paidFrom === null) {
             return;
         }
@@ -705,6 +714,9 @@ class Service extends Model implements Auditable
             // of a service about to end would only be refunded, CR-10).
             get: fn () => $this->plan !== null && $this->product !== null && $this->cancellation === null
                 && ($this->productUpgrades()->count() > 0 || $this->product->upgradableConfigOptions()->count() > 0) && $this->status == 'active' && $this->upgrade->where('status', ServiceUpgrade::STATUS_PENDING)->count() == 0
+                // Nor while its order is unpaid (set up before payment, Σ1-b1): an upgrade would reprice the order's line
+                // and lose what it owes, the setup fee (adversarial A5). Paid, its line gets its period.
+                && !$this->invoiceItems()->whereNull('period_start')->whereHas('invoice', fn ($invoice) => $invoice->whereIn('status', Invoice::OPEN_STATUSES))->exists()
         );
     }
 

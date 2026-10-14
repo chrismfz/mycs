@@ -6,11 +6,12 @@ use App\Events\Service\Ordered;
 use App\Jobs\Server\CreateJob;
 use App\Models\Product;
 use App\Models\Service;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Auto Setup «as soon as an order is placed» (Σ1-b, WHMCS): the account is made before payment (a one-time plan: on
  * payment). Run inside the order's
- * transaction: the create is queued after its commit; a product without a module starts at once. Either way, unpaid,
+ * transaction: the create is queued after its commit; a product without a module starts right after it. Either way, unpaid,
  * its dates count from the order (Service::datesOnStart), so an unpaid first invoice suspends and terminates it.
  */
 class SetUpOnOrder
@@ -31,8 +32,16 @@ class SetUpOnOrder
 
             return;
         }
-        $service->status = Service::STATUS_ACTIVE;
-        $service->save();
-        $event->service->setRawAttributes($service->getAttributes(), true);
+        // After the commit: its first invoice exists by then, and its due date holds the suspension (Service::datesOnStart).
+        $id = $service->id;
+        DB::afterCommit(function () use ($id) {
+            DB::transaction(function () use ($id) {
+                $started = Service::query()->whereKey($id)->lockForUpdate()->first();
+                if ($started?->status === Service::STATUS_PENDING) {
+                    $started->status = Service::STATUS_ACTIVE;
+                    $started->save();
+                }
+            });
+        });
     }
 }
