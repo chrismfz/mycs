@@ -38,8 +38,10 @@ class ClientComponent extends Select
      * Find accounts by their logins' names or email and by their primary contact (its name, company and email: the
      * account's name, PR 3a). `$relation` is the path to the account from the searched model ('' for a Client).
      *
-     * @param  Builder<Model>  $query
-     * @return Builder<Model>
+     * @template TModel of Model
+     *
+     * @param  Builder<TModel>  $query
+     * @return Builder<TModel>
      */
     public static function search(Builder $query, string $search, string $relation = 'client'): Builder
     {
