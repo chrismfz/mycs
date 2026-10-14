@@ -573,11 +573,12 @@ class Service extends Model implements Auditable
             return;
         }
         if ($this->expires_at === null) {
-            $this->expires_at = CarbonImmutable::parse($this->created_at ?? now())->startOfDay()->toMutable();
+            $ordered = CarbonImmutable::parse($this->created_at ?? now())->startOfDay();
+            $this->expires_at = $ordered->toMutable();
             // Not suspended before its first invoice is due (adversarial A3: staff may give an order 30 days): a hold
             // through its due date, as staff would set one; Suspend Days count as usual after it.
             $due = $this->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->min('invoices.due_at');
-            if ($due !== null && CarbonImmutable::parse($due)->startOfDay()->greaterThan($this->expires_at)
+            if ($due !== null && CarbonImmutable::parse($due)->startOfDay()->greaterThan($ordered)
                 && ($this->suspend_hold_until === null || CarbonImmutable::parse($due)->greaterThan($this->suspend_hold_until))) {
                 $this->suspend_hold_until = CarbonImmutable::parse($due)->startOfDay()->toMutable();
             }
