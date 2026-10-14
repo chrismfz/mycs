@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Admin\Resources\ClientResource\Pages\EditClient;
 use App\Admin\Resources\ClientResource\RelationManagers\InvitesRelationManager;
 use App\Admin\Resources\ClientResource\RelationManagers\UsersRelationManager;
+use App\Classes\Cart;
 use App\Exceptions\DisplayException;
 use App\Livewire\Cart as CartPage;
 use App\Livewire\Client\AcceptInvite;
@@ -26,6 +27,7 @@ use App\Models\Invoice;
 use App\Models\Server;
 use App\Models\Service;
 use App\Models\Staff;
+use App\Models\Ticket;
 use App\Models\User;
 use App\Support\CurrentClient;
 use Database\Seeders\EmailTemplateSeeder;
@@ -34,7 +36,9 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Session;
+use Livewire\Livewire;
 use Livewire\Mechanisms\HandleRequests\HandleRequests;
 use Tests\TestCase;
 
@@ -216,7 +220,7 @@ class ClientUsersAdversarialTest extends TestCase
 
         config(['settings.default_currency' => 'USD']);
         // The gateway's own route file, as the enabled extension registers it (the row is made after boot here).
-        \Illuminate\Support\Facades\Route::group([], base_path('extensions/Gateways/PayPal/routes.php'));
+        Route::group([], base_path('extensions/Gateways/PayPal/routes.php'));
         app('router')->getRoutes()->refreshNameLookups();
 
         $this->workOn($member, $client)->get(route('account.payment-methods'))->assertForbidden();
@@ -330,7 +334,7 @@ class ClientUsersAdversarialTest extends TestCase
         $member = $this->member($client, ['tickets']);
         $product = $this->createProduct();
         $this->workOn($member, $client);
-        \App\Classes\Cart::add($product->product, $product->plan, [], [], 1);
+        Cart::add($product->product, $product->plan, [], [], 1);
 
         $this->livewireAs($member)->test(CartPage::class)->call('checkout');
 
@@ -518,18 +522,18 @@ class ClientUsersAdversarialTest extends TestCase
 
         // Control: while allowed, the real request creates the ticket (the harness reaches the component).
         $this->livewireUpdate($snapshot, $form, $create)->assertOk();
-        $this->assertSame(1, \App\Models\Ticket::query()->where('client_id', $client->id)->count());
+        $this->assertSame(1, Ticket::query()->where('client_id', $client->id)->count());
 
         $this->grantOf($client, $member)->forceFill(['permissions' => ['invoices']])->save();
         // A later request is a new process in production; within one test the scoped CurrentClient (its grant cache)
         // and Livewire's «middleware already applied for this route» memo survive, so reset them as a new request would.
         app(CurrentClient::class)->forget();
-        \Livewire\Livewire::flushState();
+        Livewire::flushState();
         $this->travel(31)->seconds(); // past the ticket rate limit
         $status = $this->livewireUpdate($snapshot, $form, $create)->status();
 
         $this->assertSame(403, $status);
-        $this->assertSame(1, \App\Models\Ticket::query()->where('client_id', $client->id)->count());
+        $this->assertSame(1, Ticket::query()->where('client_id', $client->id)->count());
     }
 
     public function test_holds_a_revoked_members_open_invoice_page_stops_answering(): void
