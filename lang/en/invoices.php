@@ -10,6 +10,8 @@ return [
     'id' => 'ID',
     'total' => 'Total',
     'subtotal' => 'Subtotal',
+    'tax_line' => ':name (:rate%)',
+    'tax' => 'VAT',
     'invoice' => 'Invoice #:id',
     'proforma_invoice' => 'Proforma Invoice #:id',
     'unit_price' => 'Unit Price',

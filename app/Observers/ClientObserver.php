@@ -2,11 +2,21 @@
 
 namespace App\Observers;
 
+use App\Events\Service\RenewalTaxChanged;
 use App\Exceptions\DisplayException;
 use App\Models\Client;
+use App\Models\Service;
 
 class ClientObserver
 {
+    /** Tax exempt or not changes what its subscriptions bill (Δ1). */
+    public function updated(Client $client): void
+    {
+        if ($client->wasChanged('tax_exempt')) {
+            RenewalTaxChanged::forSubscribed(Service::query()->where('client_id', $client->id));
+        }
+    }
+
     /**
      * An account with money history is never deleted (docs/money-trail.md §8): its invoices would lose their customer
      * and its credit would go by cascade. The journal's foreign key refuses it too; this gives the reason.

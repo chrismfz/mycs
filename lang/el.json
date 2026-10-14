@@ -239,5 +239,7 @@
     "Restore": "Επαναφορά",
     "The primary contact is the account's details: make another contact primary first.": "Η κύρια επαφή είναι τα στοιχεία του λογαριασμού: ορίστε πρώτα άλλη επαφή ως κύρια.",
     "The quantity must be at least 1.": "Η ποσότητα πρέπει να είναι τουλάχιστον 1.",
-    "A price cannot be negative.": "Η τιμή δεν μπορεί να είναι αρνητική."
+    "A price cannot be negative.": "Η τιμή δεν μπορεί να είναι αρνητική.",
+    "Tax exempt": "Χωρίς ΦΠΑ",
+    "New invoice lines of this account get no tax; issued invoices keep theirs.": "Οι νέες γραμμές τιμολογίων του λογαριασμού δεν έχουν ΦΠΑ· τα εκδομένα κρατούν τον δικό τους."
 }

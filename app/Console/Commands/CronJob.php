@@ -488,7 +488,7 @@ class CronJob extends Command
      */
     private function keepsItsMoney(Invoice $invoice): bool
     {
-        $due = $invoice->items->sum(fn ($item) => RecordPaymentService::toCents($item->price) * (int) $item->quantity)
+        $due = $invoice->items->sum(fn (InvoiceItem $item) => $item->totalCents())
             + $invoice->adjustmentNotes->where('status', AdjustmentNoteStatus::Active->value)->where('is_refund', false)
                 ->sum(fn ($note) => RecordPaymentService::toCents($note->amount));
         $kept = $invoice->transactions->where('status', InvoiceTransactionStatus::Succeeded)

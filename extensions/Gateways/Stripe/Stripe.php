@@ -4,6 +4,7 @@ namespace MyCS\Extensions\Gateways\Stripe;
 
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Gateway;
+use App\Events\Service\RenewalTaxChanged;
 use App\Events\Service\Updated;
 use App\Events\ServiceCancellation\Created;
 use App\Exceptions\DisplayException;
@@ -13,6 +14,7 @@ use App\Models\Client;
 use App\Models\Extension;
 use App\Models\GatewayRefund;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
 use App\Models\Service;
 use App\Models\User;
@@ -47,6 +49,17 @@ class Stripe extends Gateway
         // Register webhook route
         View::addNamespace('gateways.stripe', __DIR__ . '/resources/views');
 
+        // The renewal's tax changed (Δ1): the subscription bills the new amount, as the renewal invoices.
+        Event::listen(RenewalTaxChanged::class, function (RenewalTaxChanged $event) {
+            if (!$this->ownsSubscription($event->service)) {
+                return;
+            }
+            try {
+                $this->updateSubscription($event->service, ['price' => $event->service->price]);
+            } catch (Exception $e) {
+                report($e);
+            }
+        });
         Event::listen(Updated::class, function (Updated $event) {
             if (!$this->ownsSubscription($event->service)) {
                 // If the service is not a stripe subscription, skip
@@ -374,10 +387,12 @@ class Stripe extends Gateway
         ]);
 
         // Create subscription
+        /** @var InvoiceItem $item */
         foreach ($invoice->items as $item) {
             if ($item->reference_type !== Service::class) {
                 continue;
             }
+            /** @var Service $service */
             $service = $item->reference;
             $product = $service->product;
 
@@ -395,15 +410,16 @@ class Stripe extends Gateway
             }
 
             $phases = [];
-            // Check if current invoice item price is bigger then service price (then we have a setup fee)
-            if ($item->price != $service->price) {
+            // The first invoice's line differs from a renewal (a setup fee, a first-cycle coupon): a first phase of
+            // its amount. Both with tax (Δ1: prices are net, the line carries the tax).
+            if ($item->totalCents() !== $service->recurringGrossCents()) {
                 $phases[] = [
                     'items' => [
                         [
                             'price_data' => [
                                 'currency' => $invoice->currency_code,
                                 'product' => $stripeProduct->id,
-                                'unit_amount' => $item->price * 100,
+                                'unit_amount' => $item->totalCents(),
                                 'recurring' => [
                                     'interval' => $service->plan->billing_unit,
                                     'interval_count' => $service->plan->billing_period,
@@ -425,7 +441,7 @@ class Stripe extends Gateway
                         'price_data' => [
                             'currency' => $invoice->currency_code,
                             'product' => $stripeProduct->id,
-                            'unit_amount' => ($service->price * $service->quantity) * 100,
+                            'unit_amount' => $service->recurringGrossCents(),
                             'recurring' => [
                                 'interval' => $service->plan->billing_unit,
                                 'interval_count' => $service->plan->billing_period,
@@ -573,11 +589,11 @@ class Stripe extends Gateway
     }
 
     /**
-     * What the subscription bills per cycle, in cents: price is per unit (setupSubscription bills price * quantity).
+     * What the subscription bills per cycle, in cents: the renewal with tax (setupSubscription bills the same).
      */
     private function recurringAmount(Service $service): int
     {
-        return RecordPaymentService::toCents($service->price) * max(1, (int) $service->quantity);
+        return $service->recurringGrossCents();
     }
 
     /**

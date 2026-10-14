@@ -82,7 +82,7 @@ class Price
             $tax ??= $priceAndCurrency->tax ?? Settings::tax();
             if ($tax) {
                 // Inclusive has the tax included in the price
-                if (config('settings.tax_type', 'inclusive') == 'inclusive' || !$apply_exclusive_tax) {
+                if (config('settings.tax_type', 'exclusive') == 'inclusive' || !$apply_exclusive_tax) {
                     $this->tax = number_format($this->price - ($this->price / (1 + $tax->rate / 100)), 2, '.', '');
                     if ($this->setup_fee) {
                         $this->setup_fee_tax = number_format($this->setup_fee - ($this->setup_fee / (1 + $tax->rate / 100)), 2, '.', '');
@@ -134,6 +134,17 @@ class Price
             'setup_fee_tax' => $price->format($price->setup_fee_tax),
             'total_tax' => $price->format($price->__get('total_tax')),
         ];
+
+        return $price;
+    }
+
+    /** A total that already contains a known tax (an invoice's, Δ1): shown as is, the tax not worked out again. */
+    public static function ofTotal(float|string $total, float|string $tax, $currency): self
+    {
+        $price = new self(['price' => $total, 'currency' => $currency], tax: 0);
+        $price->tax = number_format((float) $tax, 2, '.', '');
+        $price->formatted->tax = $price->format($price->tax);
+        $price->formatted->total_tax = $price->format($price->tax);
 
         return $price;
     }

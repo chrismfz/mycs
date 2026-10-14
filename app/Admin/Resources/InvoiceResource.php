@@ -115,7 +115,7 @@ class InvoiceResource extends Resource
                     ->columns(2)
                     ->schema([
                         TextInput::make('price')
-                            ->label('Price')
+                            ->label('Price (before tax)')
                             // Grab invoice currency
                             ->prefix(fn (Get $get): ?string => Currency::where('code', $get('../../currency_code'))->first()?->prefix)
                             ->suffix(fn (Get $get): ?string => Currency::where('code', $get('../../currency_code'))->first()?->suffix)
@@ -132,6 +132,13 @@ class InvoiceResource extends Resource
                             ->required()
                             ->numeric()
                             ->placeholder('Enter the quantity of the product'),
+                        // Δ1: the price is net; the line adds the account's tax when taxed (rate kept from when it was made).
+                        Toggle::make('taxed')
+                            ->label('Taxed')
+                            ->default(true)
+                            ->helperText(fn (Get $get): ?string => $get('tax_amount') !== null && (float) $get('tax_amount') != 0
+                                ? 'Tax ' . rtrim(rtrim((string) $get('tax_rate'), '0'), '.') . '%: ' . $get('tax_amount')
+                                : null),
                         // Several lines, as WHMCS's (DATA-12: the column is text).
                         Textarea::make('description')
                             ->label('Description')

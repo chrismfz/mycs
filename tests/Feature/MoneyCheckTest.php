@@ -87,7 +87,7 @@ class MoneyCheckTest extends TestCase
     public function test_a_paid_invoice_with_something_left_to_pay(): void
     {
         $invoice = $this->paid();
-        DB::table('invoice_items')->insert(['invoice_id' => $invoice->id, 'description' => 'Added later', 'quantity' => 1, 'price' => 3, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('invoice_items')->insert(['invoice_id' => $invoice->id, 'description' => 'Added later', 'quantity' => 1, 'price' => 3, 'line_total' => 3, 'created_at' => now(), 'updated_at' => now()]);
 
         $this->assertSame(['paid_balance'], $this->rules(['paid_balance']));
     }
@@ -96,9 +96,20 @@ class MoneyCheckTest extends TestCase
     {
         $invoice = $this->invoice();
         (new RecordPaymentService)->handle($invoice, null, 4.0, transactionId: 'part');
-        DB::table('invoice_items')->where('invoice_id', $invoice->id)->update(['price' => 4]);
+        DB::table('invoice_items')->where('invoice_id', $invoice->id)->update(['price' => 4, 'line_total' => 4]);
 
         $this->assertSame(['open_settled'], $this->rules(['open_settled']));
+    }
+
+    /** Δ1: a line written around the model with a total that is not its price × quantity + tax. */
+    public function test_a_line_whose_total_is_not_its_amounts(): void
+    {
+        $invoice = $this->invoice();
+        $this->assertSame([], $this->rules(['line_totals']));
+
+        DB::table('invoice_items')->insert(['invoice_id' => $invoice->id, 'description' => 'Raw', 'quantity' => 2, 'price' => 3, 'created_at' => now(), 'updated_at' => now()]);
+
+        $this->assertSame(['line_totals'], $this->rules(['line_totals']));
     }
 
     public function test_a_cancelled_invoice_that_renewed_a_service(): void

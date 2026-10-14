@@ -9,6 +9,7 @@ use App\Models\Invoice;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Services\Invoice\ChangeOpenLine;
+use App\Services\Invoice\LineTax;
 use App\Services\Money\PaymentsLog;
 use Illuminate\Support\Facades\DB;
 
@@ -94,14 +95,20 @@ class ServiceUpgradeService
             $service->price = $service->calculatePrice();
             $service->save();
 
-            // Reprice all open renewal lines (drafts too) after the new recurring amount is saved.
-            $service->refreshOpenPeriods();
+            // Reprice all open renewal lines (drafts too) after the new recurring amount is saved; on a new product
+            // their tax follows it too (Δ1: a product sold without tax, F8 of the Σ7b review).
+            $service->refreshOpenPeriods(retax: $productChanged);
             // Legacy manual lines without a period retain their whole-cycle allocation on payment. Under the payment
             // locks; an invoice with a payment on it keeps its line (R9).
             $service->invoiceItems()->where(fn ($query) => $query->whereNull('period_start')->orWhereNull('period_end'))
                 ->whereHas('invoice', fn ($query) => $query->whereIn('status', Invoice::OPEN_STATUSES))
                 ->get()
-                ->each(fn ($item) => ChangeOpenLine::handle($item, fn ($line) => $line->price = $service->price));
+                ->each(fn ($item) => ChangeOpenLine::handle($item, function ($line) use ($service, $productChanged) {
+                    $line->price = $service->price;
+                    if ($productChanged) {
+                        $line->tax_rate = LineTax::rateFor($line);
+                    }
+                }));
 
             if ($service->provisioningServer()) {
                 UpgradeJob::dispatch($service);

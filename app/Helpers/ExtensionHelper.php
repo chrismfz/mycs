@@ -15,6 +15,7 @@ use App\Models\Extension;
 use App\Models\Gateway;
 use App\Models\GatewayRefund;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
 use App\Models\MoneyEvent;
 use App\Models\PaymentGatewayEvent;
@@ -1158,7 +1159,7 @@ class ExtensionHelper
                         // All the credit it bought taken back: not bought any more, so paying the invoice again (or the
                         // dispute won) buys it again (code review H1 / adversarial F6). Part of it: staff.
                         $bought = (int) $invoice->items()->where('reference_type', Credit::class)->get()
-                            ->sum(fn ($line) => RecordPaymentService::toCents($line->price * $line->quantity));
+                            ->sum(fn (InvoiceItem $line) => $line->totalCents());
                         if ($take === $record && $take === $bought) {
                             $invoice->items()->where('reference_type', Credit::class)->update(['applied_at' => null]);
                         }

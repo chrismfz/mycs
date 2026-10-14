@@ -271,7 +271,8 @@ class Settings
                         'inclusive' => 'Inclusive (Price includes tax)',
                         'exclusive' => 'Exclusive (Price does not include tax)',
                     ],
-                    'default' => 'inclusive',
+                    // Both companies' WHMCS are Exclusive (docs/decisions.md Δ1).
+                    'default' => 'exclusive',
                 ],
             ],
             'mail' => [

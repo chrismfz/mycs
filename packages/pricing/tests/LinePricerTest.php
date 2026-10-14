@@ -92,6 +92,28 @@ final class LinePricerTest extends TestCase
         $this->assertSame('10.01', LinePricer::price('10.005', '0')->price);
     }
 
+    public function test_net_amounts_come_out_of_inclusive_prices(): void
+    {
+        $line = LinePricer::price('24.80', '12.40', taxRate: '24', taxMode: LinePricer::TAX_INCLUSIVE);
+
+        $this->assertSame(['20.00', '10.00', '30.00'], [$line->netPrice, $line->netSetupFee, $line->firstPaymentNet()]);
+    }
+
+    public function test_net_amounts_of_exclusive_prices_are_the_catalog_ones(): void
+    {
+        $line = LinePricer::price('20', '5', new Discount('fixed', '5', 'price'), '24', LinePricer::TAX_EXCLUSIVE);
+
+        $this->assertSame(['15.00', '5.00', '20.00'], [$line->netPrice, $line->netSetupFee, $line->firstPaymentNet()]);
+    }
+
+    /** CART-14: tax on the line, not per unit. */
+    public function test_an_invoice_line_is_taxed_once_on_its_total(): void
+    {
+        $this->assertSame(['net' => '99.00', 'tax' => '23.76', 'total' => '122.76'], LinePricer::invoiceLine('0.99', 100, '24'));
+        $this->assertSame(['net' => '10.00', 'tax' => '0.00', 'total' => '10.00'], LinePricer::invoiceLine('10', 1, null));
+        $this->assertSame(['net' => '-5.00', 'tax' => '-1.20', 'total' => '-6.20'], LinePricer::invoiceLine('-5', 1, '24'));
+    }
+
     public function test_bad_input_is_refused(): void
     {
         foreach ([
