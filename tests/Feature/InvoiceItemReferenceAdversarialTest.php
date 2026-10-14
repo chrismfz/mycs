@@ -39,7 +39,7 @@ class InvoiceItemReferenceAdversarialTest extends TestCase
     private function token(array $permissions = ['admin.invoice_items.create', 'admin.invoice_items.update']): string
     {
         $token = 'PAYM' . bin2hex(random_bytes(8));
-        ApiKey::create(['staff_id' => \App\Models\Staff::factory()->admin()->create()->id, 'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => $permissions]);
+        ApiKey::create(['staff_id' => Staff::factory()->admin()->create()->id, 'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => $permissions]);
 
         return $token;
     }

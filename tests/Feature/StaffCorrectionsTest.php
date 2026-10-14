@@ -83,7 +83,7 @@ class StaffCorrectionsTest extends TestCase
     private function apiToken(array $permissions): string
     {
         $token = 'PAYM' . bin2hex(random_bytes(8));
-        ApiKey::create(['staff_id' => \App\Models\Staff::factory()->admin()->create()->id, 'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => $permissions]);
+        ApiKey::create(['staff_id' => Staff::factory()->admin()->create()->id, 'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => $permissions]);
 
         return $token;
     }

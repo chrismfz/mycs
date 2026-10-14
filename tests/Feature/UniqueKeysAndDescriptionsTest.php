@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\ApiKey;
 use App\Models\Invoice;
+use App\Models\Staff;
 use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -105,7 +106,7 @@ class UniqueKeysAndDescriptionsTest extends TestCase
         $user = User::factory()->create();
         $invoice = Invoice::factory()->create(['user_id' => $user->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
         $token = 'PAYM' . bin2hex(random_bytes(8));
-        ApiKey::create(['staff_id' => \App\Models\Staff::factory()->admin()->create()->id, 'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => ['admin.invoice_items.create']]);
+        ApiKey::create(['staff_id' => Staff::factory()->admin()->create()->id, 'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => ['admin.invoice_items.create']]);
 
         $this->withToken($token)->postJson(route('api.v1.admin.invoice-items.store'), [
             'invoice_id' => $invoice->id, 'description' => str_repeat('x', 400), 'price' => 5, 'quantity' => 1,

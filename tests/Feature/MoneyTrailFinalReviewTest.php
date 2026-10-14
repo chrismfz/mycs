@@ -63,7 +63,7 @@ class MoneyTrailFinalReviewTest extends TestCase
         $invoice = $this->paidInvoice();
         $other = User::factory()->create();
         $token = 'PAYM' . bin2hex(random_bytes(8));
-        ApiKey::create(['staff_id' => \App\Models\Staff::factory()->admin()->create()->id, 'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => ['admin.invoices.update']]);
+        ApiKey::create(['staff_id' => Staff::factory()->admin()->create()->id, 'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => ['admin.invoices.update']]);
 
         $this->withToken($token)->putJson(route('api.v1.admin.invoices.update', $invoice), ['user_id' => $other->id])
             ->assertStatus(422);
