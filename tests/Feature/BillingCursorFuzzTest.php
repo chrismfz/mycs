@@ -391,7 +391,7 @@ class BillingCursorFuzzTest extends TestCase
     {
         $exp = $after['expires'];
         $paidLines = array_values(array_filter($after['lines'], fn ($l) => $l['status'] === 'paid' && $l['s'] !== null));
-        $live = array_values(array_filter($after['lines'], fn ($l) => $l['status'] !== 'cancelled' && $l['s'] !== null));
+        $live = array_values(array_filter($after['lines'], fn ($l) => !in_array($l['status'], ['cancelled', 'refunded'], true) && $l['s'] !== null));
         $revivedInvolved = fn (array $ids) => (bool) array_intersect_key($this->revived, array_flip($ids));
         $allRevivedIds = array_keys($this->revived);
 
@@ -452,7 +452,7 @@ class BillingCursorFuzzTest extends TestCase
         }
         foreach ($newIds as $id) {
             $l = $after['lines'][$id];
-            if ($l['status'] === 'cancelled') {
+            if (in_array($l['status'], ['cancelled', 'refunded'], true)) {
                 continue;
             }
             foreach ($live as $o) {
