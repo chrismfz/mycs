@@ -727,8 +727,20 @@ class Service extends Model implements Auditable
                 && ($this->productUpgrades()->count() > 0 || $this->product->upgradableConfigOptions()->count() > 0) && $this->status == 'active' && $this->upgrade->where('status', ServiceUpgrade::STATUS_PENDING)->count() == 0
                 // Nor while its order is unpaid (set up before payment, Σ1-b1): an upgrade would reprice the order's line
                 // and lose what it owes, the setup fee (adversarial A5). Paid, its line gets its period.
-                && !$this->invoiceItems()->whereNull('period_start')->whereHas('invoice', fn ($invoice) => $invoice->whereIn('status', Invoice::OPEN_STATUSES))->exists()
+                && !$this->orderUnpaid()
         );
+    }
+
+    /** Its order's own line (on its first invoice, no period yet) is still open: set up before it was paid. */
+    public function orderUnpaid(): bool
+    {
+        if ($this->order_id === null) {
+            return false;
+        }
+        $first = $this->invoiceItems()->min('invoice_id');
+
+        return $first !== null && $this->invoiceItems()->where('invoice_id', $first)->whereNull('period_start')
+            ->whereHas('invoice', fn ($invoice) => $invoice->whereIn('status', Invoice::OPEN_STATUSES))->exists();
     }
 
     public function productUpgrades()
