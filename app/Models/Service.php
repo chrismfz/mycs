@@ -105,6 +105,7 @@ class Service extends Model implements Auditable
         'billing_agreement_id',
         'suspend_hold_until',
         // WHMCS's tblhosting fields (2026_11_02 migration)
+        'server_id',
         'domain',
         'username',
         'password',
@@ -579,9 +580,21 @@ class Service extends Model implements Auditable
             ->values();
     }
 
+    /** @return BelongsTo<Server, $this> the server this account lives on (WHMCS's tblhosting.server) */
+    public function server(): BelongsTo
+    {
+        return $this->belongsTo(Server::class, 'server_id');
+    }
+
     /**
-     * Get the product corresponding to the service.
+     * The server its module actions go to: its own; its product's while it has none (a service not created yet, or one
+     * made before servers were the service's).
      */
+    public function provisioningServer(): ?Server
+    {
+        return $this->server ?? $this->product?->server;
+    }
+
     /** @return BelongsTo<Product, $this> */
     public function product(): BelongsTo
     {

@@ -190,6 +190,10 @@ class ServiceResource extends Resource
                     ->columns(2)
                     ->columnSpanFull()
                     ->schema([
+                        // Which server it lives on (WHMCS's «Server»): the record only, nothing is moved on the servers.
+                        Select::make('server_id')->label('Server')->relationship('server', 'name')->nullable()
+                            ->helperText('The server this account is on. Changing it moves nothing: it only records where it is.')
+                            ->columnSpanFull(),
                         TextInput::make('domain')->label('Domain')->maxLength(255),
                         TextInput::make('dedicated_ip')->label('Dedicated IP')->ip()->maxLength(45),
                         TextInput::make('username')->label('Username')->maxLength(255),

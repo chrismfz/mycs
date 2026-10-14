@@ -61,6 +61,10 @@ class ServerResource extends Resource
                         modifyRuleUsing: fn ($rule) => $rule->where('deleted_at', null)
                     )
                     ->placeholder('Enter the name of the server'),
+                TextInput::make('max_accounts')
+                    ->label('Max Accounts')
+                    ->numeric()->minValue(1)->nullable()
+                    ->helperText('New accounts of a server group go to servers under this limit (WHMCS «Maximum No. of Accounts»). Empty: no limit.'),
                 Select::make('extension')
                     ->label('Server')
                     ->required()
@@ -113,6 +117,10 @@ class ServerResource extends Resource
         return $table
             ->columns([
                 TextColumn::make('name')->searchable(),
+                TextColumn::make('extension')->label('Module'),
+                // Accounts on it (active, suspended, pending) against its limit, as WHMCS's server list.
+                TextColumn::make('accounts')->label('Accounts')
+                    ->state(fn (Server $record) => $record->accountsCount() . ($record->max_accounts ? ' / ' . $record->max_accounts : '')),
             ])
             ->filters([
                 //

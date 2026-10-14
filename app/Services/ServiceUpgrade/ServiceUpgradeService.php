@@ -103,7 +103,7 @@ class ServiceUpgradeService
                 ->get()
                 ->each(fn ($item) => ChangeOpenLine::handle($item, fn ($line) => $line->price = $service->price));
 
-            if ($service->product->server) {
+            if ($service->provisioningServer()) {
                 UpgradeJob::dispatch($service);
             }
 

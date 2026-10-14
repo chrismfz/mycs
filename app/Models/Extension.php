@@ -24,6 +24,8 @@ class Extension extends Model implements Auditable
         // Name of extension class (e.g. 'Stripe' or 'Paypal')
         'extension',
         'type',
+        // Servers: WHMCS's «max accounts» (null = no limit)
+        'max_accounts',
     ];
 
     protected $guarded = [];

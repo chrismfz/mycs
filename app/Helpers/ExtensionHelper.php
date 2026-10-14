@@ -26,6 +26,7 @@ use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\GatewayLog;
 use App\Services\Money\MoneyTrail;
+use App\Services\Service\ServerSelector;
 use Exception;
 use Filament\Forms\Components\Placeholder;
 use Illuminate\Database\Eloquent\Collection;
@@ -291,7 +292,7 @@ class ExtensionHelper
 
     public static function callService(Service $service, $function, $args = [], $mayFail = false)
     {
-        $server = $service->product->server;
+        $server = $service->provisioningServer();
 
         if (!$server) {
             if ($mayFail) {
@@ -1434,7 +1435,9 @@ class ExtensionHelper
 
     protected static function checkServer(Service $service, $action)
     {
-        $server = $service->product->server;
+        // The service's own server (WHMCS's tblhosting.server); chosen on its first creation (the product's group, or
+        // the product's server), then kept.
+        $server = $action === 'createServer' ? ServerSelector::assign($service) : $service->provisioningServer();
 
         if (!$server) {
             throw new Exception('No server assigned to this product');

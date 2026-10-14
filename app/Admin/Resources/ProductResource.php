@@ -139,6 +139,12 @@ class ProductResource extends Resource
                                         ->getComponent('extension_settings', withHidden: true)
                                         ->getChildSchema()
                                         ->fill()),
+                                Select::make('server_group_id')
+                                    ->label('Server Group')
+                                    ->relationship('serverGroup', 'name')
+                                    ->nullable()
+                                    ->hidden(fn (Get $get) => $get('server_id') === null)
+                                    ->helperText('New accounts go to a server of this group (WHMCS «Server Group»); empty: the server above.'),
 
                                 Grid::make()
                                     ->hidden(fn (Get $get) => $get('server_id') === null)

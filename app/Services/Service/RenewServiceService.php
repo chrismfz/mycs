@@ -129,7 +129,7 @@ class RenewServiceService
     private function activate(Service $service, ?CarbonImmutable $paidUntil): void
     {
         $manualHold = $service->status === Service::STATUS_SUSPENDED && $service->dunning_suspended_at === null;
-        if (!$manualHold && $service->status === Service::STATUS_SUSPENDED && !$service->product?->server) {
+        if (!$manualHold && $service->status === Service::STATUS_SUSPENDED && !$service->provisioningServer()) {
             // No server to unsuspend (UnsuspendJob mails it otherwise): the customer told it was suspended is told it
             // is active again. After commit; a failing mail never undoes the renewal.
             $id = $service->id;
@@ -144,7 +144,7 @@ class RenewServiceService
                 }
             });
         }
-        if (!$manualHold && $service->product?->server) {
+        if (!$manualHold && $service->provisioningServer()) {
             // Dispatched after commit: the worker sees the renewed service, and nothing runs on a rollback.
             if ($service->status == Service::STATUS_SUSPENDED) {
                 UnsuspendJob::dispatch($service)->afterCommit();
