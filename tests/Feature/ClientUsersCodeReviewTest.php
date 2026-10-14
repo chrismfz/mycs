@@ -66,7 +66,8 @@ class ClientUsersCodeReviewTest extends TestCase
         $staff = Staff::factory()->withPermissions(['admin.users.impersonate'])->create();
 
         // Real requests, as staff in «Login as client» (the session carries the impersonation).
-        $html = $this->actingAs($staff, 'staff')->withSession(['impersonating' => $owner->id])
+        $this->actingAs($owner); // what ImpersonateMiddleware sets on each request
+        $html = $this->actingAs($staff, 'staff')->withSession($this->loginUser($owner, ['impersonating' => $owner->id]))
             ->get(route('account.users'))->assertOk()->getContent();
         preg_match_all('/wire:snapshot="([^"]+)"/', $html, $m);
         $snapshot = collect($m[1])->map(fn ($s) => html_entity_decode($s))->first(fn ($s) => str_contains($s, '"name":"client.users"'));
