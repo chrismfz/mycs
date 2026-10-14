@@ -64,17 +64,17 @@
                     <x-theme-toggle />
                 </div>
 
-                @if(auth()->check())
+                @if(auth('web')->check())
                 <livewire:components.notifications />
                 <div class="hidden lg:flex">
                     <x-dropdown :showArrow="false">
                         <x-slot:trigger>
-                            <img src="{{ auth()->user()->avatar }}" class="size-8 rounded-full border border-neutral bg-background" alt="avatar" />
+                            <img src="{{ auth('web')->user()->avatar }}" class="size-8 rounded-full border border-neutral bg-background" alt="avatar" />
                         </x-slot:trigger>
                         <x-slot:content>
                             <div class="flex flex-col p-2">
-                                <span class="text-sm text-base break-words">{{ auth()->user()->name }}</span>
-                                <span class="text-sm text-base break-words">{{ auth()->user()->email }}</span>
+                                <span class="text-sm text-base break-words">{{ auth('web')->user()->name }}</span>
+                                <span class="text-sm text-base break-words">{{ auth('web')->user()->email }}</span>
                             </div>
                             @foreach (\App\Classes\Navigation::getAccountDropdownLinks() as $nav)
                             <x-navigation.link :href="$nav['url']" :spa="isset($nav['spa']) ? $nav['spa'] : true">
@@ -155,7 +155,7 @@
                             <x-navigation.sidebar-links />
                         </div>
                         <div class="mt-5">
-                            @if(auth()->check())
+                            @if(auth('web')->check())
 
                             <div
                                 x-data="{ userPanelOpen: false }"
@@ -164,10 +164,10 @@
                                 class="relative">
 
                                 <button @click="userPanelOpen = true" aria-label="Open user menu" class="flex gap-4 items-center justify-start">
-                                    <img src="{{ auth()->user()->avatar }}" class="size-10 rounded-full border border-neutral bg-background" alt="avatar" />
+                                    <img src="{{ auth('web')->user()->avatar }}" class="size-10 rounded-full border border-neutral bg-background" alt="avatar" />
                                     <div class="flex flex-col items-start gap-0.5">
-                                        <span class="font-bold text-md">{{ auth()->user()->name }}</span>
-                                        <span class="text-sm text-base/70">{{ auth()->user()->email }}</span>
+                                        <span class="font-bold text-md">{{ auth('web')->user()->name }}</span>
+                                        <span class="text-sm text-base/70">{{ auth('web')->user()->email }}</span>
                                     </div>
                                 </button>
 
@@ -198,10 +198,10 @@
                                     aria-modal="true">
                                     <div class="bg-background-secondary shadow-lg rounded-t-2xl border border-neutral p-6">
                                         <div class="flex gap-4 items-center justify-start">
-                                            <img src="{{ auth()->user()->avatar }}" class="size-12 rounded-full border border-neutral bg-background" alt="avatar" />
+                                            <img src="{{ auth('web')->user()->avatar }}" class="size-12 rounded-full border border-neutral bg-background" alt="avatar" />
                                             <div class="flex flex-col gap-0.5">
-                                                <span class="font-bold text-lg">{{ auth()->user()->name }}</span>
-                                                <span class="text-sm text-base/70">{{ auth()->user()->email }}</span>
+                                                <span class="font-bold text-lg">{{ auth('web')->user()->name }}</span>
+                                                <span class="text-sm text-base/70">{{ auth('web')->user()->email }}</span>
                                             </div>
                                         </div>
                                         <div class="h-px w-full bg-neutral my-6"></div>
