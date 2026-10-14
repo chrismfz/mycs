@@ -24,6 +24,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Schema;
 use Livewire\Livewire;
 use Tests\TestCase;
 use Throwable;
@@ -457,7 +458,7 @@ class ContactsAdversarialTest extends TestCase
         // Fixed by widening the columns to the properties' 255 (nothing cut, nothing refused by a strict MySQL).
         $this->assertSame(str_repeat('1', 30), $contact->postcode);
         $this->assertSame(str_repeat('2', 60), $contact->phone);
-        $this->assertTrue(collect(\Illuminate\Support\Facades\Schema::getColumns('contacts'))
+        $this->assertTrue(collect(Schema::getColumns('contacts'))
             ->whereIn('name', ['postcode', 'phone'])->every(fn ($column) => ($column['length'] ?? 255) === null || ($column['length'] ?? 255) >= 255
                 || str_contains((string) $column['type'], '255') || DB::getDriverName() === 'sqlite'));
     }
