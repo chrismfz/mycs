@@ -168,7 +168,7 @@ class NotificationsAfterCommitTest extends TestCase
         NotificationHelper::invoicePaymentFailedNotification($invoice->user, $invoice); // the cron's catch, same attempt
 
         $this->assertSame(InvoiceTransactionStatus::Failed, $transaction->fresh()->status);
-        MailFacade::assertQueued(Mail::class, fn (Mail $mail) => $mail->templateKey === 'invoice_payment_failed', 1);
+        $this->assertCount(1, MailFacade::queued(Mail::class, fn (Mail $mail) => $mail->templateKey === 'invoice_payment_failed'));
     }
 
     /** EVT-13: moving a numbering counter does not flush the settings cache (nor restart the queue workers). */

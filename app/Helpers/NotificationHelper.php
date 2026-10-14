@@ -134,11 +134,13 @@ class NotificationHelper
             report($e);
         }
 
+        // After the mail: any failure here is reported, not thrown, so the queued listener is not retried into mailing
+        // the customer twice (review R-3 of Σ4).
         try {
             if ($notification->isEnabledForPreference($userPreference, 'app')) {
                 self::sendInAppNotification($notification, $data, $user, $show_in_app, $show_as_push);
             }
-        } catch (TemplateError $e) {
+        } catch (Throwable $e) {
             report($e);
         }
     }
