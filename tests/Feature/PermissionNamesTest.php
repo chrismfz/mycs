@@ -71,4 +71,14 @@ class PermissionNamesTest extends TestCase
 
         $this->assertNotNull(FailedJob::query()->first());
     }
+
+    public function test_roles_with_the_old_names_get_the_ones_the_code_checks(): void
+    {
+        $role = Role::create(['name' => 'Editor' . uniqid(), 'permissions' => ['admin.email_templates.update', 'admin.audits.viewAny', 'admin.users.viewAny']]);
+        $migration = require database_path('migrations/2026_10_24_000000_rename_dead_permission_names_in_roles.php');
+
+        $migration->up();
+
+        $this->assertEqualsCanonicalizing(['admin.notification_templates.update', 'admin.audit.viewAny', 'admin.users.viewAny'], $role->fresh()->permissions);
+    }
 }

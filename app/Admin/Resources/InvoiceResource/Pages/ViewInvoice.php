@@ -93,6 +93,9 @@ class ViewInvoice extends ViewRecord
             MarkInvoicePaid::make(),
             CloseInvoiceAsPaid::make(),
             Action::make('cancel')
+                // Cancelling writes off what the customer owes: only staff who may change invoices (R1 of #84; this
+                // page opens to anyone who may view them).
+                ->authorize(fn (Invoice $record): bool => (bool) auth()->user()?->can('update', $record))
                 ->label('Cancel Invoice')
                 ->icon('heroicon-o-x-circle')
                 ->color('danger')

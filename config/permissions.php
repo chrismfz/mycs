@@ -99,9 +99,6 @@ return [
                 'delete' => 'Delete Currencies',
                 'deleteAny' => 'Bulk Delete Currencies',
             ],
-            'audits' => [
-                'viewAny' => 'View Audits',
-            ],
             'cron_stats' => [
                 'view' => 'View Cron Stats',
             ],
@@ -192,13 +189,6 @@ return [
             ],
             'gateway_events' => [
                 'viewAny' => 'View Gateway Log',
-            ],
-            'email_templates' => [
-                'create' => 'Create Email Templates',
-                'update' => 'Update Email Templates',
-                'viewAny' => 'View Email Templates',
-                'delete' => 'Delete Email Templates',
-                'deleteAny' => 'Bulk Delete Email Templates',
             ],
             'oauth_clients' => [
                 'create' => 'Create OAuth Clients',
