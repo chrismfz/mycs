@@ -867,6 +867,8 @@ class ImportFromWhmcs extends Command
                     'id' => $record['id'],
                     'client_id' => $record['userid'],
                     'currency_code' => $user['code'],
+                    // WHMCS «Order Notes» (the customer's at checkout, or staff's).
+                    'notes' => self::text($record['notes'] ?? null),
                     'created_at' => $this->validateDate($record['date']),
                     'updated_at' => $this->validateDate($record['date']),
                 ];

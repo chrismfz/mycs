@@ -30,11 +30,12 @@ final class PlaceOrderService
     /**
      * @param  list<OrderLine>  $lines
      * @param  string  $invoiceStatus  unpaid, or draft for staff when invoices are immutable once issued
+     * @param  string|null  $notes  the order's notes (the customer's at checkout, or staff's): WHMCS «Order Notes»
      *
      * @throws DisplayException when a product cannot be ordered (no price in the currency, out of stock, over its
      *                          per-account limit) or the coupon cannot be used ({@see CouponUnusableException})
      */
-    public function place(Client $client, string $currency, array $lines, ?Coupon $coupon = null, ?CarbonInterface $dueAt = null, string $invoiceStatus = Invoice::STATUS_UNPAID): PlacedOrder
+    public function place(Client $client, string $currency, array $lines, ?Coupon $coupon = null, ?CarbonInterface $dueAt = null, string $invoiceStatus = Invoice::STATUS_UNPAID, ?string $notes = null): PlacedOrder
     {
         if ($lines === []) {
             throw new DisplayException(__('Your cart is empty'));
@@ -52,7 +53,9 @@ final class PlaceOrderService
             }
         }
 
-        return DB::transaction(function () use ($client, $currency, $lines, $coupon, $dueAt, $invoiceStatus) {
+        $notes = $notes === null ? null : (trim($notes) === '' ? null : trim($notes));
+
+        return DB::transaction(function () use ($client, $currency, $lines, $coupon, $dueAt, $invoiceStatus, $notes) {
             // The account's row first, as every payment path locks it (no lock-order deadlock).
             Client::lock($client->id);
             $couponGiven = $coupon !== null;
@@ -79,7 +82,7 @@ final class PlaceOrderService
                 $this->checkCoupon($client, $coupon, array_sum(array_map(fn ($p) => $p[2] !== null ? $p[0]->quantity : 0, $priced)));
             }
 
-            $order = Order::query()->create(['client_id' => $client->id, 'currency_code' => $currency]);
+            $order = Order::query()->create(['client_id' => $client->id, 'currency_code' => $currency, 'notes' => $notes]);
             $invoice = null;
 
             foreach ($priced as [$line, $price, $fullPrice]) {

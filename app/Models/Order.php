@@ -25,7 +25,7 @@ class Order extends Model implements Auditable
 {
     use HasFactory, Traits\Auditable;
 
-    protected $fillable = ['client_id', 'currency_code'];
+    protected $fillable = ['client_id', 'currency_code', 'notes'];
 
     public bool $send_create_email = true;
 

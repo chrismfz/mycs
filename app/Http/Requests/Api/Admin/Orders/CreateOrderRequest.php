@@ -16,6 +16,7 @@ class CreateOrderRequest extends AdminApiRequest
              * @example USD
              */
             'currency_code' => 'required|string|exists:currencies,code',
+            'notes' => 'nullable|string|max:65535',
         ];
     }
 }

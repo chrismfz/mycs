@@ -96,6 +96,8 @@
                 </div>
 
                 <div class="flex flex-col gap-2 w-full col-span-1">
+                    <x-form.textarea wire:model="notes" name="notes" :label="__('Notes')"
+                        :placeholder="__('Anything we should know about this order (optional)')" />
                     @if(config('settings.tos'))
                     <x-form.checkbox wire:model="tos" name="tos">
                         {{ __('product.tos') }}

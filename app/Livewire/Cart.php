@@ -30,6 +30,9 @@ class Cart extends Component
 
     public $tos;
 
+    /** The order's notes (WHMCS «Order Notes»): for staff, on the order. */
+    public $notes = '';
+
     public function mount()
     {
         if (ClassesCart::get()->coupon_id) {
@@ -46,7 +49,7 @@ class Cart extends Component
             return;
         }
         // The items' invoice lines (Δ1): what checkout charges.
-        $this->total = new Price(['price' => ClassesCart::items()->sum(fn ($item) => $item->lineTotal()), 'currency' => ClassesCart::get()->currency], tax: 0);
+        $this->total = Price::ofTotal(ClassesCart::items()->sum(fn ($item) => $item->lineTotal()), ClassesCart::items()->sum(fn ($item) => $item->lineTax()), ClassesCart::get()->currency);
         $this->gateways = ExtensionHelper::getCheckoutGateways($this->total->total, $this->total->currency->code, 'cart', ClassesCart::items());
         if (count($this->gateways) > 0 && !array_search($this->gateway, array_column($this->gateways, 'id')) !== false) {
             $this->gateway = $this->gateways[0]->id;
@@ -110,6 +113,7 @@ class Cart extends Component
         if (config('settings.tos') && !$this->tos) {
             return $this->notify(__('You must accept the terms of service'), 'error');
         }
+        $this->validate(['notes' => 'nullable|string|max:2000'], attributes: ['notes' => __('Notes')]);
         // Ordering for the current account needs `orders` (docs/accounts.md, PR 2b). A login without any account gets
         // its own below, which it owns.
         if (CurrentClient::model() !== null && !CurrentClient::allows('orders')) {
@@ -134,7 +138,7 @@ class Cart extends Component
                     $item->product, $item->plan, (int) $item->quantity, $item->config_options ?? [], $item->checkout_config ?? [],
                 ))->all();
                 // Priced and invoiced here, from the lines as they are now (CART-7), not from the total on the page.
-                $placed = (new PlaceOrderService)->place($client, $cart->currency_code, $lines, $cart->coupon);
+                $placed = (new PlaceOrderService)->place($client, $cart->currency_code, $lines, $cart->coupon, notes: $this->notes);
                 $cart->delete();
 
                 return $placed;
