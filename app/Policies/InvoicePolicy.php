@@ -20,7 +20,8 @@ class InvoicePolicy extends BasePolicy
      */
     public function view(User $user, Invoice $invoice): bool
     {
-        return $this->adminPermission($user, 'admin.invoices.viewAny', $invoice->user_id === $user->id);
+        // A draft is the staff's until it is issued: the customer neither lists, opens nor downloads it (AUTH-6, as WHMCS).
+        return $this->adminPermission($user, 'admin.invoices.viewAny', $invoice->user_id === $user->id && $invoice->status !== Invoice::STATUS_DRAFT);
     }
 
     /**

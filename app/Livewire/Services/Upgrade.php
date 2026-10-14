@@ -4,6 +4,7 @@ namespace App\Livewire\Services;
 
 use App\Exceptions\DisplayException;
 use App\Livewire\Component;
+use App\Models\ConfigOption;
 use App\Models\Invoice;
 use App\Models\Product;
 use App\Models\Service;
@@ -14,6 +15,7 @@ use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
 use App\Services\ServiceUpgrade\ServiceUpgradeService;
 use Carbon\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
@@ -121,10 +123,12 @@ class Upgrade extends Component
             ],
 
         ];
-        foreach ($this->upgradeProduct->upgradableConfigOptions as $option) {
+        foreach ($this->upgradableOptions() as $option) {
             if (in_array($option->type, ['text', 'number'])) {
                 $rules["configOptions.{$option->id}"] = ['required'];
             } elseif ($option->type === 'checkbox') {
+                // On or off; the value it gives is its own (AUTH-5: any option's id was taken, a foreign product's too).
+                $rules["configOptions.{$option->id}"] = ['nullable', Rule::in([true, false, 1, 0, '1', '0', 'true', 'false', ...$option->children->pluck('id')->all()])];
             } else {
                 $rules["configOptions.{$option->id}"] = [
                     'required',
@@ -186,13 +190,14 @@ class Upgrade extends Component
             $upgrade->save();
 
             if ($this->configOptions) {
-                foreach ($this->upgradeProduct->upgradableConfigOptions as $option) {
-                    if (!isset($this->configOptions[$option->id])) {
+                foreach ($this->upgradableOptions() as $option) {
+                    $value = $this->optionValue($option);
+                    if ($value === null) {
                         continue;
                     }
                     $upgrade->configs()->create([
                         'config_option_id' => $option->id,
-                        'config_value_id' => $this->configOptions[$option->id],
+                        'config_value_id' => $value,
                     ]);
                 }
             }
@@ -207,7 +212,8 @@ class Upgrade extends Component
                     return;
                 }
 
-                if (!config('settings.credits_on_downgrade', true)) {
+                // Credit only where credits are on (AUTH-5): «Credits Enabled» off means no account credit at all.
+                if (!config('settings.credits_on_downgrade', true) || !config('settings.credits_enabled', false)) {
                     DB::commit();
                     $this->notify(__('The upgrade has been completed.'), 'success', true);
 
@@ -275,5 +281,30 @@ class Upgrade extends Component
             'title' => 'Upgrade Service',
             'sidebar' => true,
         ]);
+    }
+
+    /** The options the upgrade offers (the product's upgradable ones). */
+    private function upgradableOptions(): iterable
+    {
+        return $this->upgradeProduct->upgradableConfigOptions;
+    }
+
+    /**
+     * The value an option of the upgrade gets (AUTH-5): one of its own children only. A checkbox on is its value, off is
+     * none; text and number options have no value (their text is a property of the service, set at order).
+     */
+    private function optionValue(ConfigOption $option): ?int
+    {
+        $given = $this->configOptions[$option->id] ?? null;
+        if (in_array($option->type, ['text', 'number'], true) || $given === null || $given === '') {
+            return null;
+        }
+        if ($option->type === 'checkbox') {
+            return in_array($given, [true, 1, '1', 'true'], true) || $option->children->contains('id', (int) $given)
+                ? $option->children->first()?->id
+                : null;
+        }
+
+        return $option->children->contains('id', (int) $given) ? (int) $given : null;
     }
 }
