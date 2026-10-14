@@ -7,13 +7,15 @@ use Illuminate\Support\Facades\Schema;
 /**
  * The extensions' namespace is MyCS\Extensions (2026-10-14, was the fork base's). Class names stored in the database
  * (polymorphic types, custom fields' models) follow, so the extensions' audits, properties and the rest still find
- * their class. Queued jobs carry class names in their payload too: drain the queue before deploying this.
+ * their class. Queued jobs carry class names in their serialized payload, which a REPLACE would break (the length
+ * prefix): drain the queue on the old code (`php artisan queue:work --stop-when-empty`) before deploying this.
  */
 return new class extends Migration
 {
     /** Table => columns holding a class name. */
     private const COLUMNS = [
         'audits' => ['auditable_type', 'user_type'],
+        'audit_logs' => ['model_type'],
         'properties' => ['model_type'],
         'custom_properties' => ['model'],
         'settings' => ['settingable_type'],

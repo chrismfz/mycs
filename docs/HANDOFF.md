@@ -96,6 +96,8 @@ Fixtures του zlic και η λογική του: `history/blesta-modules/lice
 - **2026-10-14:** λογαριασμοί PR 1–3a (staff, clients, πολλοί users, επαφές). Το MyCS παίρνει οριστικά τον δρόμο του:
   δεν παίρνουμε κώδικα από το upstream· το όνομά του φεύγει από κώδικα, URLs, cookies και docs (namespace
   `MyCS\Extensions`)· μένουν μόνο η σημείωση copyright στο `LICENSE` (MIT) και το `docs/history/`.
+  Στο deploy του: άδειασμα της ουράς με τον παλιό κώδικα (`queue:work --stop-when-empty`), όλοι κάνουν ξανά login
+  (νέα cookies), και το `company_name` πρέπει να είναι αποθηκευμένο (αλλιώς φαίνεται το default «MyCS»).
 
 
 ### PR #32 — διορθώσεις δεύτερου εξωτερικού review (2026-10-12)
