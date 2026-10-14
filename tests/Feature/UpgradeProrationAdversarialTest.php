@@ -31,7 +31,7 @@ use Tests\TestCase;
  * (new recurring net price − services.price) × quantity × days left / days of the real period.
  * Tests named `test_finding_*` failed on the branch as reviewed (a finding); the others are probes that held. F1–F5
  * are fixed in the same PR (F4: the rest is billed on an invoice of its own, so its assertion counts every upgrade line).
- * F6 is a decision left to the owner (see the test).
+ * F6: decided 2026-10-14, each side with its own tax (docs/decisions.md §7).
  */
 class UpgradeProrationAdversarialTest extends TestCase
 {
@@ -267,8 +267,6 @@ class UpgradeProrationAdversarialTest extends TestCase
      */
     public function test_finding_a_downgrade_from_untaxed_to_taxed_credits_no_more_than_was_paid(): void
     {
-        $this->markTestIncomplete('F6: open decision. The credit is the net difference taxed at the new product\'s rate, as the '
-            . 'upgrade invoice (Δ1, F2 of the Σ7b review); crediting each side at its own rate is the alternative.');
         $this->tax();
         $user = $this->user();
         $from = $this->product(['USD' => 10.00], unit: 'month', taxable: false);
@@ -279,6 +277,21 @@ class UpgradeProrationAdversarialTest extends TestCase
         $this->upgradeTo($user, $service, $to);
 
         $this->assertSame('7.52', $this->credit());
+    }
+
+    /** F6, the other way (owner's test): from a taxed product (10.00 + 24% paid) to one sold without tax (2.00). */
+    public function test_a_downgrade_from_taxed_to_untaxed_credits_what_was_paid_less_the_new_price(): void
+    {
+        $this->tax();
+        $user = $this->user();
+        $from = $this->product(['USD' => 10.00], unit: 'month');
+        $to = $this->product(['USD' => 2.00], unit: 'month', taxable: false);
+        $this->link($from, $to);
+        $service = $this->service($user, $from, 10.00, ['expires_at' => now()->addMonthNoOverflow()]);
+
+        $this->upgradeTo($user, $service, $to);
+
+        $this->assertSame('10.40', $this->credit(), '12.40 − 2.00 (it was 8.00 with no tax: 2.40 short)');
     }
 
     // ------------------------------------------------------------------------------------------------ probes that held

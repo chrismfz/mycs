@@ -84,16 +84,36 @@ class ServiceUpgrade extends Model implements Auditable
     }
 
     /**
-     * What the upgrade charges (or gives back, when negative) with tax (Δ1: calculatePrice is net, its invoice line adds
-     * the tax): what the upgrade page shows and what a downgrade gives as credit.
+     * What the upgrade charges (or gives back, when negative) with tax: what the upgrade page shows and what a downgrade
+     * gives as credit.
+     *
+     * - An upgrade: its invoice line, the net difference with the new product's tax (Δ1, F2 of the Σ7b review).
+     * - A downgrade (decided 2026-10-14, F6 of the SVC-14 review): each side with its own tax, the service as it renews
+     *   now (with the old product's) less as it renews after (with the new one's), for the days left. Never more than
+     *   what was paid for those days: from a product sold without tax to a taxed one, 10.00 − 2.48, not 8.00 × 1.24.
      */
     public function grossPrice(): Price
     {
         $net = $this->calculatePrice();
-        $line = LinePricer::invoiceLine(number_format((float) $net->price, 2, '.', ''), 1,
-            OrderPricing::taxRate($this->service->client, $this->product ?? $this->service->product));
+        if ($net->price >= 0) {
+            $line = LinePricer::invoiceLine(number_format((float) $net->price, 2, '.', ''), 1,
+                OrderPricing::taxRate($this->service->client, $this->product ?? $this->service->product));
 
-        return $this->makePrice((float) $line['total']);
+            return $this->makePrice((float) $line['total']);
+        }
+
+        $service = $this->service;
+        $quantity = max(1, (int) $service->quantity);
+        $before = LinePricer::invoiceLine(number_format((float) $service->price, 2, '.', ''), $quantity,
+            OrderPricing::taxRate($service->client, $service->product))['total'];
+        $after = LinePricer::invoiceLine($this->newRecurringPrice(), $quantity,
+            OrderPricing::taxRate($service->client, $this->product ?? $service->product))['total'];
+        $start = $this->currentPeriodStart();
+        $difference = (string) BigDecimal::of($after)->minus($before);
+
+        // A downgrade has an expiry (one without is never negative, calculatePrice).
+        return $this->makePrice($start === null ? 0.0
+            : (float) BillingPeriod::remaining($difference, $start, $service->expires_at, Carbon::now()));
     }
 
     /**
