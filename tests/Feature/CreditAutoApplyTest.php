@@ -77,7 +77,7 @@ class CreditAutoApplyTest extends TestCase
         // The invoice's own «new invoice» notice is there too (sent once committed, Σ4).
         $note = Notification::query()->where('user_id', $this->user->id)->where('title', 'Account credit applied')->sole();
         $this->assertSame('Account credit applied', $note->title);
-        $this->assertStringContainsString('#' . $invoice->id, $note->body);
+        $this->assertStringContainsString('#' . ($invoice->fresh()->number ?: $invoice->id), $note->body); // the invoice's number (Σ4)
         $this->assertSame(0, Artisan::call('mycs:credits-check'));
     }
 

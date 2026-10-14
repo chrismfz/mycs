@@ -24,7 +24,14 @@ class NotificationTemplate extends Model implements Auditable
         'in_app_title',
         'in_app_body',
         'edit_preference_message',
+        'translations',
     ];
+
+    /** The languages templates are translated to, on top of the default (English) text: the ones we support. */
+    public const TRANSLATION_LOCALES = ['el'];
+
+    /** The texts a translation may replace. */
+    public const TRANSLATED = ['subject', 'body', 'in_app_title', 'in_app_body'];
 
     protected $casts = [
         'enabled' => 'boolean',
@@ -32,7 +39,25 @@ class NotificationTemplate extends Model implements Auditable
         'bcc' => 'array',
         'mail_enabled' => NotificationEnabledStatus::class,
         'in_app_enabled' => NotificationEnabledStatus::class,
+        'translations' => 'array',
     ];
+
+    /**
+     * This template with its texts in $locale where it has them (a field left empty there keeps the default text).
+     * Not saved: a copy to render.
+     */
+    public function inLocale(string $locale): static
+    {
+        $texts = $this->translations[$locale] ?? [];
+        $copy = clone $this;
+        foreach (self::TRANSLATED as $field) {
+            if (filled($texts[$field] ?? null)) {
+                $copy->{$field} = $texts[$field];
+            }
+        }
+
+        return $copy;
+    }
 
     /** @return HasMany<NotificationPreference, $this> */
     public function preferences(): HasMany

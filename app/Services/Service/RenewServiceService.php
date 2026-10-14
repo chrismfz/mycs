@@ -14,6 +14,7 @@ use App\Services\Money\PaymentsLog;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * Renew a service after an invoice line is paid (docs/billing-cursor.md).
@@ -128,6 +129,21 @@ class RenewServiceService
     private function activate(Service $service, ?CarbonImmutable $paidUntil): void
     {
         $manualHold = $service->status === Service::STATUS_SUSPENDED && $service->dunning_suspended_at === null;
+        if (!$manualHold && $service->status === Service::STATUS_SUSPENDED && !$service->product?->server) {
+            // No server to unsuspend (UnsuspendJob mails it otherwise): the customer told it was suspended is told it
+            // is active again. After commit; a failing mail never undoes the renewal.
+            $id = $service->id;
+            DB::afterCommit(function () use ($id) {
+                try {
+                    $renewed = Service::query()->find($id);
+                    if ($renewed?->user !== null) {
+                        NotificationHelper::serverUnsuspendedNotification($renewed->user, $renewed);
+                    }
+                } catch (Throwable $e) {
+                    report($e);
+                }
+            });
+        }
         if (!$manualHold && $service->product?->server) {
             // Dispatched after commit: the worker sees the renewed service, and nothing runs on a rollback.
             if ($service->status == Service::STATUS_SUSPENDED) {
