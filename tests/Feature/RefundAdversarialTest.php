@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\AdjustmentNoteType;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
+use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -151,7 +152,7 @@ class RefundAdversarialTest extends TestCase
     public function test_r2_refund_to_credit_on_an_open_invoice_is_paid_straight_back_into_it(): void
     {
         config(['settings.credits_auto_use' => true]);
-        User::whereKey($this->user->id)->update(['credit_auto_apply' => true]);
+        Client::whereKey($this->user->client()->id)->update(['credit_auto_apply' => true]);
         $invoice = $this->invoice(100);
         (new RecordPaymentService)->handle($invoice, null, 40.0, transactionId: 'wire-part');
 
@@ -170,12 +171,12 @@ class RefundAdversarialTest extends TestCase
     public function test_r2b_a_credit_payment_refunded_to_credit_comes_straight_back(): void
     {
         config(['settings.credits_auto_use' => true]);
-        User::whereKey($this->user->id)->update(['credit_auto_apply' => false]);
+        Client::whereKey($this->user->client()->id)->update(['credit_auto_apply' => false]);
         (new CreditLedger)->add($this->user->client()->id, 'USD', 4000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
         $invoice = $this->invoice(100);
         (new RecordPaymentService)->payWithCredit($invoice);
         $this->assertSame('0.00', $this->balance());
-        User::whereKey($this->user->id)->update(['credit_auto_apply' => true]);
+        Client::whereKey($this->user->client()->id)->update(['credit_auto_apply' => true]);
 
         $payment = $invoice->transactions()->sole();
         ExtensionHelper::refundToCredit($payment, 40.0);

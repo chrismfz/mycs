@@ -567,16 +567,18 @@ class CreditAutoApplyAdversarialTest extends TestCase
     public function test_the_migration_goes_down_and_up_with_one_template(): void
     {
         $migration = require base_path('database/migrations/2026_10_18_000000_credit_auto_apply.php');
+        $clientId = $this->user->client()->id;
 
         $migration->down();
-        $this->assertFalse(Schema::hasColumn('users', 'credit_auto_apply'));
+        // The flag is the account's since PR 2a: the migration replayed now changes the clients table.
+        $this->assertFalse(Schema::hasColumn('clients', 'credit_auto_apply'));
         $this->assertSame(0, DB::table('notification_templates')->where('key', 'credit_applied')->count());
 
         $migration->up();
         (new EmailTemplateSeeder)->run();
-        $this->assertTrue(Schema::hasColumn('users', 'credit_auto_apply'));
+        $this->assertTrue(Schema::hasColumn('clients', 'credit_auto_apply'));
         $this->assertSame(1, DB::table('notification_templates')->where('key', 'credit_applied')->count());
-        $this->assertTrue((bool) DB::table('users')->where('id', $this->user->id)->value('credit_auto_apply'));
+        $this->assertTrue((bool) DB::table('clients')->where('id', $clientId)->value('credit_auto_apply'));
     }
 
     /**

@@ -7,6 +7,7 @@ use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationMan
 use App\Enums\MoneyEventKind;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
+use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -156,7 +157,7 @@ class RefundTest extends TestCase
     public function test_the_credit_pays_the_customers_other_open_invoices(): void
     {
         config(['settings.credits_auto_use' => true]);
-        User::whereKey($this->user->id)->update(['credit_auto_apply' => true]);
+        Client::whereKey($this->user->client()->id)->update(['credit_auto_apply' => true]);
         $paid = $this->paid(100);
         $open = $this->invoice(25);
 

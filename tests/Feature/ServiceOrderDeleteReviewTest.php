@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Admin\Resources\OrderResource\Pages\ListOrders;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
+use App\Models\Client;
 use App\Models\EmailLog;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -207,15 +208,15 @@ class ServiceOrderDeleteReviewTest extends TestCase
         $service = $this->service(['status' => Service::STATUS_PENDING]);
 
         try {
-            User::query()->findOrFail($service->client_id)->delete();
+            Client::query()->findOrFail($service->client_id)->delete();
         } catch (DisplayException) {
-            $this->assertNotNull(User::find($service->client_id));
+            $this->assertNotNull(Client::find($service->client_id));
 
             return; // refused with a reason: fine
         } catch (QueryException $e) {
             $this->fail('a raw foreign-key error: ' . $e->getMessage());
         }
-        $this->assertNull(User::find($service->client_id));
+        $this->assertNull(Client::find($service->client_id));
         $this->assertNull(Order::find($service->order_id));
     }
 

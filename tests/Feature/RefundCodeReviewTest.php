@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\AdjustmentNoteType;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
+use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -71,7 +72,7 @@ class RefundCodeReviewTest extends TestCase
     public function test_refund_to_credit_then_cancel_works_with_credit_auto_apply_on(): void
     {
         config(['settings.credits_auto_use' => true]);
-        User::whereKey($this->user->id)->update(['credit_auto_apply' => true]);
+        Client::whereKey($this->user->client()->id)->update(['credit_auto_apply' => true]);
         $part = $this->invoice(100);
         (new RecordPaymentService)->handle($part, null, 40.0, transactionId: 'wire-part');
 
@@ -86,7 +87,7 @@ class RefundCodeReviewTest extends TestCase
     public function test_an_open_invoice_with_a_credit_payment_can_be_cancelled_by_staff_with_auto_apply_on(): void
     {
         config(['settings.credits_auto_use' => true]);
-        User::whereKey($this->user->id)->update(['credit_auto_apply' => true]);
+        Client::whereKey($this->user->client()->id)->update(['credit_auto_apply' => true]);
         (new CreditLedger)->add($this->user->client()->id, 'USD', 3000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT,
             MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
         $invoice = $this->invoice(100);

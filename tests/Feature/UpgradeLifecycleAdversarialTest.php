@@ -6,6 +6,7 @@ use App\Enums\InvoiceTransactionStatus;
 use App\Events\ServiceCancellation\Created;
 use App\Exceptions\DisplayException;
 use App\Listeners\CancellationCreatedListener;
+use App\Models\Client;
 use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\Plan;
@@ -201,7 +202,7 @@ class UpgradeLifecycleAdversarialTest extends TestCase
     {
         config(['settings.credits_enabled' => true, 'settings.credits_auto_use' => true]);
         $service = $this->service(['expires_at' => '2026-10-19']);
-        User::whereKey($service->client_id)->update(['credit_auto_apply' => true]);
+        Client::whereKey($service->client_id)->update(['credit_auto_apply' => true]);
         $upgrade = $this->upgrade($service);
         (new CreditLedger)->add((int) $service->client_id, 'USD', 10000, MoneyTrail::CAUSE_DOWNGRADE, MoneyTrail::SOURCE_SYSTEM);
 

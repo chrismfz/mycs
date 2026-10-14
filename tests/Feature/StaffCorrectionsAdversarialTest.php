@@ -368,7 +368,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
         } catch (DisplayException) {
         }
 
-        $this->assertSame([Invoice::STATUS_UNPAID, $this->user->id], [$invoice->fresh()->status, $invoice->fresh()->client_id]);
+        $this->assertSame([Invoice::STATUS_UNPAID, $this->user->client()->id], [$invoice->fresh()->status, $invoice->fresh()->client_id]);
     }
 
     public function test_mark_paid_overpayment_journals_payment_and_credit_in(): void
