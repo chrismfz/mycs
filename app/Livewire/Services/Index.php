@@ -2,9 +2,8 @@
 
 namespace App\Livewire\Services;
 
-use App\Support\CurrentClient;
 use App\Livewire\Component;
-use Illuminate\Support\Facades\Auth;
+use App\Support\CurrentClient;
 use Livewire\WithPagination;
 
 class Index extends Component

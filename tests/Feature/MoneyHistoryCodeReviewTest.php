@@ -2,11 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\ClientResource\Pages\ShowCreditHistory;
+use App\Admin\Resources\ClientResource\Pages\ShowCredits;
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Admin\Resources\InvoiceResource\RelationManagers\MoneyEventsRelationManager;
 use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationManager;
-use App\Admin\Resources\ClientResource\Pages\ShowCreditHistory;
-use App\Admin\Resources\ClientResource\Pages\ShowCredits;
 use App\Helpers\ExtensionHelper;
 use App\Models\Gateway;
 use App\Models\Invoice;

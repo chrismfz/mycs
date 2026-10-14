@@ -2,12 +2,11 @@
 
 namespace App\Livewire\Services;
 
-use App\Support\CurrentClient;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
 use App\Models\Service;
+use App\Support\CurrentClient;
 use Exception;
-use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
 

@@ -18,8 +18,8 @@ use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
 use App\Support\CurrentClient;
 use Filament\Facades\Filament;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Session;
@@ -55,7 +55,7 @@ class ClientSplitTest extends TestCase
         $client = User::factory()->create()->client();
         $other = User::factory()->withoutClient()->create();
 
-        $this->expectException(\Illuminate\Database\UniqueConstraintViolationException::class);
+        $this->expectException(UniqueConstraintViolationException::class);
         ClientUser::query()->create(['client_id' => $client->id, 'user_id' => $other->id, 'owner' => true, 'owner_of_client_id' => $client->id]);
     }
 

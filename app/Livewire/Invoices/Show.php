@@ -2,7 +2,6 @@
 
 namespace App\Livewire\Invoices;
 
-use App\Support\CurrentClient;
 use App\Classes\PDF;
 use App\Enums\InvoiceTransactionStatus;
 use App\Helpers\ExtensionHelper;
@@ -12,7 +11,7 @@ use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\Service;
 use App\Services\Invoice\RecordPaymentService;
-use Illuminate\Support\Facades\Auth;
+use App\Support\CurrentClient;
 use Illuminate\Support\Facades\Request;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;

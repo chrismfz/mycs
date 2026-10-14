@@ -2,8 +2,8 @@
 
 namespace App\Admin\Resources\ClientResource\Pages;
 
-use App\Admin\Resources\GatewayResource;
 use App\Admin\Resources\ClientResource;
+use App\Admin\Resources\GatewayResource;
 use Filament\Resources\Pages\ManageRelatedRecords;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;

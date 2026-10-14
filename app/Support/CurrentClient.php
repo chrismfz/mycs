@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\Client;
 use App\Models\User;
+use Illuminate\Contracts\Session\Session;
 use Illuminate\Support\Facades\Auth;
 use Throwable;
 
@@ -86,7 +87,7 @@ class CurrentClient
         return $user->clients()->orderByDesc('client_user.owner')->orderBy('clients.id')->first();
     }
 
-    private function session(): ?\Illuminate\Contracts\Session\Session
+    private function session(): ?Session
     {
         try {
             return request()->hasSession() ? request()->session() : app('session.store');

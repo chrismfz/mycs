@@ -2,9 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\ClientResource\Pages\ShowCreditHistory;
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Admin\Resources\InvoiceResource\RelationManagers\MoneyEventsRelationManager;
-use App\Admin\Resources\ClientResource\Pages\ShowCreditHistory;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Client\Credits;
 use App\Models\Gateway;

@@ -5,6 +5,7 @@ namespace App\Services\Money;
 use App\Enums\InvoiceTransactionStatus;
 use App\Enums\MoneyEventKind;
 use App\Helpers\NotificationHelper;
+use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
@@ -12,7 +13,6 @@ use App\Models\MoneyEvent;
 use App\Models\Service;
 use App\Models\ServiceCancellation;
 use App\Models\ServiceUpgrade;
-use App\Models\Client;
 use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Support\Facades\DB;
 

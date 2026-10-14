@@ -2,12 +2,11 @@
 
 namespace App\Livewire\Client;
 
-use App\Support\CurrentClient;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
 use App\Models\Currency;
 use App\Models\Gateway;
-use Illuminate\Support\Facades\Auth;
+use App\Support\CurrentClient;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Url;
 use Livewire\WithPagination;

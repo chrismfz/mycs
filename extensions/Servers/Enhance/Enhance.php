@@ -4,8 +4,8 @@ namespace Paymenter\Extensions\Servers\Enhance;
 
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Server;
-use App\Models\Service;
 use App\Models\Client;
+use App\Models\Service;
 use App\Rules\Domain;
 use Exception;
 use Illuminate\Http\Client\Response;

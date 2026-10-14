@@ -2,11 +2,10 @@
 
 namespace App\Livewire\Tickets;
 
-use App\Support\CurrentClient;
 use App\Attributes\DisabledIf;
 use App\Livewire\Component;
 use App\Models\Ticket;
-use Illuminate\Support\Facades\Auth;
+use App\Support\CurrentClient;
 use Livewire\WithPagination;
 
 #[DisabledIf('tickets_disabled')]

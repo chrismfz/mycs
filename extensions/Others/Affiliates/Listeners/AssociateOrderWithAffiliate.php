@@ -2,10 +2,9 @@
 
 namespace Paymenter\Extensions\Others\Affiliates\Listeners;
 
-use App\Support\CurrentClient;
 use App\Events\Order\Created;
+use App\Support\CurrentClient;
 use Filament\Facades\Filament;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cookie;
 use Paymenter\Extensions\Others\Affiliates\Models\Affiliate;
 use Paymenter\Extensions\Others\Affiliates\Models\AffiliateOrder;

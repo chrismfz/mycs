@@ -4,10 +4,10 @@ namespace App\Console\Commands\User;
 
 use App\Models\Client;
 use App\Models\User;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Console\PromptsForMissingInput;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\DB;
 
 use function Laravel\Prompts\password;
 

@@ -2,10 +2,9 @@
 
 namespace App\Livewire\Invoices;
 
-use App\Support\CurrentClient;
 use App\Livewire\Component;
 use App\Models\Invoice;
-use Illuminate\Support\Facades\Auth;
+use App\Support\CurrentClient;
 use Livewire\WithPagination;
 
 class Index extends Component

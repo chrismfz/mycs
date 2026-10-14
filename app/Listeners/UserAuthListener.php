@@ -2,9 +2,9 @@
 
 namespace App\Listeners;
 
-use App\Support\CurrentClient;
 use App\Classes\Cart;
 use App\Events\Auth\Login;
+use App\Support\CurrentClient;
 use Illuminate\Auth\Events\Logout;
 use Illuminate\Support\Facades\Cookie;
 

@@ -2,10 +2,9 @@
 
 namespace App\Livewire\Services;
 
-use App\Support\CurrentClient;
 use App\Livewire\Component;
 use App\Models\Service;
-use Illuminate\Support\Facades\Auth;
+use App\Support\CurrentClient;
 use Livewire\WithPagination;
 
 class Widget extends Component

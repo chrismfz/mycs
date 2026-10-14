@@ -2,11 +2,11 @@
 
 namespace App\Classes;
 
-use App\Support\CurrentClient;
 use App\Exceptions\DisplayException;
 use App\Models\Coupon;
 use App\Models\Plan;
 use App\Models\Product;
+use App\Support\CurrentClient;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\DB;

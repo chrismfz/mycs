@@ -4,9 +4,9 @@ namespace App\Classes\Extension;
 
 use App\Models\BillingAgreement;
 use App\Models\Card;
+use App\Models\Client;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
-use App\Models\Client;
 use Illuminate\Support\Facades\View;
 
 /**

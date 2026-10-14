@@ -3,8 +3,8 @@
 namespace App\Console\Commands;
 
 use App\Models\Category;
-use App\Models\ConfigOption;
 use App\Models\Client;
+use App\Models\ConfigOption;
 use App\Models\CustomProperty;
 use App\Models\Product;
 use App\Models\Role;

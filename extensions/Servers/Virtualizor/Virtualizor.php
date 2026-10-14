@@ -4,9 +4,9 @@ namespace Paymenter\Extensions\Servers\Virtualizor;
 
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Server;
+use App\Models\Client;
 use App\Models\Product;
 use App\Models\Service;
-use App\Models\Client;
 use Exception;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
