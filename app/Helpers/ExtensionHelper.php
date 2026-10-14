@@ -17,6 +17,7 @@ use App\Models\GatewayRefund;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
+use App\Models\ModuleAction;
 use App\Models\MoneyEvent;
 use App\Models\PaymentGatewayEvent;
 use App\Models\Product;
@@ -43,6 +44,7 @@ use Illuminate\Support\Facades\Log;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use OwenIt\Auditing\Events\AuditCustom;
 use ReflectionClass;
+use Throwable;
 
 class ExtensionHelper
 {
@@ -531,7 +533,7 @@ class ExtensionHelper
             DB::afterCommit(function () use ($extension, $transactionId) {
                 try {
                     self::applyWaitingRefunds($extension, (string) $transactionId);
-                } catch (\Throwable $e) {
+                } catch (Throwable $e) {
                     report($e);
                 }
             });
@@ -576,7 +578,7 @@ class ExtensionHelper
                     if (self::getExtension('gateway', $gateway->extension, $gateway->settings)->cancelSubscription($service)) {
                         return true;
                     }
-                } catch (\Throwable $e) { // an Error too: the subscription may still be another gateway's
+                } catch (Throwable $e) { // an Error too: the subscription may still be another gateway's
                     $failure ??= $e;
                 }
             }
@@ -662,7 +664,7 @@ class ExtensionHelper
 
                 return true;
             });
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             if ($refundedAtGateway) { // recording or the commit failed after the money left
                 // With the gateway's id, its webhook records it (PR 2c-2): recording it by hand as well would count it twice.
                 Log::critical($reference !== null
@@ -782,7 +784,7 @@ class ExtensionHelper
         DB::afterCommit(function () use ($clientId, $currency) {
             try {
                 (new CreditAutoApply)->forCustomer($clientId, $currency);
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 report($e); // the refund stands; the daily pass tries again
             }
         });
@@ -910,7 +912,7 @@ class ExtensionHelper
                     $waiting->origin === GatewayRefund::ORIGIN_CHARGEBACK_WAITING
                         ? self::chargebackAtGateway($gateway, $paymentReference, $waiting->reference, (float) $waiting->amount, $currency)
                         : self::refundedAtGateway($gateway, $paymentReference, $waiting->reference, (float) $waiting->amount, $currency);
-                } catch (\Throwable $e) {
+                } catch (Throwable $e) {
                     report($e); // it keeps waiting: the next payment event or the gateway's retry applies it
                 }
             });
@@ -1372,7 +1374,7 @@ class ExtensionHelper
         DB::afterCommit(function () use ($invoice, $cents, $toCredit, $byGateway) {
             try {
                 NotificationHelper::invoiceRefundedNotification($invoice->client, $invoice->fresh(), $cents, $toCredit, $byGateway);
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 report($e);
             }
         });
@@ -1471,19 +1473,58 @@ class ExtensionHelper
      * Runs a server action. An adapter fails by throwing; `false` (the old cPanel convention) is turned into an
      * exception too, so no caller mistakes a refused action for a done one.
      */
+    /**
+     * Runs one server action and records it (Σ1, module_actions): a failure stays open for the Pending Module Actions,
+     * a success closes it. «No server assigned» (a product without a module) is nothing to do, not a failure. A create
+     * that succeeds starts a pending service: active only once the account exists (WHMCS).
+     */
     protected static function serverAction(Service $service, string $action, string $audit)
     {
-        $server = self::checkServer($service, $action);
+        $recorded = ModuleAction::ACTIONS[$action];
+        try {
+            $server = self::checkServer($service, $action);
+        } catch (Exception $e) {
+            if ($e->getMessage() !== 'No server assigned to this product') {
+                ModuleAction::recordFailure($service, $recorded, $service->server?->extension, $e);
+            }
+            throw $e;
+        }
 
         self::recordAudit($service, 'extension_action', [], ['action' => $audit]);
 
-        $result = self::getExtension('server', $server->extension, $server->settings)->$action($service, self::settingsToArray($service->product->settings), self::getServiceProperties($service));
+        try {
+            $result = self::getExtension('server', $server->extension, $server->settings)->$action($service, self::settingsToArray($service->product->settings), self::getServiceProperties($service));
 
-        if ($result === false) {
-            throw new Exception('Server action ' . $action . ' failed for service #' . $service->id . ' (' . $server->extension . ')');
+            if ($result === false) {
+                throw new Exception('Server action ' . $action . ' failed for service #' . $service->id . ' (' . $server->extension . ')');
+            }
+        } catch (Throwable $e) {
+            ModuleAction::recordFailure($service, $recorded, $server->extension, $e);
+            throw $e;
+        }
+
+        ModuleAction::recordSuccess($service, $recorded, $server->extension);
+        if ($action === 'createServer') {
+            self::startCreated($service);
         }
 
         return $result;
+    }
+
+    /** The account exists: a pending service starts (an ended one stays as it is). */
+    private static function startCreated(Service $service): void
+    {
+        DB::transaction(function () use ($service) {
+            $locked = Service::query()->whereKey($service->id)->lockForUpdate()->first();
+            if ($locked === null) {
+                return;
+            }
+            if ($locked->status === Service::STATUS_PENDING) {
+                $locked->status = Service::STATUS_ACTIVE;
+                $locked->save();
+            }
+            $service->setRawAttributes($locked->getAttributes(), true);
+        });
     }
 
     /**

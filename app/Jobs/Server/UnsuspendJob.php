@@ -14,11 +14,9 @@ use Illuminate\Queue\SerializesModels;
 
 class UnsuspendJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, RetriesModuleAction, SerializesModels;
 
     public $timeout = 120;
-
-    public $tries = 1;
 
     /**
      * Create a new job instance.
@@ -45,5 +43,10 @@ class UnsuspendJob implements ShouldQueue
 
         // WHMCS's «Service Unsuspension Notification» (sent at both companies).
         NotificationHelper::serverUnsuspendedNotification($this->service->client, $this->service, is_array($data) ? $data : []);
+    }
+
+    protected function moduleAction(): string
+    {
+        return 'unsuspend';
     }
 }

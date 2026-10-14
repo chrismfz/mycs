@@ -2,9 +2,11 @@
 
 namespace App\Admin\Widgets;
 
+use App\Admin\Resources\ModuleActionResource;
 use App\Enums\DashboardPeriod;
 use App\Enums\InvoiceTransactionStatus;
 use App\Models\InvoiceTransaction;
+use App\Models\ModuleAction;
 use App\Models\Service;
 use App\Models\Ticket;
 use Filament\Widgets\StatsOverviewWidget as BaseWidget;
@@ -30,12 +32,27 @@ class Overview extends BaseWidget
 
     protected function getStats(): array
     {
-        return [
+        return array_filter([
             $this->invoiceTransaction(),
             // Fewer new tickets is the good outcome, so the trend color is inverted
             $this->getData(Ticket::class, 'Tickets', lowerIsBetter: true),
             $this->getData(Service::class, 'Services'),
-        ];
+            $this->pendingModuleActions(),
+        ]);
+    }
+
+    /** WHMCS's dashboard counter: failed server actions waiting for staff (Σ1), shown while there are any. */
+    private function pendingModuleActions(): ?Stat
+    {
+        if (!ModuleActionResource::canViewAny()) {
+            return null;
+        }
+        $open = ModuleAction::query()->open()->count();
+
+        return $open === 0 ? null : Stat::make('Pending Module Actions', (string) $open)
+            ->description('Failed server actions: retry or resolve')
+            ->color('danger')
+            ->url(ModuleActionResource::getUrl());
     }
 
     private function invoiceTransaction(): Stat

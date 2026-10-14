@@ -154,7 +154,10 @@ class RenewServiceService
         }
 
         $service->expires_at = $paidUntil?->toMutable();
-        if (!$manualHold) {
+        // A pending one with a server turns active once its account is made (CreateJob, Σ1): paid now, it may still
+        // fail on the server and wait in Pending Module Actions. Without a server there is nothing to make.
+        $awaitsCreate = $service->status === Service::STATUS_PENDING && $service->provisioningServer() !== null;
+        if (!$manualHold && !$awaitsCreate) {
             $service->status = Service::STATUS_ACTIVE;
         }
         ServiceObserver::$renewing = true;

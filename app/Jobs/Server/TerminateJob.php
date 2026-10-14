@@ -14,11 +14,9 @@ use Illuminate\Queue\SerializesModels;
 
 class TerminateJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, RetriesModuleAction, SerializesModels;
 
     public $timeout = 120;
-
-    public $tries = 1;
 
     /**
      * Create a new job instance.
@@ -43,5 +41,10 @@ class TerminateJob implements ShouldQueue
         if ($this->sendNotification) {
             NotificationHelper::serverTerminatedNotification($this->service->client, $this->service, is_array($data) ? $data : []);
         }
+    }
+
+    protected function moduleAction(): string
+    {
+        return 'terminate';
     }
 }

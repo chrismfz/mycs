@@ -14,11 +14,9 @@ use Illuminate\Queue\SerializesModels;
 
 class SuspendJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, RetriesModuleAction, SerializesModels;
 
     public $timeout = 120;
-
-    public $tries = 1;
 
     /**
      * Create a new job instance.
@@ -47,5 +45,10 @@ class SuspendJob implements ShouldQueue
         if ($this->sendNotification) {
             NotificationHelper::serverSuspendedNotification($this->service->client, $this->service, is_array($data) ? $data : []);
         }
+    }
+
+    protected function moduleAction(): string
+    {
+        return 'suspend';
     }
 }

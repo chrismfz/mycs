@@ -1,0 +1,119 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Str;
+use Throwable;
+
+/**
+ * One action a server module was asked to do (Σ1, WHMCS's Module Log and Module Queue). A failure stays open, its
+ * attempts counted on the same row, until the action succeeds (completed), an opposite one does or staff mark it
+ * (resolved). The open ones are the Pending Module Actions.
+ *
+ * @property string $action
+ * @property string $status
+ */
+class ModuleAction extends Model
+{
+    public const STATUS_OPEN = 'open';
+
+    public const STATUS_COMPLETED = 'completed';
+
+    public const STATUS_RESOLVED = 'resolved';
+
+    /** ExtensionHelper's server functions and the action each records. */
+    public const ACTIONS = [
+        'createServer' => 'create',
+        'suspendServer' => 'suspend',
+        'unsuspendServer' => 'unsuspend',
+        'terminateServer' => 'terminate',
+        'upgradeServer' => 'upgrade',
+    ];
+
+    /** A success makes these open failures moot: the account is where the newer action put it. */
+    private const SUPERSEDES = [
+        'create' => [],
+        'suspend' => ['unsuspend'],
+        'unsuspend' => ['suspend'],
+        'terminate' => ['create', 'suspend', 'unsuspend', 'upgrade'],
+        'upgrade' => [],
+    ];
+
+    protected $guarded = [];
+
+    protected function casts(): array
+    {
+        return [
+            'last_attempt_at' => 'datetime',
+            'given_up_at' => 'datetime',
+            'resolved_at' => 'datetime',
+            'attempts' => 'integer',
+        ];
+    }
+
+    /** @return BelongsTo<Service, $this> */
+    public function service(): BelongsTo
+    {
+        return $this->belongsTo(Service::class);
+    }
+
+    /** @return BelongsTo<Staff, $this> */
+    public function resolvedBy(): BelongsTo
+    {
+        return $this->belongsTo(Staff::class, 'resolved_by_staff_id');
+    }
+
+    /**
+     * @param  Builder<ModuleAction>  $query
+     * @return Builder<ModuleAction>
+     */
+    public function scopeOpen(Builder $query): Builder
+    {
+        return $query->where('status', self::STATUS_OPEN);
+    }
+
+    private static function openFor(Service $service, string $action): ?self
+    {
+        return self::query()->open()->where('service_id', $service->id)->where('action', $action)->latest('id')->first();
+    }
+
+    public static function recordSuccess(Service $service, string $action, ?string $module): self
+    {
+        $now = now();
+        $row = self::openFor($service, $action) ?? new self(['service_id' => $service->id, 'action' => $action]);
+        $row->fill(['module' => $module, 'status' => self::STATUS_COMPLETED, 'attempts' => $row->attempts + 1, 'last_attempt_at' => $now,
+            'resolved_at' => $now, 'resolution' => 'succeeded'])->save();
+
+        if (self::SUPERSEDES[$action] !== []) {
+            self::query()->open()->where('service_id', $service->id)->whereIn('action', self::SUPERSEDES[$action])
+                ->update(['status' => self::STATUS_RESOLVED, 'resolved_at' => $now, 'resolution' => "superseded by {$action}", 'updated_at' => $now]);
+        }
+
+        return $row;
+    }
+
+    public static function recordFailure(Service $service, string $action, ?string $module, Throwable $error): self
+    {
+        $row = self::openFor($service, $action) ?? new self(['service_id' => $service->id, 'action' => $action, 'status' => self::STATUS_OPEN]);
+        $row->fill(['module' => $module, 'attempts' => $row->attempts + 1, 'last_attempt_at' => now(),
+            'last_error' => Str::limit($error->getMessage(), 2000)])->save();
+
+        return $row;
+    }
+
+    /** No automatic retry left (the job's last attempt failed): true the first time, so staff hear once. */
+    public static function giveUp(Service $service, string $action): bool
+    {
+        return self::query()->open()->where('service_id', $service->id)->where('action', $action)->whereNull('given_up_at')
+            ->update(['given_up_at' => now(), 'updated_at' => now()]) > 0;
+    }
+
+    /** Staff close it: the account was fixed by hand, or it no longer matters. */
+    public function markResolved(?Staff $staff): void
+    {
+        $this->forceFill(['status' => self::STATUS_RESOLVED, 'resolved_at' => now(), 'resolution' => 'marked resolved by staff',
+            'resolved_by_staff_id' => $staff?->id])->save();
+    }
+}

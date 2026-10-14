@@ -13,11 +13,9 @@ use Illuminate\Queue\SerializesModels;
 
 class UpgradeJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, RetriesModuleAction, SerializesModels;
 
     public $timeout = 120;
-
-    public $tries = 1;
 
     /**
      * Create a new job instance.
@@ -37,5 +35,10 @@ class UpgradeJob implements ShouldQueue
                 throw $e;
             }
         }
+    }
+
+    protected function moduleAction(): string
+    {
+        return 'upgrade';
     }
 }
