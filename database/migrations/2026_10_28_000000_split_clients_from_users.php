@@ -132,8 +132,9 @@ return new class extends Migration
 
             foreach (self::ACCOUNT_TABLES as $name => $onDelete) {
                 if (Schema::hasTable($name) && Schema::hasColumn($name, 'client_id')) {
-                    DB::table($name)->whereNotNull('client_id')->update(['client_id' => $ownerOf("{$name}.client_id")]);
-                    $this->repoint($name, 'client_id', 'user_id', 'users', $onDelete);
+                    // Between the two keys, so the values are valid for whichever key is there (also with keys on).
+                    $this->repoint($name, 'client_id', 'user_id', 'users', $onDelete,
+                        fn () => DB::table($name)->whereNotNull('client_id')->update(['client_id' => $ownerOf("{$name}.client_id")]));
                 }
             }
 
@@ -152,11 +153,14 @@ return new class extends Migration
         }
     }
 
-    private function repoint(string $name, string $from, string $to, string $references, string $onDelete): void
+    private function repoint(string $name, string $from, string $to, string $references, string $onDelete, ?Closure $between = null): void
     {
         Schema::table($name, function (Blueprint $table) use ($from) {
             $table->dropForeign([$from]);
         });
+        if ($between !== null) {
+            $between();
+        }
         Schema::table($name, function (Blueprint $table) use ($from, $to) {
             $table->renameColumn($from, $to);
         });
