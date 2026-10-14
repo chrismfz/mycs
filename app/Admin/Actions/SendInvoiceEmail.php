@@ -54,7 +54,8 @@ class SendInvoiceEmail extends Action
                         }
                     }
                 }
-                Notification::make()->success()->title('Email queued to ' . $record->client->email)->send();
+                // The account's mail goes to its owner until the contacts choose recipients (PR 3b).
+                Notification::make()->success()->title('Email queued to ' . $record->client?->owner()?->email)->send();
             });
     }
 

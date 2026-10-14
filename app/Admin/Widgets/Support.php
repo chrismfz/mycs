@@ -18,7 +18,7 @@ class Support extends BaseWidget
             ->query(
                 Ticket::query()
                     ->where('status', '!=', 'closed')
-                    ->with('client.ownerGrant.user')
+                    ->with(['client.primaryContact', 'client.ownerGrant.user'])
                     ->withMax('messages', 'created_at')
                     ->orderByDesc('messages_max_created_at')
                     ->limit(5)

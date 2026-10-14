@@ -19,6 +19,11 @@
         <x-form.input name="password_confirm" type="password" :label="__('general.input.password_confirmation')"
             :placeholder="__('general.input.password_confirmation_placeholder')" wire:model="password_confirmation" required />
 
+        @unless(str_starts_with((string) session('url.intended'), url('/invite/')))
+        <div class="col-span-2">
+            <x-contact-fields :identity="false" :emails="false" />
+        </div>
+        @endunless
         <x-form.properties :custom_properties="$custom_properties" :properties="$properties" />
     
         @if(config('settings.tos'))

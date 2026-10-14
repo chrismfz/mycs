@@ -167,6 +167,12 @@ class Navigation
                                 'priority' => 50,
                             ],
                             [
+                                'name' => __('navigation.contacts'),
+                                'url' => route('account.contacts'),
+                                'condition' => CurrentClient::allows('contacts'),
+                                'priority' => 55,
+                            ],
+                            [
                                 'name' => __('navigation.users'),
                                 'url' => route('account.users'),
                                 'condition' => self::ownsCurrentAccount(),

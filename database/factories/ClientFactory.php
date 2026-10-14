@@ -26,6 +26,10 @@ class ClientFactory extends Factory
             $owner ??= User::factory()->withoutClient()->create();
             ClientUser::query()->create(['client_id' => $client->id, 'user_id' => $owner->id, 'owner' => true,
                 'owner_of_client_id' => $client->id, 'granted_at' => now()]);
+            if (!$client->primaryContact()->exists()) {
+                $client->contacts()->make(['first_name' => $owner->first_name, 'last_name' => $owner->last_name, 'email' => $owner->email])
+                    ->forceFill(['primary_of_client_id' => $client->id])->save();
+            }
         });
     }
 }

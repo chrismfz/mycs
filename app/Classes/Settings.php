@@ -984,7 +984,8 @@ class Settings
     {
         // The account's country (docs/accounts.md, PR 2a): the given one, or in the client area the current one.
         $client ??= Auth::guard('web')->check() ? CurrentClient::model() : null;
-        $country = $client?->properties->where('key', 'country')->value('value') ?? null;
+        // The account's country is its primary contact's (PR 3a), an ISO code.
+        $country = $client?->country;
 
         // Change country to a two-letter country code if it's not already
         if ($country) {

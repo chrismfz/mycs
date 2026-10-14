@@ -304,6 +304,10 @@ class Invoice extends Model implements Auditable
                 ])
             );
         }
+        // Issued without VAT (no rate for the country then): it stays so, whatever the account's country becomes.
+        if (config('settings.invoice_snapshot', true) && $this->snapshot !== null) {
+            return Attribute::make(get: fn () => 0);
+        }
 
         return Attribute::make(
             get: fn () => Settings::tax($this->client)
@@ -313,16 +317,33 @@ class Invoice extends Model implements Auditable
     /** @return Attribute<mixed, mixed> */
     public function userProperties(): Attribute
     {
-        if (config('settings.invoice_snapshot', true) && $this->snapshot?->properties) {
+        // An issued invoice keeps the recipient it was issued to, also when it had no details then (PR 3a review).
+        if (config('settings.invoice_snapshot', true) && $this->snapshot !== null) {
             return Attribute::make(
-                get: fn () => $this->snapshot->properties
+                get: fn () => (array) ($this->snapshot->properties ?? [])
             );
         }
 
+        // The recipient's details: the account's primary contact (PR 3a; the bill-to contact per service in 3b), then
+        // the custom fields shown on invoices.
         return Attribute::make(
-            get: fn () => $this->client?->properties()->with('parent_property')->whereHas('parent_property', function ($query) {
-                $query->where('show_on_invoice', true);
-            })->pluck('value', 'key')->toArray() ?? []
+            get: function () {
+                $contact = $this->client?->primaryContact;
+                $lines = $contact === null ? [] : array_filter([
+                    // The company once: for a business it is already the invoice's name (Contact::displayName).
+                    'company_name' => $contact->company_name && $contact->company_name !== $contact->displayName() ? $contact->company_name : null,
+                    'tax_id' => $contact->tax_id ? __('invoices.tax_id_line', ['tax_id' => $contact->tax_id]) : null,
+                    'vat_number' => $contact->vat_number ? __('invoices.vat_number_line', ['vat_number' => $contact->vat_number]) : null,
+                    'tax_office' => $contact->tax_office ? __('invoices.tax_office_line', ['tax_office' => $contact->tax_office]) : null,
+                ]);
+                foreach ($contact?->addressLines() ?? [] as $i => $line) {
+                    $lines['address_' . $i] = $line;
+                }
+
+                return $lines + ($this->client?->properties()->with('parent_property')->whereHas('parent_property', function ($query) {
+                    $query->where('show_on_invoice', true);
+                })->pluck('value', 'key')->toArray() ?? []);
+            }
         );
     }
 

@@ -4,6 +4,7 @@ namespace App\Livewire\Client;
 
 use App\Helpers\NotificationHelper;
 use App\Livewire\ComponentWithProperties;
+use App\Livewire\Traits\EditsContact;
 use App\Models\Client;
 use App\Models\User;
 use App\Support\CurrentClient;
@@ -12,6 +13,11 @@ use Illuminate\Support\Facades\Auth;
 
 class Account extends ComponentWithProperties
 {
+    use EditsContact;
+
+    /** The login may change the account's details (`profile`): its primary contact and custom fields. */
+    public bool $canEditDetails = false;
+
     public string $first_name = '';
 
     public string $last_name = '';
@@ -28,7 +34,10 @@ class Account extends ComponentWithProperties
 
         // The details (address, phone, company…) are the current account's (docs/accounts.md, PR 2a), shown and saved
         // with `profile` (WHMCS, PR 2b); the login's own name and email always.
-        if (CurrentClient::allows('profile')) {
+        $this->canEditDetails = CurrentClient::allows('profile');
+        if ($this->canEditDetails) {
+            // The account's details are its primary contact (PR 3a), as WHMCS's client profile.
+            $this->fillContact(CurrentClient::model()?->primaryContact);
             $this->initializeProperties(CurrentClient::model(), Client::class);
         } else {
             $this->custom_properties = new Collection;
@@ -41,7 +50,7 @@ class Account extends ComponentWithProperties
             'first_name' => 'required|string|max:255',
             'last_name' => 'required|string|max:255',
             'email' => 'required|email|max:255|unique:users,email,' . Auth::id(),
-        ], $this->getRulesForProperties());
+        ], CurrentClient::allows('profile') ? $this->contactRules() : [], $this->getRulesForProperties());
     }
 
     public function validationAttributes()
@@ -64,8 +73,11 @@ class Account extends ComponentWithProperties
             NotificationHelper::emailVerificationNotification($user);
         }
 
-        if (array_key_exists('properties', $validatedData) && CurrentClient::allows('profile') && ($client = CurrentClient::model()) !== null) {
-            $this->updateProperties($client, $validatedData['properties']);
+        if (CurrentClient::allows('profile') && ($client = CurrentClient::model()) !== null) {
+            $client->primaryContact?->update($this->contactValues());
+            if (array_key_exists('properties', $validatedData)) {
+                $this->updateProperties($client, $validatedData['properties']);
+            }
         }
 
         $this->notify(__('Account updated successfully.'));

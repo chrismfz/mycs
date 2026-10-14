@@ -6,6 +6,7 @@ use App\Admin\Resources\ClientResource;
 use App\Models\Client;
 use Filament\Forms\Components\Select;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\HtmlString;
 
 /**
@@ -22,11 +23,8 @@ class ClientComponent extends Select
             ->searchable()
             ->getOptionLabelFromRecordUsing(fn (Client $record) => self::optionLabel($record))
             ->getSearchResultsUsing(fn (string $search): array => Client::query()
-                ->where(fn (Builder $query) => $query->whereKey((int) $search)
-                    ->orWhereHas('users', fn (Builder $users) => $users->where('first_name', 'like', "%$search%")
-                        ->orWhere('last_name', 'like', "%$search%")
-                        ->orWhere('email', 'like', "%$search%")))
-                ->with('ownerGrant.user')
+                ->where(fn (Builder $query) => $query->whereKey((int) $search)->orWhere(fn (Builder $query) => self::search($query, $search, '')))
+                ->with(['primaryContact', 'ownerGrant.user'])
                 ->limit(50)
                 ->get()
                 ->mapWithKeys(fn (Client $client) => [$client->id => self::optionLabel($client)])
@@ -34,6 +32,26 @@ class ClientComponent extends Select
             ->hint(fn ($get) => $get($name ?? 'client_id') ? new HtmlString('<a href="' . ClientResource::getUrl('edit', ['record' => $get($name ?? 'client_id')]) . '" target="_blank">' . e(__('Go to Client')) . '</a>') : null)
             ->live()
             ->required();
+    }
+
+    /**
+     * Find accounts by their logins' names or email and by their primary contact (its name, company and email: the
+     * account's name, PR 3a). `$relation` is the path to the account from the searched model ('' for a Client).
+     *
+     * @template TModel of Model
+     *
+     * @param  Builder<TModel>  $query
+     * @return Builder<TModel>
+     */
+    public static function search(Builder $query, string $search, string $relation = 'client'): Builder
+    {
+        $path = fn (string $to) => $relation === '' ? $to : $relation . '.' . $to;
+
+        return $query->where(fn (Builder $query) => $query
+            ->whereHas($path('users'), fn (Builder $users) => $users->where('first_name', 'like', "%$search%")
+                ->orWhere('last_name', 'like', "%$search%")->orWhere('email', 'like', "%$search%"))
+            ->orWhereHas($path('primaryContact'), fn (Builder $contact) => $contact->where('first_name', 'like', "%$search%")
+                ->orWhere('last_name', 'like', "%$search%")->orWhere('company_name', 'like', "%$search%")->orWhere('email', 'like', "%$search%")));
     }
 
     public static function optionLabel(Client $client): string

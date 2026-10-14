@@ -20,12 +20,14 @@ use OwenIt\Auditing\Contracts\Auditable;
 /**
  * A customer account (docs/accounts.md, PR 2a), WHMCS `tblclients`: services, invoices, credit and tickets are the
  * account's; the logins that see it are users (`client_user`, WHMCS `tblusers_clients`). The id is the WHMCS client
- * id. Until the contacts (PR 3) the account's name and email are its owner's.
+ * id. Its details (name, email, address, country) are its primary contact's (PR 3a), as tblclients holds them.
  *
  * @property-read string $name
  * @property-read string|null $email
  * @property-read string|null $first_name
  * @property-read string|null $last_name
+ * @property-read string|null $country
+ * @property-read Contact|null $primaryContact
  */
 #[ObservedBy([ClientObserver::class])]
 class Client extends Model implements Auditable
@@ -86,34 +88,79 @@ class Client extends Model implements Auditable
         return $this->hasOne(ClientUser::class)->whereNotNull('owner_of_client_id')->whereNull('revoked_at');
     }
 
-    /** The owner: who the account's mail goes to and whose name it carries until the contacts (PR 3). */
+    /** The owner: who the account's mail goes to until the contacts choose recipients per kind (PR 3b). */
     public function owner(): ?User
     {
         return $this->ownerGrant?->user;
     }
 
-    /** @return Attribute<string, never> */
+    /**
+     * The account's contacts (PR 3a), archived ones included.
+     *
+     * @return HasMany<Contact, $this>
+     */
+    public function contacts(): HasMany
+    {
+        return $this->hasMany(Contact::class);
+    }
+
+    /**
+     * The primary contact: the account's details, as WHMCS keeps them in tblclients (decision 2026-10-14).
+     *
+     * @return HasOne<Contact, $this>
+     */
+    public function primaryContact(): HasOne
+    {
+        return $this->hasOne(Contact::class, 'primary_of_client_id');
+    }
+
+    /** Its primary contact, made from the owner when an account has none (legacy rows, factories). */
+    public function ensurePrimaryContact(): Contact
+    {
+        if ($this->primaryContact !== null) {
+            return $this->primaryContact;
+        }
+        $owner = $this->owner();
+        $contact = $this->contacts()->make(['first_name' => $owner?->first_name, 'last_name' => $owner?->last_name, 'email' => $owner?->email]);
+        $contact->forceFill(['primary_of_client_id' => $this->id])->save();
+        $this->setRelation('primaryContact', $contact);
+
+        return $contact;
+    }
+
+    /**
+     * The account's name: its primary contact's (the company for a business), else its owner's.
+     *
+     * @return Attribute<string, never>
+     */
     protected function name(): Attribute
     {
-        return Attribute::make(get: fn () => $this->owner()->name ?? __('Client') . ' #' . $this->id);
+        return Attribute::make(get: fn () => ($this->primaryContact?->displayName() ?: null)
+            ?? $this->owner()->name ?? __('Client') . ' #' . $this->id);
     }
 
     /** @return Attribute<string|null, never> */
     protected function email(): Attribute
     {
-        return Attribute::make(get: fn () => $this->owner()?->email);
+        return Attribute::make(get: fn () => $this->primaryContact->email ?? $this->owner()?->email);
     }
 
     /** @return Attribute<string|null, never> */
     protected function firstName(): Attribute
     {
-        return Attribute::make(get: fn () => $this->owner()?->first_name);
+        return Attribute::make(get: fn () => $this->primaryContact->first_name ?? $this->owner()?->first_name);
     }
 
     /** @return Attribute<string|null, never> */
     protected function lastName(): Attribute
     {
-        return Attribute::make(get: fn () => $this->owner()?->last_name);
+        return Attribute::make(get: fn () => $this->primaryContact->last_name ?? $this->owner()?->last_name);
+    }
+
+    /** @return Attribute<string|null, never> */
+    protected function country(): Attribute
+    {
+        return Attribute::make(get: fn () => $this->primaryContact?->country);
     }
 
     /** @return HasMany<Order, $this> */
@@ -218,6 +265,9 @@ class Client extends Model implements Auditable
                 'client_id' => $client->id, 'user_id' => $owner->id, 'owner' => true, 'owner_of_client_id' => $client->id,
                 'granted_by' => $grantedBy?->id, 'granted_at' => now(),
             ]);
+            // Its details start from the owner's (PR 3a): the forms fill in the rest.
+            $client->contacts()->make(['first_name' => $owner->first_name, 'last_name' => $owner->last_name, 'email' => $owner->email])
+                ->forceFill(['primary_of_client_id' => $client->id])->save();
 
             return $client;
         });

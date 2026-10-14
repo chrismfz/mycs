@@ -16,6 +16,16 @@ class EditClient extends EditRecord
 {
     protected static string $resource = ClientResource::class;
 
+    /** The «Details» section edits the primary contact: an account without one (legacy rows) gets it first. */
+    public function mount(int|string $record): void
+    {
+        parent::mount($record);
+        $client = $this->getRecord();
+        if ($client instanceof Client) {
+            $client->ensurePrimaryContact();
+        }
+    }
+
     protected function getHeaderActions(): array
     {
         return [

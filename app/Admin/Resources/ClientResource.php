@@ -11,9 +11,11 @@ use App\Admin\Resources\ClientResource\Pages\ShowCredits;
 use App\Admin\Resources\ClientResource\Pages\ShowInvoices;
 use App\Admin\Resources\ClientResource\Pages\ShowServices;
 use App\Admin\Resources\ClientResource\Pages\ShowTickets;
+use App\Admin\Resources\ClientResource\RelationManagers\ContactsRelationManager;
 use App\Admin\Resources\ClientResource\RelationManagers\InvitesRelationManager;
 use App\Admin\Resources\ClientResource\RelationManagers\UsersRelationManager;
 use App\Admin\Resources\Common\RelationManagers\PropertiesRelationManager;
+use App\Admin\Schemas\ContactForm;
 use App\Models\Client;
 use App\Models\Credit;
 use Filament\Actions\EditAction;
@@ -48,7 +50,7 @@ class ClientResource extends Resource
 
     public static function getGloballySearchableAttributes(): array
     {
-        return ['id', 'users.first_name', 'users.last_name', 'users.email'];
+        return ['id', 'primaryContact.first_name', 'primaryContact.last_name', 'primaryContact.company_name', 'primaryContact.email'];
     }
 
     public static function getGlobalSearchResultTitle(Model $record): string|Htmlable
@@ -70,6 +72,17 @@ class ClientResource extends Resource
                     ])
                     ->columns(2)
                     ->visibleOn('create'),
+                // The account's details: its primary contact (docs/accounts.md, PR 3a; WHMCS keeps them in tblclients).
+                Section::make(__('Details'))
+                    ->statePath('contact')
+                    ->schema(ContactForm::fields())
+                    ->columns(2)
+                    ->visibleOn('create'),
+                Section::make(__('Details'))
+                    ->relationship('primaryContact')
+                    ->schema(ContactForm::fields())
+                    ->columns(2)
+                    ->visibleOn('edit'),
                 // The customer's choice, also set by staff (MT-1e): credit pays open invoices on its own, or is kept.
                 Toggle::make('credit_auto_apply')
                     ->label(__('Credit pays open invoices automatically'))
@@ -81,13 +94,13 @@ class ClientResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['ownerGrant.user', 'credits']))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['primaryContact', 'ownerGrant.user', 'credits']))
             ->columns([
                 TextColumn::make('id')->label('ID')->sortable()->searchable(),
                 TextColumn::make('name')
                     ->label(__('Name'))
-                    ->searchable(query: fn (Builder $query, string $search) => $query->whereHas('users', fn (Builder $query) => $query
-                        ->where('first_name', 'like', "%$search%")->orWhere('last_name', 'like', "%$search%")))
+                    ->searchable(query: fn (Builder $query, string $search) => $query->whereHas('primaryContact', fn (Builder $query) => $query
+                        ->where('first_name', 'like', "%$search%")->orWhere('last_name', 'like', "%$search%")->orWhere('company_name', 'like', "%$search%")))
                     ->description(function (Client $client) {
                         if (count($client->credits) <= 0) {
                             return null;
@@ -97,7 +110,7 @@ class ClientResource extends Resource
                     }),
                 TextColumn::make('email')
                     ->label(__('Email'))
-                    ->searchable(query: fn (Builder $query, string $search) => $query->whereHas('users', fn (Builder $query) => $query->where('email', 'like', "%$search%"))),
+                    ->searchable(query: fn (Builder $query, string $search) => $query->whereHas('primaryContact', fn (Builder $query) => $query->where('email', 'like', "%$search%"))),
                 TextColumn::make('created_at')->dateTime()->sortable(),
             ])
             ->filters([
@@ -116,6 +129,7 @@ class ClientResource extends Resource
         return [
             UsersRelationManager::class,
             InvitesRelationManager::class,
+            ContactsRelationManager::class,
             PropertiesRelationManager::class,
         ];
     }

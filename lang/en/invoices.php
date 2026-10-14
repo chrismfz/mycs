@@ -84,6 +84,9 @@ return [
     'refund_method_credit' => 'The customer\'s account credit',
     'refund_method_manual_help' => 'Money returned another way, e.g. a bank transfer. A refund made in the gateway\'s dashboard is recorded on its own when the gateway tells us: do not record it here.',
     'refund_notify' => 'Email the customer about the refund',
+    'tax_id_line' => 'Tax ID: :tax_id',
+    'vat_number_line' => 'VAT: :vat_number',
+    'tax_office_line' => 'Tax office: :tax_office',
     'deleted_user' => 'Deleted User',
 
     // The credit note of an invoice the app cancels (CancelOpenInvoices), written in the app's language.

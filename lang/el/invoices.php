@@ -83,6 +83,9 @@ return [
     'refund_method_credit' => 'Την πίστωση λογαριασμού του πελάτη',
     'refund_method_manual_help' => 'Χρήματα που επιστράφηκαν αλλιώς, π.χ. με τραπεζική μεταφορά. Μια επιστροφή από το dashboard του gateway καταγράφεται μόνη της όταν μας ενημερώσει το gateway: μην την καταγράψετε εδώ.',
     'refund_notify' => 'Ενημέρωση του πελάτη με email για την επιστροφή',
+    'tax_id_line' => 'ΑΦΜ: :tax_id',
+    'vat_number_line' => 'ΑΦΜ ΕΕ (VIES): :vat_number',
+    'tax_office_line' => 'ΔΟΥ: :tax_office',
     'deleted_user' => 'Διαγραμμένος χρήστης',
 
     // Το πιστωτικό ενός τιμολογίου που ακυρώνει η εφαρμογή (CancelOpenInvoices), στη γλώσσα της εφαρμογής.
