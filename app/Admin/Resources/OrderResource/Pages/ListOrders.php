@@ -20,7 +20,7 @@ class ListOrders extends ListRecords
         ];
     }
 
-    /** WHMCS's «Pending Orders» and the other order lists (Σ1-b2): ?activeTab=pending. */
+    /** WHMCS's «Pending Orders» and the other order lists (Σ1-b2): ?tab=pending. */
     public function getTabs(): array
     {
         $tabs = ['all' => Tab::make('All')];

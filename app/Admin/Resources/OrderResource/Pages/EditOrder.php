@@ -3,7 +3,9 @@
 namespace App\Admin\Resources\OrderResource\Pages;
 
 use App\Admin\Resources\OrderResource;
+use App\Exceptions\DisplayException;
 use App\Models\Order;
+use App\Models\Service;
 use App\Models\Staff;
 use App\Services\Order\AcceptOrder;
 use App\Services\Order\CancelOrder;
@@ -34,7 +36,16 @@ class EditOrder extends EditRecord
                     Checkbox::make('send_email')->label('Send welcome email')->default(true),
                 ])
                 ->action(function (Order $record, array $data) {
-                    AcceptOrder::handle($record, self::staff(), (bool) $data['run_create'], (bool) $data['send_email']);
+                    try {
+                        AcceptOrder::handle($record, self::staff(), (bool) $data['run_create'], (bool) $data['send_email']);
+                    } catch (Throwable $e) {
+                        if (!$e instanceof DisplayException) {
+                            report($e);
+                        }
+                        Notification::make()->danger()->title('The order was not accepted')->body($e->getMessage())->send();
+
+                        return;
+                    }
                     Notification::make()->success()->title('Order accepted')->send();
                     $this->refreshFormData(['status']);
                 }),
@@ -42,8 +53,10 @@ class EditOrder extends EditRecord
                 $this->cancelAction('cancel', 'Cancel Order', refund: false, fraud: false),
                 $this->cancelAction('cancelRefund', 'Cancel & Refund', refund: true, fraud: false),
                 $this->cancelAction('fraud', 'Set as Fraud', refund: false, fraud: true),
+                // Not on an order with nothing alive (it would wait in Pending Orders for ever: ADV-6).
                 Action::make('pending')->label('Set back to Pending')->icon('ri-arrow-go-back-line')
-                    ->visible(fn (Order $record) => $record->status !== Order::STATUS_PENDING)
+                    ->visible(fn (Order $record) => $record->status !== Order::STATUS_PENDING
+                        && $record->services()->whereNotIn('status', Service::ENDED_STATUSES)->exists())
                     ->authorize('update')
                     ->requiresConfirmation()
                     ->modalDescription('Only the order\'s status: its services and invoices stay as they are.')
@@ -69,7 +82,7 @@ class EditOrder extends EditRecord
             ->authorize('update')
             ->requiresConfirmation()
             ->modalDescription('Its services are cancelled and their open invoices with them. ' . ($refund
-                ? 'Every payment of an invoice that bills only this order goes back.'
+                ? 'The payments of the order\'s own invoice go back (renewals and upgrades paid later stay: refund them from their invoice). What was refunded already, or taken back by a chargeback, is not given twice. A gateway that cannot refund is left to you, with a notice.'
                 : 'Paid invoices stay: refund them from the invoice if needed.'))
             ->schema(array_filter([
                 Checkbox::make('terminate')->label('Terminate accounts already created on the servers')->default(false),

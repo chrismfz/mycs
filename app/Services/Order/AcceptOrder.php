@@ -2,6 +2,7 @@
 
 namespace App\Services\Order;
 
+use App\Exceptions\DisplayException;
 use App\Helpers\NotificationHelper;
 use App\Jobs\Server\CreateJob;
 use App\Models\Order;
@@ -17,14 +18,22 @@ use Illuminate\Support\Facades\DB;
  */
 final class AcceptOrder
 {
+    /** @throws DisplayException when it is not pending, or nothing of it is left to set up (all ended) */
     public static function handle(Order $order, ?Staff $staff, bool $runCreate = true, bool $sendEmail = true): void
     {
         DB::transaction(function () use ($order, $staff, $runCreate, $sendEmail) {
+            // Its services, then the order: the order a payment or a create finishing takes (review R8).
+            $services = Service::query()->where('order_id', $order->id)->orderBy('id')->lockForUpdate()->get();
             $locked = Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
+            if ($locked->status !== Order::STATUS_PENDING) {
+                throw new DisplayException(__('Only a pending order can be accepted.'));
+            }
+            if ($services->isNotEmpty() && $services->every(fn (Service $service) => $service->isEnded())) {
+                throw new DisplayException(__('Every service of this order has ended: there is nothing to accept.')); // ADV-6
+            }
             $locked->forceFill(['status' => Order::STATUS_ACTIVE, 'accepted_at' => now(), 'accepted_by_staff_id' => $staff?->id])->save();
 
-            $services = Service::query()->where('order_id', $order->id)->where('status', Service::STATUS_PENDING)->orderBy('id')->lockForUpdate()->get();
-            foreach ($services as $service) {
+            foreach ($services->where('status', Service::STATUS_PENDING) as $service) {
                 if ($runCreate && $service->provisioningServer() !== null) {
                     CreateJob::dispatch($service, $sendEmail)->afterCommit();
 
@@ -32,7 +41,8 @@ final class AcceptOrder
                 }
                 $service->status = Service::STATUS_ACTIVE;
                 $service->save();
-                if ($sendEmail && $runCreate) {
+                // «Send welcome email» on its own (review R5): also for a service built by hand.
+                if ($sendEmail) {
                     $id = $service->id;
                     DB::afterCommit(fn () => ($started = Service::query()->find($id)) && $started->client
                         ? NotificationHelper::serverCreatedNotification($started->client, $started) : null);

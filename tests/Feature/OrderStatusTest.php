@@ -5,8 +5,11 @@ namespace Tests\Feature;
 use App\Admin\Resources\OrderResource;
 use App\Admin\Resources\OrderResource\Pages\EditOrder;
 use App\Admin\TopMenu;
+use App\Helpers\ExtensionHelper;
 use App\Jobs\Server\CreateJob;
 use App\Jobs\Server\TerminateJob;
+use App\Models\Gateway;
+use App\Models\GatewayRefund;
 use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\Product;
@@ -24,8 +27,10 @@ use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
+use MyCS\Extensions\Gateways\Stripe\Stripe;
 use MyCS\Extensions\Servers\FlakyServer\FlakyServer;
 use Tests\TestCase;
 
@@ -226,7 +231,7 @@ class OrderStatusTest extends TestCase
     {
         $this->actingAs($this->staff(), 'staff');
         $items = collect(TopMenu::groups())->firstWhere('label', 'Orders')['items'];
-        $this->assertContains(OrderResource::getUrl('index', ['activeTab' => 'pending']), array_column($items, 'url'));
+        $this->assertContains(OrderResource::getUrl('index', ['tab' => 'pending']), array_column($items, 'url'));
 
         $active = $this->order(Product::AUTOSETUP_ORDER, server: false);
         $ended = $this->order(Product::AUTOSETUP_PAYMENT);
@@ -238,5 +243,69 @@ class OrderStatusTest extends TestCase
 
         $this->assertSame([Order::STATUS_ACTIVE, Order::STATUS_CANCELLED, Order::STATUS_PENDING],
             [$active->fresh()->status, $ended->fresh()->status, $waiting->fresh()->status]);
+    }
+
+    private function stripe(): void
+    {
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'Stripe'], ['name' => 'Stripe', 'type' => 'gateway']);
+        foreach (['stripe_secret_key' => 'sk_test', 'stripe_webhook_secret' => 'whsec_test'] as $key => $value) {
+            $gateway->settings()->updateOrCreate(['key' => $key], ['value' => $value]);
+        }
+        (new Stripe(['stripe_secret_key' => 'sk_test', 'stripe_webhook_secret' => 'whsec_test']))->boot();
+        Http::fake();
+    }
+
+    private function paidByStripe(Order $order, string $paymentIntent): Invoice
+    {
+        $invoice = Invoice::query()->findOrFail($order->invoice_id);
+        ExtensionHelper::addPayment($invoice->id, 'Stripe', (float) $invoice->total, transactionId: $paymentIntent, currency: 'usd');
+
+        return $invoice->fresh();
+    }
+
+    public function test_cancel_and_refund_through_a_gateway_that_cannot_refund_leaves_it_to_staff(): void
+    {
+        $order = $this->order(Product::AUTOSETUP_PAYMENT);
+        $invoice = $this->payInvoice($order); // recorded by staff: no gateway to refund through
+
+        $left = CancelOrder::handle($order, refund: 'gateway');
+
+        $this->assertNotEmpty(array_filter(array_keys($left), fn ($key) => str_starts_with($key, "refund #{$invoice->id}/")));
+        $this->assertGreaterThan(0, (float) $invoice->transactions()->sole()->refundable_amount, 'nothing refunded: staff do it');
+        $this->assertSame(Order::STATUS_CANCELLED, $order->fresh()->status);
+    }
+
+    public function test_cancel_and_refund_after_a_refund_at_the_gateways_dashboard_gives_nothing_twice(): void
+    {
+        $this->stripe();
+        $order = $this->order(Product::AUTOSETUP_PAYMENT);
+        $invoice = $this->paidByStripe($order, 'pi_dash');
+        ExtensionHelper::refundedAtGateway('Stripe', 'pi_dash', 're_dash', (float) $invoice->total, 'usd'); // staff, in Stripe
+
+        $left = CancelOrder::handle($order, refund: 'gateway');
+
+        $this->assertSame([], $left);
+        $this->assertSame(1, GatewayRefund::query()->count(), 'no second refund');
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/refunds'));
+    }
+
+    /**
+     * A chargeback took the money back: nothing is refunded twice. Its period was delivered (the service ran), so the
+     * invoice is a debt again and stays open for staff (collect it, or cancel it by hand: CancelOpenInvoices' rule).
+     */
+    public function test_cancel_and_refund_after_a_chargeback_gives_nothing_twice_and_leaves_the_debt_to_staff(): void
+    {
+        $this->stripe();
+        $order = $this->order(Product::AUTOSETUP_PAYMENT);
+        $invoice = $this->paidByStripe($order, 'pi_cb');
+        ExtensionHelper::chargebackAtGateway('Stripe', 'pi_cb', 'dp_cb', (float) $invoice->total, 'usd'); // the money left
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status, 'owed again');
+
+        $left = CancelOrder::handle($order, refund: 'gateway');
+
+        $this->assertSame(["invoice_cancelled #{$invoice->id}"], array_keys($left), 'the delivered, charged-back period: staff decide');
+        $this->assertSame(1, GatewayRefund::query()->count(), 'only the chargeback');
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/refunds'));
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
     }
 }

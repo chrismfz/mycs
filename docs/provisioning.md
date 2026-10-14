@@ -64,18 +64,34 @@
   παίρνει μόνο pending).
 
 ## Status παραγγελίας και κουμπιά (`orders.status`, Σ1-b2, Δ4)
-- `pending` στη δημιουργία (default της στήλης· το `PlaceOrderService` δεν αλλάζει). Ακολουθεί τις υπηρεσίες της
-  (`Order::refreshStatus`, από το `ServiceObserver`): `active` όταν καμία δεν μένει `pending`, `cancelled` όταν όλες
-  τελείωσαν (π.χ. απλήρωτη, από το cron). Το status που έβαλε το staff δεν αναιρείται.
-- **Accept Order:** `active`, `accepted_at/by`· κάθε `pending` υπηρεσία στήνεται, πληρωμένη ή όχι (απόφαση 4).
-  «Run module create»: με server → CreateJob (active όταν υπάρξει ο λογαριασμός)· χωρίς, ή χωρίς create (στήθηκε με το
-  χέρι) → active τώρα. «Send welcome email». Οι ημερομηνίες ακολουθούν το `datesOnStart`.
+- `pending` στη δημιουργία (default της στήλης). Ακολουθεί τις υπηρεσίες της (`Order::refreshStatus`, από το
+  `ServiceObserver`: αλλαγή status ή `order_id`, δημιουργία ήδη ξεκινημένης, διαγραφή): `active` όταν καμία δεν μένει
+  `pending`, `cancelled` όταν όλες τελείωσαν (π.χ. απλήρωτη, από το cron). Το status του staff δεν αναιρείται.
+- `orders.invoice_id`: το δικό της τιμολόγιο (το `tblorders.invoiceid` του WHMCS)· το γράφει το `PlaceOrderService`, το
+  backfill (το πρώτο τιμολόγιο των υπηρεσιών της) και ο importer. Χωρίς foreign key: ο importer φέρνει τις παραγγελίες
+  πριν από τα τιμολόγια.
+- **Importer:** το status έρχεται από το `tblorders.status` (Active/Pending/Cancelled/Fraud), όχι από τις υπηρεσίες (στο
+  import δεν τρέχουν observers).
+- **Accept Order:** μόνο σε `pending` με κάτι ζωντανό. `active`, `accepted_at/by`· **κάθε** `pending` υπηρεσία
+  στήνεται, πληρωμένη ή όχι (απόφαση 2, 2026-10-15· όπως το «Run Module Create» του WHMCS, και οι «never»). «Run module
+  create»: με server → CreateJob (active όταν υπάρξει ο λογαριασμός)· χωρίς, ή χωρίς create (στήθηκε με το χέρι) →
+  active τώρα. «Send welcome email» ανεξάρτητο. Οι ημερομηνίες ακολουθούν το `datesOnStart`. Το cron δεν ακυρώνει ως
+  «απλήρωτη παραγγελία» υπηρεσία παραγγελίας που έγινε accept (το create της μπορεί να αποτυγχάνει ακόμα).
 - **Cancel Order:** οι υπηρεσίες γίνονται `cancelled` (stock πίσω, pending upgrades αποσύρονται), οι γραμμές τους στα
-  ανοιχτά τιμολόγια ακυρώνονται (`CancelOpenInvoices`, το credit επιστρέφει). Οι λογαριασμοί που στήθηκαν μένουν, εκτός
-  αν το staff τσεκάρει «Terminate accounts». Τα πληρωμένα τιμολόγια μένουν.
-- **Cancel & Refund:** όπως το Cancel, και κάθε πληρωμή τιμολογίου που χρεώνει **μόνο** αυτή την παραγγελία επιστρέφει
-  (gateway / με το χέρι / σε credit· ό,τι πληρώθηκε με credit γυρνά σε credit). Τιμολόγιο που χρεώνει και κάτι άλλο:
-  ειδοποίηση στο staff. Θέλει και το `admin.invoice_transactions.update`.
+  ανοιχτά τιμολόγια ακυρώνονται (`CancelOpenInvoices`, το credit επιστρέφει). Οι λογαριασμοί μένουν, εκτός αν το staff
+  τσεκάρει «Terminate accounts». Τα πληρωμένα τιμολόγια μένουν.
+- **Cancel & Refund:** όπως το Cancel, και επιστρέφουν οι πληρωμές **του τιμολογίου της παραγγελίας** μόνο (όπως το
+  WHMCS· ανανεώσεις και upgrades που πληρώθηκαν αργότερα παραδόθηκαν: επιστροφή από το τιμολόγιό τους), πληρωμένου ή
+  πληρωμένου εν μέρει, **πριν** ακυρωθούν τα ανοιχτά. Gateway / με το χέρι / σε credit· ό,τι πληρώθηκε με credit γυρνά
+  σε credit. Θέλει και το `admin.invoice_transactions.update`.
+  - Ό,τι επιστράφηκε ήδη (από εδώ, ή από το dashboard του gateway με webhook) ή πάρθηκε με chargeback δεν επιστρέφεται
+    ξανά (`refundable_amount`).
+  - Gateway που δεν κάνει refund (ή αποτυχία): ειδοποίηση στο staff ανά πληρωμή, οι υπόλοιπες συνεχίζουν.
+  - Chargeback σε περίοδο που παραδόθηκε: το τιμολόγιο ξαναχρωστιέται και μένει ανοιχτό για το staff (να το εισπράξει ή
+    να το ακυρώσει με το χέρι).
+  - Τιμολόγιο παραγγελίας που χρεώνει και κάτι άλλο: ειδοποίηση στο staff.
 - **Set as Fraud:** όπως το Cancel, status `fraud` (η εκτίμηση απάτης δεν υπάρχει, Δ4). **Set back to Pending:** μόνο
-  το status.
-- Pending Orders: tab της λίστας (`?activeTab=pending`), στο top menu (Orders), badge και μετρητής στο dashboard.
+  το status, και όχι σε παραγγελία χωρίς τίποτα ζωντανό.
+- Κλειδώματα: υπηρεσίες, μετά η παραγγελία (Accept, Cancel), όπως μια πληρωμή ή ένα create που τελειώνει.
+- Pending Orders: tab της λίστας (`?tab=pending`), στο top menu (Orders, active μόνο σε αυτό το tab), badge και μετρητής
+  στο dashboard.

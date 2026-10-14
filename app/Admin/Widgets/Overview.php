@@ -55,7 +55,7 @@ class Overview extends BaseWidget
         return $pending === 0 ? null : Stat::make('Pending Orders', (string) $pending)
             ->description('Waiting to be accepted or set up')
             ->color('warning')
-            ->url(OrderResource::getUrl('index', ['activeTab' => 'pending']));
+            ->url(OrderResource::getUrl('index', ['tab' => 'pending']));
     }
 
     /** WHMCS's dashboard counter: failed server actions waiting for staff (Σ1), shown while there are any. */

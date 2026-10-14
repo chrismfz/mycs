@@ -389,6 +389,8 @@ class CronJob extends Command
     private function unpaidOrders(int $days): Builder
     {
         return Service::query()->where('status', Service::STATUS_PENDING)->where('created_at', '<', now()->subDays($days))
+            // Not one of an order staff accepted (paid or not, decision 4; its create may still be failing: ADV-4).
+            ->whereDoesntHave('order', fn ($order) => $order->whereNotNull('accepted_at'))
             ->whereHas('invoices', fn ($invoices) => $invoices->whereIn('invoices.status', [Invoice::STATUS_UNPAID, Invoice::STATUS_CANCELLED]))
             ->whereDoesntHave('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_PAID))
             ->whereDoesntHave('invoices', fn ($invoices) => $this->withRealMoney($invoices));
