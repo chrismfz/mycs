@@ -145,6 +145,8 @@ class Contact extends Model
     public function makePrimary(): void
     {
         DB::transaction(function () {
+            // The account's row: two «make primary» at once wait for each other, also when there is no primary yet.
+            Client::lock($this->client_id);
             $current = self::query()->where('primary_of_client_id', $this->client_id)->lockForUpdate()->first();
             if ($current?->is($this)) {
                 return;

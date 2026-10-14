@@ -132,7 +132,7 @@ class OrderResource extends Resource
     {
         return $table
             // The account's name is its owner's (until the contacts, PR 3): loaded with the rows, not per row.
-            ->modifyQueryUsing(fn (Builder $query) => $query->with('client.ownerGrant.user'))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user']))
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -140,7 +140,7 @@ class OrderResource extends Resource
                     ->sortable(),
                 TextColumn::make('client.name')
                     ->label('Client')
-                    ->searchable(query: fn (Builder $query, $search) => $query->whereHas('client.users', fn (Builder $query) => $query->where('first_name', 'like', "%$search%")->orWhere('last_name', 'like', "%$search%"))),
+                    ->searchable(query: fn (Builder $query, $search) => ClientComponent::search($query, (string) $search)),
                 TextColumn::make('currency.code')
                     ->label('Currency')
                     ->searchable()

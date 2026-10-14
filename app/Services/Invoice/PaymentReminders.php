@@ -97,7 +97,7 @@ class PaymentReminders
         return Invoice::query()->where('status', Invoice::STATUS_UNPAID)->whereNotNull('client_id')->whereNotNull('due_at')
             ->whereDoesntHave('transactions', fn ($query) => $query->where('status', InvoiceTransactionStatus::Processing))
             ->whereHas('items', fn ($items) => $items->where(fn ($line) => $line->whereNull('reference_type')->orWhere('reference_type', '!=', Credit::class)))
-            ->with(['client.ownerGrant.user', 'items.reference', 'transactions']);
+            ->with(['client.primaryContact', 'client.ownerGrant.user', 'items.reference', 'transactions']);
     }
 
     /** @var array<string, string> the latest due date each reminder went for, by «id|kind|days» */

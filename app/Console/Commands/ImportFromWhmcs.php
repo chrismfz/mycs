@@ -712,6 +712,11 @@ class ImportFromWhmcs extends Command
         $clientId = DB::table('clients')->insertGetId(['created_at' => now(), 'updated_at' => now()]);
         DB::table('client_user')->insert(['client_id' => $clientId, 'user_id' => $userId, 'owner' => true, 'owner_of_client_id' => $clientId,
             'granted_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+        // Every account has its primary contact (its details, PR 3a): from the login here.
+        $user = DB::table('users')->where('id', $userId)->first(['first_name', 'last_name', 'email']);
+        DB::table('contacts')->insert(['client_id' => $clientId, 'primary_of_client_id' => $clientId, 'type' => 'individual',
+            'first_name' => $user?->first_name, 'last_name' => $user?->last_name, 'email' => $user?->email,
+            'created_at' => now(), 'updated_at' => now()]);
 
         return $clientId;
     }

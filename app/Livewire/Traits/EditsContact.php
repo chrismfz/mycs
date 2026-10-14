@@ -42,7 +42,8 @@ trait EditsContact
             "{$prefix}.last_name" => $text,
             "{$prefix}.company_name" => $text,
             "{$prefix}.tax_id" => ['nullable', 'string', 'max:50'],
-            "{$prefix}.vat_number" => ['nullable', 'string', 'max:50', 'regex:/^[A-Z]{2}[0-9A-Z+*.]{2,13}$/i'],
+            // An EU VAT number: country prefix (EL for Greece) and 2–13 characters; spaces, dots and dashes are allowed.
+            "{$prefix}.vat_number" => ['nullable', 'string', 'max:50', 'regex:/^[A-Z]{2}[\s.\-]*[0-9A-Z+*][0-9A-Z+*\s.\-]{1,20}$/i'],
             "{$prefix}.tax_office" => $text,
             "{$prefix}.activity" => $text,
             "{$prefix}.address1" => $text,
@@ -68,6 +69,7 @@ trait EditsContact
             $values[$field] = $value === '' ? null : $value;
         }
         $values['country'] = $values['country'] !== null ? strtoupper((string) $values['country']) : null;
+        $values['vat_number'] = $values['vat_number'] !== null ? strtoupper(preg_replace('/[\s.\-]/', '', (string) $values['vat_number'])) : null;
         $values['email_preferences'] = array_values((array) ($values['email_preferences'] ?? []));
 
         return $values;

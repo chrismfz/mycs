@@ -42,7 +42,7 @@ class AdjustmentNoteResource extends Resource
                 Select::make('invoice_id')
                     ->label('Invoice')
                     // Not a paid invoice: it keeps its total (AdjustmentNoteObserver).
-                    ->relationship('invoice', modifyQueryUsing: fn (Builder $query) => $query->with('client.ownerGrant.user')->where('status', '!=', Invoice::STATUS_PAID)->orderByDesc('id'))
+                    ->relationship('invoice', modifyQueryUsing: fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user'])->where('status', '!=', Invoice::STATUS_PAID)->orderByDesc('id'))
                     ->getOptionLabelFromRecordUsing(fn (Model $record) => ($record->number ? "#$record->number" : $record->id) . ' (' . ($record->client->email ?? __('invoices.deleted_user')) . ')')
                     ->required()
                     ->searchable()

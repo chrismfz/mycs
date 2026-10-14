@@ -30,6 +30,11 @@ class ClientResource extends JsonApiResource
     public function toMeta($request): array
     {
         $meta = [];
+        // The account's details: its primary contact (PR 3a), what the identity properties held before.
+        if (($contact = $this->resource->primaryContact) !== null) {
+            $meta['contact'] = $contact->only(['type', 'first_name', 'last_name', 'company_name', 'tax_id', 'vat_number', 'tax_office',
+                'address1', 'address2', 'city', 'state', 'postcode', 'country', 'email', 'phone', 'document_type']);
+        }
         if ($this->resource->relationLoaded('properties')) {
             $meta['properties'] = $this->resource->properties->mapWithKeys(fn ($property) => [$property->key => $property->value]);
         }

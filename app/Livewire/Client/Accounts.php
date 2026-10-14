@@ -34,7 +34,7 @@ class Accounts extends Component
         $user = Auth::user();
 
         return view('client.account.accounts', [
-            'accounts' => $user->clients()->with('ownerGrant.user')->orderByDesc('client_user.owner')->orderBy('clients.id')->get(),
+            'accounts' => $user->clients()->with(['primaryContact', 'ownerGrant.user'])->orderByDesc('client_user.owner')->orderBy('clients.id')->get(),
             'current' => CurrentClient::id(),
             'impersonating' => Actor::impersonating(),
         ])->layoutData([

@@ -130,6 +130,10 @@ return new class extends Migration
         return null;
     }
 
+    /**
+     * Rolling back loses the non-primary contacts (there were none before). A key another model's custom field already
+     * holds (custom_properties.key is unique) is not recreated: its values come back without a custom field.
+     */
     public function down(): void
     {
         // The identity properties come back from the primary contacts (custom fields as the seeder had them).

@@ -330,7 +330,8 @@ class Invoice extends Model implements Auditable
             get: function () {
                 $contact = $this->client?->primaryContact;
                 $lines = $contact === null ? [] : array_filter([
-                    'company_name' => $contact->type === 'business' || $contact->company_name ? $contact->company_name : null,
+                    // The company once: for a business it is already the invoice's name (Contact::displayName).
+                    'company_name' => $contact->company_name && $contact->company_name !== $contact->displayName() ? $contact->company_name : null,
                     'tax_id' => $contact->tax_id ? __('invoices.tax_id_line', ['tax_id' => $contact->tax_id]) : null,
                     'vat_number' => $contact->vat_number ? __('invoices.vat_number_line', ['vat_number' => $contact->vat_number]) : null,
                     'tax_office' => $contact->tax_office ? __('invoices.tax_office_line', ['tax_office' => $contact->tax_office]) : null,

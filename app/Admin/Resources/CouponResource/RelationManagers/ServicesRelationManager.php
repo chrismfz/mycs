@@ -20,7 +20,7 @@ class ServicesRelationManager extends RelationManager
     {
         return $table
             // The account's name is its owner's (until the contacts, PR 3): loaded with the rows, not per row.
-            ->modifyQueryUsing(fn (Builder $query) => $query->with('order.client.ownerGrant.user'))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['order.client.primaryContact', 'order.client.ownerGrant.user']))
             ->recordTitleAttribute('id')
             ->columns([
                 TextColumn::make('id'),
