@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Api\Admin\Services;
 
 use App\Http\Requests\Api\Admin\AdminApiRequest;
+use App\Models\Contact;
 use App\Models\Plan;
 use App\Models\Product;
 
@@ -44,6 +45,13 @@ class UpdateServiceRequest extends AdminApiRequest
             'price' => 'sometimes|required|numeric|min:0',
             'coupon_id' => 'sometimes|nullable|exists:coupons,id',
             'subscription_id' => 'sometimes|nullable|string|max:255',
+            // A contact of the service's account (information only, docs/accounts.md 3b).
+            'contact_id' => ['sometimes', 'nullable', 'integer', function ($attribute, $value, $fail) {
+                $clientId = $this->input('client_id') ?? $this->route('service')?->client_id;
+                if (!Contact::query()->whereKey($value)->where('client_id', $clientId)->whereNull('archived_at')->exists()) {
+                    $fail('The contact must be an active contact of the service\'s account.');
+                }
+            }],
             'order_id' => 'sometimes|nullable|exists:orders,id',
         ];
     }
