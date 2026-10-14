@@ -24,7 +24,7 @@
 | Πληρωμές (12μ) | Έμβασμα 42,7% · **Eurobank vPOS 42,3%** · PayPal ppcpv 9,5% · Stripe 3,7% · PayPal legacy 1,6% |
 | Αποθηκευμένα | Stripe 50, PayPal ppcpv 48, Stripe SEPA 4 |
 | Υπενθυμίσεις τιμολογίων | 1 ημέρα πριν τη λήξη· ληξιπρόθεσμα στις 1/3/5 ημέρες |
-| Πελάτες | 6 ομάδες (38 μέλη)· 432 επαφές· 101 multi-user· **custom fields:** ΑΦΜ/VIES, ΔΟΥ, Δραστηριότητα, «Θα ήθελα τιμολόγιο», Σημειώσεις, σήμανση «δύσκολος πελάτης» (2.925 τιμές) |
+| Πελάτες | 6 ομάδες (38 μέλη)· 432 επαφές· 101 multi-user· **custom fields:** ΑΦΜ/VIES, ΔΟΥ, Δραστηριότητα, «Θα ήθελα τιμολόγιο», Σημειώσεις, «Γκρινιάρης» = άμεση τιμολόγηση στο Ekdosi (2.925 τιμές) |
 | Γλώσσες | Ελληνικά 248, αγγλικά 37, default 614 |
 | Tickets | 3 τμήματα, όλα με email piping· 12μ: 1.703 tickets, **~μισά από guests**· 453 με συνημμένα, 72 merge, 227 σημειώσεις, 835 φίλτρα spam· 9 predefined replies· αξιολογήσεις απαντήσεων 363· auto-close 48 ώρες |
 | KB / announcements | KB 97 άρθρα· 5 announcements· 4 downloads |
@@ -81,7 +81,7 @@
 | Εύκολη επεξεργασία από admin: ημερομηνίες, ποσά υπηρεσίας, υποσύνολα τιμολογίου | P (Filament) + Ν | 1–2 | Συχνές χειροκίνητες αλλαγές στο myip |
 | Domains: πολλοί registrars, register/transfer/renew, sync, ειδοποιήσεις 60/30/15/10/5, redemption fee, EPP code, do-not-renew, additional fields/IDN | E + L (`domain-tools`, `myopenprovider`) | 2 | |
 | Προϊόντα .gr (owner change/transfer) | Ν (+ `gr-epp`) | 4 | |
-| Custom fields πελάτη (ΑΦΜ, ΔΟΥ, «Θα ήθελα τιμολόγιο», σημειώσεις, σήμανση «δύσκολος») + επαφές + multi-user | E (πελάτης/επαφές) + P (custom properties) | 2–3 | Το «Θα ήθελα τιμολόγιο» οδηγεί το bridge προς Ekdosi |
+| Custom fields πελάτη (ΑΦΜ, ΔΟΥ, «Θα ήθελα τιμολόγιο», σημειώσεις, «Γκρινιάρης» = άμεση τιμολόγηση) + επαφές + multi-user | E (πελάτης/επαφές) + P (custom properties) | 2–3 | Το «Θα ήθελα τιμολόγιο» οδηγεί το bridge προς Ekdosi |
 | Tickets: piping σε όλα τα τμήματα, **guest tickets**, συνημμένα, merge, σημειώσεις, φίλτρα spam, auto-close, αξιολογήσεις, predefined replies | E | 3 | Το P δεν δέχεται νέα tickets από email |
 | Gateways: έμβασμα, **Eurobank vPOS** (42% του myip), Stripe SEPA | L `cardlink-eurobank` + E + Ν (SEPA) | 3 | |
 | Modules: cPanel, DirectAdmin | P | 1 / 3 | |
