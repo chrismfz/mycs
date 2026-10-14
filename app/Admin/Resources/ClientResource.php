@@ -2,7 +2,6 @@
 
 namespace App\Admin\Resources;
 
-use App\Admin\Schemas\ContactForm;
 use App\Admin\Resources\ClientResource\Pages\CreateClient;
 use App\Admin\Resources\ClientResource\Pages\EditClient;
 use App\Admin\Resources\ClientResource\Pages\ListClients;
@@ -16,6 +15,7 @@ use App\Admin\Resources\ClientResource\RelationManagers\ContactsRelationManager;
 use App\Admin\Resources\ClientResource\RelationManagers\InvitesRelationManager;
 use App\Admin\Resources\ClientResource\RelationManagers\UsersRelationManager;
 use App\Admin\Resources\Common\RelationManagers\PropertiesRelationManager;
+use App\Admin\Schemas\ContactForm;
 use App\Models\Client;
 use App\Models\Credit;
 use Filament\Actions\EditAction;

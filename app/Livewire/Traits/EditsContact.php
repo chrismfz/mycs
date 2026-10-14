@@ -23,7 +23,7 @@ trait EditsContact
     {
         $this->contact = [];
         foreach (self::CONTACT_FIELDS as $field) {
-            $this->contact[$field] = $contact?->{$field} ?? match ($field) {
+            $this->contact[$field] = $contact->{$field} ?? match ($field) {
                 'type' => 'individual',
                 'email_preferences' => [],
                 default => '',

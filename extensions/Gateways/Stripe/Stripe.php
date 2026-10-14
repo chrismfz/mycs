@@ -653,7 +653,7 @@ class Stripe extends Gateway
             // The account's details are its primary contact's (docs/accounts.md, PR 3a).
             $contact = $user->primaryContact;
 
-            if (!empty($contact?->company_name)) {
+            if (!empty($contact->company_name)) {
                 $payload['description'] = $contact->company_name;
             }
 
@@ -670,7 +670,7 @@ class Stripe extends Gateway
                 $payload['address'] = $address;
             }
 
-            if (!empty($contact?->phone)) {
+            if (!empty($contact->phone)) {
                 $payload['phone'] = $contact->phone;
             }
         }
