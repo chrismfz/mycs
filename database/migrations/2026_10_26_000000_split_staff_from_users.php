@@ -29,7 +29,7 @@ return new class extends Migration
         $duplicates = DB::table('users')->whereNotNull('role_id')->selectRaw('LOWER(email) as e')->groupBy('e')
             ->havingRaw('COUNT(*) > 1')->pluck('e')->all();
         if ($duplicates !== []) {
-            throw new \RuntimeException('Admins share an email (staff.email is unique): ' . implode(', ', $duplicates));
+            throw new RuntimeException('Admins share an email (staff.email is unique): ' . implode(', ', $duplicates));
         }
 
         $admins = [];
@@ -155,7 +155,7 @@ return new class extends Migration
         $clash = DB::table('staff')->join('users', 'users.id', '=', 'staff.id')
             ->whereRaw('LOWER(users.email) <> LOWER(staff.email)')->pluck('staff.id')->all();
         if ($clash !== []) {
-            throw new \RuntimeException('Staff ids that are other customers\' ids, cannot roll back: ' . implode(', ', $clash));
+            throw new RuntimeException('Staff ids that are other customers\' ids, cannot roll back: ' . implode(', ', $clash));
         }
         Schema::withoutForeignKeyConstraints(fn () => $this->moveBackToUsers());
     }

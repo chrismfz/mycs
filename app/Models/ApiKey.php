@@ -5,6 +5,9 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use OwenIt\Auditing\Contracts\Auditable;
 
+/**
+ * @property int|null $staff_id
+ */
 class ApiKey extends Model implements Auditable
 {
     use Traits\Auditable;

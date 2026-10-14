@@ -27,6 +27,7 @@ use SensitiveParameter;
  *
  * @property-read string $name
  * @property-read string $avatar
+ * @property bool $active
  * @property string|null $app_authentication_secret
  * @property array<string>|null $app_authentication_recovery_codes
  */
