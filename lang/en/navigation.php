@@ -15,4 +15,6 @@ return [
     'tickets' => 'Tickets',
     'admin' => 'Admin',
     'notifications' => 'Notifications',
+    'users' => 'Users',
+    'switch_account' => 'Switch account',
 ];

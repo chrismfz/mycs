@@ -55,6 +55,9 @@ Route::group(['middleware' => ['web', 'auth']], function () {
     Route::get('/account/credits', Client\Credits::class)->name('account.credits')->middleware('client.can:invoices');
     Route::get('/account/payment-methods', Client\PaymentMethods::class)->name('account.payment-methods')->middleware('client.can:invoices');
     Route::get('/account/notifications', Client\Notifications::class)->name('account.notifications');
+    // The account's users and switching account (docs/accounts.md, PR 2b).
+    Route::get('/account/users', Client\Users::class)->name('account.users');
+    Route::get('/account/accounts', Client\Accounts::class)->name('account.accounts');
 
     Route::get('/email/verify', Auth\VerifyEmail::class)->name('verification.notice');
     Route::get('/email/verify/{id}/{hash}', function (EmailVerificationRequest $request) {
@@ -64,6 +67,9 @@ Route::group(['middleware' => ['web', 'auth']], function () {
     })->middleware(['signed'])->name('verification.verify');
     Route::get('/tickets/attachments/{attachment:uuid}', [TicketAttachmentController::class, 'download'])->name('tickets.attachments.show')->middleware('can:view,attachment');
 });
+
+// An invitation to an account: a guest is asked to log in or register first (docs/accounts.md, PR 2b).
+Route::get('/invite/{token}', Client\AcceptInvite::class)->name('invites.accept')->middleware(['web', 'throttle:30,1']);
 
 Route::get('cart', Cart::class)->name('cart')->middleware('checkout');
 

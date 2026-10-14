@@ -15,4 +15,6 @@ return [
     'tickets' => 'Tickets',
     'admin' => 'Διαχείριση',
     'notifications' => 'Ειδοποιήσεις',
+    'users' => 'Χρήστες',
+    'switch_account' => 'Αλλαγή λογαριασμού',
 ];

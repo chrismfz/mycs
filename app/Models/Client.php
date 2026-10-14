@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\InvoiceTransactionStatus;
+use App\Exceptions\DisplayException;
 use App\Models\Traits\HasProperties;
 use App\Observers\ClientObserver;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
@@ -13,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 use OwenIt\Auditing\Contracts\Auditable;
 
 /**
@@ -61,6 +63,16 @@ class Client extends Model implements Auditable
     public function grants(): HasMany
     {
         return $this->hasMany(ClientUser::class);
+    }
+
+    /**
+     * Invitations of logins to the account (PR 2b).
+     *
+     * @return HasMany<ClientInvite, $this>
+     */
+    public function invites(): HasMany
+    {
+        return $this->hasMany(ClientInvite::class);
     }
 
     /**
@@ -209,6 +221,67 @@ class Client extends Model implements Auditable
 
             return $client;
         });
+    }
+
+    /**
+     * Give a login access, or change what an existing one may do (PR 2b): a revoked grant comes back. The owner's
+     * grant always has everything and is not changed here.
+     *
+     * @param  array<int, string>|null  $permissions  WHMCS names; null = all
+     */
+    public function grantTo(User $user, ?array $permissions, ?Staff $by = null): ClientUser
+    {
+        return DB::transaction(function () use ($user, $permissions, $by) {
+            $grant = $this->grants()->where('user_id', $user->id)->lockForUpdate()->first();
+            if ($grant?->owner) {
+                return $grant;
+            }
+            $grant ??= new ClientUser(['client_id' => $this->id, 'user_id' => $user->id]);
+            $wasLive = $grant->exists && $grant->revoked_at === null;
+            $grant->forceFill([
+                'permissions' => ClientInvite::normalise($permissions),
+                'revoked_at' => null,
+            ] + ($wasLive ? [] : ['granted_by' => $by?->id, 'granted_at' => now()]))->save();
+
+            return $grant;
+        });
+    }
+
+    /** Take a login's access away; kept as history (revoked_at). The owner's grant is not revoked: transfer first. */
+    public function revoke(ClientUser $grant): void
+    {
+        if ((int) $grant->client_id !== $this->id) {
+            throw new InvalidArgumentException('Not a grant of this account.');
+        }
+        if ($grant->owner) {
+            throw new DisplayException(__('The owner cannot be removed: make another user the owner first.'));
+        }
+        $grant->forceFill(['revoked_at' => now()])->save();
+    }
+
+    /**
+     * Make another login the owner (staff only, as WHMCS): the old owner keeps access with all permissions, the new
+     * one gets the owner's grant. The unique owner_of_client_id is freed before it is taken, in one transaction.
+     */
+    public function transferOwnership(User $to, ?Staff $by = null): void
+    {
+        DB::transaction(function () use ($to, $by) {
+            self::lock($this->id);
+            $old = $this->grants()->whereNotNull('owner_of_client_id')->lockForUpdate()->first();
+            if ($old !== null && (int) $old->user_id === $to->id) {
+                if ($old->revoked_at !== null) {
+                    $old->forceFill(['revoked_at' => null])->save();
+                }
+
+                return;
+            }
+            $old?->forceFill(['owner' => false, 'owner_of_client_id' => null, 'permissions' => null])->save();
+
+            $new = $this->grants()->where('user_id', $to->id)->lockForUpdate()->first()
+                ?? new ClientUser(['client_id' => $this->id, 'user_id' => $to->id, 'granted_by' => $by?->id, 'granted_at' => now()]);
+            $new->forceFill(['owner' => true, 'owner_of_client_id' => $this->id, 'permissions' => null, 'revoked_at' => null])->save();
+        });
+        $this->unsetRelation('ownerGrant');
     }
 
     /** The account's row lock, which every path that moves its money takes first (one order: account, then the rest). */

@@ -4,6 +4,8 @@ namespace App\Classes;
 
 use App\Helpers\EventHelper;
 use App\Models\Category;
+use App\Models\User;
+use App\Support\Actor;
 use App\Support\CurrentClient;
 use Illuminate\Support\Facades\Auth;
 
@@ -67,6 +69,11 @@ class Navigation
                 [
                     'name' => __('navigation.account'),
                     'url' => route('account'),
+                ],
+                [
+                    'name' => __('navigation.switch_account'),
+                    'url' => route('account.accounts'),
+                    'condition' => Auth::check() && self::hasSeveralAccounts(),
                 ],
                 [
                     'name' => __('navigation.admin'),
@@ -159,6 +166,18 @@ class Navigation
                                 'url' => route('account.notifications'),
                                 'priority' => 50,
                             ],
+                            [
+                                'name' => __('navigation.users'),
+                                'url' => route('account.users'),
+                                'condition' => self::ownsCurrentAccount(),
+                                'priority' => 60,
+                            ],
+                            [
+                                'name' => __('navigation.switch_account'),
+                                'url' => route('account.accounts'),
+                                'condition' => self::hasSeveralAccounts(),
+                                'priority' => 70,
+                            ],
                         ]
                     ),
                 ],
@@ -179,6 +198,22 @@ class Navigation
 
             return Navigation::markActiveRoute($routes);
         });
+    }
+
+    /** The login owns the current account (or staff act as its owner): it manages the account's users. */
+    private static function ownsCurrentAccount(): bool
+    {
+        $client = CurrentClient::model();
+
+        return $client !== null && (Actor::impersonating()
+            || $client->grants()->where('user_id', Auth::id())->whereNotNull('owner_of_client_id')->whereNull('revoked_at')->exists());
+    }
+
+    private static function hasSeveralAccounts(): bool
+    {
+        $user = Auth::guard('web')->user();
+
+        return $user instanceof User && !Actor::impersonating() && $user->clients()->count() > 1;
     }
 
     public static function getActiveRoute()
