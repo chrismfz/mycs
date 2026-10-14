@@ -183,6 +183,7 @@ class OrderStatusReviewTest extends TestCase
      */
     public function test_r5_accept_sends_the_welcome_mail_when_asked_also_for_a_service_built_by_hand(): void
     {
+        config(['settings.mail_disable' => false]); // mail is off until SMTP is set (the setting's default)
         $order = $this->order(Product::AUTOSETUP_NEVER);
 
         AcceptOrder::handle($order, null, runCreate: false, sendEmail: true);
