@@ -41,7 +41,7 @@ class SettingsTaxRateTest extends TestCase
         $got = [];
         // One customer at a time, the previous one freed: as the cron's renewal loop does.
         foreach (User::query()->whereIn('id', array_keys($expected))->orderBy('id')->cursor() as $user) {
-            $got[$user->id] = (float) Settings::tax($user)->rate;
+            $got[$user->id] = (float) Settings::tax($user->client())->rate;
         }
 
         $this->assertEquals($expected, $got);
@@ -51,13 +51,13 @@ class SettingsTaxRateTest extends TestCase
     {
         $rate = TaxRate::create(['name' => 'ΦΠΑ', 'rate' => 24, 'country' => 'GR']);
         $user = $this->customer('GR');
-        $this->assertEquals(24, Settings::tax($user)->rate);
+        $this->assertEquals(24, Settings::tax($user->client())->rate);
 
         $rate->update(['rate' => 13]);
         $this->app->forgetScopedInstances(); // what the queue worker does after every job
 
         // The same model instance (a job holding the customer): once() kept 24 for the life of the worker.
-        $this->assertEquals(13, Settings::tax($user)->rate);
+        $this->assertEquals(13, Settings::tax($user->client())->rate);
     }
 
     public function test_the_rate_is_looked_up_once_per_country_within_a_request(): void
@@ -65,11 +65,11 @@ class SettingsTaxRateTest extends TestCase
         TaxRate::create(['name' => 'ΦΠΑ', 'rate' => 24, 'country' => 'GR']);
         $first = $this->customer('GR');
         $second = $this->customer('GR');
-        Settings::tax($first);
+        Settings::tax($first->client());
 
         DB::enableQueryLog();
-        Settings::tax($first);
-        Settings::tax($second);
+        Settings::tax($first->client());
+        Settings::tax($second->client());
         $lookups = array_filter(DB::getQueryLog(), fn (array $query) => str_contains($query['query'], 'tax_rates'));
 
         $this->assertCount(0, $lookups);
@@ -77,6 +77,6 @@ class SettingsTaxRateTest extends TestCase
 
     public function test_no_rate_is_zero(): void
     {
-        $this->assertSame(0, Settings::tax($this->customer('US')));
+        $this->assertSame(0, Settings::tax($this->customer('US')->client()));
     }
 }

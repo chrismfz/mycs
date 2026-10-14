@@ -19,12 +19,16 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('money_events', function (Blueprint $table) {
+        // The journal is the account's: users then; clients once they are apart (docs/accounts.md, PR 2a), when replayed.
+        $owner = Schema::hasTable('clients') ? 'client_id' : 'user_id';
+        $owners = Schema::hasTable('clients') ? 'clients' : 'users';
+
+        Schema::create('money_events', function (Blueprint $table) use ($owner, $owners) {
             $table->id();
             $table->string('kind', 20);
             $table->decimal('amount', 17, 2);
             $table->string('currency_code', 3);
-            $table->foreignId('user_id')->nullable()->constrained()->restrictOnDelete();
+            $table->foreignId($owner)->nullable()->constrained($owners)->restrictOnDelete();
             $table->unsignedBigInteger('invoice_id')->nullable()->index();
             $table->unsignedBigInteger('invoice_transaction_id')->nullable()->index();
             $table->decimal('credit_balance_after', 17, 2)->nullable();
@@ -37,16 +41,16 @@ return new class extends Migration
             $table->foreignId('reverses_id')->nullable()->unique()->constrained('money_events')->restrictOnDelete();
             $table->timestamp('occurred_at')->useCurrent();
 
-            $table->index(['user_id', 'currency_code', 'id']);
+            $table->index([$owner, 'currency_code', 'id']);
         });
 
         $now = now();
-        DB::table('credits')->where('amount', '!=', 0)->orderBy('id')->each(function (object $credit) use ($now) {
+        DB::table('credits')->where('amount', '!=', 0)->orderBy('id')->each(function (object $credit) use ($now, $owner) {
             DB::table('money_events')->insert([
                 'kind' => (float) $credit->amount > 0 ? 'credit_in' : 'credit_out',
                 'amount' => abs((float) $credit->amount),
                 'currency_code' => $credit->currency_code,
-                'user_id' => $credit->user_id,
+                $owner => $credit->{$owner},
                 'credit_balance_after' => $credit->amount,
                 'source' => 'system',
                 'cause' => 'opening_balance',

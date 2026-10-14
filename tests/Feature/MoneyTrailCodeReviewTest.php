@@ -180,8 +180,8 @@ class MoneyTrailCodeReviewTest extends TestCase
         $migration->up();
 
         $this->assertSame([
-            ['credit_in', '12.50', $this->user->id, '12.50', 'opening_balance'],
-            ['credit_out', '3.00', $other->id, '-3.00', 'opening_balance'],
+            ['credit_in', '12.50', $this->user->client()->id, '12.50', 'opening_balance'],
+            ['credit_out', '3.00', $other->client()->id, '-3.00', 'opening_balance'],
         ], MoneyEvent::query()->orderBy('id')->get()->map(fn (MoneyEvent $event) => [
             $event->kind->value, $event->amount, $event->client_id, $event->credit_balance_after, $event->cause,
         ])->all());
