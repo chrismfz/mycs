@@ -36,9 +36,14 @@ class Actor
 
     public static function impersonating(): bool
     {
-        $request = request();
+        try {
+            // The request's session, or the session store when the request carries none (Livewire's component calls).
+            $session = request()->hasSession() ? request()->session() : app('session.store');
 
-        return $request->hasSession() && $request->session()->has('impersonating');
+            return $session->has('impersonating');
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     private static function apiKey(): ?ApiKey

@@ -225,6 +225,7 @@ class StaffSplitTest extends TestCase
         $other = Staff::factory()->withPermissions(['admin.invoices.viewAny'])->create();
         $this->withSession($this->staffSession($other))->get($url)->assertNotFound(); // denials are 404 (AppServiceProvider)
         // A customer's session is nobody in the admin.
+        $this->flushSession();
         Auth::forgetGuards();
         $this->actingAs($customer)->withSession($this->loginUser($customer))->get($url)->assertRedirect(route('filament.admin.auth.login'));
     }
