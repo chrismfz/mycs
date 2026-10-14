@@ -3,7 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use OwenIt\Auditing\Contracts\Auditable;
 
 class Role extends Model implements Auditable
@@ -30,8 +30,9 @@ class Role extends Model implements Auditable
     ];
 
     /** @return BelongsToMany<User, $this> */
-    public function users(): BelongsToMany
+    /** @return HasMany<Staff, $this> */
+    public function staff(): HasMany
     {
-        return $this->belongsToMany(User::class);
+        return $this->hasMany(Staff::class);
     }
 }

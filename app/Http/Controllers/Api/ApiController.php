@@ -10,7 +10,7 @@ use Spatie\QueryBuilder\QueryBuilder;
 abstract class ApiController extends Controller
 {
     const MAPPED_INCLUDES = [
-        'assigned_to' => 'users',
+        'assigned_to' => 'staff',
         'category' => 'categories',
         'children' => 'categories',
         'coupon' => 'coupons',

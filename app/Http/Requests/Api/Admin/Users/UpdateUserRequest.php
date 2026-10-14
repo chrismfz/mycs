@@ -8,13 +8,6 @@ class UpdateUserRequest extends AdminApiRequest
 {
     protected $permission = 'users.update';
 
-    public function authorize(): bool
-    {
-        return parent::authorize()
-            && $this->mayActOn($this->route('user'))
-            && (!$this->exists('role_id') || ($this->hasApiPermission('admin.roles.update') && $this->mayAssignRole($this->input('role_id'))));
-    }
-
     public function rules(): array
     {
         return [
@@ -23,7 +16,8 @@ class UpdateUserRequest extends AdminApiRequest
             'email' => 'sometimes|required|email|max:255|unique:users,email,' . $this->route()->parameter('user')->id,
             'password' => 'sometimes|string|min:8',
             'email_verified_at' => 'sometimes|nullable|date',
-            'role_id' => 'sometimes|nullable|exists:roles,id',
+            // Users are customers: roles are staff's only (docs/accounts.md, PR 1).
+            'role_id' => 'prohibited',
         ];
     }
 }

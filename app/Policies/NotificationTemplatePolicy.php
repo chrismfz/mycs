@@ -3,6 +3,7 @@
 namespace App\Policies;
 
 use App\Models\NotificationTemplate;
+use App\Models\Staff;
 use App\Models\User;
 
 class NotificationTemplatePolicy
@@ -10,7 +11,7 @@ class NotificationTemplatePolicy
     /**
      * Determine whether the user can view any models.
      */
-    public function viewAny(User $user): bool
+    public function viewAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.notification_templates.viewAny');
     }
@@ -18,7 +19,7 @@ class NotificationTemplatePolicy
     /**
      * Determine whether the user can view the model.
      */
-    public function view(User $user, NotificationTemplate $notificationTemplate): bool
+    public function view(User|Staff $user, NotificationTemplate $notificationTemplate): bool
     {
         return $user->hasPermission('admin.notification_templates.viewAny');
     }
@@ -26,7 +27,7 @@ class NotificationTemplatePolicy
     /**
      * Determine whether the user can create models.
      */
-    public function create(User $user): bool
+    public function create(User|Staff $user): bool
     {
         return $user->hasPermission('admin.notification_templates.create');
     }
@@ -34,7 +35,7 @@ class NotificationTemplatePolicy
     /**
      * Determine whether the user can update the model.
      */
-    public function update(User $user, NotificationTemplate $notificationTemplate): bool
+    public function update(User|Staff $user, NotificationTemplate $notificationTemplate): bool
     {
         return $user->hasPermission('admin.notification_templates.update');
     }
@@ -42,7 +43,7 @@ class NotificationTemplatePolicy
     /**
      * Determine whether the user can delete the model.
      */
-    public function delete(User $user, NotificationTemplate $notificationTemplate): bool
+    public function delete(User|Staff $user, NotificationTemplate $notificationTemplate): bool
     {
         return $user->hasPermission('admin.notification_templates.delete');
     }
@@ -50,7 +51,7 @@ class NotificationTemplatePolicy
     /**
      * Determine whether the user can bulk delete the model.
      */
-    public function deleteAny(User $user): bool
+    public function deleteAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.notification_templates.deleteAny');
     }

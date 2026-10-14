@@ -17,6 +17,7 @@ class TicketMessage extends Model implements Auditable
     protected $fillable = [
         'ticket_id',
         'user_id',
+        'staff_id',
         'message',
         'ticket_mail_log_id',
     ];
@@ -27,10 +28,28 @@ class TicketMessage extends Model implements Auditable
         return $this->belongsTo(Ticket::class);
     }
 
-    /** @return BelongsTo<User, $this> */
+    /** The customer who wrote it; null when staff did. @return BelongsTo<User, $this> */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /** The member of staff who wrote it (docs/accounts.md, PR 1). @return BelongsTo<Staff, $this> */
+    public function staff(): BelongsTo
+    {
+        return $this->belongsTo(Staff::class);
+    }
+
+    /** A reply by staff: told by its author, not by comparing ids (staff and customers have their own). */
+    public function isFromStaff(): bool
+    {
+        return $this->staff_id !== null;
+    }
+
+    /** Who wrote it, for display: the staff member or the customer. */
+    public function author(): Staff|User|null
+    {
+        return $this->isFromStaff() ? $this->staff : $this->user;
     }
 
     /** @return HasMany<TicketMessageAttachment, $this> */

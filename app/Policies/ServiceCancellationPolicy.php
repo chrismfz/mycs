@@ -3,6 +3,7 @@
 namespace App\Policies;
 
 use App\Models\ServiceCancellation;
+use App\Models\Staff;
 use App\Models\User;
 
 class ServiceCancellationPolicy
@@ -10,7 +11,7 @@ class ServiceCancellationPolicy
     /**
      * Determine whether the user can view any models.
      */
-    public function viewAny(User $user): bool
+    public function viewAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.service_cancellations.viewAny');
     }
@@ -18,7 +19,7 @@ class ServiceCancellationPolicy
     /**
      * Determine whether the user can view the model.
      */
-    public function view(User $user, ServiceCancellation $category): bool
+    public function view(User|Staff $user, ServiceCancellation $category): bool
     {
         return $user->hasPermission('admin.service_cancellations.viewAny');
     }
@@ -26,7 +27,7 @@ class ServiceCancellationPolicy
     /**
      * Determine whether the user can create models.
      */
-    public function create(User $user): bool
+    public function create(User|Staff $user): bool
     {
         return $user->hasPermission('admin.service_cancellations.create');
     }
@@ -34,7 +35,7 @@ class ServiceCancellationPolicy
     /**
      * Determine whether the user can update the model.
      */
-    public function update(User $user, ServiceCancellation $category): bool
+    public function update(User|Staff $user, ServiceCancellation $category): bool
     {
         return $user->hasPermission('admin.service_cancellations.update');
     }
@@ -42,7 +43,7 @@ class ServiceCancellationPolicy
     /**
      * Determine whether the user can delete the model.
      */
-    public function delete(User $user, ServiceCancellation $category): bool
+    public function delete(User|Staff $user, ServiceCancellation $category): bool
     {
         return $user->hasPermission('admin.service_cancellations.delete');
     }
@@ -50,7 +51,7 @@ class ServiceCancellationPolicy
     /**
      * Determine whether the user can bulk delete the model.
      */
-    public function deleteAny(User $user): bool
+    public function deleteAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.service_cancellations.deleteAny');
     }

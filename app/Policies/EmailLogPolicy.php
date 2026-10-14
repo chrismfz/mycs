@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Models\Staff;
 use App\Models\User;
 
 class EmailLogPolicy
@@ -9,7 +10,7 @@ class EmailLogPolicy
     /**
      * Determine whether the user can view any models.
      */
-    public function viewAny(User $user): bool
+    public function viewAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.email_logs.viewAny');
     }
@@ -17,7 +18,7 @@ class EmailLogPolicy
     /**
      * Determine whether the user can view the model.
      */
-    public function view(User $user): bool
+    public function view(User|Staff $user): bool
     {
         return $user->hasPermission('admin.email_logs.view');
     }

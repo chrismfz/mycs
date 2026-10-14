@@ -2,45 +2,40 @@
 
 namespace App\Http\Middleware;
 
-use App\Classes\PermissionGuard;
+use App\Models\Staff;
 use App\Models\User;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Symfony\Component\HttpFoundation\Response;
 
+/**
+ * «Login as client» (AUTH-19): a member of staff with the permission sees the client area as the customer, for this
+ * request only. The staff member stays the one who acts in audits and the money journal (App\Support\Actor).
+ */
 class ImpersonateMiddleware
 {
-    /**
-     * Handle an incoming request.
-     *
-     * @param  Closure(Request):Response  $next
-     */
     public function handle(Request $request, Closure $next): Response
     {
-        if (session()->has('impersonating')) {
-            if ($request->is('admin/*')) {
-                // Unset session
-                session()->forget('impersonating');
-            } else {
-                // Validate if admin user still has permission to impersonate
-                $adminUser = Auth::user();
-                if (!$adminUser || !$adminUser->hasPermission('admin.users.impersonate')) {
-                    session()->forget('impersonating');
-
-                    return $next($request);
-                }
-
-                $targetUser = User::find(session('impersonating'));
-                if (!$targetUser || !PermissionGuard::outranks($adminUser, $targetUser)) {
-                    session()->forget('impersonating');
-
-                    return $next($request);
-                }
-
-                Auth::onceUsingId($targetUser->id);
-            }
+        if (!$request->session()->has('impersonating')) {
+            return $next($request);
         }
+        // Back in the admin: the staff member is themselves again.
+        if ($request->is('admin', 'admin/*')) {
+            $request->session()->forget('impersonating');
+
+            return $next($request);
+        }
+
+        $staff = Auth::guard('staff')->user();
+        $customer = User::query()->find($request->session()->get('impersonating'));
+        if (!$staff instanceof Staff || !$staff->hasPermission('admin.users.impersonate') || $customer === null) {
+            $request->session()->forget('impersonating');
+
+            return $next($request);
+        }
+
+        Auth::guard('web')->onceUsingId($customer->id);
 
         return $next($request);
     }

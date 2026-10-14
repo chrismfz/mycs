@@ -13,7 +13,7 @@ class ApiKey extends Model implements Auditable
         'name',
         'permissions',
         'token',
-        'user_id',
+        'staff_id',
         'type',
         'ip_addresses',
         'last_used_at',
@@ -30,11 +30,11 @@ class ApiKey extends Model implements Auditable
         'last_used_at',
     ];
 
-    /** The admin who created the key; its permissions cap the key's (AdminApi).
-     * @return BelongsTo<User, $this>
+    /** The member of staff who created the key; their permissions cap the key's (AdminApi), and it goes with them.
+     * @return BelongsTo<Staff, $this>
      */
-    public function user(): BelongsTo
+    public function staff(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(Staff::class);
     }
 }

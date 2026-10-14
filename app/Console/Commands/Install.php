@@ -5,8 +5,8 @@ namespace App\Console\Commands;
 use App\Classes\Settings;
 use App\Models\Currency;
 use App\Models\Role;
+use App\Models\Staff;
 use App\Models\Setting;
-use App\Models\User;
 use App\Providers\SettingsProvider;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Artisan;
@@ -65,8 +65,8 @@ class Install extends Command
 
         $this->call('migrate', ['--force' => true]);
 
-        if (User::query()->exists() && !$this->option('force')) {
-            $this->error('Users already exist: this instance looks installed.');
+        if (Staff::query()->exists() && !$this->option('force')) {
+            $this->error('Staff already exist: this instance looks installed.');
             $this->line('Re-run with --force to add another admin or re-apply the settings.');
 
             return self::FAILURE;
@@ -100,12 +100,12 @@ class Install extends Command
             Artisan::call('storage:link');
         }
 
-        $admin = User::query()->firstOrCreate(['email' => $input['email']], [
+        // The first member of staff (docs/accounts.md, PR 1): the admin panel's own login, not a customer.
+        $admin = Staff::query()->firstOrCreate(['email' => $input['email']], [
             'first_name' => $input['first_name'],
             'last_name' => $input['last_name'],
             'password' => $input['password'], // hashed by the model cast
             'role_id' => Role::query()->where('name', 'admin')->value('id'),
-            'email_verified_at' => now(),
         ]);
         if (!$admin->wasRecentlyCreated) {
             $this->warn("{$admin->email} already existed: password and role were NOT changed.");

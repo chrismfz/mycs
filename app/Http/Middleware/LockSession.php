@@ -22,7 +22,8 @@ class LockSession
             return $next($request);
         }
 
-        $isAdmin = auth()->user()->role_id !== null;
+        // The admin panel runs on the staff guard (UseStaffGuard): its rules are the admin's.
+        $isAdmin = auth()->getDefaultDriver() === 'staff';
 
         $ipModes = [
             'admin' => ['ip_admin', 'ip_both', 'ip_user_agent_admin', 'ip_user_agent_both'],

@@ -4,6 +4,7 @@ namespace App\Policies;
 
 use App\Classes\PermissionGuard;
 use App\Models\Role;
+use App\Models\Staff;
 use App\Models\User;
 
 class RolePolicy
@@ -11,7 +12,7 @@ class RolePolicy
     /**
      * Determine whether the user can view any models.
      */
-    public function viewAny(User $user): bool
+    public function viewAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.roles.viewAny');
     }
@@ -19,7 +20,7 @@ class RolePolicy
     /**
      * Determine whether the user can view the model.
      */
-    public function view(User $user, Role $role): bool
+    public function view(User|Staff $user, Role $role): bool
     {
         return $user->hasPermission('admin.roles.viewAny');
     }
@@ -27,7 +28,7 @@ class RolePolicy
     /**
      * Determine whether the user can create models.
      */
-    public function create(User $user): bool
+    public function create(User|Staff $user): bool
     {
         return $user->hasPermission('admin.roles.create');
     }
@@ -35,24 +36,24 @@ class RolePolicy
     /**
      * Determine whether the user can update the model.
      */
-    public function update(User $user, Role $role): bool
+    public function update(User|Staff $user, Role $role): bool
     {
         // Only roles that carry nothing beyond your own permissions.
-        return $user->hasPermission('admin.roles.update') && PermissionGuard::canGrant($user, $role->permissions ?? []);
+        return $user instanceof Staff && $user->hasPermission('admin.roles.update') && PermissionGuard::canGrant($user, $role->permissions ?? []);
     }
 
     /**
      * Determine whether the user can delete the model.
      */
-    public function delete(User $user, Role $role): bool
+    public function delete(User|Staff $user, Role $role): bool
     {
-        return $user->hasPermission('admin.roles.delete') && PermissionGuard::canGrant($user, $role->permissions ?? []);
+        return $user instanceof Staff && $user->hasPermission('admin.roles.delete') && PermissionGuard::canGrant($user, $role->permissions ?? []);
     }
 
     /**
      * Determine whether the user can delete multiple models.
      */
-    public function deleteAny(User $user): bool
+    public function deleteAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.roles.deleteAny');
     }

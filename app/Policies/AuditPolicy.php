@@ -3,6 +3,7 @@
 namespace App\Policies;
 
 use App\Models\Audit;
+use App\Models\Staff;
 use App\Models\User;
 
 class AuditPolicy
@@ -10,7 +11,7 @@ class AuditPolicy
     /**
      * Determine whether the user can view any models.
      */
-    public function viewAny(User $user): bool
+    public function viewAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.audit.viewAny');
     }
@@ -18,39 +19,39 @@ class AuditPolicy
     /**
      * Determine whether the user can view the model.
      */
-    public function view(User $user, Audit $role): bool
+    public function view(User|Staff $user, Audit $role): bool
     {
         return $user->hasPermission('admin.audit.viewAny');
     }
 
     // Append-only (the money trail's rule, audit sweep AUTH-3): Filament allows what a policy does not define, so every
     // write is refused here.
-    public function create(User $user): bool
+    public function create(User|Staff $user): bool
     {
         return false;
     }
 
-    public function update(User $user, Audit $audit): bool
+    public function update(User|Staff $user, Audit $audit): bool
     {
         return false;
     }
 
-    public function delete(User $user, Audit $audit): bool
+    public function delete(User|Staff $user, Audit $audit): bool
     {
         return false;
     }
 
-    public function deleteAny(User $user): bool
+    public function deleteAny(User|Staff $user): bool
     {
         return false;
     }
 
-    public function restore(User $user, Audit $audit): bool
+    public function restore(User|Staff $user, Audit $audit): bool
     {
         return false;
     }
 
-    public function forceDelete(User $user, Audit $audit): bool
+    public function forceDelete(User|Staff $user, Audit $audit): bool
     {
         return false;
     }

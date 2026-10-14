@@ -10,7 +10,7 @@ use App\Models\InvoiceTransaction;
 use App\Models\MoneyEvent;
 use App\Models\MoneyEventNote;
 use App\Services\Invoice\RecordPaymentService;
-use Illuminate\Support\Facades\Auth;
+use App\Support\Actor;
 use LogicException;
 
 /**
@@ -196,7 +196,7 @@ class MoneyTrail
         if (RecordPaymentService::toCents($values['amount']) <= 0) {
             throw new LogicException('A money event has a positive amount.');
         }
-        $actor = Auth::user();
+        $actor = Actor::current();
 
         return MoneyEvent::query()->create($values + [
             'actor_type' => $actor?->getMorphClass(),

@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Staff;
 use App\Models\User;
 
 return [
@@ -48,6 +49,12 @@ return [
             'provider' => 'users',
             'hash' => true,
         ],
+
+        // The admin panel only (docs/accounts.md, PR 1): its own login, never a customer.
+        'staff' => [
+            'driver' => 'session',
+            'provider' => 'staff',
+        ],
     ],
 
     /*
@@ -71,6 +78,11 @@ return [
         'users' => [
             'driver' => 'eloquent',
             'model' => env('AUTH_MODEL', User::class),
+        ],
+
+        'staff' => [
+            'driver' => 'eloquent',
+            'model' => Staff::class,
         ],
 
         // 'users' => [
@@ -103,6 +115,14 @@ return [
             'provider' => 'users',
             'table' => env('AUTH_PASSWORD_RESET_TOKEN_TABLE', 'password_reset_tokens'),
             'expire' => 60,
+            'throttle' => 60,
+        ],
+
+        // Its own table: the same email may be a customer and staff.
+        'staff' => [
+            'provider' => 'staff',
+            'table' => 'staff_password_reset_tokens',
+            'expire' => 30,
             'throttle' => 60,
         ],
     ],

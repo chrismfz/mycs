@@ -3,6 +3,7 @@
 namespace App\Policies;
 
 use App\Models\MoneyEvent;
+use App\Models\Staff;
 use App\Models\User;
 
 /**
@@ -11,27 +12,27 @@ use App\Models\User;
  */
 class MoneyEventPolicy
 {
-    public function viewAny(User $user): bool
+    public function viewAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.credits.viewAny') || $user->hasPermission('admin.invoice_transactions.viewAny');
     }
 
-    public function view(User $user, MoneyEvent $event): bool
+    public function view(User|Staff $user, MoneyEvent $event): bool
     {
         return $this->viewAny($user);
     }
 
-    public function create(User $user): bool
+    public function create(User|Staff $user): bool
     {
         return false;
     }
 
-    public function update(User $user, MoneyEvent $event): bool
+    public function update(User|Staff $user, MoneyEvent $event): bool
     {
         return false;
     }
 
-    public function delete(User $user, MoneyEvent $event): bool
+    public function delete(User|Staff $user, MoneyEvent $event): bool
     {
         return false;
     }

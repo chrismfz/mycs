@@ -3,6 +3,7 @@
 namespace App\Policies;
 
 use App\Models\Currency;
+use App\Models\Staff;
 use App\Models\User;
 
 class CurrencyPolicy
@@ -10,7 +11,7 @@ class CurrencyPolicy
     /**
      * Determine whether the user can view any models.
      */
-    public function viewAny(User $user): bool
+    public function viewAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.currencies.viewAny');
     }
@@ -18,7 +19,7 @@ class CurrencyPolicy
     /**
      * Determine whether the user can view the model.
      */
-    public function view(User $user, Currency $currency): bool
+    public function view(User|Staff $user, Currency $currency): bool
     {
         return $user->hasPermission('admin.currencies.viewAny');
     }
@@ -26,7 +27,7 @@ class CurrencyPolicy
     /**
      * Determine whether the user can create models.
      */
-    public function create(User $user): bool
+    public function create(User|Staff $user): bool
     {
         return $user->hasPermission('admin.currencies.create');
     }
@@ -34,7 +35,7 @@ class CurrencyPolicy
     /**
      * Determine whether the user can update the model.
      */
-    public function update(User $user, Currency $currency): bool
+    public function update(User|Staff $user, Currency $currency): bool
     {
         return $user->hasPermission('admin.currencies.update');
     }
@@ -42,7 +43,7 @@ class CurrencyPolicy
     /**
      * Determine whether the user can delete the model.
      */
-    public function delete(User $user, Currency $currency): bool
+    public function delete(User|Staff $user, Currency $currency): bool
     {
         return $user->hasPermission('admin.currencies.delete');
     }
@@ -50,7 +51,7 @@ class CurrencyPolicy
     /**
      * Determine whether the user can delete any models.
      */
-    public function deleteAny(User $user): bool
+    public function deleteAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.currencies.deleteAny');
     }

@@ -20,7 +20,7 @@ class ManageApis extends ManageRecords
                 $data['token'] = hash('sha256', $token);
                 $data['type'] = 'admin';
                 // The key never outlives or outranks the admin who made it (see AdminApi).
-                $data['user_id'] = auth()->id();
+                $data['staff_id'] = auth()->id();
 
                 Notification::make()
                     ->title('API Token Created')

@@ -12,12 +12,9 @@ use App\Admin\Resources\UserResource\Pages\ShowCredits;
 use App\Admin\Resources\UserResource\Pages\ShowInvoices;
 use App\Admin\Resources\UserResource\Pages\ShowServices;
 use App\Admin\Resources\UserResource\Pages\ShowTickets;
-use App\Classes\PermissionGuard;
 use App\Models\Credit;
-use App\Models\Role;
 use App\Models\User;
 use Filament\Actions\EditAction;
-use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Pages\Page;
@@ -25,7 +22,6 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
-use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Model;
@@ -63,19 +59,6 @@ class UserResource extends Resource
                     ->dehydrateStateUsing(fn (string $state): string => Hash::make($state))
                     ->dehydrated(fn (?string $state): bool => filled($state))
                     ->required(fn (string $operation): bool => $operation === 'create'),
-                Select::make('role_id')
-                    ->translateLabel()
-                    ->relationship('role', 'name')
-                    ->searchable()
-                    ->preload()
-                    ->hidden(fn (): bool => !auth()->user()?->hasPermission('admin.roles.update') ?? false)
-                    ->disabled(fn (): bool => !auth()->user()?->hasPermission('admin.roles.update') ?? false)
-                    ->rule(fn () => function (string $attribute, mixed $value, \Closure $fail): void {
-                        $role = $value ? Role::find($value) : null;
-                        if ($role && !PermissionGuard::canGrant(auth()->user(), $role->permissions ?? [])) {
-                            $fail('You cannot assign a role with permissions you do not have.');
-                        }
-                    }),
                 Toggle::make('tfa_secret')
                     ->label('Two Factor Authentication')
                     ->disabled(fn ($record) => !$record?->tfa_secret)
@@ -120,16 +103,13 @@ class UserResource extends Resource
                     }),
                 TextColumn::make('last_name')->searchable()->sortable(),
                 TextColumn::make('email')->searchable()->sortable(),
-                TextColumn::make('role.name')->sortable(),
                 TextColumn::make('created_at')->dateTime()->sortable(),
             ])
             ->filters([
-                SelectFilter::make('role')
-                    ->relationship('role', 'name')
-                    ->searchable()
-                    ->preload(),
                 Filter::make('email_verified')
-                    ->label('Email Verified'),
+                    ->label('Email Verified')
+                    // It filtered nothing (AUTH-15).
+                    ->query(fn ($query) => $query->whereNotNull('email_verified_at')),
                 Filter::make('has_active_services')
                     ->label('Has Active Services')
                     ->query(fn ($query) => $query->whereHas('services', function ($q) {

@@ -15,8 +15,9 @@ class CreateTicket extends CreateRecord
     {
         $record = static::getModel()::create($data);
 
+        // Opened by staff for the customer: the first message is the staff member's.
         $record->messages()->create([
-            'user_id' => Auth::id(),
+            'staff_id' => Auth::guard('staff')->id(),
             'message' => $data['message'],
         ]);
 

@@ -38,10 +38,10 @@ class AdminApi
 
         // Attach the token to the request for further use
         $request->attributes->set('api_key', $token);
-        // A key made by an admin never does more than that admin can do today.
+        // A key made by a member of staff never does more than they can do today (nothing once they are disabled).
         $permissions = $token->permissions ?? [];
-        if ($token->user_id !== null) {
-            $permissions = array_values(array_filter($permissions, fn (string $p) => PermissionGuard::canGrantApi($token->user, $p)));
+        if ($token->staff_id !== null) {
+            $permissions = array_values(array_filter($permissions, fn (string $p) => PermissionGuard::canGrantApi($token->staff, $p)));
         }
         $request->attributes->set('api_key_permissions', $permissions);
 

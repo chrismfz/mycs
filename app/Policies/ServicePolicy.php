@@ -3,6 +3,7 @@
 namespace App\Policies;
 
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
 
 class ServicePolicy extends BasePolicy
@@ -10,7 +11,7 @@ class ServicePolicy extends BasePolicy
     /**
      * Determine whether the user can view any models.
      */
-    public function viewAny(User $user): bool
+    public function viewAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.services.viewAny');
     }
@@ -18,15 +19,15 @@ class ServicePolicy extends BasePolicy
     /**
      * Determine whether the user can view the model.
      */
-    public function view(User $user, Service $service): bool
+    public function view(User|Staff $user, Service $service): bool
     {
-        return $this->adminPermission($user, 'admin.services.viewAny', $service->user_id === $user->id);
+        return $this->adminPermission($user, 'admin.services.viewAny', $this->owns($user, $service->user_id));
     }
 
     /**
      * Determine whether the user can create models.
      */
-    public function create(User $user): bool
+    public function create(User|Staff $user): bool
     {
         return $user->hasPermission('admin.services.create');
     }
@@ -34,15 +35,15 @@ class ServicePolicy extends BasePolicy
     /**
      * Determine whether the user can update the model.
      */
-    public function update(User $user, Service $service): bool
+    public function update(User|Staff $user, Service $service): bool
     {
-        return $this->adminPermission($user, 'admin.services.update', $service->user_id === $user->id);
+        return $this->adminPermission($user, 'admin.services.update', $this->owns($user, $service->user_id));
     }
 
     /**
      * Determine whether the user can delete the model.
      */
-    public function delete(User $user, Service $service): bool
+    public function delete(User|Staff $user, Service $service): bool
     {
         return $user->hasPermission('admin.services.delete');
     }
@@ -50,7 +51,7 @@ class ServicePolicy extends BasePolicy
     /**
      * Determine whether the user can permanently delete any models.
      */
-    public function deleteAny(User $user): bool
+    public function deleteAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.services.deleteAny');
     }

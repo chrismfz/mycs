@@ -15,7 +15,7 @@ return [
                 'update' => 'Update Users',
                 'viewAny' => 'View Users',
                 'delete' => 'Delete Users',
-                'impersonate' => 'Impersonate Users',
+                'impersonate' => 'Login as Client',
                 'deleteAny' => 'Bulk Delete Users',
             ],
             'credits' => [
@@ -106,6 +106,12 @@ return [
             'debug_logs' => [
                 'view' => 'View Debug Logs',
                 'delete' => 'Delete Debug Logs',
+            ],
+            'staff' => [
+                'create' => 'Create Staff',
+                'update' => 'Update Staff',
+                'viewAny' => 'View Staff',
+                'delete' => 'Delete Staff',
             ],
             'roles' => [
                 'create' => 'Create Roles',
@@ -271,6 +277,9 @@ return [
             ],
             'properties' => [
                 'view' => 'View Custom Properties',
+            ],
+            'staff' => [
+                'view' => 'View Staff',
             ],
             'roles' => [
                 'view' => 'View Roles',

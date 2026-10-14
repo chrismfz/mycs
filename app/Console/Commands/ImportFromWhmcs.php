@@ -6,6 +6,7 @@ use App\Models\Category;
 use App\Models\ConfigOption;
 use App\Models\CustomProperty;
 use App\Models\Product;
+use App\Models\Role;
 use App\Models\Service;
 use App\Models\Setting;
 use App\Models\User;
@@ -333,6 +334,11 @@ class ImportFromWhmcs extends Command
         });
     }
 
+    /**
+     * WHMCS admins → staff (docs/accounts.md, PR 1), all of them, with their ids: the Full Administrator role as our
+     * `admin` (all permissions), any other WHMCS role as a role of the same name with no permissions yet (staff give
+     * them their permissions). Disabled admins come disabled.
+     */
     private function importAdmins()
     {
         $this->info('Importing admins... (' . $this->count('tbladmins') . ' records)');
@@ -340,23 +346,44 @@ class ImportFromWhmcs extends Command
         $this->migrateInBatch('tbladmins', 'SELECT * FROM tbladmins LIMIT :limit OFFSET :offset', function ($records) {
             $data = [];
             foreach ($records as $record) {
-                if ($record['roleid'] != 1 || $record['disabled'] == 1 || DB::table('users')->where('email', $record['email'])->exists()) {
-                    // Only import administrators
-                    continue;
-                }
                 $data[] = [
                     'id' => $record['id'],
                     'first_name' => $record['firstname'],
                     'last_name' => $record['lastname'],
                     'email' => $record['email'],
+                    // A WHMCS bcrypt hash logs in as it is; anything older needs «Forgot password».
                     'password' => $record['password'],
-                    'role_id' => 1, // Admin role
-                    'email_verified_at' => null,
-                    'created_at' => $record['created_at'],
-                    'updated_at' => $record['lastlogin'] ?? now(),
+                    'role_id' => $this->staffRoleId((int) $record['roleid']),
+                    'active' => (int) $record['disabled'] !== 1,
+                    'created_at' => $this->validateDate($record['created_at'] ?? null) ?? now(),
+                    'updated_at' => now(),
                 ];
             }
+            if ($data !== []) {
+                DB::table('staff')->insert($data);
+            }
         });
+    }
+
+    /** @var array<int, int> */
+    private array $staffRoles = [];
+
+    private function staffRoleId(int $whmcsRoleId): int
+    {
+        if (isset($this->staffRoles[$whmcsRoleId])) {
+            return $this->staffRoles[$whmcsRoleId];
+        }
+        if ($whmcsRoleId === 1) {
+            $role = Role::query()->firstOrCreate(['name' => 'admin'], ['permissions' => ['*']]);
+        } else {
+            $stmt = $this->pdo->prepare('SELECT name FROM tbladminroles WHERE id = :id LIMIT 1');
+            $stmt->bindValue(':id', $whmcsRoleId, PDO::PARAM_INT);
+            $stmt->execute();
+            $name = (string) ($stmt->fetchColumn() ?: 'WHMCS role ' . $whmcsRoleId);
+            $role = Role::query()->firstOrCreate(['name' => $name], ['permissions' => []]);
+        }
+
+        return $this->staffRoles[$whmcsRoleId] = $role->id;
     }
 
     private function importCategories()
@@ -673,28 +700,6 @@ class ImportFromWhmcs extends Command
     private function getUserIdTicket($message, &$userId)
     {
         if (!$userId) {
-            if ($message['admin'] !== '') {
-                // Admin is a first name + last name in WHMCS
-                $user = DB::table('users')
-                    ->where(DB::raw("CONCAT(first_name, ' ', last_name)"), $message['admin'])
-                    ->orWhere('first_name', $message['admin'])
-                    ->first();
-                if ($user) {
-                    $userId = $user->id;
-                }
-                // If not, we will make a admin account where we will attach all admin messages
-                if (!$userId) {
-                    $adminUserId = DB::table('users')->insertGetId([
-                        'first_name' => $message['admin'],
-                        'last_name' => '',
-                        'email' => 'admin+' . strtolower(str_replace(' ', '_', $message['admin'])) . '@paymenter.org',
-                        'password' => bcrypt(\Str::random(16)),
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-                    $userId = $adminUserId;
-                }
-            }
             if (!$userId && DB::table('users')->where('email', $message['email'])->exists()) {
                 $userRecord = DB::table('users')->where('email', $message['email'])->first();
                 $userId = $userRecord->id;
@@ -714,6 +719,33 @@ class ImportFromWhmcs extends Command
         }
 
         return $userId;
+    }
+
+    /**
+     * A reply by a WHMCS admin (its `admin` column, a name) → the staff member of that name; one no longer there → a
+     * disabled member of that name, so the reply keeps its author and is never taken for the customer's.
+     */
+    private function staffIdOfReply(array $message): ?int
+    {
+        $name = trim((string) ($message['admin'] ?? ''));
+        if ($name === '') {
+            return null;
+        }
+        $staff = DB::table('staff')->where(DB::raw("CONCAT(first_name, ' ', last_name)"), $name)
+            ->orWhere('first_name', $name)->first();
+        if ($staff) {
+            return $staff->id;
+        }
+
+        return DB::table('staff')->insertGetId([
+            'first_name' => $name,
+            'last_name' => '',
+            'email' => 'whmcs-admin-' . \Str::slug($name) . '-' . \Str::random(6) . '@invalid.example',
+            'password' => bcrypt(\Str::random(32)),
+            'active' => false,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     private function importTickets()
@@ -767,11 +799,12 @@ class ImportFromWhmcs extends Command
                 $stmt->execute();
                 $messageRecords = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 foreach ($messageRecords as $message) {
-                    // Get admin user if any
-                    $userId = $this->getUserIdTicket($message, $message['userid']);
+                    // A reply by staff or by the customer (docs/accounts.md, PR 1).
+                    $staffId = $this->staffIdOfReply($message);
                     $messages[] = [
                         'ticket_id' => $record['id'],
-                        'user_id' => $userId,
+                        'user_id' => $staffId === null ? $this->getUserIdTicket($message, $message['userid']) : null,
+                        'staff_id' => $staffId,
                         'message' => $message['message'],
                         'created_at' => $this->validateDate($message['date']),
                         'updated_at' => $this->validateDate($message['date']),
