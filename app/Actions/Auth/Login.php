@@ -27,7 +27,7 @@ class Login
 
         Session::put('user_session', $userSession->ulid);
 
-        Auth::login($user);
+        Auth::guard('web')->login($user);
 
         if ($remember) {
             Cookie::queue('paymenter_remember', $userSession->ulid, 60 * 24 * 30); // 30 days

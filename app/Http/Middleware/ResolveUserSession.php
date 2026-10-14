@@ -44,13 +44,14 @@ class ResolveUserSession
             }
 
             // Login user
-            if (!Auth::check() || Auth::id() !== $token->user_id) {
-                Auth::login($token->user);
+            // Customers only (the `web` guard): staff have their own guard and plain session (docs/accounts.md, PR 1).
+            if (!Auth::guard('web')->check() || Auth::guard('web')->id() !== $token->user_id) {
+                Auth::guard('web')->login($token->user);
             }
         }
 
         // If no valid token, ensure user is logged out
-        if (!$token && Auth::check()) {
+        if (!$token && Auth::guard('web')->check()) {
             return $this->fail($request);
         }
 
