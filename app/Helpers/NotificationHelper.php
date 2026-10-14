@@ -194,7 +194,11 @@ class NotificationHelper
             'invoice' => $invoice,
             'items' => $invoice->items,
             'total' => $invoice->formattedTotal,
-            'has_subscription' => PaymentReminders::paidAutomatically($invoice),
+            // Only a gateway subscription is charged on its own later (review R1/A2); a saved method was charged once.
+            'has_subscription' => PaymentReminders::chargedOnItsOwn($invoice),
+            // What is left to pay, for a partly paid invoice (review R5/A10).
+            'remaining' => $invoice->formattedRemaining,
+            'partly_paid' => $invoice->remaining > 0 && $invoice->remaining < $invoice->total,
         ];
 
         // Generate the invoice PDF, in the customer's language

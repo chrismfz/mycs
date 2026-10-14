@@ -20,9 +20,10 @@ return new class extends Migration
             $table->id();
             $table->foreignId('invoice_id')->constrained()->cascadeOnDelete();
             $table->string('kind', 16);
-            $table->unsignedSmallInteger('days')->default(0);
+            $table->unsignedSmallInteger('days')->default(0); // at most PaymentReminders::MAX_DAYS
+            $table->date('due_on'); // the due date it was for: moved later, its reminders start again
             $table->timestamp('sent_at');
-            $table->unique(['invoice_id', 'kind', 'days']);
+            $table->unique(['invoice_id', 'kind', 'days', 'due_on']);
         });
 
         foreach (['invoice_payment_reminder', 'card_payment_due', 'invoice_overdue', 'invoice_modified'] as $key) {

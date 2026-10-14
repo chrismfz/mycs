@@ -547,7 +547,7 @@ class Settings
                     'type' => 'text',
                     'default' => '1,2',
                     'required' => false,
-                    'validation' => 'nullable|regex:/^\s*\d+(\s*,\s*\d+)*\s*$/',
+                    'validation' => 'nullable|regex:/^\s*\d{1,3}(\s*,\s*\d{1,3})*\s*$/',
                     'description' => 'Days after the due date to send the overdue notice, comma separated (e.g. 1,3,5); empty to disable. One notice, sent on each day; the last one says when the service is suspended (WHMCS: First/Second/Third Overdue Reminder).',
                 ],
                 [

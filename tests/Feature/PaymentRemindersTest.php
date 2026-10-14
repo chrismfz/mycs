@@ -106,7 +106,7 @@ class PaymentRemindersTest extends TestCase
         $last = MailFacade::queued(Mail::class)->last();
         $this->assertStringContainsString('3 day(s) overdue', $last->renderedHtml);
         $this->assertStringContainsString('last notice', $last->renderedHtml);
-        $this->assertStringContainsString('27/10/2026', $last->renderedHtml, 'suspended Suspend Days (8) after the due date');
+        $this->assertStringContainsString('28/10/2026', $last->renderedHtml, 'suspended the day after Suspend Days (8) past the due date, as the cron does');
         $this->assertStringNotContainsString('last notice', MailFacade::queued(Mail::class)->first()->renderedHtml);
     }
 

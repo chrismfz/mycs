@@ -49,6 +49,9 @@ class EmailTemplateSeeder extends Seeder
 
                 - Invoice: **#{{ invoice_number }}**
                 - Total: **{{ total }}**
+                {% if partly_paid %}
+                - Left to pay: **{{ remaining }}**
+                {% endif %}
                 - Due date: **{{ invoice.due_at|date("d/m/Y") }}**
 
                 <div class="table">
@@ -90,6 +93,9 @@ class EmailTemplateSeeder extends Seeder
 
                 - Invoice: **#{{ invoice_number }}**
                 - Total: **{{ total }}**
+                {% if partly_paid %}
+                - Left to pay: **{{ remaining }}**
+                {% endif %}
 
                 <div class="table">
 
@@ -180,6 +186,9 @@ class EmailTemplateSeeder extends Seeder
 
                 - Invoice: **#{{ invoice_number }}**
                 - Total: **{{ total }}**
+                {% if partly_paid %}
+                - Left to pay: **{{ remaining }}**
+                {% endif %}
                 - Due date: **{{ invoice.due_at|date("d/m/Y") }}**
 
                 **What you need to do**
@@ -459,6 +468,9 @@ class EmailTemplateSeeder extends Seeder
 
                 - Invoice: **#{{ invoice_number }}**
                 - Total: **{{ total }}**
+                {% if partly_paid %}
+                - Left to pay: **{{ remaining }}**
+                {% endif %}
                 - Due date: **{{ invoice.due_at|date("d/m/Y") }}**
 
                 <div class="table">
@@ -527,6 +539,9 @@ class EmailTemplateSeeder extends Seeder
 
                 - Invoice: **#{{ invoice_number }}**
                 - Total: **{{ total }}**
+                {% if partly_paid %}
+                - Left to pay: **{{ remaining }}**
+                {% endif %}
                 - Was due: **{{ invoice.due_at|date("d/m/Y") }}**
 
                 <div class="table">
@@ -568,6 +583,9 @@ class EmailTemplateSeeder extends Seeder
 
                 - Invoice: **#{{ invoice_number }}**
                 - Total: **{{ total }}**
+                {% if partly_paid %}
+                - Left to pay: **{{ remaining }}**
+                {% endif %}
                 - Due date: **{{ invoice.due_at|date("d/m/Y") }}**
 
                 <div class="table">
@@ -639,6 +657,9 @@ class EmailTemplateSeeder extends Seeder
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
                     - Σύνολο: **{{ total }}**
+                    {% if partly_paid %}
+                    - Υπόλοιπο προς πληρωμή: **{{ remaining }}**
+                    {% endif %}
                     - Ημερομηνία λήξης: **{{ invoice.due_at|date("d/m/Y") }}**
 
                     <div class="table">
@@ -678,6 +699,9 @@ class EmailTemplateSeeder extends Seeder
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
                     - Σύνολο: **{{ total }}**
+                    {% if partly_paid %}
+                    - Υπόλοιπο προς πληρωμή: **{{ remaining }}**
+                    {% endif %}
 
                     <div class="table">
 
@@ -762,6 +786,9 @@ class EmailTemplateSeeder extends Seeder
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
                     - Σύνολο: **{{ total }}**
+                    {% if partly_paid %}
+                    - Υπόλοιπο προς πληρωμή: **{{ remaining }}**
+                    {% endif %}
                     - Ημερομηνία λήξης: **{{ invoice.due_at|date("d/m/Y") }}**
 
                     **Τι πρέπει να κάνετε**
@@ -1025,6 +1052,9 @@ class EmailTemplateSeeder extends Seeder
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
                     - Σύνολο: **{{ total }}**
+                    {% if partly_paid %}
+                    - Υπόλοιπο προς πληρωμή: **{{ remaining }}**
+                    {% endif %}
                     - Ημερομηνία λήξης: **{{ invoice.due_at|date("d/m/Y") }}**
 
                     <div class="table">
@@ -1089,6 +1119,9 @@ class EmailTemplateSeeder extends Seeder
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
                     - Σύνολο: **{{ total }}**
+                    {% if partly_paid %}
+                    - Υπόλοιπο προς πληρωμή: **{{ remaining }}**
+                    {% endif %}
                     - Έληξε: **{{ invoice.due_at|date("d/m/Y") }}**
 
                     <div class="table">
@@ -1128,6 +1161,9 @@ class EmailTemplateSeeder extends Seeder
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
                     - Σύνολο: **{{ total }}**
+                    {% if partly_paid %}
+                    - Υπόλοιπο προς πληρωμή: **{{ remaining }}**
+                    {% endif %}
                     - Ημερομηνία λήξης: **{{ invoice.due_at|date("d/m/Y") }}**
 
                     <div class="table">
