@@ -365,16 +365,27 @@ tickets, affiliates, emails, orders`. Στην πράξη: «όλα» ή μικ�
 - **API keys:** `api_keys.staff_id` (cascade: φεύγουν με το μέλος)· κλάδεμα στα δικαιώματά του, τίποτα όταν
   απενεργοποιηθεί.
 - **«Login as client»** (AUTH-19): μόνο με `admin.users.impersonate`, καταγράφεται ως audit `impersonated` στον πελάτη με
-  causer το μέλος του staff· η «Αποσύνδεση» στο client area γυρίζει στο admin.
+  causer το μέλος του staff· η «Αποσύνδεση» στο client area γυρίζει στο admin, και κάθε σελίδα του admin το τερματίζει.
+  Τρέχει πριν από το `auth` του client area (priority list στο `bootstrap/app.php`), γιατί το staff δεν είναι συνδεδεμένο
+  στον guard `web`.
+- **Συνημμένα tickets στο admin:** δικό τους route στο panel (`filament.admin.ticket-attachments.show`), με τον guard του
+  staff· το route του client area είναι των πελατών.
+- **LockSession** (κλείδωμα IP/agent) και στα Livewire requests του panel (persistent), όχι μόνο στις σελίδες του.
+- **API:** απάντηση σε ticket ως staff μόνο ως ο κάτοχος του key (`staff_id` = του key).
 - **Staff με ιστορικό** (απαντήσεις, κινήσεις χρημάτων) δεν σβήνεται, απενεργοποιείται (DATA-3/AUTH-7)· κανείς δεν
   σβήνει τον εαυτό του ή όποιον έχει περισσότερα δικαιώματα (`StaffPolicy`, `PermissionGuard::outranks`).
 - **AUTH-15** (φίλτρο «Email Verified» που δεν φίλτραρε), **AUTH-18** (νέος κωδικός από staff τερματίζει τις sessions
   του πελάτη), **AUTH-20** (2FA πελάτη: 5 λάθη = 15 λεπτά κλείδωμα).
 - **Migration:** όποιος είχε ρόλο πάει στο `staff` με το ίδιο id· απαντήσεις, αναθέσεις, API keys, `actor` και audits
   μεταφέρονται· η γραμμή του στο `users` σβήνεται, εκτός αν έχει και δεδομένα πελάτη (τότε δύο λογαριασμοί).
+  Τρέχει εκτός transaction με τα foreign keys κλειστά (στη SQLite το rebuild του `tickets` αλλιώς σβήνει σε cascade όλες
+  τις απαντήσεις)· γι' αυτό ελέγχει πρώτα ό,τι μπορεί να αποτύχει (admins με ίδιο email). Το `down()` αρνείται όταν
+  ένα staff id ανήκει σε άλλον πελάτη (θα τον έκανε admin). Γνωστό και αποδεκτό: σε admin που ήταν και πελάτης, όλες οι
+  κινήσεις και τα audits του γράφονται στο staff, και όσες έκανε ως πελάτης· δεν ξεχωρίζουν από τα δεδομένα.
 - **Importer:** όλοι οι admins του WHMCS → staff (Full Administrator → `admin`, άλλοι ρόλοι με το όνομά τους και χωρίς
   δικαιώματα), οι απενεργοποιημένοι ως ανενεργοί· απαντήσεις admin σε tickets → `staff_id` (άγνωστο όνομα → ανενεργό
-  μέλος με αυτό το όνομα, όχι ψεύτικος πελάτης).
+  μέλος με αυτό το όνομα, όχι ψεύτικος πελάτης). Δύο admins με το ίδιο email: ο δεύτερος παίρνει
+  `duplicate-<id>+<email>` και warning, για διόρθωση με το χέρι.
 - **Εντολές:** `app:staff:create` (νέα)· το `app:user:create` φτιάχνει πλέον μόνο πελάτη· το `mycs:install` φτιάχνει staff.
 
 ## Από το audit sweep (Σ5), για αυτό το κομμάτι
