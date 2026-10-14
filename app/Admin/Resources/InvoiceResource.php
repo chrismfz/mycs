@@ -159,6 +159,8 @@ class InvoiceResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            // The account's name is its owner's (until the contacts, PR 3): loaded with the rows, not per row.
+            ->modifyQueryUsing(fn (Builder $query) => $query->with('client.ownerGrant.user'))
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')

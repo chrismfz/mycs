@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\CouponResource\RelationManagers;
 
+use Illuminate\Database\Eloquent\Builder;
 use App\Admin\Resources\ServiceResource;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -18,6 +19,8 @@ class ServicesRelationManager extends RelationManager
     public function table(Table $table): Table
     {
         return $table
+            // The account's name is its owner's (until the contacts, PR 3): loaded with the rows, not per row.
+            ->modifyQueryUsing(fn (Builder $query) => $query->with('order.client.ownerGrant.user'))
             ->recordTitleAttribute('id')
             ->columns([
                 TextColumn::make('id'),

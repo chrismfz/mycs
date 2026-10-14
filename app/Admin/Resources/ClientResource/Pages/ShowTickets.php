@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\ClientResource\Pages;
 
+use Illuminate\Database\Eloquent\Builder;
 use App\Admin\Resources\ClientResource;
 use App\Models\Ticket;
 use Filament\Resources\Pages\ManageRelatedRecords;
@@ -24,6 +25,8 @@ class ShowTickets extends ManageRelatedRecords
     public function table(Table $table): Table
     {
         return $table
+            // The account's name is its owner's (until the contacts, PR 3): loaded with the rows, not per row.
+            ->modifyQueryUsing(fn (Builder $query) => $query->with('client.ownerGrant.user'))
             ->recordTitleAttribute('name')
             ->columns([
                 TextColumn::make('subject')

@@ -37,7 +37,7 @@ class ClientController extends ApiController
     #[QueryParameter('page', 'Which page to show.', type: 'int', example: 2)]
     public function index(GetClientsRequest $request)
     {
-        $clients = QueryBuilder::for(Client::class)
+        $clients = QueryBuilder::for(Client::query()->with('ownerGrant.user'))
             ->allowedFilters(['id'])
             ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
             ->allowedSorts(['id', 'created_at'])
