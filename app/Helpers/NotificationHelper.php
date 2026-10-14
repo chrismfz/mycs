@@ -37,6 +37,8 @@ class NotificationHelper
         array $attachments = []
     ): void {
         $mail = new Mail($notificationTemplate, $data);
+        // Rendered (header and footer too) in the language it was written in, also by the queue worker.
+        $mail->locale(app()->getLocale());
 
         $emailLog = EmailLog::create([
             'user_id' => $user->id,

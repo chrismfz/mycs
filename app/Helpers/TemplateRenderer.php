@@ -113,12 +113,13 @@ class TemplateRenderer
     {
         return self::render(config('settings.mail_header'), [
             'app' => self::app(),
+            'locale' => app()->getLocale(),
             'mail_css' => (string) config('settings.mail_css'),
         ]);
     }
 
     public static function mailFooter(): string
     {
-        return self::render(config('settings.mail_footer'), ['app' => self::app()]);
+        return self::render(config('settings.mail_footer'), ['app' => self::app(), 'locale' => app()->getLocale()]);
     }
 }

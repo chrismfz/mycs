@@ -366,7 +366,7 @@ class Settings
                     'required' => fn (Get $get) => !$get('mail_disable'),
                     'default' => '',
                     'disable_toolbar' => true,
-                    'description' => 'Template: {{ app.name }}, {{ app.year }}, {{ app.url }}. No PHP or Blade.',
+                    'description' => 'Template: {{ app.name }}, {{ app.year }}, {{ app.url }}; {% if locale == "el" %}…{% else %}…{% endif %} for the mail\'s language. No PHP or Blade.',
                     'validation' => [TemplateRenderer::rule()],
                 ],
                 [

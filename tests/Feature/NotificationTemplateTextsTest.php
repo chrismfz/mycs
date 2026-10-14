@@ -129,10 +129,15 @@ class NotificationTemplateTextsTest extends TestCase
         $this->assertSame('Αναστολή: {{ service.product.name }}', $template->fresh()->translations['el']['subject']);
     }
 
-    public function test_the_new_texts_replace_only_templates_staff_never_edited(): void
+    public function test_the_new_texts_replace_only_templates_staff_did_not_rewrite(): void
     {
         DB::table('notification_templates')->where('key', 'invoice_paid')->update(['body' => 'Our own text', 'updated_at' => now(), 'translations' => null]);
-        DB::table('notification_templates')->where('key', 'server_suspended')->update(['body' => 'Old default', 'translations' => null]);
+        // The previous default, as seeded before (0be6618), saved once unchanged from the form (updated_at stamped).
+        DB::table('notification_templates')->where('key', 'server_suspended')->update(['subject' => 'Service suspended',
+            'body' => "# Service suspended\n\nYour service has been suspended due to a payment failure.\n\n**Service details**\n- Name: {{ service.product.name }}\n\nPlease pay the invoice to reactivate the service.",
+            'in_app_title' => 'Service suspended',
+            'in_app_body' => 'Your service {{ service.product.name }} has been suspended due to a payment failure. Please pay the invoice to reactivate the service.',
+            'translations' => null, 'updated_at' => now()]);
         DB::table('notification_templates')->where('key', 'server_unsuspended')->delete();
 
         (require database_path('migrations/2026_10_26_000001_new_notification_template_texts.php'))->up();

@@ -15,7 +15,7 @@ class EmailTemplateSeeder extends Seeder
 
                 Dear {{ user.first_name }},
 
-                a new login to your account was detected.
+                A new login to your account was detected.
 
                 - IP address: {{ ip }}
                 - Device: {{ device }}
@@ -45,7 +45,7 @@ class EmailTemplateSeeder extends Seeder
 
                 Dear {{ user.first_name }},
 
-                a new invoice was issued for your account.
+                A new invoice was issued for your account.
 
                 - Invoice: **#{{ invoice_number }}**
                 - Total: **{{ total }}**
@@ -86,7 +86,7 @@ class EmailTemplateSeeder extends Seeder
 
                 Dear {{ user.first_name }},
 
-                we received your payment for invoice **#{{ invoice_number }}**. Thank you! This email is your receipt.
+                We received your payment for invoice **#{{ invoice_number }}**. Thank you! This email confirms your payment.
 
                 - Invoice: **#{{ invoice_number }}**
                 - Total: **{{ total }}**
@@ -122,7 +122,7 @@ class EmailTemplateSeeder extends Seeder
 
                 Dear {{ user.first_name }},
 
-                your account credit paid **{{ credit.applied }}** of invoice #{{ invoice_number }}.
+                Your account credit paid **{{ credit.applied }}** of invoice #{{ invoice_number }}.
 
                 Left to pay: **{{ credit.remaining }}**
 
@@ -176,7 +176,7 @@ class EmailTemplateSeeder extends Seeder
 
                 Dear {{ user.first_name }},
 
-                the automatic charge for invoice **#{{ invoice_number }}** was not successful, and you have **not** been charged.
+                The automatic charge for invoice **#{{ invoice_number }}** was not successful, and you have **not** been charged.
 
                 - Invoice: **#{{ invoice_number }}**
                 - Total: **{{ total }}**
@@ -208,7 +208,7 @@ class EmailTemplateSeeder extends Seeder
 
                 Dear {{ user.first_name }},
 
-                we received your order **#{{ order.id }}**. We will process it as soon as its payment is complete.
+                We received your order **#{{ order.id }}**. We will process it as soon as its payment is complete.
 
                 <div class="table">
 
@@ -241,11 +241,11 @@ class EmailTemplateSeeder extends Seeder
 
                 Dear {{ user.first_name }},
 
-                thank you for choosing {{ app.name }}. Your service is ready. Please keep this email: it has what you need to get started.
+                Thank you for choosing {{ app.name }}. Your service is ready. Please keep this email: it has what you need to get started.
 
                 - Service: **{{ service.product.name }}**
                 {% if service.expires_at %}
-                - Next due date: **{{ service.expires_at|date("d/m/Y") }}**
+                - Renewal date: **{{ service.expires_at|date("d/m/Y") }}**
                 {% endif %}
 
                 {% if product_info %}
@@ -274,9 +274,9 @@ class EmailTemplateSeeder extends Seeder
 
                 Dear {{ user.first_name }},
 
-                your service **{{ service.product.name }}** was suspended because an invoice for it is overdue.
+                Your service **{{ service.product.name }}** was suspended because its renewal is overdue.
 
-                Pay the open invoice and the service is reactivated automatically, usually within minutes.
+                Once its invoice is paid, the service is reactivated automatically, usually within minutes.
 
                 <div class="action">
                 	<a class="button button-blue" href="{{ urls.invoices }}">
@@ -287,7 +287,7 @@ class EmailTemplateSeeder extends Seeder
                 If you think this is a mistake, please contact us.
                 HTML,
             'in_app_title' => 'Service suspended',
-            'in_app_body' => 'Your service {{ service.product.name }} was suspended because an invoice is overdue. Pay it to reactivate the service.',
+            'in_app_body' => 'Your service {{ service.product.name }} was suspended because its renewal is overdue. Pay its invoice to reactivate it.',
             'mail_enabled' => 'force',
             'in_app_enabled' => 'choice_on',
             'edit_preference_message' => 'Alert me about service suspensions',
@@ -300,7 +300,7 @@ class EmailTemplateSeeder extends Seeder
 
                 Dear {{ user.first_name }},
 
-                your service **{{ service.product.name }}** is active again. Thank you!
+                Your service **{{ service.product.name }}** is active again. Thank you!
 
                 <div class="action">
                 	<a class="button button-blue" href="{{ urls.service }}">
@@ -322,7 +322,7 @@ class EmailTemplateSeeder extends Seeder
 
                 Dear {{ user.first_name }},
 
-                your service **{{ service.product.name }}** has been terminated.
+                Your service **{{ service.product.name }}** has been terminated.
 
                 If you think this is a mistake, please contact us as soon as possible.
 
@@ -368,7 +368,7 @@ class EmailTemplateSeeder extends Seeder
 
                 Dear {{ user.first_name }},
 
-                your account was created. Please verify your email address to confirm it is yours.
+                Your account was created. Please verify your email address to confirm it is yours.
 
                 <div class="action">
                 	<a class="button button-blue" href="{{ url }}">
@@ -395,7 +395,7 @@ class EmailTemplateSeeder extends Seeder
 
                 Dear {{ user.first_name }},
 
-                we received a request to reset the password of your account.
+                We received a request to reset the password of your account.
 
                 <div class="action">
                 	<a class="button button-blue" href="{{ url }}">
@@ -415,7 +415,7 @@ class EmailTemplateSeeder extends Seeder
 
                 Dear {{ user.first_name }},
 
-                we received your cancellation request.
+                We received your cancellation request.
 
                 - Service: **{{ service.product.name }}**
                 {% if cancellation.reason %}
@@ -424,7 +424,11 @@ class EmailTemplateSeeder extends Seeder
                 - Requested: {{ cancellation.created_at|date("d/m/Y H:i") }}
 
                 {% if cancellation.type == "end_of_period" %}
+                {% if service.expires_at %}
                 Your service stays active until **{{ service.expires_at|date("d/m/Y") }}**, the end of its current billing period, and ends then.
+                {% else %}
+                Your service ends at the end of its current billing period.
+                {% endif %}
                 {% else %}
                 Your service ends right away. Please make sure you have a backup of your data.
                 {% endif %}
@@ -459,7 +463,7 @@ class EmailTemplateSeeder extends Seeder
 
                     Αγαπητέ/ή {{ user.first_name }},
 
-                    εντοπίστηκε νέα σύνδεση στον λογαριασμό σας.
+                    Εντοπίστηκε νέα σύνδεση στον λογαριασμό σας.
 
                     - Διεύθυνση IP: {{ ip }}
                     - Συσκευή: {{ device }}
@@ -487,7 +491,7 @@ class EmailTemplateSeeder extends Seeder
 
                     Αγαπητέ/ή {{ user.first_name }},
 
-                    εκδόθηκε νέο προτιμολόγιο για τον λογαριασμό σας.
+                    Εκδόθηκε νέο προτιμολόγιο για τον λογαριασμό σας.
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
                     - Σύνολο: **{{ total }}**
@@ -495,7 +499,7 @@ class EmailTemplateSeeder extends Seeder
 
                     <div class="table">
 
-                    | Περιγραφή | Ποσ. | Τιμή |
+                    | Περιγραφή | Ποσότητα | Τιμή |
                     | :--- | :---: | ---: |
                     {% for item in items %}
                     | {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |
@@ -526,14 +530,14 @@ class EmailTemplateSeeder extends Seeder
 
                     Αγαπητέ/ή {{ user.first_name }},
 
-                    η πληρωμή σας για το προτιμολόγιο **#{{ invoice_number }}** ελήφθη με επιτυχία. Σας ευχαριστούμε! Αυτό το email αποτελεί απόδειξη της πληρωμής.
+                    Η πληρωμή σας για το προτιμολόγιο **#{{ invoice_number }}** ελήφθη με επιτυχία. Σας ευχαριστούμε! Αυτό το email επιβεβαιώνει την πληρωμή σας.
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
                     - Σύνολο: **{{ total }}**
 
                     <div class="table">
 
-                    | Περιγραφή | Ποσ. | Τιμή |
+                    | Περιγραφή | Ποσότητα | Τιμή |
                     | :--- | :---: | ---: |
                     {% for item in items %}
                     | {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |
@@ -560,7 +564,7 @@ class EmailTemplateSeeder extends Seeder
 
                     Αγαπητέ/ή {{ user.first_name }},
 
-                    η πίστωση του λογαριασμού σας κάλυψε **{{ credit.applied }}** του προτιμολογίου #{{ invoice_number }}.
+                    Η πίστωση του λογαριασμού σας κάλυψε **{{ credit.applied }}** του προτιμολογίου #{{ invoice_number }}.
 
                     Υπόλοιπο προς πληρωμή: **{{ credit.remaining }}**
 
@@ -583,13 +587,13 @@ class EmailTemplateSeeder extends Seeder
                     Αγαπητέ/ή {{ user.first_name }},
 
                     {% if refund.to_credit %}
-                    **{{ refund.amount }}** από την πληρωμή σας για το προτιμολόγιο #{{ invoice_number }} προστέθηκαν στην πίστωση του λογαριασμού σας.
+                    Ποσό **{{ refund.amount }}** από την πληρωμή σας για το προτιμολόγιο #{{ invoice_number }} προστέθηκε στην πίστωση του λογαριασμού σας.
                     {% else %}
-                    **{{ refund.amount }}** από την πληρωμή σας για το προτιμολόγιο #{{ invoice_number }} σας επιστράφηκαν.
+                    Σας επιστράφηκε ποσό **{{ refund.amount }}** από την πληρωμή σας για το προτιμολόγιο #{{ invoice_number }}.
                     {% endif %}
 
                     {% if refund.by_gateway %}
-                    Επιστρέφονται στην κάρτα ή στον λογαριασμό με τον οποίο πληρώσατε· η τράπεζά σας μπορεί να χρειαστεί λίγες μέρες για να τα εμφανίσει.
+                    Επιστρέφεται στην κάρτα ή στον λογαριασμό με τον οποίο πληρώσατε· η τράπεζά σας μπορεί να χρειαστεί λίγες μέρες για να το εμφανίσει.
                     {% endif %}
 
                     <div class="action">
@@ -599,7 +603,7 @@ class EmailTemplateSeeder extends Seeder
                     </div>
                     HTML,
                 'in_app_title' => 'Επιστροφή χρημάτων: #{{ invoice_number }}',
-                'in_app_body' => '{% if refund.to_credit %}{{ refund.amount }} από την πληρωμή σας προστέθηκαν στην πίστωσή σας.{% else %}{{ refund.amount }} από την πληρωμή σας σας επιστράφηκαν.{% endif %}',
+                'in_app_body' => '{% if refund.to_credit %}Ποσό {{ refund.amount }} από την πληρωμή σας προστέθηκε στην πίστωσή σας.{% else %}Σας επιστράφηκε ποσό {{ refund.amount }} από την πληρωμή σας.{% endif %}',
             ],
         ],
         'invoice_payment_failed' => [
@@ -610,7 +614,7 @@ class EmailTemplateSeeder extends Seeder
 
                     Αγαπητέ/ή {{ user.first_name }},
 
-                    η αυτόματη χρέωση για το προτιμολόγιο **#{{ invoice_number }}** δεν ήταν επιτυχής και **δεν** χρεωθήκατε.
+                    Η αυτόματη χρέωση για το προτιμολόγιο **#{{ invoice_number }}** δεν ήταν επιτυχής και **δεν** χρεωθήκατε.
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
                     - Σύνολο: **{{ total }}**
@@ -640,11 +644,11 @@ class EmailTemplateSeeder extends Seeder
 
                     Αγαπητέ/ή {{ user.first_name }},
 
-                    λάβαμε την παραγγελία σας **#{{ order.id }}**. Θα την ολοκληρώσουμε μόλις εξοφληθεί.
+                    Λάβαμε την παραγγελία σας **#{{ order.id }}**. Θα την ολοκληρώσουμε μόλις εξοφληθεί.
 
                     <div class="table">
 
-                    | Προϊόν | Ποσ. | Τιμή |
+                    | Προϊόν | Ποσότητα | Τιμή |
                     | :--- | :---: | ---: |
                     {% for item in items %}
                     | {{ item.product.name }} | {{ item.quantity }} | {{ item.formattedPrice }} |
@@ -671,11 +675,11 @@ class EmailTemplateSeeder extends Seeder
 
                     Αγαπητέ/ή {{ user.first_name }},
 
-                    σας ευχαριστούμε που επιλέξατε την {{ app.name }}. Η υπηρεσία σας είναι έτοιμη. Παρακαλούμε κρατήστε αυτό το email: περιέχει όσα χρειάζεστε για να ξεκινήσετε.
+                    Σας ευχαριστούμε που επιλέξατε την {{ app.name }}. Η υπηρεσία σας είναι έτοιμη. Παρακαλούμε κρατήστε αυτό το email: περιέχει όσα χρειάζεστε για να ξεκινήσετε.
 
                     - Υπηρεσία: **{{ service.product.name }}**
                     {% if service.expires_at %}
-                    - Επόμενη χρέωση: **{{ service.expires_at|date("d/m/Y") }}**
+                    - Ημερομηνία ανανέωσης: **{{ service.expires_at|date("d/m/Y") }}**
                     {% endif %}
 
                     {% if product_info %}
@@ -702,9 +706,9 @@ class EmailTemplateSeeder extends Seeder
 
                     Αγαπητέ/ή {{ user.first_name }},
 
-                    η υπηρεσία σας **{{ service.product.name }}** τέθηκε σε αναστολή επειδή υπάρχει ληξιπρόθεσμο προτιμολόγιο.
+                    Η υπηρεσία σας **{{ service.product.name }}** τέθηκε σε αναστολή επειδή η ανανέωσή της είναι ληξιπρόθεσμη.
 
-                    Μόλις το εξοφλήσετε, η υπηρεσία ενεργοποιείται ξανά αυτόματα, συνήθως μέσα σε λίγα λεπτά.
+                    Μόλις εξοφληθεί το προτιμολόγιό της, η υπηρεσία ενεργοποιείται ξανά αυτόματα, συνήθως μέσα σε λίγα λεπτά.
 
                     <div class="action">
                     	<a class="button button-blue" href="{{ urls.invoices }}">
@@ -715,7 +719,7 @@ class EmailTemplateSeeder extends Seeder
                     Αν πιστεύετε ότι πρόκειται για λάθος, επικοινωνήστε μαζί μας.
                     HTML,
                 'in_app_title' => 'Αναστολή υπηρεσίας',
-                'in_app_body' => 'Η υπηρεσία σας {{ service.product.name }} τέθηκε σε αναστολή λόγω ληξιπρόθεσμου προτιμολογίου. Εξοφλήστε το για να ενεργοποιηθεί ξανά.',
+                'in_app_body' => 'Η υπηρεσία σας {{ service.product.name }} τέθηκε σε αναστολή επειδή η ανανέωσή της είναι ληξιπρόθεσμη. Εξοφλήστε το προτιμολόγιό της για να ενεργοποιηθεί ξανά.',
             ],
         ],
         'server_unsuspended' => [
@@ -726,7 +730,7 @@ class EmailTemplateSeeder extends Seeder
 
                     Αγαπητέ/ή {{ user.first_name }},
 
-                    η υπηρεσία σας **{{ service.product.name }}** είναι και πάλι ενεργή. Σας ευχαριστούμε!
+                    Η υπηρεσία σας **{{ service.product.name }}** είναι και πάλι ενεργή. Σας ευχαριστούμε!
 
                     <div class="action">
                     	<a class="button button-blue" href="{{ urls.service }}">
@@ -746,7 +750,7 @@ class EmailTemplateSeeder extends Seeder
 
                     Αγαπητέ/ή {{ user.first_name }},
 
-                    η υπηρεσία σας **{{ service.product.name }}** τερματίστηκε.
+                    Η υπηρεσία σας **{{ service.product.name }}** τερματίστηκε.
 
                     Αν πιστεύετε ότι πρόκειται για λάθος, επικοινωνήστε μαζί μας το συντομότερο.
 
@@ -788,7 +792,7 @@ class EmailTemplateSeeder extends Seeder
 
                     Αγαπητέ/ή {{ user.first_name }},
 
-                    ο λογαριασμός σας δημιουργήθηκε. Παρακαλούμε επιβεβαιώστε τη διεύθυνση email σας.
+                    Ο λογαριασμός σας δημιουργήθηκε. Παρακαλούμε επιβεβαιώστε τη διεύθυνση email σας.
 
                     <div class="action">
                     	<a class="button button-blue" href="{{ url }}">
@@ -815,7 +819,7 @@ class EmailTemplateSeeder extends Seeder
 
                     Αγαπητέ/ή {{ user.first_name }},
 
-                    λάβαμε αίτημα επαναφοράς του κωδικού πρόσβασης του λογαριασμού σας.
+                    Λάβαμε αίτημα επαναφοράς του κωδικού πρόσβασης του λογαριασμού σας.
 
                     <div class="action">
                     	<a class="button button-blue" href="{{ url }}">
@@ -835,7 +839,7 @@ class EmailTemplateSeeder extends Seeder
 
                     Αγαπητέ/ή {{ user.first_name }},
 
-                    το αίτημά σας για διακοπή υπηρεσίας ελήφθη.
+                    Το αίτημά σας για διακοπή υπηρεσίας ελήφθη.
 
                     - Υπηρεσία: **{{ service.product.name }}**
                     {% if cancellation.reason %}
@@ -844,7 +848,11 @@ class EmailTemplateSeeder extends Seeder
                     - Ημερομηνία αιτήματος: {{ cancellation.created_at|date("d/m/Y H:i") }}
 
                     {% if cancellation.type == "end_of_period" %}
+                    {% if service.expires_at %}
                     Η υπηρεσία σας θα παραμείνει ενεργή έως **{{ service.expires_at|date("d/m/Y") }}**, στο τέλος της τρέχουσας περιόδου χρέωσης, και θα διακοπεί τότε.
+                    {% else %}
+                    Η υπηρεσία σας θα διακοπεί στο τέλος της τρέχουσας περιόδου χρέωσης.
+                    {% endif %}
                     {% else %}
                     Η υπηρεσία σας διακόπτεται άμεσα. Βεβαιωθείτε ότι έχετε αντίγραφο ασφαλείας των δεδομένων σας.
                     {% endif %}
