@@ -12,6 +12,7 @@ return [
         'cancellation' => 'ακύρωση',
         'staff_adjustment' => 'προσαρμογή από staff',
         'downgrade' => 'υποβάθμιση',
+        'cycle_change' => 'αλλαγή κύκλου',
         'affiliate_reward' => 'αμοιβή συνεργάτη',
         'invoice_reduced' => 'μείωση τιμολογίου',
         'refund_to_credit' => 'επιστροφή σε πίστωση',

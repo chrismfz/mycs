@@ -2,11 +2,14 @@
 
 namespace App\Livewire\Services;
 
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
 use App\Models\ClientUser;
 use App\Models\Service;
 use App\Models\User;
+use App\Services\Money\MoneyTrail;
+use App\Services\ServiceUpgrade\ChangeCycle;
 use App\Support\Actor;
 use Exception;
 use Illuminate\Support\Facades\Auth;
@@ -107,6 +110,33 @@ class Show extends Component
         $this->service->billing_agreement_id = null;
         $this->service->save();
         $this->selectedMethod = null;
+    }
+
+    /** The plan of another cycle the customer moves to, from the next renewal (SVC-14b). */
+    public $cyclePlan = null;
+
+    public bool $showCycle = false;
+
+    /** Change the billing cycle from the next renewal: nothing charged now, the next renewal bills the new one. */
+    public function changeCycle()
+    {
+        $this->authorize('update', $this->service); // `manageproducts`
+        $plan = ChangeCycle::plans($this->service)->firstWhere('id', (int) $this->cyclePlan);
+        if ($plan === null) {
+            $this->notify(__('This billing cycle is not available for this service.'), 'error');
+
+            return;
+        }
+        try {
+            ChangeCycle::apply($this->service, $plan, ChangeCycle::NEXT_RENEWAL, MoneyTrail::SOURCE_SYSTEM);
+        } catch (DisplayException $e) {
+            $this->notify($e->getMessage(), 'error');
+
+            return;
+        }
+        $this->service->refresh();
+        $this->showCycle = false;
+        $this->notify(__('The billing cycle changes from your next renewal.'), 'success');
     }
 
     public function updateLabel()
