@@ -100,7 +100,7 @@ class OrderResource extends Resource
                             ->prefix(fn (Get $get) => Currency::query()->find($get('../../currency_code'))?->prefix)
                             ->suffix(fn (Get $get) => Currency::query()->find($get('../../currency_code'))?->suffix)
                             ->placeholder(fn (Get $get) => self::catalogPrice($get) ?? 'Catalog price')
-                            ->helperText('What the client pays each cycle, tax included. Empty: the catalog price with the client\'s tax. The setup fee is added to the first invoice. Options are not chosen here: add them on the service.'),
+                            ->helperText('Before tax: the invoice adds the client\'s tax. Empty: the catalog price. The setup fee is added to the first invoice. Options are not chosen here: add them on the service.'),
                     ]),
                 Repeater::make('services')
                     ->visibleOn('edit')
@@ -186,9 +186,9 @@ class OrderResource extends Resource
         if ($catalog === null) {
             return 'Not available in this currency';
         }
-        $line = OrderPricing::line($catalog, null, $get('../../client_id') ? Client::query()->find($get('../../client_id')) : null);
+        $line = OrderPricing::line($catalog, null, $get('../../client_id') ? Client::query()->find($get('../../client_id')) : null, $product);
 
-        return $line->grossPrice . (BigDecimal::of($line->grossSetupFee)->isPositive() ? " (+ {$line->grossSetupFee} setup fee)" : '');
+        return $line->netPrice . (BigDecimal::of($line->netSetupFee)->isPositive() ? " (+ {$line->netSetupFee} setup fee)" : '') . ' + tax';
     }
 
     public static function table(Table $table): Table

@@ -16,6 +16,7 @@ use DB;
 use Illuminate\Console\Command;
 use Illuminate\Http\Client\Batch;
 use Log;
+use MyCS\Pricing\LinePricer;
 use PDO;
 use PDOException;
 use PDOStatement;
@@ -271,7 +272,8 @@ class ImportFromWhmcs extends Command
                     'created_at' => $record['created_at'] == '0000-00-00 00:00:00' ? now() : $record['created_at'],
                 ];
                 // The account keeps the WHMCS client id; its owner is the login (docs/accounts.md, PR 2a).
-                $clients[] = ['id' => $record['id'], 'created_at' => end($data)['created_at'], 'updated_at' => end($data)['updated_at']];
+                $clients[] = ['id' => $record['id'], 'created_at' => end($data)['created_at'], 'updated_at' => end($data)['updated_at'],
+                    'tax_exempt' => (bool) ($record['taxexempt'] ?? false)];
 
                 // The account's details are its primary contact, field for field (docs/accounts.md, PR 3a).
                 $value = fn (string $key) => isset($record[$key]) && trim((string) $record[$key]) !== '' ? trim((string) $record[$key]) : null;
@@ -604,6 +606,8 @@ class ImportFromWhmcs extends Command
                     'description' => $record['description'],
                     'slug' => !empty($record['slug']) ? $record['slug'] : \Str::slug($record['name']),
                     'hidden' => $record['hidden'],
+                    // WHMCS «Apply Tax» (Δ1).
+                    'taxable' => (bool) ($record['tax'] ?? true),
                     'stock' => $record['stockcontrol'] ? $record['qty'] : null,
                     'allow_quantity' => match ($record['allowqty']) {
                         1 => 'separated',
@@ -1018,14 +1022,23 @@ class ImportFromWhmcs extends Command
     {
         $this->info('Importing invoice items... (' . $this->count('tblinvoiceitems') . ' records)');
 
-        $this->migrateInBatch('tblinvoiceitems', 'SELECT * FROM tblinvoiceitems LIMIT :limit OFFSET :offset', function ($records) {
+        // Each line with the tax it was issued with (Δ1): WHMCS keeps amounts net, «taxed» per line and the rate on the
+        // invoice (TaxPerLineItem: rounded per line, as here).
+        $this->migrateInBatch('tblinvoiceitems', 'SELECT ii.*, i.taxrate AS invoice_taxrate FROM tblinvoiceitems ii LEFT JOIN tblinvoices i ON i.id = ii.invoiceid LIMIT :limit OFFSET :offset', function ($records) {
             $data = [];
             foreach ($records as $record) {
+                $taxed = (bool) ($record['taxed'] ?? false) && (float) ($record['invoice_taxrate'] ?? 0) > 0;
+                $line = LinePricer::invoiceLine(number_format((float) $record['amount'], 2, '.', ''), 1,
+                    $taxed ? (string) $record['invoice_taxrate'] : null);
                 $data[] = [
                     'id' => $record['id'],
                     'invoice_id' => $record['invoiceid'],
                     'description' => $record['description'], // text (DATA-12): kept whole
                     'price' => $record['amount'],
+                    'taxed' => $taxed,
+                    'tax_rate' => $taxed ? $record['invoice_taxrate'] : 0,
+                    'tax_amount' => $line['tax'],
+                    'line_total' => $line['total'],
                     'created_at' => now(),
                     'updated_at' => now(),
                     'reference_type' => match ($record['type']) {

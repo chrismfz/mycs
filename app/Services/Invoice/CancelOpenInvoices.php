@@ -166,6 +166,6 @@ final class CancelOpenInvoices
     /** @param  Collection<int, InvoiceItem>  $lines */
     private static function cents(Collection $lines): int
     {
-        return (int) $lines->sum(fn (InvoiceItem $line) => RecordPaymentService::toCents($line->price) * (int) $line->quantity);
+        return (int) $lines->sum(fn (InvoiceItem $line) => $line->totalCents());
     }
 }

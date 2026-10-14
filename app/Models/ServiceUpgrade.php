@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Classes\Price;
 use App\Observers\ServiceUpgradeObserver;
+use App\Services\Order\OrderPricing;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -91,6 +92,9 @@ class ServiceUpgrade extends Model implements Auditable
                 $total += $this->calculateProratedAmount($oldPrice?->configValue, $configValue)->price;
             }
         }
+
+        // Net (Δ1): the invoice line adds its tax. The catalog's amounts contain it when tax is inclusive.
+        $total = (float) OrderPricing::toNet(number_format($total, 2, '.', ''), $this->service->client, $this->product ?? $this->service->product);
 
         // Cap refunds to what was actually paid when coupon exists
         if ($total < 0 && $this->service->coupon_id) {

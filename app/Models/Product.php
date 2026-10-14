@@ -18,6 +18,10 @@ class Product extends Model implements Auditable
 
     protected $guarded = [];
 
+    protected $casts = [
+        'taxable' => 'boolean',
+    ];
+
     protected $auditInclude = [
         'name',
         'description',

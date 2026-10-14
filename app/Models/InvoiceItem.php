@@ -32,10 +32,16 @@ class InvoiceItem extends Model implements Auditable
         'reference_type',
         'period_start',
         'period_end',
+        'taxed',
+        'tax_rate',
     ];
 
     protected $casts = [
         'price' => 'decimal:2',
+        'taxed' => 'boolean',
+        'tax_rate' => 'decimal:4',
+        'tax_amount' => 'decimal:2',
+        'line_total' => 'decimal:2',
         'period_start' => 'immutable_date',
         'period_end' => 'immutable_date',
         'applied_at' => 'immutable_datetime',
@@ -59,16 +65,29 @@ class InvoiceItem extends Model implements Auditable
         return $this->belongsTo(Gateway::class);
     }
 
-    public function total()
+    /** What the line charges, tax included (Δ1: net × quantity + its tax, rounded per line). */
+    public function total(): float
     {
-        return round((float) $this->price * $this->quantity, 2);
+        return (float) $this->line_total;
+    }
+
+    /** The line's amount in cents, tax included: what invoice totals, balances and checks add up. */
+    public function totalCents(): int
+    {
+        return (int) round((float) $this->line_total * 100);
+    }
+
+    /** The line without tax (net × quantity), as shown on the invoice. */
+    public function net(): float
+    {
+        return round((float) $this->line_total - (float) $this->tax_amount, 2);
     }
 
     /** @return Attribute<mixed, mixed> */
     public function formattedTotal(): Attribute
     {
         return Attribute::make(
-            get: fn () => new Price(['price' => $this->total(), 'currency' => $this->invoice->currency])
+            get: fn () => new Price(['price' => $this->net(), 'currency' => $this->invoice->currency], tax: 0)
         );
     }
 
@@ -76,7 +95,7 @@ class InvoiceItem extends Model implements Auditable
     public function formattedPrice(): Attribute
     {
         return Attribute::make(
-            get: fn () => new Price(['price' => $this->price, 'currency' => $this->invoice->currency])
+            get: fn () => new Price(['price' => $this->price, 'currency' => $this->invoice->currency], tax: 0)
         );
     }
 }

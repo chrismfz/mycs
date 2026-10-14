@@ -138,6 +138,17 @@ class Price
         return $price;
     }
 
+    /** A total that already contains a known tax (an invoice's, Δ1): shown as is, the tax not worked out again. */
+    public static function ofTotal(float|string $total, float|string $tax, $currency): self
+    {
+        $price = new self(['price' => $total, 'currency' => $currency], tax: 0);
+        $price->tax = number_format((float) $tax, 2, '.', '');
+        $price->formatted->tax = $price->format($price->tax);
+        $price->formatted->total_tax = $price->format($price->tax);
+
+        return $price;
+    }
+
     public function format($price)
     {
         if ($this->is_free) {

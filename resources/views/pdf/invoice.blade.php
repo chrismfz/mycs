@@ -176,18 +176,20 @@
 
     <!-- Totals Section -->
     <div class="totals-section">
-        @if ($invoice->formattedTotal->tax > 0)
+        @if ($invoice->taxTotal != 0)
         <table class="totals-table">
             <tr>
                 <td class="label">{{ __('invoices.subtotal') }}</td>
-                <td class="amount">{{ $invoice->formattedTotal->format($invoice->formattedTotal->price - $invoice->formattedTotal->tax) }}</td>
+                <td class="amount">{{ $invoice->formattedTotal->format($invoice->subtotal) }}</td>
             </tr>
+            @foreach ($invoice->taxLines() as $taxLine)
             <tr>
                 <td class="label">
-                    {{ $invoice->tax->name }} ({{ $invoice->tax->rate }}%)
+                    {{ __('invoices.tax_line', ['name' => $invoice->taxName(), 'rate' => rtrim(rtrim($taxLine['rate'], '0'), '.')]) }}
                 </td>
-                <td class="amount">{{ $invoice->formattedTotal->formatted->tax }}</td>
+                <td class="amount">{{ $invoice->formattedTotal->format($taxLine['amount']) }}</td>
             </tr>
+            @endforeach
             @php
                 $adjustmentsTotal = $invoice->adjustmentNotes->filter(fn ($note) => $note->status === \App\Enums\AdjustmentNoteStatus::Active)->sum('amount');
                 $adjustmentsPrice = new \App\Classes\Price(['price' => $adjustmentsTotal, 'currency' => $invoice->currency]);

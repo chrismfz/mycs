@@ -46,7 +46,26 @@ final class LinePricer
         return new LinePrice(
             (string) $price, (string) $setupFee, (string) $priceDiscount, (string) $setupFeeDiscount,
             (string) $priceTax, (string) $setupFeeTax, (string) $grossPrice, (string) $grossSetupFee,
+            (string) $grossPrice->minus($priceTax), (string) $grossSetupFee->minus($setupFeeTax),
         );
+    }
+
+    /**
+     * An invoice line (Δ1): the net unit amount × quantity, then the tax on that, rounded once per line (CART-14: not
+     * per unit). A negative amount (a discount line) gets a negative tax.
+     *
+     * @return array{net: string, tax: string, total: string}
+     */
+    public static function invoiceLine(string $unitNet, int $quantity, ?string $taxRate): array
+    {
+        $net = BigDecimal::of($unitNet)->multipliedBy($quantity)->toScale(2, RoundingMode::HalfUp);
+        $rate = $taxRate === null ? BigDecimal::zero() : BigDecimal::of($taxRate);
+        if ($rate->isNegative()) {
+            throw new InvalidArgumentException('A tax rate cannot be negative.');
+        }
+        $tax = $net->multipliedBy($rate)->dividedBy(100, 2, RoundingMode::HalfUp);
+
+        return ['net' => (string) $net, 'tax' => (string) $tax, 'total' => (string) $net->plus($tax)];
     }
 
     /** @return array{BigDecimal, BigDecimal} */

@@ -15,6 +15,7 @@ class UpdateInvoiceItemRequest extends AdminApiRequest
         return [
             'description' => 'sometimes|string|max:65535',
             'quantity' => 'sometimes|integer|min:1',
+            'taxed' => 'sometimes|boolean',
             'price' => 'sometimes|numeric|min:0',
             'reference_type' => 'sometimes|nullable',
             'reference_id' => 'sometimes|nullable',

@@ -24,6 +24,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Lang;
 use MyCS\BillingPeriod\BillingPeriod;
+use MyCS\Pricing\LinePricer;
 use OwenIt\Auditing\Contracts\Auditable;
 
 /**
@@ -654,6 +655,18 @@ class Service extends Model implements Auditable
     }
 
     /**
+     * What a renewal of it charges with tax, in cents (Δ1: the price is net; the line adds the account's tax for its
+     * product, on price × quantity, rounded once). For a gateway that bills it by itself (a Stripe subscription).
+     */
+    public function recurringGrossCents(): int
+    {
+        $line = LinePricer::invoiceLine(number_format((float) $this->price, 2, '.', ''), max(1, (int) $this->quantity),
+            OrderPricing::taxRate($this->client, $this->product));
+
+        return (int) round((float) $line['total'] * 100);
+    }
+
+    /**
      * The price it renews at, from its plan and options now (Σ7, `OrderPricing`): what a recalculation or an upgrade
      * stores. The coupon counts only for a product it covers (CART-2) and for its cycles (CART-1: empty = the first).
      */
@@ -680,7 +693,8 @@ class Service extends Model implements Auditable
             }
         }
 
-        return OrderPricing::line(['price' => (string) $price, 'setup_fee' => '0.00'], $discount, $this->client)->grossPrice;
+        // Net (Δ1): the tax is the invoice line's, decided when it is made.
+        return OrderPricing::line(['price' => (string) $price, 'setup_fee' => '0.00'], $discount, $this->client, $this->product)->netPrice;
     }
 
     /** @return HasMany<ServiceUpgrade, $this> */

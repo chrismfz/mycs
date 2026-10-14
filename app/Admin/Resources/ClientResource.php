@@ -88,6 +88,11 @@ class ClientResource extends Resource
                     ->label(__('Credit pays open invoices automatically'))
                     ->helperText(__('Off: the credit is kept until the customer or staff use it.'))
                     ->default(true),
+                // WHMCS «Tax Exempt» (Δ1): its new invoice lines get no tax.
+                Toggle::make('tax_exempt')
+                    ->label(__('Tax exempt'))
+                    ->helperText(__('New invoice lines of this account get no tax; issued invoices keep theirs.'))
+                    ->default(false),
             ]);
     }
 

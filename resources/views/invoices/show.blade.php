@@ -128,22 +128,25 @@
                 </table>
             </div>
             <div class="space-y-3 sm:text-right sm:ml-auto sm:w-72 mt-10">
-                @if ($invoice->formattedTotal->tax > 0)
+                {{-- Δ1: the tax of the lines, by rate. --}}
+                @if ($invoice->taxTotal != 0)
                 <div class="flex justify-between">
                     <div class="text-sm font-medium text-gray-500 uppercase dark:text-base">{{ __('invoices.subtotal') }}
                     </div>
                     <div class="text-base font-medium text-gray-900 dark:text-white">
-                        {{ $invoice->formattedTotal->format($invoice->formattedTotal->subtotal) }}
+                        {{ $invoice->formattedTotal->format($invoice->subtotal) }}
                     </div>
                 </div>
+                @foreach ($invoice->taxLines() as $taxLine)
                 <div class="flex justify-between">
                     <div class="text-sm font-medium text-gray-500 uppercase dark:text-base">
-                        {{ $invoice->tax->name }} ({{ $invoice->tax->rate }}%)
+                        {{ __('invoices.tax_line', ['name' => $invoice->taxName(), 'rate' => rtrim(rtrim($taxLine['rate'], '0'), '.')]) }}
                     </div>
                     <div class="text-base font-medium text-gray-900 dark:text-white">
-                        {{ $invoice->formattedTotal->formatted->tax }}
+                        {{ $invoice->formattedTotal->format($taxLine['amount']) }}
                     </div>
                 </div>
+                @endforeach
                 @endif
                 @php
                     $adjustmentsTotal = $invoice->adjustmentNotes->filter(fn ($note) => $note->status === \App\Enums\AdjustmentNoteStatus::Active)->sum('amount');

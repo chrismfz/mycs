@@ -6,6 +6,7 @@ use App\Events\InvoiceItem as InvoiceItemEvent;
 use App\Exceptions\DisplayException;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Services\Invoice\LineTax;
 
 /**
  * A paid invoice keeps what it charged (docs/money-trail.md, MT-1c): no line is added, removed or repriced while it is
@@ -14,7 +15,7 @@ use App\Models\InvoiceItem;
  */
 class InvoiceItemObserver
 {
-    private const MONEY_FIELDS = ['price', 'quantity', 'reference_type', 'reference_id', 'invoice_id'];
+    private const MONEY_FIELDS = ['price', 'quantity', 'reference_type', 'reference_id', 'invoice_id', 'taxed', 'tax_rate', 'tax_amount', 'line_total'];
 
     private static function refuseOnPaidInvoice(mixed $invoiceId): void
     {
@@ -29,6 +30,11 @@ class InvoiceItemObserver
     public function creating(InvoiceItem $invoice): void
     {
         self::refuseOnPaidInvoice($invoice->invoice_id);
+        // Its tax (Δ1): the rate in force now, unless given (an import keeps the one it was issued with).
+        if (!$invoice->isDirty('tax_rate')) {
+            $invoice->tax_rate = LineTax::rateFor($invoice);
+        }
+        LineTax::apply($invoice);
         event(new InvoiceItemEvent\Creating($invoice));
     }
 
@@ -45,6 +51,13 @@ class InvoiceItemObserver
      */
     public function updating(InvoiceItem $invoice): void
     {
+        // Taxed or not changed: the rate is decided again; else the line keeps its rate and only its amounts follow.
+        if ($invoice->isDirty('taxed') && !$invoice->isDirty('tax_rate')) {
+            $invoice->tax_rate = LineTax::rateFor($invoice);
+        }
+        if ($invoice->isDirty(['price', 'quantity', 'taxed', 'tax_rate'])) {
+            LineTax::apply($invoice);
+        }
         if ($invoice->isDirty(self::MONEY_FIELDS)) {
             self::refuseOnPaidInvoice($invoice->getOriginal('invoice_id'));
             self::refuseOnPaidInvoice($invoice->invoice_id);
