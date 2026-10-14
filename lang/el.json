@@ -241,5 +241,6 @@
     "The quantity must be at least 1.": "Η ποσότητα πρέπει να είναι τουλάχιστον 1.",
     "A price cannot be negative.": "Η τιμή δεν μπορεί να είναι αρνητική.",
     "Tax exempt": "Χωρίς ΦΠΑ",
-    "New invoice lines of this account get no tax; issued invoices keep theirs.": "Οι νέες γραμμές τιμολογίων του λογαριασμού δεν έχουν ΦΠΑ· τα εκδομένα κρατούν τον δικό τους."
+    "New invoice lines of this account get no tax; issued invoices keep theirs.": "Οι νέες γραμμές τιμολογίων του λογαριασμού δεν έχουν ΦΠΑ· τα εκδομένα κρατούν τον δικό τους.",
+    "Anything we should know about this order (optional)": "Ό,τι πρέπει να ξέρουμε για την παραγγελία (προαιρετικό)"
 }

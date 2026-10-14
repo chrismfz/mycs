@@ -10,6 +10,7 @@ class OrderResource extends JsonApiResource
         'id',
         'currency_code',
         'client_id',
+        'notes',
         'updated_at',
         'created_at',
     ];

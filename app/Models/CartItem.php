@@ -22,6 +22,9 @@ class CartItem extends Model
     /** The cents of {@see lineTotal()}, set when the price is worked out. */
     private ?int $lineTotalCents = null;
 
+    /** The tax of {@see lineTotal()}, in cents. */
+    private ?int $lineTaxCents = null;
+
     protected $fillable = [
         'cart_id',
         'product_id',
@@ -82,8 +85,10 @@ class CartItem extends Model
 
                 // The first invoice's line for the whole quantity (Δ1: net × quantity, the tax once on that; F4 of the
                 // Σ7b review): what the cart adds up, so it is what checkout charges.
-                $this->lineTotalCents = (int) round((float) LinePricer::invoiceLine($line->firstPaymentNet(), max(1, (int) $this->quantity),
-                    OrderPricing::taxRate($client, $this->product))['total'] * 100);
+                $invoiceLine = LinePricer::invoiceLine($line->firstPaymentNet(), max(1, (int) $this->quantity),
+                    OrderPricing::taxRate($client, $this->product));
+                $this->lineTotalCents = (int) round((float) $invoiceLine['total'] * 100);
+                $this->lineTaxCents = (int) round((float) $invoiceLine['tax'] * 100);
 
                 return Price::fromLine($line, $currencyModel, $full);
             }
@@ -96,5 +101,13 @@ class CartItem extends Model
         $price = $this->price;
 
         return $price->available ? ($this->lineTotalCents ?? 0) / 100 : 0.0;
+    }
+
+    /** The tax in {@see lineTotal()}. */
+    public function lineTax(): float
+    {
+        $price = $this->price;
+
+        return $price->available ? ($this->lineTaxCents ?? 0) / 100 : 0.0;
     }
 }

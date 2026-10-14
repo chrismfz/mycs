@@ -21,6 +21,7 @@ use Filament\Actions\EditAction;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Component;
@@ -62,6 +63,13 @@ class OrderResource extends Resource
                     ->options(Currency::query()->pluck('code', 'code'))
                     ->helperText('Does not convert the price, only displays the currency symbol')
                     ->placeholder('Select the currency'),
+                // WHMCS «Order Notes»: the customer's at checkout, or staff's.
+                Textarea::make('notes')
+                    ->label('Notes')
+                    ->rows(2)
+                    ->autosize()
+                    ->maxLength(65535)
+                    ->columnSpanFull(),
                 // Creating: the lines go to the PlaceOrderService (Σ7, CART-4), which prices them as checkout does.
                 Repeater::make('lines')
                     ->label('Services')
@@ -210,6 +218,11 @@ class OrderResource extends Resource
                     ->sortable(),
                 TextColumn::make('formattedTotal')
                     ->label('Total'),
+                TextColumn::make('notes')
+                    ->label('Notes')
+                    ->limit(40)
+                    ->tooltip(fn (Order $record): ?string => $record->notes)
+                    ->toggleable(),
                 TextColumn::make('updated_at')
                     ->label('Updated At')
                     ->searchable()

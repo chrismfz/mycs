@@ -16,6 +16,7 @@ class UpdateOrderRequest extends AdminApiRequest
              * @example USD
              */
             'currency_code' => 'sometimes|required|string|exists:currencies,code',
+            'notes' => 'nullable|string|max:65535',
         ];
     }
 }
