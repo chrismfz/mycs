@@ -1,6 +1,6 @@
 <?php
 
-namespace Paymenter\Extensions\Others\Announcements\Models;
+namespace MyCS\Extensions\Others\Announcements\Models;
 
 use Illuminate\Database\Eloquent\Model;
 

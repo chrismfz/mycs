@@ -114,7 +114,7 @@ class StaffSplitAdversarialTest extends TestCase
     /**
      * A3 (fixed in ccfd3717, kept as a regression test): session validation for the admin («ip_admin») was only in
      * the panel's non-persistent middleware. Every admin
-     * action is a Livewire request to /paymenter/update, where only the web group's LockSession runs, before
+     * action is a Livewire request to /mycs/update, where only the web group's LockSession runs, before
      * UseStaffGuard, on the web guard: it sees nobody and checks nothing. A stolen admin cookie works from any IP for
      * Livewire requests (in main the web-group LockSession saw the admin, who was a User). Regression.
      */
@@ -143,7 +143,7 @@ class StaffSplitAdversarialTest extends TestCase
         // The same session cookie, from another address.
         $response = $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.9'])
             ->withHeaders(['X-Livewire' => '1'])
-            ->postJson('/paymenter/update', ['components' => [['snapshot' => $snapshot, 'updates' => new \stdClass, 'calls' => []]]]);
+            ->postJson('/mycs/update', ['components' => [['snapshot' => $snapshot, 'updates' => new \stdClass, 'calls' => []]]]);
 
         $this->assertNotSame(200, $response->status(), 'the admin session answered from another IP');
     }

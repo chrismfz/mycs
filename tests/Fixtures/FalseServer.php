@@ -1,6 +1,6 @@
 <?php
 
-namespace Paymenter\Extensions\Servers\FalseServer;
+namespace MyCS\Extensions\Servers\FalseServer;
 
 use App\Classes\Extension\Server;
 use App\Models\Service;

@@ -7,8 +7,8 @@
 - **MyCS = control plane** (πελάτες, κατάλογος, χρέωση, provisioning, domains, support). **Ekdosi = μόνο
   τιμολόγηση/myDATA.** Το Ekdosi μιλάει με το MyCS μόνο μέσω του bridge (HMAC). Μην ξαναχτίζεις εδώ ό,τι ανήκει στο
   Ekdosi (φορολογικά παραστατικά, myDATA, λογιστικά), ούτε στο Ekdosi ό,τι ανήκει εδώ.
-- Hard fork του Paymenter: **δεν ακολουθούμε το upstream.** Cherry-pick μόνο όσων θέλουμε, κυρίως security fixes
-  (`docs/upstream-triage.md`).
+- Hard fork (2026-10-10) που πήρε τον δικό του δρόμο: **δεν ακολουθούμε το upstream ούτε παίρνουμε κώδικά του**
+  (2026-10-14: έχουμε αποκλίνει τόσο που ένα cherry-pick δεν εφαρμόζει). Ιστορικό στο `docs/history/`.
 - Pilot είναι η nixpal· το myip.gr έρχεται μετά. Ένα instance ανά εταιρεία. Ό,τι διαφέρει ανάμεσα στις εταιρείες
   (αρίθμηση, proforma, πιστώσεις, φόροι, υπενθυμίσεις) είναι **ρύθμιση**, όχι κώδικας (`docs/settings-map.md`).
 
@@ -19,7 +19,7 @@
 - Όχι κώδικας vendor ή ionCube, όχι κλειστά extensions του marketplace.
 - Στους servers παραγωγής (rigel, orion) και στις βάσεις του WHMCS μόνο read-only, εκτός αν ζητηθεί ρητά.
 - Τίποτα που «τηλεφωνεί σπίτι»: telemetry, update checks, marketplace και self-updater αφαιρούνται και δεν επιστρέφουν.
-- Templates που επεξεργάζεται το staff **δεν** γίνονται compile ως Blade/PHP (`docs/audit-security.md`).
+- Templates που επεξεργάζεται το staff **δεν** γίνονται compile ως Blade/PHP (`docs/history/audit-security.md`).
 
 ## Contracts που δεν σπάνε
 - `zlic.php` (licensing nixpal): ίδιο URL, ίδιο input (`license`, `license_PSK`, POST ή GET), ίδιο JSON output. Τα

@@ -17,8 +17,8 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
-use Paymenter\Extensions\Gateways\PayPal\PayPal;
-use Paymenter\Extensions\Gateways\PayPal\PayPalApiException;
+use MyCS\Extensions\Gateways\PayPal\PayPal;
+use MyCS\Extensions\Gateways\PayPal\PayPalApiException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 

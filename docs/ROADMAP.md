@@ -1,7 +1,7 @@
 # MyCS: Roadmap
 
-> Ενιαία λίστα δουλειάς. Πηγές: φάσεις (`ekdosi-vs-paymenter.md`), parity backlog (`whmcs-usage.md`), ρυθμίσεις
-> (`settings-map.md`), upstream (`upstream-triage.md`), audits (`audit-*.md`), αποφάσεις (`decisions.md`).
+> Ενιαία λίστα δουλειάς. Πηγές: φάσεις (`history/ekdosi-vs-upstream.md`), parity backlog (`whmcs-usage.md`), ρυθμίσεις
+> (`settings-map.md`), upstream (`history/upstream-triage.md`), audits (`audit-*.md`), αποφάσεις (`decisions.md`).
 > Οι εκτιμήσεις είναι για έναν developer με βοήθεια: εκτιμήσεις, όχι δέσμευση. Ενημέρωσε τα κουτάκια σε κάθε PR.
 
 ## Σειρά εργασιών (2026-10-14)
@@ -48,27 +48,27 @@ audit sweep: αφαίρεση theme system, Σ4, licensing (στο παράθυ�
 - [x] DNS δοκιμών: `mycs.myip.gr` + `*.mycs.myip.gr` → devbox (2026-10-11).
 - [x] Πρώτη εγκατάσταση στο devbox (`mycs.myip.gr`)· tests (66) και Pint περνάνε εκεί (2026-10-11).
 - [x] Παρακολούθηση του upstream: routine «Upstream triage» κάθε Τρίτη 08:45 (issues, PRs, commits, security
-      advisories → PR στο `upstream-triage.md`, χωρίς αυτόματο cherry-pick· 2026-10-11).
+      advisories → PR στο `history/upstream-triage.md`, χωρίς αυτόματο cherry-pick· 2026-10-11).
 
 ## Φάση 0: Καθάρισμα και βάσεις (2–3 ημέρες)
 - [x] Αφαίρεση telemetry: `TelemetryCommand`, schedule, `TELEMETRY_ENABLED`, `Settings::getTelemetry()`.
-- [x] Αφαίρεση `app:logs` (ανέβαζε το τελευταίο error log στο `log.paymenter.org:99`).
+- [x] Αφαίρεση `app:logs` (ανέβαζε το τελευταίο error log στο server του upstream).
 - [x] Αφαίρεση update checker (`CheckForUpdates`, κλήση στο τέλος του `CronJob`), self-updater (`Upgrade`,
       `Admin/Pages/Updates`, `update.sh`), marketplace και ελέγχου ενημερώσεων extensions. Η σελίδα extensions
       κρατάει μόνο «διαθέσιμα» + upload zip.
 - [x] Updater: **όχι μέσα από την εφαρμογή** (απόφαση 2026-10-11, `decisions.md`)· ενημέρωση μόνο με
-      `deploy/update.sh`. Ο παλιός δεν κρατήθηκε: δούλευε με το `api.paymenter.org` και τα releases του upstream, άρα
+      `deploy/update.sh`. Ο παλιός δεν κρατήθηκε: δούλευε με το το API του upstream και τα releases του upstream, άρα
       θα **αντικαθιστούσε το fork με το upstream**.
 - [x] Αφαίρεση Gravatar (avatar = τοπικό SVG με αρχικά) και της ρύθμισης `gravatar_default`.
 - [x] Workflows του upstream (`build-api-docs`, `release`, `beta`, `docker`) αφαιρέθηκαν (PR #9).
-- [x] Branding/footer links (Powered by, Sponsor, Star on GitHub, docs του Paymenter): το admin footer δείχνει
+- [x] Branding/footer links (Powered by, Sponsor, Star on GitHub, docs του upstream): το admin footer δείχνει
       «MyCS · commit», `APP_NAME` = MyCS (2026-10-11).
 - [x] Upload extensions από το web: αφαιρέθηκε. Τα extensions μπαίνουν ως κώδικας με git και `deploy/update.sh`
       (απόφαση 2026-10-11).
 - [x] Κρυπτογραφημένα credentials σε όλα τα extensions (cPanel, Plesk, Convoy, Enhance, Virtualizor) **και** στη
       δημιουργία server/gateway, που τα αποθήκευε καθαρά· migration για όσα υπάρχουν (2026-10-11).
 - [x] Templates email/ειδοποιήσεων, `mail_header`/`mail_footer` και snippet προϊόντος χωρίς Blade: renderer
-      `packages/mail-template` (`templates.md`, `audit-security.md` H1–H2, 2026-10-11).
+      `packages/mail-template` (`templates.md`, `history/audit-security.md` H1–H2, 2026-10-11).
 - [x] «Κανείς δεν δίνει ό,τι δεν έχει» (`PermissionGuard`): API keys, ρόλοι, ανάθεση ρόλου, επεξεργασία/διαγραφή/
       impersonation άλλου admin· το key δεν ξεπερνά ποτέ τον δημιουργό του (2026-10-11).
 - [x] CI: tests σε sqlite + MariaDB 10.11 (PHP 8.4) και `pint --test` σε κάθε PR (PR #9, 2026-10-11).
@@ -95,7 +95,7 @@ audit sweep: αφαίρεση theme system, Σ4, licensing (στο παράθυ�
       Χωρίς `deploy/rollback.sh` (απόφαση 2026-10-11: προσεκτικές ενημερώσεις + το snapshot του `update.sh`·
       χειροκίνητη επαναφορά στο `docs/install.md`).
 - [x] Installer: `mycs:install` (migrations, seed, νόμισμα, εταιρεία/URL/γλώσσες/ζώνη ώρας, passport keys, πρώτος
-      admin) αντί για το `app:init` του Paymenter, **μόνο CLI** (χωρίς `/install` wizard), κωδικός ποτέ ως flag
+      admin) αντί για το `app:init` του upstream, **μόνο CLI** (χωρίς `/install` wizard), κωδικός ποτέ ως flag
       (`docs/install.md`, 2026-10-11).
 - [x] Cherry-picks: #1338 (captcha), από το #1295 το guard για αρνητικό υπόλοιπο και το enforcement του
       `credits_enabled` (και στο cron)· όχι το «cap at max credit» (PR #24, 2026-10-11).
@@ -128,7 +128,7 @@ audit sweep: αφαίρεση theme system, Σ4, licensing (στο παράθυ�
       idempotency στα refunds (Stripe `Idempotency-Key`, PayPal request id). **Μένουν:** idempotency/lock στη χρέωση
       αποθηκευμένης κάρτας (PAY-3), ιδιοκτησία μεθόδου (PAY-8), webhooks κοινού λογαριασμού και prefix αναφοράς
       (PAY-10/11), χρήματα χωρίς τιμολόγιο (PAY-6), Stripe signature (PAY-14), floats/fees (PAY-16).
-- [x] **Αφαίρεση του theme system του Paymenter** (2026-10-14): τα views του `themes/default` στο `resources/views`,
+- [x] **Αφαίρεση του theme system του upstream** (2026-10-14): τα views του `themes/default` στο `resources/views`,
       τα assets στο `resources/css|js`, ένα `vite.config.js` (build στο `public/build`). Έφυγαν ο επιλογέας theme, το
       `app:theme:create`, το `vite.js`, οι μεταφράσεις ανά theme, το `packages/laravel-themer` και τα αρχεία Docker του
       upstream. Οι ρυθμίσεις του theme έγιναν η καρτέλα **Appearance** (`theme_<όνομα>`, `theme('<όνομα>')`· migration
@@ -177,7 +177,7 @@ audit sweep: αφαίρεση theme system, Σ4, licensing (στο παράθυ�
       είναι αντιστοίχιση 1:1. Ο importer και το bridge προς Ekdosi χτίζονται πάνω σε αυτό το σχήμα.
 - [ ] **Mass Pay** και **merge τιμολογίων** (allocator του Ekdosi, #1137).
 - [ ] **Αλλαγή κύκλου χρέωσης** και πακέτου μαζί, με proration, από πελάτη και admin· ακύρωση εκκρεμών upgrades (#1266).
-      Γνωστά από το Paymenter (`docs/billing-cursor.md` PR 4): η αναλογία μετράει απλήρωτες μέρες μετά τη λήξη· όριο 30
+      Γνωστά από το upstream (`docs/billing-cursor.md` PR 4): η αναλογία μετράει απλήρωτες μέρες μετά τη λήξη· όριο 30
       ημερών όταν η ανανέωση πληρώθηκε νωρίς· πακέτο που γίνεται free/one-time ενώ υπάρχει τιμή.
 - [ ] **Φόρμα υπηρεσίας «σαν WHMCS»** (admin): το staff αλλάζει συχνά Next Due Date, Recurring Amount, Billing Cycle,
       Payment Method, Promotion Code. Τα περισσότερα υπάρχουν με άλλο όνομα (`Expires At`, `Price`, `Plan`, `Coupon`):
@@ -192,7 +192,7 @@ audit sweep: αφαίρεση theme system, Σ4, licensing (στο παράθυ�
       (`docs/money-trail.md` §8)· για μερικώς πληρωμένο, η ενέργεια προτείνει τον σωστό δρόμο (επιστροφή ή πίστωση στον
       παλιό, νέο τιμολόγιο στον νέο). Σήμερα γίνεται με το χέρι: αλλαγή πελάτη στη φόρμα υπηρεσίας και σε κάθε απλήρωτο
       τιμολόγιο. Ταιριάζει με τους «Λογαριασμούς» (`docs/accounts.md`).
-- [ ] **Products «σαν WHMCS»** (admin). Οι *Categories* του Paymenter είναι ήδη τα product groups (υποκατηγορίες,
+- [ ] **Products «σαν WHMCS»** (admin). Οι *Categories* του upstream είναι ήδη τα product groups (υποκατηγορίες,
       σειρά)· τα products έχουν ήδη `hidden`, stock και τύπο πληρωμής ανά plan (free/one-time/recurring). Λείπουν:
       κρυφή ομάδα (εκτός σελίδας παραγγελίας, παραγγέλνεται με direct link)· λίστα products ανά ομάδα με στήλες Type
       (module), Pay Type, Stock, Auto Setup, σειρά με drag και «Duplicate Product». **Auto Setup ανά προϊόν**: σήμερα
@@ -265,14 +265,14 @@ audit sweep: αφαίρεση theme system, Σ4, licensing (στο παράθυ�
       - Τα αποτελέσματα σε `docs/audit-browser.md` (σενάριο, αναμενόμενο, αποτέλεσμα, PR διόρθωσης)· screenshots
         χωρίς προσωπικά δεδομένα. Ό,τι βρεθεί γίνεται failing test πριν διορθωθεί.
 - [ ] **Υπενθύμιση πριν το cut-over: πέρασμα UI/UX «σαν WHMCS»** (admin και client area, για nixpal και myip). Το
-      Paymenter έχει έτοιμη λειτουργικότητα αλλά γυμνό UI. Πρώτα λίστα από ό,τι χρησιμοποιούμε καθημερινά στο WHMCS
+      upstream έχει έτοιμη λειτουργικότητα αλλά γυμνό UI. Πρώτα λίστα από ό,τι χρησιμοποιούμε καθημερινά στο WHMCS
       (screenshots, `whmcs-usage.md`), μετά αποφασίζουμε τι μπαίνει πριν και τι μετά. Ενδεικτικά: σελίδα πελάτη με
       tabs (Summary, Profile, Users/Contacts, Products, Domains, Invoices, Transactions, Credit, Tickets, Notes, Log)·
       πυκνές λίστες με φίλτρα, αναζήτηση παντού (πελάτης, domain, τιμολόγιο, IP)· όροι και διάταξη του WHMCS στις
       φόρμες· γρήγορες ενέργειες (Mark Paid, Add Payment, Login as Client, Send Email)· dashboard με εκκρεμότητες·
       client area με καθαρή αρχική (υπηρεσίες, απλήρωτα, tickets) και branding ανά εταιρεία. Ελληνικά/αγγλικά.
       Πλοήγηση client area (2026-10-14): η Home, ο κατάλογος και το καλάθι δεν έχουν το μενού αριστερά (design του
-      Paymenter: «βιτρίνα» ίδια με ή χωρίς login, ανά σελίδα `'sidebar' => true`). Να αποφασιστεί μαζί με το
+      upstream: «βιτρίνα» ίδια με ή χωρίς login, ανά σελίδα `'sidebar' => true`). Να αποφασιστεί μαζί με το
       header/footer του myip.gr (Appearance → Custom code): μετά το login η Home με μενού ή κατευθείαν στο Dashboard
       (όπως το clientarea του WHMCS).
 - [ ] Shadow-run του licensing → cut-over της nixpal, **μετά τα domains της Φάσης 2** (Openprovider, CNIC).
@@ -293,7 +293,7 @@ audit sweep: αφαίρεση theme system, Σ4, licensing (στο παράθυ�
 - [ ] ~~**Ένας χρήστης, πολλοί λογαριασμοί πελάτη**~~ → μεταφέρθηκε στη Φάση 1, «Λογαριασμοί» (2026-10-12).
       (Users του WHMCS 8): στη myip 101 προσκεκλημένοι χρήστες, 33 χρήστες
       με πρόσβαση σε >1 λογαριασμό, 93 λογαριασμοί με >1 χρήστη (+432 παλιά contacts)· στη nixpal 14 / 2.
-      Το Paymenter δεν το έχει (χρήστης = πελάτης). Μοτίβο του Ekdosi (χρήστης ↔ εταιρείες με ρόλο/δικαιώματα),
+      Το upstream δεν το έχει (χρήστης = πελάτης). Μοτίβο του Ekdosi (χρήστης ↔ εταιρείες με ρόλο/δικαιώματα),
       επιλογέας λογαριασμού στο client area, importer από `tblusers_clients` (2026-10-11).
 - [ ] **Eurobank/Cardlink + IRIS** (`packages/cardlink-eurobank`, με server-to-server returns): το 42% των πληρωμών.
 - [ ] Έμβασμα + `payments_tracking` (αντιστοίχιση καταθέσεων από IMAP τράπεζας) πάνω στον allocator: ο πελάτης
@@ -308,7 +308,7 @@ audit sweep: αφαίρεση theme system, Σ4, licensing (στο παράθυ�
 - [ ] Custom fields πελάτη πέρα από το βασικό προφίλ (το ΑΦΜ, η ΔΟΥ, το «Θα ήθελα τιμολόγιο» και το multi-user πάνε στη
       Φάση 1, «Λογαριασμοί»)· επαφές.
 - [ ] Modules: TheSSLStore, Proxmox, Centova, mailcow, ngm, Hetzner· DirectAdmin (υπάρχει, + #1186).
-- [ ] **Server groups και κατανομή** (όπως το WHMCS): το Paymenter έχει **ένα** `server_id` ανά προϊόν και καμία
+- [ ] **Server groups και κατανομή** (όπως το WHMCS): το upstream έχει **ένα** `server_id` ανά προϊόν και καμία
       στήλη server στην υπηρεσία (το `ExtensionHelper` πάει πάντα στο `$service->product->server`). Χρειάζεται:
       `server_groups` (fill type: least full / fill until full), προϊόν → ομάδα **ή** server, `services.server_id` που
       κρατά πού ζει κάθε λογαριασμός (και όλες οι ενέργειες πάνε εκεί), όριο λογαριασμών και enable/disable ανά server,
@@ -316,7 +316,7 @@ audit sweep: αφαίρεση theme system, Σ4, licensing (στο παράθυ�
       Σήμερα: ομάδες ApacheServers / Greece-LiteSpeed / LiteSpeed-Germany / PVE Nodes / Centova, «least full».
 - [ ] **Bridge προς Ekdosi** (billing source για το MyCS στο Ekdosi, ίδιο HMAC/ops, τιμολόγια σε τρίτους).
 - [ ] Portal: ο πελάτης βλέπει τα **φορολογικά παραστατικά** που στέλνει πίσω το Ekdosi (`decisions.md` §2)·
-      σύγκριση στην οθόνη portal Ekdosi vs Paymenter πριν αποφασίσουμε ποιες σελίδες κρατάμε.
+      σύγκριση στην οθόνη portal Ekdosi vs upstream πριν αποφασίσουμε ποιες σελίδες κρατάμε.
 - [ ] Business rules από τα ~20 hooks του myip (`history/blesta-modules/HANDOFF.md` §4.4).
 - [ ] Templates email el/en για όλα τα γεγονότα (#1306)· retry και ιστορικό emails (#1204, #1033).
 - [ ] Εύκολη επεξεργασία από admin: ημερομηνίες domain, ποσά υπηρεσίας, υποσύνολα τιμολογίου.
@@ -324,7 +324,7 @@ audit sweep: αφαίρεση theme system, Σ4, licensing (στο παράθυ�
 - [ ] **Ειδοποιήσεις Mattermost** (incoming webhook, ρύθμιση ανά instance) για τα ίδια events με το WHMCS του myip
       σήμερα (provider «Mattermost», 2026-10-11): ticket opened / reply πελάτη / reply staff, invoice paid, service
       suspended, service terminated, «payment auto matched» (σήμερα από API call). Υπάρχει το extension
-      `DiscordNotifications` του Paymenter ως πρότυπο. Η nixpal δεν έχει ειδοποιήσεις.
+      `DiscordNotifications` του upstream ως πρότυπο. Η nixpal δεν έχει ειδοποιήσεις.
 
 ## Φάση 4: .gr EPP
 - [ ] `packages/gr-epp` (HTTPS `/epp/proxy` + `JSESSIONID`) ως driver του `DomainRegistrar`· UAT· owner change/transfer

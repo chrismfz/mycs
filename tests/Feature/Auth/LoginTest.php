@@ -32,7 +32,7 @@ class LoginTest extends TestCase
     public function test_cant_login_with_invalid_credentials()
     {
         Livewire::test(Login::class)
-            ->set('email', 'admin@paymenter')
+            ->set('email', 'admin@mycs')
             ->set('password', 'password')
             ->call('submit')
             ->assertHasErrors('email');
@@ -44,12 +44,12 @@ class LoginTest extends TestCase
     public function test_can_login_with_valid_credentials()
     {
         User::factory()->create([
-            'email' => 'tests@paymenter.org',
+            'email' => 'tests@example.test',
             'password' => Hash::make('password'),
         ]);
 
         Livewire::test(Login::class)
-            ->set('email', 'tests@paymenter.org')
+            ->set('email', 'tests@example.test')
             ->set('password', 'password')
             ->call('submit')
             ->assertHasNoErrors()
@@ -71,7 +71,7 @@ class LoginTest extends TestCase
         ]);
 
         Livewire::test(Login::class)
-            ->set('email', 'test@paymenter.org')
+            ->set('email', 'test@example.test')
             ->set('password', 'password')
             ->set('captcha', 'wrong')
             ->call('submit')
@@ -81,7 +81,7 @@ class LoginTest extends TestCase
 
         // Test without captcha
         Livewire::test(Login::class)
-            ->set('email', 'test@paymenter.org')
+            ->set('email', 'test@example.test')
             ->set('password', 'password')
             ->call('submit')
             ->assertHasErrors('captcha');
@@ -95,7 +95,7 @@ class LoginTest extends TestCase
     public function test_staff_log_in_at_the_admin_and_go_where_they_were_going()
     {
         Staff::factory()->admin()->create([
-            'email' => 'test@paymenter.org',
+            'email' => 'test@example.test',
             'password' => Hash::make('password'),
         ]);
 
@@ -103,7 +103,7 @@ class LoginTest extends TestCase
         $this->get('/admin/settings')->assertRedirect(route('filament.admin.auth.login'));
 
         Livewire::test(FilamentLogin::class)
-            ->set('data.email', 'test@paymenter.org')
+            ->set('data.email', 'test@example.test')
             ->set('data.password', 'password')
             ->call('authenticate')
             ->assertHasNoErrors();

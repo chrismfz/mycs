@@ -29,7 +29,7 @@
 Νέα σελίδα (domains, reports): μία γραμμή στο `TopMenu::MENU`.
 
 ## Dashboard: τι έχει το WHMCS και τι έχουμε
-Τα widgets του Paymenter: `Overview` (έσοδα/tickets/υπηρεσίες με σύγκριση περιόδου), `Revenue` (γράφημα),
+Τα widgets του upstream: `Overview` (έσοδα/tickets/υπηρεσίες με σύγκριση περιόδου), `Revenue` (γράφημα),
 `ActiveUsers` (online τελευταίας ώρας), `Support` (5 πρόσφατα ανοιχτά tickets), όλα με permission `admin.widgets.*`.
 
 | WHMCS | Σήμερα | Πηγή δεδομένων | Σχέδιο |

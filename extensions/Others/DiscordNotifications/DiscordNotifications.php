@@ -1,6 +1,6 @@
 <?php
 
-namespace Paymenter\Extensions\Others\DiscordNotifications;
+namespace MyCS\Extensions\Others\DiscordNotifications;
 
 use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\InvoiceResource;
@@ -26,7 +26,7 @@ use Throwable;
     name: 'Discord Notifications',
     description: 'Send notifications to Discord for various events.',
     version: 'builtin',
-    author: 'Paymenter',
+    author: 'MyCS',
 )]
 class DiscordNotifications extends Extension
 {
@@ -249,7 +249,7 @@ class DiscordNotifications extends Extension
                     'fields' => $fields,
                     'color' => 0x00FF00,
                     'footer' => [
-                        'text' => 'Paymenter Notifications',
+                        'text' => 'MyCS Notifications',
                     ],
                     'timestamp' => now()->toIso8601String(),
                 ],

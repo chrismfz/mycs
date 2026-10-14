@@ -11,7 +11,7 @@ use Tests\TestCase;
 
 /**
  * credits_enabled = off means the balance is never spent: not from the invoice page and not by
- * the cron's auto-use (upstream PR #1295 covered only the first; docs/upstream-triage.md).
+ * the cron's auto-use (upstream PR #1295 covered only the first; docs/history/upstream-triage.md).
  */
 class CreditsEnabledTest extends TestCase
 {

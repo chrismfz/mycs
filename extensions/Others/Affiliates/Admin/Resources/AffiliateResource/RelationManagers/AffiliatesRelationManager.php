@@ -1,6 +1,6 @@
 <?php
 
-namespace Paymenter\Extensions\Others\Affiliates\Admin\Resources\AffiliateResource\RelationManagers;
+namespace MyCS\Extensions\Others\Affiliates\Admin\Resources\AffiliateResource\RelationManagers;
 
 use App\Admin\Resources\OrderResource;
 use Filament\Actions\BulkActionGroup;
@@ -10,7 +10,7 @@ use Filament\Actions\ViewAction;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
-use Paymenter\Extensions\Others\Affiliates\Models\AffiliateOrder;
+use MyCS\Extensions\Others\Affiliates\Models\AffiliateOrder;
 
 class AffiliatesRelationManager extends RelationManager
 {

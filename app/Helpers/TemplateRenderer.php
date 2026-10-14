@@ -17,7 +17,7 @@ use MyCS\MailTemplate\TemplateError;
 /**
  * Laravel side of the mycs/mail-template renderer: staff-edited templates (email,
  * in-app notifications, mail header/footer, product email snippets) are rendered
- * from data, never compiled as Blade (docs/audit-security.md H1).
+ * from data, never compiled as Blade (docs/history/audit-security.md H1).
  */
 class TemplateRenderer
 {

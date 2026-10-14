@@ -17,8 +17,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
-use Paymenter\Extensions\Gateways\PayPal\PayPal;
-use Paymenter\Extensions\Gateways\Stripe\Stripe;
+use MyCS\Extensions\Gateways\PayPal\PayPal;
+use MyCS\Extensions\Gateways\Stripe\Stripe;
 use Tests\TestCase;
 
 /**

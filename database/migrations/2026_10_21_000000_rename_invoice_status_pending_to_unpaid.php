@@ -4,7 +4,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
 /**
- * An unpaid invoice is «unpaid» in the database too, as WHMCS calls it and as every screen reads it (Paymenter called
+ * An unpaid invoice is «unpaid» in the database too, as WHMCS calls it and as every screen reads it (the fork's base called
  * it «pending»). The column default stays «draft» (2026_05_15). Older audit rows keep «pending»: they record what was
  * written then (lang/*\/money.php reads both).
  */

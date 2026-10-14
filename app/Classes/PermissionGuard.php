@@ -6,7 +6,7 @@ use App\Models\Staff;
 use Illuminate\Support\Arr;
 
 /**
- * "Nobody grants what they do not have" (docs/audit-security.md M5). Staff with
+ * "Nobody grants what they do not have" (docs/history/audit-security.md M5). Staff with
  * users/roles/api_keys rights could otherwise hand out, or take over, more power than
  * their own role carries: an API key with every permission, a role with '*', another
  * admin's password or email.

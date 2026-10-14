@@ -22,7 +22,7 @@ use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Livewire\Features\SupportTesting\Testable;
-use Paymenter\Extensions\Gateways\PayPal\PayPal;
+use MyCS\Extensions\Gateways\PayPal\PayPal;
 use Tests\TestCase;
 
 /**

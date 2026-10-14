@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Templates are no longer compiled as Blade (docs/audit-security.md H1). Fields still in
+ * Templates are no longer compiled as Blade (docs/history/audit-security.md H1). Fields still in
  * Blade syntax are replaced by the new default of the same field; anything else is kept.
  * A customised Blade template cannot be converted automatically: it is logged so it can
  * be rewritten in the new syntax.

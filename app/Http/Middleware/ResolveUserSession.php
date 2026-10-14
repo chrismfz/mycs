@@ -27,7 +27,7 @@ class ResolveUserSession
         }
 
         if (!$token) {
-            $id = Cookie::get('paymenter_remember');
+            $id = Cookie::get('mycs_remember');
 
             if ($id) {
                 $token = UserSession::findValid($id);

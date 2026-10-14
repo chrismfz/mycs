@@ -1,6 +1,6 @@
 <?php
 
-namespace Paymenter\Extensions\Others\Affiliates\Http\Resources;
+namespace MyCS\Extensions\Others\Affiliates\Http\Resources;
 
 use App\Models\AffiliateOrder;
 use TiMacDonald\JsonApi\JsonApiResource;

@@ -1,12 +1,12 @@
 <?php
 
-namespace Paymenter\Extensions\Others\Affiliates\Listeners;
+namespace MyCS\Extensions\Others\Affiliates\Listeners;
 
 use App\Events\User\Created;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cookie;
-use Paymenter\Extensions\Others\Affiliates\Models\Affiliate;
+use MyCS\Extensions\Others\Affiliates\Models\Affiliate;
 
 class IncreamentAffiliateSignups
 {

@@ -70,7 +70,7 @@ jobs:
         image: mariadb:${{ matrix.mariadb }}
         env:
           MYSQL_ROOT_PASSWORD: password
-          MYSQL_DATABASE: paymenter_test
+          MYSQL_DATABASE: mycs_test
         ports:
           - 3306:3306
         options: --health-cmd="healthcheck.sh --connect --innodb_initialized" --health-interval=10s --health-timeout=5s --health-retries=3
@@ -113,7 +113,7 @@ jobs:
           DB_CONNECTION: mariadb   # like the devbox; the mysql driver asks for utf8mb4_0900_ai_ci, which MariaDB 10.11 lacks
           DB_HOST: 127.0.0.1
           DB_PORT: 3306
-          DB_DATABASE: paymenter_test
+          DB_DATABASE: mycs_test
           DB_USERNAME: root
           DB_PASSWORD: password
         run: php artisan test

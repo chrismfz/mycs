@@ -37,7 +37,7 @@ class Settings
                     'label' => 'Company Name',
                     'type' => 'text',
                     'override' => 'app.name',
-                    'default' => 'Paymenter',
+                    'default' => 'MyCS',
                 ],
                 [
                     'name' => 'timezone',
@@ -63,7 +63,7 @@ class Settings
                 ],
                 [
                     // MyCS: the admin panel has its own language, so a Greek client area
-                    // does not turn the admin into a Filament-Greek / Paymenter-English mix.
+                    // does not turn the admin into a Filament-Greek / app-English mix.
                     'name' => 'admin_language',
                     'label' => 'Admin Language',
                     'default' => 'en',

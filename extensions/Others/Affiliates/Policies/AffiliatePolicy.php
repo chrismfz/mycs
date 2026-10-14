@@ -1,11 +1,11 @@
 <?php
 
-namespace Paymenter\Extensions\Others\Affiliates\Policies;
+namespace MyCS\Extensions\Others\Affiliates\Policies;
 
 use App\Models\Staff;
 use App\Models\User;
 use App\Policies\BasePolicy;
-use Paymenter\Extensions\Others\Affiliates\Models\Affiliate;
+use MyCS\Extensions\Others\Affiliates\Models\Affiliate;
 
 class AffiliatePolicy extends BasePolicy
 {

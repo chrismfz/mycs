@@ -1,7 +1,7 @@
 {
-    "name": "paymenter/paymenter",
+    "name": "mycs/mycs",
     "type": "project",
-    "description": "Paymenter is a self-hosted, open-source, and free invoicing and billing software built with Laravel.",
+    "description": "MyCS: the control plane for hosting customers (accounts, catalogue, billing, provisioning, support).",
     "keywords": [
         "invoicing",
         "billing",
@@ -77,7 +77,7 @@
             "App\\": "app/",
             "Database\\Factories\\": "database/factories/",
             "Database\\Seeders\\": "database/seeders/",
-            "Paymenter\\Extensions\\": "extensions/"
+            "MyCS\\Extensions\\": "extensions/"
         }
     },
     "autoload-dev": {

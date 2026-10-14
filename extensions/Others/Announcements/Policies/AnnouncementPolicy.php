@@ -1,11 +1,11 @@
 <?php
 
-namespace Paymenter\Extensions\Others\Announcements\Policies;
+namespace MyCS\Extensions\Others\Announcements\Policies;
 
 use App\Models\Staff;
 use App\Models\User;
 use App\Policies\BasePolicy;
-use Paymenter\Extensions\Others\Announcements\Models\Announcement;
+use MyCS\Extensions\Others\Announcements\Models\Announcement;
 
 class AnnouncementPolicy extends BasePolicy
 {

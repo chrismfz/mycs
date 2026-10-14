@@ -36,7 +36,7 @@ class InvoiceRouteBindingCodeReviewTest extends TestCase
     /**
      * F1: InvoiceResource builds its URLs with «{record:id}», but Filament re-resolves the record on every Livewire request
      * (Resources\Pages\Page::resolveRecordFromLivewire) from $model->getRouteKey() because getRecordRouteKeyName() is
-     * null. For an invoice with a formatted number (nixpal «2026-15», Paymenter's default «INV-…») that is the number, which
+     * null. For an invoice with a formatted number (nixpal «2026-15», the old default «INV-…») that is the number, which
      * is then looked up as an id: the page opens, and its first action/save (mark paid, refund, delete payment…) is a 404
      * (on MariaDB '2026-15' is cast to 2026: a different invoice id, still a 404 by the key check). Pre-existing on main,
      * left in place by this PR. Fix: `protected static ?string $recordRouteKeyName = 'id';` in InvoiceResource.

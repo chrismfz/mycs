@@ -1,6 +1,6 @@
 <?php
 
-namespace Paymenter\Extensions\Gateways\Stripe;
+namespace MyCS\Extensions\Gateways\Stripe;
 
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Gateway;
@@ -34,8 +34,7 @@ use Str;
     name: 'Stripe Gateway',
     description: 'Accept payments via Stripe.',
     version: 'builtin',
-    author: 'Paymenter',
-    url: 'https://paymenter.org/docs/extensions/stripe',
+    author: 'MyCS',
     icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgZmlsbD0iIzUzM0FGRCIvPjxwYXRoIGQ9Ik0xMjAgMzkyTDM5MiAzMzRWMTEyTDEyMCAxNz hWMzk yWiIgZmlsbD0iI2ZmZiIvPjwvc3ZnPg=='
 )]
 class Stripe extends Gateway
@@ -150,7 +149,7 @@ class Stripe extends Gateway
         // Create webhook on stripe
         $webhook = $this->request('post', '/webhook_endpoints', [
             'url' => route('extensions.gateways.stripe.webhook'),
-            'description' => 'Paymenter Stripe Webhook',
+            'description' => 'MyCS Stripe Webhook',
             'enabled_events' => [
                 'payment_intent.succeeded',
                 'payment_intent.payment_failed',

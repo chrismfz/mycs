@@ -1,6 +1,6 @@
 <?php
 
-namespace Paymenter\Extensions\Others\DiscordNotifications;
+namespace MyCS\Extensions\Others\DiscordNotifications;
 
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;

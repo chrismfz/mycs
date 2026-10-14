@@ -1,6 +1,6 @@
 <?php
 
-namespace Paymenter\Extensions\Others\Affiliates\Listeners;
+namespace MyCS\Extensions\Others\Affiliates\Listeners;
 
 use App\Helpers\ExtensionHelper;
 use App\Models\Invoice;
@@ -8,8 +8,8 @@ use App\Models\Service;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
-use Paymenter\Extensions\Others\Affiliates\Models\Affiliate;
-use Paymenter\Extensions\Others\Affiliates\Models\AffiliateOrder;
+use MyCS\Extensions\Others\Affiliates\Models\Affiliate;
+use MyCS\Extensions\Others\Affiliates\Models\AffiliateOrder;
 
 class RewardAffiliate
 {

@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Log;
 /**
  * Credentials that an extension declares `encrypted` but that were stored in plain text
  * (created through the create form, or before the extension marked them) are encrypted
- * in place (docs/audit-security.md M6).
+ * in place (docs/history/audit-security.md M6).
  */
 return new class extends Migration
 {

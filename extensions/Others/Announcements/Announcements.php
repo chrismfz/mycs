@@ -1,6 +1,6 @@
 <?php
 
-namespace Paymenter\Extensions\Others\Announcements;
+namespace MyCS\Extensions\Others\Announcements;
 
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Extension;
@@ -12,17 +12,17 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\HtmlString;
 use Livewire\Livewire;
-use Paymenter\Extensions\Others\Announcements\Admin\Resources\AnnouncementResource;
-use Paymenter\Extensions\Others\Announcements\Livewire\Announcements\Index;
-use Paymenter\Extensions\Others\Announcements\Livewire\Announcements\Show;
-use Paymenter\Extensions\Others\Announcements\Livewire\Announcements\Widget;
-use Paymenter\Extensions\Others\Announcements\Models\Announcement;
+use MyCS\Extensions\Others\Announcements\Admin\Resources\AnnouncementResource;
+use MyCS\Extensions\Others\Announcements\Livewire\Announcements\Index;
+use MyCS\Extensions\Others\Announcements\Livewire\Announcements\Show;
+use MyCS\Extensions\Others\Announcements\Livewire\Announcements\Widget;
+use MyCS\Extensions\Others\Announcements\Models\Announcement;
 
 #[ExtensionMeta(
     name: 'Announcements',
     description: 'Announcements extension',
     version: 'builtin',
-    author: 'Paymenter',
+    author: 'MyCS',
 )]
 class Announcements extends Extension
 {

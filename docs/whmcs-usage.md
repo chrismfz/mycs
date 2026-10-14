@@ -56,8 +56,8 @@
 | Staff | Μόνο **292** ενέργειες στους 12μ: η nixpal τρέχει σχεδόν μόνη της |
 
 ## Parity backlog: πού βρίσκεται κάθε απαραίτητο στο MyCS
-Πηγή: **P** = Paymenter (υπάρχει) · **E** = Ekdosi (port) · **L** = `lib/` αυτού του repo · **Ν** = νέο, γράφεται.
-Η στήλη «Φάση» ακολουθεί το `ekdosi-vs-paymenter.md`.
+Πηγή: **P** = upstream (υπάρχει) · **E** = Ekdosi (port) · **L** = `lib/` αυτού του repo · **Ν** = νέο, γράφεται.
+Η στήλη «Φάση» ακολουθεί το `history/ekdosi-vs-upstream.md`.
 
 | Απαραίτητο | Πηγή | Φάση | Σημείωση |
 |---|---|---|---|
@@ -65,13 +65,13 @@
 | Υπενθυμίσεις πριν τη λήξη + 1η/2η/3η ληξιπρόθεσμου | E | 1 | |
 | Auto suspend/unsuspend/terminate με ημέρες, overrides ανά υπηρεσία (suspend until, never suspend) | P (+ `suspend_hold_until`) + Ν (never suspend) | 1 | Status μόνο μετά την επιτυχία του job |
 | **Αλλαγή κύκλου χρέωσης** (και χειροκίνητα από admin) | Ν | 1 | `decisions.md` §7· σήμερα γίνεται με το χέρι 463×/έτος |
-| Mass Pay + **merge τιμολογίων** | E (allocator) + Ν | 1 | Πολύ και στις δύο εταιρείες· Paymenter #1137 |
+| Mass Pay + **merge τιμολογίων** | E (allocator) + Ν | 1 | Πολύ και στις δύο εταιρείες· upstream #1137 |
 | Πιστώσεις: add funds, αυτόματη **ή** χειροκίνητη εφαρμογή (ρύθμιση), add/remove από admin, ledger | P (βασικό) + E | 1 | Το P δεν έχει ledger· nixpal αυτόματα, myip χειροκίνητα |
 | Μερικές πληρωμές, Mark Paid, χειροκίνητη πληρωμή, refunds, υπερπληρωμή → πίστωση | P + E | 1 | |
 | **EU VAT ανά χώρα + VIES + reverse charge** + εξαιρέσεις (nixpal) | Ν (+ E: `ViesLookup`) | 1 | Το P έχει έναν συντελεστή ανά χώρα, χωρίς ΑΦΜ και reverse charge |
 | Αρίθμηση `{YEAR}-{NUMBER}` + proforma (nixpal)· invoice ID (myip, σήμερα > 32.476) | P (ρυθμίσεις) | 1 / 5 | Ίδιος κώδικας, ρύθμιση ανά instance (`settings-map.md`) |
 | Promotions recurring + **εκπτώσεις ομάδας πελατών** | P (coupons) + Ν (ομάδες) | 1 | Το P δεν έχει ομάδες πελατών |
-| Stripe με αποθηκευμένες κάρτες, auto-charge· PayPal ppcpv vault | P (+ L `paypal-vault`) | 1 | Fix `round()` (`upstream-triage.md`) |
+| Stripe με αποθηκευμένες κάρτες, auto-charge· PayPal ppcpv vault | P (+ L `paypal-vault`) | 1 | Fix `round()` (`history/upstream-triage.md`) |
 | PayPal legacy subscriptions (nixpal 77 υπηρεσίες, 5 subs) | Ν | 1 | Μετάβαση σε vault ή forwarder IPN |
 | Licensing + `zlic.php` (588k checks/έτος) | L `nixpal-licensing` | 1 | Contract byte-for-byte· cache/rate-limit |
 | Ακυρώσεις (immediate / end of period) με αυτόματη επεξεργασία· ακύρωση προϊόντος όταν ακυρώνεται το τιμολόγιο | P + Ν | 1 | Ο κανόνας του hook `CancelProductOnCancelInvoice` |

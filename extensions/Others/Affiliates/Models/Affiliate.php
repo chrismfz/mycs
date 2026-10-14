@@ -1,6 +1,6 @@
 <?php
 
-namespace Paymenter\Extensions\Others\Affiliates\Models;
+namespace MyCS\Extensions\Others\Affiliates\Models;
 
 use App\Models\Client;
 use Illuminate\Database\Eloquent\Casts\Attribute;

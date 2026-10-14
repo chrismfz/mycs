@@ -30,7 +30,7 @@ class Login
         Auth::guard('web')->login($user);
 
         if ($remember) {
-            Cookie::queue('paymenter_remember', $userSession->ulid, 60 * 24 * 30); // 30 days
+            Cookie::queue('mycs_remember', $userSession->ulid, 60 * 24 * 30); // 30 days
         }
 
         event(new LoginEvent($user));

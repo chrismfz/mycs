@@ -1,6 +1,6 @@
 <?php
 
-namespace Paymenter\Extensions\Others\Affiliates;
+namespace MyCS\Extensions\Others\Affiliates;
 
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Extension;
@@ -15,18 +15,18 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Lang;
 use Illuminate\Support\Facades\View;
 use Livewire\Livewire;
-use Paymenter\Extensions\Others\Affiliates\Listeners\AssociateOrderWithAffiliate;
-use Paymenter\Extensions\Others\Affiliates\Listeners\IncreamentAffiliateSignups;
-use Paymenter\Extensions\Others\Affiliates\Listeners\RewardAffiliate;
-use Paymenter\Extensions\Others\Affiliates\Livewire\Affiliates\Affiliate as AffiliateComponent;
-use Paymenter\Extensions\Others\Affiliates\Middleware\AffiliatesMiddleware;
-use Paymenter\Extensions\Others\Affiliates\Models\Affiliate;
+use MyCS\Extensions\Others\Affiliates\Listeners\AssociateOrderWithAffiliate;
+use MyCS\Extensions\Others\Affiliates\Listeners\IncreamentAffiliateSignups;
+use MyCS\Extensions\Others\Affiliates\Listeners\RewardAffiliate;
+use MyCS\Extensions\Others\Affiliates\Livewire\Affiliates\Affiliate as AffiliateComponent;
+use MyCS\Extensions\Others\Affiliates\Middleware\AffiliatesMiddleware;
+use MyCS\Extensions\Others\Affiliates\Models\Affiliate;
 
 #[ExtensionMeta(
     name: 'Affiliates',
     description: 'Affiliates extension',
     version: 'builtin',
-    author: 'Paymenter',
+    author: 'MyCS',
 )]
 class Affiliates extends Extension
 {

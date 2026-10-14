@@ -3,7 +3,7 @@
 Μεταφράζεται **μόνο το client area** (`lang/el/*.php` για τα κλειδιά, `lang/el.json` για τα μηνύματα που γράφονται
 ως πρόταση στον κώδικα). Το admin έχει **δική του γλώσσα** (ρύθμιση `Admin Language`, default English,
 `AdminLocale` middleware): η ελληνική προεπιλογή για τους πελάτες δεν το κάνει μισό Filament-ελληνικά / μισό
-Paymenter-αγγλικά.
+upstream-αγγλικά.
 
 ## Κανόνες
 1. **Οι όροι που χρησιμοποιεί ήδη ο κλάδος μένουν όπως είναι.** Domain, ticket, email, hosting, DNS, nameserver,

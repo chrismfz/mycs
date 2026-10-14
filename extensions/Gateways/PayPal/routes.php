@@ -1,7 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use Paymenter\Extensions\Gateways\PayPal\PayPal;
+use MyCS\Extensions\Gateways\PayPal\PayPal;
 
 Route::post('/extensions/paypal/webhook', [PayPal::class, 'webhook'])->name('extensions.gateways.paypal.webhook');
 Route::post('/extensions/paypal/capture/{invoice}/{orderID}', [PayPal::class, 'capture'])

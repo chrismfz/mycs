@@ -1,6 +1,6 @@
 <?php
 
-namespace Paymenter\Extensions\Others\Affiliates\Http\Resources;
+namespace MyCS\Extensions\Others\Affiliates\Http\Resources;
 
 use App\Http\Resources\ClientResource;
 use App\Models\Affiliate;
