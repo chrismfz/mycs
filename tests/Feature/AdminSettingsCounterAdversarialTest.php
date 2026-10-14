@@ -43,7 +43,7 @@ class AdminSettingsCounterAdversarialTest extends TestCase
         $counter = Setting::query()->where('key', 'invoice_number')->whereNull('settingable_type')->value('value');
         foreach ($numbers as $number) {
             // Created (numbered by the listener, which also moves the counter), then given the number under test.
-            Invoice::factory()->create(['user_id' => $this->owner->id])->forceFill(['number' => $number])->saveQuietly();
+            Invoice::factory()->create(['user_id' => User::factory()->create()->id])->forceFill(['number' => $number])->saveQuietly();
         }
         Setting::query()->where('key', 'invoice_number')->whereNull('settingable_type')->update(['value' => $counter]);
         config(['settings.invoice_number' => $counter]); // the listener's save moved config too

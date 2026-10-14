@@ -130,7 +130,8 @@ class MoneyHistoryCodeReviewTest extends TestCase
         $this->actingAs($staff);
         (new CreditLedger)->add($this->user->id, 'USD', 500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
         $staffId = $staff->id;
-        $staff->delete();
+        // Staff with money history are disabled, not deleted (DATA-3): one gone anyway, straight from the database.
+        DB::table('staff')->where('id', $staffId)->delete();
         $owner = $this->staff(['*']);
 
         $this->livewireAs($owner)->test(ShowCreditHistory::class, ['record' => $this->user->getKey()])

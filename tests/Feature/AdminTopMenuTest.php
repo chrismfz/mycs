@@ -22,7 +22,7 @@ class AdminTopMenuTest extends TestCase
     }
 
     /** @return array<string, list<string>> group => item labels */
-    private function menuFor(User $user): array
+    private function menuFor(Staff $user): array
     {
         $this->actingAs($user);
 

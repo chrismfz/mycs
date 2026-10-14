@@ -32,7 +32,7 @@ class PermissionGuardTest extends TestCase
         parent::setUp();
         $full = Role::create(['name' => 'Owner', 'permissions' => ['*']]);
         $support = Role::create(['name' => 'Support', 'permissions' => [
-            'admin.users.viewAny', 'admin.users.update', 'admin.users.impersonate',
+            'admin.users.viewAny', 'admin.users.update', 'admin.users.impersonate', 'admin.staff.viewAny', 'admin.staff.update',
             'admin.roles.update', 'admin.api_keys.create', 'admin.api_keys.update',
             'admin.tickets.viewAny', 'admin.tickets.update',
         ]]);
@@ -47,7 +47,9 @@ class PermissionGuardTest extends TestCase
         $this->assertFalse(PermissionGuard::canGrant($this->support, ['admin.settings.update']));
         $this->assertFalse(PermissionGuard::canGrant($this->support, ['*']));
         $this->assertTrue(PermissionGuard::canGrant($this->owner, ['*', 'admin.settings.update']));
-        $this->assertFalse(PermissionGuard::canGrant($this->client, ['admin.tickets.update']));
+        $this->assertFalse(PermissionGuard::canGrant(null, ['admin.tickets.update']));
+        // A customer holds nothing (docs/accounts.md, PR 1).
+        $this->assertFalse($this->client->hasPermission('admin.tickets.update'));
     }
 
     public function test_api_permissions_map_to_role_permissions(): void
@@ -74,7 +76,7 @@ class PermissionGuardTest extends TestCase
         $token = 'PAYM' . bin2hex(random_bytes(8));
         ApiKey::create([
             'name' => 'old key', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
-            'user_id' => $this->support->id,
+            'staff_id' => $this->support->id,
             'permissions' => ['admin.tickets.viewAny', 'admin.invoices.viewAny'],
         ]);
         $request = Request::create('/api/v1/admin/tickets', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]);
@@ -89,18 +91,26 @@ class PermissionGuardTest extends TestCase
         $this->assertSame(['admin.tickets.viewAny'], $seen);
     }
 
-    public function test_a_lesser_admin_cannot_impersonate_a_greater_one(): void
+    /** «Login as client» (AUTH-19): customers only, with the permission; the staff member stays logged in as themselves. */
+    public function test_login_as_client_needs_the_permission_and_reaches_customers_only(): void
     {
-        Auth::login($this->support);
+        $request = Request::create('/dashboard');
+        $request->setLaravelSession(app('session.store'));
         $next = fn () => new Response;
 
-        session()->put('impersonating', $this->owner->id);
-        (new ImpersonateMiddleware)->handle(Request::create('/dashboard'), $next);
-        $this->assertSame($this->support->id, Auth::id());
+        // Without the permission: nothing, and the marker goes.
+        $plain = Staff::factory()->withPermissions(['admin.users.viewAny'])->create();
+        Auth::guard('staff')->setUser($plain);
+        session()->put('impersonating', $this->client->id);
+        (new ImpersonateMiddleware)->handle($request, $next);
+        $this->assertNull(Auth::guard('web')->user());
         $this->assertFalse(session()->has('impersonating'));
 
+        // With it: the client area is the customer's, the staff member still themselves.
+        Auth::guard('staff')->setUser($this->support);
         session()->put('impersonating', $this->client->id);
-        (new ImpersonateMiddleware)->handle(Request::create('/dashboard'), $next);
-        $this->assertSame($this->client->id, Auth::id());
+        (new ImpersonateMiddleware)->handle($request, $next);
+        $this->assertSame($this->client->id, Auth::guard('web')->id());
+        $this->assertTrue(Auth::guard('staff')->user()->is($this->support));
     }
 }

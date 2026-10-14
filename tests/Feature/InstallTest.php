@@ -52,7 +52,6 @@ class InstallTest extends TestCase
         $admin = Staff::query()->where('email', 'admin@example.test')->firstOrFail();
         $this->assertSame('admin', $admin->role?->name);
         $this->assertTrue(Hash::check('Secret123', $admin->password));
-        $this->assertNotNull($admin->email_verified_at);
 
         $this->assertSame('Test Hosting', $this->setting('company_name'));
         $this->assertSame('https://my.example.test', $this->setting('app_url'));
