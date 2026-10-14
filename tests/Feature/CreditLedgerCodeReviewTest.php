@@ -9,6 +9,7 @@ use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\MoneyEvent;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
@@ -41,7 +42,7 @@ class CreditLedgerCodeReviewTest extends TestCase
     private function apiToken(): string
     {
         $token = 'PAYM' . bin2hex(random_bytes(8));
-        ApiKey::create(['name' => 'review', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
+        ApiKey::create(['staff_id' => Staff::factory()->admin()->create()->id, 'name' => 'review', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
             'permissions' => ['admin.credits.create', 'admin.credits.update', 'admin.credits.delete']]);
 
         return $token;

@@ -24,7 +24,6 @@ class UserController extends ApiController
         'invoices',
         'tickets',
         'credits',
-        'role',
     ];
 
     /**

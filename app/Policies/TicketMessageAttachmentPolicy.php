@@ -2,16 +2,17 @@
 
 namespace App\Policies;
 
+use App\Models\Staff;
 use App\Models\TicketMessageAttachment;
 use App\Models\User;
 
-class TicketMessageAttachmentPolicy
+class TicketMessageAttachmentPolicy extends BasePolicy
 {
     /**
      * Determine whether the user can view the model.
      */
-    public function view(User $user, TicketMessageAttachment $attachment): bool
+    public function view(User|Staff $user, TicketMessageAttachment $attachment): bool
     {
-        return $user->hasPermission('admin.tickets.viewAny') || $user->id === $attachment->ticketMessage->ticket->user_id;
+        return $user->hasPermission('admin.tickets.viewAny') || $this->owns($user, $attachment->ticketMessage->ticket->user_id);
     }
 }

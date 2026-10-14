@@ -12,6 +12,7 @@ use App\Models\Invoice;
 use App\Models\MoneyEvent;
 use App\Models\Role;
 use App\Models\Setting;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
@@ -54,9 +55,9 @@ class MoneyHistoryTest extends TestCase
         return $invoice->fresh();
     }
 
-    private function owner(): User
+    private function owner(): Staff
     {
-        return User::factory()->create(['first_name' => 'Zebediah', 'last_name' => 'Staffperson', 'role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        return Staff::factory()->create(['first_name' => 'Zebediah', 'last_name' => 'Staffperson', 'role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
     }
 
     public function test_an_invoices_movements_are_its_journal_and_its_status_changes_in_order(): void
@@ -120,7 +121,7 @@ class MoneyHistoryTest extends TestCase
         $invoice = $this->invoice(100);
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 120.00, null, 'pi_tab', currency: 'USD');
 
-        Livewire::actingAs($this->owner())
+        $this->livewireAs($this->owner())
             ->test(MoneyEventsRelationManager::class, ['ownerRecord' => $invoice->fresh(), 'pageClass' => EditInvoice::class])
             ->assertSuccessful()
             ->assertSee('Credit in (overpayment)')
@@ -141,7 +142,7 @@ class MoneyHistoryTest extends TestCase
         $payment = MoneyEvent::query()->where('kind', 'payment')->sole();
         $credit = MoneyEvent::query()->where('kind', 'credit_in')->sole();
 
-        Livewire::actingAs($owner)->test(ShowCreditHistory::class, ['record' => $this->user->getKey()])
+        $this->livewireAs($owner)->test(ShowCreditHistory::class, ['record' => $this->user->getKey()])
             ->assertSuccessful()
             ->assertCanSeeTableRecords([$credit])
             ->assertCanNotSeeTableRecords([$payment])

@@ -15,6 +15,7 @@ use App\Mail\Mail;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\Role;
+use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\User;
 use Filament\Facades\Filament;
@@ -25,7 +26,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail as MailFacade;
-use Livewire\Livewire;
 use Paymenter\Extensions\Others\DiscordNotifications\DiscordNotifications;
 use RuntimeException;
 use Tests\TestCase;
@@ -66,11 +66,11 @@ class NotificationsAfterCommitReviewTest extends TestCase
             $linesWhenFired = $event->invoice->items()->count();
         });
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
         $customer = User::factory()->create();
         $undo = Repeater::fake();
 
-        Livewire::actingAs($owner)->test(CreateInvoice::class)
+        $this->livewireAs($owner)->test(CreateInvoice::class)
             ->fillForm([
                 'user_id' => $customer->id,
                 'status' => Invoice::STATUS_UNPAID,

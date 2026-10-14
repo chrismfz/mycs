@@ -9,6 +9,7 @@ use App\Models\Invoice;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
+use App\Models\Staff;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -38,7 +39,7 @@ class InvoiceItemReferenceAdversarialTest extends TestCase
     private function token(array $permissions = ['admin.invoice_items.create', 'admin.invoice_items.update']): string
     {
         $token = 'PAYM' . bin2hex(random_bytes(8));
-        ApiKey::create(['name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => $permissions]);
+        ApiKey::create(['staff_id' => Staff::factory()->admin()->create()->id, 'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => $permissions]);
 
         return $token;
     }
@@ -205,11 +206,11 @@ class InvoiceItemReferenceAdversarialTest extends TestCase
         $own = $this->serviceOf($this->customer);
         $item = $this->invoice->items()->create(['description' => 'Renewal', 'price' => 10, 'quantity' => 1, 'reference_type' => Service::class, 'reference_id' => $own->id]);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
         // A second Livewire request is bounced to auth.logout by the session middleware in tests: drive the page in-process.
         $this->actingAs($owner);
-        $page = Livewire::actingAs($owner)->test(EditInvoice::class, ['record' => $this->invoice->getKey()])->instance();
+        $page = $this->livewireAs($owner)->test(EditInvoice::class, ['record' => $this->invoice->getKey()])->instance();
         $key = array_key_first($page->data['items']);
         $page->data['items'][$key]['price'] = '12.00';
         $page->data['items'][$key]['reference_type'] = Credit::class;

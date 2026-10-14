@@ -25,7 +25,7 @@ class TicketReplyEmailListener
             $ticket = $ticketMessage->ticket;
             // Check if we ever sent a reply to this ticket
             // Second last, because last is the current message
-            $previousReply = $ticket->messages()->where('user_id', '!=', $ticket->user_id)->orderBy('id', 'desc')->skip(1)->first();
+            $previousReply = $ticket->messages()->whereNotNull('staff_id')->orderBy('id', 'desc')->skip(1)->first();
             $message->getHeaders()->addHeader('Message-ID', $ticketMessage->id . '@' . $host);
             if ($previousReply) {
                 $message->getHeaders()->addHeader('In-Reply-To', $previousReply->id . '@' . $host);

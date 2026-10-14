@@ -15,6 +15,7 @@ use App\Models\MoneyEventNote;
 use App\Models\Price;
 use App\Models\Role;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
@@ -60,17 +61,17 @@ class CreditLedgerTest extends TestCase
         return number_format($cents / 100, 2, '.', '');
     }
 
-    private function owner(): User
+    private function owner(): Staff
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 
-        return User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        return Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
     }
 
     private function apiToken(array $permissions): string
     {
         $token = 'PAYM' . bin2hex(random_bytes(8));
-        ApiKey::create(['name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => $permissions]);
+        ApiKey::create(['staff_id' => Staff::factory()->admin()->create()->id, 'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => $permissions]);
 
         return $token;
     }
@@ -165,7 +166,7 @@ class CreditLedgerTest extends TestCase
             'status' => 'active', 'price' => 10.00, 'currency_code' => 'USD', 'expires_at' => now()->addDays(20),
         ]);
 
-        Livewire::actingAs($this->user)->test(Upgrade::class, ['service' => $service])
+        $this->livewireAs($this->user)->test(Upgrade::class, ['service' => $service])
             ->set('upgrade', $to->product->id)
             ->call('doUpgrade');
 
@@ -206,7 +207,7 @@ class CreditLedgerTest extends TestCase
     {
         $owner = $this->owner();
         // A fresh page per action: a refused action stays mounted (its modal open) on the same component.
-        $page = fn () => Livewire::actingAs($owner)->test(ShowCredits::class, ['record' => $this->user->getKey()]);
+        $page = fn () => $this->livewireAs($owner)->test(ShowCredits::class, ['record' => $this->user->getKey()]);
 
         $page()->callTableAction('addCredit', data: ['currency_code' => 'USD', 'amount' => '20.00', 'reason' => ''])
             ->assertHasTableActionErrors(['reason' => 'required']);

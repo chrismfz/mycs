@@ -8,6 +8,7 @@ use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\Role;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Hidden;
@@ -15,7 +16,6 @@ use Filament\Forms\Components\Repeater;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
@@ -43,7 +43,7 @@ class InvoiceItemReferenceTest extends TestCase
     private function token(): string
     {
         $token = 'PAYM' . bin2hex(random_bytes(8));
-        ApiKey::create(['name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
+        ApiKey::create(['staff_id' => Staff::factory()->admin()->create()->id, 'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
             'permissions' => ['admin.invoice_items.create', 'admin.invoice_items.update']]);
 
         return $token;
@@ -118,9 +118,9 @@ class InvoiceItemReferenceTest extends TestCase
     {
         $this->invoice->items()->create(['description' => 'Line', 'price' => 50, 'quantity' => 1]);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
-        $form = Livewire::actingAs($owner)->test(EditInvoice::class, ['record' => $this->invoice->getKey()])->instance()->form;
+        $form = $this->livewireAs($owner)->test(EditInvoice::class, ['record' => $this->invoice->getKey()])->instance()->form;
         $repeater = $form->getComponent(fn ($component) => $component instanceof Repeater && $component->getName() === 'items');
         $this->assertNotNull($repeater);
 

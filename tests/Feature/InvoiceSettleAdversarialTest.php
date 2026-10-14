@@ -13,6 +13,7 @@ use App\Models\Invoice;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\ChangeOpenLine;
 use App\Services\Invoice\RecordPaymentService;
@@ -105,11 +106,11 @@ class InvoiceSettleAdversarialTest extends TestCase
         return $invoice->fresh();
     }
 
-    private function staff(array $permissions): User
+    private function staff(array $permissions): Staff
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 
-        return User::factory()->create(['role_id' => Role::create(['name' => 'Staff ' . uniqid(), 'permissions' => $permissions])->id]);
+        return Staff::factory()->create(['role_id' => Role::create(['name' => 'Staff ' . uniqid(), 'permissions' => $permissions])->id]);
     }
 
     private function assertBooksClean(string $context): void
@@ -177,7 +178,7 @@ class InvoiceSettleAdversarialTest extends TestCase
         $invoice = $this->reducedBelowPayment();
         $clerk = $this->staff(['admin.invoices.viewAny', 'admin.invoices.viewAny', 'admin.invoices.update']);
 
-        Livewire::actingAs($clerk)->test(EditInvoice::class, ['record' => $invoice->getKey()])
+        $this->livewireAs($clerk)->test(EditInvoice::class, ['record' => $invoice->getKey()])
             ->assertActionHidden('closeAsPaid');
 
         // What the edit form's status select saves, twice.

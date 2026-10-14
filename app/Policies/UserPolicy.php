@@ -2,7 +2,7 @@
 
 namespace App\Policies;
 
-use App\Classes\PermissionGuard;
+use App\Models\Staff;
 use App\Models\User;
 
 class UserPolicy
@@ -10,7 +10,7 @@ class UserPolicy
     /**
      * Determine whether the user can view any models.
      */
-    public function viewAny(User $user): bool
+    public function viewAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.users.viewAny');
     }
@@ -18,7 +18,7 @@ class UserPolicy
     /**
      * Determine whether the user can view the model.
      */
-    public function view(User $user, User $model): bool
+    public function view(User|Staff $user, User $model): bool
     {
         return $user->hasPermission('admin.users.viewAny');
     }
@@ -26,7 +26,7 @@ class UserPolicy
     /**
      * Determine whether the user can create models.
      */
-    public function create(User $user): bool
+    public function create(User|Staff $user): bool
     {
         return $user->hasPermission('admin.users.create');
     }
@@ -34,24 +34,24 @@ class UserPolicy
     /**
      * Determine whether the user can update the model.
      */
-    public function update(User $user, User $model): bool
+    public function update(User|Staff $user, User $model): bool
     {
-        // Another admin's account (password, email, role) only if you hold all of their permissions.
-        return $user->hasPermission('admin.users.update') && PermissionGuard::outranks($user, $model);
+        // Users are customers (no role): staff with the permission may edit any (roles are on Staff only).
+        return $user->hasPermission('admin.users.update');
     }
 
     /**
      * Determine whether the user can delete the model.
      */
-    public function delete(User $user, User $model): bool
+    public function delete(User|Staff $user, User $model): bool
     {
-        return $user->hasPermission('admin.users.delete') && PermissionGuard::outranks($user, $model);
+        return $user->hasPermission('admin.users.delete');
     }
 
     /**
      * Determine whether the user can delete the model.
      */
-    public function deleteAny(User $user): bool
+    public function deleteAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.users.deleteAny');
     }

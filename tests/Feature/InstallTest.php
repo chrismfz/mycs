@@ -5,7 +5,7 @@ namespace Tests\Feature;
 use App\Models\Currency;
 use App\Models\Role;
 use App\Models\Setting;
-use App\Models\User;
+use App\Models\Staff;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
@@ -49,10 +49,9 @@ class InstallTest extends TestCase
     {
         $this->artisan('mycs:install', self::OPTIONS)->assertSuccessful();
 
-        $admin = User::query()->where('email', 'admin@example.test')->firstOrFail();
+        $admin = Staff::query()->where('email', 'admin@example.test')->firstOrFail();
         $this->assertSame('admin', $admin->role?->name);
         $this->assertTrue(Hash::check('Secret123', $admin->password));
-        $this->assertNotNull($admin->email_verified_at);
 
         $this->assertSame('Test Hosting', $this->setting('company_name'));
         $this->assertSame('https://my.example.test', $this->setting('app_url'));
@@ -71,10 +70,10 @@ class InstallTest extends TestCase
         $this->artisan('mycs:install', self::OPTIONS)->assertSuccessful();
 
         $this->artisan('mycs:install', ['--email' => 'second@example.test'] + self::OPTIONS)->assertFailed();
-        $this->assertSame(1, User::query()->count());
+        $this->assertSame(1, Staff::query()->count());
 
         $this->artisan('mycs:install', ['--email' => 'second@example.test', '--force' => true] + self::OPTIONS)->assertSuccessful();
-        $this->assertSame(2, User::query()->count());
+        $this->assertSame(2, Staff::query()->count());
     }
 
     public function test_force_never_resets_an_existing_admins_password(): void
@@ -84,7 +83,7 @@ class InstallTest extends TestCase
 
         $this->artisan('mycs:install', ['--force' => true] + self::OPTIONS)->assertSuccessful();
 
-        $this->assertTrue(Hash::check('Secret123', User::query()->firstOrFail()->password));
+        $this->assertTrue(Hash::check('Secret123', Staff::query()->firstOrFail()->password));
     }
 
     public function test_a_weak_or_missing_password_is_refused(): void
@@ -95,7 +94,7 @@ class InstallTest extends TestCase
         putenv('MYCS_ADMIN_PASSWORD');
         $this->artisan('mycs:install', self::OPTIONS)->assertFailed();
 
-        $this->assertSame(0, User::query()->count());
+        $this->assertSame(0, Staff::query()->count());
     }
 
     public function test_bad_input_is_refused_before_anything_is_written(): void
@@ -104,7 +103,7 @@ class InstallTest extends TestCase
         $this->artisan('mycs:install', ['--currency' => 'GBP'] + self::OPTIONS)->assertFailed();
         $this->artisan('mycs:install', ['--language' => 'xx'] + self::OPTIONS)->assertFailed();
 
-        $this->assertSame(0, User::query()->count());
+        $this->assertSame(0, Staff::query()->count());
         $this->assertNull($this->setting('company_name'));
     }
 }

@@ -12,6 +12,7 @@ use App\Models\Order;
 use App\Models\Role;
 use App\Models\Server;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Money\MoneyCheck;
 use App\Services\Service\DeleteService;
@@ -25,7 +26,6 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
-use Livewire\Livewire;
 use Paymenter\Extensions\Gateways\Stripe\Stripe;
 use Paymenter\Extensions\Others\DiscordNotifications\DiscordNotifications;
 use Tests\TestCase;
@@ -186,9 +186,9 @@ class ServiceOrderDeleteReviewTest extends TestCase
     {
         $service = $this->service();
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $admin = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
-        Livewire::actingAs($admin)->test(ListOrders::class)
+        $this->livewireAs($admin)->test(ListOrders::class)
             ->callTableBulkAction('delete', [$service->order])
             ->assertNotNotified(__('filament-actions::delete.multiple.notifications.deleted.title'));
 

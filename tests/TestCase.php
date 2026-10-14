@@ -5,11 +5,15 @@ namespace Tests;
 use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Product;
+use App\Models\Staff;
 use App\Models\User;
 use App\Models\UserSession;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Once;
+use Livewire\Livewire;
+use Livewire\LivewireManager;
 
 abstract class TestCase extends BaseTestCase
 {
@@ -84,11 +88,27 @@ abstract class TestCase extends BaseTestCase
         ];
     }
 
-    /**
-     * Helper to create a user session and set it in the session
-     */
-    protected function loginUser(User $user, array $sessionData = []): array
+    /** Livewire::actingAs() with the guard of who acts: staff on theirs, customers on the default one. */
+    protected function livewireAs(Authenticatable $user): LivewireManager
     {
+        return Livewire::actingAs($user, $user instanceof Staff ? 'staff' : null);
+    }
+
+    /** Staff act on their own guard (docs/accounts.md, PR 1), customers on theirs, whatever the default is now. */
+    public function actingAs(Authenticatable $user, $guard = null)
+    {
+        return parent::actingAs($user, $guard ?? ($user instanceof Staff ? 'staff' : 'web'));
+    }
+
+    /**
+     * Helper to create a user session and set it in the session. Staff need none: the admin panel uses the plain
+     * session guard, not the customers' user_sessions.
+     */
+    protected function loginUser(User|Staff $user, array $sessionData = []): array
+    {
+        if ($user instanceof Staff) {
+            return $sessionData;
+        }
         $userSession = UserSession::create([
             'user_id' => $user->id,
             'ip_address' => request()->ip(),

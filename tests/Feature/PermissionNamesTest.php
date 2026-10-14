@@ -6,12 +6,12 @@ use App\Admin\Resources\FailedJobResource\Pages\ListFailedJobs;
 use App\Models\Audit;
 use App\Models\FailedJob;
 use App\Models\Role;
+use App\Models\Staff;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
-use Livewire\Livewire;
 use Symfony\Component\Finder\Finder;
 use Tests\TestCase;
 
@@ -41,11 +41,11 @@ class PermissionNamesTest extends TestCase
         $this->assertSame([], $missing, 'checked but not defined: no role could be given them');
     }
 
-    private function staff(array $permissions): User
+    private function staff(array $permissions): Staff
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 
-        return User::factory()->create(['role_id' => Role::create(['name' => 'Staff' . uniqid(), 'permissions' => $permissions])->id]);
+        return Staff::factory()->create(['role_id' => Role::create(['name' => 'Staff' . uniqid(), 'permissions' => $permissions])->id]);
     }
 
     public function test_audits_are_never_edited_or_deleted_even_by_the_owner(): void
@@ -65,7 +65,7 @@ class PermissionNamesTest extends TestCase
         $viewer = $this->staff(['admin.failed_jobs.viewAny']);
         DB::table('failed_jobs')->insert(['uuid' => 'u-1', 'connection' => 'database', 'queue' => 'default', 'payload' => json_encode(['displayName' => 'App\\Jobs\\Server\\CreateJob', 'data' => []]), 'exception' => 'x', 'failed_at' => now()]);
 
-        Livewire::actingAs($viewer)->test(ListFailedJobs::class)
+        $this->livewireAs($viewer)->test(ListFailedJobs::class)
             ->assertTableActionHidden('retry', FailedJob::query()->first())
             ->assertTableActionHidden('delete', FailedJob::query()->first());
 

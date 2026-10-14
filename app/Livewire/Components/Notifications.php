@@ -12,12 +12,12 @@ class Notifications extends Component
     #[Computed, On('notification-added')]
     public function notifications()
     {
-        return Auth::user()->notifications()->orderBy('created_at', 'desc')->limit(5)->get();
+        return Auth::guard('web')->user()->notifications()->orderBy('created_at', 'desc')->limit(5)->get();
     }
 
     public function goToNotification($id)
     {
-        $notification = Auth::user()->notifications()->where('id', $id)->first();
+        $notification = Auth::guard('web')->user()->notifications()->where('id', $id)->first();
         if (!$notification) {
             return;
         }
@@ -31,7 +31,7 @@ class Notifications extends Component
 
     public function markAsRead($id)
     {
-        $notification = Auth::user()->notifications()->where('id', $id)->first();
+        $notification = Auth::guard('web')->user()->notifications()->where('id', $id)->first();
         if (!$notification) {
             return;
         }

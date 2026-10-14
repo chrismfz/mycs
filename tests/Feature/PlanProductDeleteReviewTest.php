@@ -11,6 +11,7 @@ use App\Models\Product;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\ServiceCancellation;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use Filament\Actions\Testing\TestAction;
@@ -20,7 +21,6 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
-use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
@@ -143,9 +143,9 @@ class PlanProductDeleteReviewTest extends TestCase
     {
         $service = $this->service();
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $admin = User::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
-        $page = Livewire::actingAs($admin)->test(EditProduct::class, ['record' => $service->product->getRouteKey()]);
+        $page = $this->livewireAs($admin)->test(EditProduct::class, ['record' => $service->product->getRouteKey()]);
         $key = array_key_first($page->get('data.plan'));
         $page->callAction(TestAction::make('delete')->schemaComponent('plan', 'form')->arguments(['item' => $key]));
         $page->assertNotified('Whoops!'); // the guard ran and cancelled the removal
@@ -166,9 +166,9 @@ class PlanProductDeleteReviewTest extends TestCase
         $spare = Plan::factory()->create(['priceable_id' => $product->id, 'priceable_type' => Product::class,
             'name' => 'Spare', 'billing_unit' => 'year', 'billing_period' => 1, 'type' => 'recurring']);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $admin = User::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
-        $page = Livewire::actingAs($admin)->test(EditProduct::class, ['record' => $product->getRouteKey()]);
+        $page = $this->livewireAs($admin)->test(EditProduct::class, ['record' => $product->getRouteKey()]);
         $key = collect($page->get('data.plan'))->search(fn ($item) => ($item['id'] ?? null) === $spare->id);
         $this->assertNotFalse($key);
         $page->callAction(TestAction::make('delete')->schemaComponent('plan', 'form')->arguments(['item' => $key]));
@@ -195,9 +195,9 @@ class PlanProductDeleteReviewTest extends TestCase
         $spare = Plan::factory()->create(['priceable_id' => $product->id, 'priceable_type' => Product::class,
             'name' => 'Spare', 'billing_unit' => 'year', 'billing_period' => 1, 'type' => 'recurring']);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $admin = User::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
-        $page = Livewire::actingAs($admin)->test(EditProduct::class, ['record' => $product->getRouteKey()]);
+        $page = $this->livewireAs($admin)->test(EditProduct::class, ['record' => $product->getRouteKey()]);
         foreach ([$other, $spare] as $plan) { // both unused when removed
             $key = collect($page->get('data.plan'))->search(fn ($item) => ($item['id'] ?? null) === $plan->id);
             $page->callAction(TestAction::make('delete')->schemaComponent('plan', 'form')->arguments(['item' => $key]));

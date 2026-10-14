@@ -8,13 +8,13 @@ use App\Models\Gateway;
 use App\Models\Order;
 use App\Models\Role;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
-use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
@@ -90,11 +90,11 @@ class AdminCancelSubscriptionTest extends TestCase
     private function orderPage()
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $admin = User::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
         $order = Order::query()->create(['user_id' => $this->service->user_id, 'currency_code' => 'USD']);
         $this->service->update(['order_id' => $order->id]);
 
-        return Livewire::actingAs($admin)->test(EditOrder::class, ['record' => $order->getRouteKey()]);
+        return $this->livewireAs($admin)->test(EditOrder::class, ['record' => $order->getRouteKey()]);
     }
 
     private function cancelOnOrderPage($page)

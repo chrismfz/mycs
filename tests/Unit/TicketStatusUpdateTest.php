@@ -2,6 +2,7 @@
 
 namespace Tests\Unit;
 
+use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
@@ -23,9 +24,9 @@ class TicketStatusUpdateTest extends TestCase
 
         $this->assertEquals('open', $ticket->fresh()->status);
 
-        // Simulate a new message created by a different user
-        $anotherUser = User::factory()->create();
-        TicketMessage::factory()->create(['ticket_id' => $ticket->id, 'user_id' => $anotherUser->id]);
+        // A reply by staff (docs/accounts.md, PR 1: told by its author, staff_id)
+        $staff = Staff::factory()->admin()->create();
+        TicketMessage::factory()->create(['ticket_id' => $ticket->id, 'user_id' => null, 'staff_id' => $staff->id]);
 
         // Assert that the ticket status is updated to 'replied'
         $this->assertEquals('replied', $ticket->fresh()->status);

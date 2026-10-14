@@ -13,7 +13,6 @@ use App\Models\ServiceUpgrade;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
-use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
@@ -41,7 +40,7 @@ class ClientDraftsAndUpgradeValuesTest extends TestCase
 
         $this->assertFalse($this->user->can('view', $draft));
         $this->assertTrue($this->user->can('view', $issued));
-        Livewire::actingAs($this->user)->test(Index::class)
+        $this->livewireAs($this->user)->test(Index::class)
             ->assertViewHas('invoices', fn ($invoices) => $invoices->pluck('id')->all() === [$issued->id]);
     }
 
@@ -67,7 +66,7 @@ class ClientDraftsAndUpgradeValuesTest extends TestCase
     {
         [$service, $to, $option, $foreign] = $this->upgradeWithOption();
 
-        Livewire::actingAs($this->user)->test(Upgrade::class, ['service' => $service])
+        $this->livewireAs($this->user)->test(Upgrade::class, ['service' => $service])
             ->set('upgrade', $to->product->id)
             ->set("configOptions.{$option->id}", $foreign->id)
             ->call('doUpgrade');
@@ -88,7 +87,7 @@ class ClientDraftsAndUpgradeValuesTest extends TestCase
             'status' => 'active', 'price' => 10.00, 'currency_code' => 'USD', 'expires_at' => now()->addDays(20),
         ]);
 
-        Livewire::actingAs($this->user)->test(Upgrade::class, ['service' => $service])
+        $this->livewireAs($this->user)->test(Upgrade::class, ['service' => $service])
             ->set('upgrade', $to->product->id)
             ->call('doUpgrade');
 

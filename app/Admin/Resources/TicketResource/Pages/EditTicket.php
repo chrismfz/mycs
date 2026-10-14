@@ -78,7 +78,7 @@ class EditTicket extends EditRecord
         $data = $this->form->getState();
 
         $message = $this->record->messages()->create([
-            'user_id' => Auth::id(),
+            'staff_id' => Auth::guard('staff')->id(),
             'message' => $data['message'] ?? '',
         ]);
 
@@ -182,7 +182,7 @@ class EditTicket extends EditRecord
                                     UserComponent::make('user_id'),
                                     Select::make('assigned_to')
                                         ->label('Assigned To')
-                                        ->relationship('assignedTo', 'id', fn (Builder $query) => $query->where('role_id', '!=', null))
+                                        ->relationship('assignedTo', 'id', fn (Builder $query) => $query->where('active', true))
                                         ->searchable()
                                         ->preload()
                                         ->getOptionLabelFromRecordUsing(fn ($record) => $record->name),

@@ -6,15 +6,10 @@ use App\Enums\InvoiceTransactionStatus;
 use App\Models\Traits\HasProperties;
 use App\Observers\UserObserver;
 use Dedoc\Scramble\Attributes\SchemaName;
-use Filament\Models\Contracts\FilamentUser;
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
-
 use Filament\Models\Contracts\HasAvatar;
-use Filament\Panel;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -32,7 +27,10 @@ use OwenIt\Auditing\Contracts\Auditable;
  */
 #[SchemaName('UserModel')]
 #[ObservedBy([UserObserver::class])]
-class User extends Authenticatable implements Auditable, FilamentUser, HasAvatar, OAuthenticatable
+/**
+ * A customer login. Never staff (docs/accounts.md, PR 1): staff are App\Models\Staff, with their own guard.
+ */
+class User extends Authenticatable implements Auditable, HasAvatar, OAuthenticatable
 {
     use HasApiTokens, HasFactory, HasProperties, Notifiable, Traits\Auditable;
 
@@ -46,7 +44,6 @@ class User extends Authenticatable implements Auditable, FilamentUser, HasAvatar
         'last_name',
         'email',
         'password',
-        'role_id',
         'tfa_secret',
         'email_verified_at',
         'credit_auto_apply',
@@ -130,29 +127,10 @@ class User extends Authenticatable implements Auditable, FilamentUser, HasAvatar
         );
     }
 
-    public function hasPermission($permission): bool
+    /** A customer holds no admin permission (only Staff do). */
+    public function hasPermission(string $permission): bool
     {
-        if (is_null($this->role)) {
-            return false;
-        }
-
-        // If the user has all permissions, return true
-        if (in_array('*', $this->role->permissions)) {
-            return true;
-        }
-
-        return in_array($permission, $this->role->permissions);
-    }
-
-    /** Relationships */
-    /**
-     * Get the role that the user belongs to.
-     * Can be null if the user is a normal user (non-admin).
-     */
-    /** @return BelongsTo<Role, $this> */
-    public function role(): BelongsTo
-    {
-        return $this->belongsTo(Role::class);
+        return false;
     }
 
     /**
@@ -193,15 +171,6 @@ class User extends Authenticatable implements Auditable, FilamentUser, HasAvatar
     public function invoices(): HasMany
     {
         return $this->hasMany(Invoice::class);
-    }
-
-    public function canAccessPanel(Panel $panel): bool
-    {
-        if ($panel->getId() === 'admin') {
-            return !is_null($this->role);
-        }
-
-        return false;
     }
 
     /**

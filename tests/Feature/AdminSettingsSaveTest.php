@@ -5,10 +5,9 @@ namespace Tests\Feature;
 use App\Admin\Pages\Settings;
 use App\Models\Role;
 use App\Models\Setting;
-use App\Models\User;
+use App\Models\Staff;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
@@ -22,9 +21,9 @@ class AdminSettingsSaveTest extends TestCase
     public function test_the_settings_form_saves(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
-        Livewire::actingAs($owner)->test(Settings::class)
+        $this->livewireAs($owner)->test(Settings::class)
             ->set('data.system_email_address', 'billing@example.test') // required, empty in the test seed
             ->set('data.app_language', 'el')
             ->call('save')
@@ -36,9 +35,9 @@ class AdminSettingsSaveTest extends TestCase
     public function test_a_broken_mail_header_template_is_refused_not_crashed(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
-        Livewire::actingAs($owner)->test(Settings::class)
+        $this->livewireAs($owner)->test(Settings::class)
             ->set('data.mail_header', '{% if app.name %}never closed')
             ->call('save')
             ->assertHasErrors('data.mail_header');

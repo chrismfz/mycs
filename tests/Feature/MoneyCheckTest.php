@@ -10,6 +10,7 @@ use App\Models\Invoice;
 use App\Models\PaymentGatewayEvent;
 use App\Models\Role;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
@@ -22,7 +23,6 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
-use Livewire\Livewire;
 use Paymenter\Extensions\Gateways\Stripe\Stripe;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
@@ -292,12 +292,12 @@ class MoneyCheckTest extends TestCase
     {
         DB::table('currencies')->insertOrIgnore(['code' => 'USD', 'name' => 'US Dollar', 'prefix' => '$', 'format' => '1,000.00']);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
         $waiting = $this->paid();
         $applied = $this->paid();
         DB::table('invoices')->where('id', $waiting->id)->update(['apply_pending_since' => now()->subHour()]);
 
-        Livewire::actingAs($owner)->test(ListInvoices::class)
+        $this->livewireAs($owner)->test(ListInvoices::class)
             ->filterTable('paid_not_applied')
             ->assertCanSeeTableRecords([$waiting])
             ->assertCanNotSeeTableRecords([$applied]);

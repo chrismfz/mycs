@@ -12,6 +12,7 @@ use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\MoneyEvent;
 use App\Models\Role;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
@@ -22,7 +23,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Livewire\Livewire;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use Tests\TestCase;
@@ -55,9 +55,9 @@ class MoneyHistoryCodeReviewTest extends TestCase
     }
 
     /** @param  list<string>  $permissions */
-    private function staff(array $permissions): User
+    private function staff(array $permissions): Staff
     {
-        return User::factory()->create(['role_id' => Role::create(['name' => 'Staff' . uniqid(), 'permissions' => $permissions])->id]);
+        return Staff::factory()->create(['role_id' => Role::create(['name' => 'Staff' . uniqid(), 'permissions' => $permissions])->id]);
     }
 
     /**
@@ -125,14 +125,15 @@ class MoneyHistoryCodeReviewTest extends TestCase
     public function test_a_deleted_staff_actor_is_not_shown_as_system(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $staff = User::factory()->create(['first_name' => 'Quentin', 'last_name' => 'Gone', 'role_id' => Role::create(['name' => 'Gone' . uniqid(), 'permissions' => ['*']])->id]);
+        $staff = Staff::factory()->create(['first_name' => 'Quentin', 'last_name' => 'Gone', 'role_id' => Role::create(['name' => 'Gone' . uniqid(), 'permissions' => ['*']])->id]);
         $this->actingAs($staff);
         (new CreditLedger)->add($this->user->id, 'USD', 500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'Goodwill');
         $staffId = $staff->id;
-        $staff->delete();
+        // Staff with money history are disabled, not deleted (DATA-3): one gone anyway, straight from the database.
+        DB::table('staff')->where('id', $staffId)->delete();
         $owner = $this->staff(['*']);
 
-        Livewire::actingAs($owner)->test(ShowCreditHistory::class, ['record' => $this->user->getKey()])
+        $this->livewireAs($owner)->test(ShowCreditHistory::class, ['record' => $this->user->getKey()])
             ->assertSuccessful()
             ->assertSee('Goodwill')
             ->assertDontSee('System')

@@ -11,6 +11,7 @@ use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\Role;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Illuminate\Database\QueryException;
@@ -18,7 +19,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
-use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
@@ -131,9 +131,9 @@ class ConfigValuesAgreementsCurrenciesTest extends TestCase
         DB::table('currencies')->insertOrIgnore(['code' => 'EUR', 'name' => 'Euro', 'prefix' => '€', 'format' => '1.000,00']);
         Invoice::factory()->create(['user_id' => User::factory()->create()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'EUR']);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
-        Livewire::actingAs($owner)->test(EditCurrency::class, ['record' => 'EUR'])->callAction('delete');
+        $this->livewireAs($owner)->test(EditCurrency::class, ['record' => 'EUR'])->callAction('delete');
 
         $this->assertNotNull(Currency::find('EUR'));
     }

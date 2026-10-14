@@ -10,13 +10,13 @@ use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\PaymentGatewayEvent;
 use App\Models\Role;
+use App\Models\Staff;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
-use Livewire\Livewire;
 use Paymenter\Extensions\Gateways\PayPal\PayPal;
 use Paymenter\Extensions\Gateways\Stripe\Stripe;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
@@ -184,8 +184,8 @@ class GatewayLogTest extends TestCase
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $row = PaymentGatewayEvent::query()->create(['gateway' => 'stripe', 'endpoint' => 'webhook', 'method' => 'POST', 'outcome' => 'recorded']);
-        $clerk = User::factory()->create(['role_id' => Role::create(['name' => 'Clerk' . uniqid(), 'permissions' => ['admin.invoices.viewAny']])->id]);
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        $clerk = Staff::factory()->create(['role_id' => Role::create(['name' => 'Clerk' . uniqid(), 'permissions' => ['admin.invoices.viewAny']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
         $this->actingAs($clerk);
         $this->assertFalse(PaymentGatewayEventResource::canAccess());
@@ -193,7 +193,7 @@ class GatewayLogTest extends TestCase
         $this->actingAs($owner);
         $this->assertFalse($owner->can('update', $row));
         $this->assertFalse($owner->can('delete', $row));
-        Livewire::actingAs($owner)->test(ListPaymentGatewayEvents::class)
+        $this->livewireAs($owner)->test(ListPaymentGatewayEvents::class)
             ->assertSuccessful()
             ->assertCanSeeTableRecords([$row]);
     }

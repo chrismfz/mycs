@@ -12,7 +12,7 @@ class TicketMessageCreatedListener
      */
     public function handle(Created $event): void
     {
-        if ($event->ticketMessage->ticket->user->id !== $event->ticketMessage->user->id) {
+        if ($event->ticketMessage->isFromStaff()) {
             // Update ticket status
             $event->ticketMessage->ticket->update(['status' => 'replied']);
             // Send notification to ticket owner

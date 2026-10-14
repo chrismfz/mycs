@@ -8,6 +8,7 @@ use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\Role;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\MoneyCheck;
@@ -15,7 +16,6 @@ use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Livewire\Livewire;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use Tests\TestCase;
@@ -123,9 +123,9 @@ class InvoiceSettleCodeReviewTest extends TestCase
         $draft = $this->newInvoice(Invoice::STATUS_DRAFT);
         $draft->items()->create(['description' => 'Free transfer', 'quantity' => 1, 'price' => 0]);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $staff = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
-        $page = Livewire::actingAs($staff)->test(EditInvoice::class, ['record' => $draft->getKey()])
+        $page = $this->livewireAs($staff)->test(EditInvoice::class, ['record' => $draft->getKey()])
             ->fillForm(['status' => Invoice::STATUS_UNPAID])
             ->call('save')
             ->assertHasNoFormErrors();

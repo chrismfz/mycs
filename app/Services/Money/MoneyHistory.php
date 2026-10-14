@@ -7,6 +7,7 @@ use App\Enums\MoneyEventKind;
 use App\Models\Currency;
 use App\Models\Invoice;
 use App\Models\MoneyEvent;
+use App\Models\Staff;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
@@ -150,12 +151,16 @@ class MoneyHistory
     }
 
     /**
-     * Who did it: a user by name and id, anything else by type and id, a deleted one by its id, nobody as «System».
+     * Who did it: a customer or staff member by name and id, anything else by type and id, a deleted one by its id, nobody as «System».
      */
     public static function actorName(mixed $actor, ?string $type = null, mixed $id = null): string
     {
         if ($actor instanceof User) {
             return trim($actor->first_name . ' ' . $actor->last_name) . ' (#' . $actor->id . ')';
+        }
+        // Staff and customers have their own ids: staff say so (docs/accounts.md, PR 1).
+        if ($actor instanceof Staff) {
+            return $actor->name . ' (' . __('staff') . ' #' . $actor->id . ')';
         }
         if ($actor !== null) {
             return class_basename($actor) . ' #' . $actor->getKey();

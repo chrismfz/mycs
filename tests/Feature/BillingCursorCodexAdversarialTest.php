@@ -14,6 +14,7 @@ use App\Models\Product;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
+use App\Models\Staff;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -150,9 +151,9 @@ class BillingCursorCodexAdversarialTest extends TestCase
     private function editForm(Service $service)
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $admin = User::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
-        return Livewire::actingAs($admin)->test(EditService::class, ['record' => $service->getRouteKey()]);
+        return $this->livewireAs($admin)->test(EditService::class, ['record' => $service->getRouteKey()]);
     }
 
     // ---------------------------------------------------------------- admin form (real Livewire page)

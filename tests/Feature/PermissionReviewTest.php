@@ -6,6 +6,7 @@ use App\Admin\Resources\InvoiceResource\Pages\ViewInvoice;
 use App\Models\Invoice;
 use App\Models\Role;
 use App\Models\Setting;
+use App\Models\Staff;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -24,11 +25,11 @@ class PermissionReviewTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function staff(array $permissions): User
+    private function staff(array $permissions): Staff
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 
-        return User::factory()->create(['role_id' => Role::create(['name' => 'Staff' . uniqid(), 'permissions' => $permissions])->id]);
+        return Staff::factory()->create(['role_id' => Role::create(['name' => 'Staff' . uniqid(), 'permissions' => $permissions])->id]);
     }
 
     /** R1: a role with only «View Invoices» cancels an unpaid invoice from ViewInvoice. */

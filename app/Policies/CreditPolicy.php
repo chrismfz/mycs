@@ -3,6 +3,7 @@
 namespace App\Policies;
 
 use App\Models\Credit;
+use App\Models\Staff;
 use App\Models\User;
 
 class CreditPolicy
@@ -10,7 +11,7 @@ class CreditPolicy
     /**
      * Determine whether the user can view any models.
      */
-    public function viewAny(User $user): bool
+    public function viewAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.credits.viewAny');
     }
@@ -18,7 +19,7 @@ class CreditPolicy
     /**
      * Determine whether the user can view the model.
      */
-    public function view(User $user, Credit $credit): bool
+    public function view(User|Staff $user, Credit $credit): bool
     {
         return $user->hasPermission('admin.credits.viewAny');
     }
@@ -26,7 +27,7 @@ class CreditPolicy
     /**
      * Determine whether the user can create models.
      */
-    public function create(User $user): bool
+    public function create(User|Staff $user): bool
     {
         return $user->hasPermission('admin.credits.create');
     }
@@ -34,7 +35,7 @@ class CreditPolicy
     /**
      * Determine whether the user can update the model.
      */
-    public function update(User $user, Credit $credit): bool
+    public function update(User|Staff $user, Credit $credit): bool
     {
         return $user->hasPermission('admin.credits.update');
     }
@@ -42,7 +43,7 @@ class CreditPolicy
     /**
      * Determine whether the user can delete the model.
      */
-    public function delete(User $user, Credit $credit): bool
+    public function delete(User|Staff $user, Credit $credit): bool
     {
         return $user->hasPermission('admin.credits.delete');
     }

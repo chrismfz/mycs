@@ -3,6 +3,7 @@
 namespace App\Policies;
 
 use App\Models\ConfigOption;
+use App\Models\Staff;
 use App\Models\User;
 
 class ConfigOptionPolicy
@@ -10,7 +11,7 @@ class ConfigOptionPolicy
     /**
      * Determine whether the user can view any models.
      */
-    public function viewAny(User $user): bool
+    public function viewAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.config_options.viewAny');
     }
@@ -18,7 +19,7 @@ class ConfigOptionPolicy
     /**
      * Determine whether the user can view the model.
      */
-    public function view(User $user, ConfigOption $configOption): bool
+    public function view(User|Staff $user, ConfigOption $configOption): bool
     {
         return $user->hasPermission('admin.config_options.viewAny');
     }
@@ -26,7 +27,7 @@ class ConfigOptionPolicy
     /**
      * Determine whether the user can create models.
      */
-    public function create(User $user): bool
+    public function create(User|Staff $user): bool
     {
         return $user->hasPermission('admin.config_options.create');
     }
@@ -34,7 +35,7 @@ class ConfigOptionPolicy
     /**
      * Determine whether the user can update the model.
      */
-    public function update(User $user, ConfigOption $configOption): bool
+    public function update(User|Staff $user, ConfigOption $configOption): bool
     {
         return $user->hasPermission('admin.config_options.update');
     }
@@ -42,7 +43,7 @@ class ConfigOptionPolicy
     /**
      * Determine whether the user can delete the model.
      */
-    public function delete(User $user, ConfigOption $configOption): bool
+    public function delete(User|Staff $user, ConfigOption $configOption): bool
     {
         return $user->hasPermission('admin.config_options.delete');
     }
@@ -50,13 +51,13 @@ class ConfigOptionPolicy
     /**
      * Determine whether the user can delete multiple models.
      */
-    public function deleteAny(User $user): bool
+    public function deleteAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.config_options.deleteAny');
     }
 
     /** Reordering changes the catalog: the right to change it, not only to see it (Filament allows an undefined ability). */
-    public function reorder(User $user): bool
+    public function reorder(User|Staff $user): bool
     {
         return $user->hasPermission('admin.config_options.update');
     }

@@ -9,6 +9,7 @@ use App\Models\Gateway;
 use App\Models\Order;
 use App\Models\Role;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
@@ -16,7 +17,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
-use Livewire\Livewire;
 use Paymenter\Extensions\Gateways\PayPal\PayPal;
 use Paymenter\Extensions\Gateways\Stripe\Stripe;
 use Tests\TestCase;
@@ -71,11 +71,11 @@ class AdminCancelSubscriptionAdversarialTest extends TestCase
         return $service;
     }
 
-    private function admin(array $permissions = ['*']): User
+    private function admin(array $permissions = ['*']): Staff
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 
-        return User::factory()->create(['role_id' => Role::create(['name' => 'Adv' . uniqid(), 'permissions' => $permissions])->id]);
+        return Staff::factory()->create(['role_id' => Role::create(['name' => 'Adv' . uniqid(), 'permissions' => $permissions])->id]);
     }
 
     private function cancelOnOrderPage($page, Service $service)
@@ -94,7 +94,7 @@ class AdminCancelSubscriptionAdversarialTest extends TestCase
             self::PAYPAL . '/v1/billing/subscriptions/I-SUB1/cancel' => Http::response(null, 204),
         ]);
 
-        $page = Livewire::actingAs($this->admin())->test(EditService::class, ['record' => $service->getRouteKey()]);
+        $page = $this->livewireAs($this->admin())->test(EditService::class, ['record' => $service->getRouteKey()]);
         $page->callAction(TestAction::make('Cancel Subscription ID')->schemaComponent('subscription_id', 'form'))
             ->assertNotified('The subscription has been successfully cancelled');
         $page->call('save')->assertHasNoErrors();
@@ -112,7 +112,7 @@ class AdminCancelSubscriptionAdversarialTest extends TestCase
         $service = $this->makeService('sub_123', ['has_stripe_subscription'], $order->id);
         Http::fake([self::STRIPE . '/subscriptions/sub_123' => Http::response(['id' => 'sub_123', 'status' => 'canceled'])]);
 
-        $page = Livewire::actingAs($this->admin())->test(EditOrder::class, ['record' => $order->getRouteKey()]);
+        $page = $this->livewireAs($this->admin())->test(EditOrder::class, ['record' => $order->getRouteKey()]);
         $this->cancelOnOrderPage($page, $service)->assertNotified('The subscription has been successfully cancelled');
         $page->call('save')->assertHasNoErrors();
 
@@ -133,7 +133,7 @@ class AdminCancelSubscriptionAdversarialTest extends TestCase
             self::PAYPAL . '/v1/billing/subscriptions/I-AAA/cancel' => Http::response(null, 204),
         ]);
 
-        $page = Livewire::actingAs($this->admin())->test(EditOrder::class, ['record' => $order->getRouteKey()]);
+        $page = $this->livewireAs($this->admin())->test(EditOrder::class, ['record' => $order->getRouteKey()]);
         $this->cancelOnOrderPage($page, $a)->assertNotified('The subscription has been successfully cancelled');
         $page->call('save')->assertHasNoErrors();
 
@@ -211,7 +211,7 @@ class AdminCancelSubscriptionAdversarialTest extends TestCase
         ]);
         $staff = $this->admin(['admin.orders.viewAny', 'admin.orders.viewAny', 'admin.orders.update']);
 
-        $page = Livewire::actingAs($staff)->test(EditOrder::class, ['record' => $order->getRouteKey()]);
+        $page = $this->livewireAs($staff)->test(EditOrder::class, ['record' => $order->getRouteKey()]);
         try {
             $this->cancelOnOrderPage($page, $service);
         } catch (\Throwable) {

@@ -20,7 +20,7 @@ class Affiliate extends Component
 
     public function mount()
     {
-        $this->affiliate = Auth::user()->affiliate;
+        $this->affiliate = Auth::guard('web')->user()->affiliate;
         $this->signup_type = ExtensionHelper::getExtension('other', 'Affiliates')->config('type');
     }
 

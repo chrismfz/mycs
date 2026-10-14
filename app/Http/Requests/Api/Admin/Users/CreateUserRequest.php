@@ -8,12 +8,6 @@ class CreateUserRequest extends AdminApiRequest
 {
     protected $permission = 'users.create';
 
-    public function authorize(): bool
-    {
-        return parent::authorize()
-            && (!$this->exists('role_id') || ($this->hasApiPermission('admin.roles.update') && $this->mayAssignRole($this->input('role_id'))));
-    }
-
     public function rules(): array
     {
         return [
@@ -22,7 +16,8 @@ class CreateUserRequest extends AdminApiRequest
             'email' => 'required|email|max:255|unique:users,email',
             'password' => 'required|string|min:8',
             'email_verified_at' => 'nullable|date',
-            'role_id' => 'nullable|exists:roles,id',
+            // Users are customers: roles are staff's only (docs/accounts.md, PR 1).
+            'role_id' => 'prohibited',
         ];
     }
 }

@@ -14,6 +14,7 @@ use App\Models\MoneyEvent;
 use App\Models\Order;
 use App\Models\Role;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\ChangeOpenLine;
 use App\Services\Invoice\RecordPaymentService;
@@ -24,7 +25,6 @@ use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Livewire\Livewire;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use Tests\TestCase;
@@ -71,11 +71,11 @@ class InvoiceSettleTest extends TestCase
         return number_format((float) (Credit::query()->where('user_id', $this->user->id)->value('amount') ?? 0), 2, '.', '');
     }
 
-    private function owner(): User
+    private function owner(): Staff
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 
-        return User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        return Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
     }
 
     // ------------------------------------------------------------------ staff brought it down below its payments
@@ -226,7 +226,7 @@ class InvoiceSettleTest extends TestCase
         $invoice->items()->sole()->update(['price' => 80]);
         $staff = $this->owner();
 
-        Livewire::actingAs($staff)->test(EditInvoice::class, ['record' => $invoice->getKey()])
+        $this->livewireAs($staff)->test(EditInvoice::class, ['record' => $invoice->getKey()])
             ->assertActionVisible('closeAsPaid')
             ->callAction('closeAsPaid')
             ->assertHasNoActionErrors();
@@ -235,7 +235,7 @@ class InvoiceSettleTest extends TestCase
         $this->assertSame('20.00', $this->balance());
 
         $open = $this->invoice(10);
-        Livewire::actingAs($staff)->test(EditInvoice::class, ['record' => $open->getKey()])
+        $this->livewireAs($staff)->test(EditInvoice::class, ['record' => $open->getKey()])
             ->assertActionHidden('closeAsPaid');
     }
 

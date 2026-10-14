@@ -31,10 +31,10 @@ class Ticket extends Model implements Auditable
         return $this->belongsTo(User::class);
     }
 
-    /** @return BelongsTo<User, $this> */
+    /** The member of staff it is assigned to. @return BelongsTo<Staff, $this> */
     public function assignedTo(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'assigned_to');
+        return $this->belongsTo(Staff::class, 'assigned_to');
     }
 
     /** @return BelongsTo<Service, $this> */

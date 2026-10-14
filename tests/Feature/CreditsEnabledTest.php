@@ -7,7 +7,6 @@ use App\Models\Invoice;
 use App\Models\Service;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
@@ -34,7 +33,7 @@ class CreditsEnabledTest extends TestCase
         config(['settings.credits_enabled' => false]);
         [$user, $invoice] = $this->userWithCreditAndInvoice();
 
-        Livewire::actingAs($user)->test(Show::class, ['invoice' => $invoice])
+        $this->livewireAs($user)->test(Show::class, ['invoice' => $invoice])
             ->set('selectedMethod', 'credit')
             ->call('processPayment');
 
@@ -47,7 +46,7 @@ class CreditsEnabledTest extends TestCase
         config(['settings.credits_enabled' => true]);
         [$user, $invoice] = $this->userWithCreditAndInvoice();
 
-        Livewire::actingAs($user)->test(Show::class, ['invoice' => $invoice])
+        $this->livewireAs($user)->test(Show::class, ['invoice' => $invoice])
             ->set('selectedMethod', 'credit')
             ->call('processPayment');
 

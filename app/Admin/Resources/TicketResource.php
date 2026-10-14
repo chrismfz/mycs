@@ -7,6 +7,7 @@ use App\Admin\Resources\TicketResource\Pages\CreateTicket;
 use App\Admin\Resources\TicketResource\Pages\EditTicket;
 use App\Admin\Resources\TicketResource\Pages\ListTickets;
 use App\Admin\Resources\TicketResource\Widgets\TicketsOverView;
+use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\User;
 use Filament\Actions\BulkActionGroup;
@@ -102,7 +103,8 @@ class TicketResource extends Resource
                     ->label('Assigned To')
                     ->searchable()
                     ->preload()
-                    ->relationship('user', 'id', fn (Builder $query) => $query->where('role_id', '!=', null))
+                    // Staff, not customers (AUTH-14).
+                    ->relationship('assignedTo', 'id', fn (Builder $query) => $query->where('active', true))
                     ->getOptionLabelFromRecordUsing(fn ($record) => $record->name)
                     ->columnSpan(function ($record) {
                         return $record ? 2 : 1;
@@ -178,8 +180,9 @@ class TicketResource extends Resource
                     ->options(array_combine(config('settings.ticket_departments'), config('settings.ticket_departments'))),
                 SelectFilter::make('assigned_to')
                     ->label('Assigned To')
-                    ->relationship('user', 'id', fn (Builder $query) => $query->where('role_id', '!=', null))
-                    ->indicateUsing(fn ($data) => $data['value'] ? 'Assigned to: ' . User::find($data['value'])->name : null)
+                    // It filters by the staff member assigned, not by the customer (AUTH-14).
+                    ->relationship('assignedTo', 'id')
+                    ->indicateUsing(fn ($data) => $data['value'] ? 'Assigned to: ' . Staff::find($data['value'])?->name : null)
                     ->getOptionLabelFromRecordUsing(fn ($record) => $record->name),
             ])
             ->recordActions([

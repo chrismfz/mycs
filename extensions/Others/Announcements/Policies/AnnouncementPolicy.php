@@ -2,6 +2,7 @@
 
 namespace Paymenter\Extensions\Others\Announcements\Policies;
 
+use App\Models\Staff;
 use App\Models\User;
 use App\Policies\BasePolicy;
 use Paymenter\Extensions\Others\Announcements\Models\Announcement;
@@ -11,7 +12,7 @@ class AnnouncementPolicy extends BasePolicy
     /**
      * Determine whether the user can view any models.
      */
-    public function viewAny(User $user): bool
+    public function viewAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.announcements.view');
     }
@@ -19,7 +20,7 @@ class AnnouncementPolicy extends BasePolicy
     /**
      * Determine whether the user can view the model.
      */
-    public function view(User $user, Announcement $announcement): bool
+    public function view(User|Staff $user, Announcement $announcement): bool
     {
         return $user->hasPermission('admin.announcements.view');
     }
@@ -27,7 +28,7 @@ class AnnouncementPolicy extends BasePolicy
     /**
      * Determine whether the user can create models.
      */
-    public function create(User $user): bool
+    public function create(User|Staff $user): bool
     {
         return $user->hasPermission('admin.announcements.create');
     }
@@ -35,7 +36,7 @@ class AnnouncementPolicy extends BasePolicy
     /**
      * Determine whether the user can update the model.
      */
-    public function update(User $user, Announcement $announcement): bool
+    public function update(User|Staff $user, Announcement $announcement): bool
     {
         return $user->hasPermission('admin.announcements.update');
     }
@@ -43,7 +44,7 @@ class AnnouncementPolicy extends BasePolicy
     /**
      * Determine whether the user can delete the model.
      */
-    public function delete(User $user, Announcement $announcement): bool
+    public function delete(User|Staff $user, Announcement $announcement): bool
     {
         return $user->hasPermission('admin.announcements.delete');
     }
@@ -51,7 +52,7 @@ class AnnouncementPolicy extends BasePolicy
     /**
      * Determine whether the user can delete multiple models.
      */
-    public function deleteAny(User $user): bool
+    public function deleteAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.announcements.delete');
     }

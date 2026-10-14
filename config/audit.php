@@ -1,10 +1,10 @@
 <?php
 
+use App\Resolvers\ActorResolver;
 use App\Resolvers\UrlResolver;
 use OwenIt\Auditing\Models\Audit;
 use OwenIt\Auditing\Resolvers\IpAddressResolver;
 use OwenIt\Auditing\Resolvers\UserAgentResolver;
-use OwenIt\Auditing\Resolvers\UserResolver;
 
 return [
 
@@ -33,10 +33,12 @@ return [
     'user' => [
         'morph_prefix' => 'user',
         'guards' => [
+            'staff',
             'web',
             'api',
         ],
-        'resolver' => UserResolver::class,
+        // Staff in the admin and while logged in as a client; the customer otherwise (App\Support\Actor).
+        'resolver' => ActorResolver::class,
     ],
 
     /*

@@ -11,6 +11,7 @@ use App\Models\ApiKey;
 use App\Models\EmailLog;
 use App\Models\Extension;
 use App\Models\OauthClient;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Money\GatewayLog;
 use App\Support\BootFailure;
@@ -21,6 +22,7 @@ use Dedoc\Scramble\Support\Generator\OpenApi;
 use Dedoc\Scramble\Support\Generator\SecurityScheme;
 use Exception;
 use Illuminate\Auth\Access\Response;
+use Illuminate\Auth\Events\Login;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Exceptions\Handler;
 use Illuminate\Foundation\Http\Events\RequestHandled;
@@ -164,8 +166,9 @@ class AppServiceProvider extends ServiceProvider
         });
         Livewire::propertySynthesizer(PriceSynth::class);
 
-        Gate::define('has-permission', function (User $user, string $ability) {
-            return $user->hasPermission($ability);
+        // Only staff hold admin permissions (docs/accounts.md, PR 1); a customer never does.
+        Gate::define('has-permission', function (User|Staff $user, string $ability) {
+            return $user instanceof Staff && $user->hasPermission($ability);
         });
 
         Event::listen(function (SocialiteWasCalled $event) {
@@ -188,6 +191,13 @@ class AppServiceProvider extends ServiceProvider
                 $log->unmatched($event->request, $event->response, $gateway);
             }
             $log->finish($event->response);
+        });
+
+        // When a member of staff last logged in (the staff list shows it).
+        Event::listen(function (Login $event) {
+            if ($event->guard === 'staff' && $event->user instanceof Staff) {
+                $event->user->forceFill(['last_login_at' => now()])->saveQuietly();
+            }
         });
 
         Gate::defaultDenialResponse(Response::denyAsNotFound());

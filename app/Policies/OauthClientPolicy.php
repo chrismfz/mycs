@@ -3,6 +3,7 @@
 namespace App\Policies;
 
 use App\Models\OauthClient;
+use App\Models\Staff;
 use App\Models\User;
 
 class OauthClientPolicy
@@ -10,7 +11,7 @@ class OauthClientPolicy
     /**
      * Determine whether the user can view any models.
      */
-    public function viewAny(User $user): bool
+    public function viewAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.oauth_clients.viewAny');
     }
@@ -18,7 +19,7 @@ class OauthClientPolicy
     /**
      * Determine whether the user can view the model.
      */
-    public function view(User $user, OauthClient $oauthClient): bool
+    public function view(User|Staff $user, OauthClient $oauthClient): bool
     {
         return $user->hasPermission('admin.oauth_clients.viewAny');
     }
@@ -26,7 +27,7 @@ class OauthClientPolicy
     /**
      * Determine whether the user can create models.
      */
-    public function create(User $user): bool
+    public function create(User|Staff $user): bool
     {
         return $user->hasPermission('admin.oauth_clients.create');
     }
@@ -34,7 +35,7 @@ class OauthClientPolicy
     /**
      * Determine whether the user can update the model.
      */
-    public function update(User $user, OauthClient $oauthClient): bool
+    public function update(User|Staff $user, OauthClient $oauthClient): bool
     {
         return $user->hasPermission('admin.oauth_clients.update');
     }
@@ -42,7 +43,7 @@ class OauthClientPolicy
     /**
      * Determine whether the user can delete the model.
      */
-    public function delete(User $user, OauthClient $oauthClient): bool
+    public function delete(User|Staff $user, OauthClient $oauthClient): bool
     {
         return $user->hasPermission('admin.oauth_clients.delete');
     }
@@ -50,7 +51,7 @@ class OauthClientPolicy
     /**
      * Determine whether the user can bulk delete the model.
      */
-    public function deleteAny(User $user): bool
+    public function deleteAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.oauth_clients.deleteAny');
     }

@@ -13,6 +13,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\Role;
 use App\Models\Setting;
+use App\Models\Staff;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -56,11 +57,11 @@ class StaffCorrectionsCodeReviewTest extends TestCase
         return $invoice->fresh();
     }
 
-    private function staff(array $permissions): User
+    private function staff(array $permissions): Staff
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 
-        return User::factory()->create(['role_id' => Role::create(['name' => 'Staff ' . uniqid(), 'permissions' => $permissions])->id]);
+        return Staff::factory()->create(['role_id' => Role::create(['name' => 'Staff ' . uniqid(), 'permissions' => $permissions])->id]);
     }
 
     private function balance(): string
@@ -78,7 +79,7 @@ class StaffCorrectionsCodeReviewTest extends TestCase
     {
         $invoice = $this->invoice();
 
-        Livewire::actingAs($this->staff(['*']))->test(EditInvoice::class, ['record' => $invoice->getKey()])
+        $this->livewireAs($this->staff(['*']))->test(EditInvoice::class, ['record' => $invoice->getKey()])
             ->callAction('markPaid', data: ['amount' => '100.00', 'paid_at' => now()->toDateString(), 'gateway_id' => null, 'transaction_id' => 'TRANSFER-9'])
             ->assertHasNoActionErrors()
             ->call('save');
@@ -100,7 +101,7 @@ class StaffCorrectionsCodeReviewTest extends TestCase
         $editor = $this->staff(['admin.invoices.viewAny', 'admin.invoices.viewAny', 'admin.invoices.update']);
 
         try {
-            Livewire::actingAs($editor)->test(EditInvoice::class, ['record' => $invoice->getKey()])
+            $this->livewireAs($editor)->test(EditInvoice::class, ['record' => $invoice->getKey()])
                 ->callAction('markPaid', data: ['amount' => '1000.00', 'paid_at' => now()->toDateString(), 'gateway_id' => null, 'transaction_id' => null]);
         } catch (\Throwable) {
             // refused is fine
@@ -123,7 +124,7 @@ class StaffCorrectionsCodeReviewTest extends TestCase
         $viewer = $this->staff(['admin.adjustment_notes.viewAny', 'admin.adjustment_notes.viewAny', 'admin.invoices.viewAny', 'admin.invoices.viewAny']);
 
         try {
-            Livewire::actingAs($viewer)->test(ListAdjustmentNotes::class)->callTableAction('void', $note);
+            $this->livewireAs($viewer)->test(ListAdjustmentNotes::class)->callTableAction('void', $note);
         } catch (\Throwable) {
             // refused is fine
         }
@@ -149,7 +150,7 @@ class StaffCorrectionsCodeReviewTest extends TestCase
         config(['settings.immutable_invoices_enabled' => true]);
 
         try {
-            Livewire::actingAs($this->staff(['*']))->test(ListAdjustmentNotes::class)->callTableAction('void', $note);
+            $this->livewireAs($this->staff(['*']))->test(ListAdjustmentNotes::class)->callTableAction('void', $note);
         } catch (\Throwable) {
             // refused is fine
         }

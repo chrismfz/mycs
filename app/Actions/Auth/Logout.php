@@ -23,6 +23,8 @@ class Logout
         Session::regenerateToken();
         Cookie::queue(Cookie::forget('paymenter_remember'));
 
-        Auth::logout();
+        // One session for both: invalidated, so neither the customer nor staff stay logged in it.
+        Auth::guard('web')->logout();
+        Auth::guard('staff')->logout();
     }
 }

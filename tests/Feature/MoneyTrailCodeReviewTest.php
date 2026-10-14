@@ -10,6 +10,7 @@ use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\MoneyEvent;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -102,7 +103,7 @@ class MoneyTrailCodeReviewTest extends TestCase
         $invoice = $this->invoice();
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 100.00, null, 'pi_api', currency: 'USD');
         $token = 'PAYM' . bin2hex(random_bytes(8));
-        ApiKey::create(['name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => ['admin.users.delete']]);
+        ApiKey::create(['staff_id' => Staff::factory()->admin()->create()->id, 'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => ['admin.users.delete']]);
 
         $this->withToken($token)->deleteJson(route('api.v1.admin.users.destroy', $this->user))->assertStatus(422);
 

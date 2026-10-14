@@ -10,6 +10,7 @@ use App\Models\ApiKey;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\Role;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use Filament\Actions\DeleteAction;
@@ -49,11 +50,11 @@ class MoneyTrailFinalReviewTest extends TestCase
         return $invoice->fresh();
     }
 
-    private function owner(): User
+    private function owner(): Staff
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 
-        return User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        return Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
     }
 
     /** P2: the guard (InvoiceObserver::updating) answered the API with a 500, not a 422 like the user delete guard. */
@@ -62,7 +63,7 @@ class MoneyTrailFinalReviewTest extends TestCase
         $invoice = $this->paidInvoice();
         $other = User::factory()->create();
         $token = 'PAYM' . bin2hex(random_bytes(8));
-        ApiKey::create(['name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => ['admin.invoices.update']]);
+        ApiKey::create(['staff_id' => Staff::factory()->admin()->create()->id, 'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => ['admin.invoices.update']]);
 
         $this->withToken($token)->putJson(route('api.v1.admin.invoices.update', $invoice), ['user_id' => $other->id])
             ->assertStatus(422);
@@ -82,7 +83,7 @@ class MoneyTrailFinalReviewTest extends TestCase
         $invoice = $this->paidInvoice();
         $other = User::factory()->create();
 
-        Livewire::actingAs($this->owner())->test(EditInvoice::class, ['record' => $invoice->getKey()]) // the id: getRouteKey() is the invoice number
+        $this->livewireAs($this->owner())->test(EditInvoice::class, ['record' => $invoice->getKey()]) // the id: getRouteKey() is the invoice number
             ->set('data.user_id', $other->id)
             ->call('save')
             ->assertNotified();
@@ -116,7 +117,7 @@ class MoneyTrailFinalReviewTest extends TestCase
     {
         $this->paidInvoice();
 
-        Livewire::actingAs($this->owner())->test(EditUser::class, ['record' => $this->user->getRouteKey()])
+        $this->livewireAs($this->owner())->test(EditUser::class, ['record' => $this->user->getRouteKey()])
             ->callAction(DeleteAction::class)
             ->assertNotified(__('A customer with payments or account credit history cannot be deleted.'));
 
@@ -126,7 +127,7 @@ class MoneyTrailFinalReviewTest extends TestCase
     /** Held (verification): a customer without money history is still deleted from the admin. */
     public function test_the_edit_user_delete_action_deletes_a_customer_without_money(): void
     {
-        Livewire::actingAs($this->owner())->test(EditUser::class, ['record' => $this->user->getRouteKey()])
+        $this->livewireAs($this->owner())->test(EditUser::class, ['record' => $this->user->getRouteKey()])
             ->callAction(DeleteAction::class);
 
         $this->assertNull($this->user->fresh());

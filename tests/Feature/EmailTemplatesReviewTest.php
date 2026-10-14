@@ -9,9 +9,9 @@ use App\Mail\Mail;
 use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\NotificationTemplate;
-use App\Models\Role;
 use App\Models\Service;
 use App\Models\ServiceCancellation;
+use App\Models\Staff;
 use App\Models\User;
 use Database\Seeders\EmailTemplateSeeder;
 use Filament\Facades\Filament;
@@ -19,7 +19,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail as MailFacade;
-use Livewire\Livewire;
 use Tests\TestCase;
 
 /** Independent review of feat/email-templates (5820764). Each test asserts the expected behaviour. */
@@ -105,11 +104,11 @@ class EmailTemplatesReviewTest extends TestCase
     public function test_r3_a_template_saved_unchanged_still_takes_the_new_texts(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->admin()->create();
         $template = NotificationTemplate::query()->where('key', 'invoice_paid')->first();
         DB::table('notification_templates')->where('id', $template->id)->update(['translations' => null]);
 
-        Livewire::actingAs($owner)->test(EditNotificationTemplate::class, ['record' => $template->getRouteKey()])
+        $this->livewireAs($owner)->test(EditNotificationTemplate::class, ['record' => $template->getRouteKey()])
             ->call('save')
             ->assertHasNoFormErrors();
         (require database_path('migrations/2026_10_26_000001_new_notification_template_texts.php'))->up();
@@ -121,9 +120,9 @@ class EmailTemplatesReviewTest extends TestCase
     public function test_r4_a_new_template_without_greek_falls_back_to_the_default_text(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->admin()->create();
 
-        Livewire::actingAs($owner)->test(CreateNotificationTemplate::class)
+        $this->livewireAs($owner)->test(CreateNotificationTemplate::class)
             ->fillForm(['key' => 'custom_one', 'enabled' => true, 'subject' => 'Hello {{ user.first_name }}', 'body' => 'Body',
                 'mail_enabled' => 'choice_on', 'in_app_enabled' => 'never'])
             ->call('create')
@@ -137,10 +136,10 @@ class EmailTemplatesReviewTest extends TestCase
     public function test_r5_a_broken_greek_text_is_refused(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->admin()->create();
         $template = NotificationTemplate::query()->where('key', 'server_suspended')->first();
 
-        Livewire::actingAs($owner)->test(EditNotificationTemplate::class, ['record' => $template->getRouteKey()])
+        $this->livewireAs($owner)->test(EditNotificationTemplate::class, ['record' => $template->getRouteKey()])
             ->fillForm(['translations.el.body' => 'Γεια {% if x %}'])
             ->call('save')
             ->assertHasFormErrors(['translations.el.body']);

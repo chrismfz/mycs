@@ -4,7 +4,7 @@ namespace Tests\Feature;
 
 use App\Admin\TopMenu;
 use App\Models\Role;
-use App\Models\User;
+use App\Models\Staff;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -21,7 +21,7 @@ class AdminTopMenuTest extends TestCase
     }
 
     /** @return array<string, list<string>> group => item labels */
-    private function menuFor(User $user): array
+    private function menuFor(Staff $user): array
     {
         $this->actingAs($user);
 
@@ -30,7 +30,7 @@ class AdminTopMenuTest extends TestCase
 
     public function test_a_full_admin_gets_the_whole_whmcs_menu(): void
     {
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
         $menu = $this->menuFor($owner);
 
@@ -42,7 +42,7 @@ class AdminTopMenuTest extends TestCase
 
     public function test_a_support_role_sees_only_what_it_may_open(): void
     {
-        $support = User::factory()->create(['role_id' => Role::create(['name' => 'Support', 'permissions' => [
+        $support = Staff::factory()->create(['role_id' => Role::create(['name' => 'Support', 'permissions' => [
             'admin.tickets.viewAny', 'admin.tickets.create', 'admin.users.viewAny',
         ]])->id]);
 
@@ -56,7 +56,7 @@ class AdminTopMenuTest extends TestCase
 
     public function test_the_menu_renders_in_the_admin_topbar(): void
     {
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
         $this->actingAs($owner)->withSession($this->loginUser($owner))->get('/admin')
             ->assertOk()

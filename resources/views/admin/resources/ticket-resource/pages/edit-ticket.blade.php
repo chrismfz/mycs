@@ -2,23 +2,29 @@
     <div class="md:grid grid-cols-4 flex flex-col gap-4" wire:poll.10s>
         <div class="md:col-span-3">
             <div class="flex flex-col gap-4 max-h-[60vh] overflow-y-auto pr-4">
-                @foreach ($this->record->messages()->with(['user', 'ticketMailLog', 'attachments'])->get() as $index => $message)
+                @foreach ($this->record->messages()->with(['user', 'staff', 'ticketMailLog', 'attachments'])->get() as $index => $message)
                     <div
-                        class="border border-gray-100 dark:border-gray-600 p-4 rounded-lg w-full max-w-[80%]  {{ $message->user_id === $this->record->user_id ? 'ml-auto' : 'mr-auto' }}"
+                        class="border border-gray-100 dark:border-gray-600 p-4 rounded-lg w-full max-w-[80%]  {{ $message->isFromStaff() ? 'mr-auto' : 'ml-auto' }}"
                         @if ($loop->last) x-data x-init="$el.scrollIntoView()" @endif>
                         <div class="flex justify-between gap-4">
                             <div class="flex items-center gap-4">
-                                <x-filament-panels::avatar.user
-                                    :user="$message->user"
-                                    class="size-7 shrink-0 rounded-full block"
-                                />
+                                @if ($message->author())
+                                    <x-filament-panels::avatar.user
+                                        :user="$message->author()"
+                                        class="size-7 shrink-0 rounded-full block"
+                                    />
+                                @endif
                                 <div class="flex flex-col">
                                     <div class="flex gap-3 items-center">
 
-                                        <a class="text-lg font-semibold hover:underline"
-                                        href="{{ App\Admin\Resources\UserResource::getUrl('edit', ['record' => $message->user]) }}">
-                                        {{ $message->user->name }}
-                                    </a>
+                                        @if ($message->isFromStaff())
+                                            <span class="text-lg font-semibold">{{ $message->staff?->name ?? __('Staff') }}</span>
+                                        @elseif ($message->user)
+                                            <a class="text-lg font-semibold hover:underline"
+                                            href="{{ App\Admin\Resources\UserResource::getUrl('edit', ['record' => $message->user]) }}">
+                                            {{ $message->user->name }}
+                                        </a>
+                                        @endif
                                 </div>
                                 <div class="flex gap-1">
                                     <p class="text-sm text-gray-500">
@@ -66,9 +72,9 @@
                     <div class="flex flex-wrap gap-x-2">
                     @foreach($message->attachments as $attachment)
                         <div class="mt-2">
-                            <a href="{{ route('tickets.attachments.show', $attachment) }}" class="text-sm rounded-md bg-gray-100 flex items-center dark:bg-gray-800 p-1 w-fit">
+                            <a href="{{ route('filament.admin.ticket-attachments.show', $attachment) }}" class="text-sm rounded-md bg-gray-100 flex items-center dark:bg-gray-800 p-1 w-fit">
                                 @if($attachment->canPreview())
-                                    <img src="{{ route('tickets.attachments.show', $attachment) }}" alt="{{ $attachment->filename }}" class="max-w-full">
+                                    <img src="{{ route('filament.admin.ticket-attachments.show', $attachment) }}" alt="{{ $attachment->filename }}" class="max-w-full">
                                 @else
                                     <x-ri-attachment-2 class="inline-block mr-1 size-4" />
                                     {{ $attachment->filename }}

@@ -25,7 +25,6 @@ class UserResource extends JsonApiResource
         'invoices' => InvoiceResource::class,
         'tickets' => TicketResource::class,
         'credits' => CreditResource::class,
-        'role' => RoleResource::class,
     ];
 
     public function toMeta($request): array

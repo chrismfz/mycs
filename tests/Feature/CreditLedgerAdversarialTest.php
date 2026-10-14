@@ -17,6 +17,7 @@ use App\Models\MoneyEventNote;
 use App\Models\Order;
 use App\Models\Role;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
@@ -27,7 +28,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
-use Livewire\Livewire;
 use LogicException;
 use Paymenter\Extensions\Others\Affiliates\Listeners\RewardAffiliate;
 use Paymenter\Extensions\Others\Affiliates\Models\Affiliate;
@@ -78,7 +78,7 @@ class CreditLedgerAdversarialTest extends TestCase
     private function apiToken(): string
     {
         $token = 'PAYM' . bin2hex(random_bytes(8));
-        ApiKey::create(['name' => 'adv', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
+        ApiKey::create(['staff_id' => Staff::factory()->admin()->create()->id, 'name' => 'adv', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
             'permissions' => ['admin.credits.create', 'admin.credits.update', 'admin.credits.delete', 'admin.credits.viewAny']]);
 
         return $token;
@@ -566,8 +566,8 @@ class CreditLedgerAdversarialTest extends TestCase
     public function test_admin_page_refuses_sub_cent_and_overdraw_and_leaves_nothing_behind(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
-        $page = fn () => Livewire::actingAs($owner)->test(ShowCredits::class, ['record' => $this->user->getKey()]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $page = fn () => $this->livewireAs($owner)->test(ShowCredits::class, ['record' => $this->user->getKey()]);
 
         $page()->callTableAction('addCredit', data: ['currency_code' => 'USD', 'amount' => '0.004', 'reason' => 'tiny'])
             ->assertHasTableActionErrors(['amount']);

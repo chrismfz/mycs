@@ -6,6 +6,7 @@ use App\Admin\Pages\Settings;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\Setting;
+use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
@@ -13,7 +14,6 @@ use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Queue;
-use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
@@ -93,7 +93,7 @@ class AutomationSettingsTest extends TestCase
     {
         config(['settings.cronjob_close_ticket' => 0]);
         $ticket = Ticket::factory()->create(['user_id' => User::factory()->create()->id, 'status' => 'replied']);
-        TicketMessage::factory()->create(['ticket_id' => $ticket->id, 'user_id' => User::factory()->create()->id, 'message' => 'Hi', 'created_at' => now()->subDays(30)]);
+        TicketMessage::factory()->create(['ticket_id' => $ticket->id, 'user_id' => null, 'staff_id' => Staff::factory()->admin()->create()->id, 'message' => 'Hi', 'created_at' => now()->subDays(30)]);
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
@@ -103,10 +103,10 @@ class AutomationSettingsTest extends TestCase
     public function test_the_automation_tab_shows_whmcs_sections_and_saves(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
         config(['settings.system_email_address' => 'billing@example.test']); // required, empty in the test seed
 
-        Livewire::actingAs($owner)->test(Settings::class)
+        $this->livewireAs($owner)->test(Settings::class)
             ->assertSee('Automation')
             ->assertSee('Automatic Module Functions')
             ->assertSee('Billing Settings')

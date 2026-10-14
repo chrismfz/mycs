@@ -71,7 +71,7 @@ class ClientDraftsReviewTest extends TestCase
     {
         [$service, $option, $child] = $this->serviceWithCheckbox(true);
 
-        Livewire::actingAs($this->user)->test(Upgrade::class, ['service' => $service])
+        $this->livewireAs($this->user)->test(Upgrade::class, ['service' => $service])
             ->set("configOptions.{$option->id}", false)
             ->call('doUpgrade');
 
@@ -86,7 +86,7 @@ class ClientDraftsReviewTest extends TestCase
     {
         [$service, $option] = $this->serviceWithCheckbox(false);
 
-        $component = Livewire::actingAs($this->user)->test(Upgrade::class, ['service' => $service])
+        $component = $this->livewireAs($this->user)->test(Upgrade::class, ['service' => $service])
             ->set("configOptions.{$option->id}", true);
         $shown = round((float) $component->instance()->totalToday()->price, 2);
 
@@ -110,7 +110,7 @@ class ClientDraftsReviewTest extends TestCase
         ]);
         $service->properties()->create(['key' => 'hostname', 'name' => 'Hostname', 'value' => 'host.example.test']);
 
-        Livewire::actingAs($this->user)->test(Upgrade::class, ['service' => $service])
+        $this->livewireAs($this->user)->test(Upgrade::class, ['service' => $service])
             ->assertSet('step', 2)
             ->assertHasNoErrors();
 

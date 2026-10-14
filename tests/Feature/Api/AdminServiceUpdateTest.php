@@ -4,6 +4,7 @@ namespace Tests\Feature\Api;
 
 use App\Models\ApiKey;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -16,7 +17,7 @@ class AdminServiceUpdateTest extends TestCase
     private function token(): string
     {
         $token = 'PAYM' . bin2hex(random_bytes(8));
-        ApiKey::create(['name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => ['admin.services.update']]);
+        ApiKey::create(['staff_id' => Staff::factory()->admin()->create()->id, 'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => ['admin.services.update']]);
 
         return $token;
     }

@@ -17,6 +17,7 @@ use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\Role;
 use App\Models\Setting;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use Filament\Facades\Filament;
@@ -24,7 +25,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail as MailFacade;
-use Livewire\Livewire;
 use ReflectionProperty;
 use RuntimeException;
 use Tests\TestCase;
@@ -189,9 +189,9 @@ class NotificationsAfterCommitTest extends TestCase
         Setting::query()->updateOrCreate(['key' => 'invoice_number', 'settingable_type' => null], ['value' => 1234]);
         config(['settings.invoice_number' => 7]); // the cache, behind
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
-        Livewire::actingAs($owner)->test(Settings::class)
+        $this->livewireAs($owner)->test(Settings::class)
             ->assertSet('data.invoice_number', 1234);
     }
 }

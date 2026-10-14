@@ -21,6 +21,7 @@ use App\Models\MoneyEvent;
 use App\Models\Plan;
 use App\Models\Role;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\MoneyTrail;
@@ -33,7 +34,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use InvalidArgumentException;
-use Livewire\Livewire;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use RuntimeException;
@@ -117,16 +117,16 @@ class StaffCorrectionsAdversarialTest extends TestCase
     private function apiToken(array $permissions): string
     {
         $token = 'PAYM' . bin2hex(random_bytes(8));
-        ApiKey::create(['name' => 'adv', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => $permissions]);
+        ApiKey::create(['staff_id' => Staff::factory()->admin()->create()->id, 'name' => 'adv', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => $permissions]);
 
         return $token;
     }
 
-    private function owner(): User
+    private function owner(): Staff
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 
-        return User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        return Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
     }
 
     private function assertNotPaidWithBalance(Invoice $invoice, string $context): void
@@ -183,7 +183,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
         $service = $this->service();
         $invoice = $this->invoice(0, referenceType: Service::class, referenceId: $service->id);
 
-        $component = Livewire::actingAs($this->owner())->test(EditInvoice::class, ['record' => $invoice->getKey()]);
+        $component = $this->livewireAs($this->owner())->test(EditInvoice::class, ['record' => $invoice->getKey()]);
         $key = array_key_first($component->get('data.items'));
         $thrown = null;
         try {

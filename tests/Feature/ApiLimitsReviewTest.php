@@ -6,6 +6,7 @@ use App\Admin\Resources\ErrorLogResource\Pages\ListErrorLogs;
 use App\Models\ApiKey;
 use App\Models\DebugLog;
 use App\Models\Role;
+use App\Models\Staff;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
@@ -19,8 +20,8 @@ class ApiLimitsReviewTest extends TestCase
     private function token(array $permissions): string
     {
         $token = 'PAYM' . bin2hex(random_bytes(8));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Api' . uniqid(), 'permissions' => ['*']])->id]);
-        ApiKey::create(['name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'user_id' => $owner->id, 'permissions' => $permissions]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Api' . uniqid(), 'permissions' => ['*']])->id]);
+        ApiKey::create(['staff_id' => Staff::factory()->admin()->create()->id, 'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'user_id' => $owner->id, 'permissions' => $permissions]);
 
         return $token;
     }
@@ -58,7 +59,7 @@ class ApiLimitsReviewTest extends TestCase
     {
         config(['settings.debug' => true]);
         $log = DebugLog::create(['type' => 'exception', 'context' => ['message' => 'x']]);
-        $viewer = User::factory()->create(['role_id' => Role::create(['name' => 'V' . uniqid(), 'permissions' => ['admin.debug_logs.view']])->id]);
+        $viewer = Staff::factory()->create(['role_id' => Role::create(['name' => 'V' . uniqid(), 'permissions' => ['admin.debug_logs.view']])->id]);
         $this->actingAs($viewer);
 
         try {
@@ -75,7 +76,7 @@ class ApiLimitsReviewTest extends TestCase
     {
         config(['settings.debug' => true]);
         $log = DebugLog::create(['type' => 'exception', 'context' => ['message' => 'x']]);
-        $deleter = User::factory()->create(['role_id' => Role::create(['name' => 'D' . uniqid(), 'permissions' => ['admin.debug_logs.view', 'admin.debug_logs.delete']])->id]);
+        $deleter = Staff::factory()->create(['role_id' => Role::create(['name' => 'D' . uniqid(), 'permissions' => ['admin.debug_logs.view', 'admin.debug_logs.delete']])->id]);
         $this->actingAs($deleter);
 
         Livewire::test(ListErrorLogs::class)->callTableBulkAction('delete', [$log]);

@@ -38,11 +38,12 @@ class AdminApi
 
         // Attach the token to the request for further use
         $request->attributes->set('api_key', $token);
-        // A key made by an admin never does more than that admin can do today.
-        $permissions = $token->permissions ?? [];
-        if ($token->user_id !== null) {
-            $permissions = array_values(array_filter($permissions, fn (string $p) => PermissionGuard::canGrantApi($token->user, $p)));
+        // A key is a member of staff's and never does more than they can do today (nothing once they are disabled). One
+        // without an owner (made before keys had one) has nobody to bound it: refused.
+        if ($token->staff === null) {
+            abort(403, 'This API key has no owner; create a new one.');
         }
+        $permissions = array_values(array_filter($token->permissions ?? [], fn (string $p) => PermissionGuard::canGrantApi($token->staff, $p)));
         $request->attributes->set('api_key_permissions', $permissions);
 
         return $next($request);

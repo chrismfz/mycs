@@ -3,6 +3,7 @@
 namespace App\Policies;
 
 use App\Models\BillingAgreement;
+use App\Models\Staff;
 use App\Models\User;
 
 class BillingAgreementPolicy
@@ -10,7 +11,7 @@ class BillingAgreementPolicy
     /**
      * Determine whether the user can view any models.
      */
-    public function viewAny(User $user): bool
+    public function viewAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.billing_agreements.viewAny');
     }
@@ -18,7 +19,7 @@ class BillingAgreementPolicy
     /**
      * Determine whether the user can view the model.
      */
-    public function view(User $user, BillingAgreement $billingAgreement): bool
+    public function view(User|Staff $user, BillingAgreement $billingAgreement): bool
     {
         return $user->hasPermission('admin.billing_agreements.viewAny');
     }

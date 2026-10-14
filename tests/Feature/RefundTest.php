@@ -13,6 +13,7 @@ use App\Models\Invoice;
 use App\Models\MoneyEvent;
 use App\Models\Role;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
@@ -24,7 +25,6 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
-use Livewire\Livewire;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use Tests\TestCase;
@@ -247,9 +247,9 @@ class RefundTest extends TestCase
         $payment = $invoice->transactions()->sole();
         $this->assertNull($payment->transaction_id);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $staff = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
-        Livewire::actingAs($staff)->test(TransactionsRelationManager::class, ['ownerRecord' => $invoice->fresh(), 'pageClass' => EditInvoice::class])
+        $this->livewireAs($staff)->test(TransactionsRelationManager::class, ['ownerRecord' => $invoice->fresh(), 'pageClass' => EditInvoice::class])
             ->assertTableActionVisible('refund', $payment)
             ->callTableAction('refund', $payment, data: ['amount' => '80.00', 'method' => 'credit'])
             ->assertHasNoTableActionErrors();

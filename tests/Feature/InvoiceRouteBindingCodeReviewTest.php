@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Models\Invoice;
 use App\Models\Role;
+use App\Models\Staff;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -47,10 +48,10 @@ class InvoiceRouteBindingCodeReviewTest extends TestCase
         DB::table('currencies')->insertOrIgnore(['code' => 'USD', 'name' => 'US Dollar', 'prefix' => '$', 'format' => '1,000.00']);
         Cache::flush();
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
         $invoice = $this->invoice('2026-15');
 
-        Livewire::actingAs($owner)->test(EditInvoice::class, ['record' => $invoice->id])
+        $this->livewireAs($owner)->test(EditInvoice::class, ['record' => $invoice->id])
             ->assertOk()
             ->call('$refresh')
             ->assertOk();

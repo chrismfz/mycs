@@ -16,6 +16,7 @@ use App\Models\Notification;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\Setting;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditAutoApply;
@@ -550,9 +551,9 @@ class CreditAutoApplyAdversarialTest extends TestCase
         DB::table('currencies')->insertOrIgnore(['code' => 'USD', 'name' => 'US Dollar', 'prefix' => '$', 'format' => '1,000.00']);
         Cache::flush();
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
-        Livewire::actingAs($owner)->test(EditUser::class, ['record' => $this->user->getRouteKey()])
+        $this->livewireAs($owner)->test(EditUser::class, ['record' => $this->user->getRouteKey()])
             ->assertFormSet(['credit_auto_apply' => true])
             ->fillForm(['credit_auto_apply' => false])
             ->call('save')

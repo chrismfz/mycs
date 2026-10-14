@@ -4,15 +4,16 @@ namespace Tests\Feature\Api;
 
 use App\Models\ApiKey;
 use App\Models\Role;
+use App\Models\Staff;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 /**
- * "Nobody grants what they do not have" on the admin API too (audit sweep KR-5, AUTH-1). The PermissionGuard work
- * covered the admin panel; through the API, staff with users/roles rights could give themselves the '*' role, or
- * change a full admin's password or email, or delete them.
+ * "Nobody grants what they do not have" on the admin API too (audit sweep KR-5, AUTH-1). Since staff have their own
+ * table (docs/accounts.md, PR 1) the users API is about customers only: no role is given through it, and no staff
+ * member is reached through it.
  */
 class AdminUserPermissionGuardTest extends TestCase
 {
@@ -26,9 +27,9 @@ class AdminUserPermissionGuardTest extends TestCase
 
     private Role $staffRole;
 
-    private User $admin;
+    private Staff $admin;
 
-    private User $staff;
+    private Staff $staff;
 
     private User $customer;
 
@@ -38,110 +39,89 @@ class AdminUserPermissionGuardTest extends TestCase
 
         $this->adminRole = Role::create(['name' => 'Test full admin', 'permissions' => ['*']]);
         $this->staffRole = Role::create(['name' => 'Test staff', 'permissions' => self::STAFF_PERMISSIONS]);
-        $this->admin = User::factory()->create(['role_id' => $this->adminRole->id]);
-        $this->staff = User::factory()->create(['role_id' => $this->staffRole->id]);
-        $this->customer = User::factory()->create(['role_id' => null]);
+        $this->admin = Staff::factory()->create(['role_id' => $this->adminRole->id]);
+        $this->staff = Staff::factory()->create(['role_id' => $this->staffRole->id]);
+        $this->customer = User::factory()->create();
     }
 
-    private function key(?User $owner): string
+    private function key(?Staff $owner, array $permissions = self::KEY_PERMISSIONS): string
     {
         $token = 'PAYM' . bin2hex(random_bytes(8));
         ApiKey::create([
             'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
-            'permissions' => self::KEY_PERMISSIONS, 'user_id' => $owner?->id,
+            'permissions' => $permissions, 'staff_id' => $owner?->id,
         ]);
 
         return $token;
     }
 
-    public function test_staff_cannot_give_themselves_the_full_admin_role(): void
-    {
-        $this->withToken($this->key($this->staff))
-            ->putJson(route('api.v1.admin.users.update', $this->staff), ['role_id' => $this->adminRole->id])
-            ->assertForbidden();
-
-        $this->assertSame($this->staffRole->id, $this->staff->fresh()->role_id);
-    }
-
-    public function test_staff_cannot_change_a_full_admins_password(): void
-    {
-        $this->withToken($this->key($this->staff))
-            ->putJson(route('api.v1.admin.users.update', $this->admin), ['password' => 'taken-over-123'])->assertForbidden();
-
-        $this->assertFalse(Hash::check('taken-over-123', $this->admin->fresh()->password));
-    }
-
-    public function test_staff_cannot_change_a_full_admins_email(): void
-    {
-        $this->withToken($this->key($this->staff))
-            ->putJson(route('api.v1.admin.users.update', $this->admin), ['email' => 'mine@example.test'])->assertForbidden();
-
-        $this->assertNotSame('mine@example.test', $this->admin->fresh()->email);
-    }
-
-    public function test_staff_cannot_delete_a_full_admin(): void
-    {
-        $this->withToken($this->key($this->staff))
-            ->deleteJson(route('api.v1.admin.users.destroy', $this->admin))->assertForbidden();
-
-        $this->assertNotNull($this->admin->fresh());
-    }
-
-    public function test_staff_cannot_strip_a_full_admins_role(): void
-    {
-        $this->withToken($this->key($this->staff))
-            ->putJson(route('api.v1.admin.users.update', $this->admin), ['role_id' => null])->assertForbidden();
-
-        $this->assertSame($this->adminRole->id, $this->admin->fresh()->role_id);
-    }
-
-    public function test_a_role_id_that_is_not_an_id_is_refused_not_a_500(): void
-    {
-        $this->withToken($this->key($this->staff))
-            ->putJson(route('api.v1.admin.users.update', $this->customer), ['role_id' => [$this->adminRole->id]])
-            ->assertForbidden();
-
-        $this->assertNull($this->customer->fresh()->role_id);
-    }
-
-    public function test_staff_cannot_create_a_full_admin(): void
-    {
-        $this->withToken($this->key($this->staff))
-            ->postJson(route('api.v1.admin.users.store'), ['email' => 'new@example.test', 'password' => 'password123', 'role_id' => $this->adminRole->id])
-            ->assertForbidden();
-
-        $this->assertNull(User::query()->where('email', 'new@example.test')->first());
-    }
-
-    public function test_staff_still_manage_customers_and_grant_what_they_have(): void
-    {
-        $key = $this->key($this->staff);
-
-        $this->withToken($key)->putJson(route('api.v1.admin.users.update', $this->customer), ['first_name' => 'Renamed'])->assertOk();
-        $this->withToken($key)->putJson(route('api.v1.admin.users.update', $this->customer), ['role_id' => $this->staffRole->id])->assertOk();
-
-        $this->assertSame($this->staffRole->id, $this->customer->fresh()->role_id);
-    }
-
-    public function test_a_full_admin_key_can_change_anyone(): void
+    public function test_no_role_is_given_to_a_customer_through_the_api(): void
     {
         $this->withToken($this->key($this->admin))
-            ->putJson(route('api.v1.admin.users.update', $this->staff), ['role_id' => $this->adminRole->id])
-            ->assertOk();
+            ->putJson(route('api.v1.admin.users.update', $this->customer), ['role_id' => $this->adminRole->id])
+            ->assertUnprocessable();
+        $this->withToken($this->key($this->admin))
+            ->postJson(route('api.v1.admin.users.store'), ['email' => 'new@example.test', 'password' => 'password123', 'role_id' => $this->adminRole->id])
+            ->assertUnprocessable();
 
-        $this->assertSame($this->adminRole->id, $this->staff->fresh()->role_id);
+        $this->assertNull(User::query()->where('email', 'new@example.test')->first());
+        $this->assertFalse(array_key_exists('role_id', $this->customer->fresh()->getAttributes()));
     }
 
-    public function test_a_key_without_an_owner_acts_on_customers_only_and_grants_no_role(): void
+    public function test_the_users_api_never_reaches_a_member_of_staff(): void
     {
-        $key = $this->key(null);
+        // A staff id with no customer of that id: not found, the staff member untouched.
+        $loner = Staff::factory()->create(['role_id' => $this->adminRole->id]);
+        User::query()->whereKey($loner->id)->delete();
+
+        $key = $this->key($this->admin);
+        $this->withToken($key)->putJson("/api/v1/admin/users/{$loner->id}", ['password' => 'taken-over-123'])->assertNotFound();
+        $this->withToken($key)->deleteJson("/api/v1/admin/users/{$loner->id}")->assertNotFound();
+
+        $this->assertFalse(Hash::check('taken-over-123', $loner->fresh()->password));
+    }
+
+    public function test_staff_still_manage_customers(): void
+    {
+        $this->withToken($this->key($this->staff))
+            ->putJson(route('api.v1.admin.users.update', $this->customer), ['first_name' => 'Renamed'])->assertOk();
+
+        $this->assertSame('Renamed', $this->customer->fresh()->first_name);
+    }
+
+    public function test_a_key_does_no_more_than_its_owner_can_today(): void
+    {
+        $key = $this->key($this->staff, ['admin.users.update', 'admin.invoices.update']);
 
         $this->withToken($key)->putJson(route('api.v1.admin.users.update', $this->customer), ['first_name' => 'Renamed'])->assertOk();
-        $this->withToken($key)->putJson(route('api.v1.admin.users.update', $this->staff), ['first_name' => 'Renamed'])->assertForbidden();
-        $this->withToken($key)->putJson(route('api.v1.admin.users.update', $this->customer), ['role_id' => $this->staffRole->id])->assertForbidden();
-        $this->withToken($key)->deleteJson(route('api.v1.admin.users.destroy', $this->admin))->assertForbidden();
-        $this->withToken($key)->postJson(route('api.v1.admin.users.store'), ['email' => 'n@example.test', 'password' => 'password123', 'role_id' => $this->staffRole->id])->assertForbidden();
+        // Not the owner's: dropped from the key.
+        $this->assertFalse($this->staff->hasPermission('admin.invoices.update'));
+    }
 
-        $this->assertNull($this->customer->fresh()->role_id);
+    public function test_a_disabled_members_key_does_nothing(): void
+    {
+        $key = $this->key($this->staff);
+        $this->staff->update(['active' => false]);
+
+        $this->withToken($key)->putJson(route('api.v1.admin.users.update', $this->customer), ['first_name' => 'Renamed'])->assertForbidden();
+
+        $this->assertNotSame('Renamed', $this->customer->fresh()->first_name);
+    }
+
+    public function test_a_members_keys_go_with_them(): void
+    {
+        $this->key($this->staff);
+        $this->staff->delete();
+
+        $this->assertSame(0, ApiKey::query()->count());
+    }
+
+    /** A key without an owner has nobody to bound it: refused (adversarial review A2). */
+    public function test_a_key_without_an_owner_is_refused(): void
+    {
+        $this->withToken($this->key(null))
+            ->putJson(route('api.v1.admin.users.update', $this->customer), ['first_name' => 'Renamed'])->assertForbidden();
+
+        $this->assertNotSame('Renamed', $this->customer->fresh()->first_name);
     }
 }

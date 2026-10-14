@@ -7,6 +7,7 @@ use App\Models\Category;
 use App\Models\ConfigOption;
 use App\Models\Product;
 use App\Models\Role;
+use App\Models\Staff;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -22,8 +23,8 @@ class ApiLimitsAndStaffActionsTest extends TestCase
     private function token(array $permissions): string
     {
         $token = 'PAYM' . bin2hex(random_bytes(8));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Api' . uniqid(), 'permissions' => ['*']])->id]);
-        ApiKey::create(['name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'user_id' => $owner->id, 'permissions' => $permissions]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Api' . uniqid(), 'permissions' => ['*']])->id]);
+        ApiKey::create(['staff_id' => Staff::factory()->admin()->create()->id, 'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'user_id' => $owner->id, 'permissions' => $permissions]);
 
         return $token;
     }
@@ -51,9 +52,9 @@ class ApiLimitsAndStaffActionsTest extends TestCase
 
     public function test_seeing_the_catalog_is_not_reordering_it(): void
     {
-        $viewer = User::factory()->create(['role_id' => Role::create(['name' => 'Viewer' . uniqid(),
+        $viewer = Staff::factory()->create(['role_id' => Role::create(['name' => 'Viewer' . uniqid(),
             'permissions' => ['admin.products.viewAny', 'admin.categories.viewAny', 'admin.config_options.viewAny']])->id]);
-        $editor = User::factory()->create(['role_id' => Role::create(['name' => 'Editor' . uniqid(),
+        $editor = Staff::factory()->create(['role_id' => Role::create(['name' => 'Editor' . uniqid(),
             'permissions' => ['admin.products.update', 'admin.categories.update', 'admin.config_options.update']])->id]);
 
         foreach ([Product::class, Category::class, ConfigOption::class] as $model) {

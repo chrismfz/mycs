@@ -15,13 +15,13 @@ use App\Models\InvoiceTransaction;
 use App\Models\Price;
 use App\Models\Role;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Livewire\Features\SupportTesting\Testable;
-use Livewire\Livewire;
 use Paymenter\Extensions\Gateways\PayPal\PayPal;
 use Tests\TestCase;
 
@@ -86,9 +86,9 @@ class PaymentGuardsThirdReviewTest extends TestCase
     private function transactionsManager(Invoice $invoice): Testable
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $admin = User::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
-        return Livewire::actingAs($admin)
+        return $this->livewireAs($admin)
             ->test(TransactionsRelationManager::class, ['ownerRecord' => $invoice->fresh(), 'pageClass' => EditInvoice::class]);
     }
 
@@ -289,9 +289,9 @@ class PaymentGuardsThirdReviewTest extends TestCase
     {
         $invoice = $this->invoiceFor($this->service());
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 15.00, null, 'pi_api', currency: 'usd'); // 5 -> credit
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
         $token = 'PAYM' . bin2hex(random_bytes(8));
-        ApiKey::create([
+        ApiKey::create(['staff_id' => Staff::factory()->admin()->create()->id,
             'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
             'user_id' => $owner->id, 'permissions' => ['admin.invoices.delete'],
         ]);

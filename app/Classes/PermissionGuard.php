@@ -2,7 +2,7 @@
 
 namespace App\Classes;
 
-use App\Models\User;
+use App\Models\Staff;
 use Illuminate\Support\Arr;
 
 /**
@@ -27,13 +27,13 @@ class PermissionGuard
         'admin.properties.view' => 'admin.users.viewAny',
     ];
 
-    public static function isFullAdmin(?User $actor): bool
+    public static function isFullAdmin(?Staff $actor): bool
     {
-        return $actor !== null && $actor->role !== null && in_array('*', $actor->role->permissions ?? [], true);
+        return $actor !== null && $actor->active && $actor->role !== null && in_array('*', $actor->role->permissions ?? [], true);
     }
 
     /** @param  array<int, string>  $permissions  role permissions */
-    public static function canGrant(?User $actor, array $permissions): bool
+    public static function canGrant(?Staff $actor, array $permissions): bool
     {
         if (self::isFullAdmin($actor)) {
             return true;
@@ -62,7 +62,7 @@ class PermissionGuard
         return array_key_exists($role, Arr::dot(config('permissions.role'))) ? $role : null;
     }
 
-    public static function canGrantApi(?User $actor, string $apiPermission): bool
+    public static function canGrantApi(?Staff $actor, string $apiPermission): bool
     {
         if (self::isFullAdmin($actor)) {
             return true;
@@ -73,7 +73,7 @@ class PermissionGuard
     }
 
     /** @param  array<int, string>  $apiPermissions */
-    public static function canGrantAllApi(?User $actor, array $apiPermissions): bool
+    public static function canGrantAllApi(?Staff $actor, array $apiPermissions): bool
     {
         foreach ($apiPermissions as $permission) {
             if (!self::canGrantApi($actor, $permission)) {
@@ -85,7 +85,7 @@ class PermissionGuard
     }
 
     /** May $actor change $target's account (password, email, role) or act as them? */
-    public static function outranks(?User $actor, User $target): bool
+    public static function outranks(?Staff $actor, Staff $target): bool
     {
         if ($actor === null) {
             return false;

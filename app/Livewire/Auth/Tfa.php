@@ -13,6 +13,8 @@ use RobThree\Auth\TwoFactorAuth;
 
 class Tfa extends Component
 {
+    private const LOCKOUT_SECONDS = 900;
+
     public $code;
 
     public function mount()
@@ -37,13 +39,17 @@ class Tfa extends Component
             return $this->redirect(route('login'), true);
         }
 
+        // Back-off (AUTH-20): 5 wrong codes lock the account's 2FA for 15 minutes, not for a minute (which let anyone
+        // try 5 codes a minute for ever). Staff have Filament's own limit on their guard.
         if (RateLimiter::tooManyAttempts('2fa:' . $session['user_id'], 5)) {
-            $this->addError('code', 'Too many attempts.');
+            $this->addError('code', __('Too many attempts. Try again in :minutes minutes.', [
+                'minutes' => (int) ceil(RateLimiter::availableIn('2fa:' . $session['user_id']) / 60),
+            ]));
 
             return;
         }
 
-        RateLimiter::increment('2fa:' . $session['user_id']);
+        RateLimiter::increment('2fa:' . $session['user_id'], self::LOCKOUT_SECONDS);
 
         $user = User::findOrfail($session['user_id']);
 

@@ -18,6 +18,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\MoneyEvent;
 use App\Models\Role;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use Filament\Facades\Filament;
@@ -72,17 +73,17 @@ class StaffCorrectionsTest extends TestCase
         return number_format((float) (Credit::query()->where('user_id', $this->user->id)->value('amount') ?? 0), 2, '.', '');
     }
 
-    private function owner(): User
+    private function owner(): Staff
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 
-        return User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        return Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
     }
 
     private function apiToken(array $permissions): string
     {
         $token = 'PAYM' . bin2hex(random_bytes(8));
-        ApiKey::create(['name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => $permissions]);
+        ApiKey::create(['staff_id' => Staff::factory()->admin()->create()->id, 'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'permissions' => $permissions]);
 
         return $token;
     }
@@ -152,7 +153,7 @@ class StaffCorrectionsTest extends TestCase
     {
         $invoice = $this->invoice();
 
-        Livewire::actingAs($this->owner())->test(EditInvoice::class, ['record' => $invoice->getKey()])
+        $this->livewireAs($this->owner())->test(EditInvoice::class, ['record' => $invoice->getKey()])
             ->set('data.status', Invoice::STATUS_PAID)
             ->call('save')
             ->assertHasFormErrors(['status']); // a disabled option
@@ -270,7 +271,7 @@ class StaffCorrectionsTest extends TestCase
         $invoice = $this->invoice();
 
         // On the edit page: the view page opens it while invoices are not immutable.
-        Livewire::actingAs($this->owner())->test(EditInvoice::class, ['record' => $invoice->getKey()])
+        $this->livewireAs($this->owner())->test(EditInvoice::class, ['record' => $invoice->getKey()])
             ->callAction('markPaid', data: ['amount' => '100.00', 'paid_at' => '2026-10-02', 'gateway_id' => null, 'transaction_id' => 'TRANSFER-2'])
             ->assertHasNoActionErrors();
 

@@ -5,14 +5,14 @@
         <div class="md:grid grid-cols-4 flex flex-col gap-4">
             <div class="md:col-span-3">
                 <div class="flex flex-col gap-4 max-h-[60vh] overflow-y-auto pr-4" wire:poll.10s>
-                    @foreach ($ticket->messages()->with('user')->get() as $index => $message)
-                    <div class="bg-background-secondary hover:bg-background-secondary/80 border border-neutral p-4 rounded-lg w-full max-w-[80%]  {{ $message->user_id === $ticket->user_id ? 'ml-auto' : 'mr-auto' }}"
+                    @foreach ($ticket->messages()->with(['user', 'staff'])->get() as $index => $message)
+                    <div class="bg-background-secondary hover:bg-background-secondary/80 border border-neutral p-4 rounded-lg w-full max-w-[80%]  {{ $message->isFromStaff() ? 'mr-auto' : 'ml-auto' }}"
                         @if ($loop->last) x-data x-init="$nextTick(() => $el.scrollIntoView({ block: 'end' }))" @endif>
                         <div class="flex items-center justify-between gap-4">
                             <div class="flex items-center gap-3">
-                                <img src="{{ $message->user->avatar }}" class="size-8 rounded-full border border-neutral bg-background" alt="{{ $message->user->name }} avatar" />
+                                <img src="{{ $message->author()?->avatar }}" class="size-8 rounded-full border border-neutral bg-background" alt="{{ $message->author()?->name }} avatar" />
                                 <div class="flex flex-col">
-                                    <h2 class="text-lg font-semibold">{{ $message->user->name }}</h2>
+                                    <h2 class="text-lg font-semibold">{{ $message->author()?->name }}</h2>
                                     <p class="text-sm text-gray-500">{{ $message->created_at->diffForHumans() }}</p>
                                 </div>
                             </div>

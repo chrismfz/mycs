@@ -10,9 +10,9 @@ use App\Mail\Mail;
 use App\Models\Invoice;
 use App\Models\NotificationTemplate;
 use App\Models\Order;
-use App\Models\Role;
 use App\Models\Service;
 use App\Models\ServiceCancellation;
+use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\User;
 use Database\Seeders\EmailTemplateSeeder;
@@ -20,7 +20,6 @@ use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail as MailFacade;
-use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
@@ -118,10 +117,10 @@ class NotificationTemplateTextsTest extends TestCase
     public function test_staff_edit_the_greek_text(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $owner = User::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $owner = Staff::factory()->admin()->create();
         $template = NotificationTemplate::query()->where('key', 'server_suspended')->first();
 
-        Livewire::actingAs($owner)->test(EditNotificationTemplate::class, ['record' => $template->getRouteKey()])
+        $this->livewireAs($owner)->test(EditNotificationTemplate::class, ['record' => $template->getRouteKey()])
             ->assertFormSet(['translations.el.subject' => EmailTemplateSeeder::translations['server_suspended']['el']['subject']])
             ->fillForm(['translations.el.subject' => 'Αναστολή: {{ service.product.name }}'])
             ->call('save')
