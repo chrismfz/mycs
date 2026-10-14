@@ -112,7 +112,8 @@ return new class extends Migration
         // Each account goes back to the user who owns it: only while every account has an owner and no user owns two
         // (two accounts would merge into one customer). Grants to other users have no place before the split: they go.
         $unowned = DB::table('clients')->whereNotIn('id', DB::table('client_user')->whereNotNull('owner_of_client_id')->select('client_id'))->count();
-        $ownersOfMany = DB::table('client_user')->whereNotNull('owner_of_client_id')->groupBy('user_id')->havingRaw('COUNT(*) > 1')->count();
+        $ownersOfMany = DB::table('client_user')->whereNotNull('owner_of_client_id')->select('user_id')->groupBy('user_id')
+            ->havingRaw('COUNT(*) > 1')->get()->count();
         if ($unowned + $ownersOfMany > 0) {
             throw new RuntimeException('Accounts without an owner, or a user who owns several: cannot roll back.');
         }
