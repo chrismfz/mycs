@@ -90,6 +90,12 @@
       προστασίας του BIL-9 (`PAID_NOT_APPLIED_DAYS`) γίνονται ρύθμιση, και το `paid_applied` τρέχει πιο συχνά.
 - [ ] Σ3 Gateways: idempotency keys, refund μόνο σε succeeded, ιδιοκτησία αποθηκευμένης μεθόδου, webhooks κοινού
       λογαριασμού με το WHMCS, πληρωμές χωρίς τιμολόγιο.
+- [ ] **Αφαίρεση του theme system του Paymenter** (ζητήθηκε 2026-10-14· πριν από το Σ4): ένα instance ανά εταιρεία,
+      ένα στυλ. Τα views του `themes/default` στο `resources/views`, ένα Vite build· φεύγουν ο επιλογέας theme, το
+      `app:make-theme`, οι ρυθμίσεις και οι μεταφράσεις ανά theme. Για την εμφάνιση ανά εταιρεία: λογότυπο, χρώματα (υπάρχουν)
+      και απλά πεδία header/footer (κείμενο ή περιορισμένο HTML, όχι Blade: `audit-security.md`). Λόγοι: τα tests της
+      σελίδας του πελάτη δεν τρέχουν έξω από το CI (views/build ανά theme), ένα theme είναι κώδικας PHP που διαλέγεται από
+      φάκελο. Πριν: τι μπαίνει σήμερα σε header/footer στις δύο εταιρείες.
 - [ ] Σ4 Ειδοποιήσεις μετά το commit (όχι `afterResponse`), PDF εκτός ροής πληρωμής, retries στο mail.
 - [ ] Σ5 Δικαιώματα staff: ονόματα permissions που δεν υπάρχουν, Filament «χωρίς μέθοδο = allow», upgrade/invoice
       items χωρίς validation, drafts ορατά στον πελάτη.
