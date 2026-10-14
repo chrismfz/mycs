@@ -94,10 +94,10 @@ abstract class TestCase extends BaseTestCase
         return Livewire::actingAs($user, $user instanceof Staff ? 'staff' : null);
     }
 
-    /** Staff act on their own guard (docs/accounts.md, PR 1), customers on the default one. */
+    /** Staff act on their own guard (docs/accounts.md, PR 1), customers on theirs, whatever the default is now. */
     public function actingAs(Authenticatable $user, $guard = null)
     {
-        return parent::actingAs($user, $guard ?? ($user instanceof Staff ? 'staff' : null));
+        return parent::actingAs($user, $guard ?? ($user instanceof Staff ? 'staff' : 'web'));
     }
 
     /**

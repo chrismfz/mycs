@@ -175,13 +175,9 @@ class StaffSplitAdversarialTest extends TestCase
         $staff = Staff::factory()->withPermissions(['admin.users.viewAny', 'admin.users.impersonate'])->create();
         $ticket = Ticket::factory()->create(['user_id' => $customer->id]);
 
-        // The state ImpersonateMiddleware leaves in the client area.
-        Auth::guard('staff')->setUser($staff);
-        Auth::guard('web')->setUser($customer);
-        Auth::shouldUse('web');
-        request()->setLaravelSession(app('session.store'));
-        Session::put('impersonating', $customer->id);
-        $this->assertTrue(Actor::current()?->is($staff), 'precondition: staff is the actor');
+        // A browser with the staff login and «Login as client»; the component's requests go through the web group
+        // (ResolveUserSession, ImpersonateMiddleware), so the customer's session is a real one, not a guard set by hand.
+        $this->withSession($this->loginUser($customer, $this->staffSession($staff, ['impersonating' => $customer->id])));
 
         Livewire::actingAs($customer)->test(ClientTicketShow::class, ['ticket' => $ticket])
             ->set('message', 'Please cancel my service')
