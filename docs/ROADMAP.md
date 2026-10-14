@@ -125,8 +125,8 @@ importer):
       Openprovider/FORTH δεν έχει υπόλοιπο), με Retry και μετρητή στο dashboard. Να δείχνει και τα «πληρωμένα που δεν
       εφαρμόστηκαν» του BIL-9 (`paid_applied`, σήμερα μόνο email). Απαραίτητο πριν από τα domains.
       **Σ1-a έγινε** (`provisioning.md`): `module_actions`, retries 3, Pending Module Actions, active μόνο μετά το create.
-      **Σ1-b1 έγινε:** Auto Setup ανά προϊόν, ημερομηνίες όταν ξεκινά. Μένουν: Σ1-b2 (status παραγγελίας, Accept/Cancel/
-      Cancel & Refund/Fraud, Pending Orders), Σ1-c (custom fields προϊόντος).
+      **Σ1-b1 έγινε:** Auto Setup ανά προϊόν, ημερομηνίες όταν ξεκινά. **Σ1-b2 έγινε:** status παραγγελίας, Accept/Cancel/Cancel &
+      Refund/Fraud, Pending Orders. Μένει: Σ1-c (custom fields προϊόντος).
 - [x] Σ2 Κύκλος ζωής: ακύρωση «end of period» (δεν εκτελείται σήμερα), ακυρώσεις ανά γραμμή αντί για ολόκληρα
       τιμολόγια, αναστολή μόνο με ληξιπρόθεσμο τιμολόγιο, όχι αναστολή+τερματισμός στο ίδιο run, upgrades.
       Έγιναν: end of period (#61), αναστολή/τερματισμός «the WHMCS way» με ρυθμίσεις (#63), καρτέλα Automation (#66),

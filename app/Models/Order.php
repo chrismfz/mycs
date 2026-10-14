@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Facades\DB;
 use OwenIt\Auditing\Contracts\Auditable;
 
 /**
@@ -25,7 +26,20 @@ class Order extends Model implements Auditable
 {
     use HasFactory, Traits\Auditable;
 
+    /** WHMCS's order statuses (Σ1-b2, Δ4). */
+    public const STATUS_PENDING = 'pending';
+
+    public const STATUS_ACTIVE = 'active';
+
+    public const STATUS_CANCELLED = 'cancelled';
+
+    public const STATUS_FRAUD = 'fraud';
+
+    public const STATUSES = [self::STATUS_PENDING, self::STATUS_ACTIVE, self::STATUS_CANCELLED, self::STATUS_FRAUD];
+
     protected $fillable = ['client_id', 'currency_code', 'notes'];
+
+    protected $casts = ['accepted_at' => 'datetime'];
 
     public bool $send_create_email = true;
 
@@ -33,6 +47,43 @@ class Order extends Model implements Auditable
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
+    }
+
+    /** @return BelongsTo<Staff, $this> */
+    public function acceptedBy(): BelongsTo
+    {
+        return $this->belongsTo(Staff::class, 'accepted_by_staff_id');
+    }
+
+    /**
+     * A pending order follows its services (Δ4): active once none of them waits (set up on order or on payment, or by
+     * staff), cancelled once all of them ended (never paid). Staff's own status (active by Accept, cancelled, fraud)
+     * is not undone here.
+     */
+    public function refreshStatus(): void
+    {
+        DB::transaction(fn () => $this->refreshStatusLocked());
+    }
+
+    private function refreshStatusLocked(): void
+    {
+        $locked = self::query()->whereKey($this->id)->lockForUpdate()->first();
+        if ($locked === null || $locked->status !== self::STATUS_PENDING) {
+            return;
+        }
+        $statuses = Service::query()->where('order_id', $this->id)->pluck('status');
+        if ($statuses->isEmpty()) {
+            return;
+        }
+        $status = match (true) {
+            $statuses->every(fn (string $status) => in_array($status, Service::ENDED_STATUSES, true)) => self::STATUS_CANCELLED,
+            !$statuses->contains(Service::STATUS_PENDING) => self::STATUS_ACTIVE,
+            default => null,
+        };
+        if ($status !== null) {
+            $locked->forceFill(['status' => $status])->save();
+            $this->setRawAttributes($locked->getAttributes(), true);
+        }
     }
 
     /** @return HasMany<Service, $this> */

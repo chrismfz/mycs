@@ -115,6 +115,10 @@ final class PlaceOrderService
                 (new RenewServiceService)->handle($service);
             }
 
+            if ($invoice !== null) {
+                $order->forceFill(['invoice_id' => $invoice->id])->save(); // its own invoice (Σ1-b2: Cancel & Refund)
+            }
+
             return new PlacedOrder($order, $invoice);
         });
     }

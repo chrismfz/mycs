@@ -6,6 +6,7 @@ use App\Events\Service as ServiceEvent;
 use App\Exceptions\DisplayException;
 use App\Models\BillingAgreement;
 use App\Models\Contact;
+use App\Models\Order;
 use App\Models\Service;
 use App\Services\Service\ServerSelector;
 use Carbon\CarbonImmutable;
@@ -24,6 +25,9 @@ class ServiceObserver
      */
     public function created(Service $service): void
     {
+        if ($service->order_id !== null && in_array($service->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED, ...Service::ENDED_STATUSES], true)) {
+            self::refreshOrders($service); // made already started (staff, the API): its order may have nothing waiting
+        }
         event(new ServiceEvent\Created($service));
     }
 
@@ -135,6 +139,14 @@ class ServiceObserver
         }
     }
 
+    /** A pending order follows its services (Σ1-b2): its own, and the one a service moved from. */
+    private static function refreshOrders(Service $service, mixed $previousOrderId = null): void
+    {
+        foreach (array_unique(array_filter([$service->order_id, $previousOrderId])) as $orderId) {
+            Order::query()->find($orderId)?->refreshStatus();
+        }
+    }
+
     /**
      * A new product of another module (an upgrade, staff, the API) takes the service to a server of its module: the old
      * server would get the new product's settings, a module it does not speak (review F4). Of the same module the
@@ -158,6 +170,9 @@ class ServiceObserver
      */
     public function updated(Service $service): void
     {
+        if ($service->wasChanged(['status', 'order_id'])) {
+            self::refreshOrders($service, $service->wasChanged('order_id') ? $service->getOriginal('order_id') : null);
+        }
         if ($service->wasChanged('plan_id')) {
             $service->unsetRelation('plan');
             $service->refreshOpenPeriods();
@@ -197,6 +212,7 @@ class ServiceObserver
      */
     public function deleted(Service $service): void
     {
+        self::refreshOrders($service); // the one that kept its order pending may be gone (review R4)
         // Its option values go with it (a morph: no foreign key would take them): left behind, they held the values
         // they point at as «in use» for ever (DATA-8).
         $service->configs()->delete();

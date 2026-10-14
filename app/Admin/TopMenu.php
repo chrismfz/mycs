@@ -47,7 +47,7 @@ class TopMenu
      * Group => items: [class] (its navigation label) or [class, page, label] for a resource
      * page such as 'create'. Order and names follow the WHMCS menu people are used to.
      *
-     * @var array<string, list<array{0: class-string, 1?: string, 2?: string}>>
+     * @var array<string, list<array{0: class-string, 1?: string, 2?: string, 3?: array<string, string>}>>
      */
     public const MENU = [
         'Clients' => [
@@ -58,6 +58,7 @@ class TopMenu
         ],
         'Orders' => [
             [OrderResource::class, 'index', 'List All Orders'],
+            [OrderResource::class, 'index', 'Pending Orders', ['tab' => 'pending']],
             [OrderResource::class, 'create', 'Add New Order'],
             [CouponResource::class, 'index', 'Promotions'],
         ],
@@ -105,13 +106,12 @@ class TopMenu
      */
     public static function groups(): array
     {
-        $current = request()->url();
         $groups = [];
         foreach (self::MENU as $label => $entries) {
             $items = [];
             foreach ($entries as $entry) {
                 if ($item = self::item(...$entry)) {
-                    $item['active'] = $current === $item['url'] || Str::startsWith($current, $item['url'] . '/');
+                    $item['active'] = self::isCurrent($item['url']);
                     $items[] = $item;
                 }
             }
@@ -128,10 +128,31 @@ class TopMenu
     }
 
     /**
+     * An item with a query (a list's tab) is current on that query only; one without, on its page and those under it,
+     * unless the page is open on another item's tab (review R6: «Pending Orders», not «List All Orders»).
+     */
+    private static function isCurrent(string $url): bool
+    {
+        $current = request()->url();
+        $query = (string) parse_url($url, PHP_URL_QUERY);
+        if ($query !== '') {
+            parse_str($query, $wanted);
+
+            return $current === strtok($url, '?') && array_intersect_assoc(array_map('strval', $wanted), array_map(fn ($v) => is_scalar($v) ? (string) $v : '', request()->query())) === array_map('strval', $wanted);
+        }
+        if ($current === $url && request()->query('tab') !== null) {
+            return false;
+        }
+
+        return $current === $url || Str::startsWith($current, $url . '/');
+    }
+
+    /**
      * @param  class-string  $class
+     * @param  array<string, string>  $query  e.g. a list's tab
      * @return array{label: string, url: string}|null
      */
-    private static function item(string $class, string $page = 'index', ?string $label = null): ?array
+    private static function item(string $class, string $page = 'index', ?string $label = null, array $query = []): ?array
     {
         try {
             if (is_subclass_of($class, Resource::class)) {
@@ -140,7 +161,7 @@ class TopMenu
                     return null;
                 }
 
-                return ['label' => $label ?? $class::getNavigationLabel(), 'url' => $class::getUrl($page)];
+                return ['label' => $label ?? $class::getNavigationLabel(), 'url' => $class::getUrl($page, $query)];
             }
             if (is_subclass_of($class, Page::class) && $class::canAccess()) {
                 return ['label' => $label ?? $class::getNavigationLabel(), 'url' => $class::getUrl()];

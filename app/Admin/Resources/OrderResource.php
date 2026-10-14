@@ -30,6 +30,7 @@ use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Support\RawJs;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -199,6 +200,19 @@ class OrderResource extends Resource
         return $line->netPrice . (BigDecimal::of($line->netSetupFee)->isPositive() ? " (+ {$line->netSetupFee} setup fee)" : '') . ' + tax';
     }
 
+    /** Pending Orders (Σ1-b2): waiting for staff's Accept, or for a service to be set up. */
+    public static function getNavigationBadge(): ?string
+    {
+        $pending = Order::query()->where('status', Order::STATUS_PENDING)->count();
+
+        return $pending > 0 ? (string) $pending : null;
+    }
+
+    public static function getNavigationBadgeColor(): ?string
+    {
+        return 'warning';
+    }
+
     public static function table(Table $table): Table
     {
         return $table
@@ -209,6 +223,14 @@ class OrderResource extends Resource
                     ->label('ID')
                     ->searchable()
                     ->sortable(),
+                TextColumn::make('status')->badge()
+                    ->formatStateUsing(fn (string $state) => ucfirst($state))
+                    ->color(fn (string $state) => match ($state) {
+                        Order::STATUS_PENDING => 'warning',
+                        Order::STATUS_ACTIVE => 'success',
+                        Order::STATUS_FRAUD => 'danger',
+                        default => 'gray',
+                    }),
                 TextColumn::make('client.name')
                     ->label('Client')
                     ->searchable(query: fn (Builder $query, $search) => ClientComponent::search($query, (string) $search)),
@@ -233,7 +255,7 @@ class OrderResource extends Resource
                     ->orderBy('id', 'desc');
             })
             ->filters([
-                //
+                SelectFilter::make('status')->options(array_combine(Order::STATUSES, array_map('ucfirst', Order::STATUSES))),
             ])
             ->recordActions([
                 EditAction::make(),

@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\Category;
 use App\Models\Client;
 use App\Models\ConfigOption;
+use App\Models\Order;
 use App\Models\Product;
 use App\Models\Role;
 use App\Models\Service;
@@ -871,6 +872,15 @@ class ImportFromWhmcs extends Command
                     'currency_code' => $user['code'],
                     // WHMCS «Order Notes» (the customer's at checkout, or staff's).
                     'notes' => self::text($record['notes'] ?? null),
+                    // Its status as WHMCS has it (Σ1-b2): no observer runs on an import, and ~7.000 orders must not land in
+                    // Pending Orders. Its own invoice: what «Cancel & Refund» gives back.
+                    'status' => match ($record['status'] ?? 'Active') {
+                        'Pending' => Order::STATUS_PENDING,
+                        'Cancelled' => Order::STATUS_CANCELLED,
+                        'Fraud' => Order::STATUS_FRAUD,
+                        default => Order::STATUS_ACTIVE,
+                    },
+                    'invoice_id' => !empty($record['invoiceid']) ? (int) $record['invoiceid'] : null,
                     'created_at' => $this->validateDate($record['date']),
                     'updated_at' => $this->validateDate($record['date']),
                 ];

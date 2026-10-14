@@ -93,6 +93,7 @@ return [
 
     // The credit note of an invoice the app cancels (CancelOpenInvoices), written in the app's language.
     'cancellation_reasons' => [
+        'order_cancelled' => 'Cancelled: the order was cancelled.',
         'unpaid_order' => 'Cancelled: the order was not paid in time.',
         'service_terminated' => 'Cancelled: the service was terminated.',
         'service_deleted' => 'Cancelled: the service was deleted.',
