@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Events\Invoice\Paid;
+use App\Events\InvoiceTransaction\Created as TransactionCreated;
 use App\Helpers\ExtensionHelper;
 use App\Models\EmailLog;
 use App\Models\Gateway;
@@ -13,6 +13,7 @@ use Illuminate\Cache\ArrayStore;
 use Illuminate\Cache\Repository;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
@@ -90,8 +91,10 @@ class GatewayLogCodeReviewTest extends TestCase
     {
         $this->stripe();
         $invoice = $this->invoice(100);
-        Event::listen(Paid::class, function () {
-            throw new \RuntimeException('renewal failed after commit');
+        // An after-commit callback that throws, registered before GatewayLog's (Σ4: the Paid event no longer can, its
+        // listeners are reported, so an extension's own callback stands in).
+        Event::listen(TransactionCreated::class, function () {
+            DB::afterCommit(fn () => throw new \RuntimeException('renewal failed after commit'));
         });
 
         $this->stripeWebhook($this->succeeded($invoice, 10000, 'pi_cr_1'))->assertStatus(500);
@@ -112,8 +115,10 @@ class GatewayLogCodeReviewTest extends TestCase
     {
         $this->stripe();
         $invoice = $this->invoice(100);
-        Event::listen(Paid::class, function () {
-            throw new \RuntimeException('renewal failed after commit');
+        // An after-commit callback that throws, registered before GatewayLog's (Σ4: the Paid event no longer can, its
+        // listeners are reported, so an extension's own callback stands in).
+        Event::listen(TransactionCreated::class, function () {
+            DB::afterCommit(fn () => throw new \RuntimeException('renewal failed after commit'));
         });
         Cache::swap(new Repository(new class extends ArrayStore
         {

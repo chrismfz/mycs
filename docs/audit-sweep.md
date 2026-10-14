@@ -119,11 +119,13 @@
 - Fee Stripe σε νόμισμα settlement· float στα `refundable_amount`/`currentBalance`. PAY-16, INV-21
 
 ### Σ4. Ειδοποιήσεις ασφαλείς ως προς το transaction
-- ✔ Τα emails «νέο τιμολόγιο» και «νέα παραγγελία» στέλνονται με `afterResponse()`, όχι μετά το commit: **rollback → ο πελάτης παίρνει email και PDF για τιμολόγιο που δεν υπάρχει** (και ο αριθμός ξαναδίνεται)· στο cron όλα κρατιούνται ως το τέλος της διεργασίας (crash = κανένα email)· στους workers δεν φεύγουν ποτέ. `DB::afterCommit` + queued listeners. EVT-1, CART-13, INV-18, BIL-23
-- PDF και email **μέσα στη ροή πληρωμής**: μια εξαίρεση (π.χ. μορφή αριθμού με `/`) σταματά τα υπόλοιπα after-commit callbacks → πληρωμένο τιμολόγιο χωρίς ανανέωση. PDF μέσα στο mail job, notifications με try/report. EVT-2, INV-19
-- Mail χωρίς tries/backoff, `SystemMail` logs μένουν pending, ολόκληρα models (με password hash) στο payload των jobs. EVT-10
-- Διπλό «payment failed». EVT-14
-- Κάθε αριθμός τιμολογίου κάνει `queue:restart` (ο μετρητής είναι Setting). Μετρητές σε πίνακα `sequences`. EVT-13
+- ✔ Τα emails «νέο τιμολόγιο» και «νέα παραγγελία» στέλνονται με `afterResponse()`, όχι μετά το commit: **rollback → ο πελάτης παίρνει email και PDF για τιμολόγιο που δεν υπάρχει** (και ο αριθμός ξαναδίνεται)· στο cron όλα κρατιούνται ως το τέλος της διεργασίας (crash = κανένα email)· στους workers δεν φεύγουν ποτέ. `DB::afterCommit` + queued listeners. EVT-1, CART-13, INV-18, BIL-23 *(`AfterCommit::event` για τα `Finalized`· `SendMailListener` queued με `afterCommit`)*
+- ✔ PDF και email **μέσα στη ροή πληρωμής**: μια εξαίρεση (π.χ. μορφή αριθμού με `/`) σταματά τα υπόλοιπα after-commit callbacks → πληρωμένο τιμολόγιο χωρίς ανανέωση. PDF μέσα στο mail job, notifications με try/report. EVT-2, INV-19 *(το PDF φτιάχνεται στο job του listener· το `Paid` και τα `Finalized` σε try/report)*
+- ✔ Mail χωρίς tries/backoff, `SystemMail` logs μένουν pending, ολόκληρα models (με password hash) στο payload των jobs. EVT-10 *(5 tries, backoff 1′/5′/15′/1h· το mail αποδίδεται όταν φτιάχνεται και το job κρατά subject/HTML)*
+- ✔ Διπλό «payment failed». EVT-14 *(μόνο όταν η συναλλαγή γίνει failed, και μία φορά ανά τιμολόγιο ανά 12 ώρες: cron και webhook για την ίδια απόπειρα)*
+- ✔ Κάθε αριθμός τιμολογίου κάνει `queue:restart` (ο μετρητής είναι Setting). Μετρητές σε πίνακα `sequences`. EVT-13 *(οι μετρητές δεν αδειάζουν πια την cache· η σελίδα ρυθμίσεων τους διαβάζει από τη βάση. Πίνακας `sequences` δεν χρειάστηκε)*
+- ✔ D1 του #82: το Discord ανακοίνωνε αλλαγές που έγιναν rollback. *(το μήνυμα φτιάχνεται στο event και στέλνεται από job μετά το commit)*
+- [ ] Τα email templates του WHMCS που χρησιμοποιούνται (απογραφή των δύο εγκαταστάσεων): ξεχωριστό PR, η λίστα προς επιβεβαίωση.
 
 ### Σ5. Δικαιώματα staff και API
 - ΚΡ-5.

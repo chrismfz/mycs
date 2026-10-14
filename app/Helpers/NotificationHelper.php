@@ -17,6 +17,7 @@ use App\Models\ServiceCancellation;
 use App\Models\TicketMessage;
 use App\Models\User;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Mail as FacadesMail;
 use Illuminate\Support\Facades\URL;
@@ -217,8 +218,15 @@ class NotificationHelper
         ], $user);
     }
 
+    /**
+     * Once per invoice within 12 hours (EVT-14): a renewal charge the cron saw fail and the gateway's own failed
+     * transaction for the same attempt (a webhook later) are one failure to the customer.
+     */
     public static function invoicePaymentFailedNotification(User $user, Invoice $invoice): void
     {
+        if (!Cache::add("invoice:{$invoice->id}:payment-failed-mailed", true, now()->addHours(12))) {
+            return;
+        }
         self::invoiceNotification($user, $invoice, 'invoice_payment_failed');
     }
 

@@ -16,6 +16,7 @@ use App\Services\Invoice\GrantBoughtCreditService;
 use App\Services\Invoice\InvoiceItemReference;
 use App\Services\Invoice\ProcessPaidInvoiceService;
 use App\Services\Invoice\RecordPaymentService;
+use App\Support\AfterCommit;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -49,11 +50,7 @@ class InvoiceObserver
             return;
         }
 
-        $sendEmail = $invoice->send_create_email;
-
-        dispatch(function () use ($invoice, $sendEmail) {
-            event(new InvoiceEvent\Finalized($invoice, $sendEmail));
-        })->afterResponse();
+        AfterCommit::event(new InvoiceEvent\Finalized($invoice, $invoice->send_create_email));
     }
 
     /**
@@ -185,11 +182,7 @@ class InvoiceObserver
             $this->createSnapshot($invoice);
             event(new InvoiceEvent\Created($invoice));
 
-            $sendEmail = $invoice->send_create_email;
-
-            dispatch(function () use ($invoice, $sendEmail) {
-                event(new InvoiceEvent\Finalized($invoice, $sendEmail));
-            })->afterResponse();
+            AfterCommit::event(new InvoiceEvent\Finalized($invoice, $invoice->send_create_email));
 
             // Finalized with nothing to pay (a free service, or its payments cover it exactly): closed as paid, as a
             // zero invoice is (2b). Never one paid over its total: that would move a payment to credit for whoever may
@@ -218,7 +211,13 @@ class InvoiceObserver
 
                     return;
                 }
-                event(new InvoiceEvent\Paid($invoice));
+                // Its listeners (snapshot, mails, extensions) never undo the payment: one that fails is reported, and
+                // the callbacks after this one still run (EVT-2).
+                try {
+                    event(new InvoiceEvent\Paid($invoice));
+                } catch (Throwable $e) {
+                    report($e);
+                }
             });
         }
         event(new InvoiceEvent\Updated($invoice));

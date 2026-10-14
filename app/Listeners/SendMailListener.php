@@ -3,7 +3,6 @@
 namespace App\Listeners;
 
 use App\Enums\InvoiceTransactionStatus;
-use App\Events\Auth\Login;
 use App\Events\Invoice\Finalized as InvoiceFinalized;
 use App\Events\Invoice\Paid as InvoicePaid;
 use App\Events\InvoiceTransaction\Created as InvoiceTransactionCreated;
@@ -12,74 +11,71 @@ use App\Events\Order\Finalized as OrderFinalized;
 use App\Events\ServiceCancellation\Created as CancellationCreated;
 use App\Events\User\Created as UserCreated;
 use App\Helpers\NotificationHelper;
-use App\Models\Session;
-use App\Models\UserAuthenticationLog;
+use Illuminate\Contracts\Queue\ShouldQueue;
 
-class SendMailListener
+/**
+ * The customer's mails for what happened to their invoices, orders, cancellations and account (audit sweep Σ4).
+ *
+ * Queued, after the commit (EVT-1/EVT-2): the PDF and the template are made in the worker, so a slow or failing one
+ * neither holds the request nor stops what follows the payment; retried with backoff; the job carries the models'
+ * ids (SerializesModels), read again when it runs. Rolled back, nothing is queued.
+ */
+class SendMailListener implements ShouldQueue
 {
-    /**
-     * Handle the event.
-     */
-    public function handle(InvoiceFinalized|OrderFinalized|UserCreated|Login|CancellationCreated|InvoicePaid|InvoiceTransactionCreated|InvoiceTransactionUpdated $event): void
+    public bool $afterCommit = true;
+
+    public int $tries = 5;
+
+    /** @var list<int> seconds */
+    public array $backoff = [60, 300, 900, 3600];
+
+    /** Its invoice or order deleted before the worker ran: nothing to tell. */
+    public bool $deleteWhenMissingModels = true;
+
+    /** Decided on the event as it fired: the worker sees the models as they are by then. */
+    public function shouldQueue(InvoiceFinalized|OrderFinalized|UserCreated|CancellationCreated|InvoicePaid|InvoiceTransactionCreated|InvoiceTransactionUpdated $event): bool
     {
+        if ($event instanceof InvoiceFinalized || $event instanceof OrderFinalized) {
+            return $event->sendEmail !== false;
+        }
+        if ($event instanceof InvoiceTransactionCreated || $event instanceof InvoiceTransactionUpdated) {
+            // Once, when it becomes failed (EVT-14): not again on every later save of a failed transaction.
+            $transaction = $event->invoiceTransaction;
 
+            return $transaction->status === InvoiceTransactionStatus::Failed
+                && ($event instanceof InvoiceTransactionCreated || $transaction->wasChanged('status'));
+        }
+
+        return true;
+    }
+
+    public function handle(InvoiceFinalized|OrderFinalized|UserCreated|CancellationCreated|InvoicePaid|InvoiceTransactionCreated|InvoiceTransactionUpdated $event): void
+    {
         if ($event instanceof InvoiceFinalized) {
-            if ($event->sendEmail === false) {
-                return;
+            if ($event->invoice->user !== null) {
+                NotificationHelper::invoiceCreatedNotification($event->invoice->user, $event->invoice);
             }
-
-            $invoice = $event->invoice;
-            NotificationHelper::invoiceCreatedNotification($invoice->user, $invoice);
         } elseif ($event instanceof InvoicePaid) {
             // An invoice left without a customer (deleted before money-trail §8) still records its money; no one to mail.
             if ($event->invoice->user !== null) {
                 NotificationHelper::invoicePaidNotification($event->invoice->user, $event->invoice);
             }
         } elseif ($event instanceof InvoiceTransactionCreated || $event instanceof InvoiceTransactionUpdated) {
-            // Check if status is failed
-            $transaction = $event->invoiceTransaction;
-            if ($transaction->status === InvoiceTransactionStatus::Failed && $transaction->invoice?->user !== null) {
-                NotificationHelper::invoicePaymentFailedNotification($transaction->invoice->user, $transaction->invoice);
+            $invoice = $event->invoiceTransaction->invoice;
+            if ($invoice?->user !== null) {
+                NotificationHelper::invoicePaymentFailedNotification($invoice->user, $invoice);
             }
         } elseif ($event instanceof UserCreated) {
-            $user = $event->user;
-            NotificationHelper::emailVerificationNotification($user);
+            NotificationHelper::emailVerificationNotification($event->user);
         } elseif ($event instanceof OrderFinalized) {
-            if ($event->sendEmail === false) {
-                return;
+            if ($event->order->user !== null) {
+                NotificationHelper::orderCreatedNotification($event->order->user, $event->order);
             }
-            $order = $event->order;
-            NotificationHelper::orderCreatedNotification($order->user, $order);
-        } elseif ($event instanceof Login) {
-            $this->login($event);
         } elseif ($event instanceof CancellationCreated) {
             $cancellation = $event->cancellation;
-            NotificationHelper::serviceCancellationReceivedNotification($cancellation->service->user, $cancellation);
-        }
-    }
-
-    private function login(Login $event): void
-    {
-        $user = $event->user;
-        $ip = request()->ip();
-        if (!$user->authenticationLogs()->where('ip_address', $ip)->exists()) {
-            // If the log for this IP does not exist, create a new log
-            $log = new UserAuthenticationLog;
-            $log->user_id = $user->id;
-            $log->ip_address = $ip;
-            $log->save();
-
-            $data = [
-                'ip' => $ip,
-                'device' => (new Session(['user_agent' => request()->userAgent()]))->getFormattedDeviceAttribute(),
-                'time' => now()->format('Y-m-d H:i:s'),
-            ];
-            NotificationHelper::loginDetectedNotification($user, $data);
-        } else {
-            // If it exists, update the last used timestamp
-            $log = $user->authenticationLogs()->where('ip_address', $ip)->first();
-            $log->last_used_at = now();
-            $log->save();
+            if ($cancellation->service?->user !== null) {
+                NotificationHelper::serviceCancellationReceivedNotification($cancellation->service->user, $cancellation);
+            }
         }
     }
 }

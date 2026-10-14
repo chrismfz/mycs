@@ -113,7 +113,7 @@ class NotificationTemplateTest extends TestCase
         NotificationHelper::loginDetectedNotification($user, ['ip' => '192.0.2.1', 'device' => 'x', 'time' => 'now']);
 
         $this->assertSame($before, EmailLog::count());
-        MailFacade::assertNotQueued(Mail::class, fn (Mail $mail) => $mail->emailTemplate->key === 'new_login_detected');
+        MailFacade::assertNotQueued(Mail::class, fn (Mail $mail) => $mail->templateKey === 'new_login_detected');
     }
 
     public function test_admin_rule_rejects_blade_syntax(): void

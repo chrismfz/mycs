@@ -5,6 +5,8 @@ namespace App\Providers;
 use App\Classes\Synths\PriceSynth;
 use App\Exceptions\ErrorHandler;
 use App\Helpers\ExtensionHelper;
+use App\Mail\Mail;
+use App\Mail\SystemMail;
 use App\Models\ApiKey;
 use App\Models\EmailLog;
 use App\Models\Extension;
@@ -205,7 +207,7 @@ class AppServiceProvider extends ServiceProvider
         }
 
         Queue::after(function (JobProcessed $event) {
-            if ($event->job->resolveName() === 'App\Mail\Mail') {
+            if (in_array($event->job->resolveName(), [Mail::class, SystemMail::class], true)) { // EVT-10: system mails too
                 $payload = json_decode($event->job->getRawBody());
                 $data = unserialize($payload->data->command);
                 EmailLog::where('id', $data->mailable->email_log_id)->update([
@@ -215,7 +217,7 @@ class AppServiceProvider extends ServiceProvider
             }
         });
         Queue::failing(function (JobFailed $event) {
-            if ($event->job->resolveName() === 'App\Mail\Mail') {
+            if (in_array($event->job->resolveName(), [Mail::class, SystemMail::class], true)) { // EVT-10: system mails too
                 $payload = json_decode($event->job->getRawBody());
                 $data = unserialize($payload->data->command);
                 EmailLog::where('id', $data->mailable->email_log_id)->update([

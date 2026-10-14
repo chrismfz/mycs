@@ -19,9 +19,9 @@ use App\Events\TicketMessage;
 use App\Events\User;
 use App\Events\User\Created;
 use App\Models\Order;
-use Exception;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use Throwable;
 
 #[ExtensionMeta(
     name: 'Discord Notifications',
@@ -109,14 +109,21 @@ class DiscordNotifications extends Extension
                 Event::listen(
                     self::events[$eventType],
                     function ($event) use ($eventType) {
+                        // The message is made now (the changes as they are), sent by a queued job once committed
+                        // (audit sweep Σ4, D1 of #82): a change rolled back is never announced, and Discord being slow
+                        // or down neither holds nor breaks what fired it.
                         try {
-                            $this->sendNotification($event, $eventType);
-                        } catch (Exception $e) {
-                            // Log the error
-                            if (config('settings.debug', false)) {
-                                throw $e;
-                            }
+                            $message = $this->message($event, $eventType);
+                        } catch (Throwable $e) {
+                            report($e);
+
+                            return;
                         }
+                        if ($message === null) {
+                            return;
+                        }
+                        $webhookUrl = $this->config('webhook_url');
+                        dispatch(fn () => Http::post($webhookUrl, $message)->throw())->afterCommit();
                     }
                 );
             }
@@ -209,7 +216,7 @@ class DiscordNotifications extends Extension
         return $id;
     }
 
-    private function sendNotification($event, $eventType)
+    private function message($event, $eventType): ?array
     {
         $fields = [
             'User Updated' => fn ($event) => $this->updatedEvent($event, 'user'),
@@ -228,11 +235,10 @@ class DiscordNotifications extends Extension
 
         // Check if the event type is valid
         if (!array_key_exists($eventType, $fields)) {
-            return;
+            return null;
         }
 
         $fields = $fields[$eventType]($event);
-        $webhookUrl = $this->config('webhook_url');
         $pingType = $this->config('ping_type');
         $pingId = $this->config('ping_id');
 
@@ -256,8 +262,7 @@ class DiscordNotifications extends Extension
             $message['content'] = ($pingType === 'user') ? "<@{$pingId}>" : "<@&{$pingId}>";
         }
 
-        // Send the notification to Discord
-        Http::post($webhookUrl, $message)->json();
+        return $message;
     }
 
     private function userCreated(\App\Models\User $user)
