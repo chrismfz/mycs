@@ -2,10 +2,10 @@
 
 namespace App\Jobs\Server;
 
+use App\Exceptions\NothingToDoOnServer;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Models\Service;
-use Exception;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -36,10 +36,8 @@ class SuspendJob implements ShouldQueue
 
         try {
             $data = ExtensionHelper::suspendServer($this->service);
-        } catch (Exception $e) {
-            if ($e->getMessage() !== 'No server assigned to this product') {
-                throw $e;
-            }
+        } catch (NothingToDoOnServer) {
+            // No module, or a module without this action: nothing to do (not retried).
         }
 
         if ($this->sendNotification) {

@@ -8,6 +8,7 @@ use App\Enums\AdjustmentNoteType;
 use App\Enums\InvoiceTransactionStatus;
 use App\Enums\MoneyEventKind;
 use App\Exceptions\DisplayException;
+use App\Exceptions\NothingToDoOnServer;
 use App\Models\BillingAgreement;
 use App\Models\Client;
 use App\Models\Credit;
@@ -299,7 +300,7 @@ class ExtensionHelper
 
         if (!$server) {
             if ($mayFail) {
-                throw new Exception('No server assigned to this product');
+                throw new NothingToDoOnServer('No server assigned to this product');
             } else {
                 return;
             }
@@ -1447,12 +1448,12 @@ class ExtensionHelper
             throw new Exception("The service's server #{$service->server_id} no longer exists: set its server first");
         }
         if (!$server) {
-            throw new Exception('No server assigned to this product');
+            throw new NothingToDoOnServer('No server assigned to this product');
         }
 
         // Does server support this action?
         if (!self::hasFunction($server, $action)) {
-            throw new Exception('Server does not support the action: ' . $action);
+            throw new NothingToDoOnServer('Server does not support the action: ' . $action);
         }
 
         return $server;
@@ -1470,23 +1471,21 @@ class ExtensionHelper
     }
 
     /**
-     * Runs a server action. An adapter fails by throwing; `false` (the old cPanel convention) is turned into an
-     * exception too, so no caller mistakes a refused action for a done one.
-     */
-    /**
      * Runs one server action and records it (Σ1, module_actions): a failure stays open for the Pending Module Actions,
-     * a success closes it. «No server assigned» (a product without a module) is nothing to do, not a failure. A create
-     * that succeeds starts a pending service: active only once the account exists (WHMCS).
+     * a success closes it. An adapter fails by throwing; `false` (the old cPanel convention) is turned into an exception
+     * too, so no caller mistakes a refused action for a done one. Nothing to do on the server (no module, or a module
+     * without the action: NothingToDoOnServer) is not a failure. A create that succeeds starts a pending service:
+     * active only once the account exists (WHMCS).
      */
     protected static function serverAction(Service $service, string $action, string $audit)
     {
         $recorded = ModuleAction::ACTIONS[$action];
         try {
             $server = self::checkServer($service, $action);
+        } catch (NothingToDoOnServer $e) {
+            throw $e;
         } catch (Exception $e) {
-            if ($e->getMessage() !== 'No server assigned to this product') {
-                ModuleAction::recordFailure($service, $recorded, $service->server?->extension, $e);
-            }
+            ModuleAction::recordFailure($service, $recorded, $service->server?->extension, $e);
             throw $e;
         }
 
@@ -1511,8 +1510,11 @@ class ExtensionHelper
         return $result;
     }
 
-    /** The account exists: a pending service starts (an ended one stays as it is). */
-    private static function startCreated(Service $service): void
+    /**
+     * The account exists (made, made by hand, or nothing to make): a pending service starts (an ended one stays as it
+     * is).
+     */
+    public static function startCreated(Service $service): void
     {
         DB::transaction(function () use ($service) {
             $locked = Service::query()->whereKey($service->id)->lockForUpdate()->first();

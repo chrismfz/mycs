@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Helpers\ExtensionHelper;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
@@ -103,17 +104,32 @@ class ModuleAction extends Model
         return $row;
     }
 
-    /** No automatic retry left (the job's last attempt failed): true the first time, so staff hear once. */
-    public static function giveUp(Service $service, string $action): bool
+    /**
+     * No automatic retry left (the job's last attempt failed): true the first time, so staff hear once. A job that died
+     * without reaching the module's answer (a timeout, a killed worker) is recorded here, else nobody would see it
+     * (review R4).
+     */
+    public static function giveUp(Service $service, string $action, ?Throwable $error = null): bool
     {
+        if (self::openFor($service, $action) === null) {
+            self::recordFailure($service, $action, $service->provisioningServer()?->extension,
+                $error ?? new \RuntimeException('The job failed before the server answered.'));
+        }
+
         return self::query()->open()->where('service_id', $service->id)->where('action', $action)->whereNull('given_up_at')
             ->update(['given_up_at' => now(), 'updated_at' => now()]) > 0;
     }
 
-    /** Staff close it: the account was fixed by hand, or it no longer matters. */
+    /**
+     * Staff close it: the account was fixed by hand, or it no longer matters. A create resolved means the account
+     * exists: a pending service starts, or it would stay pending, listed nowhere and never billed (review R3).
+     */
     public function markResolved(?Staff $staff): void
     {
         $this->forceFill(['status' => self::STATUS_RESOLVED, 'resolved_at' => now(), 'resolution' => 'marked resolved by staff',
             'resolved_by_staff_id' => $staff?->id])->save();
+        if ($this->action === 'create' && $this->service !== null) {
+            ExtensionHelper::startCreated($this->service);
+        }
     }
 }

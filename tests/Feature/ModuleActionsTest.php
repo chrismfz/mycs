@@ -184,9 +184,12 @@ class ModuleActionsTest extends TestCase
         } catch (Exception) {
         }
         $failed = ModuleAction::query()->sole();
-
         $this->livewireAs($staff)->test(ListModuleActions::class)
             ->assertCanSeeTableRecords([$failed])
+            ->assertTableActionHidden('retry', $failed); // the automatic retries first: a click would race them
+        $failed->update(['given_up_at' => now()]);
+
+        $this->livewireAs($staff)->test(ListModuleActions::class)
             ->callTableAction('retry', $failed)
             ->assertNotified('Done');
         $this->assertSame(ModuleAction::STATUS_COMPLETED, $failed->fresh()->status);

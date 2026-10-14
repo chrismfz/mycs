@@ -2,10 +2,10 @@
 
 namespace App\Jobs\Server;
 
+use App\Exceptions\NothingToDoOnServer;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Models\Service;
-use Exception;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -45,10 +45,9 @@ class CreateJob implements ShouldBeUnique, ShouldQueue
         // $data is the data that will be used to send the email, data is coming from the extension itself
         try {
             $data = ExtensionHelper::createServer($service);
-        } catch (Exception $e) {
-            if ($e->getMessage() !== 'No server assigned to this product') {
-                throw $e;
-            }
+        } catch (NothingToDoOnServer) {
+            // No module to make an account on (its server detached since the payment): nothing to wait for.
+            ExtensionHelper::startCreated($service);
         }
 
         if ($this->sendNotification) {

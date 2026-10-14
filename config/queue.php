@@ -38,7 +38,7 @@ return [
             'driver' => 'redis',
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
             'queue' => env('REDIS_QUEUE', 'default'),
-            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 90),
+            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 300), // > the server jobs' timeout (120): else a slow create runs twice
             'block_for' => null,
             'after_commit' => true,
         ],
@@ -48,7 +48,7 @@ return [
             'connection' => env('DB_QUEUE_CONNECTION', null),
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
-            'retry_after' => env('DB_QUEUE_RETRY_AFTER', 90),
+            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 300), // > the server jobs' timeout (120): else a slow create runs twice
             'after_commit' => true,
         ],
     ],

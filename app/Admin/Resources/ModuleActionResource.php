@@ -86,8 +86,9 @@ class ModuleActionResource extends Resource
                 SelectFilter::make('action')->options(array_combine(ModuleAction::ACTIONS, array_map('ucfirst', ModuleAction::ACTIONS))),
             ])
             ->recordActions([
+                // Once the automatic retries are over: while one is still queued, a click would race it (two creates).
                 Action::make('retry')->label('Retry')->icon('ri-loop-right-line')
-                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN)
+                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && $record->given_up_at !== null)
                     ->authorize('update')
                     ->requiresConfirmation()
                     ->modalDescription('Runs the action on the server now (and sends its email, as the automatic run would).')
@@ -109,7 +110,7 @@ class ModuleActionResource extends Resource
                     ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN)
                     ->authorize('update')
                     ->requiresConfirmation()
-                    ->modalDescription('For an account fixed by hand on the server: closes it without running anything.')
+                    ->modalDescription('For an account fixed by hand on the server: closes it without running anything (a create: the service turns active).')
                     ->action(fn (ModuleAction $record) => $record->markResolved(self::staff())),
             ])
             ->toolbarActions([

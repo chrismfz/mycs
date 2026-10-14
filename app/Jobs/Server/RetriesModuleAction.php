@@ -24,7 +24,7 @@ trait RetriesModuleAction
 
     public function failed(?Throwable $exception): void
     {
-        if (!ModuleAction::giveUp($this->service, $this->moduleAction())) {
+        if (!ModuleAction::giveUp($this->service, $this->moduleAction(), $exception)) {
             return;
         }
         $error = $exception?->getMessage() ?? 'unknown error';
