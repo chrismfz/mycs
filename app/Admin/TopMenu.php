@@ -47,7 +47,7 @@ class TopMenu
      * Group => items: [class] (its navigation label) or [class, page, label] for a resource
      * page such as 'create'. Order and names follow the WHMCS menu people are used to.
      *
-     * @var array<string, list<array{0: class-string, 1?: string, 2?: string}>>
+     * @var array<string, list<array{0: class-string, 1?: string, 2?: string, 3?: array<string, string>}>>
      */
     public const MENU = [
         'Clients' => [
@@ -58,6 +58,7 @@ class TopMenu
         ],
         'Orders' => [
             [OrderResource::class, 'index', 'List All Orders'],
+            [OrderResource::class, 'index', 'Pending Orders', ['activeTab' => 'pending']],
             [OrderResource::class, 'create', 'Add New Order'],
             [CouponResource::class, 'index', 'Promotions'],
         ],
@@ -129,9 +130,10 @@ class TopMenu
 
     /**
      * @param  class-string  $class
+     * @param  array<string, string>  $query  e.g. a list's tab
      * @return array{label: string, url: string}|null
      */
-    private static function item(string $class, string $page = 'index', ?string $label = null): ?array
+    private static function item(string $class, string $page = 'index', ?string $label = null, array $query = []): ?array
     {
         try {
             if (is_subclass_of($class, Resource::class)) {
@@ -140,7 +142,7 @@ class TopMenu
                     return null;
                 }
 
-                return ['label' => $label ?? $class::getNavigationLabel(), 'url' => $class::getUrl($page)];
+                return ['label' => $label ?? $class::getNavigationLabel(), 'url' => $class::getUrl($page, $query)];
             }
             if (is_subclass_of($class, Page::class) && $class::canAccess()) {
                 return ['label' => $label ?? $class::getNavigationLabel(), 'url' => $class::getUrl()];

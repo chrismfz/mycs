@@ -3,10 +3,12 @@
 namespace App\Admin\Widgets;
 
 use App\Admin\Resources\ModuleActionResource;
+use App\Admin\Resources\OrderResource;
 use App\Enums\DashboardPeriod;
 use App\Enums\InvoiceTransactionStatus;
 use App\Models\InvoiceTransaction;
 use App\Models\ModuleAction;
+use App\Models\Order;
 use App\Models\Service;
 use App\Models\Ticket;
 use Filament\Widgets\StatsOverviewWidget as BaseWidget;
@@ -38,7 +40,22 @@ class Overview extends BaseWidget
             $this->getData(Ticket::class, 'Tickets', lowerIsBetter: true),
             $this->getData(Service::class, 'Services'),
             $this->pendingModuleActions(),
+            $this->pendingOrders(),
         ]);
+    }
+
+    /** WHMCS's «Pending Orders» counter (Σ1-b2), shown while there are any. */
+    private function pendingOrders(): ?Stat
+    {
+        if (!OrderResource::canViewAny()) {
+            return null;
+        }
+        $pending = Order::query()->where('status', Order::STATUS_PENDING)->count();
+
+        return $pending === 0 ? null : Stat::make('Pending Orders', (string) $pending)
+            ->description('Waiting to be accepted or set up')
+            ->color('warning')
+            ->url(OrderResource::getUrl('index', ['activeTab' => 'pending']));
     }
 
     /** WHMCS's dashboard counter: failed server actions waiting for staff (Σ1), shown while there are any. */

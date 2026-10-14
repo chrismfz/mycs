@@ -55,3 +55,20 @@
 - **Ημερομηνία του staff** στην ίδια αποθήκευση (π.χ. 1η του μήνα, όπως η qualityweb στο myip) κρατιέται· το
   «Expires at» αλλάζει ελεύθερα και η επόμενη ανανέωση τιμολογείται από εκεί.
 - One-time και free plans: χωρίς ημερομηνίες, όπως πριν.
+
+## Status παραγγελίας και κουμπιά (`orders.status`, Σ1-b2, Δ4)
+- `pending` στη δημιουργία (default της στήλης· το `PlaceOrderService` δεν αλλάζει). Ακολουθεί τις υπηρεσίες της
+  (`Order::refreshStatus`, από το `ServiceObserver`): `active` όταν καμία δεν μένει `pending`, `cancelled` όταν όλες
+  τελείωσαν (π.χ. απλήρωτη, από το cron). Το status που έβαλε το staff δεν αναιρείται.
+- **Accept Order:** `active`, `accepted_at/by`· κάθε `pending` υπηρεσία στήνεται, πληρωμένη ή όχι (απόφαση 4).
+  «Run module create»: με server → CreateJob (active όταν υπάρξει ο λογαριασμός)· χωρίς, ή χωρίς create (στήθηκε με το
+  χέρι) → active τώρα. «Send welcome email». Οι ημερομηνίες ακολουθούν το `datesOnStart`.
+- **Cancel Order:** οι υπηρεσίες γίνονται `cancelled` (stock πίσω, pending upgrades αποσύρονται), οι γραμμές τους στα
+  ανοιχτά τιμολόγια ακυρώνονται (`CancelOpenInvoices`, το credit επιστρέφει). Οι λογαριασμοί που στήθηκαν μένουν, εκτός
+  αν το staff τσεκάρει «Terminate accounts». Τα πληρωμένα τιμολόγια μένουν.
+- **Cancel & Refund:** όπως το Cancel, και κάθε πληρωμή τιμολογίου που χρεώνει **μόνο** αυτή την παραγγελία επιστρέφει
+  (gateway / με το χέρι / σε credit· ό,τι πληρώθηκε με credit γυρνά σε credit). Τιμολόγιο που χρεώνει και κάτι άλλο:
+  ειδοποίηση στο staff. Θέλει και το `admin.invoice_transactions.update`.
+- **Set as Fraud:** όπως το Cancel, status `fraud` (η εκτίμηση απάτης δεν υπάρχει, Δ4). **Set back to Pending:** μόνο
+  το status.
+- Pending Orders: tab της λίστας (`?activeTab=pending`), στο top menu (Orders), badge και μετρητής στο dashboard.

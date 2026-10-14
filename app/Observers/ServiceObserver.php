@@ -129,6 +129,9 @@ class ServiceObserver
      */
     public function updated(Service $service): void
     {
+        if ($service->wasChanged('status') && $service->order_id !== null) {
+            $service->order?->refreshStatus(); // a pending order follows its services (Σ1-b2)
+        }
         if ($service->wasChanged('plan_id')) {
             $service->unsetRelation('plan');
             $service->refreshOpenPeriods();
