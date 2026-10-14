@@ -54,7 +54,7 @@ class NotificationsAfterCommitReviewTest extends TestCase
     /**
      * R-1. Outside a transaction AfterCommit::event fires at once, at `$invoice->save()`, before the lines are
      * written. The admin «Create invoice» page (no DB transaction: the panel has none, CreateInvoice sets none) and
-     * OrderResource\CreateOrder::afterCreate save the invoice and then its lines. Before, Finalized waited for the
+     * PlaceOrderService (staff «Create Order», Σ7) save the invoice and then its lines. Before, Finalized waited for the
      * end of the response; now listeners see an invoice with no lines (Discord's «Invoice Created» is built at
      * that moment, total 0), and the queued mail races the line inserts (sync: always loses).
      */
@@ -96,7 +96,7 @@ class NotificationsAfterCommitReviewTest extends TestCase
         Http::fake(['https://discord.test/*' => Http::response([])]);
         (new DiscordNotifications(['webhook_url' => 'https://discord.test/hook', 'events' => ['Invoice Created'], 'ping_type' => 'none']))->boot();
 
-        // As OrderResource\CreateOrder::afterCreate and the admin CreateInvoice page: invoice saved, then its lines, in
+        // As the PlaceOrderService and the admin CreateInvoice page: invoice saved, then its lines, in
         // the page's transaction (fixed: $hasDatabaseTransactions).
         DB::transaction(function () {
             $invoice = $this->invoice();

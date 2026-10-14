@@ -64,25 +64,18 @@ class Coupon extends Model implements Auditable
             ->count() >= $this->max_uses_per_user;
     }
 
-    public function calculateDiscount($price, $type = 'price')
+    /** Whether it discounts this product: a coupon without products is for all of them. */
+    public function covers(int $productId): bool
     {
-        if (!in_array($type, ['price', 'setup_fee'])) {
-            throw new \InvalidArgumentException('Invalid type for coupon discount calculation');
-        }
-        if (!in_array($this->applies_to, ['all', $type])) {
-            return 0;
-        }
+        return $this->products->isEmpty() || $this->products->contains($productId);
+    }
 
-        $discount = 0;
-        if ($this->type === 'percentage') {
-            $discount = $price * $this->value / 100;
-        } elseif ($this->type === 'fixed') {
-            $discount = $this->value;
-        }
-        if ($price < $discount) {
-            $discount = $price;
-        }
-
-        return $discount;
+    /**
+     * How many billing cycles it discounts: 0 = every cycle; empty = the first only, as the form says (CART-1: an
+     * empty value read as 0 gave a lifetime discount on every recalculation).
+     */
+    public function cycles(): int
+    {
+        return $this->recurring === null ? 1 : max(0, (int) $this->recurring);
     }
 }

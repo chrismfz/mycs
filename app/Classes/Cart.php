@@ -11,7 +11,6 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
-use Illuminate\Support\Facades\Session;
 
 class Cart
 {
@@ -241,30 +240,6 @@ class Cart
             $cart->coupon_id = null;
             $cart->save();
             throw new DisplayException('Coupon code is not valid for any items in your cart');
-        }
-    }
-
-    /**
-     * Validates and refreshes the coupon in the session
-     *
-     * @return bool True if coupon is valid, false otherwise
-     */
-    public static function validateAndRefreshCoupon()
-    {
-        if (!self::get()->coupon_id || !self::get()->coupon) {
-            return true;
-        }
-
-        try {
-            $coupon = self::get()->coupon;
-            self::validateCoupon($coupon->code);
-
-            return true;
-        } catch (DisplayException $e) {
-            // Coupon is invalid, remove it
-            self::removeCoupon();
-
-            return false;
         }
     }
 

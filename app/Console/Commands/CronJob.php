@@ -622,10 +622,14 @@ class CronJob extends Command
         // A coupon «for N cycles»: the first cycle after them is billed at the full price. Cycles are
         // counted from a persisted start (including free cycles). Expiration is recorded once, so
         // skipping N+1 still ends the discount and a later staff price is kept.
-        if ($service->coupon && $service->coupon->recurring > 0
+        if ($service->coupon && $service->coupon->cycles() > 0
             && $service->coupon_expired_at === null
-            && $service->cycleNumber($periodStart, $lines) > $service->coupon->recurring) {
-            $service->price = $service->calculatePrice(applyCoupon: false);
+            && $service->cycleNumber($periodStart, $lines) > $service->coupon->cycles()) {
+            // A first-cycle coupon never was in the renewal price (checkout keeps the full one): nothing to take
+            // back, and a recalculation would replace a price staff or an old catalog set.
+            if ($service->coupon->cycles() > 1) {
+                $service->price = $service->calculatePrice(applyCoupon: false);
+            }
             $service->coupon_expired_at = CarbonImmutable::now();
         }
         if ($service->isDirty(['price', 'coupon_started_at', 'coupon_expired_at'])) {
