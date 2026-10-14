@@ -8,7 +8,7 @@ use App\Listeners\InvoiceNumberListener;
 use App\Models\AdjustmentNote;
 use App\Models\Invoice;
 use App\Models\Setting;
-use App\Models\User;
+use App\Models\Staff;
 use Filament\Actions\Action;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
@@ -303,7 +303,7 @@ class Settings extends Page implements HasForms
 
     public static function canAccess(): bool
     {
-        /** @var User */
+        /** @var Staff|null */
         $user = auth()->user();
 
         return $user && $user->hasPermission('admin.settings.view');
