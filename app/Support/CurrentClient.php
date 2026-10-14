@@ -58,7 +58,7 @@ class CurrentClient
     /** Its id; 0 when there is none, so a query by it matches nothing. */
     public static function id(): int
     {
-        return self::model()?->id ?? 0;
+        return self::model()->id ?? 0;
     }
 
     /** Switch to another of the user's accounts (2b's account picker); false when it is not theirs. */

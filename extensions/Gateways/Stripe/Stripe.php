@@ -364,7 +364,7 @@ class Stripe extends Gateway
         $stripeCustomerId = $user->properties->where('key', 'stripe_id')->first();
         // Create customer if not exists
         if (!$stripeCustomerId) {
-            throw new Exception('Stripe customer not found', $user);
+            throw new Exception('Stripe customer not found');
         } else {
             $customer = $this->request('get', '/customers/' . $stripeCustomerId->value);
         }
