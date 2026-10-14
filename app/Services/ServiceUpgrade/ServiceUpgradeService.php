@@ -4,13 +4,15 @@ namespace App\Services\ServiceUpgrade;
 
 use App\Helpers\NotificationHelper;
 use App\Jobs\Server\UpgradeJob;
-use App\Models\ConfigOptionProduct;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Services\Invoice\ChangeOpenLine;
 use App\Services\Invoice\LineTax;
 use App\Services\Money\PaymentsLog;
+use Brick\Math\BigDecimal;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class ServiceUpgradeService
@@ -47,6 +49,12 @@ class ServiceUpgradeService
                 return false;
             }
             $serviceUpgrade = $locked;
+            $serviceUpgrade->setRelation('service', $service);
+            // What it keeps and what it costs, worked out before the service changes (as ServiceUpgrade::calculatePrice).
+            $options = $serviceUpgrade->resultingOptions();
+            $optionsOnly = $serviceUpgrade->changesOptionsOnly();
+            $newPrice = $serviceUpgrade->newRecurringPrice();
+            $shortfall = $this->shortfall($serviceUpgrade);
             $serviceUpgrade->status = ServiceUpgrade::STATUS_COMPLETED;
             $serviceUpgrade->save();
             $original->setRawAttributes($serviceUpgrade->getAttributes(), true);
@@ -75,10 +83,8 @@ class ServiceUpgradeService
             // imported WHMCS option): an upgrade never lowers the recurring amount by the back door. The upgrade's own
             // options are kept too (an upgrade made by staff or the API may carry one the product no longer links).
             if ($productChanged) {
-                $keep = ConfigOptionProduct::query()->where('product_id', $service->product_id)->pluck('config_option_id')
-                    ->merge($serviceUpgrade->configs->pluck('config_option_id'))->unique()->all();
                 $service->configs()
-                    ->whereNotIn('config_option_id', $keep)
+                    ->whereNotIn('config_option_id', array_keys($options))
                     ->delete();
             }
 
@@ -92,7 +98,9 @@ class ServiceUpgradeService
 
             $service->refresh();
 
-            $service->price = $service->calculatePrice();
+            // Options only: the price it had and the options' difference (a staff price stays). Another product or
+            // plan: its catalog price for the next renewal.
+            $service->price = $optionsOnly ? $newPrice : $service->calculatePrice();
             $service->save();
 
             // Reprice all open renewal lines (drafts too) after the new recurring amount is saved; on a new product
@@ -114,7 +122,51 @@ class ServiceUpgradeService
                 UpgradeJob::dispatch($service);
             }
 
+            if ($shortfall !== null) {
+                $this->billShortfall($serviceUpgrade, $service, $shortfall);
+            }
+
             return true;
         });
+    }
+
+    /**
+     * What a paid upgrade still owes (F4 of the SVC-14 review): its invoice was made for the days left then; a renewal
+     * paid before it moved the expiry on, so more days are now at the old price. Null when nothing more is owed (also
+     * when days passed: the cron lowers the price of an open upgrade line, never the other way after payment).
+     */
+    private function shortfall(ServiceUpgrade $upgrade): ?string
+    {
+        if ($upgrade->invoice_id === null) {
+            return null;
+        }
+        $invoiced = BigDecimal::zero();
+        foreach (InvoiceItem::query()->where('invoice_id', $upgrade->invoice_id)->where('reference_type', ServiceUpgrade::class)
+            ->where('reference_id', $upgrade->id)->get(['price', 'quantity']) as $line) {
+            $invoiced = $invoiced->plus(BigDecimal::of(number_format((float) $line->price, 2, '.', ''))->multipliedBy(max(1, (int) $line->quantity)));
+        }
+        $owed = BigDecimal::of(number_format((float) $upgrade->calculatePrice()->price, 2, '.', ''))->minus($invoiced);
+
+        return $owed->isGreaterThan(0) ? (string) $owed->toScale(2) : null;
+    }
+
+    /** The rest of an upgrade on an invoice of its own, as the upgrade's (`Livewire\Services\Upgrade`). */
+    private function billShortfall(ServiceUpgrade $upgrade, Service $service, string $amount): void
+    {
+        $invoice = Invoice::query()->create([
+            'currency_code' => $service->currency_code,
+            'status' => Invoice::STATUS_UNPAID,
+            'due_at' => Carbon::now()->addDays(7),
+            'client_id' => $service->client_id,
+        ]);
+        $invoice->items()->create([
+            'description' => 'Upgrade ' . $service->product->name . ': the days of a renewal paid meanwhile',
+            'price' => $amount,
+            'quantity' => 1,
+            'reference_id' => $upgrade->id,
+            'reference_type' => ServiceUpgrade::class,
+        ]);
+        PaymentsLog::warning('Paid upgrade owed more after a renewal paid before it: billed the rest.',
+            ['service_upgrade_id' => $upgrade->id, 'service_id' => $service->id, 'invoice_id' => $invoice->id, 'amount' => $amount]);
     }
 }

@@ -62,9 +62,9 @@ class UpgradeKeepsConfigOptionsTest extends TestCase
         $this->assertSame($ram->children[1]->id, $configs[$ram->id], 'the upgraded option changes');
         $this->assertSame($ip->children[1]->id, $configs[$ip->id] ?? null, 'the extra IP stays');
         $this->assertSame($backup->children[1]->id, $configs[$backup->id] ?? null, 'the hidden option staff set stays');
-        // The money: the recurring amount keeps the options it kept (plan + 4 GB 5 + 1 IP 3 + backups 2).
-        $planPrice = (float) $product->plan->prices()->where('currency_code', 'USD')->value('price');
-        $this->assertEqualsWithDelta($planPrice + 5 + 3 + 2, (float) $service->fresh()->price, 0.001);
+        // The money: an options upgrade keeps the recurring amount it had and adds the option's difference (SVC-14, as
+        // WHMCS): 10 + (4 GB 5 − 2 GB 0). The kept options are not dropped from it.
+        $this->assertEqualsWithDelta(10 + 5, (float) $service->fresh()->price, 0.001);
     }
 
     public function test_an_option_the_new_product_does_not_have_goes(): void

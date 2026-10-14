@@ -60,6 +60,45 @@ final class BillingPeriod
         return (string) BigDecimal::of($price)->multipliedBy($days)->dividedBy($fullDays, 2, RoundingMode::HalfUp);
     }
 
+    /**
+     * Start of the period that ends on $end (one cycle back), for a period known only by its end (a service's expiry).
+     * A month or year back keeps the day where it can (31 March → 28 February, not 3 March).
+     */
+    public static function start(CarbonInterface $end, ?string $unit, int $count): CarbonImmutable
+    {
+        if (!in_array($unit, self::UNITS, true)) {
+            throw new InvalidArgumentException('Unsupported billing unit «' . ($unit ?? 'null') . '»: periods are whole days.');
+        }
+        if ($count < 1) {
+            throw new InvalidArgumentException("A billing period must be at least 1 {$unit}, got {$count}.");
+        }
+        $end = CarbonImmutable::instance($end)->startOfDay();
+
+        return match ($unit) {
+            'day' => $end->subDays($count),
+            'week' => $end->subWeeks($count),
+            default => $end->subMonthsNoOverflow($unit === 'year' ? 12 * $count : $count),
+        };
+    }
+
+    /**
+     * The part of $amount (a period's) for the days from $today to $end, the period being [$start, $end): whole days,
+     * none once it ended, and more than one period when $end is further (a renewal paid ahead). In decimal, rounded once
+     * to cents (half up, also below zero: a credit).
+     */
+    public static function remaining(string $amount, CarbonInterface $start, CarbonInterface $end, CarbonInterface $today): string
+    {
+        $start = CarbonImmutable::instance($start)->startOfDay();
+        $end = CarbonImmutable::instance($end)->startOfDay();
+        $fullDays = (int) $start->diffInDays($end);
+        if ($fullDays < 1) {
+            throw new InvalidArgumentException('A priced period must have a positive duration.');
+        }
+        $left = max(0, (int) CarbonImmutable::instance($today)->startOfDay()->diffInDays($end, false));
+
+        return (string) BigDecimal::of($amount)->multipliedBy($left)->dividedBy($fullDays, 2, RoundingMode::HalfUp);
+    }
+
     /** Last day of a month shorter than 31 days: it may be a later billing day clamped. */
     public static function isAmbiguousDay(CarbonInterface $day): bool
     {
