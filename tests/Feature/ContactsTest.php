@@ -94,8 +94,8 @@ class ContactsTest extends TestCase
         $this->assertEquals(24, Settings::tax($client)->rate);
 
         $invoice = Invoice::factory()->create(['client_id' => $client->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $this->assertSame('Acme ΙΚΕ', $invoice->fresh()->user_name, 'a business is invoiced by its company (once)');
         $lines = $invoice->fresh()->user_properties;
-        $this->assertContains('Acme ΙΚΕ', $lines);
         $this->assertContains('Odos 1', $lines);
         $this->assertContains('10431 Athens', $lines);
         $this->assertTrue(collect($lines)->contains(fn ($line) => str_contains((string) $line, '123456789')));

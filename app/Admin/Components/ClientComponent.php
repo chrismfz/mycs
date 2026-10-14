@@ -6,6 +6,7 @@ use App\Admin\Resources\ClientResource;
 use App\Models\Client;
 use Filament\Forms\Components\Select;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\HtmlString;
 
 /**
@@ -37,8 +38,8 @@ class ClientComponent extends Select
      * Find accounts by their logins' names or email and by their primary contact (its name, company and email: the
      * account's name, PR 3a). `$relation` is the path to the account from the searched model ('' for a Client).
      *
-     * @param  Builder<\Illuminate\Database\Eloquent\Model>  $query
-     * @return Builder<\Illuminate\Database\Eloquent\Model>
+     * @param  Builder<Model>  $query
+     * @return Builder<Model>
      */
     public static function search(Builder $query, string $search, string $relation = 'client'): Builder
     {
