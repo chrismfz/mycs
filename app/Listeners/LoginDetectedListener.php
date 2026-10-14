@@ -24,7 +24,7 @@ class LoginDetectedListener
             $data = [
                 'ip' => $ip,
                 'device' => (new Session(['user_agent' => request()->userAgent()]))->getFormattedDeviceAttribute(),
-                'time' => now()->format('Y-m-d H:i:s'),
+                'time' => now()->format('d/m/Y H:i'),
             ];
             NotificationHelper::loginDetectedNotification($user, $data);
         } else {

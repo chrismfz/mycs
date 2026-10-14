@@ -3,6 +3,7 @@
 namespace App\Jobs\Server;
 
 use App\Helpers\ExtensionHelper;
+use App\Helpers\NotificationHelper;
 use App\Models\Service;
 use Exception;
 use Illuminate\Bus\Queueable;
@@ -33,12 +34,16 @@ class UnsuspendJob implements ShouldQueue
         if ($this->service->fresh()?->status !== Service::STATUS_ACTIVE) {
             return;
         }
+        $data = [];
         try {
-            ExtensionHelper::unsuspendServer($this->service);
+            $data = ExtensionHelper::unsuspendServer($this->service);
         } catch (Exception $e) {
             if ($e->getMessage() !== 'No server assigned to this product') {
                 throw $e;
             }
         }
+
+        // WHMCS's «Service Unsuspension Notification» (sent at both companies).
+        NotificationHelper::serverUnsuspendedNotification($this->service->user, $this->service, is_array($data) ? $data : []);
     }
 }

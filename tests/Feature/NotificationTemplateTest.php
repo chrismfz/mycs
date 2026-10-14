@@ -10,6 +10,7 @@ use App\Models\Invoice;
 use App\Models\NotificationTemplate;
 use App\Models\Service;
 use App\Models\User;
+use Database\Seeders\EmailTemplateSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail as MailFacade;
@@ -138,7 +139,7 @@ class NotificationTemplateTest extends TestCase
         (require database_path('migrations/2026_10_11_000000_templates_without_blade.php'))->up();
 
         $paid = NotificationTemplate::where('key', 'invoice_paid')->first();
-        $this->assertStringContainsString('{{ invoice.formattedTotal }}', $paid->body);
+        $this->assertSame(EmailTemplateSeeder::mapping['invoice_paid']['body'], $paid->body);
         $this->assertSame('{{ urls.invoice }}', $paid->in_app_url);
         $this->assertSame('Custom: {{ url }}', NotificationTemplate::where('key', 'password_reset')->value('body'));
         $this->assertStringContainsString('{{ app.year }}', DB::table('settings')->where('key', 'mail_footer')->value('value'));

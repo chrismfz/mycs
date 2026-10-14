@@ -487,7 +487,7 @@ class CreditAutoApplyAdversarialTest extends TestCase
 
         $this->assertSame(Invoice::STATUS_PAID, $paidInFull->fresh()->status);
         $note = Notification::query()->where('user_id', $this->user->id)->where('title', 'Account credit applied')->sole();
-        $this->assertStringContainsString('#' . $partial->id, $note->body);
+        $this->assertStringContainsString('#' . ($partial->fresh()->number ?: $partial->id), $note->body); // the invoice's number (Σ4)
         $this->assertStringContainsString('30.00', $note->body, 'the credit applied');
         $this->assertStringContainsString('70.00', $note->body, 'what is left to pay');
     }
