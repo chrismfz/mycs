@@ -8,6 +8,7 @@ use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\Product;
 use App\Models\Server;
+use App\Support\ProductSettings;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
@@ -102,9 +103,11 @@ class EditProduct extends EditRecord
 
     protected function mutateFormDataBeforeFill(array $data): array
     {
-        foreach ($this->record->settings as $setting) {
-            $data['settings'][$setting->key] = $setting->value;
-        }
+        // An encrypted setting (a PSK) never goes to the browser: empty, kept as stored when left empty.
+        $product = $this->getRecord();
+        $server = Server::query()->find($product->getAttribute('server_id'));
+        $options = $server !== null ? rescue(fn () => ExtensionHelper::getProductConfigOnce($server, []), [], false) : [];
+        $data['settings'] = ProductSettings::forForm($product, $options);
 
         return $data;
     }
@@ -119,24 +122,7 @@ class EditProduct extends EditRecord
 
         $product_config = ExtensionHelper::getProductConfig(Server::findOrFail($data['server_id']), $data['settings']);
 
-        $things = array_map(function ($option) use ($data, $record) {
-            return [
-                'key' => $option['name'],
-                'settingable_id' => $record->id,
-                'settingable_type' => $record->getMorphClass(),
-                'type' => $option['database_type'] ?? 'string',
-                'value' => isset($data['settings'][$option['name']]) ? (is_array($data['settings'][$option['name']]) ? json_encode($data['settings'][$option['name']]) : $data['settings'][$option['name']]) : null,
-            ];
-        }, $product_config);
-
-        $record->settings()->upsert($things, uniqueBy: [
-            'key',
-            'settingable_id',
-            'settingable_type',
-        ], update: [
-            'type',
-            'value',
-        ]);
+        ProductSettings::save($record, $product_config, $data['settings']);
 
         return $record;
     }

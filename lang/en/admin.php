@@ -10,6 +10,7 @@ return [
         'cancellations_processed' => 'Cancellation requests processed',
         'paid_applied' => 'Paid invoices applied again',
         'reminders_sent' => 'Payment reminders sent',
+        'license_logs_pruned' => 'License access logs pruned',
         'services_suspended' => 'Services suspended',
         'services_terminated' => 'Services terminated',
         'tickets_closed' => 'Tickets closed',

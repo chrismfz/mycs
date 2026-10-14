@@ -24,6 +24,7 @@ use App\Services\Invoice\ChangeOpenLine;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Invoice\ProcessPaidInvoiceService;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Licensing\Licenses;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Service\RenewServiceService;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
@@ -322,6 +323,9 @@ class CronJob extends Command
 
                 return $number;
             });
+
+            // nixpal licensing: the access log kept 90 days (WHMCS addon «logprune»).
+            $this->runCronJob('license_logs_pruned', fn () => Licenses::pruneLog());
 
             $this->runCronJob('email_logs_deleted', function ($number = 0) {
                 // Delete email logs older than x days; 0 keeps them (it would wipe the whole log).

@@ -5,6 +5,7 @@ namespace App\Admin\Resources\ProductResource\Pages;
 use App\Admin\Resources\ProductResource;
 use App\Helpers\ExtensionHelper;
 use App\Models\Server;
+use App\Support\ProductSettings;
 use Arr;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Database\Eloquent\Model;
@@ -23,24 +24,7 @@ class CreateProduct extends CreateRecord
 
         $product_config = ExtensionHelper::getProductConfig(Server::findOrFail($data['server_id']), $data['settings']);
 
-        $things = array_map(function ($option) use ($data, $record) {
-            return [
-                'key' => $option['name'],
-                'settingable_id' => $record->id,
-                'settingable_type' => $record->getMorphClass(),
-                'type' => $option['database_type'] ?? 'string',
-                'value' => isset($data['settings'][$option['name']]) ? (is_array($data['settings'][$option['name']]) ? json_encode($data['settings'][$option['name']]) : $data['settings'][$option['name']]) : null,
-            ];
-        }, $product_config);
-
-        $record->settings()->upsert($things, uniqueBy: [
-            'key',
-            'settingable_id',
-            'settingable_type',
-        ], update: [
-            'type',
-            'value',
-        ]);
+        ProductSettings::save($record, $product_config, $data['settings']);
 
         return $record;
     }

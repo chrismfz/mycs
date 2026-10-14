@@ -15,7 +15,7 @@ MyCS (#104). Η σειρά ακολουθεί τις εξαρτήσεις: ό,τ
 | 2 | **SVC-14** (αναλογική χρέωση upgrade στην πραγματική τιμή) μαζί με **αλλαγή κύκλου και πακέτου** | Πατά στο ενιαίο σημείο τιμολόγησης (1) και στο Δ1. |
 | 3 | **Λογαριασμοί 3b:** `services.billing_contact_id`, προτιμολόγιο ανά αποδέκτη με snapshot, παραλήπτες mails ανά είδος από τις επαφές | Χρειάζεται το 1. Οι ρόλοι επαφών των domains (registrant/admin/tech/billing) **δεν** είναι εδώ: μπαίνουν με τα domains (Φάση 2). |
 | 4 | **EU VAT / VIES**, reverse charge, ομάδες πελατών με έκπτωση | Χρειάζεται ΑΦΜ και χώρα στην επαφή (3a) και ΦΠΑ ανά γραμμή (Δ1). Απαραίτητο για τη nixpal (διεθνείς πελάτες). |
-| ‖ | **Licensing** (`nixpal_licensing`, `zlic.php` byte-for-byte) και **Σ1** (provisioning, Pending Module Actions) | Από την άλλη session, παράλληλα με τα 1–4 (δεν αγγίζουν τα ίδια αρχεία). Πριν συνεχίσει: merge του `main` (namespace `MyCS\Extensions`, `client_id`, guard του staff, docs στο `docs/history/`). Το Σ1 πριν από cPanel/domains της nixpal. |
+| ‖ | **Licensing** (`nixpal_licensing`, `zlic.php` byte-for-byte) και **Σ1** (provisioning, Pending Module Actions· **ανά προϊόν**: πότε στήνεται η υπηρεσία, όπως το `autosetup` του WHMCS· custom fields προϊόντος, όπως το `tblcustomfields` type=product) | Από την άλλη session, παράλληλα με τα 1–4 (δεν αγγίζουν τα ίδια αρχεία). Πριν συνεχίσει: merge του `main` (namespace `MyCS\Extensions`, `client_id`, guard του staff, docs στο `docs/history/`). Το Σ1 πριν από cPanel/domains της nixpal. |
 | 5 | **Importer νέου σχήματος + `mycs:parity`** | Μετά το σχήμα (1–4). Σε άδεια εγκατάσταση, όταν είμαστε έτοιμοι (`accounts.md`, απόφαση 4). |
 | 6 | Gateways της nixpal (Stripe auto-charge με retries, PayPal vault, legacy συνδρομές), αρίθμηση `{YEAR}-{NUMBER}`, υπενθυμίσεις | Πατάνε σε λογαριασμούς και στο ενιαίο σημείο τιμολόγησης. |
 | 7 | Λειτουργία (hosting, email, branding PDF, backups, παρακολούθηση, scheduler), **runbook cut-over**, έλεγχος σε browser, cut-over | Τελευταία, πάνω σε σταθερό σχήμα και δεδομένα. |
@@ -210,8 +210,9 @@ MyCS (#104). Η σειρά ακολουθεί τις εξαρτήσεις: ό,τ
       μετάβαση σε vault ή forwarder του IPN.
 
 **Licensing**
-- [ ] `nixpal_licensing` ως Server extension πάνω στο `packages/nixpal-licensing`· `zlic.php` byte-for-byte με τα
-      fixtures· cache/rate-limit (588k checks/έτος).
+- [~] `nixpal_licensing` ως Server extension πάνω στο `packages/nixpal-licensing`· `zlic.php` byte-for-byte με τα
+      fixtures· cache/rate-limit (588k checks/έτος). **L1** (πίνακες, endpoint, extension, PSK κρυπτογραφημένο, σημεία
+      ζωής) έγινε· L2 (οθόνες), L3 (import, cache): `docs/licensing.md`.
 
 **Hosting και domains της nixpal** (λίγα, αλλά υπάρχουν· orion, 2026-10-11)
 - [ ] cPanel: **1 server** (όριο 20), **12 ενεργοί λογαριασμοί**, χωρίς server groups. Αρκεί το cPanel extension
