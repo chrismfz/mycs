@@ -103,6 +103,7 @@ class Service extends Model implements Auditable
         'status',
         'coupon_id',
         'client_id',
+        'contact_id',
         'currency_code',
         'billing_agreement_id',
         'suspend_hold_until',
@@ -137,6 +138,16 @@ class Service extends Model implements Auditable
         'coupon_expired_at' => 'immutable_datetime',
         'password' => 'encrypted',
     ];
+
+    /**
+     * The contact of its account it concerns (decided 2026-10-14): information only, the invoice stays the account's.
+     *
+     * @return BelongsTo<Contact, $this>
+     */
+    public function contact(): BelongsTo
+    {
+        return $this->belongsTo(Contact::class);
+    }
 
     /**
      * The plan it moves to when its next period is billed (a change of cycle «from the next renewal», SVC-14b).
