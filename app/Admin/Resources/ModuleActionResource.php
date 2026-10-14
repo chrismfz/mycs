@@ -58,7 +58,8 @@ class ModuleActionResource extends Resource
                         . ($record->service?->domain ? ' (' . $record->service->domain . ')' : ''))
                     ->url(fn (ModuleAction $record) => ServiceResource::getUrl('edit', ['record' => $record->service_id])),
                 TextColumn::make('service.client.name')->label('Client'),
-                TextColumn::make('action')->badge(),
+                // «upgrade» is WHMCS's ChangePackage: an upgrade or a downgrade sends the new product's package.
+                TextColumn::make('action')->badge()->formatStateUsing(fn (string $state) => self::label($state)),
                 TextColumn::make('module')->toggleable(),
                 TextColumn::make('status')->badge()
                     ->state(fn (ModuleAction $record) => match (true) {
@@ -83,7 +84,7 @@ class ModuleActionResource extends Resource
                     ModuleAction::STATUS_COMPLETED => 'Completed',
                     ModuleAction::STATUS_RESOLVED => 'Resolved',
                 ])->default(ModuleAction::STATUS_OPEN),
-                SelectFilter::make('action')->options(array_combine(ModuleAction::ACTIONS, array_map('ucfirst', ModuleAction::ACTIONS))),
+                SelectFilter::make('action')->options(array_combine(ModuleAction::ACTIONS, array_map(fn (string $action) => self::label($action), ModuleAction::ACTIONS))),
             ])
             ->recordActions([
                 // Once the automatic retries are over: while one is still queued, a click would race it (two creates).
@@ -119,6 +120,11 @@ class ModuleActionResource extends Resource
                     ->action(fn (Collection $records) => $records->where('status', ModuleAction::STATUS_OPEN)
                         ->each(fn (ModuleAction $record) => $record->markResolved(self::staff()))),
             ]);
+    }
+
+    public static function label(string $action): string
+    {
+        return $action === 'upgrade' ? 'Change Package' : ucfirst($action);
     }
 
     private static function staff(): ?Staff

@@ -7,6 +7,7 @@ use App\Classes\FilamentInput;
 use App\Enums\AdjustmentNoteType;
 use App\Enums\InvoiceTransactionStatus;
 use App\Enums\MoneyEventKind;
+use App\Exceptions\CreateSkipped;
 use App\Exceptions\DisplayException;
 use App\Exceptions\NothingToDoOnServer;
 use App\Models\BillingAgreement;
@@ -24,12 +25,14 @@ use App\Models\PaymentGatewayEvent;
 use App\Models\Product;
 use App\Models\Server;
 use App\Models\Service;
+use App\Observers\ServiceObserver;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\GatewayLog;
 use App\Services\Money\MoneyTrail;
 use App\Services\Service\ServerSelector;
+use Carbon\CarbonImmutable;
 use Exception;
 use Filament\Forms\Components\Placeholder;
 use Illuminate\Database\Eloquent\Collection;
@@ -1511,6 +1514,27 @@ class ExtensionHelper
     }
 
     /**
+     * Paid while its account could not be made (the server failed, Pending Module Actions): the customer gets the
+     * period they paid for from the day the account exists, so a service made late is not overdue the day it starts
+     * (adversarial A1). The paid-until date moves by the days waited, as staff's grace would; its invoice lines stay.
+     */
+    private static function giveBackTheWait(Service $service): void
+    {
+        if ($service->expires_at === null) {
+            return;
+        }
+        $paidFrom = $service->livePeriodLines()->filter(fn ($line) => $line->invoice?->status === Invoice::STATUS_PAID)
+            ->min(fn ($line) => $line->period_start);
+        if ($paidFrom === null) {
+            return;
+        }
+        $waited = (int) CarbonImmutable::parse($paidFrom)->startOfDay()->diffInDays(CarbonImmutable::today(), false);
+        if ($waited > 0) {
+            $service->expires_at = CarbonImmutable::parse($service->expires_at)->addDays($waited)->toMutable();
+        }
+    }
+
+    /**
      * The account exists (made, made by hand, or nothing to make): a pending service starts (an ended one stays as it
      * is).
      */
@@ -1523,7 +1547,13 @@ class ExtensionHelper
             }
             if ($locked->status === Service::STATUS_PENDING) {
                 $locked->status = Service::STATUS_ACTIVE;
-                $locked->save();
+                self::giveBackTheWait($locked);
+                ServiceObserver::$renewing = true; // the date moved here is the paid one, not a staff edit to re-chain
+                try {
+                    $locked->save();
+                } finally {
+                    ServiceObserver::$renewing = false;
+                }
             }
             $service->setRawAttributes($locked->getAttributes(), true);
         });
@@ -1532,9 +1562,23 @@ class ExtensionHelper
     /**
      * Create server
      */
-    public static function createServer(Service $service)
+    public static function createServer(Service $service, bool $whilePending = false)
     {
-        return self::serverAction($service, 'createServer', 'create_server');
+        // One create of a service at a time, whoever asks (the job, its retry, staff): two would make two accounts
+        // (adversarial A5). $whilePending: the job's check, read again under the lock.
+        $lock = Cache::lock("service-create:{$service->id}", 600);
+        if (!$lock->get()) {
+            throw new CreateSkipped("A create of service #{$service->id} is already running.");
+        }
+        try {
+            if ($whilePending && Service::query()->whereKey($service->id)->value('status') !== Service::STATUS_PENDING) {
+                throw new CreateSkipped("Service #{$service->id} is no longer pending.");
+            }
+
+            return self::serverAction($service, 'createServer', 'create_server');
+        } finally {
+            $lock->release();
+        }
     }
 
     /**

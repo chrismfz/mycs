@@ -2,6 +2,7 @@
 
 namespace App\Jobs\Server;
 
+use App\Exceptions\CreateSkipped;
 use App\Exceptions\NothingToDoOnServer;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
@@ -44,10 +45,21 @@ class CreateJob implements ShouldBeUnique, ShouldQueue
         $data = [];
         // $data is the data that will be used to send the email, data is coming from the extension itself
         try {
-            $data = ExtensionHelper::createServer($service);
+            $data = ExtensionHelper::createServer($service, whilePending: true);
         } catch (NothingToDoOnServer) {
             // No module to make an account on (its server detached since the payment): nothing to wait for.
             ExtensionHelper::startCreated($service);
+        } catch (CreateSkipped) {
+            return; // another create of it is running, or it moved on: that one sends what is due
+        }
+
+        // Ended while the account was being made (an immediate cancellation saw it pending and queued no terminate):
+        // the new account goes, and no welcome mail with its password (adversarial A4).
+        $service = $service->fresh() ?? $service;
+        if ($service->isEnded()) {
+            TerminateJob::dispatch($service, false);
+
+            return;
         }
 
         if ($this->sendNotification) {
