@@ -40,6 +40,7 @@ class CreateOrder extends CreateRecord
         try {
             return (new PlaceOrderService)->place($client, $data['currency_code'], $lines,
                 invoiceStatus: config('settings.immutable_invoices_enabled', false) ? Invoice::STATUS_DRAFT : Invoice::STATUS_UNPAID,
+                notes: $data['notes'] ?? null,
             )->order;
         } catch (DisplayException $e) {
             Notification::make()->danger()->title($e->getMessage())->send();
