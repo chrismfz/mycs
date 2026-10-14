@@ -191,8 +191,11 @@ class ServiceResource extends Resource
                     ->columnSpanFull()
                     ->schema([
                         // Which server it lives on (WHMCS's «Server»): the record only, nothing is moved on the servers.
-                        Select::make('server_id')->label('Server')->relationship('server', 'name')->nullable()
-                            ->helperText('The server this account is on. Changing it moves nothing: it only records where it is.')
+                        // Servers of the same module only (a cPanel account never «moves» to a Proxmox server by mistake).
+                        Select::make('server_id')->label('Server')->nullable()
+                            ->relationship('server', 'name', fn (Builder $query, ?Service $record) => $query
+                                ->when($record?->provisioningServer()?->extension, fn ($servers, $module) => $servers->where('extension', $module)))
+                            ->helperText('The server this account is on (e.g. after moving it with WHM\'s Transfer Tool). Changing it moves nothing: it records where the account is, and every action goes there from now on.')
                             ->columnSpanFull(),
                         TextInput::make('domain')->label('Domain')->maxLength(255),
                         TextInput::make('dedicated_ip')->label('Dedicated IP')->ip()->maxLength(45),

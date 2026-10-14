@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Admin\Resources\ServerGroupResource\Pages\CreateServerGroup;
+use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Helpers\ExtensionHelper;
 use App\Models\Product;
 use App\Models\Role;
@@ -13,6 +14,7 @@ use App\Models\Staff;
 use App\Models\User;
 use App\Services\Service\ServerSelector;
 use Filament\Facades\Filament;
+use Filament\Forms\Components\Select;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -143,5 +145,27 @@ class ServiceServersTest extends TestCase
             ->assertHasNoFormErrors();
 
         $this->assertSame([$a->id], ServerGroup::query()->where('name', 'cPanel EU')->sole()->servers->modelKeys());
+    }
+
+    public function test_staff_record_a_move_to_another_server_of_the_same_module_and_it_is_audited(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+        $service = $this->service(['server_id' => $this->product->server_id, 'expires_at' => now()->addMonth()]);
+        $other = $this->server('Licensing B');
+        $this->server('cPanel 1', extension: 'CPanel');
+        config(['audit.console' => true]);
+
+        $page = $this->livewireAs($staff)->test(EditService::class, ['record' => $service->getRouteKey()]);
+        $options = $page->instance()->form->getComponent('data.server_id')?->getOptions()
+            ?? collect($page->instance()->form->getFlatComponents())->first(fn ($c) => $c instanceof Select && $c->getName() === 'server_id')->getOptions();
+        $this->assertContains('Licensing B', $options);
+        $this->assertNotContains('cPanel 1', $options, 'another module is not offered');
+
+        $page->fillForm(['server_id' => $other->id])->call('save')->assertHasNoFormErrors();
+
+        $this->assertSame($other->id, $service->fresh()->server_id);
+        $this->assertTrue(DB::table('audits')->where('auditable_type', (new Service)->getMorphClass())->where('auditable_id', $service->id)
+            ->where('new_values', 'like', '%server_id%')->exists(), 'the move is in the audit');
     }
 }
