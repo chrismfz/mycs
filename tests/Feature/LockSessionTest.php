@@ -95,7 +95,7 @@ class LockSessionTest extends TestCase
 
         $ua1 = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)';
 
-        $this->withHeaders(['User-Agent' => $ua1])
+        $this->actingAs($user)->withHeaders(['User-Agent' => $ua1])
             ->withSession($this->loginUser($user))
             ->get('/staff-probe')
             ->assertOk();
@@ -116,7 +116,7 @@ class LockSessionTest extends TestCase
         $ua1 = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)';
         $ua2 = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)';
 
-        $this->withHeaders(['User-Agent' => $ua1])
+        $this->actingAs($user)->withHeaders(['User-Agent' => $ua1])
             ->withSession($this->loginUser($user))
             ->get('/staff-probe')
             ->assertOk();

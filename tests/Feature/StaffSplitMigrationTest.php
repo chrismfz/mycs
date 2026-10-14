@@ -5,19 +5,31 @@ namespace Tests\Feature;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Models\User;
-use Illuminate\Foundation\Testing\DatabaseMigrations;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 /**
- * The staff split migration (docs/accounts.md, PR 1) on real data. Not in a transaction (DatabaseMigrations, not
- * RefreshDatabase): the migration turns foreign keys off, which SQLite ignores inside one, and with them on the table
- * rebuilds delete by cascade.
+ * The staff split migration (docs/accounts.md, PR 1) on real data. Not in a transaction: the migration turns foreign
+ * keys off, which SQLite ignores inside one, and with them on the table rebuilds delete by cascade. What it leaves is
+ * committed, so the next test class migrates afresh.
  */
 class StaffSplitMigrationTest extends TestCase
 {
-    use DatabaseMigrations;
+    use RefreshDatabase;
+
+    protected function connectionsToTransact(): array
+    {
+        return [];
+    }
+
+    protected function tearDown(): void
+    {
+        RefreshDatabaseState::$migrated = false;
+        parent::tearDown();
+    }
 
     public function test_the_migration_moves_admins_to_staff_with_what_pointed_at_them(): void
     {

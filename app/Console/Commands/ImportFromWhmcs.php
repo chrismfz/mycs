@@ -346,11 +346,19 @@ class ImportFromWhmcs extends Command
         $this->migrateInBatch('tbladmins', 'SELECT * FROM tbladmins LIMIT :limit OFFSET :offset', function ($records) {
             $data = [];
             foreach ($records as $record) {
+                // staff.email is unique; WHMCS may hold an old and a new admin with one email. The later one gets a
+                // marked address (to correct by hand), not an aborted import.
+                $email = $record['email'];
+                if (isset($this->staffEmails[strtolower($email)])) {
+                    $email = 'duplicate-' . $record['id'] . '+' . $email;
+                    $this->warn('Admin #' . $record['id'] . ' shares an email with another admin: imported as ' . $email);
+                }
+                $this->staffEmails[strtolower($email)] = true;
                 $data[] = [
                     'id' => $record['id'],
                     'first_name' => $record['firstname'],
                     'last_name' => $record['lastname'],
-                    'email' => $record['email'],
+                    'email' => $email,
                     // A WHMCS bcrypt hash logs in as it is; anything older needs «Forgot password».
                     'password' => $record['password'],
                     'role_id' => $this->staffRoleId((int) $record['roleid']),
@@ -367,6 +375,9 @@ class ImportFromWhmcs extends Command
 
     /** @var array<int, int> */
     private array $staffRoles = [];
+
+    /** @var array<string, true> */
+    private array $staffEmails = [];
 
     private function staffRoleId(int $whmcsRoleId): int
     {

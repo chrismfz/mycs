@@ -10,6 +10,7 @@ use App\Http\Middleware\ResolveUserSession;
 use App\Http\Middleware\UseWebGuard;
 use App\Http\Middleware\SetLocale;
 use App\Models\DebugLog;
+use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -37,8 +38,11 @@ return Application::configure(basePath: dirname(__DIR__))
             ImpersonateMiddleware::class,
             SetLocale::class,
         ]);
-        // The client area's guard is chosen before `auth` runs, whatever order the priority sort gives (PR 1).
-        $middleware->prependToPriorityList(\Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests::class, UseWebGuard::class);
+        // Before `auth`, which the priority sort otherwise moves ahead of the web group's own middleware: the client
+        // area's guard, the customer's session, then «Login as client» (docs/accounts.md, PR 1). In this order.
+        foreach ([UseWebGuard::class, ResolveUserSession::class, ImpersonateMiddleware::class] as $beforeAuth) {
+            $middleware->prependToPriorityList(AuthenticatesRequests::class, $beforeAuth);
+        }
     })
     ->withEvents(discover: [
         __DIR__ . '/../app/Extensions',

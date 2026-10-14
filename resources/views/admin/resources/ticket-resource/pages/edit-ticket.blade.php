@@ -72,9 +72,9 @@
                     <div class="flex flex-wrap gap-x-2">
                     @foreach($message->attachments as $attachment)
                         <div class="mt-2">
-                            <a href="{{ route('tickets.attachments.show', $attachment) }}" class="text-sm rounded-md bg-gray-100 flex items-center dark:bg-gray-800 p-1 w-fit">
+                            <a href="{{ route('filament.admin.ticket-attachments.show', $attachment) }}" class="text-sm rounded-md bg-gray-100 flex items-center dark:bg-gray-800 p-1 w-fit">
                                 @if($attachment->canPreview())
-                                    <img src="{{ route('tickets.attachments.show', $attachment) }}" alt="{{ $attachment->filename }}" class="max-w-full">
+                                    <img src="{{ route('filament.admin.ticket-attachments.show', $attachment) }}" alt="{{ $attachment->filename }}" class="max-w-full">
                                 @else
                                     <x-ri-attachment-2 class="inline-block mr-1 size-4" />
                                     {{ $attachment->filename }}

@@ -7,6 +7,7 @@ use App\Admin\Resources\TicketResource\Pages\EditTicket;
 use App\Admin\Resources\UserResource\Pages\EditUser;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Auth\Tfa;
+use App\Models\ApiKey;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\MoneyEvent;
@@ -21,6 +22,7 @@ use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
@@ -51,6 +53,14 @@ class StaffSplitTest extends TestCase
         DB::table('staff')->where('id', $staff->id)->update(['id' => $customer->id]);
 
         return [$customer, Staff::query()->findOrFail($customer->id)];
+    }
+
+    /** A browser logged in at the admin only: the staff guard's session key, nothing on the web guard. */
+    private function staffSession(Staff $staff, array $extra = []): array
+    {
+        Auth::forgetGuards();
+
+        return [Auth::guard('staff')->getName() => $staff->id] + $extra;
     }
 
     public function test_a_customer_is_never_staff_and_staff_are_never_a_customer(): void
@@ -168,8 +178,14 @@ class StaffSplitTest extends TestCase
         $this->assertSame($staff->getMorphClass(), $audit->user_type);
         $this->assertSame($staff->id, (int) $audit->user_id);
 
-        // In the client area: the customer's view, the staff member acting.
-        $this->withSession(['impersonating' => $customer->id])->get('/dashboard')->assertOk();
+        // In the client area: the customer's view, the staff member acting. As a browser has it: logged in as staff only.
+        $this->withSession($this->staffSession($staff, ['impersonating' => $customer->id]))->get('/dashboard')->assertOk();
+        $this->assertSame($customer->id, Auth::guard('web')->id());
+
+        // Back in the admin, it ends.
+        $this->withSession($this->staffSession($staff, ['impersonating' => $customer->id]))->get('/admin')->assertOk();
+        $this->assertFalse(Session::has('impersonating'));
+
         Auth::guard('web')->setUser($customer);
         Auth::shouldUse('web');
         Session::put('impersonating', $customer->id);
@@ -186,7 +202,48 @@ class StaffSplitTest extends TestCase
             ->assertActionHidden('impersonate');
 
         // A session that says so is not enough without the permission.
-        $this->withSession(['impersonating' => $customer->id])->get('/dashboard')->assertRedirect(route('login'));
+        $this->withSession($this->staffSession($staff, ['impersonating' => $customer->id]))->get('/dashboard')
+            ->assertRedirect(route('login'));
+        $this->assertFalse(Session::has('impersonating'));
+    }
+
+    /** Staff open a customer's attachment in the admin, on their own guard (the client area's route is the customers'). */
+    public function test_staff_open_ticket_attachments_in_the_admin(): void
+    {
+        $customer = User::factory()->create();
+        $ticket = Ticket::factory()->create(['user_id' => $customer->id]);
+        $message = TicketMessage::factory()->create(['ticket_id' => $ticket->id, 'user_id' => $customer->id]);
+        $path = 'tickets/staff-split-' . uniqid() . '.txt';
+        File::ensureDirectoryExists(storage_path('app/tickets'));
+        File::put(storage_path('app/' . $path), 'x');
+        $this->beforeApplicationDestroyed(fn () => File::delete(storage_path('app/' . $path)));
+        $attachment = $message->attachments()->create(['filename' => 'a.txt', 'path' => $path, 'filesize' => 1, 'mime_type' => 'text/plain']);
+        $url = route('filament.admin.ticket-attachments.show', $attachment);
+
+        $reader = Staff::factory()->withPermissions(['admin.tickets.viewAny'])->create();
+        $this->withSession($this->staffSession($reader))->get($url)->assertOk();
+        $other = Staff::factory()->withPermissions(['admin.invoices.viewAny'])->create();
+        $this->withSession($this->staffSession($other))->get($url)->assertForbidden();
+        // A customer's session is nobody in the admin.
+        Auth::forgetGuards();
+        $this->actingAs($customer)->withSession($this->loginUser($customer))->get($url)->assertRedirect(route('filament.admin.auth.login'));
+    }
+
+    /** An API key replies as the staff member it belongs to, never as another one. */
+    public function test_an_api_key_replies_only_as_its_owner(): void
+    {
+        $owner = Staff::factory()->admin()->create();
+        $other = Staff::factory()->admin()->create();
+        $token = 'PAYM' . bin2hex(random_bytes(8));
+        ApiKey::create(['name' => 'k', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
+            'staff_id' => $owner->id, 'permissions' => ['admin.ticket_messages.create']]);
+        $ticket = Ticket::factory()->create(['user_id' => User::factory()->create()->id]);
+        $headers = ['Authorization' => 'Bearer ' . $token, 'Accept' => 'application/json'];
+
+        $this->postJson('/api/v1/admin/ticket-messages', ['ticket_id' => $ticket->id, 'message' => 'x', 'staff_id' => $other->id], $headers)
+            ->assertUnprocessable()->assertJsonValidationErrors('staff_id');
+        $this->postJson('/api/v1/admin/ticket-messages', ['ticket_id' => $ticket->id, 'message' => 'y', 'staff_id' => $owner->id], $headers)
+            ->assertSuccessful();
     }
 
     public function test_a_password_set_by_staff_ends_the_customers_sessions(): void

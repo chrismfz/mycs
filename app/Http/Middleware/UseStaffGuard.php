@@ -16,6 +16,10 @@ class UseStaffGuard
     public function handle(Request $request, Closure $next): Response
     {
         Auth::shouldUse('staff');
+        // Back in the admin (a page, not the panel's Livewire requests): «Login as client» ends (AUTH-19).
+        if ($request->is('admin', 'admin/*')) {
+            $request->session()->forget('impersonating');
+        }
 
         return $next($request);
     }

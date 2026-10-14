@@ -25,6 +25,13 @@ return new class extends Migration
 
     public function up(): void
     {
+        // Outside a transaction a failure halfway leaves half a split: what can fail on the data is checked first.
+        $duplicates = DB::table('users')->whereNotNull('role_id')->selectRaw('LOWER(email) as e')->groupBy('e')
+            ->havingRaw('COUNT(*) > 1')->pluck('e')->all();
+        if ($duplicates !== []) {
+            throw new \RuntimeException('Admins share an email (staff.email is unique): ' . implode(', ', $duplicates));
+        }
+
         $admins = [];
         Schema::withoutForeignKeyConstraints(function () use (&$admins) {
             $admins = $this->moveToStaff();
@@ -143,6 +150,13 @@ return new class extends Migration
 
     public function down(): void
     {
+        // By id, as up() moved them. Staff added since may have the id of an unrelated customer: rolling back would
+        // make that customer an admin and hand them the staff member's replies and keys.
+        $clash = DB::table('staff')->join('users', 'users.id', '=', 'staff.id')
+            ->whereRaw('LOWER(users.email) <> LOWER(staff.email)')->pluck('staff.id')->all();
+        if ($clash !== []) {
+            throw new \RuntimeException('Staff ids that are other customers\' ids, cannot roll back: ' . implode(', ', $clash));
+        }
         Schema::withoutForeignKeyConstraints(fn () => $this->moveBackToUsers());
     }
 
