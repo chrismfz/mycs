@@ -608,6 +608,8 @@ class ImportFromWhmcs extends Command
                     'hidden' => $record['hidden'],
                     // WHMCS «Apply Tax» (Δ1).
                     'taxable' => (bool) ($record['tax'] ?? true),
+                    // When its service is set up (Σ1-b): '' (never), on (Accept), order, payment.
+                    'autosetup' => Product::AUTOSETUP_FROM_WHMCS[$record['autosetup'] ?? 'payment'] ?? Product::AUTOSETUP_PAYMENT,
                     'stock' => $record['stockcontrol'] ? $record['qty'] : null,
                     'allow_quantity' => match ($record['allowqty']) {
                         1 => 'separated',
@@ -937,6 +939,8 @@ class ImportFromWhmcs extends Command
                     'plan_id' => $planId,
                     'currency_code' => $user['code'],
                     'expires_at' => $this->validateDate($record['nextduedate']),
+                    // Started already unless pending: its dates are never moved as a first start's (Σ1-b1).
+                    'activated_at' => $record['domainstatus'] === 'Pending' ? null : ($this->validateDate($record['regdate']) ?? now()),
                     // WHMCS's own suspension for non-payment: a payment lifts it here too. Any other reason
                     // (or none) was staff's: a manual hold (docs/billing-cursor.md).
                     'dunning_suspended_at' => $record['domainstatus'] === 'Suspended'

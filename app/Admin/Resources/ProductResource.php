@@ -17,6 +17,7 @@ use Filament\Actions\Action;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\Select;
@@ -127,6 +128,15 @@ class ProductResource extends Resource
 
                         Tab::make('Server')
                             ->schema([
+                                // WHMCS's Module Settings → «Auto Setup» (Σ1-b).
+                                Radio::make('autosetup')->label('Auto Setup')->required()->default(Product::AUTOSETUP_PAYMENT)
+                                    ->options([
+                                        Product::AUTOSETUP_ORDER => 'As soon as an order is placed',
+                                        Product::AUTOSETUP_PAYMENT => 'As soon as the first payment is received',
+                                        Product::AUTOSETUP_ACCEPT => 'When the order is manually accepted',
+                                        Product::AUTOSETUP_NEVER => 'Do not automatically setup this product',
+                                    ])
+                                    ->helperText('Until it is set up, a service stays pending (paid or not) in Pending Orders. Set up before payment, its first invoice is due from the order date: unpaid, it is suspended and terminated as any overdue one.'),
                                 Select::make('server_id')
                                     ->relationship('server', 'name')
                                     ->searchable()

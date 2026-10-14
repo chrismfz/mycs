@@ -131,6 +131,7 @@ class Service extends Model implements Auditable
 
     protected $casts = [
         'expires_at' => 'date',
+        'activated_at' => 'datetime',
         'suspend_hold_until' => 'date',
         'dunning_suspended_at' => 'immutable_datetime',
         'coupon_started_at' => 'immutable_date',
@@ -580,6 +581,48 @@ class Service extends Model implements Auditable
         return $cycle;
     }
 
+    /**
+     * Its dates when it starts (pending → active: its account made, staff's Accept or status; Σ1-b). Paid while it
+     * waited (a server that failed, a dedicated server built by hand for ten days): the period paid counts from today,
+     * the paid-until date moving by the days waited, as staff's grace would (its invoice lines stay). Not paid yet (set
+     * up on order, or by staff before payment): due from the order date, as WHMCS's next due date = registration date,
+     * so its unpaid first invoice suspends and terminates it as any overdue one. One-time and free plans have none.
+     */
+    public function datesOnStart(): void
+    {
+        if ($this->plan === null || in_array($this->plan->type, ['one-time', 'free'], true)) {
+            return;
+        }
+        if ($this->expires_at === null) {
+            $ordered = CarbonImmutable::parse($this->created_at ?? now())->startOfDay();
+            $this->expires_at = $ordered->toMutable();
+            // Not suspended before its first invoice is due (adversarial A3: staff may give an order 30 days): a hold
+            // through its due date, as staff would set one; Suspend Days count as usual after it.
+            $due = $this->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->min('invoices.due_at');
+            if ($due !== null && CarbonImmutable::parse($due)->startOfDay()->greaterThan($ordered)
+                && ($this->suspend_hold_until === null || CarbonImmutable::parse($due)->greaterThan($this->suspend_hold_until))) {
+                $this->suspend_hold_until = CarbonImmutable::parse($due)->startOfDay()->toMutable();
+            }
+
+            return;
+        }
+        // Its first period began when it was paid, or, with nothing to pay (a free first period), when it was ordered
+        // (adversarial A6).
+        $paidFrom = $this->livePeriodLines()->filter(fn (InvoiceItem $line) => $line->invoice?->status === Invoice::STATUS_PAID)
+            ->min(fn (InvoiceItem $line) => $line->period_start) ?? $this->created_at;
+        if ($paidFrom === null) {
+            return;
+        }
+        $waited = (int) CarbonImmutable::parse($paidFrom)->startOfDay()->diffInDays(CarbonImmutable::today(), false);
+        if ($waited > 0) {
+            $this->expires_at = CarbonImmutable::parse($this->expires_at)->addDays($waited)->toMutable();
+            // A coupon's cycles move with the periods (review R3): else «for 2 cycles» ends a cycle early.
+            if ($this->coupon_started_at !== null) {
+                $this->coupon_started_at = CarbonImmutable::parse($this->coupon_started_at)->addDays($waited);
+            }
+        }
+    }
+
     /** The paid-until date the chains start from (today for a service that never started). */
     public function paidUntilBase(): CarbonImmutable
     {
@@ -693,7 +736,22 @@ class Service extends Model implements Auditable
             // of a service about to end would only be refunded, CR-10).
             get: fn () => $this->plan !== null && $this->product !== null && $this->cancellation === null
                 && ($this->productUpgrades()->count() > 0 || $this->product->upgradableConfigOptions()->count() > 0) && $this->status == 'active' && $this->upgrade->where('status', ServiceUpgrade::STATUS_PENDING)->count() == 0
+                // Nor while its order is unpaid (set up before payment, Σ1-b1): an upgrade would reprice the order's line
+                // and lose what it owes, the setup fee (adversarial A5). Paid, its line gets its period.
+                && !$this->orderUnpaid()
         );
+    }
+
+    /** Its order's own line (on its first invoice, no period yet) is still open: set up before it was paid. */
+    public function orderUnpaid(): bool
+    {
+        if ($this->order_id === null) {
+            return false;
+        }
+        $first = $this->invoiceItems()->min('invoice_id');
+
+        return $first !== null && $this->invoiceItems()->where('invoice_id', $first)->whereNull('period_start')
+            ->whereHas('invoice', fn ($invoice) => $invoice->whereIn('status', Invoice::OPEN_STATUSES))->exists();
     }
 
     public function productUpgrades()
