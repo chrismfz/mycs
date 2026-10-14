@@ -388,6 +388,49 @@ tickets, affiliates, emails, orders`. Στην πράξη: «όλα» ή μικ�
   `duplicate-<id>+<email>` και warning, για διόρθωση με το χέρι.
 - **Εντολές:** `app:staff:create` (νέα)· το `app:user:create` φτιάχνει πλέον μόνο πελάτη· το `mycs:install` φτιάχνει staff.
 
+## PR 2a: τι έγινε (λογαριασμοί πελάτη χωριστά από τους users)
+- **Πίνακες `clients` και `client_user`** (WHMCS `tblclients` / `tblusers_clients`, με το ιστορικό του Ekdosi
+  `CustomerUserAccess`):
+  - `client_user`: `owner`, `permissions` (ονόματα του WHMCS, NULL = όλα), `granted_by` (staff), `granted_at`,
+    `revoked_at` (ανάκληση χωρίς διαγραφή), `last_login_at`.
+  - Ένας owner ανά λογαριασμό με unique `owner_of_client_id` (ίδιο μοτίβο με το `primary_of_client_id` των επαφών).
+- **Migration:** κάθε user γίνεται λογαριασμός με το **ίδιο id** και owner του.
+  - Τα δεδομένα του λογαριασμού περνούν από `user_id` σε `client_id`: orders, services, invoices, credits, money_events,
+    carts, billing_agreements, tickets, email_logs, ext_affiliates.
+  - Τα properties (χώρα, διεύθυνση, `stripe_id`, `plesk_id`…) και το `credit_auto_apply` είναι πλέον του λογαριασμού.
+  - Όσα ανήκουν στον login μένουν σε `user_id`: sessions, 2FA, ειδοποιήσεις, auth logs, ο συντάκτης απάντησης σε
+    ticket, ο `actor` του money trail.
+  - Οι ρόλοι και τα API keys που είχαν `admin.users.*` παίρνουν και τα αντίστοιχα `admin.clients.*`.
+  - Το `down()` γυρίζει κάθε λογαριασμό στον owner του και αρνείται όταν ένας user έχει δύο λογαριασμούς.
+- **Τρέχων λογαριασμός** (`App\Support\CurrentClient`, σαν τη session του WHMCS 8):
+  - Το client area δουλεύει πάντα σε έναν λογαριασμό από αυτούς που βλέπει ο user. Ένα ξένο ή παλιό id στη session
+    δεν γίνεται δεκτό.
+  - Στο «Login as client» ο λογαριασμός είναι του πελάτη, όχι αυτός που έχει η session.
+  - Login χωρίς λογαριασμό αποκτά δικό του στο client area (`EnsureClientAccount`), όπως το WHMCS ζητά client profile.
+- **Δικαιώματα:** το `BasePolicy::owns` ελέγχει ενεργή σύνδεση του user με τον λογαριασμό (`client_user`, χωρίς
+  `revoked_at`). Οι άδειες ανά όνομα (`invoices`, `tickets`…) ελέγχονται στο 2b.
+- **Χρήματα:** οι διαδρομές κλειδώνουν τη γραμμή του `clients` (`Client::lock`), με την ίδια σειρά όπως πριν.
+- **Mails:** όσα αφορούν τον λογαριασμό (τιμολόγια, υπηρεσίες, tickets) πάνε στον owner και το `email_logs` γράφεται
+  στον λογαριασμό. Όσα αφορούν τον login (επιβεβαίωση email, reset, νέα σύνδεση) πάνε στον user. Στο PR 3 οι
+  παραλήπτες ανά είδος έρχονται από τις επαφές.
+- **Admin:**
+  - «Clients»: υπηρεσίες, τιμολόγια, πιστώσεις, ιστορικό, tickets, τρόποι πληρωμής, properties, οι users του
+    λογαριασμού, «Login as client» ως ο owner. Ο νέος λογαριασμός δημιουργείται μαζί με τον owner του.
+  - «Users»: όνομα, email, κωδικός, 2FA και οι λογαριασμοί που βλέπει ο user.
+  - Ο owner ενός λογαριασμού δεν σβήνεται όσο υπάρχει ο λογαριασμός.
+- **API:** νέο `/api/v1/admin/clients` (με `admin.clients.*`). Τα orders, services, invoices, tickets και credits
+  παίρνουν `client_id` και include `client`. Το `users` δείχνει μόνο τον login και το include `clients`.
+- **Extensions:** οι gateways αποθηκεύουν τρόπους πληρωμής στον λογαριασμό. Οι servers χρησιμοποιούν το id του
+  λογαριασμού ως εξωτερικό id (όπως το WHMCS το client id), και τα ids δεν αλλάζουν. Τα affiliates ανήκουν στον
+  λογαριασμό.
+- **Importer:** για κάθε `tblclients` δημιουργούνται user, λογαριασμός με το ίδιο id και owner. Το πλήρες import των
+  `tblusers`/`tblusers_clients` γίνεται στο PR 4.
+- **Tests:** στα tests ο λογαριασμός ενός user έχει άλλο id από τον user (+100000), ώστε ένα `user_id` στη θέση ενός
+  `client_id` να μην περνά κατά τύχη.
+
+**Απόφαση (2026-10-14):** το «Login as client» δίνει πλήρη έλεγχο του λογαριασμού, όπως και το admin. Δεν
+περιορίζεται: ό,τι κάνει το staff εκεί μπορεί να το κάνει ήδη από το admin.
+
 ## Από το audit sweep (Σ5), για αυτό το κομμάτι
 
 Μικρά ευρήματα δικαιωμάτων που τα ξαναγράφει ο διαχωρισμός staff/users, οπότε δεν διορθώθηκαν χωριστά (2026-10-14):

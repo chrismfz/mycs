@@ -179,5 +179,13 @@
     "An option you have cannot be removed here: please contact us.": "Μια επιλογή που ήδη έχετε δεν αφαιρείται από εδώ: επικοινωνήστε μαζί μας.",
     "Too many attempts. Try again in :minutes minutes.": "Πολλές προσπάθειες. Δοκιμάστε ξανά σε :minutes λεπτά.",
     "Staff": "Προσωπικό",
-    "staff": "προσωπικό"
+    "staff": "προσωπικό",
+    "Client": "Πελάτης",
+    "Go to Client": "Μετάβαση στον πελάτη",
+    "Owner": "Κάτοχος",
+    "Last login": "Τελευταία σύνδεση",
+    "Open": "Άνοιγμα",
+    "This user owns a client account: delete the account first.": "Αυτός ο χρήστης είναι κάτοχος λογαριασμού πελάτη: διαγράψτε πρώτα τον λογαριασμό.",
+    "Name": "Όνομα",
+    "Email": "Email"
 }
