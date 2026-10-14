@@ -34,7 +34,7 @@ class AdminSettingsSecretsTest extends TestCase
             'settings.mail_header' => '<p>Header</p>', 'settings.mail_footer' => '<p>Footer</p>', 'settings.mail_css' => 'p {}']);
     }
 
-    private function staff(array $permissions): User
+    private function staff(array $permissions): Staff
     {
         return Staff::factory()->create(['role_id' => Role::create(['name' => 'Staff ' . uniqid(), 'permissions' => $permissions])->id]);
     }

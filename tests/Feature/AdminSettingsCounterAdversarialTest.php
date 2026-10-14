@@ -25,7 +25,7 @@ class AdminSettingsCounterAdversarialTest extends TestCase
 {
     use RefreshDatabase;
 
-    private User $owner;
+    private Staff $owner;
 
     protected function setUp(): void
     {

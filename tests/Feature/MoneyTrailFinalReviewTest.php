@@ -50,7 +50,7 @@ class MoneyTrailFinalReviewTest extends TestCase
         return $invoice->fresh();
     }
 
-    private function owner(): User
+    private function owner(): Staff
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 

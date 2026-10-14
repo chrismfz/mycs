@@ -25,7 +25,7 @@ class PermissionReviewTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function staff(array $permissions): User
+    private function staff(array $permissions): Staff
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 

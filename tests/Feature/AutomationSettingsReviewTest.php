@@ -38,7 +38,7 @@ class AutomationSettingsReviewTest extends TestCase
         parent::tearDown();
     }
 
-    private function owner(): User
+    private function owner(): Staff
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         config(['settings.system_email_address' => 'billing@example.test']);

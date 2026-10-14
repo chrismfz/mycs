@@ -72,7 +72,7 @@ class AdminCancelSubscriptionAdversarialTest extends TestCase
         return $service;
     }
 
-    private function admin(array $permissions = ['*']): User
+    private function admin(array $permissions = ['*']): Staff
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 

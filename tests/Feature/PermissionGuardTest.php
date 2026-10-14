@@ -21,9 +21,9 @@ class PermissionGuardTest extends TestCase
 {
     use RefreshDatabase;
 
-    private User $owner;
+    private Staff $owner;
 
-    private User $support;
+    private Staff $support;
 
     private User $client;
 

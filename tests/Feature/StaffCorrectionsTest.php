@@ -73,7 +73,7 @@ class StaffCorrectionsTest extends TestCase
         return number_format((float) (Credit::query()->where('user_id', $this->user->id)->value('amount') ?? 0), 2, '.', '');
     }
 
-    private function owner(): User
+    private function owner(): Staff
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 

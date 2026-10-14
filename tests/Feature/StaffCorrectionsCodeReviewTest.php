@@ -57,7 +57,7 @@ class StaffCorrectionsCodeReviewTest extends TestCase
         return $invoice->fresh();
     }
 
-    private function staff(array $permissions): User
+    private function staff(array $permissions): Staff
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 

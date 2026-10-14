@@ -123,7 +123,7 @@ class StaffCorrectionsAdversarialTest extends TestCase
         return $token;
     }
 
-    private function owner(): User
+    private function owner(): Staff
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 

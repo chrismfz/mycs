@@ -55,7 +55,7 @@ class MoneyHistoryTest extends TestCase
         return $invoice->fresh();
     }
 
-    private function owner(): User
+    private function owner(): Staff
     {
         return Staff::factory()->create(['first_name' => 'Zebediah', 'last_name' => 'Staffperson', 'role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
     }

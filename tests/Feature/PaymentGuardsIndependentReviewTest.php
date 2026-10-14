@@ -77,7 +77,7 @@ class PaymentGuardsIndependentReviewTest extends TestCase
         return number_format((float) (Credit::query()->where('user_id', $this->user->id)->where('currency_code', 'USD')->value('amount') ?? 0), 2, '.', '');
     }
 
-    private function admin(): User
+    private function admin(): Staff
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 

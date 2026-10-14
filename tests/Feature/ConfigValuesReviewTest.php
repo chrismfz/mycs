@@ -56,7 +56,7 @@ class ConfigValuesReviewTest extends TestCase
         return [$option, $a, $b];
     }
 
-    private function admin(): User
+    private function admin(): Staff
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 

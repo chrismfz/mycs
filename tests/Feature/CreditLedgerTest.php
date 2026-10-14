@@ -61,7 +61,7 @@ class CreditLedgerTest extends TestCase
         return number_format($cents / 100, 2, '.', '');
     }
 
-    private function owner(): User
+    private function owner(): Staff
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 

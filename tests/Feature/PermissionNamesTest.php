@@ -42,7 +42,7 @@ class PermissionNamesTest extends TestCase
         $this->assertSame([], $missing, 'checked but not defined: no role could be given them');
     }
 
-    private function staff(array $permissions): User
+    private function staff(array $permissions): Staff
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 
