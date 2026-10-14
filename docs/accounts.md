@@ -342,3 +342,13 @@ tickets, affiliates, emails, orders`. Στην πράξη: «όλα» ή μικ�
 
 ## Reviews
 Αλλάζει ιδιοκτησία χρημάτων (τιμολόγια/πιστώσεις → λογαριασμός) και auth: code review **και** adversarial review.
+
+## Από το audit sweep (Σ5), για αυτό το κομμάτι
+
+Μικρά ευρήματα δικαιωμάτων που τα ξαναγράφει ο διαχωρισμός staff/users, οπότε δεν διορθώθηκαν χωριστά (2026-10-14):
+- Φίλτρο «Assigned To» στα tickets (γίνεται `staff_id`). AUTH-14
+- Φίλτρο «Email Verified» στους users. AUTH-15
+- Sessions του πελάτη όταν το staff αλλάζει τον κωδικό του: να τερματίζονται. AUTH-18
+- Impersonation → «Login as client», με τον staff ως causer στα audits και καταγραφή της ενέργειας. AUTH-19
+- Back-off στις αποτυχίες 2FA (και του staff, με το δικό του guard). AUTH-20
+- Διαγραφή μέλους staff που σβήνει τις απαντήσεις του σε tickets· πελάτης με υπηρεσίες ή κινήσεις χρημάτων. DATA-3, AUTH-7

@@ -104,6 +104,7 @@ return [
             ],
             'debug_logs' => [
                 'view' => 'View Debug Logs',
+                'delete' => 'Delete Debug Logs',
             ],
             'roles' => [
                 'create' => 'Create Roles',

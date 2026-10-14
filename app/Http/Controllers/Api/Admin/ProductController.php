@@ -32,7 +32,7 @@ class ProductController extends ApiController
             ->allowedFilters(['name', 'slug', 'category_id', 'server_id', 'hidden', 'allow_quantity'])
             ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
             ->allowedSorts(['id', 'created_at', 'updated_at', 'name', 'sort', 'stock'])
-            ->simplePaginate(request('per_page', 15));
+            ->simplePaginate(min(max((int) min(max((int) request('per_page', 15), 1), 100), 1), 100));
 
         // Return the products as a JSON response
         return ProductResource::collection($products);

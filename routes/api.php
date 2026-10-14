@@ -21,7 +21,8 @@ Route::post('/oauth/token', [
 
 Route::get('/me', [ProfileController::class, 'me'])->middleware(['auth:api', 'scope:profile']);
 
-Route::group(['middleware' => ['api.admin'], 'prefix' => 'v1/admin', 'as' => 'api.v1.admin.'], function () {
+// Rate limited per key (AUTH-17): a leaked or looping key cannot hammer the admin API.
+Route::group(['middleware' => ['throttle:admin-api', 'api.admin'], 'prefix' => 'v1/admin', 'as' => 'api.v1.admin.'], function () {
     Route::apiResources([
         'categories' => CategoryController::class,
         'credits' => CreditController::class,

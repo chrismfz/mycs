@@ -37,7 +37,7 @@ class CreditController extends ApiController
             ->allowedFilters(['id', 'currency_code', 'user_id'])
             ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
             ->allowedSorts(['id', 'created_at', 'updated_at', 'currency_code'])
-            ->simplePaginate(request('per_page', 15));
+            ->simplePaginate(min(max((int) min(max((int) request('per_page', 15), 1), 100), 1), 100));
 
         // Return the credits as a JSON response
         return CreditResource::collection($credits);

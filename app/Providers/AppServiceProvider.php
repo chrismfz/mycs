@@ -18,6 +18,7 @@ use Dedoc\Scramble\Support\Generator\OpenApi;
 use Dedoc\Scramble\Support\Generator\SecurityScheme;
 use Exception;
 use Illuminate\Auth\Access\Response;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Exceptions\Handler;
 use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Http\Request;
@@ -29,6 +30,7 @@ use Illuminate\Routing\UrlGenerator;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
@@ -142,6 +144,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // The admin API: 120 calls a minute per key (its bearer token, hashed), or per address without one (AUTH-17).
+        RateLimiter::for('admin-api', fn (Request $request) => Limit::perMinute(120)
+            ->by($request->bearerToken() ? hash('sha256', $request->bearerToken()) : $request->ip()));
+
         // Change livewire url
         Livewire::setUpdateRoute(function ($handle) {
             return Route::post('/paymenter/update', $handle)->middleware('web')->name('paymenter.');
