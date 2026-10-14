@@ -140,7 +140,7 @@ class LicensingReviewTest extends TestCase
         $license = License::query()->sole();
         $inserted = false;
         DB::listen(function ($query) use (&$inserted, $license) {
-            if (!$inserted && str_starts_with(strtolower($query->sql), 'update "license_check_days"')) {
+            if (!$inserted && preg_match('/^update [`"]license_check_days[`"]/i', $query->sql)) {
                 $inserted = true;
                 DB::table('license_check_days')->insert(['license_id' => $license->id, 'day' => now()->toDateString(), 'ok' => 1, 'failed' => 0]);
             }
