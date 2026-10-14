@@ -79,4 +79,12 @@ return [
 
     'update_label' => 'Αποθήκευση',
 
+    'domain' => 'Domain',
+    'dedicated_ip' => 'Αποκλειστική IP',
+    'assigned_ips' => 'Επιπλέον IPs',
+    'username' => 'Όνομα χρήστη',
+    'password' => 'Κωδικός',
+    'show' => 'Εμφάνιση',
+    'hide' => 'Απόκρυψη',
+    'suspend_reason' => 'Αιτία αναστολής',
 ];

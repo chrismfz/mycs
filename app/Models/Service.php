@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Classes\Price;
 use App\Models\Traits\HasProperties;
 use App\Observers\ServiceObserver;
+use App\Redactors\FullRedactor;
 use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\Invoice\ChangeOpenLine;
 use App\Services\Order\OrderPricing;
@@ -103,6 +104,22 @@ class Service extends Model implements Auditable
         'currency_code',
         'billing_agreement_id',
         'suspend_hold_until',
+        // WHMCS's tblhosting fields (2026_11_02 migration)
+        'domain',
+        'username',
+        'password',
+        'dedicated_ip',
+        'assigned_ips',
+        'notes',
+        'suspend_reason',
+    ];
+
+    /** The account password is never in a serialized service (API, logs); staff and the customer see it on their page. */
+    protected $hidden = ['password'];
+
+    /** Audited, never in clear (FullRedactor), as a secret setting. */
+    protected $attributeModifiers = [
+        'password' => FullRedactor::class,
     ];
 
     protected $casts = [
@@ -111,6 +128,7 @@ class Service extends Model implements Auditable
         'dunning_suspended_at' => 'immutable_datetime',
         'coupon_started_at' => 'immutable_date',
         'coupon_expired_at' => 'immutable_datetime',
+        'password' => 'encrypted',
     ];
 
     /**

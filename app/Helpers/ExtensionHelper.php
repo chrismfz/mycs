@@ -1416,6 +1416,14 @@ class ExtensionHelper
         foreach ($service->configs as $config) {
             $properties[$config->configOption->env_variable] = $config->configValue->env_variable ?? $config->configValue->name;
         }
+        // The service's own fields (WHMCS's tblhosting) for every module: a property set by its module or the checkout
+        // wins. cpanel_username: an account imported from WHMCS has only the native username.
+        foreach (['domain' => $service->domain, 'username' => $service->username, 'password' => $service->password,
+            'dedicated_ip' => $service->dedicated_ip, 'assigned_ips' => $service->assigned_ips, 'cpanel_username' => $service->username] as $key => $value) {
+            if (!isset($properties[$key]) && $value !== null && $value !== '') {
+                $properties[$key] = $value;
+            }
+        }
 
         return $properties;
     }

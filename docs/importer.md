@@ -79,3 +79,10 @@
 - Tests του importer σε fixture βάση WHMCS (ανωνυμοποιημένη, CLAUDE.md), όπως τα `WhmcsSchema`/`BlestaSchema` του
   `lib/nixpal-licensing/tests`.
 - Η nixpal πρώτη (31 ενεργοί, ~330 άδειες), μετά 2–3 δοκιμαστικά runs του myip πριν το cut-over.
+
+## Πεδία υπηρεσίας (tblhosting, 2026-10-14)
+`domain`, `username`, `dedicatedip`, `assignedips` (μία ανά γραμμή), `notes` (staff), `suspendreason` (μόνο σε
+Suspended) περνούν στα native πεδία της υπηρεσίας. Ο **κωδικός** (`password`) είναι κρυπτογραφημένος με το
+`cc_encryption_hash` του WHMCS, που δεν είναι στη βάση: θέλει δικό του βήμα πριν το cut-over (WHMCS API
+`DecryptPassword` ανά υπηρεσία), και αποθηκεύεται εδώ κρυπτογραφημένος (encrypted cast). `ns1`/`ns2` (1 υπηρεσία)
+δεν μεταφέρονται· disk/bw usage τα ξαναδιαβάζει το sync του cPanel. Server ανά υπηρεσία: επόμενο PR (server groups).

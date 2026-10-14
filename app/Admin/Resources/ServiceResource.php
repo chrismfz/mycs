@@ -23,10 +23,12 @@ use Filament\Actions\EditAction;
 use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Component;
+use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Support\RawJs;
@@ -34,8 +36,10 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Model;
 use Throwable;
 
 class ServiceResource extends Resource
@@ -57,6 +61,19 @@ class ServiceResource extends Resource
     }
 
     protected static ?string $cluster = Services::class;
+
+    /** The admin search (ctrl+k) finds a service by its domain or IP too: «who has IP x» (abuse), as WHMCS. */
+    public static function getGloballySearchableAttributes(): array
+    {
+        return ['id', 'domain', 'dedicated_ip', 'assigned_ips', 'username'];
+    }
+
+    public static function getGlobalSearchResultTitle(Model $record): string|Htmlable
+    {
+        return $record instanceof Service
+            ? '#' . $record->id . ' ' . ($record->product->name ?? '') . ($record->domain ? ' · ' . $record->domain : '')
+            : '#' . $record->getKey();
+    }
 
     public static function form(Schema $schema): Schema
     {
@@ -168,6 +185,24 @@ class ServiceResource extends Resource
                     ->hintAction(
                         CancelSubscriptionAction::make(),
                     ),
+                // WHMCS's product details (tblhosting): read by the server modules, shown to the customer.
+                Section::make('Account')
+                    ->columns(2)
+                    ->columnSpanFull()
+                    ->schema([
+                        TextInput::make('domain')->label('Domain')->maxLength(255),
+                        TextInput::make('dedicated_ip')->label('Dedicated IP')->ip()->maxLength(45),
+                        TextInput::make('username')->label('Username')->maxLength(255),
+                        // Hidden from serialization, so filled from the record here (else a save would wipe it); left
+                        // empty, the stored one is kept.
+                        TextInput::make('password')->label('Password')->password()->revealable()->maxLength(255)
+                            ->afterStateHydrated(fn (TextInput $component, ?Service $record) => $component->state($record?->password))
+                            ->dehydrated(fn (?string $state) => filled($state)),
+                        Textarea::make('assigned_ips')->label('Assigned IPs')->helperText('One per line.')->rows(3),
+                        TextInput::make('suspend_reason')->label('Suspension Reason')->maxLength(255)
+                            ->helperText('Shown to the customer while the service is suspended.'),
+                        Textarea::make('notes')->label('Admin Notes')->helperText('Staff only.')->rows(3)->columnSpanFull(),
+                    ]),
             ]);
     }
 
@@ -188,6 +223,13 @@ class ServiceResource extends Resource
                     ->label('Product')
                     ->searchable()
                     ->sortable(),
+                // «Who has IP x» (abuse): the domain, the dedicated IP and the assigned IPs are searched.
+                TextColumn::make('domain')
+                    ->label('Domain')
+                    ->description(fn (Service $record) => $record->dedicated_ip)
+                    ->searchable(query: fn (Builder $query, string $search) => $query->where(fn ($match) => $match
+                        ->where('domain', 'like', "%{$search}%")->orWhere('dedicated_ip', 'like', "%{$search}%")->orWhere('assigned_ips', 'like', "%{$search}%")))
+                    ->toggleable(),
                 TextColumn::make('status')
                     ->badge()
                     ->color(fn (Service $record) => Service::statusColor($record->status))

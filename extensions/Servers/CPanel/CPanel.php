@@ -163,6 +163,8 @@ class CPanel extends Server
             'name' => 'cPanel username',
             'value' => strtolower($username),
         ]);
+        // The service's own fields too, as WHMCS keeps them (shown to staff and the customer, searched).
+        $service->forceFill(['username' => strtolower($username), 'domain' => $service->domain ?? $properties['domain']])->save();
 
         return true;
     }

@@ -59,6 +59,10 @@ class ServiceObserver
         }
         if ($service->isDirty('status') && $service->status !== Service::STATUS_SUSPENDED) {
             $service->dunning_suspended_at = null;
+            // Not suspended any more: its reason goes (WHMCS clears suspendreason on unsuspend).
+            if ($service->getOriginal('status') === Service::STATUS_SUSPENDED && !$service->isDirty('suspend_reason')) {
+                $service->suspend_reason = null;
+            }
         }
         if ($service->isDirty('coupon_id')) {
             // Cycles count from a period boundary: the first period not billed yet on a started service;

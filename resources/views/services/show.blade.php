@@ -55,6 +55,13 @@
                         </span>
                         @endif
                     </div>
+                    @if($service->status == 'suspended' && filled($service->suspend_reason))
+                    <div class="flex items-center text-base">
+                        <span class="mr-2">{{ __('services.suspend_reason') }}:</span>
+                        <span class="text-base/50">{{ $service->suspend_reason }}</span>
+                    </div>
+                    @endif
+                    @include('services.partials.account')
                     @can('update', $service)
                     @include('services.partials.billing-agreement')
                     @endcan

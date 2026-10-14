@@ -259,7 +259,7 @@ class CronJob extends Command
                             }
                             // Register before Service Updated listeners, but execute only after the status commits.
                             SuspendJob::dispatch($service)->afterCommit();
-                            $service->forceFill(['status' => 'suspended', 'dunning_suspended_at' => now()])->save();
+                            $service->forceFill(['status' => 'suspended', 'dunning_suspended_at' => now(), 'suspend_reason' => 'Overdue on Payment'])->save();
 
                             return 1;
                         });
