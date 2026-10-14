@@ -2,7 +2,6 @@
 
 namespace Paymenter\Extensions\Others\Affiliates;
 
-use App\Support\CurrentClient;
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Extension;
 use App\Events\Invoice\Paid as InvoicePaid;
@@ -10,6 +9,7 @@ use App\Events\Order\Created as OrderCreated;
 use App\Events\User\Created as UserCreated;
 use App\Helpers\ExtensionHelper;
 use App\Models\Client;
+use App\Support\CurrentClient;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Lang;

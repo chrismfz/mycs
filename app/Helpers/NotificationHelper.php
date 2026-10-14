@@ -222,7 +222,7 @@ class NotificationHelper
         $client = $invite->client;
         $locale = self::localeFor($client);
         $recipient = new User(['email' => $invite->email]);
-        $by = $invite->invitedByUser?->name ?? config('app.name');
+        $by = $invite->invitedByUser->name ?? config('app.name');
 
         self::withLocale($locale, function () use ($template, $locale, $invite, $token, $client, $recipient, $by) {
             $previous = self::$account;

@@ -37,7 +37,7 @@ class InvitesRelationManager extends RelationManager
                         default => __('Pending'),
                     }),
                 TextColumn::make('invited_by')->label(__('Invited by'))
-                    ->state(fn (ClientInvite $record) => $record->invitedByStaff?->name ?? $record->invitedByUser?->name),
+                    ->state(fn (ClientInvite $record) => $record->invitedByStaff->name ?? $record->invitedByUser->name ?? null),
                 TextColumn::make('created_at')->label(__('Sent'))->dateTime(),
                 TextColumn::make('expires_at')->label(__('account.expires'))->dateTime(),
             ])

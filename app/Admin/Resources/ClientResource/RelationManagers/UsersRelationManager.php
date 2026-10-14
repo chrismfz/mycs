@@ -65,7 +65,7 @@ class UsersRelationManager extends RelationManager
         return [
             Toggle::make('all')->label(__('account.all_permissions'))->default($grant === null || $grant->permissions === null)->live(),
             CheckboxList::make('permissions')->label(__('account.permissions'))->options(self::permissionOptions())
-                ->default($grant?->permissions ?? [])->columns(2)
+                ->default($grant->permissions ?? [])->columns(2)
                 ->hidden(fn (Get $get) => (bool) $get('all')),
         ];
     }

@@ -21,6 +21,9 @@ use Illuminate\Support\Str;
  * @property Carbon $expires_at
  * @property Carbon|null $accepted_at
  * @property Carbon|null $revoked_at
+ * @property-read Client $client
+ * @property-read User|null $invitedByUser
+ * @property-read Staff|null $invitedByStaff
  */
 class ClientInvite extends Model
 {
