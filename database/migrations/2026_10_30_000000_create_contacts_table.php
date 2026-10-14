@@ -28,36 +28,36 @@ return new class extends Migration
         // Re-runnable: a run stopped half way (no transaction for DDL) goes on from where it was.
         if (!Schema::hasTable('contacts')) {
             Schema::create('contacts', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('client_id')->constrained()->cascadeOnDelete();
-            // = client_id for the primary contact, NULL otherwise: one primary per account (as client_user's owner).
-            $table->unsignedBigInteger('primary_of_client_id')->nullable()->unique();
-            $table->string('type', 20)->default('individual'); // individual | business
-            $table->string('first_name')->nullable();
-            $table->string('last_name')->nullable();
-            $table->string('company_name')->nullable();
-            // The Greek ΑΦΜ or a foreign tax id; the EU VAT number (VIES) apart, as the bridge's gr_vatno / vies_vatno.
-            $table->string('tax_id', 50)->nullable();
-            $table->string('vat_number', 50)->nullable();
-            $table->string('tax_office')->nullable(); // ΔΟΥ
-            $table->string('activity')->nullable();
-            $table->string('address1')->nullable();
-            $table->string('address2')->nullable();
-            $table->string('city')->nullable();
-            $table->string('state')->nullable();
-            $table->string('postcode')->nullable(); // the properties were up to 255: nothing is cut
-            $table->string('country', 2)->nullable(); // ISO 3166-1 alpha-2
-            $table->string('email')->nullable();
-            $table->string('phone')->nullable();
-            $table->text('notes')->nullable();
-            // What an invoice to this contact is: invoice (τιμολόγιο), receipt (απόδειξη), none. NULL = not chosen.
-            $table->string('document_type', 20)->nullable();
-            // Which mails the contact receives (tblcontacts): general, invoice, support, product, domain, affiliate.
-            $table->json('email_preferences')->nullable();
-            // A contact in use is archived, not deleted.
-            $table->timestamp('archived_at')->nullable();
-            $table->timestamps();
-            $table->index(['client_id', 'archived_at']);
+                $table->id();
+                $table->foreignId('client_id')->constrained()->cascadeOnDelete();
+                // = client_id for the primary contact, NULL otherwise: one primary per account (as client_user's owner).
+                $table->unsignedBigInteger('primary_of_client_id')->nullable()->unique();
+                $table->string('type', 20)->default('individual'); // individual | business
+                $table->string('first_name')->nullable();
+                $table->string('last_name')->nullable();
+                $table->string('company_name')->nullable();
+                // The Greek ΑΦΜ or a foreign tax id; the EU VAT number (VIES) apart, as the bridge's gr_vatno / vies_vatno.
+                $table->string('tax_id', 50)->nullable();
+                $table->string('vat_number', 50)->nullable();
+                $table->string('tax_office')->nullable(); // ΔΟΥ
+                $table->string('activity')->nullable();
+                $table->string('address1')->nullable();
+                $table->string('address2')->nullable();
+                $table->string('city')->nullable();
+                $table->string('state')->nullable();
+                $table->string('postcode')->nullable(); // the properties were up to 255: nothing is cut
+                $table->string('country', 2)->nullable(); // ISO 3166-1 alpha-2
+                $table->string('email')->nullable();
+                $table->string('phone')->nullable();
+                $table->text('notes')->nullable();
+                // What an invoice to this contact is: invoice (τιμολόγιο), receipt (απόδειξη), none. NULL = not chosen.
+                $table->string('document_type', 20)->nullable();
+                // Which mails the contact receives (tblcontacts): general, invoice, support, product, domain, affiliate.
+                $table->json('email_preferences')->nullable();
+                // A contact in use is archived, not deleted.
+                $table->timestamp('archived_at')->nullable();
+                $table->timestamps();
+                $table->index(['client_id', 'archived_at']);
             });
         }
 
@@ -67,36 +67,36 @@ return new class extends Migration
         DB::table('clients')->orderBy('id')->select('id', 'created_at')
             ->whereNotExists(fn ($query) => $query->from('contacts')->whereColumn('contacts.primary_of_client_id', 'clients.id'))
             ->chunk(500, function ($clients) use ($countries, $owners) {
-            $ids = $clients->pluck('id')->all();
-            $properties = DB::table('properties')->where('model_type', 'App\\Models\\Client')->whereIn('model_id', $ids)
-                ->whereIn('key', array_keys(self::PROPERTIES))->get(['model_id', 'key', 'value'])->groupBy('model_id');
-            $users = DB::table('users')->whereIn('id', $owners->only($ids)->values()->all())->get(['id', 'first_name', 'last_name', 'email'])->keyBy('id');
-            $rows = [];
-            foreach ($clients as $client) {
-                $user = $users->get($owners->get($client->id));
-                $row = [
-                    'client_id' => $client->id, 'primary_of_client_id' => $client->id, 'type' => 'individual',
-                    'first_name' => $user?->first_name, 'last_name' => $user?->last_name, 'email' => $user?->email,
-                    'notes' => null, 'created_at' => $client->created_at ?? now(), 'updated_at' => now(),
-                ];
-                foreach (array_values(self::PROPERTIES) as $column) {
-                    $row[$column] = null;
+                $ids = $clients->pluck('id')->all();
+                $properties = DB::table('properties')->where('model_type', 'App\\Models\\Client')->whereIn('model_id', $ids)
+                    ->whereIn('key', array_keys(self::PROPERTIES))->get(['model_id', 'key', 'value'])->groupBy('model_id');
+                $users = DB::table('users')->whereIn('id', $owners->only($ids)->values()->all())->get(['id', 'first_name', 'last_name', 'email'])->keyBy('id');
+                $rows = [];
+                foreach ($clients as $client) {
+                    $user = $users->get($owners->get($client->id));
+                    $row = [
+                        'client_id' => $client->id, 'primary_of_client_id' => $client->id, 'type' => 'individual',
+                        'first_name' => $user?->first_name, 'last_name' => $user?->last_name, 'email' => $user?->email,
+                        'notes' => null, 'created_at' => $client->created_at ?? now(), 'updated_at' => now(),
+                    ];
+                    foreach (array_values(self::PROPERTIES) as $column) {
+                        $row[$column] = null;
+                    }
+                    foreach ($properties->get($client->id, collect()) as $property) {
+                        $value = trim((string) $property->value);
+                        $row[self::PROPERTIES[$property->key]] = $value === '' ? null : $value;
+                    }
+                    $legacy = $row['country'];
+                    $row['country'] = self::isoCountry($legacy, $countries);
+                    if ($legacy !== null && $row['country'] === null) {
+                        // Kept where staff see it, not lost: the account has no VAT country until it is set.
+                        $row['notes'] = 'Country (before the contacts): ' . $legacy;
+                    }
+                    $row['type'] = $row['company_name'] !== null ? 'business' : 'individual';
+                    $rows[] = $row;
                 }
-                foreach ($properties->get($client->id, collect()) as $property) {
-                    $value = trim((string) $property->value);
-                    $row[self::PROPERTIES[$property->key]] = $value === '' ? null : $value;
-                }
-                $legacy = $row['country'];
-                $row['country'] = self::isoCountry($legacy, $countries);
-                if ($legacy !== null && $row['country'] === null) {
-                    // Kept where staff see it, not lost: the account has no VAT country until it is set.
-                    $row['notes'] = 'Country (before the contacts): ' . $legacy;
-                }
-                $row['type'] = $row['company_name'] !== null ? 'business' : 'individual';
-                $rows[] = $row;
-            }
-            DB::table('contacts')->insert($rows);
-        });
+                DB::table('contacts')->insert($rows);
+            });
 
         DB::table('properties')->where('model_type', 'App\\Models\\Client')->whereIn('key', array_keys(self::PROPERTIES))->delete();
         DB::table('custom_properties')->where('model', 'App\\Models\\Client')->whereIn('key', array_keys(self::PROPERTIES))->delete();

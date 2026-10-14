@@ -454,7 +454,11 @@ class ContactsAdversarialTest extends TestCase
 
         $contact = $this->migrateWithProperties($client, ['zip' => str_repeat('1', 30), 'phone' => str_repeat('2', 60)]);
 
-        $this->assertLessThanOrEqual(20, strlen((string) $contact->postcode));
-        $this->assertLessThanOrEqual(50, strlen((string) $contact->phone));
+        // Fixed by widening the columns to the properties' 255 (nothing cut, nothing refused by a strict MySQL).
+        $this->assertSame(str_repeat('1', 30), $contact->postcode);
+        $this->assertSame(str_repeat('2', 60), $contact->phone);
+        $this->assertTrue(collect(\Illuminate\Support\Facades\Schema::getColumns('contacts'))
+            ->whereIn('name', ['postcode', 'phone'])->every(fn ($column) => ($column['length'] ?? 255) === null || ($column['length'] ?? 255) >= 255
+                || str_contains((string) $column['type'], '255') || DB::getDriverName() === 'sqlite'));
     }
 }
