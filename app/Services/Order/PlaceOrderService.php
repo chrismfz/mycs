@@ -132,8 +132,10 @@ final class PlaceOrderService
             if ($product->per_user_limit > 0) {
                 // In units, as the new lines (ADV-3). Cancelled services do not count (CART-18): an order that was
                 // never paid does not use the limit up.
+                // A locking read: a plain one could see a snapshot taken before the account's lock and miss a
+                // concurrent order (MariaDB REPEATABLE READ).
                 $existing = (int) $client->services()->where('product_id', $product->id)
-                    ->whereNotIn('status', [Service::STATUS_CANCELLED])->sum('quantity');
+                    ->whereNotIn('status', [Service::STATUS_CANCELLED])->lockForUpdate()->get(['id', 'quantity'])->sum('quantity');
                 if ($existing + $quantity > $product->per_user_limit) {
                     throw new DisplayException(__('product.user_limit', ['product' => $product->name]));
                 }

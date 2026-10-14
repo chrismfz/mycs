@@ -100,7 +100,7 @@ class OrderResource extends Resource
                             ->prefix(fn (Get $get) => Currency::query()->find($get('../../currency_code'))?->prefix)
                             ->suffix(fn (Get $get) => Currency::query()->find($get('../../currency_code'))?->suffix)
                             ->placeholder(fn (Get $get) => self::catalogPrice($get) ?? 'Catalog price')
-                            ->helperText('Empty: the catalog price, with tax for the client\'s country. The setup fee is added to the first invoice.'),
+                            ->helperText('What the client pays each cycle, tax included. Empty: the catalog price with the client\'s tax. The setup fee is added to the first invoice. Options are not chosen here: add them on the service.'),
                     ]),
                 Repeater::make('services')
                     ->visibleOn('edit')

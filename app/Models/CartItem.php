@@ -78,6 +78,6 @@ class CartItem extends Model
 
                 return Price::fromLine($line, $currencyModel, $full);
             }
-        );
+        )->shouldCache();
     }
 }

@@ -11,6 +11,7 @@ use App\Models\Currency;
 use App\Models\Plan;
 use App\Services\Order\OrderPricing;
 use App\Support\CurrentClient;
+use Brick\Math\BigDecimal;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
@@ -105,11 +106,6 @@ class Checkout extends Component
     public function updatePricing()
     {
         $currency = session('currency', config('settings.default_currency'));
-        if ($this->plan->type === 'free') {
-            $this->total = new Price(['currency' => Currency::query()->find($currency)], free: true);
-
-            return;
-        }
         $chosen = collect($this->configOptions)->map(fn ($value, $optionId) => ['option_id' => (int) $optionId, 'value' => $value])->values()->all();
         $catalog = OrderPricing::catalog($this->product, $this->plan, $chosen, $currency);
         if ($catalog === null) {
@@ -118,7 +114,11 @@ class Checkout extends Component
             return;
         }
         $client = Auth::guard('web')->check() ? CurrentClient::model() : null;
-        $this->total = Price::fromLine(OrderPricing::line($catalog, null, $client), Currency::query()->find($currency));
+        $line = OrderPricing::line($catalog, null, $client);
+        // A free plan with nothing chosen that costs: «Free», as the plan list says.
+        $this->total = $this->plan->type === 'free' && !BigDecimal::of($line->firstPayment())->isPositive()
+            ? new Price(['currency' => Currency::query()->find($currency)], free: true)
+            : Price::fromLine($line, Currency::query()->find($currency));
     }
 
     // On change of the plan, update the config options
