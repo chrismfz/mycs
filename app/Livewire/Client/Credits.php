@@ -39,7 +39,7 @@ class Credits extends Component
 
     public function mount()
     {
-        $this->autoApply = (bool) (CurrentClient::model()?->credit_auto_apply ?? true);
+        $this->autoApply = (bool) (CurrentClient::model()->credit_auto_apply ?? true);
         $this->amount = config('settings.credits_minimum_deposit');
         $this->currency = session('currency', config('settings.default_currency'));
         $this->gateways = ExtensionHelper::getCheckoutGateways($this->amount, $this->currency, 'credits');

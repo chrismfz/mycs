@@ -418,13 +418,13 @@ parameters:
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$credits\.$#'
 			identifier: property.notFound
 			count: 2
-			path: app/Admin/Resources/UserResource/Pages/ShowCredits.php
+			path: app/Admin/Resources/ClientResource/Pages/ShowCredits.php
 
 		-
 			message: '#^Match expression does not handle remaining value\: string$#'
 			identifier: match.unhandled
 			count: 2
-			path: app/Admin/Resources/UserResource/Pages/ShowTickets.php
+			path: app/Admin/Resources/ClientResource/Pages/ShowTickets.php
 
 		-
 			message: '#^Match expression does not handle remaining values\: string\|null$#'

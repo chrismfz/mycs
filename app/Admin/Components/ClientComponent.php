@@ -20,7 +20,7 @@ class ClientComponent extends Select
             ->label(__('Client'))
             ->relationship('client', 'id')
             ->searchable()
-            ->getOptionLabelFromRecordUsing(fn (Client $record) => self::label($record))
+            ->getOptionLabelFromRecordUsing(fn (Client $record) => self::optionLabel($record))
             ->getSearchResultsUsing(fn (string $search): array => Client::query()
                 ->where(fn (Builder $query) => $query->whereKey((int) $search)
                     ->orWhereHas('users', fn (Builder $users) => $users->where('first_name', 'like', "%$search%")
@@ -29,14 +29,14 @@ class ClientComponent extends Select
                 ->with('ownerGrant.user')
                 ->limit(50)
                 ->get()
-                ->mapWithKeys(fn (Client $client) => [$client->id => self::label($client)])
+                ->mapWithKeys(fn (Client $client) => [$client->id => self::optionLabel($client)])
                 ->toArray())
             ->hint(fn ($get) => $get($name ?? 'client_id') ? new HtmlString('<a href="' . ClientResource::getUrl('edit', ['record' => $get($name ?? 'client_id')]) . '" target="_blank">' . e(__('Go to Client')) . '</a>') : null)
             ->live()
             ->required();
     }
 
-    public static function label(Client $client): string
+    public static function optionLabel(Client $client): string
     {
         return '#' . $client->id . ' ' . $client->name . ($client->email ? ' (' . $client->email . ')' : '');
     }

@@ -10,6 +10,7 @@ use OwenIt\Auditing\Contracts\Auditable;
 /**
  * @property-read mixed $formatted_amount
  * @property-read mixed $formattedAmount
+ * @property int $client_id
  */
 class Credit extends Model implements Auditable
 {

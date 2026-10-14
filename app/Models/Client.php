@@ -44,7 +44,7 @@ class Client extends Model implements Auditable
     /**
      * The logins with a live grant on the account.
      *
-     * @return BelongsToMany<User, $this>
+     * @return BelongsToMany<User, $this, ClientUser>
      */
     public function users(): BelongsToMany
     {
@@ -82,7 +82,7 @@ class Client extends Model implements Auditable
     /** @return Attribute<string, never> */
     protected function name(): Attribute
     {
-        return Attribute::make(get: fn () => $this->owner()?->name ?? __('Client') . ' #' . $this->id);
+        return Attribute::make(get: fn () => $this->owner()->name ?? __('Client') . ' #' . $this->id);
     }
 
     /** @return Attribute<string|null, never> */

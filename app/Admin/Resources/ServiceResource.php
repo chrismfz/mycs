@@ -206,7 +206,7 @@ class ServiceResource extends Resource
                 SelectFilter::make('client')
                     ->label('Client')
                     ->relationship('client', 'id')
-                    ->getOptionLabelFromRecordUsing(fn ($record) => ClientComponent::label($record))
+                    ->getOptionLabelFromRecordUsing(fn ($record) => ClientComponent::optionLabel($record))
                     ->searchable(),
                 SelectFilter::make('product')
                     ->label('Product')

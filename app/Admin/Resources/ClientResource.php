@@ -52,7 +52,7 @@ class ClientResource extends Resource
 
     public static function getGlobalSearchResultTitle(Model $record): string|Htmlable
     {
-        return '#' . $record->getKey() . ' ' . $record->name;
+        return '#' . $record->getKey() . ' ' . ($record instanceof Client ? $record->name : '');
     }
 
     public static function form(Schema $schema): Schema

@@ -10,6 +10,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use OwenIt\Auditing\Contracts\Auditable;
 
+/**
+ * @property int $client_id
+ */
 class BillingAgreement extends Model implements Auditable
 {
     use HasProperties, HasUlids, SoftDeletes, Traits\Auditable;

@@ -18,6 +18,7 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property-read mixed $formatted_total
  * @property-read mixed $formattedTotal
  * @property-read mixed $invoices
+ * @property int $client_id
  */
 #[ObservedBy([OrderObserver::class])]
 class Order extends Model implements Auditable

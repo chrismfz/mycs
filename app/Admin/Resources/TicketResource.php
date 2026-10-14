@@ -170,7 +170,7 @@ class TicketResource extends Resource
                     ->label('Client')
                     ->relationship('client', 'id')
                     ->indicateUsing(fn ($data) => $data['value'] ? 'Client: ' . Client::find($data['value'])?->name : null)
-                    ->getOptionLabelFromRecordUsing(fn (Client $record) => ClientComponent::label($record)),
+                    ->getOptionLabelFromRecordUsing(fn (Client $record) => ClientComponent::optionLabel($record)),
                 SelectFilter::make('priority')
                     ->options([
                         'low' => 'Low',

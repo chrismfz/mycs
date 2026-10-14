@@ -9,8 +9,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use OwenIt\Auditing\Contracts\Auditable;
 
+/**
+ * @property int $client_id
+ */
 #[ObservedBy([TicketObserver::class])]
-
 class Ticket extends Model implements Auditable
 {
     use HasFactory, Traits\Auditable;

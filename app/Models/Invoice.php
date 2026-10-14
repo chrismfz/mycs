@@ -40,6 +40,7 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property-read mixed $bill_to
  * @property-read mixed $billTo
  * @property-read mixed $pdf
+ * @property int|null $client_id
  */
 #[ObservedBy([InvoiceObserver::class])]
 class Invoice extends Model implements Auditable

@@ -12,6 +12,7 @@ use LogicException;
 /**
  * One money movement (docs/money-trail.md §1). Append-only: written only by App\Services\Money\MoneyTrail, inside
  * the transaction of the movement itself, and never updated or deleted. A mistake is undone by a reversal.
+ * @property int|null $client_id
  */
 class MoneyEvent extends Model
 {

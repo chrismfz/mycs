@@ -143,7 +143,7 @@ class User extends Authenticatable implements Auditable, HasAvatar, OAuthenticat
     /**
      * The customer accounts this login sees (live grants), WHMCS `tblusers_clients`.
      *
-     * @return BelongsToMany<Client, $this>
+     * @return BelongsToMany<Client, $this, ClientUser>
      */
     public function clients(): BelongsToMany
     {

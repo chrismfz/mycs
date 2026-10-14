@@ -34,6 +34,7 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property-read mixed $description
  * @property-read mixed $cancellable
  * @property-read mixed $upgradable
+ * @property int $client_id
  */
 #[ObservedBy([ServiceObserver::class])]
 class Service extends Model implements Auditable
