@@ -30,6 +30,10 @@ class TemplateRenderer
             if ($target instanceof Model && in_array($key, $target->getHidden(), true)) {
                 return null;
             }
+            // Staff-only fields that are not $hidden (staff edit them in forms): a service's notes (review F2).
+            if ($target instanceof Model && defined($target::class . '::TEMPLATE_HIDDEN') && in_array($key, constant($target::class . '::TEMPLATE_HIDDEN'), true)) {
+                return null;
+            }
 
             return Renderer::read($target, $key);
         });

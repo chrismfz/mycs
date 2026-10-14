@@ -87,4 +87,5 @@ return [
     'show' => 'Show',
     'hide' => 'Hide',
     'suspend_reason' => 'Suspension reason',
+    'suspend_reasons' => ['overdue' => 'Overdue on payment'],
 ];

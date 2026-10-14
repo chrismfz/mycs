@@ -176,10 +176,21 @@ class ServiceFieldsTest extends TestCase
         }
         $migration = require database_path('migrations/2026_11_02_000000_add_whmcs_fields_to_services.php');
         $migration->down();
-        $this->service->properties()->create(['key' => 'domain', 'name' => 'Domain', 'value' => 'from-checkout.gr']);
+        DB::table('properties')->insert(['model_type' => Service::class, 'model_id' => $this->service->id, 'key' => 'domain', 'name' => 'Domain', 'value' => 'from-checkout.gr']);
 
         $migration->up();
 
         $this->assertSame('from-checkout.gr', DB::table('services')->where('id', $this->service->id)->value('domain'));
+    }
+
+    public function test_a_new_orders_domain_property_becomes_the_services_domain(): void
+    {
+        $this->service->update(['domain' => null]);
+
+        $this->service->properties()->create(['key' => 'domain', 'name' => 'Domain', 'value' => 'neworder.gr']);
+        $this->assertSame('neworder.gr', $this->service->fresh()->domain);
+
+        $this->service->properties()->where('key', 'domain')->first()->update(['value' => 'changed.gr']);
+        $this->assertSame('neworder.gr', $this->service->fresh()->domain, 'a domain already on the service is kept');
     }
 }

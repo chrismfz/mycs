@@ -87,4 +87,5 @@ return [
     'show' => 'Εμφάνιση',
     'hide' => 'Απόκρυψη',
     'suspend_reason' => 'Αιτία αναστολής',
+    'suspend_reasons' => ['overdue' => 'Ληξιπρόθεσμη πληρωμή'],
 ];

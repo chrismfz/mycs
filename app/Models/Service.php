@@ -117,6 +117,9 @@ class Service extends Model implements Auditable
     /** The account password is never in a serialized service (API, logs); staff and the customer see it on their page. */
     protected $hidden = ['password'];
 
+    /** Never readable from a template staff edit (emails, notifications, product snippets): staff-only data. */
+    public const TEMPLATE_HIDDEN = ['password', 'notes'];
+
     /** Audited, never in clear (FullRedactor), as a secret setting. */
     protected $attributeModifiers = [
         'password' => FullRedactor::class,
@@ -379,7 +382,9 @@ class Service extends Model implements Auditable
 
         DB::transaction(function () use ($changes) {
             $locked = self::query()->whereKey($this->getKey())->lockForUpdate()->firstOrFail();
-            $locked->forceFill($changes);
+            // The probe's dirty values are stored values (cast already: an encrypted password is its ciphertext): put
+            // them as they are, not through the casts again (review R1/F1: the password was encrypted twice).
+            $locked->setRawAttributes(array_merge($locked->getAttributes(), $changes));
             if (($changes['status'] ?? null) === self::STATUS_SUSPENDED) {
                 $locked->dunning_suspended_at = null;
             }
@@ -402,6 +407,10 @@ class Service extends Model implements Auditable
                 return;
             }
             $locked->status = self::STATUS_SUSPENDED;
+            // A staff hold: not the cron's «Overdue on Payment» any more (review R5); staff write their own reason.
+            if ($locked->dunning_suspended_at !== null) {
+                $locked->suspend_reason = null;
+            }
             $locked->dunning_suspended_at = null;
             $locked->save();
             $this->setRawAttributes($locked->getAttributes(), true);

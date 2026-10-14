@@ -193,11 +193,11 @@ class ServiceResource extends Resource
                         TextInput::make('domain')->label('Domain')->maxLength(255),
                         TextInput::make('dedicated_ip')->label('Dedicated IP')->ip()->maxLength(45),
                         TextInput::make('username')->label('Username')->maxLength(255),
-                        // Hidden from serialization, so filled from the record here (else a save would wipe it); left
-                        // empty, the stored one is kept.
+                        // Hidden from serialization, so filled from the record here (else a save would wipe it); emptied,
+                        // it is cleared (review F3).
                         TextInput::make('password')->label('Password')->password()->revealable()->maxLength(255)
-                            ->afterStateHydrated(fn (TextInput $component, ?Service $record) => $component->state($record?->password))
-                            ->dehydrated(fn (?string $state) => filled($state)),
+                            ->afterStateHydrated(fn (TextInput $component, ?Service $record) => $component->state(rescue(fn () => $record?->password, null, false)))
+                            ->dehydrateStateUsing(fn (?string $state) => filled($state) ? $state : null),
                         Textarea::make('assigned_ips')->label('Assigned IPs')->helperText('One per line.')->rows(3),
                         TextInput::make('suspend_reason')->label('Suspension Reason')->maxLength(255)
                             ->helperText('Shown to the customer while the service is suspended.'),
