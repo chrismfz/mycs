@@ -58,7 +58,7 @@ class LocalizationTest extends TestCase
     {
         $greek = json_decode(file_get_contents(base_path('lang/el.json')), true, flags: JSON_THROW_ON_ERROR);
         $missing = [];
-        foreach (['app/Livewire', 'app/Http', 'themes/default/views'] as $dir) {
+        foreach (['app/Livewire', 'app/Http', 'resources/views'] as $dir) {
             $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(base_path($dir), \FilesystemIterator::SKIP_DOTS));
             foreach ($files as $file) {
                 preg_match_all("/__\\('((?:[^'\\\\]|\\\\.)*)'\\)/", file_get_contents($file->getPathname()), $m);

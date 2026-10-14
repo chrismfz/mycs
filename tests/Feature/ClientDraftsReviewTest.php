@@ -12,7 +12,6 @@ use App\Models\ServiceUpgrade;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\View;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -29,7 +28,6 @@ class ClientDraftsReviewTest extends TestCase
     {
         parent::setUp();
         DB::table('currencies')->insertOrIgnore(['code' => 'USD', 'name' => 'US Dollar', 'prefix' => '$', 'format' => '1,000.00']);
-        View::addLocation(base_path('themes/default/views'));
         $this->user = User::factory()->create();
     }
 

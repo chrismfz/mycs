@@ -19,7 +19,6 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\View;
 use Livewire\Livewire;
 use Paymenter\Extensions\Gateways\PayPal\PayPal;
 use Paymenter\Extensions\Gateways\PayPal\PayPalApiException;
@@ -148,7 +147,6 @@ class PayPalApiErrorsAdversarialTest extends TestCase
         ], 422)]);
 
         $this->actingAs($this->user);
-        View::addLocation(base_path('themes/default/views'));
 
         $component = Livewire::test(Show::class, ['invoice' => $invoice])->set('selectedMethod', $agreement->fresh()->ulid);
         try {
@@ -235,7 +233,6 @@ class PayPalApiErrorsAdversarialTest extends TestCase
         $agreement = $this->agreement();
         $this->fakePayPal(['/v3/vault/payment-tokens/VAULT-1' => Http::response(['name' => 'INTERNAL_SERVER_ERROR'], 500)]);
         $this->actingAs($this->user);
-        View::addLocation(base_path('themes/default/views'));
 
         // Called on the component without rendering it: rendering the account page crashes the PHP process in this
         // test environment (unrelated to PayPal). The method and its notify() path are what is under test.

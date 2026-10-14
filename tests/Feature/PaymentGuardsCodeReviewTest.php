@@ -17,7 +17,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\View;
 use Livewire\Livewire;
 use Paymenter\Extensions\Gateways\PayPal\PayPal;
 use Tests\TestCase;
@@ -100,7 +99,6 @@ class PaymentGuardsCodeReviewTest extends TestCase
         Setting::updateOrCreate(['key' => 'credits_enabled'], ['value' => true]);
         Cache::flush();
 
-        View::addLocation(base_path('themes/default/views'));
         $component = Livewire::actingAs($this->user)->test(Show::class, ['invoice' => $invoice])
             ->set('selectedMethod', 'credit');
 

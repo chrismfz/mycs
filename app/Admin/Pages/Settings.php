@@ -55,7 +55,7 @@ class Settings extends Page implements HasForms
     private const COUNTER_MAX = 999_999_999_999;
 
     /** Tabs named otherwise than their group key (the query string keeps the key). */
-    private const TAB_LABELS = ['cronjob' => 'Automation'];
+    private const TAB_LABELS = ['cronjob' => 'Automation', 'theme' => 'Appearance'];
 
     public function mount(): void
     {
