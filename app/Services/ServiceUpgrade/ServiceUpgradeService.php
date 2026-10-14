@@ -67,6 +67,9 @@ class ServiceUpgradeService
             $productChanged = (int) $service->product_id !== (int) $serviceUpgrade->product_id;
             $service->plan_id = $serviceUpgrade->plan_id;
             $service->product_id = $serviceUpgrade->product_id;
+            if ($productChanged) {
+                $service->next_plan_id = null; // a change of cycle set for the old product's plans (SVC-14b)
+            }
             $service->save();
 
             $service->refresh();

@@ -8,7 +8,6 @@ use App\Services\Order\OrderPricing;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Carbon\Carbon;
-use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -75,7 +74,7 @@ class ServiceUpgrade extends Model implements Auditable
             ->minus(number_format((float) $service->price, 2, '.', ''))
             ->multipliedBy(max(1, (int) $service->quantity));
 
-        $start = $this->currentPeriodStart();
+        $start = $this->service->currentPeriodStart();
         if ($start === null) {
             return $this->makePrice((float) (string) BigDecimal::max($difference, BigDecimal::zero())->toScale(2, RoundingMode::HalfUp));
         }
@@ -108,7 +107,7 @@ class ServiceUpgrade extends Model implements Auditable
             OrderPricing::taxRate($service->client, $service->product))['total'];
         $after = LinePricer::invoiceLine($this->newRecurringPrice(), $quantity,
             OrderPricing::taxRate($service->client, $this->product ?? $service->product))['total'];
-        $start = $this->currentPeriodStart();
+        $start = $this->service->currentPeriodStart();
         $difference = (string) BigDecimal::of($after)->minus($before);
 
         // A downgrade has an expiry (one without is never negative, calculatePrice).
@@ -205,25 +204,6 @@ class ServiceUpgrade extends Model implements Auditable
         ]))->values());
 
         return (string) $after->calculatePrice(cycle: $service->priceCycle());
-    }
-
-    /**
-     * Start of the period the service is in (the one ending at its expiry): its period line ending there, else one
-     * cycle back (code review 4: a period clamped to a short month keeps its real length). None without an expiry.
-     */
-    protected function currentPeriodStart(): ?CarbonImmutable
-    {
-        $service = $this->service;
-        $plan = $service->plan;
-        if ($service->expires_at === null || $plan === null || !in_array($plan->billing_unit, BillingPeriod::UNITS, true)) {
-            return null;
-        }
-        $end = $service->expires_at->toDateString();
-        $line = $service->livePeriodLines()->last(fn ($line) => $line->period_end->toDateString() === $end);
-
-        return $line !== null && $line->period_start->lessThan($line->period_end)
-            ? CarbonImmutable::instance($line->period_start)->startOfDay()
-            : BillingPeriod::start($service->expires_at, $plan->billing_unit, max(1, (int) $plan->billing_period));
     }
 
     /**

@@ -939,6 +939,8 @@ class ImportFromWhmcs extends Command
                     'plan_id' => $planId,
                     'currency_code' => $user['code'],
                     'expires_at' => $this->validateDate($record['nextduedate']),
+                    // Started already unless pending: its dates are never moved as a first start's (Σ1-b1).
+                    'activated_at' => $record['domainstatus'] === 'Pending' ? null : ($this->validateDate($record['regdate']) ?? now()),
                     // WHMCS's own suspension for non-payment: a payment lifts it here too. Any other reason
                     // (or none) was staff's: a manual hold (docs/billing-cursor.md).
                     'dunning_suspended_at' => $record['domainstatus'] === 'Suspended'

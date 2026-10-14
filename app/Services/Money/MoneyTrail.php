@@ -57,6 +57,9 @@ class MoneyTrail
 
     public const CAUSE_DOWNGRADE = 'downgrade';
 
+    /** The unused part of a period when staff change a service's billing cycle «now» (SVC-14b). */
+    public const CAUSE_CYCLE_CHANGE = 'cycle_change';
+
     public const CAUSE_AFFILIATE_REWARD = 'affiliate_reward';
 
     /** An open invoice came down below what was paid on it and was closed: the part over became credit (2b). */

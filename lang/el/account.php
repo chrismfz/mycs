@@ -72,6 +72,7 @@ return [
         'cancellation' => 'Επιστροφή λόγω ακύρωσης',
         'adjustment' => 'Προσαρμογή',
         'downgrade' => 'Υποβάθμιση πακέτου',
+        'cycle_change' => 'Αλλαγή κύκλου χρέωσης',
         'affiliate_reward' => 'Αμοιβή συνεργάτη',
         'invoice_reduced' => 'Μείωση τιμολογίου μετά την πληρωμή',
         'refund_to_credit' => 'Επιστροφή σε πίστωση λογαριασμού',

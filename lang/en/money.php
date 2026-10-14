@@ -12,6 +12,7 @@ return [
         'cancellation' => 'cancellation',
         'staff_adjustment' => 'staff adjustment',
         'downgrade' => 'downgrade',
+        'cycle_change' => 'cycle change',
         'affiliate_reward' => 'affiliate reward',
         'invoice_reduced' => 'invoice reduced',
         'refund_to_credit' => 'refund to credit',

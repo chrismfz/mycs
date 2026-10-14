@@ -72,6 +72,7 @@ return [
         'cancellation' => 'Returned after a cancellation',
         'adjustment' => 'Adjustment',
         'downgrade' => 'Plan downgrade',
+        'cycle_change' => 'Billing cycle change',
         'affiliate_reward' => 'Affiliate reward',
         'invoice_reduced' => 'Invoice reduced after payment',
         'refund_to_credit' => 'Refund to account credit',

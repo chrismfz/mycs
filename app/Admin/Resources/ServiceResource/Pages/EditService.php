@@ -7,15 +7,21 @@ use App\Admin\Resources\ServiceResource;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
+use App\Models\Plan;
 use App\Models\Service;
+use App\Services\Money\MoneyTrail;
 use App\Services\Service\DeleteService;
+use App\Services\ServiceUpgrade\ChangeCycle;
 use Exception;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Forms\Components\Checkbox;
+use Filament\Forms\Components\Placeholder;
+use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
+use Filament\Schemas\Components\Utilities\Get;
 use Illuminate\Database\Eloquent\Model;
 use Livewire\Attributes\Locked;
 
@@ -30,6 +36,33 @@ class EditService extends EditRecord
     protected function afterFill(): void
     {
         $this->filledAttributes = $this->getRecord()->getAttributes();
+    }
+
+    /** The change of cycle before it is made: what the customer pays from then, and now what is credited and billed. */
+    private static function cyclePreview(Service $service, mixed $planId, string $mode): string
+    {
+        $plan = ChangeCycle::plans($service)->firstWhere('id', (int) $planId);
+        if ($plan === null) {
+            return 'Choose a plan.';
+        }
+        if (($why = ChangeCycle::refusal($service, $plan, $mode)) !== null) {
+            return $why;
+        }
+        $quote = ChangeCycle::quote($service, $plan, $mode);
+        $currency = $service->currency_code;
+        if ((int) $plan->id === (int) $service->plan_id) {
+            return 'Takes back the change set for the next renewal' . ($service->nextPlan ? " (to {$service->nextPlan->name})." : '.');
+        }
+        $text = "Recurring amount: {$quote['price']} {$currency} net per unit, {$quote['gross']} {$currency} with tax (now {$service->price} net).";
+        if ($mode === ChangeCycle::NEXT_RENEWAL) {
+            $text .= ' It applies when the next period is billed; an open renewal of the old cycle is cancelled and billed again.';
+        }
+        if ($mode === ChangeCycle::NOW) {
+            $text .= " Credit for the unused days: {$quote['credit']} {$currency}. New period {$quote['start']?->toDateString()} – "
+                . "{$quote['end']?->toDateString()}, billed {$quote['charge']} {$currency} with tax.";
+        }
+
+        return $text;
     }
 
     protected function handleRecordUpdate(Model $record, array $data): Model
@@ -82,6 +115,50 @@ class EditService extends EditRecord
                     }
                     $this->redirect(ServiceResource::getUrl());
                 }),
+            // SVC-14b: another plan of its product (another cycle), now or from the next renewal, with what it does.
+            Action::make('changeCycle')
+                ->label('Change billing cycle')
+                ->visible(fn (Service $record) => ChangeCycle::plans($record)->isNotEmpty())
+                ->schema([
+                    Select::make('plan_id')
+                        ->label('New plan')
+                        ->options(fn (Service $record) => ChangeCycle::plans($record)->mapWithKeys(fn (Plan $plan) => [$plan->id => $plan->name]))
+                        ->required()
+                        ->live(),
+                    Radio::make('mode')
+                        ->label('When')
+                        ->options([
+                            ChangeCycle::NEXT_RENEWAL => 'From the next renewal (nothing charged or credited now)',
+                            ChangeCycle::NOW => 'Now (the unused days become credit; a new period starts today and is billed)',
+                        ])
+                        ->default(ChangeCycle::NEXT_RENEWAL)
+                        ->required()
+                        ->live(),
+                    Placeholder::make('preview')
+                        ->label('What it does')
+                        ->content(fn (Get $get, Service $record) => self::cyclePreview($record, $get('plan_id'), (string) $get('mode'))),
+                ])
+                ->action(function (array $data, Service $record, Action $action): void {
+                    $plan = ChangeCycle::plans($record)->firstWhere('id', (int) $data['plan_id']);
+                    try {
+                        if ($plan === null) {
+                            throw new DisplayException('This billing cycle is not available for this service.');
+                        }
+                        $invoice = ChangeCycle::apply($record, $plan, $data['mode'], MoneyTrail::SOURCE_STAFF);
+                    } catch (DisplayException $e) {
+                        Notification::make()->title('Not changed')->body($e->getMessage())->danger()->send();
+                        $action->halt();
+
+                        return;
+                    }
+                    $record->refresh();
+                    $this->refreshFormData(['plan_id', 'price', 'expires_at']);
+                    $this->filledAttributes = $record->getAttributes();
+                    Notification::make()->title('Billing cycle changed')
+                        ->body($invoice ? "Invoice #{$invoice->id} bills the new period." : 'It applies when the next period is billed.')
+                        ->success()->send();
+                }),
+
             Action::make('changeStatus')
                 ->label('Trigger Extension Action')
                 ->schema([
