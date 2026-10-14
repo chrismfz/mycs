@@ -14,9 +14,26 @@ use Illuminate\Support\Facades\Schema;
  */
 return new class extends Migration
 {
+    /**
+     * Not in a transaction: SQLite rebuilds a table to change a foreign key, and dropping the old one with foreign keys
+     * on deletes by cascade (all the ticket replies with `tickets`); `PRAGMA foreign_keys = OFF` has no effect inside a
+     * transaction. The schema changes run with foreign keys off; the former admins are deleted after, with them on.
+     */
+    public $withinTransaction = false;
+
     private const CUSTOMER_TABLES = ['orders', 'services', 'invoices', 'tickets', 'credits', 'money_events', 'carts', 'billing_agreements'];
 
     public function up(): void
+    {
+        $admins = [];
+        Schema::withoutForeignKeyConstraints(function () use (&$admins) {
+            $admins = $this->moveToStaff();
+        });
+        $this->deleteFormerAdminUsers($admins);
+    }
+
+    /** @return array<int, int> the ids moved */
+    private function moveToStaff(): array
     {
         Schema::create('staff', function (Blueprint $table) {
             $table->id();
@@ -96,25 +113,40 @@ return new class extends Migration
                 ->update(['actor_type' => 'App\\Models\\Staff']);
             DB::table('audits')->where('user_type', 'App\\Models\\User')->whereIn('user_id', $admins)
                 ->update(['user_type' => 'App\\Models\\Staff']);
-
-            // The admin's own user row goes, unless it is a customer account too.
-            foreach ($admins as $id) {
-                $isCustomer = collect(self::CUSTOMER_TABLES)->contains(fn (string $table) => Schema::hasTable($table)
-                    && DB::table($table)->where('user_id', $id)->exists())
-                    || DB::table('ticket_messages')->where('user_id', $id)->exists();
-                if (!$isCustomer) {
-                    DB::table('users')->where('id', $id)->delete();
-                }
-            }
         }
 
         Schema::table('users', function (Blueprint $table) {
             $table->dropIndex(['role_id']);
             $table->dropColumn('role_id');
         });
+
+        return $admins;
+    }
+
+    /**
+     * The admin's own user row goes, unless it is a customer account too (then the person has two accounts). With
+     * foreign keys on: what hangs on it (sessions, login logs) goes with it.
+     *
+     * @param  array<int, int>  $admins
+     */
+    private function deleteFormerAdminUsers(array $admins): void
+    {
+        foreach ($admins as $id) {
+            $isCustomer = collect(self::CUSTOMER_TABLES)->contains(fn (string $table) => Schema::hasTable($table)
+                && DB::table($table)->where('user_id', $id)->exists())
+                || DB::table('ticket_messages')->where('user_id', $id)->exists();
+            if (!$isCustomer) {
+                DB::table('users')->where('id', $id)->delete();
+            }
+        }
     }
 
     public function down(): void
+    {
+        Schema::withoutForeignKeyConstraints(fn () => $this->moveBackToUsers());
+    }
+
+    private function moveBackToUsers(): void
     {
         Schema::table('users', function (Blueprint $table) {
             $table->foreignId('role_id')->nullable()->index()->after('password');

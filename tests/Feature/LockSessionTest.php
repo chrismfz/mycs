@@ -6,7 +6,10 @@ use App\Http\Middleware\LockSession;
 use App\Http\Middleware\UseStaffGuard;
 use App\Models\Staff;
 use App\Models\User;
+use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
+use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
@@ -23,8 +26,8 @@ class LockSessionTest extends TestCase
         Route::middleware('web')->get('/', function () {
             return 'OK';
         });
-        // As the admin panel runs it: the staff guard, then LockSession (docs/accounts.md, PR 1).
-        Route::middleware(['web', UseStaffGuard::class, LockSession::class])->get('/staff-probe', function () {
+        // As the admin panel runs it (not the web group, which would choose the web guard): the staff guard, then LockSession (docs/accounts.md, PR 1).
+        Route::middleware([EncryptCookies::class, AddQueuedCookiesToResponse::class, StartSession::class, UseStaffGuard::class, LockSession::class])->get('/staff-probe', function () {
             return 'OK';
         });
     }

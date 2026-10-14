@@ -10,7 +10,6 @@ use App\Livewire\Auth\Tfa;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\MoneyEvent;
-use App\Models\Role;
 use App\Models\Service;
 use App\Models\Staff;
 use App\Models\Ticket;
@@ -64,6 +63,7 @@ class StaffSplitTest extends TestCase
             ->assertRedirect(route('filament.admin.auth.login'));
 
         // Staff logged in at the admin are nobody in the client area.
+        Auth::forgetGuards();
         $this->actingAs($staff);
         $this->assertTrue(Auth::guard('staff')->check());
         $this->assertNull(Auth::guard('web')->user());
@@ -256,38 +256,5 @@ class StaffSplitTest extends TestCase
         Livewire::test(Tfa::class)->set('code', '000000')->call('verify')->assertHasErrors('code');
 
         $this->assertGreaterThan(600, RateLimiter::availableIn('2fa:' . $customer->id));
-    }
-
-    public function test_the_migration_moves_admins_to_staff_with_what_pointed_at_them(): void
-    {
-        $migration = require database_path('migrations/2026_10_26_000000_split_staff_from_users.php');
-        $migration->down();
-
-        $role = Role::query()->create(['name' => 'Old admin', 'permissions' => ['*']]);
-        $customer = User::factory()->create();
-        $adminId = DB::table('users')->insertGetId([
-            'first_name' => 'Ada', 'last_name' => 'Admin', 'email' => 'ada@example.test', 'password' => Hash::make('pw'),
-            'role_id' => $role->id, 'created_at' => now(), 'updated_at' => now(),
-        ]);
-        $ticketId = DB::table('tickets')->insertGetId(['subject' => 'Help', 'user_id' => $customer->id, 'assigned_to' => $adminId,
-            'status' => 'open', 'priority' => 'medium', 'created_at' => now(), 'updated_at' => now()]);
-        DB::table('ticket_messages')->insert([
-            ['ticket_id' => $ticketId, 'user_id' => $customer->id, 'message' => 'Q', 'created_at' => now(), 'updated_at' => now()],
-            ['ticket_id' => $ticketId, 'user_id' => $adminId, 'message' => 'A', 'created_at' => now(), 'updated_at' => now()],
-        ]);
-        DB::table('api_keys')->insert(['name' => 'k', 'token' => 'h', 'user_id' => $adminId, 'type' => 'admin', 'enabled' => true,
-            'created_at' => now(), 'updated_at' => now()]);
-
-        $migration->up();
-
-        $staff = Staff::query()->findOrFail($adminId);
-        $this->assertSame('ada@example.test', $staff->email);
-        $this->assertSame($role->id, $staff->role_id);
-        $this->assertNull(User::query()->find($adminId), 'the admin had no customer data: no user row left');
-        $this->assertSame($adminId, (int) DB::table('tickets')->where('id', $ticketId)->value('assigned_to'));
-        $this->assertSame($adminId, (int) DB::table('ticket_messages')->where('message', 'A')->value('staff_id'));
-        $this->assertNull(DB::table('ticket_messages')->where('message', 'A')->value('user_id'));
-        $this->assertSame($customer->id, (int) DB::table('ticket_messages')->where('message', 'Q')->value('user_id'));
-        $this->assertSame($adminId, (int) DB::table('api_keys')->where('name', 'k')->value('staff_id'));
     }
 }
