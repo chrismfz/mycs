@@ -166,9 +166,7 @@ class ServiceServersReviewTest extends TestCase
     {
         $service = $this->service();
         DB::table('services')->where('id', $service->id)->update(['server_id' => null]);
-        DB::statement('PRAGMA foreign_keys = OFF');
         DB::table('products')->where('id', $this->product->id)->update(['server_id' => 999999]);
-        DB::statement('PRAGMA foreign_keys = ON');
 
         (require database_path('migrations/2026_11_03_000000_service_servers_and_server_groups.php'))->backfill();
 
