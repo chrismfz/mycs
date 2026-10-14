@@ -78,6 +78,36 @@ class Show extends Component
             $this->currentView = $this->currentView ?? ($this->views[0]['name'] ?? null);
         }
         $this->label = $this->service->label;
+        $this->contactId = $this->service->contact_id;
+    }
+
+    /**
+     * Who sees the related contact: a login with `contacts` on the service's account (review 1-2: not the session's
+     * current account); who sets it, one that also manages the service.
+     */
+    private function canSeeContact(): bool
+    {
+        return $this->ownsWith('contacts');
+    }
+
+    private function canEditContact(): bool
+    {
+        return Gate::allows('update', $this->service) && $this->canSeeContact();
+    }
+
+    /** The related contact chosen: one of the account's active contacts, or none. */
+    public function updatedContactId($value)
+    {
+        abort_unless($this->canEditContact(), 403);
+        $id = $value === '' || $value === null ? null : (int) $value;
+        if ($id !== null && !$this->service->client->contacts()->active()->whereKey($id)->exists()) {
+            $this->contactId = $this->service->contact_id;
+            $this->notify(__('This contact is not available.'), 'error');
+
+            return;
+        }
+        $this->service->update(['contact_id' => $id]);
+        $this->notify(__('services.related_contact_saved'), 'success');
     }
 
     public function updatedShowBillingAgreement()
@@ -111,6 +141,9 @@ class Show extends Component
         $this->service->save();
         $this->selectedMethod = null;
     }
+
+    /** The related contact (information only, docs/accounts.md 3b). */
+    public $contactId = null;
 
     /** The plan of another cycle the customer moves to, from the next renewal (SVC-14b). */
     public $cyclePlan = null;
@@ -240,7 +273,24 @@ class Show extends Component
             }
         }
 
-        return view('services.show', ['extensionView' => $view])->layoutData([
+        $canEditContact = $this->canEditContact();
+        $options = [];
+        if ($canEditContact) {
+            $options = $this->service->client->contacts()->active()->orderBy('id')->get()
+                ->mapWithKeys(fn ($contact) => [$contact->id => $contact->displayName()])->all();
+            // The one it has, archived since: shown as it is (else the select would read «None»).
+            $current = $this->service->contact;
+            if ($current !== null && !isset($options[$current->id])) {
+                $options[$current->id] = $current->displayName() . ' (' . __('services.related_contact_archived') . ')';
+            }
+        }
+
+        return view('services.show', [
+            'extensionView' => $view,
+            'canEditContact' => $canEditContact,
+            'canSeeContact' => $canEditContact || $this->canSeeContact(),
+            'contactOptions' => $options,
+        ])->layoutData([
             'title' => 'Services',
             'sidebar' => true,
         ]);

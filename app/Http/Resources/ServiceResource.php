@@ -18,6 +18,7 @@ class ServiceResource extends JsonApiResource
         'created_at',
         'label',
         // WHMCS's tblhosting fields; never the password (it stays on the service's pages).
+        'contact_id',
         'domain',
         'username',
         'dedicated_ip',

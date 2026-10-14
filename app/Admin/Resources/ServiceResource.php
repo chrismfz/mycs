@@ -12,6 +12,7 @@ use App\Admin\Resources\ServiceResource\Pages\ListService;
 use App\Admin\Resources\ServiceResource\RelationManagers\ConfigOptionsRelationManager;
 use App\Admin\Resources\ServiceResource\RelationManagers\InvoicesRelationManager;
 use App\Exceptions\DisplayException;
+use App\Models\Contact;
 use App\Models\Currency;
 use App\Models\Product;
 use App\Models\Service;
@@ -196,6 +197,15 @@ class ServiceResource extends Resource
                             ->relationship('server', 'name', fn (Builder $query, ?Service $record) => $query
                                 ->when($record->product->server->extension ?? $record->server->extension ?? null, fn ($servers, $module) => $servers->where('extension', $module)))
                             ->helperText('The server this account is on (e.g. after moving it with WHM\'s Transfer Tool). Changing it moves nothing: it records where the account is, and every action goes there from now on.')
+                            ->columnSpanFull(),
+                        // The contact of the account it concerns (a domain's owner, a site's company): information
+                        // only; the invoice stays the account's (docs/accounts.md 3b).
+                        Select::make('contact_id')->label('Related contact')->nullable()
+                            // The form's account (create page, or a client changed on the form: review 3).
+                            ->relationship('contact', 'id', fn (Builder $query, Get $get) => $query
+                                ->where('client_id', $get('client_id'))->whereNull('archived_at'))
+                            ->getOptionLabelFromRecordUsing(fn (Contact $contact) => $contact->displayName() . ($contact->email ? " <{$contact->email}>" : ''))
+                            ->helperText('Who this service is for, among the account\'s contacts. Information only: the invoice stays the account\'s.')
                             ->columnSpanFull(),
                         TextInput::make('domain')->label('Domain')->maxLength(255),
                         TextInput::make('dedicated_ip')->label('Dedicated IP')->ip()->maxLength(45),

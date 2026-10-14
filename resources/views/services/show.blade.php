@@ -63,6 +63,7 @@
                     </div>
                     @endif
                     @include('services.partials.account')
+                    @include('services.partials.contact')
                     @can('update', $service)
                     @include('services.partials.billing-agreement')
                     @endcan
