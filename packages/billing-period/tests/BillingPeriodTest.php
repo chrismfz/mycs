@@ -72,6 +72,25 @@ final class BillingPeriodTest extends TestCase
         $this->assertSame('5483870967741935.48', BillingPeriod::prorate('10000000000000000.00', $start, $end, $full));
     }
 
+    public function test_period_start_is_one_cycle_back(): void
+    {
+        $this->assertSame('2026-02-28', BillingPeriod::start(CarbonImmutable::parse('2026-03-31'), 'month', 1)->toDateString());
+        $this->assertSame('2025-11-15', BillingPeriod::start(CarbonImmutable::parse('2026-11-15 13:00'), 'year', 1)->toDateString());
+        $this->assertSame('2024-02-28', BillingPeriod::start(CarbonImmutable::parse('2026-02-28'), 'year', 2)->toDateString());
+        $this->assertSame('2026-10-01', BillingPeriod::start(CarbonImmutable::parse('2026-10-15'), 'week', 2)->toDateString());
+        $this->assertSame('2026-08-15', BillingPeriod::start(CarbonImmutable::parse('2026-11-15'), 'month', 3)->toDateString());
+    }
+
+    public function test_the_remaining_part_counts_whole_days_left(): void
+    {
+        $start = CarbonImmutable::parse('2026-01-01');
+        $end = CarbonImmutable::parse('2027-01-01');
+        $this->assertSame('55.15', BillingPeriod::remaining('110.00', $start, $end, CarbonImmutable::parse('2026-07-02 18:00')));
+        $this->assertSame('-50.41', BillingPeriod::remaining('-100.00', $start, $end, CarbonImmutable::parse('2026-07-01')));
+        $this->assertSame('0.00', BillingPeriod::remaining('110.00', $start, $end, CarbonImmutable::parse('2027-02-01')), 'ended: nothing left');
+        $this->assertSame('119.34', BillingPeriod::remaining('110.00', $start, $end, CarbonImmutable::parse('2025-12-01')), 'paid ahead: 396 days to its end');
+    }
+
     public function test_invalid_pricing_interval_is_rejected(): void
     {
         $this->expectException(InvalidArgumentException::class);
