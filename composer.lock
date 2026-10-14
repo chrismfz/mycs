@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "d7e65488e5a8132f0acc3f20705606b7",
+    "content-hash": "7c319da745a9379f257a21d2597c258b",
     "packages": [
         {
             "name": "andreiio/blade-remix-icon",
@@ -4983,6 +4983,41 @@
                 "MIT"
             ],
             "description": "Logic-less template renderer for staff-edited email/notification templates: placeholders, if/for, no code execution.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "mycs/pricing",
+            "version": "1.0.0",
+            "dist": {
+                "type": "path",
+                "url": "packages/pricing",
+                "reference": "673dfc6e8577980417b21d88f39f6c9ace7fdf23"
+            },
+            "require": {
+                "brick/math": "^1.0",
+                "php": "^8.3"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^11.5|^12.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "MyCS\\Pricing\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "MyCS\\Pricing\\Tests\\": "tests/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Prices one order line in decimal: coupon discount, tax inclusive or exclusive, rounded to cents. Framework-free.",
             "transport-options": {
                 "symlink": true,
                 "relative": true

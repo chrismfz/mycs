@@ -136,6 +136,8 @@ MyCS (#104). Η σειρά ακολουθεί τις εξαρτήσεις: ό,τ
 - [ ] Σ6 Ακεραιότητα: cascade deletes (παραγγελία → υπηρεσίες, staff → απαντήσεις tickets, config value), unique στη
       βάση, κρυπτογραφημένα credentials υπηρεσιών.
 - [ ] Σ7 Ένα `PlaceOrderService` (τιμολόγηση σε 5 σημεία που διαφωνούν· κουπόνια, admin Create Order, διπλό checkout).
+      **Σ7a:** `PlaceOrderService` και `OrderPricing`/`packages/pricing` σε decimal για καλάθι, checkout, admin Create Order
+      και επανυπολογισμό· CART-1/2/4/5/6/7/8/10/18/19 (`orders.md`). **Μένει Σ7b** (Δ1).
 - [ ] Σ8 Τιμολόγιο ως έγγραφο: Mark Paid με συναλλαγή, κλείδωμα πελάτη/νομίσματος, adjustment notes append-only, PDF.
       **Έγιναν:** Mark Paid μέσω πληρωμής (MT-1c), κλείδωμα γραμμών του paid (MT-1c/2b), όχι ακύρωση με χρήματα
       (2c-1), adjustment notes append-only (MT-1c), route binding (#65). **Μένουν:** αλλαγή πελάτη/νομίσματος σε

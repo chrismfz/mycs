@@ -7,7 +7,12 @@ use App\Classes\Price;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
 use App\Models\Category;
+use App\Models\Currency;
 use App\Models\Plan;
+use App\Services\Order\OrderPricing;
+use App\Support\CurrentClient;
+use Brick\Math\BigDecimal;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Locked;
@@ -97,37 +102,23 @@ class Checkout extends Component
         }
     }
 
+    /** What the choice costs, priced as the cart and checkout price it (Σ7, `OrderPricing`). */
     public function updatePricing()
     {
-        $total = $this->plan->price()->price;
-        $setup_fee = $this->plan->price()->setup_fee;
+        $currency = session('currency', config('settings.default_currency'));
+        $chosen = collect($this->configOptions)->map(fn ($value, $optionId) => ['option_id' => (int) $optionId, 'value' => $value])->values()->all();
+        $catalog = OrderPricing::catalog($this->product, $this->plan, $chosen, $currency);
+        if ($catalog === null) {
+            $this->total = new Price((object) ['price' => null, 'setup_fee' => null, 'currency' => null]);
 
-        $this->product->configOptions->each(function ($option) use (&$total, &$setup_fee) {
-            // Check if checkbox is set, if so, add price if checked
-            if ($option->type === 'checkbox' && (isset($this->configOptions[$option->id]) && $this->configOptions[$option->id])) {
-                $total += $option->children->first()?->price(billing_period: $this->plan->billing_period, billing_unit: $this->plan->billing_unit)->price;
-                $setup_fee += $option->children->first()?->price(billing_period: $this->plan->billing_period, billing_unit: $this->plan->billing_unit)->setup_fee;
-
-                return;
-            }
-            // Skip text, number and checkbox types as they have no price
-            if (in_array($option->type, ['text', 'number', 'checkbox'])) {
-                $total += 0;
-                $setup_fee += 0;
-
-                return;
-            }
-
-            // Add price of selected option
-            $total += $option->children->where('id', $this->configOptions[$option->id])->first()?->price(billing_period: $this->plan->billing_period, billing_unit: $this->plan->billing_unit)->price;
-            $setup_fee += $option->children->where('id', $this->configOptions[$option->id])->first()?->price(billing_period: $this->plan->billing_period, billing_unit: $this->plan->billing_unit)->setup_fee;
-        });
-
-        $this->total = new Price([
-            'price' => $total,
-            'currency' => $this->plan->price()->currency,
-            'setup_fee' => $setup_fee,
-        ], apply_exclusive_tax: true);
+            return;
+        }
+        $client = Auth::guard('web')->check() ? CurrentClient::model() : null;
+        $line = OrderPricing::line($catalog, null, $client);
+        // A free plan with nothing chosen that costs: «Free», as the plan list says.
+        $this->total = $this->plan->type === 'free' && !BigDecimal::of($line->firstPayment())->isPositive()
+            ? new Price(['currency' => Currency::query()->find($currency)], free: true)
+            : Price::fromLine($line, Currency::query()->find($currency));
     }
 
     // On change of the plan, update the config options
