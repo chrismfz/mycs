@@ -39,7 +39,7 @@ class UserController extends ApiController
             ->allowedFilters(['first_name', 'last_name', 'email'])
             ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
             ->allowedSorts(['id', 'first_name', 'last_name', 'email', 'created_at'])
-            ->simplePaginate(request('per_page', 15));
+            ->simplePaginate(min(max((int) request('per_page', 15), 1), 100));
 
         // Return the users as a JSON response
         return UserResource::collection($users);

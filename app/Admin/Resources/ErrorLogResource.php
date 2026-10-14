@@ -58,7 +58,7 @@ class ErrorLogResource extends Resource
                 ViewAction::make(),
             ])
             ->toolbarActions([
-                DeleteBulkAction::make(),
+                DeleteBulkAction::make()->authorize(fn (): bool => (bool) auth()->user()?->hasPermission('admin.debug_logs.delete')), // seeing is not deleting
             ])
             ->defaultSort('created_at', 'desc');
     }

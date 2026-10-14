@@ -40,7 +40,7 @@ class ServiceController extends ApiController
             ->allowedFilters(['quantity', 'price', 'expires_at', 'subscription_id', 'status'])
             ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
             ->allowedSorts(['id', 'created_at', 'updated_at', 'expires_at', 'status'])
-            ->simplePaginate(request('per_page', 15));
+            ->simplePaginate(min(max((int) request('per_page', 15), 1), 100));
 
         // Return the services as a JSON response
         return ServiceResource::collection($services);

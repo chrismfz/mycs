@@ -54,4 +54,10 @@ class ProductPolicy
     {
         return $user->hasPermission('admin.products.deleteAny');
     }
+
+    /** Reordering changes the catalog: the right to change it, not only to see it (Filament allows an undefined ability). */
+    public function reorder(User $user): bool
+    {
+        return $user->hasPermission('admin.products.update');
+    }
 }

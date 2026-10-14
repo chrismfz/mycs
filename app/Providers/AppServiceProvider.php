@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Classes\Synths\PriceSynth;
 use App\Exceptions\ErrorHandler;
 use App\Helpers\ExtensionHelper;
+use App\Models\ApiKey;
 use App\Models\EmailLog;
 use App\Models\Extension;
 use App\Models\OauthClient;
@@ -18,6 +19,7 @@ use Dedoc\Scramble\Support\Generator\OpenApi;
 use Dedoc\Scramble\Support\Generator\SecurityScheme;
 use Exception;
 use Illuminate\Auth\Access\Response;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Exceptions\Handler;
 use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Http\Request;
@@ -29,6 +31,7 @@ use Illuminate\Routing\UrlGenerator;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
@@ -142,6 +145,17 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // The admin API (AUTH-17): 120 calls a minute per key that exists and is enabled; anything else (no token, a
+        // junk one) shares 60 a minute per address, so a new junk token on every call gets no fresh bucket (R1 of #90).
+        RateLimiter::for('admin-api', function (Request $request) {
+            $hash = $request->bearerToken() ? hash('sha256', $request->bearerToken()) : null;
+            if ($hash !== null && ApiKey::query()->where('token', $hash)->where('enabled', true)->exists()) {
+                return Limit::perMinute(120)->by('key:' . $hash);
+            }
+
+            return Limit::perMinute(60)->by('bad:' . $request->ip());
+        });
+
         // Change livewire url
         Livewire::setUpdateRoute(function ($handle) {
             return Route::post('/paymenter/update', $handle)->middleware('web')->name('paymenter.');

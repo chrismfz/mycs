@@ -32,7 +32,7 @@ class CategoryController extends ApiController
             ->allowedFilters(['name', 'parent_id', 'slug'])
             ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
             ->allowedSorts(['id', 'created_at', 'updated_at', 'name'])
-            ->simplePaginate(request('per_page', 15));
+            ->simplePaginate(min(max((int) request('per_page', 15), 1), 100));
 
         // Return the categories as a JSON response
         return CategoryResource::collection($categories);

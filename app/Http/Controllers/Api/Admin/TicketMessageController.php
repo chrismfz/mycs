@@ -34,7 +34,7 @@ class TicketMessageController extends ApiController
             ->allowedFilters(['id', 'currency_code'])
             ->allowedIncludes($this->allowedIncludes(self::INCLUDES))
             ->allowedSorts(['id', 'created_at', 'updated_at', 'currency_code'])
-            ->simplePaginate(request('per_page', 15));
+            ->simplePaginate(min(max((int) request('per_page', 15), 1), 100));
 
         // Return the ticketMessages as a JSON response
         return TicketMessageResource::collection($ticketMessages);
