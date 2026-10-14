@@ -84,6 +84,10 @@ return new class extends Migration
             Schema::table('users', function (Blueprint $table) {
                 $table->dropColumn('credit_auto_apply');
             });
+
+            // A reply belongs to the account's ticket, which outlives the login that wrote it: deleting a login (one
+            // that is not an owner may go) leaves its replies without an author, as staff replies are kept.
+            $this->rekeyReplyAuthor('null');
         });
 
         // Who managed customers (admin.users.*) manages the accounts too; the logins stay admin.users.*.
@@ -139,6 +143,7 @@ return new class extends Migration
                 }
             }
 
+            $this->rekeyReplyAuthor('cascade');
             Schema::dropIfExists('client_user');
             Schema::dropIfExists('clients');
         });
@@ -152,6 +157,17 @@ return new class extends Migration
                 }
             }
         }
+    }
+
+    private function rekeyReplyAuthor(string $onDelete): void
+    {
+        Schema::table('ticket_messages', function (Blueprint $table) {
+            $table->dropForeign(['user_id']);
+        });
+        Schema::table('ticket_messages', function (Blueprint $table) use ($onDelete) {
+            $foreign = $table->foreign('user_id')->references('id')->on('users');
+            $onDelete === 'null' ? $foreign->nullOnDelete() : $foreign->cascadeOnDelete();
+        });
     }
 
     private function repoint(string $name, string $from, string $to, string $references, string $onDelete, ?Closure $between = null): void

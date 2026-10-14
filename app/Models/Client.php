@@ -64,13 +64,14 @@ class Client extends Model implements Auditable
     }
 
     /**
-     * The owner's grant: exactly one per account (the database keeps it so).
+     * The owner's live grant: one per account at most (the database keeps it so). A revoked owner is no owner: no
+     * mail, no name on the account, no «Login as client» as them.
      *
      * @return HasOne<ClientUser, $this>
      */
     public function ownerGrant(): HasOne
     {
-        return $this->hasOne(ClientUser::class)->whereNotNull('owner_of_client_id');
+        return $this->hasOne(ClientUser::class)->whereNotNull('owner_of_client_id')->whereNull('revoked_at');
     }
 
     /** The owner: who the account's mail goes to and whose name it carries until the contacts (PR 3). */

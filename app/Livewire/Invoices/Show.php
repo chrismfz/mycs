@@ -6,12 +6,12 @@ use App\Classes\PDF;
 use App\Enums\InvoiceTransactionStatus;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
+use App\Models\BillingAgreement;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\Service;
 use App\Services\Invoice\RecordPaymentService;
-use App\Support\CurrentClient;
 use Illuminate\Support\Facades\Request;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
@@ -67,7 +67,18 @@ class Show extends Component
     #[Computed]
     public function savedPaymentMethods()
     {
-        return CurrentClient::model()->billingAgreements()->with('gateway')->get();
+        return $this->accountAgreements()->with('gateway')->get();
+    }
+
+    /**
+     * The invoice's account's saved payment methods, whichever account the client area is on: one account's card
+     * never pays, nor is set on the services of, another's invoice (docs/accounts.md, PR 2a).
+     *
+     * @return \Illuminate\Database\Eloquent\Builder<BillingAgreement>
+     */
+    private function accountAgreements()
+    {
+        return BillingAgreement::query()->where('client_id', $this->invoice->client_id ?? 0);
     }
 
     #[Computed]
@@ -123,7 +134,10 @@ class Show extends Component
 
         if ($this->setAsDefault) {
             $invoiceItems = $this->recurringServices()->get();
-            $agreement = CurrentClient::model()->billingAgreements()->where('ulid', $this->selectedMethod)->first();
+            $agreement = $this->accountAgreements()->where('ulid', $this->selectedMethod)->first();
+            if (!$agreement) {
+                return $this->notify(__('Invalid payment method.'), 'error');
+            }
 
             foreach ($invoiceItems as $invoiceItem) {
                 $service = $invoiceItem->reference;
@@ -167,7 +181,7 @@ class Show extends Component
 
     private function payWithSavedMethod($agreementUlid)
     {
-        $agreement = CurrentClient::model()->billingAgreements()->where('ulid', $agreementUlid)->with('gateway')->first();
+        $agreement = $this->accountAgreements()->where('ulid', $agreementUlid)->with('gateway')->first();
         if (!$agreement) {
             return $this->notify(__('Invalid payment method.'), 'error');
         }

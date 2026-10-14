@@ -187,5 +187,6 @@
     "Open": "Άνοιγμα",
     "This user owns a client account: delete the account first.": "Αυτός ο χρήστης είναι κάτοχος λογαριασμού πελάτη: διαγράψτε πρώτα τον λογαριασμό.",
     "Name": "Όνομα",
-    "Email": "Email"
+    "Email": "Email",
+    "This payment method belongs to another account.": "Αυτός ο τρόπος πληρωμής ανήκει σε άλλο λογαριασμό."
 }

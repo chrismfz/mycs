@@ -29,7 +29,7 @@ class EditClient extends EditRecord
                         $action->cancel();
                     }
                 }),
-            // «Login as client» (AUTH-19): the client area as the account's owner sees it (WHMCS logs in as the owner).
+            // «Login as client» (AUTH-19): this account in the client area, as its owner sees it (WHMCS logs in as the owner).
             Action::make('impersonate')
                 ->label(__('Login as client'))
                 ->icon('heroicon-o-arrow-right-end-on-rectangle')
@@ -37,7 +37,7 @@ class EditClient extends EditRecord
                 ->action(function (Client $record) {
                     $owner = $record->owner();
                     if ($owner !== null) {
-                        EditUser::impersonate($owner);
+                        EditUser::impersonate($owner, $record);
                         $this->redirect('/dashboard');
                     }
                 })

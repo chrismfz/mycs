@@ -448,6 +448,11 @@ class ExtensionHelper
 
     public static function charge(Gateway $gateway, Invoice $invoice, BillingAgreement $billingAgreement): bool
     {
+        // Only the invoice's own account's payment method pays it (docs/accounts.md, PR 2a).
+        if ($invoice->client_id === null || (int) $billingAgreement->client_id !== (int) $invoice->client_id) {
+            throw new DisplayException(__('This payment method belongs to another account.'));
+        }
+
         return self::getExtension('gateway', $gateway->extension, $gateway->settings)->charge($invoice, $invoice->remaining, $billingAgreement);
     }
 

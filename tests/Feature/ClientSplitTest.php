@@ -5,11 +5,14 @@ namespace Tests\Feature;
 use App\Admin\Resources\ClientResource\Pages\CreateClient;
 use App\Admin\Resources\ClientResource\Pages\EditClient;
 use App\Exceptions\DisplayException;
+use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Models\ApiKey;
+use App\Models\BillingAgreement;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\EmailLog;
+use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\Service;
 use App\Models\Staff;
@@ -190,6 +193,45 @@ class ClientSplitTest extends TestCase
         $this->livewireAs($staff)->test(EditClient::class, ['record' => $client->getRouteKey()])->callAction('impersonate');
 
         $this->assertSame($owner->id, Session::get('impersonating'));
+    }
+
+    public function test_login_as_client_opens_the_account_staff_chose(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $owner = User::factory()->create();
+        $second = Client::openFor($owner, null);
+        $staff = Staff::factory()->withPermissions(['admin.clients.viewAny', 'admin.clients.update', 'admin.users.impersonate'])->create();
+
+        $this->livewireAs($staff)->test(EditClient::class, ['record' => $second->getRouteKey()])->callAction('impersonate');
+        $this->actingAs($staff)->withSession(Session::all())->get(route('dashboard'))->assertOk();
+
+        $this->assertNotSame($owner->client()?->id, $second->id, 'precondition: not the default account');
+        $this->assertSame($second->id, CurrentClient::id());
+    }
+
+    public function test_an_invoice_is_charged_only_to_a_payment_method_of_its_account(): void
+    {
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway']);
+        $foreign = BillingAgreement::create(['client_id' => User::factory()->create()->client()->id, 'gateway_id' => $gateway->id,
+            'name' => 'PayPal', 'external_reference' => 'VAULT-F', 'type' => 'paypal']);
+        $invoice = $this->invoiceOf(User::factory()->create()->client());
+
+        $this->expectException(DisplayException::class);
+        ExtensionHelper::charge($gateway, $invoice, $foreign);
+    }
+
+    public function test_a_service_moved_to_another_account_leaves_the_old_accounts_card_behind(): void
+    {
+        $from = User::factory()->create()->client();
+        $to = User::factory()->create()->client();
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway']);
+        $card = BillingAgreement::create(['client_id' => $from->id, 'gateway_id' => $gateway->id,
+            'name' => 'PayPal', 'external_reference' => 'VAULT-M', 'type' => 'paypal']);
+        $service = Service::factory()->create(['client_id' => $from->id, 'billing_agreement_id' => $card->id]);
+
+        $service->update(['client_id' => $to->id]);
+
+        $this->assertNull($service->fresh()->billing_agreement_id);
     }
 
     public function test_the_api_opens_and_reads_accounts(): void

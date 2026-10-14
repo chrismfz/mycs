@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Admin\Resources\ClientResource\Pages\EditClient;
+use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\ApiKey;

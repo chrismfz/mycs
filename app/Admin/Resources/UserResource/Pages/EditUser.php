@@ -4,7 +4,9 @@ namespace App\Admin\Resources\UserResource\Pages;
 
 use App\Admin\Actions\AuditAction;
 use App\Admin\Resources\UserResource;
+use App\Models\Client;
 use App\Models\User;
+use App\Support\CurrentClient;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
@@ -41,10 +43,18 @@ class EditUser extends EditRecord
         ];
     }
 
-    /** Staff see the client area as this user; recorded on the user, with the staff member as causer. */
-    public static function impersonate(User $user): void
+    /**
+     * Staff see the client area as this user, on the given account (else the user's default one); recorded on the
+     * user, with the staff member as causer.
+     */
+    public static function impersonate(User $user, ?Client $client = null): void
     {
         session()->put('impersonating', $user->id);
+        if ($client !== null) {
+            session()->put(CurrentClient::IMPERSONATING_KEY, $client->id);
+        } else {
+            session()->forget(CurrentClient::IMPERSONATING_KEY);
+        }
         $user->auditEvent = 'impersonated';
         $user->isCustomEvent = true;
         $user->auditCustomOld = [];

@@ -11,11 +11,15 @@ use Throwable;
 /**
  * The account the client area works on (docs/accounts.md, PR 2a), as WHMCS 8 keeps the client of the session: one
  * of the accounts the logged-in user has a live grant on. Kept in the session; a stale or foreign id is never taken,
- * the user's default account is. During «Login as client» it is the customer's own account, never the session's.
+ * the user's default account is. During «Login as client» it is the account staff opened (when the customer has a
+ * live grant on it) or the customer's default one, never the one the customer's session chose.
  */
 class CurrentClient
 {
     public const SESSION_KEY = 'client_id';
+
+    /** The account staff opened with «Login as client» (taken only while the customer has a live grant on it). */
+    public const IMPERSONATING_KEY = 'impersonating_client_id';
 
     private ?Client $resolved = null;
 
@@ -30,7 +34,7 @@ class CurrentClient
         }
         $session = $this->session();
         $impersonating = Actor::impersonating();
-        $wanted = $impersonating ? null : $session?->get(self::SESSION_KEY);
+        $wanted = $session?->get($impersonating ? self::IMPERSONATING_KEY : self::SESSION_KEY);
         $key = $user->id . '|' . $wanted . '|' . (int) $impersonating;
         if ($this->resolvedFor === $key && $this->resolved !== null) {
             return $this->resolved;
