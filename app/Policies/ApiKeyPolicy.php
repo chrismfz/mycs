@@ -46,7 +46,8 @@ class ApiKeyPolicy
      */
     public function delete(User|Staff $user, ApiKey $api_key): bool
     {
-        return $user->hasPermission('admin.api_keys.delete');
+        // As for update: nobody removes a key that does more than they could grant.
+        return $user instanceof Staff && $user->hasPermission('admin.api_keys.delete') && PermissionGuard::canGrantAllApi($user, $api_key->permissions ?? []);
     }
 
     /**

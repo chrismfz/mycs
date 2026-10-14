@@ -4,7 +4,9 @@ namespace App\Livewire\Tickets;
 
 use App\Attributes\DisabledIf;
 use App\Livewire\Component;
+use App\Models\Staff;
 use App\Models\Ticket;
+use App\Support\Actor;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\RateLimiter;
@@ -41,8 +43,10 @@ class Show extends Component
 
         RateLimiter::increment($rateLimitKey, 10);
 
+        // Written by staff logged in as the client (AUTH-19): the staff member's reply, not the customer's words.
+        $actor = Actor::current();
         $message = $this->ticket->messages()->create([
-            'user_id' => Auth::id(),
+            ...($actor instanceof Staff ? ['staff_id' => $actor->id] : ['user_id' => Auth::id()]),
             'message' => $this->message,
         ]);
 

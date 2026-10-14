@@ -78,7 +78,7 @@ class CreditLedgerAdversarialTest extends TestCase
     private function apiToken(): string
     {
         $token = 'PAYM' . bin2hex(random_bytes(8));
-        ApiKey::create(['name' => 'adv', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
+        ApiKey::create(['staff_id' => \App\Models\Staff::factory()->admin()->create()->id, 'name' => 'adv', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
             'permissions' => ['admin.credits.create', 'admin.credits.update', 'admin.credits.delete', 'admin.credits.viewAny']]);
 
         return $token;

@@ -291,7 +291,7 @@ class PaymentGuardsThirdReviewTest extends TestCase
         ExtensionHelper::addPayment($invoice->id, 'Stripe', 15.00, null, 'pi_api', currency: 'usd'); // 5 -> credit
         $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
         $token = 'PAYM' . bin2hex(random_bytes(8));
-        ApiKey::create([
+        ApiKey::create(['staff_id' => \App\Models\Staff::factory()->admin()->create()->id, 
             'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
             'user_id' => $owner->id, 'permissions' => ['admin.invoices.delete'],
         ]);

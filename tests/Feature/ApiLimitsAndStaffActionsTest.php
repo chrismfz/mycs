@@ -24,7 +24,7 @@ class ApiLimitsAndStaffActionsTest extends TestCase
     {
         $token = 'PAYM' . bin2hex(random_bytes(8));
         $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Api' . uniqid(), 'permissions' => ['*']])->id]);
-        ApiKey::create(['name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'user_id' => $owner->id, 'permissions' => $permissions]);
+        ApiKey::create(['staff_id' => \App\Models\Staff::factory()->admin()->create()->id, 'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token), 'user_id' => $owner->id, 'permissions' => $permissions]);
 
         return $token;
     }

@@ -43,7 +43,7 @@ class InvoiceItemReferenceTest extends TestCase
     private function token(): string
     {
         $token = 'PAYM' . bin2hex(random_bytes(8));
-        ApiKey::create(['name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
+        ApiKey::create(['staff_id' => \App\Models\Staff::factory()->admin()->create()->id, 'name' => 'test', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
             'permissions' => ['admin.invoice_items.create', 'admin.invoice_items.update']]);
 
         return $token;
