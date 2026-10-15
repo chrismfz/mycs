@@ -5,6 +5,7 @@ namespace App\Admin\Resources\InvoiceResource\Pages;
 use App\Admin\Actions\CloseInvoiceAsPaid;
 use App\Admin\Actions\MarkInvoicePaid;
 use App\Admin\Actions\SendInvoiceEmail;
+use App\Admin\Actions\SplitInvoiceAction;
 use App\Admin\Resources\InvoiceResource;
 use App\Admin\Resources\InvoiceResource\RelationManagers\AdjustmentNotesRelationManager;
 use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationManager;
@@ -46,6 +47,16 @@ class ViewInvoice extends ViewRecord
                     ->schema([
                         TextEntry::make('number')
                             ->label('Invoice Number'),
+                        TextEntry::make('merged_into_id')
+                            ->label(__('Merged into'))
+                            ->state(fn (Invoice $record) => $record->mergedInto ? '#' . ($record->mergedInto->number ?: $record->mergedInto->id) : null)
+                            ->url(fn (Invoice $record) => $record->merged_into_id ? InvoiceResource::getUrl('view', ['record' => $record->merged_into_id]) : null)
+                            ->visible(fn (Invoice $record): bool => $record->merged_into_id !== null),
+                        TextEntry::make('split_from_id')
+                            ->label(__('Split from'))
+                            ->state(fn (Invoice $record) => $record->splitFrom ? '#' . ($record->splitFrom->number ?: $record->splitFrom->id) : null)
+                            ->url(fn (Invoice $record) => $record->split_from_id ? InvoiceResource::getUrl('view', ['record' => $record->split_from_id]) : null)
+                            ->visible(fn (Invoice $record): bool => $record->split_from_id !== null),
                         TextEntry::make('client.name')
                             ->label('Client'),
                         TextEntry::make('status')
@@ -96,6 +107,7 @@ class ViewInvoice extends ViewRecord
             MarkInvoicePaid::make(),
             CloseInvoiceAsPaid::make(),
             SendInvoiceEmail::make(),
+            SplitInvoiceAction::make(),
             Action::make('cancel')
                 // Cancelling writes off what the customer owes: only staff who may change invoices (R1 of #84; this
                 // page opens to anyone who may view them).
