@@ -8,6 +8,7 @@ use App\Admin\Actions\CloseInvoiceAsPaid;
 use App\Admin\Actions\MarkInvoicePaid;
 use App\Admin\Actions\SendInvoiceEmail;
 use App\Admin\Actions\SplitInvoiceAction;
+use App\Admin\Actions\ToggleAutoCharge;
 use App\Admin\Resources\InvoiceResource;
 use App\Classes\PDF;
 use App\Exceptions\DisplayException;
@@ -184,6 +185,7 @@ class EditInvoice extends EditRecord
                 }),
             SendInvoiceEmail::make(),
             SplitInvoiceAction::make(),
+            ToggleAutoCharge::make(),
             Action::make('pdf')
                 ->label('Download PDF')
                 ->action(function (Invoice $invoice) {

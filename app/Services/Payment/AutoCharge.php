@@ -58,11 +58,14 @@ final class AutoCharge
     /**
      * The method the cron charges this invoice to, or null: the account's (Auto-charge on), its gateway still there, not
      * stopped at autocharge_max_failures, and not one the bank asked the customer to confirm a charge of this invoice
-     * with (a new default method is charged; adversarial ADV-7). Also what the reminder before the due date tells the
-     * customer (PaymentReminders::chargedOnItsOwn, adversarial ADV-6).
+     * with (a new default method is charged; adversarial ADV-7), nor an invoice staff keep from it (PR H2b). Also what
+     * the reminder before the due date tells the customer (PaymentReminders::chargedOnItsOwn, adversarial ADV-6).
      */
     public static function agreementFor(Invoice $invoice): ?BillingAgreement
     {
+        if ($invoice->no_auto_charge) {
+            return null; // staff keep it from being charged automatically (PR H2b)
+        }
         $agreement = $invoice->client?->autoChargeAgreement();
         if ($agreement === null || $agreement->gateway === null) {
             return null;
@@ -82,7 +85,7 @@ final class AutoCharge
         $notCharged = Service::query()->select('id')->where(fn ($query) => $query->where('status', '!=', Service::STATUS_ACTIVE)
             ->orWhere(fn ($subscribed) => $subscribed->whereNotNull('subscription_id')->where('subscription_id', '!=', '')));
 
-        return Invoice::query()->where('status', Invoice::STATUS_UNPAID)->whereNull('finish_pending_at')
+        return Invoice::query()->where('status', Invoice::STATUS_UNPAID)->whereNull('finish_pending_at')->where('no_auto_charge', false)
             ->whereDate('due_at', '<=', $today->addDays(self::daysBefore())->toDateString())
             // Not one overdue past the retry window: an old invoice is not charged at go-live, nor forever (adversarial ADV-5).
             ->whereDate('due_at', '>=', $today->subDays(self::window())->toDateString())

@@ -437,6 +437,30 @@ class EmailTemplateSeeder extends Seeder
             'mail_enabled' => 'force',
             'in_app_enabled' => 'never',
         ],
+        'card_expiring' => [
+            'subject' => 'Your saved payment method expires soon',
+            'body' => <<<'HTML'
+                # Your saved payment method expires soon
+
+                Dear {{ user.first_name }},
+
+                Your saved payment method **{{ method_name }}** expires at the end of **{{ expiry }}**.
+
+                After that, your invoices can no longer be charged to it automatically. Please add a new payment method before then, so that your services renew without interruption.
+
+                <div class="action">
+                	<a class="button button-blue" href="{{ urls.payment_methods }}">
+                		Update payment method
+                	</a>
+                </div>
+                HTML,
+            'mail_enabled' => 'choice_on',
+            'in_app_enabled' => 'choice_on',
+            'in_app_title' => 'Saved payment method expires soon',
+            'in_app_body' => 'Your saved payment method {{ method_name }} expires at the end of {{ expiry }}.',
+            'edit_preference_message' => 'Notify me when a saved payment method of mine is about to expire',
+            'in_app_url' => '{{ urls.payment_methods }}',
+        ],
         'service_cancelled' => [
             'subject' => 'Service cancelled: {{ service.product.name }}',
             'body' => <<<'HTML'
@@ -1086,6 +1110,28 @@ class EmailTemplateSeeder extends Seeder
 
                     Ο σύνδεσμος ισχύει για 60 λεπτά. Αν δεν ζητήσατε επαναφορά κωδικού, δεν χρειάζεται να κάνετε κάτι.
                     HTML,
+            ],
+        ],
+        'card_expiring' => [
+            'el' => [
+                'subject' => 'Η αποθηκευμένη μέθοδος πληρωμής σας λήγει σύντομα',
+                'body' => <<<'HTML'
+                    # Η αποθηκευμένη μέθοδος πληρωμής σας λήγει σύντομα
+
+                    Αγαπητέ/ή {{ user.first_name }},
+
+                    Η αποθηκευμένη μέθοδος πληρωμής σας **{{ method_name }}** λήγει στο τέλος του **{{ expiry }}**.
+
+                    Μετά από αυτό, τα προτιμολόγιά σας δεν μπορούν να χρεωθούν αυτόματα σε αυτήν. Προσθέστε μια νέα μέθοδο πληρωμής πριν από τότε, ώστε οι υπηρεσίες σας να ανανεωθούν χωρίς διακοπή.
+
+                    <div class="action">
+                    	<a class="button button-blue" href="{{ urls.payment_methods }}">
+                    		Ενημέρωση μεθόδου πληρωμής
+                    	</a>
+                    </div>
+                    HTML,
+                'in_app_title' => 'Η αποθηκευμένη μέθοδος πληρωμής λήγει σύντομα',
+                'in_app_body' => 'Η αποθηκευμένη μέθοδος πληρωμής σας {{ method_name }} λήγει στο τέλος του {{ expiry }}.',
             ],
         ],
         'service_cancelled' => [

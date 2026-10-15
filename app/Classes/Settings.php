@@ -602,6 +602,17 @@ class Settings
                     'description' => 'Declined automatic charges in a row after which a saved method is no longer charged on its own, and staff are told (0: no limit). Kept, not removed: a success, or the customer paying with it, starts again.',
                 ],
                 [
+                    'name' => 'cc_expiry_notice_day',
+                    'section' => 'Billing Settings',
+                    'label' => 'Expiry notice of saved payment methods on day',
+                    'type' => 'number',
+                    'default' => 25,
+                    'required' => true,
+                    'min_value' => 0,
+                    'max_value' => 28,
+                    'description' => 'From this day of the month, customers whose saved payment method expires at the end of the month are told so, once (0: never; WHMCS here: 25).',
+                ],
+                [
                     'name' => 'cronjob_order_cancel',
                     'section' => 'Billing Settings',
                     'label' => 'Cancel unpaid orders after',

@@ -6,6 +6,7 @@ use App\Classes\PDF;
 use App\Classes\Price;
 use App\Mail\Mail;
 use App\Mail\SystemMail;
+use App\Models\BillingAgreement;
 use App\Models\Client;
 use App\Models\ClientInvite;
 use App\Models\EmailLog;
@@ -382,6 +383,18 @@ class NotificationHelper
 
             throw $e;
         }
+    }
+
+    /**
+     * A saved payment method expires at the end of this month (PR H2b, WHMCS CCDaySendExpiryNotices): its customer adds a
+     * new one before their invoices can no longer be charged to it.
+     */
+    public static function cardExpiringNotification(Client $client, BillingAgreement $agreement): void
+    {
+        self::toAccount($client, 'card_expiring', [
+            'method_name' => (string) $agreement->name,
+            'expiry' => Carbon::parse($agreement->expiry)->format('m/Y'),
+        ]);
     }
 
     public static function orderCreatedNotification(Client $client, Order $order, array $data = []): void

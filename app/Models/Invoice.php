@@ -137,6 +137,8 @@ class Invoice extends Model implements Auditable
         'apply_pending_since' => 'immutable_datetime',
         'kept_as_debt_at' => 'immutable_datetime',
         'finish_pending_at' => 'immutable_datetime',
+        // Staff keep it from the cron's charge of the saved method (PR H2b).
+        'no_auto_charge' => 'boolean',
     ];
 
     public bool $send_create_email = true;

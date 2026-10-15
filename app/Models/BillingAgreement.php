@@ -30,6 +30,8 @@ class BillingAgreement extends Model implements Auditable
         // Failed automatic charges in a row (PR H, decision 5); a success sets it back to 0.
         'failed_count' => 'integer',
         'last_failed_at' => 'datetime',
+        // The month its expiry was last told to its customer (PR H2b).
+        'expiry_notified_at' => 'datetime',
     ];
 
     public function uniqueIds()
