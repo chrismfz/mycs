@@ -10,6 +10,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\PaymentGroup;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
 /**

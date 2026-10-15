@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
-use App\Livewire\Invoices\Index;
 use App\Livewire\Invoices\PayTogether;
 use App\Models\ClientUser;
 use App\Models\EmailLog;
