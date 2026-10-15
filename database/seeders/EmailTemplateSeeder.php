@@ -303,6 +303,7 @@ class EmailTemplateSeeder extends Seeder
 
                 Dear {{ user.first_name }},
 
+                {% if service.dunning_suspended_at %}
                 Your service **{{ service.product.name }}** was suspended because its renewal is overdue.
 
                 Once its invoice is paid, the service is reactivated automatically, usually within minutes.
@@ -312,11 +313,17 @@ class EmailTemplateSeeder extends Seeder
                 		View my invoices
                 	</a>
                 </div>
+                {% else %}
+                Your service **{{ service.product.name }}** was suspended.
+                {% if service.suspend_reason %}
+
+                Reason: {{ service.suspend_reason }}
+                {% endif %}{% endif %}
 
                 If you think this is a mistake, please contact us.
                 HTML,
             'in_app_title' => 'Service suspended',
-            'in_app_body' => 'Your service {{ service.product.name }} was suspended because its renewal is overdue. Pay its invoice to reactivate it.',
+            'in_app_body' => 'Your service {{ service.product.name }} was suspended{% if service.dunning_suspended_at %} because its renewal is overdue. Pay its invoice to reactivate it{% endif %}.',
             'mail_enabled' => 'force',
             'in_app_enabled' => 'choice_on',
             'edit_preference_message' => 'Alert me about service suspensions',
@@ -987,6 +994,7 @@ class EmailTemplateSeeder extends Seeder
 
                     Αγαπητέ/ή {{ user.first_name }},
 
+                    {% if service.dunning_suspended_at %}
                     Η υπηρεσία σας **{{ service.product.name }}** τέθηκε σε αναστολή επειδή η ανανέωσή της είναι ληξιπρόθεσμη.
 
                     Μόλις εξοφληθεί το προτιμολόγιό της, η υπηρεσία ενεργοποιείται ξανά αυτόματα, συνήθως μέσα σε λίγα λεπτά.
@@ -996,11 +1004,17 @@ class EmailTemplateSeeder extends Seeder
                     		Τα προτιμολόγιά μου
                     	</a>
                     </div>
+                    {% else %}
+                    Η υπηρεσία σας **{{ service.product.name }}** τέθηκε σε αναστολή.
+                    {% if service.suspend_reason %}
+
+                    Λόγος: {{ service.suspend_reason }}
+                    {% endif %}{% endif %}
 
                     Αν πιστεύετε ότι πρόκειται για λάθος, επικοινωνήστε μαζί μας.
                     HTML,
                 'in_app_title' => 'Αναστολή υπηρεσίας',
-                'in_app_body' => 'Η υπηρεσία σας {{ service.product.name }} τέθηκε σε αναστολή επειδή η ανανέωσή της είναι ληξιπρόθεσμη. Εξοφλήστε το προτιμολόγιό της για να ενεργοποιηθεί ξανά.',
+                'in_app_body' => 'Η υπηρεσία σας {{ service.product.name }} τέθηκε σε αναστολή{% if service.dunning_suspended_at %} επειδή η ανανέωσή της είναι ληξιπρόθεσμη. Εξοφλήστε το προτιμολόγιό της για να ενεργοποιηθεί ξανά{% endif %}.',
             ],
         ],
         'server_unsuspended' => [
