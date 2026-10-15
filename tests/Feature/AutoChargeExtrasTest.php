@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Admin\Resources\InvoiceResource\Pages\ViewInvoice;
+use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Helpers\ExtensionHelper;
 use App\Mail\Mail;
 use App\Models\BillingAgreement;
@@ -115,11 +115,11 @@ class AutoChargeExtrasTest extends TestCase
         $staff = Staff::factory()->admin()->create();
         $invoice = $this->invoice('2026-11-10');
 
-        $this->livewireAs($staff)->test(ViewInvoice::class, ['record' => $invoice->getRouteKey()])->callAction('toggleAutoCharge');
+        $this->livewireAs($staff)->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])->callAction('toggleAutoCharge');
         $this->assertTrue($invoice->fresh()->no_auto_charge);
         $this->assertSame(0, (new AutoCharge)->run());
 
-        $this->livewireAs($staff)->test(ViewInvoice::class, ['record' => $invoice->getRouteKey()])->callAction('toggleAutoCharge');
+        $this->livewireAs($staff)->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])->callAction('toggleAutoCharge');
         $this->assertFalse($invoice->fresh()->no_auto_charge);
         $this->assertSame(1, (new AutoCharge)->run());
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
