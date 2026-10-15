@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Console\Commands\ImportFromWhmcs;
 use App\Exceptions\DisplayException;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
 use App\Models\PaymentGroup;
 use App\Models\User;
@@ -341,7 +342,7 @@ class ImportMassPayAdversarialTest extends TestCase
         $this->import(2);
 
         $this->assertNull(Invoice::query()->find(900));
-        $this->assertSame(0, \App\Models\InvoiceItem::query()->where('invoice_id', 900)->count());
+        $this->assertSame(0, InvoiceItem::query()->where('invoice_id', 900)->count());
         for ($i = 0; $i < 6; $i++) {
             $this->assertSame('0.00', $this->remaining(801 + $i));
         }

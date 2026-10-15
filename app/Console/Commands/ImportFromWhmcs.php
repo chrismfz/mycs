@@ -1262,13 +1262,13 @@ class ImportFromWhmcs extends Command
             ], $plan['payments']));
             DB::table('invoice_transactions')->insert(array_map(function (array $allocation) use (&$nextId, $parent) {
                 return [
-                'id' => $nextId++,
-                'invoice_id' => $allocation['invoice_id'],
-                'amount' => $allocation['amount'] / 100,
-                'is_credit_transaction' => true,
-                'source_transaction_id' => $allocation['source_id'],
-                'created_at' => $allocation['date'] ?? $this->validateDate($parent['date']),
-                'updated_at' => $allocation['date'] ?? $this->validateDate($parent['date']),
+                    'id' => $nextId++,
+                    'invoice_id' => $allocation['invoice_id'],
+                    'amount' => $allocation['amount'] / 100,
+                    'is_credit_transaction' => true,
+                    'source_transaction_id' => $allocation['source_id'],
+                    'created_at' => $allocation['date'] ?? $this->validateDate($parent['date']),
+                    'updated_at' => $allocation['date'] ?? $this->validateDate($parent['date']),
                 ];
             }, $plan['allocations']));
 

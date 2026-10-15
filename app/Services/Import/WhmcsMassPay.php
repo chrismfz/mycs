@@ -18,7 +18,7 @@ final class WhmcsMassPay
 {
     /**
      * @param  array{id: int, total: int, credit: int}  $parent  the total of its lines (WHMCS keeps `total` net of credit:
-     *                                                         pass total + credit) and the part paid from account credit, in cents
+     *                                                           pass total + credit) and the part paid from account credit, in cents
      * @param  list<array{child: int, amount: int}>  $lines  the parent's «Invoice» lines: each child and its share
      * @param  array<int, array{status: string, duedate: ?string, credit: int}>  $children  by id: status (WHMCS), due date,
      *                                                                                      credit applied to it (cents) and not
