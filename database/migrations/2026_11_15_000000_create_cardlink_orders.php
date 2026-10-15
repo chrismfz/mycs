@@ -18,10 +18,13 @@ return new class extends Migration
             // The vPOS order id («<invoice>Inv<ymdHis><2 digits>»), unique per terminal; the payment's transaction id.
             $table->string('order_id', 50)->unique();
             $table->foreignId('invoice_id')->constrained()->cascadeOnDelete();
+            // Who opened it (for staff; the payment goes where its invoice is).
             $table->foreignId('client_id')->constrained()->cascadeOnDelete();
             $table->string('payment_group', 26)->nullable(); // a Mass Pay group's ulid
             $table->decimal('amount', 17, 2);
             $table->string('currency_code', 3);
+            // The customer's language when it was opened: the page they come back to is in it (no session there).
+            $table->string('locale', 10)->nullable();
             // The last status the vPOS returned (CAPTURED, REFUSED, CANCELED, ERROR, AUTHORIZED); null: no return yet.
             $table->string('status', 20)->nullable();
             $table->string('tx_id', 64)->nullable();

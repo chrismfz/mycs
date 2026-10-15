@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\View;
 use InvalidArgumentException;
 use Nixpal\CardlinkEurobank\Amount;
+use Nixpal\CardlinkEurobank\Digest;
 use Nixpal\CardlinkEurobank\OrderId;
 use Nixpal\CardlinkEurobank\PaymentRequest;
 use Nixpal\CardlinkEurobank\ReturnVerifier;
@@ -98,6 +99,9 @@ class Cardlink extends Gateway
         if ($invoice->client_id === null || $cents <= 0) {
             throw new DisplayException(__('Nothing is left to pay on this invoice.'));
         }
+        if (!$this->canUseGateway($total, $invoice->currency_code, 'invoice')) {
+            throw new DisplayException(__('Invalid payment method.')); // the terminal takes euros only (code review CR-5)
+        }
         $order = $this->newOrder($invoice, $cents);
         $client = $invoice->client;
         $contact = $client?->primaryContact;
@@ -105,7 +109,7 @@ class Cardlink extends Gateway
         try {
             $fields = PaymentRequest::fields([
                 'mid' => (string) $this->config('merchant_id'),
-                'lang' => str_starts_with(app()->getLocale(), 'el') ? 'el' : 'en',
+                'lang' => $order->locale === 'el' ? 'el' : 'en',
                 'orderid' => $order->order_id,
                 'orderDesc' => $this->description($invoice),
                 'amount' => $order->amount,
@@ -144,8 +148,17 @@ class Cardlink extends Gateway
         $result = ReturnVerifier::verify($posted, (string) $this->config('shared_secret'), (string) $this->config('merchant_id'));
         GatewayLog::current()->signature($result->verified);
         if (!$result->verified) {
-            // Forged, or another terminal's, or a field the vPOS added (it fails closed: see the log's field names).
+            // Forged, or another terminal's, or a field the vPOS added (it fails closed). The gateway log keeps the
+            // posted field names with the reason (code review CR-3).
             PaymentsLog::warning('Cardlink return refused: ' . $result->reason, $result->summary());
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_REJECTED, $result->reason);
+            if ($this->authentic($posted, $result)) {
+                // Signed with our secret, yet refused: a field the vPOS added, or the merchant id set wrong. Every
+                // payment is refused until it is fixed (code review CR-2); a forgery stays quiet.
+                self::tellStaff('refused:' . $result->reason, 'Cardlink returns refused', sprintf(
+                    'A Cardlink return signed with our secret was refused (%s; fields: %s): payments are NOT recorded until this is fixed. Check the merchant id, or the fields the vPOS sends.',
+                    $result->reason, implode(', ', $result->postedKeys)));
+            }
 
             return $this->page(null, null, 400);
         }
@@ -182,7 +195,7 @@ class Cardlink extends Gateway
                 'The Cardlink vPOS authorised %s %s for order %s (invoice #%d) without capturing it: capture or void it in the Cardlink portal, and record the payment if captured.',
                 $result->amount(), $result->currency(), $order->order_id, $order->invoice_id));
         } else {
-            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_IGNORED, 'status_' . strtolower(substr($status, 0, 20)), $this->details($result, $order));
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_IGNORED, 'status_' . (strtolower(substr($status, 0, 20)) ?: 'none'), $this->details($result, $order));
         }
 
         return $this->page($order, $status);
@@ -200,15 +213,39 @@ class Cardlink extends Gateway
 
             return;
         }
-        if ($cents !== RecordPaymentService::toCents($order->amount)) {
+        // Another currency is refused by RecordPaymentService (staff told), as for every gateway.
+        $transaction = ExtensionHelper::addPayment($order->invoice_id, 'Cardlink', Amount::format($cents / 100), transactionId: $order->order_id,
+            currency: $result->currency(), paymentGroup: $order->payment_group);
+        if ($transaction !== null && $cents !== RecordPaymentService::toCents($order->amount)) {
             // The vPOS signed what it took: that is recorded (what the invoice cannot take is credit), and staff look.
             self::tellStaff('differs:' . $order->order_id, 'Cardlink payment of another amount', sprintf(
                 'The Cardlink vPOS captured %s %s for order %s (invoice #%d), which was sent for %s %s. The amount captured is recorded.',
                 Amount::format($cents / 100), $result->currency(), $order->order_id, $order->invoice_id, $order->amount, $order->currency_code));
         }
-        // Another currency is refused by RecordPaymentService (staff told), as for every gateway.
-        ExtensionHelper::addPayment($order->invoice_id, 'Cardlink', Amount::format($cents / 100), transactionId: $order->order_id,
-            currency: $result->currency(), paymentGroup: $order->payment_group);
+    }
+
+    /**
+     * A refused return that our secret did sign: the digest held, or holds over the fields in the order they were posted
+     * (a field the vPOS added). Only to tell staff; it is still refused.
+     *
+     * @param  array<string, mixed>  $posted
+     */
+    private function authentic(array $posted, VposReturn $result): bool
+    {
+        if (in_array($result->reason, ['mid_mismatch', 'currency_missing', 'bad_orderid'], true) || $result->postedOrderMatches === true) {
+            return true; // checked after the digest held
+        }
+        if ($result->reason !== 'unknown_fields' || !is_string($posted['digest'] ?? null)) {
+            return false;
+        }
+        $values = array_diff_key($posted, array_flip(ReturnVerifier::EXCLUDED));
+        foreach ($values as $value) {
+            if (!is_scalar($value)) {
+                return false;
+            }
+        }
+
+        return hash_equals(Digest::response(implode('', array_map('strval', $values)), (string) $this->config('shared_secret')), $posted['digest']);
     }
 
     private function newOrder(Invoice $invoice, int $cents): CardlinkOrder
@@ -223,6 +260,7 @@ class Cardlink extends Gateway
                     'payment_group' => $invoice->payingGroup,
                     'amount' => Amount::format($cents / 100),
                     'currency_code' => strtoupper((string) $invoice->currency_code),
+                    'locale' => str_starts_with(app()->getLocale(), 'el') ? 'el' : 'en',
                 ]);
             } catch (UniqueConstraintViolationException $e) {
                 if ($try >= 5) {
@@ -255,6 +293,9 @@ class Cardlink extends Gateway
     /** The page the browser lands on: to the invoice (or the invoices), with what came of the payment. */
     private function page(?CardlinkOrder $order, ?string $status, int $code = 200): Response
     {
+        if ($order?->locale !== null) {
+            app()->setLocale($order->locale); // no session here: the customer's language when they paid (code review CR-8)
+        }
         $paid = $status === CardlinkOrder::STATUS_CAPTURED;
         $url = $order === null ? route('invoices') : route('invoices.show', $order->invoice_id) . ($paid ? '?checkPayment' : '');
 

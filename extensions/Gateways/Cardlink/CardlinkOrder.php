@@ -18,6 +18,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $payment_group
  * @property string $amount
  * @property string $currency_code
+ * @property string|null $locale
  * @property string|null $status
  * @property string|null $tx_id
  * @property string|null $pay_method
@@ -29,7 +30,7 @@ class CardlinkOrder extends Model
 
     protected $table = 'cardlink_orders';
 
-    protected $fillable = ['order_id', 'invoice_id', 'client_id', 'payment_group', 'amount', 'currency_code', 'status', 'tx_id', 'pay_method', 'returned_at'];
+    protected $fillable = ['order_id', 'invoice_id', 'client_id', 'payment_group', 'amount', 'currency_code', 'locale', 'status', 'tx_id', 'pay_method', 'returned_at'];
 
     protected function casts(): array
     {

@@ -170,6 +170,10 @@ class CardlinkTest extends TestCase
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
         $this->assertNull(CardlinkOrder::query()->sole()->status);
         $this->assertSame(4, PaymentGatewayEvent::query()->where('outcome', PaymentGatewayEvent::OUTCOME_REJECTED)->where('signature_verified', false)->count());
+        $this->assertSame(['digest_mismatch', 'mid_mismatch', 'unknown_fields', 'digest_mismatch'], PaymentGatewayEvent::query()->orderBy('id')->pluck('reason')->all());
+        $this->assertNotEmpty(PaymentGatewayEvent::query()->first()->fields, 'the field names are kept (CR-3)');
+        // Only the one our secret signed with another merchant id is news for staff (CR-2).
+        $this->assertSame(1, $this->mails('Cardlink returns refused'));
     }
 
     public function test_a_capture_for_an_order_that_is_not_ours_tells_staff(): void
@@ -293,5 +297,60 @@ class CardlinkTest extends TestCase
             ->assertSee('id="cardlink-form"', false)
             ->assertSee('action="' . PaymentRequest::ENDPOINT_TEST . '"', false)
             ->assertSee(CardlinkOrder::query()->sole()->order_id);
+    }
+
+    public function test_empty_and_padded_values_are_signed_as_posted(): void
+    {
+        // Code review CR-1: the global middleware would trim and null them, and the digest of a real payment would fail.
+        $invoice = $this->invoice(25);
+        $orderId = $this->form($invoice)['orderid'];
+
+        $this->back($this->capture($orderId, '25.00', ['riskScore' => '', 'message' => 'OK, Approved ', 'paymentRef' => '']))->assertOk();
+
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
+    }
+
+    public function test_a_field_the_vpos_adds_tells_staff(): void
+    {
+        // Code review CR-2: signed by our secret in the order posted, refused (fail closed), and staff are told once.
+        $invoice = $this->invoice(25);
+        $orderId = $this->form($invoice)['orderid'];
+        $fields = ['orderid' => $orderId, 'orderAmount' => '25.00', 'paymentTotal' => '25.00'];
+        $signed = array_diff_key(Fixtures::capture($fields), ['digest' => true]) + ['newField' => 'x'];
+
+        $this->back(Fixtures::sign($signed))->assertStatus(400);
+        $this->back(Fixtures::sign($signed, 'modirum'))->assertStatus(400);
+
+        $this->assertSame(0, InvoiceTransaction::query()->count());
+        $this->assertSame(1, $this->mails('Cardlink returns refused'));
+    }
+
+    public function test_the_order_decides_the_invoice_not_the_url(): void
+    {
+        $paid = $this->invoice(25);
+        $other = $this->invoice(30);
+        $orderId = $this->form($paid)['orderid'];
+        $otherOrder = $this->form($other)['orderid'];
+
+        $this->back($this->capture($orderId, '25.00'), $otherOrder)->assertOk()->assertSee(route('invoices.show', $paid), false);
+
+        $this->assertSame([Invoice::STATUS_PAID, Invoice::STATUS_UNPAID], [$paid->fresh()->status, $other->fresh()->status]);
+    }
+
+    public function test_pay_refuses_another_currency(): void
+    {
+        $this->expectException(DisplayException::class);
+        $this->cardlink()->pay($this->invoice(25, 'USD'), 25);
+    }
+
+    public function test_the_page_back_is_in_the_language_the_customer_paid_in(): void
+    {
+        $invoice = $this->invoice(25);
+        app()->setLocale('el');
+        $fields = $this->form($invoice);
+        app()->setLocale('en');
+        $this->assertSame('el', $fields['lang']);
+
+        $this->back($this->capture($fields['orderid'], '25.00'))->assertOk()->assertSee('Ευχαριστούμε');
     }
 }
