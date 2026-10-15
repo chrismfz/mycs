@@ -119,3 +119,48 @@
 - Test: κάθε πεδίο `password` στο `getConfig()` server/gateway είναι `encrypted`.
 - Μένει (εκτός PR): ο κωδικός στη σελίδα υπηρεσίας του πελάτη είναι ήδη στο HTML πίσω από «Show» (sweep §6 #7)· παλιά
   email logs με κωδικούς σβήνονται στις 90 μέρες.
+
+## Provisioning fixes (sweep §2, §4, §7)
+- **cPanel «Change Package» = WHM `changepackage` (`user`, `pkg`).** Το `modifyacct` με `plan` δεν άλλαζε ποτέ πακέτο:
+  το WHM το αγνοεί (μόνο ένα «Unrecognized modifyacct parameter» στο log του) και απαντά `result: 1`, «Account
+  Modified». Επαληθεύτηκε σε WHM 138 (virgo, λογαριασμός του ιδιοκτήτη, 2026-10-15):
+  - `modifyacct plan=…` → `result 1`, κανένα warning, το πακέτο ίδιο.
+  - `changepackage` → `result 1`, «OK», και στο `output.raw` τι άλλαξε· το πακέτο εφαρμόστηκε.
+  - λάθη → `result 0` και `reason` («API failure: (XID …) Specified package does not exist.», «You do not have a user
+    named “…”.»): exception, Pending Module Actions με αυτό το μήνυμα.
+  - **Ένα πακέτο χωρίς shell κόβει το shell** του λογαριασμού (και τα cron του). Πριν το cut-over: έλεγχος των
+    πακέτων του myip (`HASSHELL`) απέναντι στους λογαριασμούς που έχουν shell.
+- **Change package μόνο όταν αλλάζει** (όπως το WHMCS): πρώτα `accountsummary`· ίδιο πακέτο = τίποτα (ένα upgrade
+  μόνο επιλογών δεν ξαναεφαρμόζει πακέτο, όρια ή shell που το staff άλλαξε στο WHM). Πακέτο: το config option
+  `package` πρώτα, όπως στο create.
+- **cPanel create idempotent:** το username γράφεται πριν το `createacct` (`cpanel_pending_username`)· retry: αν ο WHM
+  έχει ήδη λογαριασμό με αυτό το όνομα **και το domain της παραγγελίας** (`accountsummary`), ολοκληρώνεται χωρίς
+  δεύτερο· με άλλο domain είναι ξένος λογαριασμός: δεν υιοθετείται, το όνομα πετιέται. Άρνηση του `createacct`
+  (`result 0`) πετά επίσης το όνομα (το επόμενο retry παίρνει νέο)· χαμένη απάντηση το κρατά. Το terminate ενός τέτοιου
+  λογαριασμού (create με χαμένη απάντηση, μετά ακύρωση) τον βρίσκει με τον ίδιο έλεγχο. Username: πεζά, γράμμα πρώτα, 8.
+- `UpgradeJob` όχι σε υπηρεσία που τελείωσε. Upgrade μόνο σε προϊόν του ίδιου module με τον server όπου είναι ο
+  λογαριασμός (λίστα πελάτη και φόρμα «Upgrades» του προϊόντος).
+- **Επιλογή server:** ο server του προϊόντος μόνο αν είναι enabled και έχει χώρο· αλλιώς το create αποτυγχάνει
+  (`NoServerWithRoom`, Pending Module Actions), δεν γεμίζει σιωπηλά. Group: servers ενός module. Δεν σβήνεται group
+  ή server που τον χρησιμοποιούν προϊόντα.
+
+## Custom fields και modules που χρειαζόμαστε (απόφαση 2026-10-15)
+Τα product custom fields του WHMCS είναι σχεδόν όλα δεδομένα modules (`tblcustomfields`, μόνο αθροίσματα):
+- **nixpal:** `comments` (5 προϊόντα licensing, 14/336 με τιμή) = «Custom Fields Reported» του licensing: property της
+  υπηρεσίας, που το `zlic.php` επιστρέφει κατά το `custom_fields` του προϊόντος (υπάρχει ήδη, parity test). `IP Address`
+  (προϊόν `agent`, 0 υπηρεσίες): δεν μεταφέρεται, το licensing δένει την IP μόνο του.
+- **myip:** Centova Cast (9 υπηρεσίες: port, username, sourcepassword, …), Hetzner Robot, Hetzner Cloud, pvewhmcs
+  (Proxmox), λίγα χειροκίνητα.
+
+**Απόφαση: όχι γενικό σύστημα custom fields (το Σ1-c όπως είχε σχεδιαστεί) τώρα.** Ό,τι ζητείται στην παραγγελία το
+δίνει το module (`getCheckoutConfig`)· ό,τι είναι δεδομένο του module γίνεται property της υπηρεσίας (κωδικοί όχι:
+`services.password`, κανόνας του PR ασφαλείας). Ο importer μεταφέρει τις τιμές που δεν είναι κενές ως properties.
+
+Modules για το myip:
+- **Hetzner Robot, Hetzner Cloud: όχι.**
+- **Centova Cast:** δεν υπάρχει στο MyCS· γράφεται από την αρχή. Το Blesta έχει δικό του (vendor: μόνο ιδέες, ποιες
+  κλήσεις και πεδία, όχι κώδικας). Οι 9 υπηρεσίες πριν το cut-over του myip.
+- **Proxmox:** το myip τρέχει το Proxmox VE for WHMCS της The-Network-Crew (pvewhmcs· η nixpal/myip του έστειλε το
+  PR #178, clusters). Άδεια **GPL-3.0** (επιβεβαιώθηκε 2026-10-15): όχι αυτούσιος κώδικας σε αυτό το repo (MIT).
+  **Δικό μας module** πάνω στο API του Proxmox, με το pvewhmcs ως αναφορά συμπεριφοράς (ποιες κλήσεις, τι πεδία, πώς
+  βρίσκει το node σε cluster). Ιδέες και από το Blesta, όχι κώδικας.

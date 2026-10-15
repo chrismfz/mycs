@@ -10,7 +10,7 @@ branch `feat/order-status`), ετυμηγορία, αν μας αφορά κατ
    καθαρός στο `email_logs` (90 μέρες)· redaction του debug log (URL/`adminapikey`, `passwd`/`rootpass`, SSO URL)·
    φόρμες server/gateway/extension που στέλνουν τα secrets στον browser· `ShouldBeEncrypted` στα mails (queue,
    `failed_jobs`).
-2. **PR provisioning fixes** (§2, §4): cPanel change package με `changepackage` (σήμερα `modifyacct` + `plan`: πιθανό
+2. **PR provisioning fixes** (§2, §4, **έγινε**: `fix/provisioning`· το change package επαληθεύτηκε σε WHM 138): cPanel change package με `changepackage` (σήμερα `modifyacct` + `plan`: πιθανό
    σιωπηλό no-op· **επιβεβαίωση σε test WHM πρώτα**· μπλοκάρει το cut-over του myip, 645 cPanel)· idempotent create
    του cPanel (username πριν το `createacct`, `accountsummary` στο retry)· `UpgradeJob` όχι σε ended υπηρεσία·
    όχι upgrade σε προϊόν άλλου module (φόρμα «Upgrades»)· `ServerSelector`: fallback στον server του προϊόντος
