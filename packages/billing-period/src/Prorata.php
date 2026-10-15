@@ -20,10 +20,12 @@ final class Prorata
     public const MAX_DAY = 28;
 
     /**
+     * The first period: aligned is the first renewal day after the start, end where the first period ends (the aligned day,
+     * or a full period after it when the next one is billed too).
+     *
      * @param  int  $day  the day of the month its services renew on (1–28)
      * @param  int|null  $nextAfterDay  ordered on or after this day of the month, the next full period is billed too
-     * @return array{aligned: CarbonImmutable, end: CarbonImmutable, partial: bool, extended: bool} aligned: the first
-     *                                                                                          renewal day after the start; end: where the first period ends
+     * @return array{aligned: CarbonImmutable, end: CarbonImmutable, partial: bool, extended: bool}
      */
     public static function firstPeriod(CarbonInterface $start, string $unit, int $count, int $day, ?int $nextAfterDay = null): array
     {
