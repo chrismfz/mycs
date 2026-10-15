@@ -53,10 +53,17 @@ class CPanelProvisioningTest extends TestCase
             'output' => ['raw' => "<pre>\nChanging the maximum SQL databases from “100” to “100”.\n"]]];
     }
 
+    /** WHM's accountsummary of this order's account (shortened). */
+    private static function summary(string $plan): array
+    {
+        return ['metadata' => ['result' => 1, 'reason' => 'OK', 'command' => 'accountsummary'],
+            'data' => ['acct' => [['user' => 'exampleuser', 'domain' => 'example.test', 'plan' => $plan]]]];
+    }
+
     public function test_change_package_is_whms_changepackage_with_the_new_products_package(): void
     {
         $this->service->properties()->create(['key' => 'cpanel_username', 'name' => 'cPanel username', 'value' => 'exampleuser']);
-        Http::fake([self::WHM . '/changepackage*' => Http::response(self::changed())]);
+        Http::fake([self::WHM . '/changepackage*' => Http::response(self::changed()), self::WHM . '/accountsummary*' => Http::response(self::summary('undefined'))]);
 
         ExtensionHelper::upgradeServer($this->service->fresh());
 
@@ -69,7 +76,7 @@ class CPanelProvisioningTest extends TestCase
     {
         $this->service->properties()->create(['key' => 'cpanel_username', 'name' => 'cPanel username', 'value' => 'exampleuser']);
         Http::fake([self::WHM . '/changepackage*' => Http::response(['metadata' => ['result' => 0, 'command' => 'changepackage',
-            'reason' => 'API failure: (XID 227fma) Specified package does not exist.']])]);
+            'reason' => 'API failure: (XID 227fma) Specified package does not exist.']]), self::WHM . '/accountsummary*' => Http::response(self::summary('undefined'))]);
 
         try {
             ExtensionHelper::upgradeServer($this->service->fresh());
@@ -91,7 +98,7 @@ class CPanelProvisioningTest extends TestCase
 
                 return Create::rejectionFor(new ConnectionException('cURL error 28: Operation timed out')); // WHM made it, the answer was lost
             },
-            self::WHM . '/accountsummary*' => Http::response(['metadata' => ['result' => 1, 'reason' => 'OK'], 'data' => ['acct' => [['user' => 'x']]]]),
+            self::WHM . '/accountsummary*' => Http::response(self::summary('Business20')), // made, for this order's domain
         ]);
         $this->service->update(['status' => 'pending']);
 

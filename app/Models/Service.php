@@ -760,7 +760,8 @@ class Service extends Model implements Auditable
             return collect();
         }
 
-        $module = $this->product->server?->extension;
+        // The module of the server its account is on (review R4), else of its product's.
+        $module = $this->server_id !== null ? $this->server?->extension : $this->product->server?->extension;
 
         return $this->product->upgrades->filter(function ($product) use ($module): bool {
             // Only to a product of the same module (sweep §4, as Blesta): another module's would leave the account on the

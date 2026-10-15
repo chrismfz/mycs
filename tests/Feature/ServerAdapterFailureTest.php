@@ -67,6 +67,9 @@ class ServerAdapterFailureTest extends TestCase
     private function created(): void
     {
         $this->service->properties()->create(['key' => 'cpanel_username', 'name' => 'cPanel username', 'value' => 'exampleuser']);
+        // A change of package asks WHM for the account's package first (it is sent only when it changed).
+        Http::fake([self::WHM . '/accountsummary*' => Http::response(['metadata' => ['result' => 1, 'reason' => 'OK'],
+            'data' => ['acct' => [['user' => 'exampleuser', 'domain' => 'example.test', 'plan' => 'another']]]])]);
     }
 
     public function test_a_refused_create_throws_with_whms_reason_and_stores_no_username(): void

@@ -130,11 +130,16 @@
     named “…”.»): exception, Pending Module Actions με αυτό το μήνυμα.
   - **Ένα πακέτο χωρίς shell κόβει το shell** του λογαριασμού (και τα cron του). Πριν το cut-over: έλεγχος των
     πακέτων του myip (`HASSHELL`) απέναντι στους λογαριασμούς που έχουν shell.
+- **Change package μόνο όταν αλλάζει** (όπως το WHMCS): πρώτα `accountsummary`· ίδιο πακέτο = τίποτα (ένα upgrade
+  μόνο επιλογών δεν ξαναεφαρμόζει πακέτο, όρια ή shell που το staff άλλαξε στο WHM). Πακέτο: το config option
+  `package` πρώτα, όπως στο create.
 - **cPanel create idempotent:** το username γράφεται πριν το `createacct` (`cpanel_pending_username`)· retry: αν ο WHM
-  έχει ήδη τον λογαριασμό (`accountsummary`), ολοκληρώνεται χωρίς δεύτερο· αλλιώς ξαναγίνεται με το ίδιο όνομα. Τα
-  suspend/terminate δεν βλέπουν το «pending» όνομα. Username: πεζά, γράμμα πρώτα, 8 χαρακτήρες.
-- `UpgradeJob` όχι σε υπηρεσία που τελείωσε. Upgrade μόνο σε προϊόν του ίδιου module (λίστα πελάτη και φόρμα
-  «Upgrades» του προϊόντος).
+  έχει ήδη λογαριασμό με αυτό το όνομα **και το domain της παραγγελίας** (`accountsummary`), ολοκληρώνεται χωρίς
+  δεύτερο· με άλλο domain είναι ξένος λογαριασμός: δεν υιοθετείται, το όνομα πετιέται. Άρνηση του `createacct`
+  (`result 0`) πετά επίσης το όνομα (το επόμενο retry παίρνει νέο)· χαμένη απάντηση το κρατά. Το terminate ενός τέτοιου
+  λογαριασμού (create με χαμένη απάντηση, μετά ακύρωση) τον βρίσκει με τον ίδιο έλεγχο. Username: πεζά, γράμμα πρώτα, 8.
+- `UpgradeJob` όχι σε υπηρεσία που τελείωσε. Upgrade μόνο σε προϊόν του ίδιου module με τον server όπου είναι ο
+  λογαριασμός (λίστα πελάτη και φόρμα «Upgrades» του προϊόντος).
 - **Επιλογή server:** ο server του προϊόντος μόνο αν είναι enabled και έχει χώρο· αλλιώς το create αποτυγχάνει
   (`NoServerWithRoom`, Pending Module Actions), δεν γεμίζει σιωπηλά. Group: servers ενός module. Δεν σβήνεται group
   ή server που τον χρησιμοποιούν προϊόντα.
