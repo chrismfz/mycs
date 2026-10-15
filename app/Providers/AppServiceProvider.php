@@ -26,6 +26,7 @@ use Exception;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Contracts\Encryption\Encrypter;
 use Illuminate\Foundation\Exceptions\Handler;
 use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Http\Request;
@@ -223,8 +224,7 @@ class AppServiceProvider extends ServiceProvider
 
         Queue::after(function (JobProcessed $event) {
             if (in_array($event->job->resolveName(), [Mail::class, SystemMail::class], true)) { // EVT-10: system mails too
-                $payload = json_decode($event->job->getRawBody());
-                $data = unserialize($payload->data->command);
+                $data = self::queuedCommand($event->job->getRawBody());
                 EmailLog::where('id', $data->mailable->email_log_id)->update([
                     'sent_at' => now(),
                     'status' => 'sent',
@@ -233,8 +233,7 @@ class AppServiceProvider extends ServiceProvider
         });
         Queue::failing(function (JobFailed $event) {
             if (in_array($event->job->resolveName(), [Mail::class, SystemMail::class], true)) { // EVT-10: system mails too
-                $payload = json_decode($event->job->getRawBody());
-                $data = unserialize($payload->data->command);
+                $data = self::queuedCommand($event->job->getRawBody());
                 EmailLog::where('id', $data->mailable->email_log_id)->update([
                     'status' => 'failed',
                     'error' => $event->exception->getMessage(),
@@ -298,5 +297,15 @@ class AppServiceProvider extends ServiceProvider
         }
 
         return $name !== '' && $gateways->contains($name) ? $name : null;
+    }
+
+    /**
+     * A queued job's command, as the worker reads it (CallQueuedHandler): mails are encrypted in the queue (sweep §6 #11).
+     */
+    private static function queuedCommand(string $rawBody): object
+    {
+        $command = json_decode($rawBody)->data->command;
+
+        return unserialize(str_starts_with($command, 'O:') ? $command : app(Encrypter::class)->decrypt($command));
     }
 }

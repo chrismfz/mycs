@@ -95,3 +95,18 @@
 - Κλειδώματα: υπηρεσίες, μετά η παραγγελία (Accept, Cancel), όπως μια πληρωμή ή ένα create που τελειώνει.
 - Pending Orders: tab της λίστας (`?tab=pending`), στο top menu (Orders, active μόνο σε αυτό το tab), badge και μετρητής
   στο dashboard.
+
+## Μυστικά (sweep §6, PR ασφαλείας)
+- **Κανένα μυστικό σε property.** Ο κωδικός ενός λογαριασμού πάει στο `services.password` (encrypted, `$hidden`, εκτός
+  audit) και τα modules τον διαβάζουν ως `password` (`getServiceProperties`). Το DirectAdmin έγραφε το
+  `directadmin_password` καθαρό· το migration `2026_11_06_000000` τα μεταφέρει και σβήνει την τιμή από τα audits.
+  Κωδικοί λογαριασμών με CSPRNG (`Str::password`).
+- **Logs:** `App\Support\Redact`: κλειδιά που ονομάζουν μυστικό (pass, secret, token, key, authorization, cookie,
+  session) σε κάθε βάθος και στο query του URL, τα cPanel `cpsess…`, και κάθε αποθηκευμένο μυστικό (τα encrypted
+  settings) όπου κι αν εμφανιστεί. Το debug log των requests (`RequestListener`) περνά από εκεί. Το email log κρατά το
+  mail χωρίς τα μυστικά των δεδομένων του (`service_password`, ένα password που έδωσε το module)· ο πελάτης τα παίρνει.
+- **Ουρά:** `Mail` και `SystemMail` είναι `ShouldBeEncrypted` (και στα `failed_jobs`)· ο listener του email log τα
+  αποκρυπτογραφεί όπως ο worker.
+- **Φόρμες:** server, gateway, extension δεν στέλνουν ποτέ στη σελίδα ένα αποθηκευμένο μυστικό· κενό = κρατιέται (όπως
+  οι Ρυθμίσεις και τα product settings). Το «Test connection» χρησιμοποιεί το αποθηκευμένο.
+- Test: κάθε πεδίο `password` στο `getConfig()` server/gateway είναι `encrypted`.

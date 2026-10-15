@@ -19,6 +19,7 @@ use App\Models\ServiceCancellation;
 use App\Models\TicketMessage;
 use App\Models\User;
 use App\Services\Invoice\PaymentReminders;
+use App\Support\Redact;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Cache;
@@ -56,6 +57,16 @@ class NotificationHelper
     }
 
     /**
+     * The secrets a mail's data carries: under a secret's name (service_password, a module's password), top level.
+     *
+     * @return list<string>
+     */
+    private static function secretsIn(array $data): array
+    {
+        return array_values(array_filter($data, fn ($value, $key) => Redact::isSecretKey($key) && is_string($value), ARRAY_FILTER_USE_BOTH));
+    }
+
+    /**
      * Send an email notification.
      */
     public static function sendEmailNotification(
@@ -68,11 +79,13 @@ class NotificationHelper
         // Rendered (header and footer too) in the language it was written in, also by the queue worker.
         $mail->locale(app()->getLocale());
 
+        // The log keeps the mail without its secrets (sweep §6 #10): the welcome mail's password, or what a module gave
+        // under a secret's name. The customer's mail keeps them.
         $emailLog = EmailLog::create([
             'client_id' => self::$account?->id,
             'subject' => $mail->envelope()->subject,
             'to' => $user->email,
-            'body' => $mail->render(),
+            'body' => Redact::values($mail->render(), self::secretsIn($data)),
         ]);
 
         // Add the email log id to the payload

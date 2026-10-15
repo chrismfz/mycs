@@ -51,7 +51,7 @@ class ExtensionResource extends Resource
                     ->columnSpanFull()
                     ->description('Specific settings for the selected extension')
                     ->schema([
-                        Grid::make()->schema(fn (Get $get) => ExtensionHelper::getConfigAsInputs('other', $get('extension'), $get('settings')))->key('settings'),
+                        Grid::make()->schema(fn (Get $get, ?Model $record) => ExtensionHelper::getConfigAsInputs('other', $get('extension'), $get('settings'), $record instanceof Extension ? $record : null))->key('settings'),
                     ]),
             ]);
     }

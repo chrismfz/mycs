@@ -6,7 +6,7 @@ branch `feat/order-status`), ετυμηγορία, αν μας αφορά κατ
 αλλαγές κώδικα. Το αντίστοιχο για τη χρέωση: `docs/sweeps/billing.md` (session του billing).
 
 ## Σύνοψη: τι κάνουμε μετά (σειρά)
-1. **PR ασφαλείας** (§6): DirectAdmin password καθαρό σε property (+ `str_shuffle`)· ο κωδικός του welcome mail
+1. **PR ασφαλείας** (§6, **έγινε**: `fix/secrets-exposure`): DirectAdmin password καθαρό σε property (+ `str_shuffle`)· ο κωδικός του welcome mail
    καθαρός στο `email_logs` (90 μέρες)· redaction του debug log (URL/`adminapikey`, `passwd`/`rootpass`, SSO URL)·
    φόρμες server/gateway/extension που στέλνουν τα secrets στον browser· `ShouldBeEncrypted` στα mails (queue,
    `failed_jobs`).

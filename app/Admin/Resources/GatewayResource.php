@@ -6,6 +6,7 @@ use App\Admin\Resources\GatewayResource\Pages\CreateGateway;
 use App\Admin\Resources\GatewayResource\Pages\EditGateway;
 use App\Admin\Resources\GatewayResource\Pages\ListGateways;
 use App\Helpers\ExtensionHelper;
+use App\Models\Extension;
 use App\Models\Gateway;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
@@ -83,7 +84,7 @@ class GatewayResource extends Resource
                     ->columnSpanFull()
                     ->description('Specific settings for the selected gateway')
                     ->schema([
-                        Grid::make()->schema(fn (Get $get) => ExtensionHelper::getConfigAsInputs('gateway', $get('extension'), $get('settings')))->key('settings'),
+                        Grid::make()->schema(fn (Get $get, ?Model $record) => ExtensionHelper::getConfigAsInputs('gateway', $get('extension'), $get('settings'), $record instanceof Extension ? $record : null))->key('settings'),
                     ]),
             ]);
     }

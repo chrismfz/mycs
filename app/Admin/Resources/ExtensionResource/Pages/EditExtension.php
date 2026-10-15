@@ -4,6 +4,7 @@ namespace App\Admin\Resources\ExtensionResource\Pages;
 
 use App\Admin\Resources\ExtensionResource;
 use App\Helpers\ExtensionHelper;
+use App\Models\Extension;
 use Filament\Actions\Action;
 use Filament\Resources\Pages\EditRecord;
 use Illuminate\Database\Eloquent\Model;
@@ -35,9 +36,9 @@ class EditExtension extends EditRecord
 
     protected function mutateFormDataBeforeFill(array $data): array
     {
-        foreach ($this->record->settings as $setting) {
-            $data['settings'][$setting->key] = $setting->value;
-        }
+        // Its stored secrets stay out of the page (sweep §6 #4): left empty, they are kept on save.
+        $record = $this->getRecord();
+        $data['settings'] = $record instanceof Extension ? ExtensionHelper::settingsForForm($record) : [];
 
         return $data;
     }
@@ -65,7 +66,7 @@ class EditExtension extends EditRecord
             return $record;
         }
 
-        ExtensionHelper::saveSettings($record, $data['settings']);
+        ExtensionHelper::saveSettings($record, $record instanceof Extension ? ExtensionHelper::withStoredSecrets($record, $data['settings']) : $data['settings']);
 
         ExtensionHelper::call($record, 'updated', [$record], mayFail: true);
 
