@@ -12,7 +12,8 @@ use MyCS\Vies\ViesInvalidFormat;
  * EU VAT for an instance that sells across the EU (PR G, docs/eu-vat.md; nixpal: home EE, decision 9). Off, nothing
  * changes: the account's country picks its rate (Settings::tax). On:
  * - outside the EU: no VAT (`outside_eu`), whatever rule exists for «all»;
- * - an EU business of another member state with a VAT number VIES found valid: no VAT (`reverse_charge`);
+ * - an EU business (contact type «business») of another member state with a VAT number VIES found valid: no VAT
+ *   (`reverse_charge`);
  * - else the rate of the account's country, home included (a business at home is never reverse charged).
  * Fail closed: a number not checked yet, or that VIES could not check, is charged VAT.
  */
@@ -53,7 +54,7 @@ final class EuVat
         if (!self::enabled() || $client === null) {
             return null;
         }
-        $country = self::iso($client->country);
+        $country = self::territory(self::iso($client->country));
         // No country: its rate as before (the «all» rule, if any). Never a reason to charge none.
         if ($country === null) {
             return null;
@@ -75,7 +76,8 @@ final class EuVat
         if ($contact === null || $home === null || $country === $home) {
             return false;
         }
-        if ($contact->vat_status !== self::STATUS_VALID || $contact->vat_number === null) {
+        // A business only: reverse charge is for a taxable person, not a consumer who types a valid number (ADV-8).
+        if ($contact->type !== 'business' || $contact->vat_status !== self::STATUS_VALID || $contact->vat_number === null) {
             return false;
         }
         $number = self::parse($contact->vat_number, $country);
@@ -106,17 +108,37 @@ final class EuVat
         return self::parse($vat, $country)?->full() ?? strtoupper((string) preg_replace('/[\s.\-]/', '', $vat));
     }
 
-    /** An ISO code from a contact's country (a code, or an old full name). */
+    /**
+     * Places outside a member state's ISO code that are in its VAT territory (Art. 7 of Directive 2006/112/EC): they pay
+     * its VAT (adversarial ADV-3).
+     */
+    public const TERRITORIES = ['MC' => 'FR'];
+
+    /**
+     * An ISO code from a contact's country (a code, or an old full name), or null when it is not a known country: an
+     * unknown code is «no country», never «outside the EU» (adversarial ADV-4). EL, VIES's code for Greece, is GR.
+     */
     public static function iso(mixed $country): ?string
     {
         if (!is_string($country) || trim($country) === '') {
             return null;
         }
         $country = trim($country);
+        $countries = (array) config('app.countries');
         if (strlen($country) !== 2) {
-            $country = array_search($country, (array) config('app.countries'), true) ?: $country;
+            $country = (string) (array_search($country, $countries, true) ?: '');
+        }
+        $country = strtoupper($country);
+        if ($country === 'EL') {
+            return 'GR';
         }
 
-        return strlen($country) === 2 ? strtoupper($country) : null;
+        return array_key_exists($country, $countries) ? $country : null;
+    }
+
+    /** The member state whose VAT a country pays: Monaco France's, the others their own. */
+    public static function territory(?string $iso): ?string
+    {
+        return $iso === null ? null : (self::TERRITORIES[$iso] ?? $iso);
     }
 }

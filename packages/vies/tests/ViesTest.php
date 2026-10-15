@@ -114,6 +114,32 @@ class ViesTest extends TestCase
         $this->assertSame([], $this->sent);
     }
 
+    /** Our own number rejected (a wrong setting): asked again without it, and the result says so (adversarial ADV-6). */
+    public function test_a_rejected_requester_is_left_out_and_flagged(): void
+    {
+        $transport = new class implements Transport
+        {
+            /** @var list<array<string, mixed>> */
+            public array $sent = [];
+
+            public function postJson(string $url, array $body): array
+            {
+                $this->sent[] = $body;
+
+                return isset($body['requesterNumber'])
+                    ? ['status' => 200, 'body' => json_encode(['errorWrappers' => [['error' => 'INVALID_REQUESTER_INFO']]])]
+                    : ['status' => 200, 'body' => json_encode(['valid' => true, 'requestIdentifier' => ['not', 'text']])];
+            }
+        };
+
+        $result = (new Vies($transport, 'EE100000000'))->check('DE129273398');
+
+        $this->assertTrue($result->valid);
+        $this->assertTrue($result->requesterRejected);
+        $this->assertNull($result->requestIdentifier, 'a field of another shape is no value');
+        $this->assertCount(2, $transport->sent);
+    }
+
     public function test_an_unusable_requester_is_left_out(): void
     {
         $this->vies(self::ok(['valid' => true]), 'not a vat')->check('DE129273398');

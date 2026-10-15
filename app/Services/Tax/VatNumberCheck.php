@@ -6,6 +6,7 @@ use App\Helpers\NotificationHelper;
 use App\Models\Contact;
 use App\Models\Staff;
 use App\Models\VatCheck;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use MyCS\Vies\Vies;
 use MyCS\Vies\ViesInvalidFormat;
@@ -34,8 +35,13 @@ final class VatNumberCheck
         try {
             $result = $this->vies->check($number, EuVat::iso($contact->country));
             $outcome = $result->valid ? VatCheck::RESULT_VALID : VatCheck::RESULT_INVALID;
-            $answer = ['name' => $result->name, 'address' => $result->address, 'request_identifier' => $result->requestIdentifier,
-                'error' => null];
+            // VIES's fields as long as their columns (adversarial ADV-2: a long trade name failed the insert on MySQL).
+            $answer = ['name' => self::cut($result->name), 'address' => $result->address === null ? null : mb_substr($result->address, 0, 2000),
+                'request_identifier' => self::cut($result->requestIdentifier), 'error' => null];
+            if ($result->requesterRejected) {
+                self::tellStaffOnce('vat-requester-rejected', 'VIES rejects the own EU VAT number',
+                    'VIES rejects the company\'s own EU VAT number (Settings → Tax → Own EU VAT number). Customers\' numbers are still checked, but without a consultation number, the proof of each check. Correct the setting.');
+            }
         } catch (ViesInvalidFormat $e) {
             $outcome = VatCheck::RESULT_INVALID;
             $answer['error'] = mb_substr($e->getMessage(), 0, 250);
@@ -57,6 +63,19 @@ final class VatNumberCheck
 
         return $this->record($contact, $number, $valid ? VatCheck::RESULT_VALID : VatCheck::RESULT_INVALID,
             ['reason' => $reason, 'staff_id' => $staff?->id], VatCheck::SOURCE_STAFF);
+    }
+
+    /** A notice for staff at most once a day per subject (a setting wrong, numbers unverified): not on every check. */
+    public static function tellStaffOnce(string $key, string $subject, string $message): void
+    {
+        if (Cache::add($key, true, now()->addDay())) {
+            NotificationHelper::sendSystemEmailNotification($subject, e($message));
+        }
+    }
+
+    private static function cut(?string $value): ?string
+    {
+        return $value === null ? null : mb_substr($value, 0, 255);
     }
 
     /** @param array<string, mixed> $answer */

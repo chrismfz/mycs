@@ -18,6 +18,9 @@ class VatRecheck extends Command
 {
     public const RECHECK_DAYS = 30;
 
+    /** A valid number not confirmed for this long is news for staff. */
+    public const UNVERIFIED_DAYS = 60;
+
     /** Per run: VIES throttles. */
     public const BATCH = 100;
 
@@ -41,9 +44,24 @@ class VatRecheck extends Command
             ->orderByRaw('last_tried_at is not null')->orderBy('last_tried_at')->orderBy('id')
             ->limit(self::BATCH)->get()
             ->each(function (Contact $contact) use ($check, &$counts) {
-                $result = $check->check($contact) ?? 'skipped';
+                // One contact's failure does not stop the others (adversarial ADV-2b).
+                try {
+                    $result = $check->check($contact) ?? 'skipped';
+                } catch (\Throwable $e) {
+                    report($e);
+                    $result = 'error';
+                }
                 $counts[$result] = ($counts[$result] ?? 0) + 1;
             });
+        // A number kept valid while VIES does not confirm it is reverse charged without proof: staff hear of it
+        // (adversarial ADV-7), once a day.
+        $unverified = Contact::query()->whereNotNull('primary_of_client_id')->whereNull('archived_at')
+            ->where('vat_status', EuVat::STATUS_VALID)->where('vat_checked_at', '<', now()->subDays(self::UNVERIFIED_DAYS))->count();
+        if ($unverified > 0) {
+            VatNumberCheck::tellStaffOnce('vat-unverified', 'VAT numbers not confirmed by VIES', sprintf(
+                '%d customer(s) are reverse charged with an EU VAT number VIES has not confirmed for more than %d days (VIES gives no answer). Check them in their contacts, or set their status by hand with a reason.',
+                $unverified, self::UNVERIFIED_DAYS));
+        }
         foreach ($counts as $result => $count) {
             $this->line("{$result}: {$count}");
         }

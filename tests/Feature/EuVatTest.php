@@ -90,7 +90,8 @@ class EuVatTest extends TestCase
     {
         $client = User::factory()->create()->client();
         Queue::fake();
-        $client->primaryContact->update(['country' => $country, 'vat_number' => $vat]);
+        // With a VAT number, a business: only a business is reverse charged (adversarial ADV-8).
+        $client->primaryContact->update(['country' => $country, 'vat_number' => $vat] + ($vat !== null ? ['type' => 'business', 'company_name' => 'Example'] : []));
         if ($status !== null) {
             $client->primaryContact->forceFill(['vat_status' => $status, 'vat_checked_at' => now()])->save();
         }
@@ -158,7 +159,7 @@ class EuVatTest extends TestCase
         $client = $this->client('DE');
         Queue::fake();
 
-        $client->primaryContact->update(['vat_number' => 'DE 129 273 398']);
+        $client->primaryContact->update(['vat_number' => 'DE 129 273 398', 'type' => 'business', 'company_name' => 'Example']);
 
         $contact = $client->primaryContact->fresh();
         $this->assertSame([EuVat::STATUS_PENDING, 'DE129273398'], [$contact->vat_status, $contact->vat_checked_number]);

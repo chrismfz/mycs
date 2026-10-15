@@ -10,6 +10,7 @@ use App\Models\Currency;
 use App\Models\Setting;
 use App\Models\TaxRate;
 use App\Rules\Cidr;
+use App\Services\Tax\EuVat;
 use App\Support\CurrentClient;
 use DateTimeZone;
 use Exception;
@@ -1047,6 +1048,10 @@ class Settings
         // Change country to a two-letter country code if it's not already
         if ($country) {
             $country = array_search($country, config('app.countries')) ?: $country;
+        }
+        // EU VAT (PR G): EL is Greece, and Monaco pays France's VAT (adversarial ADV-3/4).
+        if (EuVat::enabled() && ($iso = EuVat::iso($country)) !== null) {
+            $country = EuVat::territory($iso);
         }
 
         // Once per country and request/job (product pages build many prices); reset between requests and queued

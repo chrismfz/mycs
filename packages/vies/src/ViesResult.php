@@ -17,5 +17,7 @@ final class ViesResult
         /** As VIES gives it (ISO 8601), null when absent. */
         public readonly ?string $requestDate,
         public readonly ?string $requestIdentifier,
+        /** VIES rejected the requester's own number: answered without it, so without a consultation number. */
+        public readonly bool $requesterRejected = false,
     ) {}
 }
