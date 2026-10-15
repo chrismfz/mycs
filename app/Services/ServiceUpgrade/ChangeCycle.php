@@ -4,8 +4,8 @@ namespace App\Services\ServiceUpgrade;
 
 use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\DisplayException;
-use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
+use App\Models\ChargeAttempt;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Plan;
@@ -17,13 +17,13 @@ use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
 use App\Services\Order\OrderPricing;
+use App\Services\Payment\SavedMethodCharge;
 use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use MyCS\BillingPeriod\BillingPeriod;
 use MyCS\Pricing\LinePricer;
-use Throwable;
 
 /**
  * A service's billing cycle changes to another plan of its product (SVC-14b, docs/decisions.md §7). WHMCS has no such
@@ -246,16 +246,14 @@ final class ChangeCycle
         $invoice->refresh();
         $agreement = $invoice->client?->fresh()?->autoChargeAgreement();
         if ($agreement !== null && $invoice->status === Invoice::STATUS_UNPAID) {
+            // One charge at a time, with its idempotency key (PR H); a declined one tells the customer.
             try {
-                if ($agreement->gateway === null) {
-                    throw new DisplayException("Invoice #{$invoice->id}: the account's saved payment method is gone.");
+                $attempt = (new SavedMethodCharge)->charge($invoice, $agreement, ChargeAttempt::SOURCE_CHANGE);
+                if ($attempt->status !== ChargeAttempt::STATUS_SUCCEEDED) {
+                    NotificationHelper::invoicePaymentFailedNotification($invoice->client, $invoice);
                 }
-                ExtensionHelper::charge($agreement->gateway, $invoice, $agreement);
-            } catch (Throwable $e) {
-                if (!$e instanceof DisplayException) {
-                    report($e);
-                }
-                NotificationHelper::invoicePaymentFailedNotification($invoice->client, $invoice);
+            } catch (DisplayException) {
+                // Not payable now, or a payment already on its way: nothing was sent.
             }
         }
 

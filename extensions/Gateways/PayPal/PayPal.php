@@ -142,9 +142,14 @@ class PayPal extends Gateway
                         'vault_id' => $billingAgreement->external_reference,
                     ],
                 ],
-            ]);
+            ], $invoice->chargeKey); // the charge attempt's key (PR H): PayPal answers a repeated request with the same order
         } catch (PayPalApiException $e) {
             report($e);
+            // A 5xx says nothing about the money: not a decline. Thrown as it is, so the attempt keeps its request id and is
+            // sent again with it (PR H, code review).
+            if ($e->status >= 500) {
+                throw $e;
+            }
 
             throw new DisplayException(__('Could not process payment. Please try again or use a different payment method.'), 0, $e);
         }

@@ -59,6 +59,12 @@ class Invoice extends Model implements Auditable
      */
     public ?string $payingGroup = null;
 
+    /**
+     * Set while a saved method is charged (PR H, SavedMethodCharge): the attempt's key, the gateway's idempotency key
+     * (Stripe Idempotency-Key, PayPal PayPal-Request-Id). Not a column.
+     */
+    public ?string $chargeKey = null;
+
     public const STATUS_DRAFT = 'draft';
 
     /** Waiting for its payment: WHMCS's «Unpaid», the same word in the database and on every screen. */

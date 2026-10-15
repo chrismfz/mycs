@@ -2,14 +2,16 @@
 
 namespace App\Livewire\Invoices;
 
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
 use App\Models\BillingAgreement;
+use App\Models\ChargeAttempt;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\PaymentGroup;
 use App\Services\Invoice\MassPay;
-use Illuminate\Support\Facades\Cache;
+use App\Services\Payment\SavedMethodCharge;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 
@@ -85,24 +87,21 @@ class PayTogether extends Component
             return $this->notify(__('Invalid payment method.'), 'error');
         }
         // A saved method is charged at once: a second click (or tab) before the payment is recorded would charge the total
-        // twice. After a charge the lock is kept for its time; a declined one frees it to try again (F2 review).
-        $lock = Cache::lock('payment-group-charge:' . $this->paymentGroup->id, 120);
-        if (!$lock->get()) {
-            return $this->notify(__('A payment for these invoices is already on its way.'), 'error');
-        }
+        // twice. The charge attempt holds the group's first invoice under the payment locks (PR H, replacing F2's cache
+        // lock): a declined one frees it to try again.
         try {
-            $charged = ExtensionHelper::chargeGroup($agreement->gateway, $this->paymentGroup, $agreement) === true;
-        } catch (\Throwable $e) {
-            $lock->release();
-
-            throw $e;
+            $attempt = (new SavedMethodCharge)->charge($this->paymentGroup->invoice, $agreement, ChargeAttempt::SOURCE_GROUP, $this->paymentGroup);
+        } catch (DisplayException $e) {
+            return $this->notify($e->getMessage(), 'error');
         }
-        if ($charged) {
+        if ($attempt->status === ChargeAttempt::STATUS_SUCCEEDED) {
             $this->notify(__('Successfully charged the saved payment method.'), 'success');
 
             return $this->redirect(route('invoices.show', $this->paymentGroup->invoice) . '?checkPayment', true);
         }
-        $lock->release();
+        if ($attempt->status === ChargeAttempt::STATUS_UNKNOWN) {
+            return $this->notify(__('We could not confirm the payment with your bank yet. Please check this invoice again in a few minutes before paying again.'), 'error');
+        }
 
         return $this->notify(__('Could not process payment. Please try again or use a different payment method.'), 'error');
     }

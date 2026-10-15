@@ -7,6 +7,7 @@ use App\Helpers\NotificationHelper;
 use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\Service;
+use App\Services\Payment\AutoCharge;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -176,13 +177,19 @@ class PaymentReminders
     }
 
     /**
-     * A gateway subscription charges it on its own schedule (review R1): only then is «it will be charged on the due
-     * date» true. A saved payment method (billing agreement) is charged once, when the cron makes the invoice: still
-     * unpaid days later, that charge failed (the customer was told) and they must pay.
+     * Charged on the due date without the customer (review R1, PR H): a gateway subscription charges it on its own
+     * schedule, and the account's saved method is charged by the cron on the due date (AutoCharge) when all its services
+     * are active. Then the reminder says «it will be charged», not «please pay».
      */
     public static function chargedOnItsOwn(Invoice $invoice): bool
     {
-        return self::services($invoice)->contains(fn (Service $service) => (string) $service->subscription_id !== '');
+        $services = self::services($invoice);
+        if ($services->contains(fn (Service $service) => (string) $service->subscription_id !== '')) {
+            return true;
+        }
+
+        return $services->isNotEmpty() && AutoCharge::agreementFor($invoice) !== null
+            && $services->every(fn (Service $service) => $service->status === Service::STATUS_ACTIVE);
     }
 
     /**

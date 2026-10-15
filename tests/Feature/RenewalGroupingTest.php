@@ -220,6 +220,13 @@ class RenewalGroupingTest extends TestCase
         return BillingAgreement::query()->create(['client_id' => $this->user->client()->id, 'gateway_id' => $gateway->id, 'name' => 'Card', 'external_reference' => 'ref-' . uniqid()]);
     }
 
+    /** The renewals' due date (2026-10-25), when the cron charges the saved method (PR H), and its run that day. */
+    private function onTheDueDate(): void
+    {
+        Carbon::setTestNow('2026-10-25 10:00:00');
+        $this->cron();
+    }
+
     public function test_the_saved_method_is_charged_once_for_the_grouped_invoice(): void
     {
         $this->agreement(); // the account's method (decision 6)
@@ -227,6 +234,7 @@ class RenewalGroupingTest extends TestCase
         $this->service();
 
         $this->cron();
+        $this->onTheDueDate(); // charged on its due date (PR H)
 
         $invoice = $this->renewalInvoices()->sole();
         $this->assertSame([[(int) $invoice->id, '20.00']], GroupFake::$charges);
@@ -241,6 +249,7 @@ class RenewalGroupingTest extends TestCase
         $this->service();
 
         $this->cron();
+        $this->onTheDueDate(); // charged on its due date (PR H)
 
         $invoice = $this->renewalInvoices()->sole();
         $this->assertSame($first->id, (int) $this->user->client()->fresh()->default_billing_agreement_id);
@@ -326,6 +335,7 @@ class RenewalGroupingTest extends TestCase
         Carbon::setTestNow('2026-10-20 11:00:00');
         $this->cron();
         $this->cron();
+        $this->onTheDueDate(); // charged on its due date (PR H), once
 
         $this->assertCount(1, $this->renewalInvoices());
         $this->assertNull($invoice->fresh()->finish_pending_at);
@@ -357,6 +367,12 @@ class RenewalGroupingTest extends TestCase
         $invoice = $this->renewalInvoices()->sole();
         $this->assertNull($invoice->fresh()->finish_pending_at);
         $this->assertSame('5.00', number_format((float) Credit::query()->where('client_id', $this->user->client()->id)->value('amount'), 2, '.', ''));
+        // Charged on its due date (PR H): the credit still fails then, and does not hold back the charge either.
+        Carbon::setTestNow('2026-10-25 10:00:00');
+        try {
+            Artisan::call('app:cron-job');
+        } catch (RuntimeException) {
+        }
         $this->assertSame([[(int) $invoice->id, '20.00']], GroupFake::$charges);
         Event::assertDispatchedTimes(Finalized::class, 1);
     }

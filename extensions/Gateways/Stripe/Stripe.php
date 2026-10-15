@@ -7,6 +7,7 @@ use App\Classes\Extension\Gateway;
 use App\Events\Service\RenewalTaxChanged;
 use App\Events\Service\Updated;
 use App\Events\ServiceCancellation\Created;
+use App\Exceptions\ChargeNeedsAction;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\BillingAgreement;
@@ -23,6 +24,7 @@ use App\Services\Money\GatewayLog;
 use Carbon\Carbon;
 use Exception;
 use Filament\Notifications\Notification;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -857,11 +859,17 @@ class Stripe extends Gateway
         // Create customer if not exists
         if (!$stripeCustomerId) {
             throw new DisplayException('Stripe customer not found');
-        } else {
+        }
+        try {
             $customer = $this->request('get', '/customers/' . $stripeCustomerId->value);
+        } catch (Exception $e) {
+            report($e);
+
+            throw new DisplayException('Could not process payment'); // nothing was charged yet
         }
 
-        // Create payment intent
+        // Create payment intent. The charge attempt's key is the idempotency key (PR H): a request repeated by the network
+        // or a retry of the same attempt never charges twice.
         try {
             $intent = $this->request('post', '/payment_intents', [
                 'amount' => (int) round($amount * 100),
@@ -871,16 +879,36 @@ class Stripe extends Gateway
                 'off_session' => 'true',
                 'confirm' => 'true',
                 'metadata' => array_filter(['invoice_id' => $invoice->id, 'billing_agreement_id' => $billingAgreement->id, 'payment_group' => $invoice->payingGroup]),
-            ]);
+            ], $invoice->chargeKey);
         } catch (Exception $e) {
-            if ($e instanceof RequestException && $e->response->status() === 400) {
-                $error = $e->response->object()->error;
+            // No answer about the money (a timeout, a 5xx): not a decline. Thrown as it is, so the attempt keeps its key and
+            // is sent again with it (PR H, adversarial ADV-3b).
+            if ($e instanceof ConnectionException || ($e instanceof RequestException && $e->response->status() >= 500)) {
+                throw $e;
+            }
+            if ($e instanceof RequestException && in_array($e->response->status(), [400, 402], true)) {
+                $error = $e->response->object()->error ?? null;
                 // If error is invalid_request_error and message contains "The provided currency" we can show the message
-                if ($error->type === 'invalid_request_error' && Str::contains($error->message, 'The currency provided')) {
+                if (($error->type ?? null) === 'invalid_request_error' && Str::contains((string) ($error->message ?? ''), 'The currency provided')) {
                     throw new DisplayException('Cannot charge the billing agreement because the card does not support the invoice currency (' . $invoice->currency_code . '). Please use another payment method.');
+                }
+                // The bank asks the customer to confirm (3-D Secure): not retried, the customer pays the invoice (PR H).
+                if (($error->code ?? null) === 'authentication_required' || ($error->payment_intent->status ?? null) === 'requires_action') {
+                    throw new ChargeNeedsAction(__('Your bank asks you to confirm this payment: please pay the invoice yourself.'));
+                }
+                if (isset($error->decline_code) || isset($error->code)) {
+                    throw new DisplayException('Card declined: ' . ($error->decline_code ?? $error->code));
                 }
             }
             throw new DisplayException('Could not process payment');
+        }
+        // Confirmed off session: succeeded, or processing (a bank debit). Anything else was not charged.
+        $status = $intent->status ?? null;
+        if ($status === 'requires_action') {
+            throw new ChargeNeedsAction(__('Your bank asks you to confirm this payment: please pay the invoice yourself.'));
+        }
+        if (!in_array($status, ['succeeded', 'processing'], true)) {
+            throw new DisplayException('Could not process payment (' . ($status ?? 'no status') . ')');
         }
 
         return true;

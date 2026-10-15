@@ -330,5 +330,11 @@
     "One of these invoices changed: choose them again from your invoices.": "Ένα από αυτά τα τιμολόγια άλλαξε: διάλεξέ τα ξανά από τα τιμολόγιά σου.",
     "A payment for these invoices is already on its way.": "Μια πληρωμή για αυτά τα τιμολόγια είναι ήδη σε εξέλιξη.",
     "Check VAT number": "Έλεγχος ΑΦΜ ΕΕ",
-    "Set VAT status": "Ορισμός κατάστασης ΑΦΜ ΕΕ"
+    "Set VAT status": "Ορισμός κατάστασης ΑΦΜ ΕΕ",
+    "This invoice is not open for payment.": "Αυτό το τιμολόγιο δεν είναι ανοιχτό για πληρωμή.",
+    "Nothing is left to pay on this invoice.": "Δεν απομένει τίποτα να πληρωθεί σε αυτό το τιμολόγιο.",
+    "A payment for this invoice is already on its way.": "Μια πληρωμή για αυτό το τιμολόγιο είναι ήδη σε εξέλιξη.",
+    "Your bank asks you to confirm this payment: please pay the invoice yourself.": "Η τράπεζά σας ζητά επιβεβαίωση της πληρωμής: πληρώστε το τιμολόγιο εσείς.",
+    "Your bank asks you to confirm this payment: please pay the invoice with your card instead.": "Η τράπεζά σας ζητά επιβεβαίωση της πληρωμής: πληρώστε το τιμολόγιο με την κάρτα σας.",
+    "We could not confirm the payment with your bank yet. Please check this invoice again in a few minutes before paying again.": "Δεν μπορέσαμε ακόμα να επιβεβαιώσουμε την πληρωμή με την τράπεζά σας. Ελέγξτε ξανά το τιμολόγιο σε λίγα λεπτά πριν πληρώσετε ξανά."
 }

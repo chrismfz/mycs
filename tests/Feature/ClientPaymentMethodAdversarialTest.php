@@ -110,6 +110,13 @@ class ClientPaymentMethodAdversarialTest extends TestCase
         $this->artisan('app:cron-job')->assertExitCode(0);
     }
 
+    /** The renewals' due date (2026-10-25), when the cron charges the saved method (PR H), and its run that day. */
+    private function onTheDueDate(): void
+    {
+        Carbon::setTestNow('2026-10-25 10:00:00');
+        $this->cron();
+    }
+
     /** @return Collection<int, Invoice> */
     private function renewalInvoices(): Collection
     {
@@ -140,8 +147,9 @@ class ClientPaymentMethodAdversarialTest extends TestCase
         $this->service();
         $this->service();
 
-        $this->cron();
-        $this->cron(); // the same day again: nothing left to finish
+        $this->cron(); // billed; charged on its due date (PR H)
+        $this->onTheDueDate();
+        $this->cron(); // the same day again: charged once
 
         $invoice = $this->renewalInvoices()->sole();
         $this->assertSame([[(int) $invoice->id, $card->id, '20.00']], C2AdvPay::$charges);
@@ -154,6 +162,7 @@ class ClientPaymentMethodAdversarialTest extends TestCase
         $regular = $this->service();
 
         $this->cron();
+        $this->onTheDueDate();
 
         $this->assertCount(2, $this->renewalInvoices());
         $charged = $this->renewalInvoices()->first(fn (Invoice $invoice) => $invoice->items()->where('reference_id', $regular->id)->exists());
@@ -168,6 +177,7 @@ class ClientPaymentMethodAdversarialTest extends TestCase
         $this->service();
 
         $this->cron();
+        $this->onTheDueDate();
         $this->cron();
 
         $this->assertCount(2, $this->renewalInvoices());
