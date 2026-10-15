@@ -10,7 +10,9 @@ use App\Admin\Resources\InvoiceResource;
 use App\Classes\PDF;
 use App\Exceptions\DisplayException;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Invoice\StaffLineEdit;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
@@ -31,10 +33,41 @@ class EditInvoice extends EditRecord
     public function save(bool $shouldRedirect = true, bool $shouldSendSavedNotification = true): void
     {
         try {
-            parent::save($shouldRedirect, $shouldSendSavedNotification);
+            // Under the payment locks (customer, then invoice), taken before the lines are written: a payment landing
+            // now waits for this save, and an invoice with payments keeps its amounts (StaffLineEdit, sweep Π2.11).
+            // Filament's own transaction is a savepoint inside this one: «Saved» is sent just before the outer commit.
+            StaffLineEdit::run($this->record->getKey(), false, function (Invoice $invoice) use ($shouldRedirect, $shouldSendSavedNotification) {
+                if ($this->linesChangeAmounts()) {
+                    // Also when this save reopens it (cancelled → unpaid): the status it will have, not only the stored one.
+                    StaffLineEdit::refuseWithPayments($invoice, $this->data['status'] ?? null);
+                }
+                parent::save($shouldRedirect, $shouldSendSavedNotification);
+            });
         } catch (DisplayException $e) {
             Notification::make()->danger()->title(__('Invoice not saved'))->body($e->getMessage())->send();
         }
+    }
+
+    /** The form adds, takes off or changes the amount of a line (price, quantity, taxed): not only its description. */
+    private function linesChangeAmounts(): bool
+    {
+        // Read locked (adversarial A4): an app change committed while this save waited for the invoice lock is seen.
+        $stored = InvoiceItem::query()->where('invoice_id', $this->record->getKey())->lockForUpdate()->get()
+            ->mapWithKeys(fn (InvoiceItem $line) => ['record-' . $line->getKey() => self::amounts($line->price, $line->quantity, $line->taxed)]);
+        $form = collect($this->data['items'] ?? [])
+            ->map(fn ($line) => self::amounts($line['price'] ?? null, $line['quantity'] ?? null, $line['taxed'] ?? null));
+
+        return $stored->keys()->sort()->values()->all() !== $form->keys()->sort()->values()->all()
+            || $form->contains(fn (array $amounts, string $key) => $stored->get($key) !== $amounts);
+    }
+
+    /** @return array{0: int, 1: string, 2: bool} */
+    private static function amounts(mixed $price, mixed $quantity, mixed $taxed): array
+    {
+        // A quantity as the line stores and bills it, a whole number; anything else is a change (adversarial A1).
+        $units = is_numeric($quantity) && (float) $quantity == (int) $quantity ? (string) (int) $quantity : 'x' . $quantity;
+
+        return [RecordPaymentService::toCents(is_numeric($price) ? $price : 0), $units, (bool) $taxed];
     }
 
     /** The status the form was filled with (or last saved): to tell a change staff made from one made meanwhile. */

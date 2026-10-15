@@ -131,6 +131,9 @@ class InvoiceResource extends Resource
                             ->label('Quantity')
                             ->required()
                             ->numeric()
+                            // Stored and billed as a whole number (adversarial A1 of PR B): «0.99996» would bill nothing.
+                            ->minValue(1)
+                            ->rule('regex:/^\d+(\.0+)?$/')
                             ->placeholder('Enter the quantity of the product'),
                         // Δ1: the price is net; the line adds the account's tax when taxed (rate kept from when it was made).
                         Toggle::make('taxed')
