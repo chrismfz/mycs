@@ -36,6 +36,14 @@ final class SplitInvoice
             if (count($lineIds) >= $all->count()) {
                 throw new DisplayException(__('At least one line stays on the invoice.'));
             }
+            // Each part bills something (adversarial E-ADV-7): a discount line alone would make an invoice of less than
+            // nothing, and the other part would bill without it; a part of nothing would stay open, reminded.
+            $lines = InvoiceItem::query()->where('invoice_id', $invoice->id)->get();
+            $moving = (int) $lines->whereIn('id', $lineIds)->sum(fn (InvoiceItem $line) => $line->totalCents());
+            $staying = (int) $lines->whereNotIn('id', $lineIds)->sum(fn (InvoiceItem $line) => $line->totalCents());
+            if ($moving <= 0 || $staying <= 0) {
+                throw new DisplayException(__('Each invoice must bill more than nothing: keep a discount with the lines it discounts.'));
+            }
 
             $new = new Invoice([
                 'client_id' => $invoice->client_id,

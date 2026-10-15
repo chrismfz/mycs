@@ -35,6 +35,12 @@ class MergeInvoicesAction
                     ->default($records->min('id')),
             ])
             ->action(function (Collection $records, array $data): void {
+                // Each invoice, as staff may change it (adversarial E-ADV-4: immutable invoices are changed only as drafts).
+                if ($records->contains(fn (Invoice $invoice) => !auth()->user()?->can('update', $invoice))) {
+                    Notification::make()->danger()->title(__('Invoices not merged'))->body(__('You may not change one of these invoices.'))->send();
+
+                    throw new Halt;
+                }
                 try {
                     $target = (new MergeInvoices)->handle((int) $data['target'], $records->pluck('id')->map(fn ($id) => (int) $id)->all());
                 } catch (DisplayException $e) {

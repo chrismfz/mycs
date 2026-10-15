@@ -303,5 +303,7 @@
     "One of these invoices changed meanwhile: reload the page.": "Ένα από αυτά τα τιμολόγια άλλαξε στο μεταξύ: ανανέωσε τη σελίδα.",
     "Invoice :invoice is the invoice of an order: it is not merged or split.": "Το τιμολόγιο :invoice είναι το τιμολόγιο μιας παραγγελίας: δεν συγχωνεύεται ούτε χωρίζεται.",
     "Invoice :invoice bills a service that has ended: cancel it, or keep it as a debt.": "Το τιμολόγιο :invoice χρεώνει υπηρεσία που έληξε: ακύρωσέ το ή κράτησέ το ως οφειλή.",
-    "This invoice is part of a merge: it is kept, so the merge can be traced.": "Αυτό το τιμολόγιο είναι μέρος συγχώνευσης: κρατιέται, για να φαίνεται η συγχώνευση."
+    "This invoice is part of a merge: it is kept, so the merge can be traced.": "Αυτό το τιμολόγιο είναι μέρος συγχώνευσης: κρατιέται, για να φαίνεται η συγχώνευση.",
+    "Each invoice must bill more than nothing: keep a discount with the lines it discounts.": "Κάθε τιμολόγιο πρέπει να χρεώνει κάτι: κράτα μια έκπτωση μαζί με τις γραμμές που εκπίπτει.",
+    "You may not change one of these invoices.": "Δεν μπορείς να αλλάξεις ένα από αυτά τα τιμολόγια."
 }

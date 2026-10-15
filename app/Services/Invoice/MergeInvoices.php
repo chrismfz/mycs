@@ -53,6 +53,12 @@ final class MergeInvoices
             if ($earliest !== null && $target->due_at?->toDateString() !== $earliest) {
                 $target->update(['due_at' => $earliest]);
             }
+            // And the earliest issue date: a suspension that waits for an invoice issued N days ago counts from the oldest
+            // (adversarial E-ADV-5b). Not a money field.
+            $issued = $invoices->min('created_at');
+            if ($issued !== null && $target->created_at !== null && $issued->lt($target->created_at)) {
+                Invoice::query()->whereKey($target->id)->update(['created_at' => $issued]);
+            }
             foreach ($sources as $source) {
                 $source->keep_periods_billable = true; // nothing left on it to give up on
                 $source->merged_into_id = $target->id;
