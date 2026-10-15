@@ -161,7 +161,8 @@ class McpProposalsTest extends TestCase
         Mail::assertQueued(ResentMail::class);
 
         MycsServer::actingAs($proposer, 'staff')->tool(ProposalTool::class, ['proposal_id' => $done->id])->assertOk()->assertSee('"status": "done"');
-        MycsServer::actingAs($approver, 'staff')->tool(ProposalTool::class, ['proposal_id' => $done->id])->assertHasErrors(['No such proposal of yours.']);
+        $onlooker = $this->staff(['admin.mcp.use']);
+        MycsServer::actingAs($onlooker, 'staff')->tool(ProposalTool::class, ['proposal_id' => $done->id])->assertHasErrors(['No such proposal you may follow.']);
     }
 
     public function test_server_test_lists_and_tests_without_changing_anything(): void

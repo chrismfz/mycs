@@ -102,7 +102,14 @@ reject it in **Other → MCP Proposals** within a day; the menu shows how many a
   proposed again while one waits is the same proposal.
 - **Checked again on approval:** the approver's permission, and the state (the module action still open and given up;
   the mail still there). What fails is kept as **failed**, with why.
-- **The result is kept**, and the proposer asks `proposal` for it. Undecided proposals expire after a day; decided ones
-  are kept 90 days. Approvals and rejections are audited.
+- **The result is kept**, masked like every tool's error, and `proposal` tells it to the proposer and to whoever may
+  decide it. The same request asked again, by anyone, is that one proposal.
+- **Lifetimes:** undecided proposals expire after a day. A run interrupted by a timeout or a deploy is marked failed
+  after an hour, with its outcome unknown. Decided proposals are kept 90 days.
+- **Audit:** approvals and rejections are audited with who decided.
+- **Who sees what:** staff see their own proposals and those they may decide. A resend's addresses and subject are not
+  for everyone.
+- **Limit:** at most 30 waiting proposals per member of staff.
 - **`server_test`** (Update Servers) needs no approval: it changes nothing. It runs the admin's Test Connection with the
-  stored settings.
+  stored settings, at most once a minute per server; otherwise it returns the last result, so a looping agent never
+  gets MyCS locked out.

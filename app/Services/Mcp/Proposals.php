@@ -8,7 +8,10 @@ use App\Models\ModuleAction;
 use App\Models\Staff;
 use App\Services\Mail\MailAudit;
 use App\Services\Ops\NotFound;
+use App\Services\Ops\Scrub;
 use App\Services\Service\RetryModuleAction;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Throwable;
 
@@ -21,6 +24,12 @@ use Throwable;
 final class Proposals
 {
     public const HOURS = 24;
+
+    /** Pending proposals one member of staff may have at once: an agent cannot bury the queue (review R8). */
+    public const PENDING_PER_PROPOSER = 30;
+
+    /** An approved run not finished after this is taken as interrupted (review R2). */
+    public const RUN_MINUTES = 60;
 
     public const RETRY_MODULE_ACTION = 'retry_module_action';
 
@@ -42,10 +51,16 @@ final class Proposals
             throw new InvalidArgumentException('Your role may not ask for this.');
         }
         [$payload, $summary] = self::check($type, $payload);
-        $open = McpProposal::query()->where('type', $type)->where('status', McpProposal::STATUS_PENDING)
-            ->where('expires_at', '>', now())->get()->first(fn (McpProposal $proposal) => $proposal->payload == $payload);
+        // The same request, already waiting (whoever asked): one to approve. Who asks again follows it with `proposal`,
+        // which shows what the caller may decide too (review R1).
+        $open = McpProposal::query()->where('type', $type)->where('status', McpProposal::STATUS_PENDING)->where('expires_at', '>', now())
+            ->get()->first(fn (McpProposal $proposal) => $proposal->payload == $payload);
         if ($open !== null) {
-            return $open; // the same request, already waiting: one to approve
+            return $open;
+        }
+        $pending = McpProposal::query()->where('proposed_by', $staff->id)->where('status', McpProposal::STATUS_PENDING)->where('expires_at', '>', now());
+        if ($pending->count() >= self::PENDING_PER_PROPOSER) {
+            throw new InvalidArgumentException('Too many of your proposals are waiting: staff decide those first.');
         }
 
         return McpProposal::query()->create(['type' => $type, 'payload' => $payload, 'summary' => $summary, 'proposed_by' => $staff->id,
@@ -58,18 +73,16 @@ final class Proposals
         if (!$staff->hasPermission(self::permission($proposal->type))) {
             throw new InvalidArgumentException('Your role may not approve this.');
         }
-        $claimed = McpProposal::query()->whereKey($proposal->id)->where('status', McpProposal::STATUS_PENDING)->where('expires_at', '>', now())
-            ->update(['status' => McpProposal::STATUS_APPROVED, 'decided_by' => $staff->id, 'decided_at' => now()]);
-        if ($claimed !== 1) {
-            throw new InvalidArgumentException('It is no longer waiting (decided, or expired).');
-        }
+        $proposal = self::decide($proposal, McpProposal::STATUS_APPROVED, $staff)
+            ?? throw new InvalidArgumentException('It is no longer waiting (decided, or expired).');
         try {
             [$payload] = self::check($proposal->type, $proposal->payload);
             $result = self::run($proposal->type, $payload, $staff);
-            $proposal->forceFill(['status' => McpProposal::STATUS_DONE, 'result' => mb_substr($result, 0, 2000)])->save();
+            $proposal->update(['status' => McpProposal::STATUS_DONE, 'result' => mb_substr((string) Scrub::text($result), 0, 2000)]);
         } catch (Throwable $e) {
             report($e);
-            $proposal->forceFill(['status' => McpProposal::STATUS_FAILED, 'result' => mb_substr($e->getMessage(), 0, 2000)])->save();
+            // The agent reads it (`proposal`): masked as every tool's error (review R3).
+            $proposal->update(['status' => McpProposal::STATUS_FAILED, 'result' => mb_substr((string) Scrub::text($e->getMessage()), 0, 2000)]);
         }
 
         return $proposal->refresh();
@@ -77,14 +90,54 @@ final class Proposals
 
     public static function reject(McpProposal $proposal, Staff $staff): void
     {
-        McpProposal::query()->whereKey($proposal->id)->where('status', McpProposal::STATUS_PENDING)
-            ->update(['status' => McpProposal::STATUS_REJECTED, 'decided_by' => $staff->id, 'decided_at' => now()]);
+        self::decide($proposal, McpProposal::STATUS_REJECTED, $staff);
     }
 
-    /** Pending past their day: expired (the cron). */
+    /**
+     * The decision, once: the row locked, still pending and not expired, then saved through the model, so the audit
+     * says who decided (review R4). Null: someone decided first, or it expired.
+     */
+    private static function decide(McpProposal $proposal, string $status, Staff $staff): ?McpProposal
+    {
+        return DB::transaction(function () use ($proposal, $status, $staff) {
+            $locked = McpProposal::query()->whereKey($proposal->id)->lockForUpdate()->first();
+            if ($locked === null || !$locked->isOpen()) {
+                return null;
+            }
+            $locked->update(['status' => $status, 'decided_by' => $staff->id, 'decided_at' => now()]);
+
+            return $locked;
+        });
+    }
+
+    /**
+     * The cron: pending past their day expire; a run approved but never finished (a timeout, a deploy) is failed with
+     * its outcome unknown, for staff to check (review R2).
+     */
     public static function expire(): int
     {
-        return McpProposal::query()->where('status', McpProposal::STATUS_PENDING)->where('expires_at', '<=', now())->update(['status' => McpProposal::STATUS_EXPIRED]);
+        $expired = McpProposal::query()->where('status', McpProposal::STATUS_PENDING)->where('expires_at', '<=', now())->get()
+            ->each(fn (McpProposal $proposal) => $proposal->update(['status' => McpProposal::STATUS_EXPIRED]))->count();
+        $interrupted = McpProposal::query()->where('status', McpProposal::STATUS_APPROVED)->where('decided_at', '<', now()->subMinutes(self::RUN_MINUTES))->get()
+            ->each(fn (McpProposal $proposal) => $proposal->update(['status' => McpProposal::STATUS_FAILED,
+                'result' => 'Interrupted while running: its outcome is unknown. Check what it was to change before proposing it again.']))->count();
+
+        return $expired + $interrupted;
+    }
+
+    /**
+     * The proposals a member of staff may follow: their own, and those they may decide (the same as could ask them).
+     *
+     * @template T of Builder
+     *
+     * @param  T  $query
+     * @return T
+     */
+    public static function visibleTo(Builder $query, ?Staff $staff): Builder
+    {
+        $types = array_keys(array_filter(self::PERMISSIONS, fn (string $permission) => $staff?->hasPermission($permission) ?? false));
+
+        return $query->where(fn (Builder $query) => $query->where('proposed_by', $staff === null ? 0 : $staff->id)->orWhereIn('type', $types));
     }
 
     public static function permission(string $type): string
@@ -134,8 +187,10 @@ final class Proposals
         }
         $copies = (bool) ($payload['with_copies'] ?? false);
 
-        return [['email_log_id' => $log->id, 'to' => $to, 'with_copies' => $copies],
-            "Resend mail #{$log->id} «{$log->subject}» to {$to}" . ($to !== $log->to ? " (it went to {$log->to})" : '') . ($copies ? ', with its Cc/Bcc.' : '.')];
+        // The addresses whole, the subject shortened: the summary fits its column (review R7).
+        return [['email_log_id' => $log->id, 'to' => $to, 'with_copies' => $copies], mb_substr(
+            "Resend mail #{$log->id} «" . mb_strimwidth($log->subject, 0, 80, '…') . "» to {$to}" . ($to !== $log->to ? " (it went to {$log->to})" : '')
+            . ($copies ? ', with its Cc/Bcc.' : '.'), 0, 500)];
     }
 
     /** @param array<string, mixed> $payload */

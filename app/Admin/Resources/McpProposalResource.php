@@ -12,6 +12,7 @@ use Filament\Resources\Resource;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 use InvalidArgumentException;
 
@@ -28,7 +29,7 @@ class McpProposalResource extends Resource
 
     public static function getNavigationBadge(): ?string
     {
-        $pending = McpProposal::query()->where('status', McpProposal::STATUS_PENDING)->where('expires_at', '>', now())->count();
+        $pending = self::getEloquentQuery()->where('status', McpProposal::STATUS_PENDING)->where('expires_at', '>', now())->count();
 
         return $pending > 0 ? (string) $pending : null;
     }
@@ -43,6 +44,12 @@ class McpProposalResource extends Resource
         $staff = Auth::guard('staff')->user();
 
         return $staff instanceof Staff ? $staff : null;
+    }
+
+    /** Their own proposals, and those they may decide (review R5: a resend's recipients and subject are not for everyone). */
+    public static function getEloquentQuery(): Builder
+    {
+        return Proposals::visibleTo(parent::getEloquentQuery(), self::staff());
     }
 
     public static function table(Table $table): Table
@@ -65,7 +72,7 @@ class McpProposalResource extends Resource
             ])
             ->filters([
                 SelectFilter::make('status')->default(McpProposal::STATUS_PENDING)->options([
-                    McpProposal::STATUS_PENDING => 'Pending', McpProposal::STATUS_DONE => 'Done', McpProposal::STATUS_FAILED => 'Failed',
+                    McpProposal::STATUS_PENDING => 'Pending', McpProposal::STATUS_APPROVED => 'Running', McpProposal::STATUS_DONE => 'Done', McpProposal::STATUS_FAILED => 'Failed',
                     McpProposal::STATUS_REJECTED => 'Rejected', McpProposal::STATUS_EXPIRED => 'Expired',
                 ]),
             ])
