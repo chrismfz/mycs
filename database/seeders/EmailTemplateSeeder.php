@@ -454,7 +454,7 @@ class EmailTemplateSeeder extends Seeder
                 	</a>
                 </div>
                 HTML,
-            'mail_enabled' => 'choice_on',
+            'mail_enabled' => 'force',
             'in_app_enabled' => 'choice_on',
             'in_app_title' => 'Service cancelled',
             'in_app_body' => 'Your service {{ service.product.name }} has ended, as you asked.',

@@ -46,7 +46,9 @@ class TerminateJob implements ShouldQueue
         }
         // Ended because its customer asked: an immediate request was already told it ends now (its confirmation), the
         // end of the period is told so; any other end is «terminated» (sweep modules §21).
-        $requested = $this->service->cancellation()->latest('id')->value('type');
+        // Only when it ended as cancelled (the request's paths): a terminated one ended for another reason (non-payment,
+        // staff), whatever request a revived service still has on file (review 2).
+        $requested = $this->service->fresh()?->status === Service::STATUS_CANCELLED ? $this->service->cancellation()->latest('id')->value('type') : null;
         if ($requested === 'immediate') {
             return;
         }

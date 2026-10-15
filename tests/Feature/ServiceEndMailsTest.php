@@ -8,6 +8,7 @@ use App\Mail\Mail;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\ServiceCancellation;
+use App\Models\Setting;
 use App\Models\Staff;
 use App\Models\User;
 use Filament\Facades\Filament;
@@ -30,6 +31,8 @@ class ServiceEndMailsTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Stored, not only in config: a setting saved in the run flushes the settings cache back to what is stored (review 1).
+        Setting::query()->updateOrCreate(['key' => 'mail_disable', 'settingable_type' => null, 'settingable_id' => null], ['value' => '0', 'type' => 'boolean']);
         config(['settings.mail_disable' => false]);
         MailFacade::fake();
         $user = User::factory()->create();
@@ -84,6 +87,23 @@ class ServiceEndMailsTest extends TestCase
         DB::table('service_cancellations')->delete();
         (new TerminateJob($this->service->fresh()))->handle();
         $this->assertSame(['server_terminated'], $this->mailed());
+    }
+
+    public function test_a_revived_service_terminated_for_another_reason_is_told_terminated(): void
+    {
+        ServiceCancellation::query()->create(['service_id' => $this->service->id, 'type' => 'immediate', 'reason' => 'Moving']);
+        $this->service->update(['status' => 'terminated']); // staff revived it, the cron ended it for non-payment
+
+        (new TerminateJob($this->service->fresh()))->handle();
+
+        $this->assertSame(['server_terminated'], $this->mailed());
+    }
+
+    public function test_staff_suspend_of_a_service_without_a_module_without_notifying_sends_nothing(): void
+    {
+        $this->staffSuspends(false);
+
+        $this->assertSame(['suspended', []], [$this->service->fresh()->status, $this->mailed()]);
     }
 
     public function test_the_template_reaches_a_live_database_in_both_languages(): void
