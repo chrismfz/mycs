@@ -264,6 +264,8 @@
     "This invoice has payments: its lines keep their amounts. Refund the payment first (back, or to account credit), or give a discount with a note.": "Αυτό το τιμολόγιο έχει πληρωμές: οι γραμμές του κρατούν τα ποσά τους. Επιστρέψτε πρώτα την πληρωμή (πίσω ή σε πίστωση λογαριασμού) ή δώστε έκπτωση με σημείωμα.",
     "Separate invoices": "Ξεχωριστά τιμολόγια",
     "Charge renewals automatically": "Αυτόματη χρέωση ανανεώσεων",
+    "You switched account in another window: reload this page.": "Αλλάξατε λογαριασμό σε άλλο παράθυρο: φορτώστε ξανά αυτή τη σελίδα.",
+    "This payment method was removed.": "Αυτός ο τρόπος πληρωμής έχει αφαιρεθεί.",
     "Renewal invoices are charged to the saved payment method below.": "Τα τιμολόγια ανανέωσης χρεώνονται στον αποθηκευμένο τρόπο πληρωμής παρακάτω.",
     "Payment method for renewals": "Τρόπος πληρωμής ανανεώσεων",
     "None": "Κανένας",
