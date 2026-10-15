@@ -129,6 +129,23 @@ class LicensingTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_a_good_check_is_in_the_access_log_once_a_day(): void
+    {
+        Carbon::setTestNow('2026-10-20 10:00:00');
+        ExtensionHelper::createServer($this->service);
+        $key = License::query()->sole()->license_key;
+
+        $this->check($key);
+        $this->check($key);
+        $this->assertSame(['License Active'], LicenseAccessLog::query()->pluck('message')->all(), 'one a day, not one a check');
+        $this->assertSame('198.51.100.7', LicenseAccessLog::query()->value('ip'));
+
+        Carbon::setTestNow('2026-10-21 10:00:00');
+        $this->check($key);
+        $this->assertSame(2, LicenseAccessLog::query()->where('message', 'License Active')->count());
+        Carbon::setTestNow();
+    }
+
     public function test_the_access_log_is_pruned_after_90_days(): void
     {
         LicenseAccessLog::query()->create(['message' => 'old', 'created_at' => now()->subDays(91)]);
