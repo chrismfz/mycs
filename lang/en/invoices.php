@@ -109,4 +109,12 @@ return [
         'cycle_changed' => 'Cancelled: the billing cycle of the service changed.',
     ],
 
+    // Cardlink/Eurobank (PR H2a)
+    'cardlink_redirect' => 'You are being taken to the bank\'s secure page to pay by card, Apple/Google Pay or IRIS.',
+    'cardlink_continue' => 'Continue to payment',
+    'cardlink_paid' => 'Thank you, your payment was received.',
+    'cardlink_not_paid' => 'The payment was not completed. You can try again from the invoice.',
+    'cardlink_unknown' => 'This payment could not be confirmed. If you were charged, please contact us.',
+    'cardlink_back' => 'Back to your invoices',
+
 ];
