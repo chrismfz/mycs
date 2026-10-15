@@ -48,7 +48,7 @@ class InvoiceObserver
 
         event(new InvoiceEvent\Created($invoice));
 
-        if ($invoice->status === Invoice::STATUS_DRAFT) {
+        if ($invoice->status === Invoice::STATUS_DRAFT || $invoice->finalize_later) {
             return;
         }
 

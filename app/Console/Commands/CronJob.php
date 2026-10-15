@@ -29,6 +29,7 @@ use App\Services\Licensing\Licenses;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Service\RenewServiceService;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
+use App\Support\AfterCommit;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Console\Command;
@@ -63,6 +64,13 @@ class CronJob extends Command
     private array $notices = [];
 
     /**
+     * This run's renewal invoices by group key (PR C): the invoice the next line of the same group goes on.
+     *
+     * @var array<string, int>
+     */
+    private array $renewalGroups = [];
+
+    /**
      * Execute the console command.
      */
     public function handle()
@@ -85,6 +93,8 @@ class CronJob extends Command
     private function runSteps()
     {
         Config::set('audit.console', true);
+        // One command object can run twice (a test, a long-lived worker): nothing carries over from a run to the next.
+        $this->renewalGroups = $this->failures = $this->notices = [];
 
         // Each job commits on its own (renewals: per service): one failure no longer rolls back the
         // whole run, nothing stays locked for the whole run, and each step sees what the previous
@@ -153,6 +163,8 @@ class CronJob extends Command
                         $this->failures["invoices_created #{$id}"] = $e;
                     }
                 }
+                // Grouped renewals (PR C): emailed, paid by credit and charged once all their lines are on them.
+                $this->finishRenewalInvoices();
 
                 return $number;
             }, transaction: false);
@@ -698,71 +710,152 @@ class CronJob extends Command
             $periodEnd = $nextStart;
         }
 
-        // Create invoice
-        $invoice = $service->invoices()->make([
-            'client_id' => $service->client_id,
-            'status' => Invoice::STATUS_UNPAID,
-            'due_at' => $periodStart,
-            'currency_code' => $service->currency_code,
-        ]);
-
-        $invoice->save();
-        // Create invoice items: the line records the period it pays for.
+        // Grouped (Δ3, PR C): one invoice per customer, due date and currency in this run, as WHMCS bills what falls due
+        // the same day. Not a gateway subscription's renewal (it pays its own invoice, in full), nor a customer with
+        // «Separate invoices». The email, credit and saved-method charge come once all its lines are on it
+        // (finishRenewalInvoices).
+        // A line of nothing (a short prorated hole rounding to zero cents) goes alone: closed as paid, it renews its service
+        // at once, not when the rest of a group is paid.
+        $key = RecordPaymentService::toCents($price) * (int) $service->quantity > 0 ? $this->renewalGroupKey($service, $periodStart) : null;
+        // Lock order: the service (above), then its group's invoice, as for every line of the group; the services of a
+        // group are billed one after another, never two at once (one cron run at a time).
+        $invoice = $key !== null && isset($this->renewalGroups[$key])
+            ? (new RecordPaymentService)->lockInvoice($this->renewalGroups[$key]) : null;
+        if ($invoice !== null && ($invoice->status !== Invoice::STATUS_UNPAID || $invoice->finish_pending_at === null
+            || (int) $invoice->client_id !== (int) $service->client_id || $invoice->currency_code !== $service->currency_code
+            || $invoice->hasPayments(lock: true))) {
+            $invoice = null; // paid, finished or changed meanwhile: a new one
+        }
+        if ($invoice === null) {
+            $invoice = $service->invoices()->make([
+                'client_id' => $service->client_id,
+                'status' => Invoice::STATUS_UNPAID,
+                'due_at' => $periodStart,
+                'currency_code' => $service->currency_code,
+            ]);
+            // Finalized, emailed, paid by credit and charged once all its lines are on it (finishRenewalInvoices): marked
+            // in the same commit as its first line, so that a run that fails or stops before then leaves it to the next.
+            $invoice->finalize_later = true;
+            $invoice->forceFill(['finish_pending_at' => now()]);
+            $invoice->save();
+            // Known to the group once this service's transaction commits (adversarial C1-ADV-1): one rolled back leaves
+            // no invoice behind for the next line to land on.
+            if ($key !== null) {
+                $id = (int) $invoice->id;
+                DB::afterCommit(function () use ($key, $id) {
+                    $this->renewalGroups[$key] = $id;
+                });
+            }
+        }
+        // The line records the period it pays for.
         $invoice->items()->create([
             'reference_id' => $service->id,
             'reference_type' => Service::class,
             'price' => $price,
             'quantity' => $service->quantity,
-            'description' => $service->describePeriod($periodStart, $periodEnd),
+            // With its options (PR C, as WHMCS): one invoice can bill several services of the same product.
+            'description' => $service->describeLine($periodStart, $periodEnd),
             'period_start' => $periodStart,
             'period_end' => $periodEnd,
         ]);
 
-        $invoice = $invoice->refresh();
-
-        // A short prorated hole can round to zero cents; no gateway can collect that amount.
-        if ($invoice->total <= 0) {
-            $invoice->update(['status' => Invoice::STATUS_PAID]);
-        } else {
-            $this->payInvoiceWithCredits($invoice, $service);
-        }
-
-        // Charge billing agreements
-        if ($service->billing_agreement_id && $invoice->fresh()->status === Invoice::STATUS_UNPAID) {
-            DB::afterCommit(function () use ($invoice, $service) {
-                try {
-                    // A method removed (soft-deleted) or its gateway gone: nothing to charge, the customer is told to pay
-                    // (DATA-9), as for a charge that failed.
-                    $agreement = $service->billingAgreement;
-                    if ($agreement?->gateway === null) {
-                        throw new DisplayException("Service #{$service->id}: its saved payment method is gone.");
-                    }
-                    ExtensionHelper::charge($agreement->gateway, $invoice, $agreement);
-
-                    $this->successFullCharges++;
-                } catch (Throwable $e) {
-                    if (!$e instanceof DisplayException) {
-                        report($e);
-                    }
-                    NotificationHelper::invoicePaymentFailedNotification($invoice->client, $invoice);
-                }
-            });
-        }
-
         return 1;
     }
 
-    private function payInvoiceWithCredits(Invoice $invoice, Service $service): void
+    /**
+     * The renewal invoices of this run (one per group, PR C), its key: customer, due date, currency and saved method; null
+     * for one billed alone (a gateway subscription's renewal, a customer with «Separate invoices»).
+     */
+    private function renewalGroupKey(Service $service, CarbonInterface $periodStart): ?string
+    {
+        if ((string) $service->subscription_id !== '' || $service->client?->separate_invoices) {
+            return null;
+        }
+
+        return implode('|', [$service->client_id, $periodStart->toDateString(), $service->currency_code, (int) $service->billing_agreement_id]);
+    }
+
+    /**
+     * Each renewal invoice still to finish (PR C), once all its lines are on it: this run's, and any a previous run left
+     * (a failure, a crash). Its Finalized event (the email) fires, nothing to pay closes it as paid, credit pays it (MT-1e)
+     * and its saved method is charged. One invoice per transaction, which clears its mark: finished once. A credit
+     * failure is reported and does not hold back the email or the charge; any other failure leaves it marked, for the next
+     * run.
+     */
+    private function finishRenewalInvoices(): void
+    {
+        $this->renewalGroups = [];
+        $ids = Invoice::query()->whereNotNull('finish_pending_at')->orderBy('id')->pluck('id');
+        foreach ($ids as $id) {
+            try {
+                DB::transaction(function () use ($id) {
+                    $invoice = (new RecordPaymentService)->lockInvoice($id);
+                    if ($invoice->finish_pending_at === null) {
+                        return;
+                    }
+                    $invoice->forceFill(['finish_pending_at' => null])->saveQuietly();
+                    if ($invoice->status !== Invoice::STATUS_UNPAID) {
+                        return; // staff cancelled or settled it meanwhile
+                    }
+                    AfterCommit::event(new InvoiceEvent\Finalized($invoice, true), $invoice);
+                    // A short prorated hole can round to zero cents; no gateway can collect that amount.
+                    if ($invoice->total <= 0) {
+                        $invoice->update(['status' => Invoice::STATUS_PAID]);
+
+                        return;
+                    }
+                    // Its services share the saved method (the group key); any one still there stands for them.
+                    $service = Service::query()->whereIn('id', $invoice->items()->where('reference_type', Service::class)->select('reference_id'))
+                        ->orderBy('id')->first();
+                    try {
+                        DB::transaction(fn () => $this->payInvoiceWithCredits($invoice, $service));
+                    } catch (Throwable $e) {
+                        report($e);
+                        $this->failures["invoices_created credit invoice #{$id}"] = $e;
+                    }
+                    if ($service?->billing_agreement_id && $invoice->fresh()->status === Invoice::STATUS_UNPAID) {
+                        $this->chargeSavedMethod($invoice, $service);
+                    }
+                });
+            } catch (Throwable $e) {
+                report($e);
+                $this->failures["invoices_created invoice #{$id}"] = $e;
+            }
+        }
+    }
+
+    /** The saved method of the service pays its renewal invoice, after commit (DATA-9: a method gone, the customer is told). */
+    private function chargeSavedMethod(Invoice $invoice, Service $service): void
+    {
+        DB::afterCommit(function () use ($invoice, $service) {
+            try {
+                $agreement = $service->billingAgreement;
+                if ($agreement?->gateway === null) {
+                    throw new DisplayException("Service #{$service->id}: its saved payment method is gone.");
+                }
+                ExtensionHelper::charge($agreement->gateway, $invoice, $agreement);
+
+                $this->successFullCharges++;
+            } catch (Throwable $e) {
+                if (!$e instanceof DisplayException) {
+                    report($e);
+                }
+                NotificationHelper::invoicePaymentFailedNotification($invoice->client, $invoice);
+            }
+        });
+    }
+
+    private function payInvoiceWithCredits(Invoice $invoice, ?Service $service): void
     {
         // As much as the credit covers, also in part (decision 5, MT-1e); read and spent under the payment locks.
         // Off with credits, or with "Automatically use credits", or for the invoices CreditAutoApply leaves alone.
         // A gateway subscription's renewal only in full: a subscription sale that became credit pays it.
-        if ((string) $service->subscription_id !== '') {
+        if ((string) $service?->subscription_id !== '') {
             (new CreditAutoApply)->toSubscriptionRenewal($invoice);
 
             return;
         }
-        (new CreditAutoApply)->toInvoice($invoice, notify: !$service->billing_agreement_id);
+        (new CreditAutoApply)->toInvoice($invoice, notify: !$service?->billing_agreement_id);
     }
 
     /**

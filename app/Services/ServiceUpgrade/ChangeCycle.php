@@ -2,6 +2,7 @@
 
 namespace App\Services\ServiceUpgrade;
 
+use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
@@ -66,6 +67,14 @@ final class ChangeCycle
             ->values();
     }
 
+    /** An invoice that also bills other services and holds only credit (no gateway or transfer payment). */
+    private static function sharedWithCreditOnly(Invoice $invoice, Service $service): bool
+    {
+        return $invoice->items()->where(fn ($line) => $line->where('reference_type', '!=', Service::class)->orWhere('reference_id', '!=', $service->id))->exists()
+            && !$invoice->transactions()->where('is_credit_transaction', false)
+                ->whereIn('status', [InvoiceTransactionStatus::Succeeded, InvoiceTransactionStatus::Processing])->exists();
+    }
+
     /** Why the change cannot be made (a message for whoever asked), or null. */
     public static function refusal(Service $service, Plan $plan, string $mode): ?string
     {
@@ -87,7 +96,10 @@ final class ChangeCycle
         if ($service->cancellation()->exists()) {
             return __('This service is to be cancelled.');
         }
-        if ($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get()->contains(fn (Invoice $invoice) => $invoice->hasPayments())) {
+        // Credit on an invoice it shares with other services (a grouped renewal, PR C) does not stop it: only its line goes,
+        // and the credit stays on what is left (CancelOpenInvoices, partial).
+        if ($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get()->unique('id')->contains(fn (Invoice $invoice) => $invoice->hasPayments()
+            && !self::sharedWithCreditOnly($invoice, $service))) {
             return __('An open invoice of this service has a payment on it.');
         }
         $coupon = $service->coupon;

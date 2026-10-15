@@ -559,6 +559,31 @@ class CreditLedgerAdversarialTest extends TestCase
         $this->assertSame(0, Artisan::call('mycs:credits-check'));
     }
 
+    public function test_an_affiliate_is_rewarded_only_on_the_lines_it_referred(): void
+    {
+        // PR C: a grouped renewal invoice bills services of several orders; only the referred one's line is rewarded.
+        Artisan::call('migrate', ['--path' => 'extensions/Others/Affiliates/database/migrations', '--force' => true]);
+        $affiliateUser = User::factory()->create();
+        $affiliate = Affiliate::query()->create(['client_id' => $affiliateUser->client()->id, 'code' => 'ADV', 'reward' => 10]);
+        $product = $this->createProduct();
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD']);
+        foreach ([[100.00, false], [20.00, true]] as [$price, $referred]) {
+            $order = Order::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD']);
+            $service = Service::factory()->create(['client_id' => $this->user->client()->id, 'order_id' => $order->id, 'product_id' => $product->product->id,
+                'plan_id' => $product->plan->id, 'status' => 'active', 'price' => $price, 'currency_code' => 'USD']);
+            if ($referred) {
+                AffiliateOrder::query()->create(['order_id' => $order->id, 'affiliate_id' => $affiliate->id]);
+            }
+            $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => $price, 'reference_type' => Service::class, 'reference_id' => $service->id]);
+        }
+        DB::table('invoices')->where('id', $invoice->id)->update(['status' => 'paid']);
+
+        (new RewardAffiliate)->handle((object) ['invoice' => $invoice->fresh()]);
+
+        $this->assertSame(200, $this->balanceCents($affiliateUser));
+        $this->assertCreditsMatchJournal();
+    }
+
     // ---------------------------------------------------------------- admin page (held)
 
     #[RunInSeparateProcess]

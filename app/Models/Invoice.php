@@ -118,9 +118,13 @@ class Invoice extends Model implements Auditable
         'due_at' => 'date',
         'apply_pending_since' => 'immutable_datetime',
         'kept_as_debt_at' => 'immutable_datetime',
+        'finish_pending_at' => 'immutable_datetime',
     ];
 
     public bool $send_create_email = true;
+
+    /** Finalized later, once all its lines are on it (a grouped renewal invoice, PR C): not when it is created. */
+    public bool $finalize_later = false;
 
     /**
      * Cancelled as a consequence, not as such (CancelOpenInvoices: its service ends or changes cycle): its renewal lines
