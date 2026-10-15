@@ -2,9 +2,9 @@
 
 namespace App\Http\Middleware;
 
-use App\Classes\PermissionGuard;
-use App\Models\ApiKey;
-use App\Support\CallerIp;
+use App\Models\McpOauthGrant;
+use App\Services\Mcp\McpAccess;
+use App\Services\Mcp\McpOauth;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -12,51 +12,73 @@ use Illuminate\Support\Facades\RateLimiter;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * The MCP server's door (docs/mcp.md): an admin API key (sha256 of the bearer, enabled, its IP allowlist), with «Use
- * the MCP Server» among the permissions its owner can still give, and its owner an active member of staff. The request
- * then acts as that member of staff (the staff guard, for this request only: no session). 120 calls a minute a key.
- * Never the customers' Passport tokens: /mcp is staff's alone.
+ * The MCP server's door (docs/mcp.md). Either bearer: an admin API key that may open the MCP (McpAccess: enabled, the
+ * permission, its owner active with it, its IP allowlist by the connection's address), or an OAuth access token a
+ * member of staff approved (McpOauth: checked again on every call, with the key it was approved with). The request then
+ * acts as that member of staff (the staff guard, this request only: no session). 120 calls a minute a key or grant.
+ * Never the customers' Passport tokens: /mcp is staff's alone. A 401 names the resource metadata, so an OAuth client
+ * (the claude.ai connector) finds the way in.
  */
 class McpAuth
 {
-    public const PERMISSION = 'admin.mcp.use';
+    public const PERMISSION = McpAccess::PERMISSION;
 
     public const PER_MINUTE = 120;
 
     public function handle(Request $request, Closure $next): Response
     {
-        $bearer = $request->bearerToken();
-        if (!$bearer) {
-            return self::deny(401, 'A bearer token (an admin API key with «Use the MCP Server») is required.');
+        $bearer = (string) $request->bearerToken();
+        if ($bearer === '') {
+            return self::deny(401, 'A bearer is required: an admin API key with «Use the MCP Server», or an OAuth access token.');
         }
-        $key = ApiKey::query()->where('token', hash('sha256', $bearer))->where('enabled', true)->first();
-        if ($key === null) {
-            return self::deny(401, 'The API key is invalid or disabled.');
+
+        if (str_starts_with($bearer, McpOauth::ACCESS_PREFIX)) {
+            [$staff, $grant] = McpOauth::staffForAccessToken($bearer) ?? [null, null];
+            if ($staff === null || !$grant instanceof McpOauthGrant) {
+                return self::deny(401, 'The access token is invalid, expired or revoked.');
+            }
+            // Approved with a key: the key's allowlist still applies, by the connection's address.
+            if ($grant->apiKey !== null && McpAccess::keyStaff($grant->apiKey, $request) === null) {
+                return self::deny(403, 'This key may not be used from here.');
+            }
+            $limit = 'mcp:grant:' . $grant->id;
+            $grant->forceFill(['last_used_at' => now()])->saveQuietly();
+            $request->attributes->set('mcp_grant', $grant);
+            $key = $grant->apiKey;
+        } else {
+            $key = McpAccess::keyFromBearer($bearer);
+            if ($key === null || !$key->enabled) {
+                return self::deny(401, 'The API key is invalid or disabled.');
+            }
+            $staff = McpAccess::keyStaff($key, $request);
+            if ($staff === null) {
+                return self::deny(403, 'This key, or its owner, may not use the MCP server from here.');
+            }
+            $limit = 'mcp:' . $key->id;
+            $key->forceFill(['last_used_at' => now()])->saveQuietly();
         }
-        // The connection's address, never one a caller names in X-Forwarded-For (review MCP-R1).
-        if ($key->type !== 'admin' || ($key->ip_addresses && !in_array(CallerIp::of($request), $key->ip_addresses, true))) {
-            return self::deny(403, 'This key may not be used from here.');
-        }
-        $staff = $key->staff;
-        if ($staff === null || !$staff->active || !in_array(self::PERMISSION, $key->permissions ?? [], true)
-            || !PermissionGuard::canGrantApi($staff, self::PERMISSION)) {
-            return self::deny(403, 'This key, or its owner, may not use the MCP server.');
-        }
-        if (RateLimiter::tooManyAttempts($limit = 'mcp:' . $key->id, self::PER_MINUTE)) {
+
+        if (RateLimiter::tooManyAttempts($limit, self::PER_MINUTE)) {
             return self::deny(429, 'Too many calls: try again in a minute.');
         }
         RateLimiter::hit($limit, 60);
 
-        $key->forceFill(['last_used_at' => now()])->saveQuietly();
         Auth::shouldUse('staff');
         Auth::guard('staff')->setUser($staff);
-        $request->attributes->set('api_key', $key);
+        if ($key !== null) {
+            $request->attributes->set('api_key', $key);
+        }
 
         return $next($request);
     }
 
     private static function deny(int $status, string $message): Response
     {
-        return response()->json(['error' => $message], $status);
+        $response = response()->json(['error' => $message], $status);
+        if ($status === 401) {
+            $response->headers->set('WWW-Authenticate', 'Bearer realm="mcp", resource_metadata="' . route('mcp.oauth.protected-resource.nested', ['path' => 'mcp']) . '"');
+        }
+
+        return $response;
     }
 }

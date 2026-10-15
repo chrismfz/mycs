@@ -177,4 +177,18 @@ class Staff extends Authenticatable implements Auditable, CanResetPasswordContra
         $this->app_authentication_recovery_codes = $codes;
         $this->save();
     }
+
+    /**
+     * A new password ends what the old one let in: the MCP clients approved with this login (session; a key-approved
+     * grant goes with its key) are revoked, as the admin's own sessions end (docs/mcp.md, review MCPO-3).
+     */
+    protected static function booted(): void
+    {
+        static::updated(function (self $staff) {
+            if ($staff->wasChanged('password')) {
+                McpOauthGrant::query()->where('staff_id', $staff->id)->where('approved_by', 'session')->whereNull('revoked_at')->get()
+                    ->each(fn (McpOauthGrant $grant) => $grant->revoke('Password changed'));
+            }
+        });
+    }
 }
