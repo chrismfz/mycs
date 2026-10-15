@@ -207,6 +207,10 @@ return [
             'gateway_events' => [
                 'viewAny' => 'View Gateway Log',
             ],
+            // The MCP server's ops tools (docs/mcp.md): each also needs the permission of what it shows.
+            'mcp' => [
+                'use' => 'Use the MCP Server',
+            ],
             'oauth_clients' => [
                 'create' => 'Create OAuth Clients',
                 'update' => 'Update OAuth Clients',
@@ -224,6 +228,9 @@ return [
     ],
     'api' => [
         'admin' => [
+            'mcp' => [
+                'use' => 'Use the MCP Server',
+            ],
             'clients' => [
                 'create' => 'Create Clients',
                 'update' => 'Update Clients',

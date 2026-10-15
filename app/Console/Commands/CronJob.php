@@ -16,6 +16,7 @@ use App\Models\DebugLog;
 use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\McpCall;
 use App\Models\Product;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
@@ -339,6 +340,9 @@ class CronJob extends Command
 
                 return $number;
             });
+
+            // The MCP calls' record (docs/mcp.md), 90 days.
+            $this->runCronJob('mcp_calls_pruned', fn () => McpCall::query()->where('created_at', '<', now()->subDays(90))->delete());
 
             // nixpal licensing: the access log kept 90 days (WHMCS addon «logprune»).
             $this->runCronJob('license_logs_pruned', fn () => Licenses::pruneLog());

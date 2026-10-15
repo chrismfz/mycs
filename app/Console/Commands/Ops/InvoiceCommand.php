@@ -2,9 +2,10 @@
 
 namespace App\Console\Commands\Ops;
 
-use App\Models\Invoice;
 use App\Services\Ops\Dossier;
+use App\Services\Ops\Lookup;
 use Illuminate\Console\Command;
+use RuntimeException;
 
 /** Everything about an invoice, read-only (docs/ops.md). */
 class InvoiceCommand extends Command
@@ -17,26 +18,14 @@ class InvoiceCommand extends Command
 
     public function handle(): int
     {
-        $id = (string) $this->argument('id');
-        // «#12» is the id; else the number, or the id when no invoice has that number. Both, and different: asked (review 8).
-        if (str_starts_with($id, '#')) {
-            $invoice = Invoice::query()->find((int) substr($id, 1));
-        } else {
-            $byNumber = Invoice::query()->where('number', $id)->first();
-            $byId = ctype_digit($id) ? Invoice::query()->find((int) $id) : null;
-            if ($byNumber && $byId && !$byNumber->is($byId)) {
-                $this->error("{$id} is the number of #{$byNumber->id} and the id of another: ask «#{$id}» for the id, or by its number.");
-
-                return self::FAILURE;
-            }
-            $invoice = $byNumber ?? $byId;
-        }
-        if ($invoice === null) {
-            $this->error("No invoice {$id}");
+        try {
+            $found = Lookup::invoice((string) $this->argument('id'));
+        } catch (RuntimeException $e) {
+            $this->error($e->getMessage());
 
             return self::FAILURE;
         }
-        $this->report(Dossier::invoice($invoice));
+        $this->report(Dossier::invoice($found));
 
         return self::SUCCESS;
     }

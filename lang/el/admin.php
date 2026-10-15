@@ -11,6 +11,7 @@ return [
         'paid_applied' => 'Πληρωμένα τιμολόγια που εφαρμόστηκαν ξανά',
         'reminders_sent' => 'Υπενθυμίσεις πληρωμής',
         'license_logs_pruned' => 'Καθαρισμός log αδειών',
+        'mcp_calls_pruned' => 'Καθαρισμός κλήσεων MCP',
         'services_suspended' => 'Υπηρεσίες σε αναστολή',
         'services_terminated' => 'Υπηρεσίες που τερματίστηκαν',
         'tickets_closed' => 'Tickets που έκλεισαν',
