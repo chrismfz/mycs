@@ -180,7 +180,7 @@ final class MassPay
         self::unpaidLedBy($lead)->where('ulid', $reference)->update(['invoice_transaction_id' => $payment->id]);
     }
 
-    /** @return \Illuminate\Database\Eloquent\Builder<PaymentGroup> */
+    /** @return Builder<PaymentGroup> */
     private static function unpaidLedBy(Invoice $lead)
     {
         return PaymentGroup::query()
