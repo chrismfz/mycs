@@ -243,7 +243,7 @@ class MassPayTest extends TestCase
         $group = (new MassPay)->open($this->user->client(), $invoices->pluck('id')->all(), $this->user);
         $stranger = User::factory()->create();
 
-        $this->actingAs($stranger)->withSession($this->loginUser($stranger))->get(route('invoices.pay-together', $group))->assertForbidden();
+        $this->actingAs($stranger)->withSession($this->loginUser($stranger))->get(route('invoices.pay-together', $group))->assertNotFound(); // as another account's invoice
         $this->actingAs($this->user)->withSession($this->loginUser($this->user))->get(route('invoices.pay-together', $group))->assertOk()->assertSee('45.00');
     }
 
