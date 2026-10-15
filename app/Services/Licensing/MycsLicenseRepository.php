@@ -104,8 +104,7 @@ final class MycsLicenseRepository implements LicenseRepository
         }
         // Dead agents of an ended or suspended license keep asking (WHMCS logged ~47k a week): once a day per license,
         // address and message. The answer is the same; every check is still counted (license_check_days, last_access).
-        if ($license !== null && in_array($message, self::REPEATED, true)
-            && !Cache::add('zlic:log:' . $license->id . ':' . md5($ip . '|' . $message) . ':' . now()->format('Ymd'), 1, now()->addDay())) {
+        if ($license !== null && in_array($message, self::REPEATED, true) && !self::firstToday($license->id, $ip, $message)) {
             return;
         }
         LicenseAccessLog::query()->create([
@@ -116,6 +115,18 @@ final class MycsLicenseRepository implements LicenseRepository
             'message' => mb_substr((string) $message, 0, 255),
             'created_at' => now(),
         ]);
+    }
+
+    /** A cache outage logs the row rather than change the answer (review R-6). */
+    private static function firstToday(int $licenseId, string $ip, string $message): bool
+    {
+        try {
+            return Cache::add('zlic:log:' . $licenseId . ':' . md5($ip . '|' . $message) . ':' . now()->format('Ymd'), 1, now()->addDay());
+        } catch (\Throwable $e) {
+            report($e);
+
+            return true;
+        }
     }
 
     public static function effectiveStatus(string $license, string $service): string
@@ -154,12 +165,40 @@ final class MycsLicenseRepository implements LicenseRepository
     }
 
     /**
+     * The names in a product's «custom_fields» setting: comma separated as staff type them, or a JSON list where a WHMCS
+     * field name has a comma or edge spaces (WhmcsLicensingImport), reported exactly as WHMCS did (review R-2).
+     *
+     * @return list<string>
+     */
+    public static function fieldNames(string $setting): array
+    {
+        $list = str_starts_with(ltrim($setting), '[') ? json_decode($setting, true) : null;
+        if (is_array($list)) {
+            return array_values(array_filter(array_map('strval', $list), fn ($name) => $name !== ''));
+        }
+
+        return array_values(array_filter(array_map('trim', explode(',', $setting)), fn ($name) => $name !== ''));
+    }
+
+    /** The setting for these names: comma separated, or JSON when a name would not survive that (fieldNames). */
+    public static function fieldSetting(array $names): string
+    {
+        foreach ($names as $name) {
+            if (str_contains($name, ',') || $name !== trim($name) || str_starts_with($name, '[')) {
+                return (string) json_encode(array_values($names), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
+        }
+
+        return implode(',', $names);
+    }
+
+    /**
      * «name=value|name=value» of the fields the product reports (its «custom_fields» setting, e.g. «comments»), from
      * the service's properties; null when the product reports none (verify.php then leaves the tag out).
      */
     private static function customFields(Service $service, string $fields): ?string
     {
-        $names = array_values(array_filter(array_map('trim', explode(',', $fields)), fn ($name) => $name !== ''));
+        $names = self::fieldNames($fields);
         if ($names === []) {
             return null;
         }

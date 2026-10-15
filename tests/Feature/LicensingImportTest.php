@@ -143,6 +143,7 @@ class LicensingImportTest extends TestCase
 
     public function test_the_command_never_prints_the_psk(): void
     {
+        config(['audit.console' => true]); // off in the console by default: on, so an audit could catch it
         $this->assertStringNotContainsString(WhmcsSchema::SECRET, json_encode($this->import()));
         $this->assertFalse(DB::table('audits')->where('new_values', 'like', '%' . WhmcsSchema::SECRET . '%')->exists());
     }

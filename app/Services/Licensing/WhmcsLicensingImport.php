@@ -16,7 +16,8 @@ use Throwable;
  * nixpal's licenses from WHMCS (L3, docs/licensing.md), after its products and services are imported (same ids): the
  * Licensing Addon's mod_licensing rows (same keys, bindings, reissues, status, whmcs_id), the products' module settings
  * (configoptions; the PSK encrypted, never printed), the custom fields zlic.php reports (as the service's properties),
- * WHMCS's billing cycle (verify.php's tag) and the last days of mod_licensinglog. Re-runnable: rows are matched by key.
+ * WHMCS's billing cycle (verify.php's tag) and the last days of mod_licensinglog. Re-runnable: rows are matched by their
+ * WHMCS ids.
  * LicensingImportParityTest proves zlic.php answers the imported licenses byte-for-byte as WHMCS does.
  */
 final class WhmcsLicensingImport
@@ -61,7 +62,7 @@ final class WhmcsLicensingImport
                 'key_prefix' => [(string) ($row['configoption2'] ?? ''), 'string', false],
                 'allow_reissue' => [($row['configoption3'] ?? '') === 'on' ? '1' : '0', 'boolean', false],
                 'allow_ip_conflict' => [($row['configoption5'] ?? '') === 'on' ? '1' : '0', 'boolean', false],
-                'custom_fields' => [implode(',', $this->fieldNames((int) $row['id'])), 'string', false],
+                'custom_fields' => [MycsLicenseRepository::fieldSetting($this->fieldNames((int) $row['id'])), 'string', false],
             ];
             // An empty PSK never overwrites one staff typed.
             if (($row['configoption8'] ?? '') !== '') {
@@ -95,7 +96,7 @@ final class WhmcsLicensingImport
 
                 continue;
             }
-            DB::table('licenses')->upsert([[
+            $values = [
                 'service_id' => $serviceId,
                 'license_key' => (string) $row['licensekey'],
                 'status' => (string) $row['status'],
@@ -105,16 +106,28 @@ final class WhmcsLicensingImport
                 'reissues' => (int) $row['reissues'],
                 'last_access' => self::date($row['lastaccess'] ?? null),
                 'whmcs_id' => (int) $row['id'],
-                'created_at' => now(),
                 'updated_at' => now(),
-            ]], ['license_key'], ['service_id', 'status', 'valid_domain', 'valid_ip', 'valid_directory', 'reissues', 'last_access', 'whmcs_id', 'updated_at']);
+            ];
+            // Followed by mod_licensing.id, also when staff edited its key on WHMCS since an earlier run (review R-4).
+            $existing = DB::table('licenses')->where('whmcs_id', (int) $row['id'])->value('id')
+                ?? DB::table('licenses')->whereNull('whmcs_id')->where('license_key', $values['license_key'])->value('id');
+            $clash = DB::table('licenses')->where(fn ($query) => $query->where('service_id', $serviceId)->orWhere('license_key', $values['license_key']))
+                ->when($existing !== null, fn ($query) => $query->where('id', '!=', $existing))->exists();
+            if ($clash) {
+                $this->counts['skipped']++; // its service or key is another license's
+
+                continue;
+            }
+            $existing === null
+                ? DB::table('licenses')->insert($values + ['created_at' => now()])
+                : DB::table('licenses')->where('id', $existing)->update($values);
 
             // The key is the service's domain (as WHMCS keeps it), on the license module's server.
             DB::table('services')->where('id', $serviceId)->where(fn ($query) => $query->whereNull('domain')->orWhere('domain', ''))
                 ->update(['domain' => (string) $row['licensekey']]);
             DB::table('services')->where('id', $serviceId)->whereNull('server_id')->update(['server_id' => $server->id]);
             // verify.php's «billingcycle» is WHMCS's own, also where the plan here has none (a free or retired one).
-            if (($row['billingcycle'] ?? '') !== '') {
+            if ($row['billingcycle'] !== null) { // also an empty one, printed empty (review R-5)
                 $this->property($serviceId, 'whmcs_billingcycle', 'WHMCS billing cycle', (string) $row['billingcycle']);
             }
             $this->counts['licenses']++;
@@ -135,7 +148,7 @@ final class WhmcsLicensingImport
             AND NOT (fieldname = ? AND COALESCE(description, '') = ?) ORDER BY sortorder, id");
         $stmt->execute([$productId, WhmcsLicenseRepository::PREPARE_FIELD, WhmcsLicenseRepository::PREPARE_FIELD_DESCRIPTION]);
 
-        return array_values(array_filter(array_map('strval', $stmt->fetchAll(PDO::FETCH_COLUMN)), fn ($name) => !str_contains($name, ',')));
+        return array_values(array_filter(array_map('strval', $stmt->fetchAll(PDO::FETCH_COLUMN)), fn ($name) => $name !== ''));
     }
 
     /** @param list<int> $products */
@@ -149,11 +162,12 @@ final class WhmcsLicensingImport
             $stmt = $this->whmcs->prepare("SELECT f.fieldname, v.relid, v.value FROM tblcustomfields f JOIN tblcustomfieldsvalues v ON v.fieldid = f.id
                 WHERE f.type = 'product' AND f.relid = ?");
             $stmt->execute([$productId]);
-            $rows = array_filter($stmt->fetchAll(PDO::FETCH_ASSOC), fn ($row) => in_array($row['fieldname'], $names, true) && (string) $row['value'] !== '');
+            // Empty values too: one emptied on WHMCS since an earlier run is emptied here (review R-3).
+            $rows = array_filter($stmt->fetchAll(PDO::FETCH_ASSOC), fn ($row) => in_array($row['fieldname'], $names, true));
             $services = Service::query()->where('product_id', $productId)->whereIn('id', array_column($rows, 'relid'))->pluck('id')->flip();
             foreach ($rows as $row) {
                 if (isset($services[(int) $row['relid']])) {
-                    $this->property((int) $row['relid'], (string) $row['fieldname'], (string) $row['fieldname'], (string) $row['value']);
+                    $this->property((int) $row['relid'], (string) $row['fieldname'], (string) $row['fieldname'], (string) ($row['value'] ?? ''));
                     $this->counts['fields']++;
                 }
             }
@@ -161,8 +175,8 @@ final class WhmcsLicensingImport
     }
 
     /**
-     * The last days of mod_licensinglog (MyCS keeps 90). A re-run replaces what an earlier one brought: the imported
-     * licenses' rows up to the newest WHMCS row.
+     * The last days of mod_licensinglog (MyCS keeps 90), each row once by its WHMCS id: a re-run brings what is new and
+     * leaves MyCS's own rows and older imported ones as they are (review R-7).
      *
      * @param  array<int, int>  $licenses  mod_licensing.id => licenses.id
      */
@@ -171,20 +185,16 @@ final class WhmcsLicensingImport
         $stmt = $this->whmcs->prepare('SELECT * FROM mod_licensinglog WHERE datetime >= ? ORDER BY id');
         $stmt->execute([now()->subDays($days)->format('Y-m-d H:i:s')]);
         $rows = array_filter($stmt->fetchAll(PDO::FETCH_ASSOC), fn ($row) => isset($licenses[(int) $row['licenseid']]));
-        if ($rows === []) {
-            return;
-        }
-        $newest = max(array_map(fn ($row) => (string) $row['datetime'], $rows));
-        DB::table('license_access_logs')->whereIn('license_id', array_values($licenses))->where('created_at', '<=', $newest)->delete();
         foreach (array_chunk($rows, 500) as $chunk) {
-            DB::table('license_access_logs')->insert(array_map(fn ($row) => [
+            DB::table('license_access_logs')->upsert(array_map(fn ($row) => [
+                'whmcs_id' => (int) $row['id'],
                 'license_id' => $licenses[(int) $row['licenseid']],
                 'domain' => mb_substr((string) $row['domain'], 0, 255),
                 'ip' => mb_substr((string) $row['ip'], 0, 64),
                 'directory' => mb_substr((string) $row['path'], 0, 255),
                 'message' => mb_substr((string) $row['message'], 0, 255),
                 'created_at' => $row['datetime'],
-            ], $chunk));
+            ], $chunk), ['whmcs_id'], ['license_id', 'domain', 'ip', 'directory', 'message', 'created_at']);
             $this->counts['logs'] += count($chunk);
         }
     }
@@ -206,9 +216,10 @@ final class WhmcsLicensingImport
         }
     }
 
+    /** As stored (WHMCS prints the bindings as they are, in the answer and the localkey: review R-1); '' is null. */
     private static function text(mixed $value): ?string
     {
-        $value = trim((string) $value);
+        $value = (string) $value;
 
         return $value === '' ? null : $value;
     }
