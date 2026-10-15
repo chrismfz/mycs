@@ -6,17 +6,20 @@ use App\Models\Category;
 use App\Models\Client;
 use App\Models\ConfigOption;
 use App\Models\Order;
+use App\Models\PaymentGroup;
 use App\Models\Product;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\Setting;
 use App\Providers\SettingsProvider;
+use App\Services\Import\WhmcsMassPay;
 use App\Services\Licensing\WhmcsLicensingImport;
 use App\Services\Money\MoneyTrail;
 use Closure;
 use DB;
 use Illuminate\Console\Command;
 use Illuminate\Http\Client\Batch;
+use Illuminate\Support\Str;
 use Log;
 use MyCS\Pricing\LinePricer;
 use PDO;
@@ -96,6 +99,7 @@ class ImportFromWhmcs extends Command
             $this->importInvoices();
             $this->importInvoiceItems();
             $this->importPayments();
+            $this->importMassPay();
 
             DB::statement('SET foreign_key_checks=1');
 
@@ -1023,6 +1027,10 @@ class ImportFromWhmcs extends Command
             $existingNumbers = DB::table('invoices')->whereNotNull('number')->pluck('number')->flip();
 
             foreach ($records as $record) {
+                // A Mass Pay parent is not an invoice here (importMassPay).
+                if (isset($this->massPayParents()[(int) $record['id']])) {
+                    continue;
+                }
                 // Get currency from user
                 $user = $this->pdo->prepare('SELECT * FROM tblcurrencies WHERE id = (SELECT currency FROM tblclients WHERE id = :client_id LIMIT 1) LIMIT 1');
                 $user->bindValue(':client_id', $record['userid'], PDO::PARAM_INT);
@@ -1062,8 +1070,12 @@ class ImportFromWhmcs extends Command
             DB::table('invoices')->insert($data);
         });
 
-        // Set invoice number in settings to highest imported invoice number + 1
-        $highestInvoiceNumber = DB::table('invoices')->max('id');
+        // Set invoice number in settings to highest imported invoice number + 1. A Mass Pay parent (not imported, PR F3)
+        // keeps its id too: a new invoice never takes the number a customer quotes for one.
+        $highestInvoiceNumber = max((int) DB::table('invoices')->max('id'), (int) $this->pdo->query('SELECT MAX(id) FROM tblinvoices')->fetchColumn());
+        if (DB::getDriverName() === 'mysql' || DB::getDriverName() === 'mariadb') {
+            DB::statement('ALTER TABLE invoices AUTO_INCREMENT = ' . ($highestInvoiceNumber + 1));
+        }
         Setting::updateOrCreate(
             ['key' => 'invoice_number'],
             ['value' => $highestInvoiceNumber + 1]
@@ -1080,6 +1092,9 @@ class ImportFromWhmcs extends Command
         $this->migrateInBatch('tblinvoiceitems', 'SELECT ii.*, i.taxrate AS invoice_taxrate FROM tblinvoiceitems ii LEFT JOIN tblinvoices i ON i.id = ii.invoiceid ORDER BY ii.id LIMIT :limit OFFSET :offset', function ($records) {
             $data = [];
             foreach ($records as $record) {
+                if (isset($this->massPayParents()[(int) $record['invoiceid']])) {
+                    continue;
+                }
                 $taxed = (bool) ($record['taxed'] ?? false) && (float) ($record['invoice_taxrate'] ?? 0) > 0;
                 $line = LinePricer::invoiceLine(number_format((float) $record['amount'], 2, '.', ''), 1,
                     $taxed ? (string) $record['invoice_taxrate'] : null);
@@ -1116,6 +1131,10 @@ class ImportFromWhmcs extends Command
         $this->migrateInBatch('tblaccounts', 'SELECT * FROM tblaccounts LIMIT :limit OFFSET :offset', function ($records) {
             $data = [];
             foreach ($records as $record) {
+                // A Mass Pay parent's payment lands on its children (importMassPay).
+                if (isset($this->massPayParents()[(int) $record['invoiceid']])) {
+                    continue;
+                }
                 // Get currency from user
                 $user = $this->pdo->prepare('SELECT * FROM tblcurrencies WHERE id = (SELECT currency FROM tblclients WHERE id = :client_id LIMIT 1) LIMIT 1');
                 $user->bindValue(':client_id', $record['userid'], PDO::PARAM_INT);
@@ -1137,5 +1156,130 @@ class ImportFromWhmcs extends Command
 
             DB::table('invoice_transactions')->insert($data);
         });
+    }
+
+    /** @var array<int, true>|null WHMCS Mass Pay parents: invoices with lines of type «Invoice» */
+    private ?array $massPayParents = null;
+
+    /** @return array<int, true> */
+    private function massPayParents(): array
+    {
+        return $this->massPayParents ??= array_fill_keys(array_map('intval',
+            $this->pdo->query("SELECT DISTINCT invoiceid FROM tblinvoiceitems WHERE type = 'Invoice'")->fetchAll(PDO::FETCH_COLUMN)), true);
+    }
+
+    /**
+     * WHMCS Mass Pay parents (PR F3, WhmcsMassPay): not invoices here. A paid one's payment lands on its child due first,
+     * the rest pays the other children as allocations of it, and what it took from account credit pays what is left; it
+     * stays a paid payment group with its WHMCS id. A cancelled one is dropped (its children are invoices on their own).
+     */
+    private function importMassPay(): void
+    {
+        $parents = array_keys($this->massPayParents());
+        $this->info('Importing Mass Pay parents... (' . count($parents) . ' records)');
+
+        foreach ($parents as $parentId) {
+            $parent = $this->row('SELECT id, userid, status, total, credit, date FROM tblinvoices WHERE id = ?', [$parentId]);
+            $payments = $this->rows('SELECT id, amountin, amountout, transid, date FROM tblaccounts WHERE invoiceid = ? ORDER BY date, id', [$parentId]);
+            if ($parent === null || $parent['status'] !== 'Paid') {
+                if ($payments !== []) {
+                    $this->warn("Mass Pay #{$parentId} is not paid but has payments: they were not imported. Check it by hand.");
+                }
+
+                continue;
+            }
+            $currency = $this->row('SELECT code FROM tblcurrencies WHERE id = (SELECT currency FROM tblclients WHERE id = ? LIMIT 1) LIMIT 1', [$parent['userid']]);
+            if ($currency === null) {
+                continue;
+            }
+
+            $lines = array_map(fn (array $line) => ['child' => (int) $line['relid'], 'amount' => WhmcsMassPay::cents($line['amount'])],
+                $this->rows("SELECT relid, amount FROM tblinvoiceitems WHERE invoiceid = ? AND type = 'Invoice' ORDER BY id", [$parentId]));
+            $children = [];
+            foreach ($lines as $line) {
+                $child = $this->row('SELECT id, status, duedate, credit FROM tblinvoices WHERE id = ?', [$line['child']]);
+                // Only a child that was imported (its customer exists here) takes a share.
+                if ($child !== null && DB::table('invoices')->where('id', $child['id'])->exists()) {
+                    $children[(int) $child['id']] = ['status' => (string) $child['status'],
+                        'duedate' => $this->validateDate($child['duedate']), 'credit' => WhmcsMassPay::cents($child['credit'])];
+                }
+            }
+            foreach ($payments as $payment) {
+                if ((float) $payment['amountout'] > 0) {
+                    $this->warn("Mass Pay #{$parentId}: refund {$payment['id']} on it was not imported. Check it by hand.");
+                }
+            }
+            $money = array_values(array_filter($payments, fn (array $payment) => (float) $payment['amountin'] > 0));
+
+            $plan = WhmcsMassPay::plan(
+                ['id' => $parentId, 'total' => WhmcsMassPay::cents($parent['total']), 'credit' => WhmcsMassPay::cents($parent['credit'])],
+                $lines, $children,
+                array_map(fn (array $payment) => ['id' => (int) $payment['id'], 'amount' => WhmcsMassPay::cents($payment['amountin']),
+                    'date' => $this->validateDate($payment['date'])], $money),
+            );
+            foreach ($plan['warnings'] as $warning) {
+                $this->warn($warning);
+            }
+            if ($plan['group']['invoices'] === []) {
+                continue;
+            }
+
+            $byId = array_column($money, null, 'id');
+            DB::table('invoice_transactions')->insert(array_map(fn (array $planned) => [
+                'id' => $planned['id'],
+                'invoice_id' => $planned['invoice_id'],
+                'amount' => WhmcsMassPay::cents($byId[$planned['id']]['amountin']) / 100,
+                'credited_amount' => $planned['credited'] / 100,
+                'transaction_id' => $byId[$planned['id']]['transid'],
+                'created_at' => $this->validateDate($byId[$planned['id']]['date']),
+                'updated_at' => $this->validateDate($byId[$planned['id']]['date']),
+            ], $plan['payments']));
+            DB::table('invoice_transactions')->insert(array_map(fn (array $allocation) => [
+                'invoice_id' => $allocation['invoice_id'],
+                'amount' => $allocation['amount'] / 100,
+                'is_credit_transaction' => true,
+                'source_transaction_id' => $allocation['source_id'],
+                'created_at' => $allocation['date'] ?? $this->validateDate($parent['date']),
+                'updated_at' => $allocation['date'] ?? $this->validateDate($parent['date']),
+            ], $plan['allocations']));
+
+            $groupId = DB::table('payment_groups')->insertGetId([
+                'ulid' => (string) Str::ulid(),
+                'client_id' => $parent['userid'],
+                'currency_code' => $currency['code'],
+                'invoice_id' => $plan['group']['invoice_id'],
+                'total' => $plan['group']['total'] / 100,
+                'status' => PaymentGroup::STATUS_PAID,
+                'invoice_transaction_id' => $plan['group']['transaction_id'],
+                'whmcs_invoice_id' => $parentId,
+                'created_at' => $this->validateDate($parent['date']),
+                'updated_at' => $this->validateDate($parent['date']),
+            ]);
+            DB::table('payment_group_invoice')->insert(array_map(fn (array $invoice, int $position) => [
+                'payment_group_id' => $groupId,
+                'invoice_id' => $invoice['invoice_id'],
+                'position' => $position,
+                'amount' => $invoice['amount'] / 100,
+            ], $plan['group']['invoices'], array_keys($plan['group']['invoices'])));
+        }
+    }
+
+    /** @return array<string, mixed>|null */
+    private function row(string $sql, array $bindings): ?array
+    {
+        $statement = $this->pdo->prepare($sql);
+        $statement->execute($bindings);
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function rows(string $sql, array $bindings): array
+    {
+        $statement = $this->pdo->prepare($sql);
+        $statement->execute($bindings);
+
+        return $statement->fetchAll(PDO::FETCH_ASSOC);
     }
 }
