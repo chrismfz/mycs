@@ -31,7 +31,7 @@ class LicenseResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['service.product', 'service.client']))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['service.product', 'service.client.primaryContact', 'service.client.ownerGrant.user'])) // what Client::name reads (review R2)
             ->defaultSort('last_access', 'desc')
             ->columns([
                 TextColumn::make('license_key')->label('Key')->searchable()->copyable()->fontFamily('mono'),
