@@ -25,21 +25,18 @@ use Throwable;
  */
 final class AutoCharge
 {
-    /** @var list<string> declined charges of this run, for staff */
-    private array $declined = [];
-
     /**
      * @param  callable(int, Throwable): void|null  $failed  an invoice the run could not handle (reported to staff)
      * @return int the invoices charged
      */
     public function run(?callable $failed = null): int
     {
-        $this->declined = [];
+        $declined = []; // this run's declined charges, for staff
         $today = CarbonImmutable::today();
         $charged = 0;
         foreach ($this->due($today)->pluck('id') as $id) {
             try {
-                $charged += $this->chargeOne((int) $id, $today) ? 1 : 0;
+                $charged += $this->chargeOne((int) $id, $today, $declined) ? 1 : 0;
             } catch (Throwable $e) {
                 report($e);
                 if ($failed !== null) {
@@ -47,9 +44,9 @@ final class AutoCharge
                 }
             }
         }
-        if ($this->declined !== []) {
+        if ($declined !== []) {
             NotificationHelper::sendSystemEmailNotification('Automatic charges declined', e(sprintf(
-                "%d automatic charge(s) were declined today and will be tried again as set:\n%s", count($this->declined), implode("\n", $this->declined))));
+                "%d automatic charge(s) were declined today and will be tried again as set:\n%s", count($declined), implode("\n", $declined))));
         }
 
         return $charged;
@@ -69,7 +66,8 @@ final class AutoCharge
             ->orderBy('due_at')->orderBy('id');
     }
 
-    private function chargeOne(int $id, CarbonImmutable $today): bool
+    /** @param list<string> $declined */
+    private function chargeOne(int $id, CarbonImmutable $today, array &$declined): bool
     {
         $invoice = Invoice::query()->with('client')->find($id);
         $agreement = $invoice?->client?->autoChargeAgreement();
@@ -103,7 +101,7 @@ final class AutoCharge
             return true;
         }
 
-        $this->declined[] = sprintf('Invoice #%d (%s %s, customer #%d): %s', $invoice->id, $attempt->amount, $attempt->currency_code,
+        $declined[] = sprintf('Invoice #%d (%s %s, customer #%d): %s', $invoice->id, $attempt->amount, $attempt->currency_code,
             $invoice->client_id, $attempt->error ?? 'declined');
         // The customer hears of it on the first decline, the last try before suspension and when the bank asks them to
         // confirm: not on every daily retry (Π7.7).
