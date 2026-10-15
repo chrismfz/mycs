@@ -94,6 +94,7 @@ return [
     'password' => 'Password',
     'show' => 'Show',
     'hide' => 'Hide',
+    'reveal_too_many' => 'Too many attempts. Try again in a minute.',
     'suspend_reason' => 'Suspension reason',
     'suspend_reasons' => ['overdue' => 'Overdue on payment'],
     'registration_date' => 'Registration Date',

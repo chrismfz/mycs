@@ -16,7 +16,9 @@ use App\Support\Actor;
 use Exception;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\RateLimiter;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\Renderless;
 use Livewire\Attributes\Url;
 
 class Show extends Component
@@ -150,6 +152,24 @@ class Show extends Component
 
         $this->editLabel = false;
         $this->notify(__('Service label updated successfully'), 'success');
+    }
+
+    /**
+     * The service's password, for «Show» (sweep §6 #7): never in the page, sent only when asked, to who may manage the
+     * service, at most 10 times a minute per login. Renderless: kept out of the component's snapshot.
+     */
+    #[Renderless]
+    public function revealPassword(): ?string
+    {
+        $this->authorize('update', $this->service);
+        if (RateLimiter::tooManyAttempts($key = 'reveal-password:' . Auth::id(), 10)) {
+            $this->notify(__('services.reveal_too_many'), 'error');
+
+            return null;
+        }
+        RateLimiter::hit($key, 60);
+
+        return $this->service->password;
     }
 
     /**

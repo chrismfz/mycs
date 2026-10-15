@@ -8,6 +8,7 @@ use App\Console\Commands\ImportFromWhmcs;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Helpers\TemplateRenderer;
+use App\Livewire\Services\Show;
 use App\Mail\Mail;
 use App\Models\ClientUser;
 use App\Models\Role;
@@ -21,6 +22,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\RateLimiter;
+use Livewire\Livewire;
 use PDO;
 use ReflectionProperty;
 use Symfony\Component\Console\Input\ArrayInput;
@@ -117,7 +120,17 @@ class ServiceFieldsTest extends TestCase
         $this->assertStringContainsString('example.gr', $html);
         $this->assertStringContainsString('192.0.2.12', $html);
         $this->assertStringContainsString('examplegr', $html);
-        $this->assertStringContainsString('S3cret!pw', $html, 'behind «Show», as WHMCS shows it to the customer');
+        $this->assertStringNotContainsString('S3cret!pw', $html, 'not in the page: «Show» asks for it');
+        RateLimiter::clear('reveal-password:' . $this->owner->id);
+        $page = Livewire::test(Show::class, ['service' => $this->service]);
+        $reveal = $page->call('revealPassword');
+        $this->assertSame('S3cret!pw', $reveal->effects['returns'][0] ?? null);
+        $this->assertArrayNotHasKey('html', $reveal->effects, 'renderless');
+        $this->assertStringNotContainsString('S3cret!pw', json_encode($page->snapshot));
+        foreach (range(2, 10) as $ignored) {
+            $page->call('revealPassword');
+        }
+        $this->assertNull($page->call('revealPassword')->effects['returns'][0] ?? null, 'the 11th in a minute');
         $this->assertStringNotContainsString('Moved from the old server', $html);
 
         $viewer = User::factory()->withoutClient()->create();
@@ -126,6 +139,11 @@ class ServiceFieldsTest extends TestCase
             ->get(route('services.show', $this->service))->assertOk()->getContent();
         $this->assertStringContainsString('example.gr', $html);
         $this->assertStringNotContainsString('S3cret!pw', $html, 'a login that may only view the service');
+        Livewire::test(Show::class, ['service' => $this->service])->call('revealPassword')->assertNotFound(); // refused as the app refuses (404)
+
+        $stranger = User::factory()->create();
+        $this->actingAs($stranger)->withSession($this->loginUser($stranger, [CurrentClient::SESSION_KEY => $stranger->client()->id]));
+        Livewire::test(Show::class, ['service' => $this->service])->call('revealPassword')->assertNotFound();
     }
 
     public function test_the_cron_records_why_it_suspended_and_unsuspending_clears_it(): void
