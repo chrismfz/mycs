@@ -530,8 +530,7 @@ context του συγγραφέα), οκτώ ευρήματα, όλα επιβε
   - Το staff παίρνει ένα συγκεντρωτικό mail ανά εκτέλεση με τις απορρίψεις.
   - Η υπενθύμιση πριν τη λήξη λέει «θα χρεωθεί» (`card_payment_due`) μόνο για τιμολόγιο που το cron θα χρεώσει
     (`AutoCharge::agreementFor`: όχι σε μέθοδο σταματημένη στο όριο, χωρίς gateway ή με εκκρεμή επιβεβαίωση, ADV-6).
-- **Μένουν για το H2b:** ειδοποίηση λήξης κάρτας (μέρα 25, όπως το WHMCS), οι PayPal subscriptions
-  του WHMCS (Π7.9), και flag «να μη χρεωθεί αυτόματα» ανά τιμολόγιο για το staff.
+- **H2b:** δες «Λήξη κάρτας, «να μη χρεωθεί αυτόματα» και το PayPal IPN του WHMCS» πιο κάτω.
 
 ## Cardlink / Eurobank (PR H2a, 2026-10-15)
 
@@ -572,4 +571,24 @@ context του συγγραφέα), οκτώ ευρήματα, όλα επιβε
 - **Δεν κάνει:** refunds (γίνονται στο portal της Cardlink και καταγράφονται από το staff), αποθηκευμένες κάρτες, auto-charge.
 - **Ανοιχτά (staging):** μία πραγματική πληρωμή 1-2 € με κάρτα και με IRIS στο test τερματικό, το background σκέλος
   από τον server της Cardlink, και ότι το test τερματικό κρατά το query του confirm URL.
+
+## Λήξη κάρτας, «να μη χρεωθεί αυτόματα» και το PayPal IPN του WHMCS (PR H2b, sweep Π7.7, Π7.9, 2026-10-15)
+
+- **Ειδοποίηση λήξης** (WHMCS `CCDaySendExpiryNotices` = 25 και στις δύο εταιρείες): ρύθμιση `cc_expiry_notice_day`
+  (0 = ποτέ, 1–28, default 25). Από εκείνη τη μέρα του μήνα, κάθε αποθηκευμένη μέθοδος (όχι διαγραμμένη) με `expiry` μέσα
+  στον τρέχοντα μήνα στέλνει στον πελάτη της το `card_expiring`, μία φορά τον μήνα (`billing_agreements.expiry_notified_at`,
+  γράφεται πριν σταλεί, υπό συνθήκη, ώστε δύο cron να στείλουν μία). Αν το cron έλειπε τη μέρα 25, στέλνεται την επόμενη.
+  Βήμα cron `card_expiry_notices`, μετά τις χρεώσεις. Μέθοδοι χωρίς λήξη (PayPal) δεν ειδοποιούνται.
+- **«Να μη χρεωθεί αυτόματα»** (WHMCS «Do not apply auto-charge»): `invoices.no_auto_charge`, από το staff με την ενέργεια
+  «Do not auto-charge» / «Allow auto-charge» στο τιμολόγιο (δικαίωμα `admin.invoices.update`). Το cron δεν το χρεώνει,
+  και η υπενθύμιση πριν τη λήξη δεν λέει «θα χρεωθεί» (`AutoCharge::agreementFor`). Ο πελάτης μπορεί να το πληρώσει.
+- **PayPal subscriptions του WHMCS (απόφαση (a) + δίχτυ):** οι 5 ενεργές μεταφέρονται στο PayPal vault πριν το cut-over
+  (η παλιά ακυρώνεται μετά την πρώτη χρέωση από το vault). Όσα IPN φτάνουν ακόμη στη διεύθυνση του WHMCS
+  (`POST /modules/gateways/callback/paypal.php`: subscriptions, πληρωμές της εποχής του WHMCS, refunds, ακυρώσεις)
+  ελέγχονται με το PayPal (`_notify-validate` πάνω στο raw body· sandbox όταν `test_ipn=1`) και:
+  - γνήσιο → γραμμή στο gateway log (`paypal_legacy` / `ipn`, λόγος `legacy_<txn_type>`) και ένα mail στο staff ανά
+    συναλλαγή: «PayPal payment not recorded» όταν πάρθηκαν χρήματα (Completed), αλλιώς «PayPal legacy notice». Τίποτα δεν
+    καταγράφεται αυτόματα: το staff βρίσκει τη συναλλαγή στο PayPal και την καταγράφει.
+  - μη γνήσιο → 400, χωρίς mail. PayPal μη διαθέσιμο → 503, ώστε να ξαναστείλει.
+  Χωρίς web middleware (session, CSRF), όπως το `zlic.php` (`routes/legacy.php`).
 
