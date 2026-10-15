@@ -223,7 +223,8 @@ class ExtensionHelper
      *
      * @return string
      */
-    public static function testConfig($extension, $values)
+    /** @return bool|string true, or why not (the modules' testConfig) */
+    public static function testConfig($extension, $values): bool|string
     {
         return self::getExtension($extension->type, $extension->extension, $values)->testConfig();
     }

@@ -12,6 +12,7 @@ return [
         'reminders_sent' => 'Υπενθυμίσεις πληρωμής',
         'license_logs_pruned' => 'Καθαρισμός log αδειών',
         'mcp_calls_pruned' => 'Καθαρισμός κλήσεων MCP',
+        'mcp_proposals_expired' => 'Λήξη προτάσεων MCP',
         'services_suspended' => 'Υπηρεσίες σε αναστολή',
         'services_terminated' => 'Υπηρεσίες που τερματίστηκαν',
         'tickets_closed' => 'Tickets που έκλεισαν',
