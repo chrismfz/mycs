@@ -437,6 +437,30 @@ class EmailTemplateSeeder extends Seeder
             'mail_enabled' => 'force',
             'in_app_enabled' => 'never',
         ],
+        'service_cancelled' => [
+            'subject' => 'Service cancelled: {{ service.product.name }}',
+            'body' => <<<'HTML'
+                # Service cancelled
+
+                Dear {{ user.first_name }},
+
+                As you asked, your service **{{ service.product.name }}** has ended at the end of its billing period.
+
+                Thank you for using our services; we hope to see you again.
+
+                <div class="action">
+                	<a class="button button-blue" href="{{ urls.new_ticket }}">
+                		Contact us
+                	</a>
+                </div>
+                HTML,
+            'mail_enabled' => 'force',
+            'in_app_enabled' => 'choice_on',
+            'in_app_title' => 'Service cancelled',
+            'in_app_body' => 'Your service {{ service.product.name }} has ended, as you asked.',
+            'edit_preference_message' => 'Notify me when a service I cancelled ends',
+            'in_app_url' => '{{ urls.service }}',
+        ],
         'service_cancellation_received' => [
             'subject' => 'Cancellation request confirmed: {{ service.product.name }}',
             'body' => <<<'HTML'
@@ -1062,6 +1086,28 @@ class EmailTemplateSeeder extends Seeder
 
                     Ο σύνδεσμος ισχύει για 60 λεπτά. Αν δεν ζητήσατε επαναφορά κωδικού, δεν χρειάζεται να κάνετε κάτι.
                     HTML,
+            ],
+        ],
+        'service_cancelled' => [
+            'el' => [
+                'subject' => 'Διακοπή υπηρεσίας: {{ service.product.name }}',
+                'body' => <<<'HTML'
+                    # Διακοπή υπηρεσίας
+
+                    Αγαπητέ/ή {{ user.first_name }},
+
+                    Όπως ζητήσατε, η υπηρεσία σας **{{ service.product.name }}** διακόπηκε στο τέλος της περιόδου χρέωσης.
+
+                    Σας ευχαριστούμε που χρησιμοποιήσατε τις υπηρεσίες μας· ελπίζουμε να σας δούμε ξανά.
+
+                    <div class="action">
+                    	<a class="button button-blue" href="{{ urls.new_ticket }}">
+                    		Επικοινωνία
+                    	</a>
+                    </div>
+                    HTML,
+                'in_app_title' => 'Διακοπή υπηρεσίας',
+                'in_app_body' => 'Η υπηρεσία σας {{ service.product.name }} διακόπηκε, όπως ζητήσατε.',
             ],
         ],
         'service_cancellation_received' => [

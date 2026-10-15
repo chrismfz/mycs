@@ -398,6 +398,13 @@ class NotificationHelper
         self::toAccount($client, 'server_unsuspended', $data);
     }
 
+    /** A service ended at the end of its period because its customer asked (not «terminated»: sweep modules §21). */
+    public static function serviceCancelledNotification(Client $client, Service $service, array $data = []): void
+    {
+        $data['service'] = $service;
+        self::toAccount($client, 'service_cancelled', $data);
+    }
+
     public static function serverTerminatedNotification(Client $client, Service $service, array $data = []): void
     {
         $data['service'] = $service;
