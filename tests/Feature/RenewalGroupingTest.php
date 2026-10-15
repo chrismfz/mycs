@@ -262,7 +262,9 @@ class RenewalGroupingTest extends TestCase
 
     public function test_a_line_of_nothing_goes_alone_and_closes_as_paid(): void
     {
-        $this->service(['price' => 0.004]);
+        // In practice a short prorated hole that rounds to zero cents; here a line of quantity 0 (a price under a cent is
+        // stored as 0.00 by MariaDB, and the service would then renew without an invoice).
+        $this->service(['price' => 10.00, 'quantity' => 0]);
         $this->service();
 
         $this->cron();
