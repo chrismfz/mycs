@@ -17,6 +17,8 @@ use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\McpCall;
+use App\Models\McpOauthCode;
+use App\Models\McpOauthGrant;
 use App\Models\Product;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
@@ -342,7 +344,11 @@ class CronJob extends Command
             });
 
             // The MCP calls' record (docs/mcp.md), 90 days.
-            $this->runCronJob('mcp_calls_pruned', fn () => McpCall::query()->where('created_at', '<', now()->subDays(90))->delete());
+            $this->runCronJob('mcp_calls_pruned', fn () => McpCall::query()->where('created_at', '<', now()->subDays(90))->delete()
+                // Its OAuth: codes after a day (they live a minute), grants revoked or long expired after 90 days.
+                + McpOauthCode::query()->where('created_at', '<', now()->subDay())->delete()
+                + McpOauthGrant::query()->where(fn ($query) => $query->where('revoked_at', '<', now()->subDays(90))
+                    ->orWhere('refresh_expires_at', '<', now()->subDays(90)))->delete());
 
             // nixpal licensing: the access log kept 90 days (WHMCS addon «logprune»).
             $this->runCronJob('license_logs_pruned', fn () => Licenses::pruneLog());
