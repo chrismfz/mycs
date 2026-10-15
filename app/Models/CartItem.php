@@ -85,7 +85,8 @@ class CartItem extends Model
 
                 // The first invoice's line for the whole quantity (Δ1: net × quantity, the tax once on that; F4 of the
                 // Σ7b review): what the cart adds up, so it is what checkout charges.
-                $invoiceLine = LinePricer::invoiceLine($line->firstPaymentNet(), max(1, (int) $this->quantity),
+                // A pro rata product's first period runs to its day (decision 3, PR D).
+                $invoiceLine = LinePricer::invoiceLine(OrderPricing::firstPaymentNet($line, $this->product, $this->plan, now()), max(1, (int) $this->quantity),
                     OrderPricing::taxRate($client, $this->product));
                 $this->lineTotalCents = (int) round((float) $invoiceLine['total'] * 100);
                 $this->lineTaxCents = (int) round((float) $invoiceLine['tax'] * 100);

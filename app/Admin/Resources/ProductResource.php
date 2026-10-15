@@ -82,6 +82,13 @@ class ProductResource extends Resource
                                 // WHMCS «Apply Tax» (Δ1): a product sold without VAT.
                                 Toggle::make('taxable')->label('Apply tax')->default(true)
                                     ->helperText('Off: sold without tax (its invoice lines are not taxed).'),
+                                // WHMCS «Prorata Billing» (decision 3, PR D): every service renews on the same day.
+                                TextInput::make('prorata_day')->label('Pro rata day')->integer()->nullable()
+                                    ->minValue(1)->maxValue(28)
+                                    ->helperText('Day of the month every service of a monthly or yearly plan renews on; the first invoice is for the days up to it. Empty: off.'),
+                                TextInput::make('prorata_next_after_day')->label('Charge next month after day')->integer()->nullable()
+                                    ->minValue(1)->maxValue(31)
+                                    ->helperText('Ordered on or after this day, the first invoice also bills the next full period. Empty: never.'),
                                 Select::make('allow_quantity')->options([
                                     'disabled' => 'No',
                                     'separated' => 'Separated',

@@ -197,7 +197,11 @@ class OrderResource extends Resource
         }
         $line = OrderPricing::line($catalog, null, $get('../../client_id') ? Client::query()->find($get('../../client_id')) : null, $product);
 
-        return $line->netPrice . (BigDecimal::of($line->netSetupFee)->isPositive() ? " (+ {$line->netSetupFee} setup fee)" : '') . ' + tax';
+        $first = OrderPricing::firstPeriod($product, $plan, now());
+
+        return $line->netPrice . (BigDecimal::of($line->netSetupFee)->isPositive() ? " (+ {$line->netSetupFee} setup fee)" : '') . ' + tax'
+            // A pro rata product (decision 3, PR D): its first invoice is for the days to its day.
+            . ($first === null ? '' : '; first invoice pro rata to ' . $first['end']->toDateString());
     }
 
     /** Pending Orders (Σ1-b2): waiting for staff's Accept, or for a service to be set up. */
