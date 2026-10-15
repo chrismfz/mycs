@@ -17,10 +17,12 @@ namespace App\Services\Import;
 final class WhmcsMassPay
 {
     /**
-     * @param  array{id: int, total: int, credit: int}  $parent  total and the part paid from account credit, in cents
+     * @param  array{id: int, total: int, credit: int}  $parent  the total of its lines (WHMCS keeps `total` net of credit:
+     *                                                         pass total + credit) and the part paid from account credit, in cents
      * @param  list<array{child: int, amount: int}>  $lines  the parent's «Invoice» lines: each child and its share
      * @param  array<int, array{status: string, duedate: ?string, credit: int}>  $children  by id: status (WHMCS), due date,
-     *                                                                                      credit applied to it (cents)
+     *                                                                                      credit applied to it (cents) and not
+     *                                                                                      taken yet by another parent
      * @param  list<array{id: int, amount: int, date: ?string}>  $payments  the parent's tblaccounts rows that brought money
      * @return array{
      *     payments: list<array{id: int, invoice_id: int, credited: int}>,
@@ -42,7 +44,9 @@ final class WhmcsMassPay
 
                 continue;
             }
-            $share = $child['status'] === 'Paid' ? max(0, min($line['amount'], $child['credit'])) : 0;
+            // A child on two lines takes the credit applied to it once (F3 adversarial F3-ADV-2b).
+            $applied = $shares[$line['child']] ?? 0;
+            $share = $child['status'] === 'Paid' ? max(0, min($line['amount'], $child['credit'] - $applied)) : 0;
             if ($share < $line['amount']) {
                 $warnings[] = sprintf('Mass Pay #%d: child invoice #%d took %s of its %s line from it.', $parent['id'], $line['child'],
                     self::show($share), self::show($line['amount']));

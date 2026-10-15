@@ -136,7 +136,7 @@ class ImportMassPayTest extends TestCase
     {
         $this->invoice(821, 'Paid', 10, 10);
         $this->item(821, 'Hosting', 0, 10);
-        $this->invoice(920, 'Paid', 10, 10);
+        $this->invoice(920, 'Paid', 0, 10); // WHMCS keeps the total net of the credit applied to it
         $this->item(920, 'Invoice', 821, 10);
         $this->payment(7020, 920, 0, 5);
 

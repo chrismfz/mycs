@@ -1159,9 +1159,12 @@ class ImportFromWhmcs extends Command
     }
 
     /**
-     * @var array<int, true>|null WHMCS Mass Pay parents: invoices with lines of type «Invoice» of which at least one child
-     *                            still exists. One whose children were all deleted in WHMCS is imported as an invoice like
-     *                            any other, so its payment is not lost.
+     * @var array<int, true>|null WHMCS Mass Pay parents: invoices whose lines are all of type «Invoice», with at least one
+     *                            child of the same customer that is an invoice of its own (not a parent itself), paid or
+     *                            holding no money. Any other is imported as an invoice like any other, so no payment is lost
+     *                            and no line is dropped: its children all deleted, a child of another customer only, nested
+     *                            parents, another kind of line on it, or an unpaid or cancelled one that took a payment
+     *                            (F3 review CR-3, adversarial F3-ADV-4/5/6).
      */
     private ?array $massPayParents = null;
 
@@ -1169,7 +1172,11 @@ class ImportFromWhmcs extends Command
     private function massPayParents(): array
     {
         return $this->massPayParents ??= array_fill_keys(array_map('intval', $this->pdo->query(
-            "SELECT DISTINCT ii.invoiceid FROM tblinvoiceitems ii JOIN tblinvoices c ON c.id = ii.relid WHERE ii.type = 'Invoice'"
+            "SELECT DISTINCT ii.invoiceid FROM tblinvoiceitems ii JOIN tblinvoices c ON c.id = ii.relid JOIN tblinvoices p ON p.id = ii.invoiceid
+            WHERE ii.type = 'Invoice' AND c.userid = p.userid
+            AND NOT EXISTS (SELECT 1 FROM tblinvoiceitems n WHERE n.invoiceid = c.id AND n.type = 'Invoice')
+            AND NOT EXISTS (SELECT 1 FROM tblinvoiceitems o WHERE o.invoiceid = p.id AND o.type <> 'Invoice')
+            AND (p.status = 'Paid' OR NOT EXISTS (SELECT 1 FROM tblaccounts a WHERE a.invoiceid = p.id AND a.amountin > 0))"
         )->fetchAll(PDO::FETCH_COLUMN)), true);
     }
 
@@ -1180,19 +1187,21 @@ class ImportFromWhmcs extends Command
      */
     private function importMassPay(): void
     {
-        $parents = array_keys($this->massPayParents());
-        $this->info('Importing Mass Pay parents... (' . count($parents) . ' records)');
+        $parentIds = array_keys($this->massPayParents());
+        $this->info('Importing Mass Pay parents... (' . count($parentIds) . ' records)');
 
-        foreach ($parents as $parentId) {
-            $parent = $this->row('SELECT id, userid, status, total, credit, date FROM tblinvoices WHERE id = ?', [$parentId]);
+        // In the order they were paid: a child in two paid parents (a customer chose it again) takes the credit WHMCS
+        // applied to it once, from the first (F3 review CR-2); what a later one cannot place stays its payment's credit.
+        $parents = array_map(fn (int $id) => $this->row('SELECT id, userid, status, total, credit, date, datepaid FROM tblinvoices WHERE id = ?', [$id]), $parentIds);
+        $parents = array_values(array_filter($parents, fn (?array $parent) => $parent !== null && $parent['status'] === 'Paid'));
+        usort($parents, fn (array $a, array $b) => [(string) $a['datepaid'], (int) $a['id']] <=> [(string) $b['datepaid'], (int) $b['id']]);
+        $childCredit = [];
+        // Allocations get ids above every WHMCS payment: a later parent keeps its payment's id (F3 review CR-1).
+        $nextId = max((int) $this->pdo->query('SELECT MAX(id) FROM tblaccounts')->fetchColumn(), (int) DB::table('invoice_transactions')->max('id')) + 1;
+
+        foreach ($parents as $parent) {
+            $parentId = (int) $parent['id'];
             $payments = $this->rows('SELECT id, amountin, amountout, transid, date FROM tblaccounts WHERE invoiceid = ? ORDER BY date, id', [$parentId]);
-            if ($parent === null || $parent['status'] !== 'Paid') {
-                if ($payments !== []) {
-                    $this->warn("Mass Pay #{$parentId} is not paid but has payments: they were not imported. Check it by hand.");
-                }
-
-                continue;
-            }
             $currency = $this->row('SELECT code FROM tblcurrencies WHERE id = (SELECT currency FROM tblclients WHERE id = ? LIMIT 1) LIMIT 1', [$parent['userid']]);
             if ($currency === null) {
                 continue;
@@ -1202,11 +1211,13 @@ class ImportFromWhmcs extends Command
                 $this->rows("SELECT relid, amount FROM tblinvoiceitems WHERE invoiceid = ? AND type = 'Invoice' ORDER BY id", [$parentId]));
             $children = [];
             foreach ($lines as $line) {
-                $child = $this->row('SELECT id, status, duedate, credit FROM tblinvoices WHERE id = ?', [$line['child']]);
-                // Only a child that was imported (its customer exists here) takes a share.
-                if ($child !== null && DB::table('invoices')->where('id', $child['id'])->exists()) {
+                $child = $this->row('SELECT id, userid, status, duedate, credit FROM tblinvoices WHERE id = ?', [$line['child']]);
+                // Only a child of the same customer that was imported takes a share: never another customer's invoice
+                // (inconsistent WHMCS data, F3 adversarial F3-ADV-3), never a parent that is not an invoice here.
+                if ($child !== null && (int) $child['userid'] === (int) $parent['userid'] && DB::table('invoices')->where('id', $child['id'])->exists()) {
+                    $childCredit[(int) $child['id']] ??= WhmcsMassPay::cents($child['credit']);
                     $children[(int) $child['id']] = ['status' => (string) $child['status'],
-                        'duedate' => $this->validateDate($child['duedate']), 'credit' => WhmcsMassPay::cents($child['credit'])];
+                        'duedate' => $this->validateDate($child['duedate']), 'credit' => $childCredit[(int) $child['id']]];
                 }
             }
             foreach ($payments as $payment) {
@@ -1217,7 +1228,9 @@ class ImportFromWhmcs extends Command
             $money = array_values(array_filter($payments, fn (array $payment) => (float) $payment['amountin'] > 0));
 
             $plan = WhmcsMassPay::plan(
-                ['id' => $parentId, 'total' => WhmcsMassPay::cents($parent['total']), 'credit' => WhmcsMassPay::cents($parent['credit'])],
+                // WHMCS keeps the total net of the credit applied to it (F3 review CR-4): its lines add up to both.
+                ['id' => $parentId, 'total' => WhmcsMassPay::cents($parent['total']) + WhmcsMassPay::cents($parent['credit']),
+                    'credit' => WhmcsMassPay::cents($parent['credit'])],
                 $lines, $children,
                 array_map(fn (array $payment) => ['id' => (int) $payment['id'], 'amount' => WhmcsMassPay::cents($payment['amountin']),
                     'date' => $this->validateDate($payment['date'])], $money),
@@ -1227,6 +1240,14 @@ class ImportFromWhmcs extends Command
             }
             if ($plan['group']['invoices'] === []) {
                 continue;
+            }
+            // What this parent took of each child's applied credit is not there for another parent.
+            $byPayment = array_column($money, 'amountin', 'id');
+            foreach ($plan['payments'] as $planned) {
+                $childCredit[$planned['invoice_id']] -= WhmcsMassPay::cents($byPayment[$planned['id']]) - $planned['credited'];
+            }
+            foreach ($plan['allocations'] as $allocation) {
+                $childCredit[$allocation['invoice_id']] -= $allocation['amount'];
             }
 
             $byId = array_column($money, null, 'id');
@@ -1239,14 +1260,17 @@ class ImportFromWhmcs extends Command
                 'created_at' => $this->validateDate($byId[$planned['id']]['date']),
                 'updated_at' => $this->validateDate($byId[$planned['id']]['date']),
             ], $plan['payments']));
-            DB::table('invoice_transactions')->insert(array_map(fn (array $allocation) => [
+            DB::table('invoice_transactions')->insert(array_map(function (array $allocation) use (&$nextId, $parent) {
+                return [
+                'id' => $nextId++,
                 'invoice_id' => $allocation['invoice_id'],
                 'amount' => $allocation['amount'] / 100,
                 'is_credit_transaction' => true,
                 'source_transaction_id' => $allocation['source_id'],
                 'created_at' => $allocation['date'] ?? $this->validateDate($parent['date']),
                 'updated_at' => $allocation['date'] ?? $this->validateDate($parent['date']),
-            ], $plan['allocations']));
+                ];
+            }, $plan['allocations']));
 
             $groupId = DB::table('payment_groups')->insertGetId([
                 'ulid' => (string) Str::ulid(),
