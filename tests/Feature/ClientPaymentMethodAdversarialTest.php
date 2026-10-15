@@ -395,9 +395,7 @@ class ClientPaymentMethodAdversarialTest extends TestCase
 
     private function rollback(): void
     {
-        // Back to before C2's migration, whatever came after it.
-        $steps = DB::table('migrations')->where('migration', '>=', '2026_11_08_000000')->count();
-        $this->artisan('migrate:rollback', ['--step' => $steps])->assertExitCode(0);
+        $this->artisan('migrate:rollback', ['--path' => 'database/migrations/2026_11_08_000000_move_saved_payment_method_to_clients.php'])->assertExitCode(0); // only this migration, whatever came after
     }
 
     private function forward(): void
