@@ -1,4 +1,4 @@
-{{-- A nixpal license (WHMCS's licensing «Manage License»): its key, where it is bound, its status, Reissue (L2). --}}
+{{-- A nixpal license (WHMCS's licensing «Manage License»): its key, where it is bound, its status, its last check, Reissue (L2). --}}
 @if($license = $service->license)
 <div class="mt-4 border-t border-neutral pt-4 space-y-2">
     <h3 class="text-lg font-semibold">{{ __('services.license.title') }}</h3>
@@ -19,6 +19,19 @@
             {{ __('services.license.statuses.' . strtolower($license->status)) }}
         </span>
     </div>
+    <div class="flex items-center text-base">
+        <span class="mr-2">{{ __('services.license.last_check') }}:</span>
+        <span class="text-base/50" @if($license->last_ok_at) title="{{ $license->last_ok_at->translatedFormat('d M Y H:i') }}" @endif>
+            {{ $license->last_ok_at?->diffForHumans() ?? __('services.license.never_checked') }}
+        </span>
+    </div>
+    @if($license->status !== \App\Models\License::STATUS_REISSUED && $license->last_failure_at && (!$license->last_ok_at || $license->last_failure_at->gt($license->last_ok_at)))
+    <div class="flex items-start text-base">
+        <span class="mr-2">{{ __('services.license.last_failure') }}:</span>
+        {{-- A fixed reason, not the recorded text (staff's); after a reissue the next check binds it, so nothing to show. --}}
+        <span class="text-orange-500">{{ $license->last_failure_at->diffForHumans() }}: {{ str_starts_with((string) $license->last_failure, \Nixpal\Licensing\Zlic::MSG_IP) ? __('services.license.failure_ip') : __('services.license.failure_other') }}</span>
+    </div>
+    @endif
     @foreach($licenseFields as $name => $value)
     <div class="flex items-center text-base">
         <span class="mr-2">{{ $name }}:</span>
