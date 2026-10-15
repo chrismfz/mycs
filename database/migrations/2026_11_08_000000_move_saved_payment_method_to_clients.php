@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Schema;
  * (WHMCS `tblclients.disableautocc`). A gateway subscription stays the exception: it pays its own invoice.
  *
  * Each account's default is the method most of its running services had (the newest on a tie); one the customer removed is
- * not taken.
+ * not taken. An account with saved methods but none on a running service keeps not being charged: «Auto-charge» off.
  *
  * SQLite (tests) gets no foreign keys here and keeps the unused `services.billing_agreement_id`: adding or dropping a
  * foreign key rebuilds the table there, and inside a transaction (where `PRAGMA foreign_keys = OFF` does nothing) the
@@ -43,6 +43,11 @@ return new class extends Migration
         foreach ($used->unique('client_id') as $row) {
             DB::table('clients')->where('id', $row->client_id)->update(['default_billing_agreement_id' => $row->billing_agreement_id]);
         }
+        // An account with saved methods on none of its running services was not charged automatically: it stays so
+        // («Auto-charge» off), also after a rollback (adversarial C2-ADV-2), until it turns it on.
+        DB::table('clients')->whereNull('default_billing_agreement_id')
+            ->whereExists(fn ($query) => $query->from('billing_agreements')->whereColumn('billing_agreements.client_id', 'clients.id')->whereNull('billing_agreements.deleted_at'))
+            ->update(['auto_charge' => false]);
 
         if (!$sqlite && Schema::hasColumn('services', 'billing_agreement_id')) {
             Schema::table('services', function (Blueprint $table) {
