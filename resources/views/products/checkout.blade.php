@@ -91,6 +91,11 @@
         <div class="text-lg font-semibold flex justify-between">
             <h4>{{ __('product.total_today') }}:</h4> {{ $total }}
         </div>
+        @if ($prorataUntil !== null)
+            <p class="text-sm text-base/70 mt-1">
+                {{ __('product.prorata_first_invoice', ['amount' => $total->format($prorataFirst), 'date' => $prorataUntil]) }}
+            </p>
+        @endif
         @if ($total->setup_fee > 0 && $plan->type == 'recurring')
             <div class="text- font-semibold flex justify-between ">
                 <h4>{{ __('product.then_after_x', ['time' => $plan->billing_period . ' ' . trans_choice(__('services.billing_cycles.' . $plan->billing_unit), $plan->billing_period)]) }}:

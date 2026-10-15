@@ -368,6 +368,12 @@ class Service extends Model implements Auditable
      */
     public function rememberBillingDay(CarbonInterface $periodStart): void
     {
+        // A pro rata product's services bill on its day (PR D), whatever day the first, partial period started on.
+        if ($this->product?->proratesPlan($this->plan)) {
+            $this->billing_day = (int) $this->product->prorata_day;
+
+            return;
+        }
         if (!BillingPeriod::isAmbiguousDay(CarbonImmutable::instance($periodStart)) && (int) $this->billing_day !== $periodStart->day) {
             $this->billing_day = $periodStart->day;
         }
@@ -661,6 +667,10 @@ class Service extends Model implements Auditable
                 $this->suspend_hold_until = CarbonImmutable::parse($due)->startOfDay()->toMutable();
             }
 
+            return;
+        }
+        // A pro rata product's service renews on the product's day (PR D): its first period already ends there.
+        if ($this->product?->proratesPlan($this->plan)) {
             return;
         }
         // Its first period began when it was paid, or, with nothing to pay (a free first period), when it was ordered

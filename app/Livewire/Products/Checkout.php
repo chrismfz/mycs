@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Locked;
+use MyCS\Pricing\LinePricer;
 use Livewire\Attributes\Url;
 
 class Checkout extends Component
@@ -32,6 +33,11 @@ class Checkout extends Component
     // Don't allow the user to change the total via hacks
     #[Locked]
     public $total;
+
+    /** A pro rata product's first invoice (PR D): what it charges, and up to which day; null otherwise. */
+    public ?string $prorataFirst = null;
+
+    public ?string $prorataUntil = null;
 
     public $setup_fee;
 
@@ -115,6 +121,11 @@ class Checkout extends Component
         }
         $client = Auth::guard('web')->check() ? CurrentClient::model() : null;
         $line = OrderPricing::line($catalog, null, $client, $this->product);
+        // A pro rata product (PR D): the first invoice is for the days up to its day, as the cart and checkout charge it.
+        $first = OrderPricing::firstPeriod($this->product, $this->plan, now());
+        $this->prorataUntil = $first === null ? null : $first['end']->translatedFormat(__('services.invoice_period_date_format'));
+        $this->prorataFirst = $first === null ? null : LinePricer::invoiceLine(OrderPricing::firstPaymentNet($line, $this->product, $this->plan, now()), 1,
+            OrderPricing::taxRate($client, $this->product))['total'];
         // A free plan with nothing chosen that costs: «Free», as the plan list says.
         $this->total = $this->plan->type === 'free' && !BigDecimal::of($line->firstPayment())->isPositive()
             ? new Price(['currency' => Currency::query()->find($currency)], free: true)

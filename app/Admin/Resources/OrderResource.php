@@ -103,6 +103,8 @@ class OrderResource extends Resource
                             ->default(1),
                         TextInput::make('price')
                             ->label('Recurring price')
+                            // A pro rata product's first invoice is this price for the days to its day (PR D).
+                            ->helperText('The price it renews at. A pro rata product\'s first invoice is this price for the days up to its day.')
                             ->nullable()
                             ->numeric()
                             ->minValue(0)

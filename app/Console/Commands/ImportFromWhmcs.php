@@ -601,6 +601,10 @@ class ImportFromWhmcs extends Command
             $upgrades = [];
 
             foreach ($records as $record) {
+                if (($record['proratabilling'] ?? 0) && (int) ($record['proratadate'] ?? 0) > 28) {
+                    // MyCS aligns to a day every month has (PR D): the parity check should show it.
+                    $this->warn("Product #{$record['id']}: pro rata day {$record['proratadate']} imported as 28.");
+                }
                 $data[] = [
                     'id' => $record['id'],
                     'category_id' => $record['gid'],

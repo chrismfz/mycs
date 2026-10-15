@@ -150,4 +150,82 @@ class ProductProrataTest extends TestCase
 
         $this->assertSame(21.29, $item->fresh()->lineTotal());
     }
+
+    private function pay(Invoice $invoice, string $on): void
+    {
+        Carbon::setTestNow($on . ' 10:00:00');
+        (new RecordPaymentService)->handle($invoice, null, (float) $invoice->fresh()->total, transactionId: 'wire-' . $invoice->id);
+    }
+
+    public function test_set_up_by_staff_after_a_late_payment_it_keeps_the_1st(): void
+    {
+        // Code review of PR D: a service started later than ordered is not moved off the product's day.
+        $this->product->update(['autosetup' => Product::AUTOSETUP_ACCEPT]);
+        $this->pay($this->order('2026-01-10'), '2026-01-25');
+        $service = Service::query()->sole();
+        $this->assertSame(Service::STATUS_PENDING, $service->fresh()->status, 'precondition: it waits for staff');
+
+        $service->fresh()->applyStaffChanges(['status' => 'active']);
+
+        $this->assertSame('2026-02-01', $service->fresh()->expires_at->toDateString());
+    }
+
+    public function test_a_free_first_period_ordered_on_the_10th_ends_on_the_1st(): void
+    {
+        Carbon::setTestNow('2026-01-10 10:00:00');
+        $coupon = Coupon::query()->create(['code' => 'FREE', 'type' => 'percentage', 'value' => 100, 'recurring' => 0]);
+
+        $placed = (new PlaceOrderService)->place($this->user->client(), 'USD',
+            [new OrderLine($this->product, $this->product->plans()->firstOrFail())], $coupon);
+
+        $this->assertNull($placed->invoice);
+        $this->assertSame('2026-02-01', Service::query()->sole()->expires_at->toDateString());
+    }
+
+    public function test_day_28_ordered_on_the_30th_stays_on_the_28th(): void
+    {
+        $this->product->update(['prorata_day' => 28, 'prorata_next_after_day' => null]);
+        $this->pay($this->order('2027-01-30'), '2027-01-30');
+        $service = Service::query()->sole();
+        $this->assertSame('2027-02-28', $service->fresh()->expires_at->toDateString());
+
+        Carbon::setTestNow('2027-02-25 10:00:00');
+        $this->artisan('app:cron-job')->assertExitCode(0);
+
+        $renewal = $service->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->sole()->items->sole();
+        $this->assertSame(['2027-02-28', '2027-03-28'], [$renewal->period_start->toDateString(), $renewal->period_end->toDateString()]);
+    }
+
+    public function test_a_yearly_plan_is_aligned_and_priced_on_the_year(): void
+    {
+        $plan = $this->product->plans()->first();
+        $plan->update(['billing_unit' => 'year']);
+        Price::query()->where('plan_id', $plan->id)->update(['price' => 365.00]);
+
+        $line = $this->order('2026-01-10')->items->sole();
+
+        $this->assertSame(['22.00', '2026-02-01'], [$this->money($line->price), $line->period_end->toDateString()]);
+    }
+
+    public function test_a_staff_price_is_the_renewal_price_and_the_first_invoice_is_its_days(): void
+    {
+        Carbon::setTestNow('2026-01-10 10:00:00');
+        $placed = (new PlaceOrderService)->place($this->user->client(), 'USD',
+            [new OrderLine($this->product, $this->product->plans()->firstOrFail(), price: '62.00')]);
+
+        $this->assertSame('44.00', $this->money($placed->invoice->items->sole()->price)); // 62.00 × 22/31
+        $this->assertSame('62.00', $this->money(Service::query()->sole()->price));
+    }
+
+    public function test_paid_after_the_1st_the_cron_bills_the_next_month_at_once(): void
+    {
+        $this->pay($this->order('2026-01-10'), '2026-02-05');
+        $service = Service::query()->sole();
+        $this->assertSame('2026-02-01', $service->fresh()->expires_at->toDateString(), 'as WHMCS: the first period was to the 1st');
+
+        $this->artisan('app:cron-job')->assertExitCode(0);
+
+        $renewal = $service->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->sole()->items->sole();
+        $this->assertSame(['2026-02-01', '2026-03-01'], [$renewal->period_start->toDateString(), $renewal->period_end->toDateString()]);
+    }
 }

@@ -118,6 +118,10 @@ final class PlaceOrderService
                 // Nothing to pay: started now, the way a payment starts it (one activation path for Σ1: the period
                 // from the billing cursor, the server job after commit).
                 (new RenewServiceService)->handle($service);
+                if ($period !== null) {
+                    // A pro rata product's free first period still ends on its day (code review of PR D).
+                    $service->forceFill(['expires_at' => $period['end']])->save();
+                }
             }
 
             if ($invoice !== null) {

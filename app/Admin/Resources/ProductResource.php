@@ -88,6 +88,7 @@ class ProductResource extends Resource
                                     ->helperText('Day of the month every service of a monthly or yearly plan renews on; the first invoice is for the days up to it. Empty: off.'),
                                 TextInput::make('prorata_next_after_day')->label('Charge next month after day')->integer()->nullable()
                                     ->minValue(1)->maxValue(31)
+                                    ->gt('prorata_day')
                                     ->helperText('Ordered on or after this day, the first invoice also bills the next full period. Empty: never.'),
                                 Select::make('allow_quantity')->options([
                                     'disabled' => 'No',
