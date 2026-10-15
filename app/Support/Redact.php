@@ -14,10 +14,19 @@ final class Redact
 {
     public const MASK = '********';
 
-    private const SECRET_KEY = '/pass|secret|token|key|authori[sz]ation|cookie|session|sig(nature)?$/i';
+    /**
+     * Names of secrets: *pass*, secret, token, authorization, cookie, a session id, a signature, and «key» as a word of
+     * its own (api_key, x-api-key, apikey, key) — not key_length, keyboard or monkey (review R12).
+     */
+    private const SECRET_KEY = '/pass|secret|token|authori[sz]ation|cookie|^sess(ion)?(_?id)?$|session$|sig(nature)?$|apikey|(^|[_\-.])key$/i';
+
+    /** Re-read this often: another process (the web request saving a server) may have changed one (review R8). */
+    private const KNOWN_TTL = 60;
 
     /** @var list<string>|null */
     private static ?array $known = null;
+
+    private static int $knownAt = 0;
 
     public static function isSecretKey(int|string $key): bool
     {
@@ -43,21 +52,22 @@ final class Redact
         return $data;
     }
 
+    /** The URL as it was sent (review R12: not rebuilt), with the values of its secret query keys masked. */
     public static function url(string $url): string
     {
-        $parts = explode('?', $url, 2);
-        if (count($parts) === 2) {
-            parse_str($parts[1], $query);
-            $parts[1] = http_build_query(self::array($query));
-        }
+        $url = (string) preg_replace_callback('/([?&])([^=&#]+)=([^&#]*)/', fn (array $m) => self::isSecretKey(urldecode($m[2]))
+            ? $m[1] . $m[2] . '=' . self::MASK : $m[0], $url);
 
-        return self::text(implode('?', $parts));
+        return self::text($url);
     }
 
     /** cPanel session tokens and every known secret, in any text (a body, a header, a URL). */
     public static function text(string $text): string
     {
         $text = (string) preg_replace('/cpsess\d+/', 'cpsess' . self::MASK, $text);
+        // A webhook's token is in its path (Discord, Slack): review R3.
+        $text = (string) preg_replace('#(/api/webhooks/\d+/)[A-Za-z0-9_\-]+#', '$1' . self::MASK, $text);
+        $text = (string) preg_replace('#(hooks\.slack\.com/services/)[A-Za-z0-9/]+#', '$1' . self::MASK, $text);
         foreach (self::known() as $secret) {
             $text = str_replace($secret, self::MASK, $text);
         }
@@ -82,14 +92,16 @@ final class Redact
     /** @return list<string> the stored secrets (decrypted once per process; short ones would mask ordinary text) */
     private static function known(): array
     {
-        if (self::$known !== null) {
+        if (self::$known !== null && now()->getTimestamp() - self::$knownAt < self::KNOWN_TTL) {
             return self::$known;
         }
         try {
             self::$known = Setting::query()->where('encrypted', true)->get()->map(fn (Setting $setting) => $setting->value)
                 ->filter(fn ($value) => is_string($value) && mb_strlen($value) >= 6)->unique()->values()->all();
+            self::$knownAt = now()->getTimestamp();
         } catch (Throwable) {
-            self::$known = []; // no database yet (install, a failing connection): the key rules still apply
+            // No database yet (install, a failing connection): the key rules still apply, and the next call tries again.
+            return self::$known ?? [];
         }
 
         return self::$known;

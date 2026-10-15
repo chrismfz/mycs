@@ -57,13 +57,19 @@ class NotificationHelper
     }
 
     /**
-     * The secrets a mail's data carries: under a secret's name (service_password, a module's password), top level.
-     *
-     * @return list<string>
+     * The mail as the log keeps it: rendered again with every secret of its data (under a secret's name: service_password,
+     * a module's password) replaced, not searched for afterwards (Markdown and escaping change how a password reads:
+     * review R1). Without secrets, the mail itself.
      */
-    private static function secretsIn(array $data): array
+    private static function bodyForLog(Mail $mail, NotificationTemplate $template, array $data): string
     {
-        return array_values(array_filter($data, fn ($value, $key) => Redact::isSecretKey($key) && is_string($value), ARRAY_FILTER_USE_BOTH));
+        $secrets = array_filter($data, fn ($value, $key) => Redact::isSecretKey($key) && is_string($value) && $value !== '', ARRAY_FILTER_USE_BOTH);
+        if ($secrets === []) {
+            return $mail->render();
+        }
+        $masked = (new Mail($template, array_merge($data, array_fill_keys(array_keys($secrets), Redact::MASK))))->locale($mail->locale);
+
+        return Redact::values($masked->render(), $secrets);
     }
 
     /**
@@ -85,7 +91,7 @@ class NotificationHelper
             'client_id' => self::$account?->id,
             'subject' => $mail->envelope()->subject,
             'to' => $user->email,
-            'body' => Redact::values($mail->render(), self::secretsIn($data)),
+            'body' => self::bodyForLog($mail, $notificationTemplate, $data),
         ]);
 
         // Add the email log id to the payload

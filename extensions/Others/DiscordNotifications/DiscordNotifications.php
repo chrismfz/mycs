@@ -59,6 +59,8 @@ class DiscordNotifications extends Extension
                 'type' => 'text',
                 'label' => 'Webhook URL',
                 'required' => true,
+                // Whoever has it posts as the bot: a secret (sweep §6 review R2).
+                'encrypted' => true,
             ],
             [
                 'name' => 'ping_type',

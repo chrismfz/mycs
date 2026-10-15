@@ -44,6 +44,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use OwenIt\Auditing\Events\AuditCustom;
 use ReflectionClass;
@@ -158,20 +159,37 @@ class ExtensionHelper
     }
 
     /**
-     * A form's settings with every secret left empty filled from what is stored (the form never had it).
+     * A form's settings with every secret left empty filled from what is stored (the form never had it). Not when the form
+     * now points somewhere else (a host, an IP, a port, a URL changed: review R6): a stored root key is never sent to a
+     * host typed by someone who could not read it. Then it must be typed again.
      *
      * @param  array<string, mixed>  $values
      * @return array<string, mixed>
+     *
+     * @throws ValidationException naming each secret to type again
      */
     public static function withStoredSecrets(?Extension $record, array $values): array
     {
         if ($record === null) {
             return $values;
         }
-        foreach ($record->settings()->where('encrypted', true)->get() as $setting) {
-            if (($values[$setting->key] ?? null) === null || $values[$setting->key] === '') {
-                $values[$setting->key] = $setting->value;
+        $stored = $record->settings->pluck('value', 'key');
+        $moved = collect($values)->keys()->filter(fn ($key) => preg_match('/host|^ip$|_ip$|port|url|endpoint|hostname|server/i', (string) $key)
+            && $stored->has($key) && (string) $stored[$key] !== (string) ($values[$key] ?? ''))->isNotEmpty();
+        $missing = [];
+        foreach ($record->settings->where('encrypted', true) as $setting) {
+            if (($values[$setting->key] ?? null) !== null && $values[$setting->key] !== '') {
+                continue;
             }
+            if ($moved && $setting->value !== null && $setting->value !== '') {
+                $missing['data.settings.' . $setting->key] = __('The address changed: enter this secret again.');
+
+                continue;
+            }
+            $values[$setting->key] = $setting->value;
+        }
+        if ($missing !== []) {
+            throw ValidationException::withMessages($missing);
         }
 
         return $values;
@@ -369,7 +387,7 @@ class ExtensionHelper
         $stored = $record === null ? [] : self::storedSecretKeys($record);
 
         try {
-            foreach (self::getConfig($type, $name, self::withStoredSecrets($record, (array) $config)) as $key => $config) {
+            foreach (self::getConfig($type, $name, rescue(fn () => self::withStoredSecrets($record, (array) $config), (array) $config, false)) as $key => $config) {
                 // A secret already stored is not sent to the page (sweep §6 #4): left empty, it is kept.
                 if (($config['encrypted'] ?? false) && in_array($config['name'], $stored, true)) {
                     $config['required'] = false;

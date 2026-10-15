@@ -49,4 +49,15 @@ class EditServer extends EditRecord
         // Maybe the extension changed the record, so we need to refresh it
         return $record->refresh();
     }
+
+    /** A secret typed in leaves the page once saved (review R10), as the Settings page does (AUTH-12). */
+    protected function afterSave(): void
+    {
+        $record = $this->getRecord();
+        if ($record instanceof Extension) {
+            foreach (ExtensionHelper::storedSecretKeys($record) as $key) {
+                $this->data['settings'][$key] = null;
+            }
+        }
+    }
 }
