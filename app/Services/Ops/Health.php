@@ -2,8 +2,8 @@
 
 namespace App\Services\Ops;
 
-use App\Admin\Widgets\CronStat\CronStat;
 use App\Console\Commands\MailSweep;
+use App\Models\CronStat;
 use App\Models\EmailLog;
 use App\Models\License;
 use App\Models\ModuleAction;

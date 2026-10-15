@@ -2,9 +2,9 @@
 
 namespace Tests\Feature;
 
-use App\Admin\Widgets\CronStat\CronStat;
 use App\Helpers\ExtensionHelper;
 use App\Models\Contact;
+use App\Models\CronStat;
 use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\License;
@@ -52,7 +52,7 @@ class OpsCommandsTest extends TestCase
 
     public function test_health_reports_each_check_and_exits_by_the_worst(): void
     {
-        Setting::query()->updateOrCreate(['key' => 'last_scheduler_run', 'settingable_type' => CronStat::class, 'settingable_id' => null], ['value' => now()->toDateTimeString()]);
+        $this->artisan('app:schedule-heartbeat-command');
         EmailLog::query()->create(['subject' => 's', 'to' => 'a@example.test', 'body' => 'b', 'status' => EmailLog::STATUS_SENDING, 'sending_at' => now()->subHour()]);
 
         $report = Health::report();
@@ -119,8 +119,8 @@ class OpsCommandsTest extends TestCase
 
     public function test_health_warns_with_exit_1(): void
     {
-        Setting::query()->updateOrCreate(['key' => 'last_scheduler_run', 'settingable_type' => CronStat::class, 'settingable_id' => null], ['value' => now()->toDateTimeString()]);
-        Setting::query()->updateOrCreate(['key' => 'last_cron_run', 'settingable_type' => CronStat::class, 'settingable_id' => null], ['value' => now()->toDateTimeString()]);
+        $this->artisan('app:schedule-heartbeat-command'); // the rows as the scheduler writes them, not as a test would
+        Setting::query()->updateOrCreate(['key' => 'last_cron_run', 'settingable_type' => CronStat::class], ['value' => now()->toDateTimeString()]);
         config(['settings.mail_disable' => true]);
 
         $this->assertSame(Health::WARN, Health::report()['status']);
