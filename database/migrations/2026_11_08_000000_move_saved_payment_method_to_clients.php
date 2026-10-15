@@ -12,22 +12,23 @@ use Illuminate\Support\Facades\Schema;
  *
  * Each account's default is the method most of its running services had (the newest on a tie); one the customer removed is
  * not taken.
+ *
+ * SQLite (tests) gets no foreign keys here and keeps the unused `services.billing_agreement_id`: adding or dropping a
+ * foreign key rebuilds the table there, and inside a transaction (where `PRAGMA foreign_keys = OFF` does nothing) the
+ * rebuild of `clients` or `services` deletes their children by cascade. Nothing reads the old column.
  */
 return new class extends Migration
 {
-    /**
-     * Not in a transaction, with foreign keys off for the schema changes: SQLite rebuilds `clients` and `services` to add or
-     * drop a foreign key, and with them on the rebuild deletes their children by cascade (as in the account split).
-     */
-    public $withinTransaction = false;
-
     public function up(): void
     {
-        Schema::withoutForeignKeyConstraints(fn () => Schema::table('clients', function (Blueprint $table) {
-            $table->foreignId('default_billing_agreement_id')->nullable()->after('separate_invoices')
-                ->constrained('billing_agreements')->nullOnDelete();
+        $sqlite = DB::getDriverName() === 'sqlite';
+        Schema::table('clients', function (Blueprint $table) use ($sqlite) {
+            $table->unsignedBigInteger('default_billing_agreement_id')->nullable()->after('separate_invoices');
             $table->boolean('auto_charge')->default(true)->after('default_billing_agreement_id');
-        }));
+            if (!$sqlite) {
+                $table->foreign('default_billing_agreement_id')->references('id')->on('billing_agreements')->nullOnDelete();
+            }
+        });
 
         $used = DB::table('services')
             ->join('billing_agreements', 'billing_agreements.id', '=', 'services.billing_agreement_id')
@@ -36,29 +37,36 @@ return new class extends Migration
             ->whereIn('services.status', ['active', 'suspended'])
             ->groupBy('services.client_id', 'services.billing_agreement_id')
             ->orderByDesc(DB::raw('COUNT(*)'))->orderByDesc('services.billing_agreement_id')
-            ->get(['services.client_id', 'services.billing_agreement_id', DB::raw('COUNT(*) as uses')]);
+            ->get(['services.client_id', 'services.billing_agreement_id']);
         foreach ($used->unique('client_id') as $row) {
             DB::table('clients')->where('id', $row->client_id)->update(['default_billing_agreement_id' => $row->billing_agreement_id]);
         }
 
-        Schema::withoutForeignKeyConstraints(fn () => Schema::table('services', function (Blueprint $table) {
-            $table->dropConstrainedForeignId('billing_agreement_id');
-        }));
+        if (!$sqlite) {
+            Schema::table('services', function (Blueprint $table) {
+                $table->dropConstrainedForeignId('billing_agreement_id');
+            });
+        }
     }
 
     public function down(): void
     {
-        Schema::withoutForeignKeyConstraints(fn () => Schema::table('services', function (Blueprint $table) {
-            $table->foreignId('billing_agreement_id')->nullable()->constrained('billing_agreements')->nullOnDelete();
-        }));
-        // Back on the running recurring services of accounts that charge automatically.
+        $sqlite = DB::getDriverName() === 'sqlite';
+        if (!Schema::hasColumn('services', 'billing_agreement_id')) {
+            Schema::table('services', function (Blueprint $table) {
+                $table->foreignId('billing_agreement_id')->nullable()->constrained('billing_agreements')->nullOnDelete();
+            });
+        }
+        // Back on the running services of accounts that charge automatically.
         foreach (DB::table('clients')->whereNotNull('default_billing_agreement_id')->where('auto_charge', true)->get(['id', 'default_billing_agreement_id']) as $client) {
             DB::table('services')->where('client_id', $client->id)->whereIn('status', ['active', 'suspended'])
                 ->update(['billing_agreement_id' => $client->default_billing_agreement_id]);
         }
-        Schema::withoutForeignKeyConstraints(fn () => Schema::table('clients', function (Blueprint $table) {
-            $table->dropConstrainedForeignId('default_billing_agreement_id');
-            $table->dropColumn('auto_charge');
-        }));
+        Schema::table('clients', function (Blueprint $table) use ($sqlite) {
+            if (!$sqlite) {
+                $table->dropForeign(['default_billing_agreement_id']);
+            }
+            $table->dropColumn(['default_billing_agreement_id', 'auto_charge']);
+        });
     }
 };

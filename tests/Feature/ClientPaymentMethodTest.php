@@ -107,7 +107,8 @@ class ClientPaymentMethodTest extends TestCase
         DB::table('billing_agreements')->where('id', $removed->id)->update(['deleted_at' => now()]);
         $this->artisan('migrate')->assertExitCode(0);
 
-        $this->assertFalse(Schema::hasColumn('services', 'billing_agreement_id'));
+        // Dropped on MariaDB; SQLite keeps the unused column (see the migration).
+        $this->assertSame(DB::getDriverName() === 'sqlite', Schema::hasColumn('services', 'billing_agreement_id'));
         $this->assertSame($b->id, (int) $client->fresh()->default_billing_agreement_id);
         $this->assertNull($other->fresh()->default_billing_agreement_id);
         $this->assertTrue($client->fresh()->auto_charge);
