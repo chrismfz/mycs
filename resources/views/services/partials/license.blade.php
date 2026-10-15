@@ -25,10 +25,10 @@
             {{ $license->last_ok_at?->diffForHumans() ?? __('services.license.never_checked') }}
         </span>
     </div>
-    @if($license->last_failure_at && (!$license->last_ok_at || $license->last_failure_at->gt($license->last_ok_at)))
+    @if($license->status !== \App\Models\License::STATUS_REISSUED && $license->last_failure_at && (!$license->last_ok_at || $license->last_failure_at->gt($license->last_ok_at)))
     <div class="flex items-start text-base">
         <span class="mr-2">{{ __('services.license.last_failure') }}:</span>
-        {{-- A fixed reason, not the recorded text (staff's): only a wrong IP is the customer's to fix, by a reissue. --}}
+        {{-- A fixed reason, not the recorded text (staff's); after a reissue the next check binds it, so nothing to show. --}}
         <span class="text-orange-500">{{ $license->last_failure_at->diffForHumans() }}: {{ str_starts_with((string) $license->last_failure, \Nixpal\Licensing\Zlic::MSG_IP) ? __('services.license.failure_ip') : __('services.license.failure_other') }}</span>
     </div>
     @endif
