@@ -120,9 +120,9 @@ class McpOauthTest extends TestCase
 
         $this->get('/mcp/oauth/authorize?' . http_build_query(['client_id' => 'nope'] + $this->authorizeQuery($clientId)))->assertStatus(400);
         $this->get('/mcp/oauth/authorize?' . http_build_query(['redirect_uri' => 'https://evil.example.test/cb'] + $this->authorizeQuery($clientId)))->assertStatus(400);
-        $location = $this->get('/mcp/oauth/authorize?' . http_build_query(['code_challenge_method' => 'plain'] + $this->authorizeQuery($clientId)))
-            ->assertRedirect()->headers->get('Location');
-        $this->assertStringStartsWith(self::REDIRECT . '?error=invalid_request', $location);
+        // Told at the client, but as a link on a page: never an automatic redirect (review MCPO-1).
+        $this->get('/mcp/oauth/authorize?' . http_build_query(['code_challenge_method' => 'plain'] + $this->authorizeQuery($clientId)))
+            ->assertStatus(400)->assertSee(e(self::REDIRECT . '?error=invalid_request'), false);
     }
 
     public function test_the_consent_asks_to_log_in_or_for_a_key_and_shows_approve_to_staff_who_may(): void
@@ -153,12 +153,13 @@ class McpOauthTest extends TestCase
         $code = $this->approve($clientId, $staff);
         $tokens = $this->exchange($clientId, $code)->assertOk()->assertHeader('Cache-Control', 'no-store, private')->json();
         $this->assertStringStartsWith(McpOauth::ACCESS_PREFIX, $tokens['access_token']);
-        $this->exchange($clientId, $code)->assertStatus(400)->assertJson(['error' => 'invalid_grant']); // single use
-
         $this->assertContains('health', collect($this->tools($tokens['access_token'])->assertOk()->json('result.tools'))->pluck('name')->all());
         $grant = McpOauthGrant::query()->sole();
         $this->assertSame([$staff->id, 'session', null], [$grant->staff_id, $grant->approved_by, $grant->api_key_id]);
         $this->assertNull(McpCall::query()->first(), 'listing is not a call');
+
+        $this->exchange($clientId, $code)->assertStatus(400)->assertJson(['error' => 'invalid_grant']); // single use
+        $this->tools($tokens['access_token'])->assertStatus(401); // and its replay revokes what it bought (MCPO-5)
     }
 
     public function test_refresh_rotates_and_a_replay_revokes_the_grant(): void
@@ -251,6 +252,18 @@ class McpOauthTest extends TestCase
         $this->livewireAs($staff)->test(ListMcpOauthGrants::class)->assertCanSeeTableRecords([$grant])->callTableAction('revoke', $grant);
 
         $this->assertNotNull($grant->fresh()->revoked_at);
+        $this->tools($tokens['access_token'])->assertStatus(401);
+    }
+
+    public function test_a_new_password_revokes_what_the_login_approved(): void
+    {
+        $staff = $this->staff();
+        $clientId = $this->client();
+        $tokens = $this->exchange($clientId, $this->approve($clientId, $staff))->json();
+
+        $staff->update(['password' => 'An0ther-Passw0rd!']);
+
+        $this->assertSame('Password changed', McpOauthGrant::query()->sole()->revoked_reason);
         $this->tools($tokens['access_token'])->assertStatus(401);
     }
 }

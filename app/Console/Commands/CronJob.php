@@ -17,6 +17,7 @@ use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\McpCall;
+use App\Models\McpOauthClient;
 use App\Models\McpOauthCode;
 use App\Models\McpOauthGrant;
 use App\Models\Product;
@@ -348,7 +349,9 @@ class CronJob extends Command
                 // Its OAuth: codes after a day (they live a minute), grants revoked or long expired after 90 days.
                 + McpOauthCode::query()->where('created_at', '<', now()->subDay())->delete()
                 + McpOauthGrant::query()->where(fn ($query) => $query->where('revoked_at', '<', now()->subDays(90))
-                    ->orWhere('refresh_expires_at', '<', now()->subDays(90)))->delete());
+                    ->orWhere('refresh_expires_at', '<', now()->subDays(90)))->delete()
+                // and the clients left without a grant after a day (registration is open: review MCPO-6).
+                + McpOauthClient::query()->where('created_at', '<', now()->subDay())->whereDoesntHave('grants')->delete());
 
             // nixpal licensing: the access log kept 90 days (WHMCS addon «logprune»).
             $this->runCronJob('license_logs_pruned', fn () => Licenses::pruneLog());

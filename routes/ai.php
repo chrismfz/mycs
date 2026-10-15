@@ -1,9 +1,18 @@
 <?php
 
 use App\Http\Controllers\McpOauthController;
+use App\Http\Middleware\LockSession;
 use App\Http\Middleware\McpAuth;
+use App\Http\Middleware\UseStaffGuard;
 use App\Mcp\Servers\MycsServer;
+use Filament\Http\Middleware\AuthenticateSession;
+use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
+use Illuminate\Cookie\Middleware\EncryptCookies;
+use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
+use Illuminate\Routing\Middleware\SubstituteBindings;
+use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
+use Illuminate\View\Middleware\ShareErrorsFromSession;
 use Laravel\Mcp\Facades\Mcp;
 
 /*
@@ -20,7 +29,10 @@ Route::get('/.well-known/oauth-protected-resource/{path}', [McpOauthController::
 Route::get('/.well-known/oauth-authorization-server', [McpOauthController::class, 'authorizationServer']);
 Route::post('/mcp/oauth/register', [McpOauthController::class, 'register']);
 Route::post('/mcp/oauth/token', [McpOauthController::class, 'token']);
-Route::middleware('web')->group(function (): void {
-    Route::get('/mcp/oauth/authorize', [McpOauthController::class, 'show'])->name('mcp.oauth.authorize');
-    Route::post('/mcp/oauth/authorize', [McpOauthController::class, 'approve']);
-});
+// The consent reads the admin's session: with the admin panel's own session checks (review MCPO-3: the IP/agent lock,
+// a password change), never the client area's.
+Route::middleware([EncryptCookies::class, AddQueuedCookiesToResponse::class, StartSession::class, UseStaffGuard::class, LockSession::class,
+    AuthenticateSession::class, ShareErrorsFromSession::class, PreventRequestForgery::class, SubstituteBindings::class])->group(function (): void {
+        Route::get('/mcp/oauth/authorize', [McpOauthController::class, 'show'])->name('mcp.oauth.authorize');
+        Route::post('/mcp/oauth/authorize', [McpOauthController::class, 'approve']);
+    });

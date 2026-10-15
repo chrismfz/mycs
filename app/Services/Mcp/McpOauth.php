@@ -14,7 +14,7 @@ use Illuminate\Support\Str;
  * OAuth 2.1 for the MCP server (docs/mcp.md), as the claude.ai connector speaks it: metadata (RFC 9728, RFC 8414),
  * dynamic client registration (RFC 7591, public clients), the authorization code with PKCE S256 only, one-minute
  * single-use codes, an access token of an hour and a refresh token of 90 days, rotated on every use (a replayed one
- * revokes the grant). Staff approve on a consent page, logged in to the admin or by pasting an admin API key
+ * revokes the grant, any used one: MCPO-4; a grant ends after a year). Staff approve on a consent page, logged in to the admin or by pasting an admin API key
  * (McpOauthController). Every token is checked again on use (McpAccess). Only hashes are stored.
  */
 final class McpOauth
@@ -25,11 +25,20 @@ final class McpOauth
 
     public const REFRESH_DAYS = 90;
 
+    /** However often it is refreshed, a grant ends a year after staff approved it (review MCPO-4). */
+    public const GRANT_DAYS = 365;
+
     public const ACCESS_PREFIX = 'mcpat_';
 
     public const REFRESH_PREFIX = 'mcprt_';
 
     public const SCOPE = 'mcp';
+
+    /** A request value as a string: an array where a string belongs is no value (not a 500). */
+    private static function str(mixed $value): string
+    {
+        return is_string($value) ? $value : '';
+    }
 
     public static function resource(): string
     {
@@ -82,7 +91,7 @@ final class McpOauth
         if (($data['token_endpoint_auth_method'] ?? 'none') !== 'none') {
             throw new OAuthError('invalid_client_metadata', 'Public clients only (token_endpoint_auth_method none).');
         }
-        $name = trim(strip_tags((string) ($data['client_name'] ?? ''))) ?: 'MCP client';
+        $name = trim(strip_tags(self::str($data['client_name'] ?? null))) ?: 'MCP client';
         $client = McpOauthClient::query()->create(['client_id' => 'mcpc_' . Str::random(32), 'name' => mb_substr($name, 0, 100),
             'redirect_uris' => array_values($uris), 'registered_ip' => $ip]);
 
@@ -91,19 +100,30 @@ final class McpOauth
             'client_id_issued_at' => $client->created_at?->getTimestamp()];
     }
 
+    /**
+     * https, or http on localhost; and a URI every parser reads alike (review MCPO-2): no backslash, space or control
+     * character, no user or password, an ASCII host (an internationalised one only as punycode, as the consent shows it),
+     * no fragment.
+     */
     public static function acceptableRedirect(string $uri): bool
     {
-        if (mb_strlen($uri) > 2000 || str_contains($uri, '#')) {
+        if (mb_strlen($uri) > 2000 || preg_match('/[\\\\\s\x00-\x1f\x7f#]/', $uri) === 1 || !mb_check_encoding($uri, 'ASCII')) {
             return false;
         }
         $parts = parse_url($uri);
-        if (!is_array($parts) || !isset($parts['scheme'], $parts['host'])) {
+        if (!is_array($parts) || !isset($parts['scheme'], $parts['host']) || isset($parts['user']) || isset($parts['pass'])) {
             return false;
         }
         $scheme = strtolower($parts['scheme']);
-        $host = strtolower(trim($parts['host'], '[]'));
+        $host = strtolower($parts['host']);
+        if ($host === '[::1]') {
+            return $scheme === 'http' || $scheme === 'https';
+        }
+        if (preg_match('/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/', $host) !== 1) {
+            return false;
+        }
 
-        return $scheme === 'https' || ($scheme === 'http' && in_array($host, ['localhost', '127.0.0.1', '::1'], true));
+        return $scheme === 'https' || ($scheme === 'http' && in_array($host, ['localhost', '127.0.0.1'], true));
     }
 
     /**
@@ -114,26 +134,26 @@ final class McpOauth
      */
     public static function authorizeRequest(array $query): AuthorizeRequest
     {
-        $client = McpOauthClient::query()->where('client_id', (string) ($query['client_id'] ?? ''))->first();
+        $client = McpOauthClient::query()->where('client_id', self::str($query['client_id'] ?? null))->first();
         if ($client === null) {
             throw new OAuthError('invalid_client', 'Unknown client.');
         }
-        $redirect = (string) ($query['redirect_uri'] ?? '');
+        $redirect = self::str($query['redirect_uri'] ?? null);
         if ($redirect === '' && count($client->redirect_uris) === 1) {
             $redirect = $client->redirect_uris[0];
         }
         if (!in_array($redirect, $client->redirect_uris, true)) {
             throw new OAuthError('invalid_request', 'The redirect URI is not one the client registered.');
         }
-        $state = isset($query['state']) ? mb_substr((string) $query['state'], 0, 500) : null;
-        $request = new AuthorizeRequest($client, $redirect, (string) ($query['code_challenge'] ?? ''), $state);
+        $state = is_string($query['state'] ?? null) ? mb_substr($query['state'], 0, 500) : null;
+        $request = new AuthorizeRequest($client, $redirect, self::str($query['code_challenge'] ?? null), $state);
         if (($query['response_type'] ?? '') !== 'code') {
             throw new RedirectedOAuthError($request, 'unsupported_response_type', 'Only the authorization code flow.');
         }
         if (($query['code_challenge_method'] ?? '') !== 'S256' || preg_match('/^[A-Za-z0-9_-]{43,128}$/', $request->codeChallenge) !== 1) {
             throw new RedirectedOAuthError($request, 'invalid_request', 'PKCE with S256 is required.');
         }
-        if (isset($query['resource']) && rtrim((string) $query['resource'], '/') !== rtrim(self::resource(), '/')) {
+        if (isset($query['resource']) && rtrim(self::str($query['resource']), '/') !== rtrim(self::resource(), '/')) {
             throw new RedirectedOAuthError($request, 'invalid_target', 'This server issues tokens for its own MCP resource only.');
         }
 
@@ -167,25 +187,31 @@ final class McpOauth
     /** @param array<string, mixed> $data */
     private static function exchangeCode(array $data, string $ip): array
     {
-        $client = McpOauthClient::query()->where('client_id', (string) ($data['client_id'] ?? ''))->first()
+        $client = McpOauthClient::query()->where('client_id', self::str($data['client_id'] ?? null))->first()
             ?? throw new OAuthError('invalid_client', 'Unknown client.', 401);
-        $code = McpOauthCode::query()->where('code_hash', hash('sha256', (string) ($data['code'] ?? '')))->first();
+        $code = McpOauthCode::query()->where('code_hash', hash('sha256', self::str($data['code'] ?? null)))->first();
         // Claimed on its own, committed whatever follows: a code is good once, also when the exchange then fails.
         $claimed = $code !== null && $code->client_id === $client->id
             && McpOauthCode::query()->whereKey($code->id)->whereNull('used_at')->where('expires_at', '>', now())->update(['used_at' => now()]) === 1;
         if (!$claimed) {
+            // A code that comes back leaked: the grant it bought goes too (review MCPO-5, RFC 9700 §4.2.4).
+            if ($code !== null && $code->used_at !== null && $code->grant_id !== null) {
+                McpOauthGrant::query()->find($code->grant_id)?->revoke('Authorization code replayed');
+            }
+
             throw new OAuthError('invalid_grant', 'The code is unknown, used or expired.');
         }
-        if (($data['redirect_uri'] ?? $code->redirect_uri) !== $code->redirect_uri) {
+        if (self::str($data['redirect_uri'] ?? $code->redirect_uri) !== $code->redirect_uri) {
             throw new OAuthError('invalid_grant', 'The redirect URI differs from the authorization request\'s.');
         }
-        $verifier = (string) ($data['code_verifier'] ?? '');
+        $verifier = self::str($data['code_verifier'] ?? null);
         $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
         if (preg_match('/^[A-Za-z0-9._~-]{43,128}$/', $verifier) !== 1 || !hash_equals($code->code_challenge, $challenge)) {
             throw new OAuthError('invalid_grant', 'PKCE verification failed.');
         }
         $grant = McpOauthGrant::query()->create(['client_id' => $client->id, 'staff_id' => $code->staff_id, 'api_key_id' => $code->api_key_id,
             'approved_by' => $code->api_key_id ? 'key' : 'session']);
+        McpOauthCode::query()->whereKey($code->id)->update(['grant_id' => $grant->id]);
         if (self::grantAlive($grant) === null) {
             $grant->revoke('Not allowed any more');
 
@@ -198,22 +224,26 @@ final class McpOauth
     /** @param array<string, mixed> $data */
     private static function refresh(array $data, string $ip): array
     {
-        $presented = hash('sha256', (string) ($data['refresh_token'] ?? ''));
+        $presented = hash('sha256', self::str($data['refresh_token'] ?? null));
         // Decided under the grant's lock, a revocation committed before the error is thrown (not rolled back with it).
         $outcome = DB::transaction(function () use ($presented, $data, $ip) {
             $grant = McpOauthGrant::query()->where('refresh_hash', $presented)->lockForUpdate()->first();
             if ($grant === null) {
-                // A refresh token already rotated away: someone kept a copy. The grant goes (RFC 9700 §4.14).
-                McpOauthGrant::query()->where('previous_refresh_hash', $presented)->whereNull('revoked_at')->get()
-                    ->each(fn (McpOauthGrant $replayed) => $replayed->revoke('Refresh token replayed'));
+                // Any refresh token the grant already used, not only the last one: someone kept a copy, and whoever
+                // refreshed with it since is not to be told apart from its client. The grant goes (RFC 9700 §4.14; MCPO-4).
+                $used = DB::table('mcp_oauth_used_refresh_tokens')->where('token_hash', $presented)->value('grant_id');
+                if ($used !== null) {
+                    McpOauthGrant::query()->find($used)?->revoke('Refresh token replayed');
+                }
 
                 return new OAuthError('invalid_grant', 'The refresh token is unknown or was used.');
             }
-            $clientId = (string) ($data['client_id'] ?? '');
+            $clientId = self::str($data['client_id'] ?? null);
             if ($clientId !== '' && $grant->client->client_id !== $clientId) {
                 return new OAuthError('invalid_grant', 'The refresh token is another client\'s.');
             }
-            if ($grant->revoked_at !== null || $grant->refresh_expires_at === null || $grant->refresh_expires_at->isPast() || self::grantAlive($grant) === null) {
+            if ($grant->revoked_at !== null || $grant->refresh_expires_at === null || $grant->refresh_expires_at->isPast()
+                || $grant->created_at?->copy()->addDays(self::GRANT_DAYS)->isPast() || self::grantAlive($grant) === null) {
                 $grant->revoke('Expired or not allowed any more');
 
                 return new OAuthError('invalid_grant', 'The grant expired or was revoked.');
@@ -233,6 +263,9 @@ final class McpOauth
     {
         $access = self::ACCESS_PREFIX . Str::random(48);
         $refresh = self::REFRESH_PREFIX . Str::random(48);
+        if ($grant->refresh_hash !== null) {
+            DB::table('mcp_oauth_used_refresh_tokens')->insertOrIgnore(['grant_id' => $grant->id, 'token_hash' => $grant->refresh_hash, 'created_at' => now()]);
+        }
         $grant->forceFill([
             'access_hash' => hash('sha256', $access), 'access_expires_at' => now()->addSeconds(self::ACCESS_SECONDS),
             'previous_refresh_hash' => $grant->refresh_hash, 'refresh_hash' => hash('sha256', $refresh),

@@ -58,7 +58,10 @@ class McpOauthController extends Controller
         try {
             $authorize = McpOauth::authorizeRequest($request->query());
         } catch (RedirectedOAuthError $e) {
-            return redirect()->away($e->redirect());
+            // Never a redirect nobody clicked (review MCPO-1: registration is open, so an automatic error redirect would
+            // be an open redirector on our domain); the client's error is a link on a page.
+            return self::page('mcp.oauth-error', ['message' => $e->getMessage(), 'returnUrl' => $e->redirect(),
+                'returnHost' => (string) parse_url($e->request->redirectUri, PHP_URL_HOST)], 400);
         } catch (OAuthError $e) {
             return self::page('mcp.oauth-error', ['message' => $e->getMessage()], 400);
         }
@@ -83,7 +86,8 @@ class McpOauthController extends Controller
         try {
             $authorize = McpOauth::authorizeRequest($request->only(['response_type', 'client_id', 'redirect_uri', 'code_challenge', 'code_challenge_method', 'state', 'resource']));
         } catch (RedirectedOAuthError $e) {
-            return redirect()->away($e->redirect());
+            return self::page('mcp.oauth-error', ['message' => $e->getMessage(), 'returnUrl' => $e->redirect(),
+                'returnHost' => (string) parse_url($e->request->redirectUri, PHP_URL_HOST)], 400);
         } catch (OAuthError $e) {
             return self::page('mcp.oauth-error', ['message' => $e->getMessage()], 400);
         }

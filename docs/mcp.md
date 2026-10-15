@@ -48,10 +48,14 @@ MyCS has its own small OAuth 2.1 server for `/mcp`, for staff only. It is apart 
 - **Discovery:** a 401 from `/mcp` names `/.well-known/oauth-protected-resource/mcp` (RFC 9728). That points to
   `/.well-known/oauth-authorization-server` (RFC 8414).
 - **Registration:** `POST /mcp/oauth/register` (RFC 7591).
-  - Public clients only (no secret), redirect URIs https or http on localhost, no fragment, at most five.
+  - Public clients only (no secret), at most five redirect URIs: https, or http on localhost. A URI every parser reads
+    alike: no backslash, space, user or password, an ASCII host (punycode), no fragment.
+  - A client still without a grant a day later is pruned.
   - Ten per hour per address.
 - **Consent:** `/mcp/oauth/authorize` is a page of its own. It is never framed, and it shows the client's name (its own
-  claim) and **the host it returns to**. Staff approve in one of two ways:
+  claim) and **the host it returns to**. It runs on the admin's session with the admin's checks (the IP/agent lock, a
+  password change). An error is a page with a link back to the client, never an automatic redirect (registration is
+  open: no open redirector). Staff approve in one of two ways:
   - **logged in to the admin**, with «Use the MCP Server» (the page offers the admin login and comes back after it);
   - or by **pasting an admin API key** that may open the MCP. Ten wrong keys per address lock this for a quarter of an
     hour.
@@ -59,8 +63,10 @@ MyCS has its own small OAuth 2.1 server for `/mcp`, for staff only. It is apart 
   this resource.
 - **Tokens:**
   - An access token (`mcpat_…`) lasts an hour.
-  - A refresh token (`mcprt_…`) lasts 90 days and is rotated on every use. A refresh token used twice **revokes the
-    grant**: someone kept a copy.
+  - A refresh token (`mcprt_…`) lasts 90 days and is rotated on every use. **Any** refresh token the grant already
+    used, coming back, revokes the grant: someone kept a copy. So does a code used twice. A grant ends a year after
+    its approval, however often refreshed.
+  - A new password revokes the grants that login approved.
   - Only hashes are stored.
 - **Checked on every call:** the member of staff must be active with «Use the MCP Server». A grant approved with a key
   also needs that key alive (enabled, its permission, its allowlist by address). Otherwise the grant is revoked, and
