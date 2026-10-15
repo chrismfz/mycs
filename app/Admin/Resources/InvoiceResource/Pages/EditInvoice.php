@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\InvoiceResource\Pages;
 
+use App\Admin\Actions\ApplyCreditAction;
 use App\Admin\Actions\AuditAction;
 use App\Admin\Actions\CloseInvoiceAsPaid;
 use App\Admin\Actions\MarkInvoicePaid;
@@ -156,6 +157,7 @@ class EditInvoice extends EditRecord
     {
         return [
             MarkInvoicePaid::make(),
+            ApplyCreditAction::make(),
             CloseInvoiceAsPaid::make(),
             Action::make('publish')
                 ->label('Publish')

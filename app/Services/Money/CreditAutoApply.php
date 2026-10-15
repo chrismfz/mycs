@@ -198,7 +198,7 @@ class CreditAutoApply
      * The customer is told what credit paid and what is left, once the payment commits. A fully paid invoice already
      * sends «Invoice paid».
      */
-    private function notify(InvoiceTransaction $transaction): void
+    public function notify(InvoiceTransaction $transaction): void
     {
         DB::afterCommit(function () use ($transaction) {
             $invoice = $transaction->invoice()->first();

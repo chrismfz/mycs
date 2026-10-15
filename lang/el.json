@@ -305,5 +305,17 @@
     "Invoice :invoice bills a service that has ended: cancel it, or keep it as a debt.": "Το τιμολόγιο :invoice χρεώνει υπηρεσία που έληξε: ακύρωσέ το ή κράτησέ το ως οφειλή.",
     "This invoice is part of a merge: it is kept, so the merge can be traced.": "Αυτό το τιμολόγιο είναι μέρος συγχώνευσης: κρατιέται, για να φαίνεται η συγχώνευση.",
     "Each invoice must bill more than nothing: keep a discount with the lines it discounts.": "Κάθε τιμολόγιο πρέπει να χρεώνει κάτι: κράτα μια έκπτωση μαζί με τις γραμμές που εκπίπτει.",
-    "You may not change one of these invoices.": "Δεν μπορείς να αλλάξεις ένα από αυτά τα τιμολόγια."
+    "You may not change one of these invoices.": "Δεν μπορείς να αλλάξεις ένα από αυτά τα τιμολόγια.",
+    "Choose at least two invoices: one invoice is paid with Mark Paid.": "Διάλεξε τουλάχιστον δύο τιμολόγια: ένα τιμολόγιο πληρώνεται με «Mark Paid».",
+    "Invoice :invoice is not unpaid: only unpaid invoices are paid together.": "Το τιμολόγιο :invoice δεν είναι απλήρωτο: μόνο απλήρωτα τιμολόγια πληρώνονται μαζί.",
+    "Only invoices in one currency are paid together.": "Μαζί πληρώνονται μόνο τιμολόγια στο ίδιο νόμισμα.",
+    "Only invoices of one customer are paid together.": "Μαζί πληρώνονται μόνο τιμολόγια του ίδιου πελάτη.",
+    "Apply credit": "Χρήση πίστωσης",
+    "The customer has :amount :currency of account credit.": "Ο πελάτης έχει :amount :currency πίστωση λογαριασμού.",
+    "No credit applied": "Δεν χρησιμοποιήθηκε πίστωση",
+    "Nothing is left to pay on it, or the customer has no credit in its currency: reload it.": "Δεν μένει τίποτα να πληρωθεί ή ο πελάτης δεν έχει πίστωση στο νόμισμά του: ανανέωσε τη σελίδα.",
+    "Credit applied: :amount": "Χρησιμοποιήθηκε πίστωση: :amount",
+    "Add payment to invoices": "Πληρωμή σε τιμολόγια",
+    "One payment for the chosen unpaid invoices of one customer. It pays them oldest due first, each in full while it lasts; what is left becomes the customer's account credit.": "Μία πληρωμή για τα απλήρωτα τιμολόγια ενός πελάτη που διάλεξες. Τα πληρώνει από το παλαιότερο σε λήξη, το καθένα ολόκληρο όσο φτάνει· ό,τι περισσέψει γίνεται πίστωση λογαριασμού του πελάτη.",
+    "Payment recorded on :count invoices": "Η πληρωμή καταχωρήθηκε σε :count τιμολόγια"
 }
