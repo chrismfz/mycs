@@ -85,32 +85,38 @@ class ClientResource extends Resource
                     ->schema(ContactForm::fields())
                     ->columns(2)
                     ->visibleOn('edit'),
-                // The customer's choice, also set by staff (MT-1e): credit pays open invoices on its own, or is kept.
-                Toggle::make('credit_auto_apply')
-                    ->label(__('Credit pays open invoices automatically'))
-                    ->helperText(__('Off: the credit is kept until the customer or staff use it.'))
-                    ->default(true),
-                // WHMCS «Tax Exempt» (Δ1): its new invoice lines get no tax.
-                Toggle::make('tax_exempt')
-                    ->label(__('Tax exempt'))
-                    ->helperText(__('New invoice lines of this account get no tax; issued invoices keep theirs.'))
-                    ->default(false),
-                // WHMCS «Separate Invoices» (Δ3, PR C): its renewals are not grouped by due date.
-                Toggle::make('separate_invoices')
-                    ->label(__('Separate invoices'))
-                    ->helperText(__('One invoice per service renewal, instead of one per due date.'))
-                    ->default(false),
-                // Decision 6 (PR C2): one saved method per account pays its renewals (WHMCS «Disable automatic card charging»).
-                Toggle::make('auto_charge')
-                    ->label(__('Charge renewals automatically'))
-                    ->helperText(__('Renewal invoices are charged to the saved payment method below.'))
-                    ->default(true),
-                Select::make('default_billing_agreement_id')
-                    ->label(__('Payment method for renewals'))
-                    ->relationship('defaultBillingAgreement', 'name', fn (Builder $query, ?Client $record) => $query->where('client_id', $record === null ? 0 : $record->id))
-                    ->visibleOn('edit')
-                    ->placeholder(__('None')),
-            ]);
+                // The account's billing choices, under its details (they sat beside them as grid columns).
+                Section::make(__('Billing'))
+                    ->schema([
+                        // The customer's choice, also set by staff (MT-1e): credit pays open invoices on its own, or is kept.
+                        Toggle::make('credit_auto_apply')
+                            ->label(__('Credit pays open invoices automatically'))
+                            ->helperText(__('Off: the credit is kept until the customer or staff use it.'))
+                            ->default(true),
+                        // WHMCS «Tax Exempt» (Δ1): its new invoice lines get no tax.
+                        Toggle::make('tax_exempt')
+                            ->label(__('Tax exempt'))
+                            ->helperText(__('New invoice lines of this account get no tax; issued invoices keep theirs.'))
+                            ->default(false),
+                        // WHMCS «Separate Invoices» (Δ3, PR C): its renewals are not grouped by due date.
+                        Toggle::make('separate_invoices')
+                            ->label(__('Separate invoices'))
+                            ->helperText(__('One invoice per service renewal, instead of one per due date.'))
+                            ->default(false),
+                        // Decision 6 (PR C2): one saved method per account pays its renewals (WHMCS «Disable automatic card charging»).
+                        Toggle::make('auto_charge')
+                            ->label(__('Charge renewals automatically'))
+                            ->helperText(__('Renewal invoices are charged to the saved payment method below.'))
+                            ->default(true),
+                        Select::make('default_billing_agreement_id')
+                            ->label(__('Payment method for renewals'))
+                            ->relationship('defaultBillingAgreement', 'name', fn (Builder $query, ?Client $record) => $query->where('client_id', $record === null ? 0 : $record->id))
+                            ->visibleOn('edit')
+                            ->placeholder(__('None')),
+                    ])
+                    ->columns(2),
+            ])
+            ->columns(1);
     }
 
     public static function table(Table $table): Table
