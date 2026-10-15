@@ -17,9 +17,11 @@ return new class extends Migration
             $table->id();
             // The vPOS order id («<invoice>Inv<ymdHis><2 digits>»), unique per terminal; the payment's transaction id.
             $table->string('order_id', 50)->unique();
-            $table->foreignId('invoice_id')->constrained()->cascadeOnDelete();
+            // Kept when the invoice or the customer is deleted while they are on the bank page: a capture then still says
+            // whose money it is (adversarial ADV-2).
+            $table->foreignId('invoice_id')->nullable()->constrained()->nullOnDelete();
             // Who opened it (for staff; the payment goes where its invoice is).
-            $table->foreignId('client_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('client_id')->nullable()->constrained()->nullOnDelete();
             $table->string('payment_group', 26)->nullable(); // a Mass Pay group's ulid
             $table->decimal('amount', 17, 2);
             $table->string('currency_code', 3);
@@ -30,6 +32,10 @@ return new class extends Migration
             $table->string('tx_id', 64)->nullable();
             $table->string('pay_method', 30)->nullable();
             $table->timestamp('returned_at')->nullable();
+            // Its payment was recorded: a capture is money once, also when staff delete that payment later and the
+            // customer posts the signed return their browser kept (adversarial ADV-1).
+            $table->timestamp('recorded_at')->nullable();
+            $table->unsignedBigInteger('invoice_transaction_id')->nullable();
             $table->timestamps();
         });
     }

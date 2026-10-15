@@ -8,6 +8,7 @@ use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Models\Invoice;
+use App\Models\InvoiceTransaction;
 use App\Models\PaymentGatewayEvent;
 use App\Models\PaymentGroup;
 use App\Services\Invoice\RecordPaymentService;
@@ -25,6 +26,7 @@ use Nixpal\CardlinkEurobank\PaymentRequest;
 use Nixpal\CardlinkEurobank\ReturnVerifier;
 use Nixpal\CardlinkEurobank\VposReturn;
 use Symfony\Component\HttpFoundation\Response;
+use Throwable;
 
 /**
  * Cardlink/Eurobank vPOS (PR H2a, docs/payments.md «Cardlink»): the bank's hosted page takes a card, Apple/Google Pay or
@@ -155,7 +157,7 @@ class Cardlink extends Gateway
             if ($this->authentic($posted, $result)) {
                 // Signed with our secret, yet refused: a field the vPOS added, or the merchant id set wrong. Every
                 // payment is refused until it is fixed (code review CR-2); a forgery stays quiet.
-                self::tellStaff('refused:' . $result->reason, 'Cardlink returns refused', sprintf(
+                self::tellStaff('refused:' . $result->reason . ':' . now()->toDateString(), 'Cardlink returns refused', sprintf(
                     'A Cardlink return signed with our secret was refused (%s; fields: %s): payments are NOT recorded until this is fixed. Check the merchant id, or the fields the vPOS sends.',
                     $result->reason, implode(', ', $result->postedKeys)));
             }
@@ -168,7 +170,7 @@ class Cardlink extends Gateway
             GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_REJECTED, 'unknown_order', $this->details($result));
             if ($result->status() === CardlinkOrder::STATUS_CAPTURED) {
                 self::tellStaff('unknown:' . $result->orderId(), 'Cardlink payment not recorded', sprintf(
-                    'The Cardlink vPOS captured %s %s for order %s, which is not one of ours: the money is NOT recorded. Check it in the Cardlink portal.',
+                    'The Cardlink vPOS captured %s %s for order %s, which is not an order of this system: the money is NOT recorded here. Check it in the Cardlink portal (an order from before the move may already be recorded in WHMCS).',
                     $result->amount(), $result->currency(), $result->orderId()));
             }
 
@@ -187,13 +189,23 @@ class Cardlink extends Gateway
             ]);
 
         if ($status === CardlinkOrder::STATUS_CAPTURED) {
-            $this->record($order, $result);
+            try {
+                $this->record($order, $result);
+            } catch (Throwable $e) {
+                // A deadlock, a lost connection: the gateway log mails a 500 too, but this one says whose money it is
+                // (adversarial ADV-3). The vPOS's other leg, or a staff check of the order, records it.
+                self::tellStaff('failed:' . $order->order_id, 'Cardlink payment not recorded', sprintf(
+                    'The Cardlink vPOS captured %s %s for order %s (invoice #%d, customer #%d), but recording it failed (%s): the money is NOT recorded yet. Record it if no payment with this transaction id shows on the invoice.',
+                    $result->amount(), $result->currency(), $order->order_id, (int) $order->invoice_id, (int) $order->client_id, mb_substr($e->getMessage(), 0, 200)));
+
+                throw $e;
+            }
         } elseif ($status === 'AUTHORIZED') {
             // Never asked for (no pre-authorisation here): not money until it is captured in the portal.
             GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_IGNORED, 'authorized', $this->details($result, $order));
             self::tellStaff('authorized:' . $order->order_id, 'Cardlink payment authorised, not captured', sprintf(
-                'The Cardlink vPOS authorised %s %s for order %s (invoice #%d) without capturing it: capture or void it in the Cardlink portal, and record the payment if captured.',
-                $result->amount(), $result->currency(), $order->order_id, $order->invoice_id));
+                'The Cardlink vPOS authorised %s %s for order %s (invoice #%d, customer #%d) without capturing it: capture or void it in the Cardlink portal, and record the payment if captured.',
+                $result->amount(), $result->currency(), $order->order_id, (int) $order->invoice_id, (int) $order->client_id));
         } else {
             GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_IGNORED, 'status_' . (strtolower(substr($status, 0, 20)) ?: 'none'), $this->details($result, $order));
         }
@@ -204,18 +216,38 @@ class Cardlink extends Gateway
     /** A captured return: the amount the vPOS took, on the order's invoice (or group), once. */
     private function record(CardlinkOrder $order, VposReturn $result): void
     {
+        if ($order->recorded_at !== null) {
+            // Its payment was recorded: the other leg, or the signed body the customer's browser kept, posted again after
+            // staff deleted that payment. Money once (adversarial ADV-1).
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_IGNORED, 'replay', $this->details($result, $order)
+                + ['invoice_transaction_id' => $order->invoice_transaction_id]);
+
+            return;
+        }
+        if ($order->invoice_id === null) {
+            // The invoice was deleted while the customer was on the bank page (adversarial ADV-2).
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_REJECTED, 'invoice_deleted', $this->details($result, $order));
+            self::tellStaff('deleted:' . $order->order_id, 'Cardlink payment not recorded', sprintf(
+                'The Cardlink vPOS captured %s %s for order %s of customer #%d, but its invoice was deleted: the money is NOT recorded. Add it to the customer\'s credit, or refund it in the Cardlink portal.',
+                $result->amount(), $result->currency(), $order->order_id, (int) $order->client_id));
+
+            return;
+        }
         $cents = Amount::cents($result->amount());
         if ($cents === null || $cents <= 0) {
             GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_REJECTED, 'bad_amount', $this->details($result, $order));
             self::tellStaff('amount:' . $order->order_id, 'Cardlink payment not recorded', sprintf(
                 'The Cardlink vPOS captured order %s (invoice #%d) with an amount that cannot be read: the money is NOT recorded. Check it in the Cardlink portal.',
-                $order->order_id, $order->invoice_id));
+                $order->order_id, (int) $order->invoice_id));
 
             return;
         }
         // Another currency is refused by RecordPaymentService (staff told), as for every gateway.
         $transaction = ExtensionHelper::addPayment($order->invoice_id, 'Cardlink', Amount::format($cents / 100), transactionId: $order->order_id,
             currency: $result->currency(), paymentGroup: $order->payment_group);
+        if ($transaction instanceof InvoiceTransaction) {
+            CardlinkOrder::query()->whereKey($order->id)->whereNull('recorded_at')->update(['recorded_at' => now(), 'invoice_transaction_id' => $transaction->id]);
+        }
         if ($transaction !== null && $cents !== RecordPaymentService::toCents($order->amount)) {
             // The vPOS signed what it took: that is recorded (what the invoice cannot take is credit), and staff look.
             self::tellStaff('differs:' . $order->order_id, 'Cardlink payment of another amount', sprintf(
@@ -297,7 +329,7 @@ class Cardlink extends Gateway
             app()->setLocale($order->locale); // no session here: the customer's language when they paid (code review CR-8)
         }
         $paid = $status === CardlinkOrder::STATUS_CAPTURED;
-        $url = $order === null ? route('invoices') : route('invoices.show', $order->invoice_id) . ($paid ? '?checkPayment' : '');
+        $url = $order?->invoice_id === null ? route('invoices') : route('invoices.show', $order->invoice_id) . ($paid ? '?checkPayment' : '');
 
         return response()->view('gateways.cardlink::return', ['url' => $url, 'paid' => $paid, 'known' => $order !== null], $code);
     }
