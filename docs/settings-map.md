@@ -140,3 +140,6 @@ nixpal (pilot). Τιμές από το `tblconfiguration` των δύο WHMCS, 2
 - όλες οι ρυθμίσεις domains
 
 Ο importer **διαβάζει** αυτές τις ρυθμίσεις από το `tblconfiguration` και τις γράφει στο MyCS (μέρος του parity).
+
+- **Separate Invoices** (`tblclients.separateinvoices`, myip 3, nixpal 0) → `clients.separate_invoices`, ρύθμιση του πελάτη στο admin (PR C1).
+- **Group Similar Line Items** (nixpal on) → **όχι**: οι γραμμές ανανέωσης είναι περίοδοι υπηρεσιών (`billing-cursor.md` §Ομαδοποίηση).

@@ -93,6 +93,11 @@ class ClientResource extends Resource
                     ->label(__('Tax exempt'))
                     ->helperText(__('New invoice lines of this account get no tax; issued invoices keep theirs.'))
                     ->default(false),
+                // WHMCS «Separate Invoices» (Δ3, PR C): its renewals are not grouped by due date.
+                Toggle::make('separate_invoices')
+                    ->label(__('Separate invoices'))
+                    ->helperText(__('One invoice per service renewal, instead of one per due date.'))
+                    ->default(false),
             ]);
     }
 

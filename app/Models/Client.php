@@ -37,6 +37,7 @@ class Client extends Model implements Auditable
     protected $fillable = [
         'credit_auto_apply',
         'tax_exempt',
+        'separate_invoices',
     ];
 
     protected function casts(): array
@@ -44,6 +45,7 @@ class Client extends Model implements Auditable
         return [
             'credit_auto_apply' => 'boolean',
             'tax_exempt' => 'boolean',
+            'separate_invoices' => 'boolean',
         ];
     }
 
