@@ -21,6 +21,7 @@
             <directory>packages/myopenprovider/tests</directory>
             <directory>packages/nixpal-licensing/tests</directory>
             <directory>packages/paypal-vault/tests</directory>
+            <directory>packages/vies/tests</directory>
         </testsuite>
     </testsuites>
     <source>

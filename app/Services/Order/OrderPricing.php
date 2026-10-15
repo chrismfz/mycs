@@ -9,6 +9,7 @@ use App\Models\Coupon;
 use App\Models\Plan;
 use App\Models\Product;
 use App\Models\TaxRate;
+use App\Services\Tax\EuVat;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Carbon\CarbonImmutable;
@@ -130,12 +131,32 @@ final class OrderPricing
      */
     public static function taxRate(?Client $client, ?Product $product = null): ?string
     {
-        if (!config('settings.tax_enabled', false) || $client?->tax_exempt || ($product !== null && !$product->taxable)) {
-            return null;
+        return self::taxDecision($client, $product)['rate'];
+    }
+
+    /**
+     * The tax rate, and when there is none, why (PR G, docs/eu-vat.md): the product is not taxable, the account is tax
+     * exempt, or under EU VAT it is outside the EU or reverse charged. No reason when tax is off or no rule applies.
+     *
+     * @return array{rate: ?string, reason: ?string}
+     */
+    public static function taxDecision(?Client $client, ?Product $product = null): array
+    {
+        if (!config('settings.tax_enabled', false)) {
+            return ['rate' => null, 'reason' => null];
+        }
+        if ($product !== null && !$product->taxable) {
+            return ['rate' => null, 'reason' => EuVat::REASON_NOT_TAXABLE];
+        }
+        if ($client?->tax_exempt) {
+            return ['rate' => null, 'reason' => EuVat::REASON_EXEMPT];
+        }
+        if (($reason = EuVat::zeroReason($client)) !== null) {
+            return ['rate' => null, 'reason' => $reason];
         }
         $tax = Settings::tax($client);
 
-        return $tax instanceof TaxRate ? number_format((float) $tax->rate, 4, '.', '') : null;
+        return ['rate' => $tax instanceof TaxRate ? number_format((float) $tax->rate, 4, '.', '') : null, 'reason' => null];
     }
 
     /**

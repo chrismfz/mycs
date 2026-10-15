@@ -93,6 +93,8 @@ return [
     'refund_notify' => 'Email the customer about the refund',
     'tax_id_line' => 'Tax ID: :tax_id',
     'vat_number_line' => 'VAT: :vat_number',
+    'reverse_charge_note' => 'Reverse charge: VAT to be accounted for by the recipient (Article 196, Directive 2006/112/EC).',
+    'outside_eu_note' => 'VAT not applicable: services supplied to a customer outside the EU.',
     'tax_office_line' => 'Tax office: :tax_office',
     'deleted_user' => 'Deleted User',
 

@@ -11,6 +11,7 @@ use App\Enums\InvoiceTransactionStatus;
 use App\Models\Traits\HasProperties;
 use App\Observers\InvoiceObserver;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Tax\EuVat;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -258,6 +259,22 @@ class Invoice extends Model implements Auditable
             ->groupBy(fn (InvoiceItem $item) => (string) $item->tax_rate)
             ->map(fn ($items, $rate) => ['rate' => (string) $rate, 'amount' => $items->sum(fn (InvoiceItem $item) => (int) round((float) $item->tax_amount * 100)) / 100.0])
             ->sortKeys()->values()->all();
+    }
+
+    /**
+     * The VAT notes the proforma prints (PR G): reverse charge (Art. 196 of Directive 2006/112/EC) when a line was
+     * reverse charged, «outside the EU» when one was not taxed for that.
+     *
+     * @return list<string>
+     */
+    public function taxNotes(): array
+    {
+        $reasons = $this->items->pluck('tax_reason')->filter()->unique();
+
+        return array_values(array_filter([
+            $reasons->contains(EuVat::REASON_REVERSE_CHARGE) ? __('invoices.reverse_charge_note') : null,
+            $reasons->contains(EuVat::REASON_OUTSIDE_EU) ? __('invoices.outside_eu_note') : null,
+        ]));
     }
 
     /** The tax's name for the totals: the issued one (snapshot) or the account's rate's, else «VAT». */

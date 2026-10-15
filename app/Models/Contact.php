@@ -4,6 +4,8 @@ namespace App\Models;
 
 use App\Events\Service\RenewalTaxChanged;
 use App\Exceptions\DisplayException;
+use App\Jobs\CheckVatNumber;
+use App\Services\Tax\EuVat;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -26,6 +28,9 @@ use Illuminate\Support\Facades\DB;
  * @property string|null $company_name
  * @property string|null $tax_id
  * @property string|null $vat_number
+ * @property string|null $vat_status what VIES (or staff) last said of vat_checked_number: pending, valid, invalid (PR G)
+ * @property string|null $vat_checked_number
+ * @property Carbon|null $vat_checked_at
  * @property string|null $tax_office
  * @property string|null $activity
  * @property string|null $address1
@@ -71,12 +76,37 @@ class Contact extends Model
         'email_preferences',
     ];
 
+    /** A new VAT number was saved: VIES checks it after the commit (PR G). Not a column. */
+    public bool $vatCheckDue = false;
+
     protected static function booted(): void
     {
+        // A new VAT number is not known yet (PR G): VAT is charged until VIES says it is valid (fail closed). A new
+        // country is one too when the number has no prefix: it is read with the contact's country (review CR-1).
+        static::saving(function (self $contact) {
+            if (!$contact->isDirty(['vat_number', 'country'])) {
+                return;
+            }
+            $number = EuVat::normalized($contact->vat_number, $contact->country);
+            if ($number === null) {
+                $contact->forceFill(['vat_status' => null, 'vat_checked_number' => null, 'vat_checked_at' => null]);
+            } elseif ($number !== $contact->vat_checked_number) {
+                $contact->forceFill(['vat_status' => EuVat::STATUS_PENDING, 'vat_checked_number' => $number, 'vat_checked_at' => null]);
+                $contact->vatCheckDue = true;
+            }
+        });
+        // Checked once the save commits; the hourly vat:recheck tries again while VIES gives no answer. Only the
+        // primary contact's number bills (review CR-3); another one is checked when it becomes primary.
+        static::saved(function (self $contact) {
+            if ($contact->vatCheckDue && $contact->isPrimary() && EuVat::enabled()) {
+                CheckVatNumber::dispatch($contact->id)->afterCommit();
+            }
+            $contact->vatCheckDue = false;
+        });
         // The account's country is its primary contact's (PR 3a): a new country, or another contact made primary,
         // changes what its subscriptions bill (Δ1).
         static::updated(function (self $contact) {
-            if ($contact->wasChanged('primary_of_client_id') || ($contact->isPrimary() && $contact->wasChanged('country'))) {
+            if ($contact->wasChanged('primary_of_client_id') || ($contact->isPrimary() && $contact->wasChanged(['country', 'vat_number', 'vat_status']))) {
                 RenewalTaxChanged::forSubscribed(Service::query()->where('client_id', $contact->client_id));
             }
         });
@@ -87,6 +117,7 @@ class Contact extends Model
         return [
             'email_preferences' => 'array',
             'archived_at' => 'datetime',
+            'vat_checked_at' => 'datetime',
         ];
     }
 

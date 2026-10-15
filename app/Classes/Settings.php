@@ -10,12 +10,14 @@ use App\Models\Currency;
 use App\Models\Setting;
 use App\Models\TaxRate;
 use App\Rules\Cidr;
+use App\Services\Tax\EuVat;
 use App\Support\CurrentClient;
 use DateTimeZone;
 use Exception;
 use Filament\Schemas\Components\Utilities\Get;
 use Illuminate\Support\Facades\Auth;
 use Minishlink\WebPush\VAPID;
+use MyCS\Vies\VatCountry;
 
 class Settings
 {
@@ -277,6 +279,30 @@ class Settings
                     ],
                     // Both companies' WHMCS are Exclusive (docs/decisions.md Δ1).
                     'default' => 'exclusive',
+                ],
+                // EU VAT (PR G, docs/eu-vat.md): nixpal on, home EE (decision 9); myip off.
+                [
+                    'name' => 'eu_vat_enabled',
+                    'label' => 'EU VAT',
+                    'type' => 'checkbox',
+                    'database_type' => 'boolean',
+                    'default' => false,
+                    'description' => 'Customers outside the EU pay no VAT. EU businesses of another member state with a VAT number VIES finds valid pay no VAT (reverse charge). Until VIES answers, VAT is charged.',
+                ],
+                [
+                    'name' => 'eu_vat_home_country',
+                    'label' => 'EU VAT home country',
+                    'type' => 'select',
+                    'options' => array_intersect_key((array) config('app.countries'), array_flip(VatCountry::EU)),
+                    'required' => false,
+                    'description' => 'The member state the company is established in. Businesses there are never reverse charged; without it nobody is.',
+                ],
+                [
+                    'name' => 'eu_vat_requester',
+                    'label' => 'Own EU VAT number',
+                    'type' => 'text',
+                    'required' => false,
+                    'description' => 'Sent to VIES with each check, so it answers with a consultation number: the proof the customer\'s number was valid.',
                 ],
             ],
             'mail' => [
@@ -1022,6 +1048,10 @@ class Settings
         // Change country to a two-letter country code if it's not already
         if ($country) {
             $country = array_search($country, config('app.countries')) ?: $country;
+        }
+        // EU VAT (PR G): EL is Greece, and Monaco pays France's VAT (adversarial ADV-3/4).
+        if (EuVat::enabled() && ($iso = EuVat::iso($country)) !== null) {
+            $country = EuVat::territory($iso);
         }
 
         // Once per country and request/job (product pages build many prices); reset between requests and queued

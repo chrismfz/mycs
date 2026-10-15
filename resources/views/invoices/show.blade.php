@@ -127,6 +127,10 @@
                     </tbody>
                 </table>
             </div>
+            {{-- PR G: why lines carry no VAT (reverse charge, outside the EU). --}}
+            @foreach ($invoice->taxNotes() as $taxNote)
+            <p class="mt-6 text-sm text-gray-600 dark:text-base">{{ $taxNote }}</p>
+            @endforeach
             <div class="space-y-3 sm:text-right sm:ml-auto sm:w-72 mt-10">
                 {{-- Δ1: the tax of the lines, by rate. --}}
                 @if ($invoice->taxTotal != 0)

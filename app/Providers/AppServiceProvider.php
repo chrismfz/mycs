@@ -46,6 +46,8 @@ use Illuminate\Support\Str;
 use Laravel\Passport\Passport;
 use League\CommonMark\Extension\Table\TableExtension;
 use Livewire\Livewire;
+use MyCS\Vies\CurlTransport;
+use MyCS\Vies\Vies;
 use SocialiteProviders\Discord\Provider;
 use SocialiteProviders\Manager\SocialiteWasCalled;
 
@@ -147,6 +149,8 @@ class AppServiceProvider extends ServiceProvider
         // The gateway log (MT-2a) lives for one request (or one Octane request).
         $this->app->scoped(GatewayLog::class);
         $this->app->scoped(CurrentClient::class);
+        // VIES (PR G): with the instance's own VAT number as requester, VIES gives the consultation number.
+        $this->app->bind(Vies::class, fn () => new Vies(new CurlTransport, config('settings.eu_vat_requester')));
     }
 
     /**
