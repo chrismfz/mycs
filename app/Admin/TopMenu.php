@@ -19,6 +19,7 @@ use App\Admin\Resources\FailedJobResource;
 use App\Admin\Resources\GatewayResource;
 use App\Admin\Resources\InvoiceResource;
 use App\Admin\Resources\InvoiceTransactions\InvoiceTransactionResource;
+use App\Admin\Resources\LicenseResource;
 use App\Admin\Resources\ModuleActionResource;
 use App\Admin\Resources\NotificationTemplateResource;
 use App\Admin\Resources\OauthClientResource;
@@ -55,6 +56,7 @@ class TopMenu
             [UserResource::class, 'create', 'Add New Client'],
             [ServiceResource::class, 'index', 'Products/Services'],
             [ServiceCancellationResource::class, 'index', 'Cancellation Requests'],
+            [LicenseResource::class, 'index', 'Licenses'],
         ],
         'Orders' => [
             [OrderResource::class, 'index', 'List All Orders'],

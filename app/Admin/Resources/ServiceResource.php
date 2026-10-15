@@ -11,11 +11,14 @@ use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Admin\Resources\ServiceResource\Pages\ListService;
 use App\Admin\Resources\ServiceResource\RelationManagers\ConfigOptionsRelationManager;
 use App\Admin\Resources\ServiceResource\RelationManagers\InvoicesRelationManager;
+use App\Admin\Resources\ServiceResource\RelationManagers\LicenseAccessLogsRelationManager;
 use App\Exceptions\DisplayException;
 use App\Models\Contact;
 use App\Models\Currency;
+use App\Models\License;
 use App\Models\Product;
 use App\Models\Service;
+use App\Services\Licensing\Licenses;
 use App\Services\Service\DeleteService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -26,6 +29,7 @@ use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Component;
@@ -41,6 +45,7 @@ use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 class ServiceResource extends Resource
@@ -194,6 +199,29 @@ class ServiceResource extends Resource
                     ->hintAction(
                         CancelSubscriptionAction::make(),
                     ),
+                // Its nixpal license (L2, WHMCS's licensing «Manage License»): key, bindings, and signs of life beyond WHMCS.
+                Section::make('License')
+                    ->columns(3)
+                    ->columnSpanFull()
+                    ->visible(fn (?Service $record) => $record?->license !== null)
+                    ->schema([
+                        TextEntry::make('license.license_key')->label('License key')->copyable()->fontFamily('mono'),
+                        TextEntry::make('license.status')->label('Status')->badge()->color(fn (?string $state) => match ($state) {
+                            License::STATUS_ACTIVE => 'success', License::STATUS_EXPIRED => 'danger', default => 'warning',
+                        }),
+                        TextEntry::make('license.reissues')->label('Reissues')->state(fn (Service $record) => $record->license?->reissues . ' / ' . Licenses::MAX_REISSUES),
+                        TextEntry::make('license.valid_ip')->label('Valid IPs')->placeholder('Not bound yet'),
+                        TextEntry::make('license.valid_domain')->label('Valid domains')->placeholder('—'),
+                        TextEntry::make('license.valid_directory')->label('Valid directory')->placeholder('—'),
+                        TextEntry::make('license.last_ok_at')->label('Last good check')->since()->dateTimeTooltip()->placeholder('Never'),
+                        TextEntry::make('license.last_seen_ip')->label('Last seen from')
+                            ->state(fn (Service $record) => trim(($record->license->last_seen_ip ?? '') . ' ' . ($record->license->last_seen_client ?? '')) ?: null)->placeholder('—'),
+                        TextEntry::make('license.last_failure')->label('Last failure')
+                            ->state(fn (Service $record) => $record->license?->last_failure_at
+                                ? $record->license->last_failure_at->diffForHumans() . ': ' . $record->license->last_failure : null)->placeholder('None'),
+                        TextEntry::make('license_checks')->label('Checks, last 30 days')->columnSpanFull()
+                            ->state(fn (Service $record) => self::licenseChecks($record)),
+                    ]),
                 // WHMCS's product details (tblhosting): read by the server modules, shown to the customer.
                 Section::make('Account')
                     ->columns(2)
@@ -313,10 +341,23 @@ class ServiceResource extends Resource
             ]);
     }
 
+    /** «ok / failed» over the last 30 days, from license_check_days. */
+    private static function licenseChecks(Service $record): string
+    {
+        $license = $record->license;
+        if ($license === null) {
+            return '—';
+        }
+        $days = DB::table('license_check_days')->where('license_id', $license->id)->where('day', '>=', now()->subDays(30)->toDateString());
+
+        return sprintf('%d ok, %d failed, on %d days', (int) (clone $days)->sum('ok'), (int) (clone $days)->sum('failed'), (clone $days)->count());
+    }
+
     public static function getRelations(): array
     {
         return [
             InvoicesRelationManager::class,
+            LicenseAccessLogsRelationManager::class,
             PropertiesRelationManager::class,
             ConfigOptionsRelationManager::class,
         ];

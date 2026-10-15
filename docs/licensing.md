@@ -35,8 +35,16 @@ Active), `last_seen_ip`, `last_seen_client` (μέθοδος + User-Agent: πόσ
 και `last_failure`· και `license_check_days` (ok / failed ανά ημέρα). Οι οθόνες έρχονται στο L2.
 
 ## Επόμενα
-- **L2:** καρτέλα άδειας στην υπηρεσία (admin, πελάτης: κλειδί, IPs, status, Reissue, τελευταίο check), κονσόλα
-  (σύνολα, «ενεργές αλλά σιωπηλές», «ληγμένες που ρωτάνε ακόμα», λίστα, access logs).
+- **L2 (έγινε):**
+  - Πελάτης, σελίδα υπηρεσίας: «License» με κλειδί (αντιγραφή), Valid IPs, status, τα πεδία που αναφέρει (Custom Fields
+    Reported, π.χ. `comments`), **Reissue** (όποιος διαχειρίζεται την υπηρεσία, αν το προϊόν το επιτρέπει, κάτω από το
+    όριο). Registration Date σε κάθε υπηρεσία. Το domain (= κλειδί) δεν δείχνεται δεύτερη φορά.
+  - Staff, Edit Service: ενότητα «License» (κλειδί, status, reissues / όριο, IP/domain/directory, τελευταίο καλό check,
+    από πού και με τι client, τελευταία αποτυχία, checks 30 ημερών)· **Reissue license** (όποιο κι αν είναι το όριο, όπως
+    το WHMCS) και **Edit license** (status, bindings, με audit)· το access log της άδειας.
+  - Κονσόλα «Licenses» (Services, και top menu): όλες, **Silent** (ενεργές χωρίς καλό check 7 μέρες), **Expired but
+    calling** (ληγμένες/ανεσταλμένες που ρώτησαν τις 7 τελευταίες μέρες)· η γραμμή ανοίγει την υπηρεσία. Δικαιώματα
+    των υπηρεσιών.
 - **L3:** το **εργαλείο** import (έτοιμο και ελεγμένο με parity, **όχι** import στο live πριν το cut-over: απόφαση
   2026-10-15) από `mod_licensing` (ίδια κλειδιά, bindings, reissues, status, `whmcs_id`· PSK από `configoption8`
   κρυπτογραφημένο στο προϊόν· `comments` στις ιδιότητες της υπηρεσίας), cache/rate-limit για Expired/Suspended

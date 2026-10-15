@@ -62,7 +62,12 @@
                         <span class="text-base/50">{{ $service->suspend_reason === 'Overdue on Payment' ? __('services.suspend_reasons.overdue') : $service->suspend_reason }}</span>
                     </div>
                     @endif
+                    <div class="flex items-center text-base">
+                        <span class="mr-2">{{ __('services.registration_date') }}:</span>
+                        <span class="text-base/50">{{ $service->created_at?->format('M d, Y') }}</span>
+                    </div>
                     @include('services.partials.account')
+                    @include('services.partials.license')
                     @include('services.partials.contact')
                     @can('update', $service)
                     @include('services.partials.billing-agreement')

@@ -7,8 +7,10 @@ use App\Admin\Resources\ServiceResource;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
+use App\Models\License;
 use App\Models\Plan;
 use App\Models\Service;
+use App\Services\Licensing\Licenses;
 use App\Services\Money\MoneyTrail;
 use App\Services\Service\DeleteService;
 use App\Services\ServiceUpgrade\ChangeCycle;
@@ -19,6 +21,7 @@ use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Schemas\Components\Utilities\Get;
@@ -234,6 +237,33 @@ class EditService extends EditRecord
                 ->color('primary')
                 ->modalSubmitActionLabel('Trigger'),
 
+            // Its nixpal license (L2): staff reissue whatever the limit, and set bindings or status by hand (WHMCS's
+            // licensing admin page).
+            Action::make('reissueLicense')->label('Reissue license')->icon('ri-refresh-line')->color('gray')
+                ->visible(fn (Service $record) => $record->license !== null)
+                ->authorize('update')
+                ->requiresConfirmation()
+                ->modalDescription('Its bindings are cleared and the next server that checks it takes it (staff: whatever the limit).')
+                ->action(function (Service $record) {
+                    Licenses::reissue($record->license, (string) request()->ip(), byStaff: true);
+                    Notification::make()->success()->title('License reissued')->send();
+                    $this->refreshFormData(['license']);
+                }),
+            Action::make('editLicense')->label('Edit license')->icon('ri-key-2-line')->color('gray')
+                ->visible(fn (Service $record) => $record->license !== null)
+                ->authorize('update')
+                ->fillForm(fn (Service $record) => $record->license->only(['status', 'valid_ip', 'valid_domain', 'valid_directory']))
+                ->schema([
+                    Select::make('status')->required()->options(array_combine($s = [License::STATUS_ACTIVE, License::STATUS_REISSUED, License::STATUS_SUSPENDED, License::STATUS_EXPIRED], $s)),
+                    TextInput::make('valid_ip')->label('Valid IPs')->helperText('Comma separated. Empty: the next check binds it.')->maxLength(255),
+                    TextInput::make('valid_domain')->label('Valid domains')->helperText('Information only (bound by IP).')->maxLength(255),
+                    TextInput::make('valid_directory')->label('Valid directory')->maxLength(255),
+                ])
+                ->action(function (Service $record, array $data) {
+                    $record->license->update(array_map(fn ($value) => $value === '' ? null : $value, $data)); // audited
+                    Notification::make()->success()->title('License saved')->send();
+                    $this->refreshFormData(['license']);
+                }),
             AuditAction::make()->auditChildren([
                 'order',
                 'invoices',
