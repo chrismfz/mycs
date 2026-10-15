@@ -259,5 +259,7 @@
     "An open invoice of this service needs staff first: :reason": "Ένα ανοιχτό τιμολόγιο της υπηρεσίας χρειάζεται πρώτα έλεγχο από εμάς: :reason",
     "An open invoice of this service bills days already used: settle it first.": "Ένα ανοιχτό τιμολόγιο της υπηρεσίας χρεώνει μέρες που έχουν ήδη περάσει: τακτοποιήστε το πρώτα.",
     "This contact is not available.": "Αυτή η επαφή δεν είναι διαθέσιμη.",
+    "Its period is billed again by invoice #:id: cancel that one first.": "Η περίοδός του χρεώνεται ξανά από το τιμολόγιο #:id: ακυρώστε πρώτα εκείνο.",
+    "This cancelled invoice records a service period given up on: it is kept (reopen it to bill that period again).": "Αυτό το ακυρωμένο τιμολόγιο καταγράφει περίοδο υπηρεσίας που δεν χρεώνεται: κρατιέται (ανοίξτε το ξανά για να χρεωθεί η περίοδος)."
     "This invoice has payments: its lines keep their amounts. Refund the payment first (back, or to account credit), or give a discount with a note.": "Αυτό το τιμολόγιο έχει πληρωμές: οι γραμμές του κρατούν τα ποσά τους. Επιστρέψτε πρώτα την πληρωμή (πίσω ή σε πίστωση λογαριασμού) ή δώστε έκπτωση με σημείωμα."
 }

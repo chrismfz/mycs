@@ -97,10 +97,11 @@ nixpal (pilot). Τιμές από το `tblconfiguration` των δύο WHMCS, 2
 | Suspend Days (`AutoSuspensionDays`), από την ημερομηνία λήξης | 15 | 8 | **P:** `cronjob_order_suspend` (default 8) |
 | — μόνο με ληξιπρόθεσμο τιμολόγιο | (όχι στο WHMCS) | | **P:** `cronjob_suspend_requires_invoice`, default off· on: τιμολόγιο ληξιπρόθεσμο **και** εκδομένο πριν από Suspend Days, ειδοποίηση staff για «ληγμένη χωρίς τιμολόγιο» (BIL-5) |
 | Send Suspension Email | on | on | **Ν** (διακόπτης) |
-| Enable Unsuspension (`AutoUnsuspend`) | on | on | P, πάντα on (η ανανέωση με την πληρωμή, `RenewServiceService`)· διακόπτης **Ν** |
+| Enable Unsuspension (`AutoUnsuspend`) | on | on | P, πάντα on (η ανανέωση με την πληρωμή, `RenewServiceService`)· διακόπτης **Ν**. Δ3a: όχι όσο το cron θα την ανέστειλε ξανά· μένει σε αναστολή, το cron τιμολογεί την επόμενη περίοδο, ειδοποίηση staff· το staff κάνει unsuspend με το χέρι |
 | Enable Termination (`AutoTermination`) | on | on | **P:** `cronjob_terminate_enabled` (default on) |
 | Termination Days (`AutoTerminationDays`), από την ημερομηνία λήξης | 120 | 60 | **P:** `cronjob_order_terminate` (default 60) |
 | — ελάχιστες ημέρες σε αναστολή | (όχι στο WHMCS) | | **P:** `cronjob_terminate_min_suspended_days`, default 1· 0 = ακριβώς WHMCS (BIL-4) |
+| — ανοιχτά τιμολόγια στον τερματισμό/ακύρωση (`CancelInvoiceOnCancellation`) | on | on | **P:** `cronjob_end_keeps_overdue`, default off = ακυρώνονται όλα (όπως σήμερα)· on: τα ληξιπρόθεσμα πάνω από `cronjob_end_keeps_overdue_days` (default 0) μένουν απλήρωτα, χρέος (Δ3a, απόφαση 4 της 2026-10-15) |
 | Invoice Generation (`CreateInvoiceDaysBefore`) | 14· ανά κύκλο: μήνας 10, τρίμηνο 15, εξάμηνο/έτος 20· domains 15 | 7 | P~ `cronjob_invoice` (default 7, μία τιμή) → **Ν: ανά κύκλο** |
 | Order Days Grace (`OrderDaysGrace`) | 8 | 0 | **Ν** (προθεσμία πληρωμής του πρώτου τιμολογίου)· το `cronjob_order_cancel` (default 7, 0 = ποτέ) ακυρώνει παραγγελίες με απλήρωτο τιμολόγιο χωρίς καμία πληρωμή (BIL-12) |
 | Payment Reminder Emails, Invoice Unpaid Reminder | on, 1 | on, 6 | **P:** `cronjob_payment_reminder` (default 6, 0 = off)· με αποθηκευμένο τρόπο πληρωμής ή συνδρομή φεύγει το «payment due» (WHMCS «Credit Card Payment Due») |

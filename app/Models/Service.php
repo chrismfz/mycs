@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Classes\Price;
+use App\Enums\InvoiceTransactionStatus;
 use App\Models\Traits\HasProperties;
 use App\Observers\ServiceObserver;
 use App\Redactors\FullRedactor;
@@ -445,6 +446,42 @@ class Service extends Model implements Auditable
     }
 
     /**
+     * Paid until $paidUntil, would the cron suspend it again? Then a payment does not unsuspend it (Δ3a, sweep Π4.1):
+     * unsuspended, the next run would suspend it again, with two mails and two server jobs. The cron's rule: suspension
+     * on, no hold in force, no payment on its way, Suspend Days past the date, and with «suspend only with an overdue
+     * invoice» an unpaid invoice of its own due Suspend Days ago. With nothing left to pay, the cron bills its next
+     * period while it stays suspended (paid since its suspension, CronJob::billRenewal), so the customer can pay it.
+     */
+    public function stillOverdue(CarbonInterface $paidUntil): bool
+    {
+        if (!config('settings.cronjob_suspend_enabled', true)) {
+            return false;
+        }
+        $today = CarbonImmutable::today();
+        if ($this->suspend_hold_until !== null && !CarbonImmutable::parse($this->suspend_hold_until)->startOfDay()->lessThan($today)) {
+            return false;
+        }
+        $cutoff = $today->subDays(max(0, (int) config('settings.cronjob_order_suspend', 8)));
+        if (!CarbonImmutable::instance($paidUntil)->startOfDay()->lessThan($cutoff)) {
+            return false;
+        }
+
+        // A payment on its way (a SEPA debit processing) on one of its open invoices: the cron does not suspend it (PAY-9).
+        if ($this->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)
+            ->whereHas('transactions', fn ($payments) => $payments->where('status', InvoiceTransactionStatus::Processing))->exists()) {
+            return false;
+        }
+
+        if (!config('settings.cronjob_suspend_requires_invoice', false)) {
+            return true;
+        }
+
+        return $this->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)
+            ->whereRaw('DATE(COALESCE(invoices.due_at, invoices.created_at)) < ?', [$cutoff->toDateString()])
+            ->whereDate('invoices.created_at', '<', $cutoff->toDateString())->exists();
+    }
+
+    /**
      * Staff's «Terminate» (the server action) succeeded: terminated, as WHMCS's module Terminate, and the rest as the
      * cron's termination does: pending upgrades and open invoices cancelled (one holding gateway money stays open for
      * staff), stock back. A running service only; pending and ended ones keep their status.
@@ -463,7 +500,7 @@ class Service extends Model implements Auditable
             // Service, upgrades, then invoices: the order ServiceUpgradeService and the cron take.
             $reason = __('invoices.cancellation_reasons.service_terminated');
             $left = CancelPendingUpgrades::forService($locked, $reason);
-            $left += CancelOpenInvoices::handle($locked->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), $reason, $locked);
+            $left += CancelOpenInvoices::handle(CancelOpenInvoices::onServiceEnd($locked->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get()), $reason, $locked);
             if ($locked->product?->stock !== null) {
                 $locked->product->increment('stock', $locked->quantity);
             }
@@ -646,6 +683,30 @@ class Service extends Model implements Auditable
             ->get()
             ->sortBy(fn (InvoiceItem $line) => $line->period_start->timestamp)
             ->values();
+    }
+
+    /**
+     * The periods billed, for the cron's next period (Δ3), with the live ones, read once: [live, billed]. Billed are the
+     * live lines and those given up on (a renewal cancelled or refunded, forgone_at): a period given up on is not billed
+     * again; reopening its invoice makes it live again.
+     *
+     * @return array{0: Collection<int, InvoiceItem>, 1: Collection<int, InvoiceItem>}
+     */
+    public function billedPeriodLines(): array
+    {
+        $billed = $this->invoiceItems()
+            ->whereNotNull('period_start')
+            ->whereNotNull('period_end')
+            ->where(fn ($line) => $line->whereNotNull('forgone_at')
+                ->orWhereHas('invoice', fn ($q) => $q->whereNotIn('status', [Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED])))
+            ->whereHas('invoice')
+            ->with('invoice:id,status')
+            ->get()
+            ->sortBy(fn (InvoiceItem $line) => $line->period_start->timestamp)
+            ->values();
+        $live = $billed->reject(fn (InvoiceItem $line) => in_array($line->invoice?->status, [Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED], true))->values();
+
+        return [$live, $billed];
     }
 
     /** @return BelongsTo<Server, $this> the server this account lives on (WHMCS's tblhosting.server) */

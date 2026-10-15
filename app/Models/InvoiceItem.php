@@ -45,6 +45,8 @@ class InvoiceItem extends Model implements Auditable
         'period_start' => 'immutable_date',
         'period_end' => 'immutable_date',
         'applied_at' => 'immutable_datetime',
+        // Its period given up on (Δ3): the invoice was cancelled or refunded, and the cron does not bill it again.
+        'forgone_at' => 'immutable_datetime',
     ];
 
     /** @return BelongsTo<Invoice, $this> */

@@ -178,7 +178,8 @@ class CreditAutoApply
         }
         // A service already ended (terminated, an unpaid order cancelled): an invoice of it left open for staff (it
         // holds gateway money, CancelOpenInvoices) is not something credit should pay.
-        if (Service::query()->whereIn('id', $services)->whereIn('status', Service::ENDED_STATUSES)->exists()) {
+        // Not a debt kept when its service ended (Δ3a): credit pays it as any other.
+        if ($invoice->kept_as_debt_at === null && Service::query()->whereIn('id', $services)->whereIn('status', Service::ENDED_STATUSES)->exists()) {
             return false;
         }
 

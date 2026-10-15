@@ -101,6 +101,10 @@ class InvoiceController extends ApiController
         if ($invoice->hasPayments()) {
             abort(422, 'An invoice with payments cannot be deleted: cancel it, or delete its transactions first.');
         }
+        // It records a period given up on (Δ3a): kept (InvoiceObserver::deleting).
+        if ($invoice->recordsForgonePeriod()) {
+            abort(422, 'This cancelled invoice records a service period given up on: it is kept (reopen it to bill that period again).');
+        }
         $invoice->delete();
 
         return $this->returnNoContent();
