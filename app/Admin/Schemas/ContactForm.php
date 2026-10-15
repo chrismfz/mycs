@@ -49,7 +49,7 @@ class ContactForm
                 Select::make('country')->label(__('Country'))->searchable()
                     ->options(array_slice((array) config('app.countries'), 1, null, true)),
             ])->columns(2),
-            CheckboxList::make('email_preferences')->label(__('Receives emails'))->columns(3)
+            CheckboxList::make('email_preferences')->label(__('Receives emails'))->columns(3)->columnSpanFull()
                 ->options(collect(Contact::EMAIL_PREFERENCES)->mapWithKeys(fn ($kind) => [$kind => __('account.email_preference.' . $kind)])->all()),
             Textarea::make('notes')->label(__('Notes'))->rows(2)->columnSpanFull(),
         ];
