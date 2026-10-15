@@ -67,11 +67,10 @@ class PaymentRemindersReviewTest extends TestCase
     }
 
     /**
-     * R1. A saved payment method is charged when the renewal invoice is created (CronJob::billRenewal, afterCommit),
-     * not on the due date. An invoice with a billing agreement still unpaid days later is one whose charge failed:
-     * «will be charged automatically on <due>, nothing you need to do» is false, nothing charges it again.
+     * R1, revised by PR H: the account's saved method is charged on the due date (AutoCharge), not when the invoice is
+     * made. Before the due date «will be charged automatically on <due>» is true.
      */
-    public function test_a_billing_agreement_invoice_still_unpaid_is_not_told_it_will_be_charged(): void
+    public function test_a_billing_agreement_invoice_is_told_it_will_be_charged_on_its_due_date(): void
     {
         $invoice = $this->invoice('2026-10-25');
         $gateway = Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway']);
@@ -80,7 +79,7 @@ class PaymentRemindersReviewTest extends TestCase
 
         (new PaymentReminders)->send();
 
-        $this->assertSame(['invoice_payment_reminder'], $this->sent(), 'the charge already happened (and failed): the customer must pay');
+        $this->assertSame(['card_payment_due'], $this->sent(), 'the cron charges it on its due date');
     }
 
     /**

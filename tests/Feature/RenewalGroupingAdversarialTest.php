@@ -94,6 +94,13 @@ class RenewalGroupingAdversarialTest extends TestCase
         ]);
     }
 
+    /** The renewals' due date (2026-10-25), when the cron charges the saved method (PR H), and its run that day. */
+    private function onTheDueDate(): void
+    {
+        Carbon::setTestNow('2026-10-25 10:00:00');
+        $this->cron();
+    }
+
     private function cron(): void
     {
         $this->artisan('app:cron-job')->assertExitCode(0);
@@ -303,6 +310,7 @@ class RenewalGroupingAdversarialTest extends TestCase
         $this->credit(500);
 
         $this->cron();
+        $this->onTheDueDate(); // charged on its due date (PR H)
 
         $charged = $this->renewalInvoices()->sole();
         $this->assertSame([[(int) $charged->id, '15.00']], RenewalGroupingFakePay::$charges);
@@ -323,6 +331,7 @@ class RenewalGroupingAdversarialTest extends TestCase
         $this->credit(500);
 
         $this->cron();
+        $this->onTheDueDate(); // charged on its due date (PR H)
 
         $this->assertSame([[(int) $this->renewalInvoices()->sole()->id, '20.00']], RenewalGroupingFakePay::$charges);
         $this->assertSame('5.00', $this->creditLeft());
