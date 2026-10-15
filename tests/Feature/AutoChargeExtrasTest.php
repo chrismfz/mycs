@@ -16,7 +16,10 @@ use App\Models\Service;
 use App\Models\Staff;
 use App\Models\User;
 use App\Services\Payment\AutoCharge;
+use App\Services\Invoice\MergeInvoices;
+use App\Services\Invoice\SplitInvoice;
 use App\Services\Payment\CardExpiryNotices;
+use OwenIt\Auditing\Models\Audit;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -121,6 +124,9 @@ class AutoChargeExtrasTest extends TestCase
 
         $this->livewireAs($staff)->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])->callAction('toggleAutoCharge');
         $this->assertFalse($invoice->fresh()->no_auto_charge);
+        // Who stopped, and allowed, the collection is in the invoice's audit (code review CR-4).
+        $this->assertSame(['auto_charge_disabled', 'auto_charge_enabled'], Audit::query()->where('auditable_type', $invoice->getMorphClass())
+            ->where('auditable_id', $invoice->id)->whereIn('event', ['auto_charge_disabled', 'auto_charge_enabled'])->orderBy('id')->pluck('event')->all());
         $this->assertSame(1, (new AutoCharge)->run());
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
     }
@@ -173,5 +179,33 @@ class AutoChargeExtrasTest extends TestCase
         $this->artisan('app:cron-job')->assertExitCode(0);
 
         $this->assertSame(1, $this->expiryMails());
+    }
+
+    public function test_a_split_keeps_the_flag_on_both_parts(): void
+    {
+        // Code review CR-2.
+        $invoice = $this->invoice('2026-11-10');
+        $line = $invoice->items()->create(['description' => 'Extra', 'price' => '5.00', 'quantity' => 1]);
+        Invoice::query()->whereKey($invoice->id)->update(['no_auto_charge' => true]);
+
+        $new = (new SplitInvoice)->handle($invoice->id, [$line->id]);
+
+        $this->assertTrue($new->fresh()->no_auto_charge);
+        $this->assertSame(0, (new AutoCharge)->run());
+        $this->assertSame([], AcPay::$charges);
+    }
+
+    public function test_a_merge_with_a_kept_invoice_keeps_the_merged_one(): void
+    {
+        // Code review CR-2.
+        $target = $this->invoice('2026-11-10');
+        $kept = $this->invoice('2026-11-10');
+        Invoice::query()->whereKey($kept->id)->update(['no_auto_charge' => true]);
+
+        (new MergeInvoices)->handle($target->id, [$kept->id]);
+
+        $this->assertTrue($target->fresh()->no_auto_charge);
+        $this->assertSame(0, (new AutoCharge)->run());
+        $this->assertSame([], AcPay::$charges);
     }
 }

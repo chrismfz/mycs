@@ -26,7 +26,8 @@ class LegacyPayPalIpnTest extends TestCase
     {
         parent::setUp();
         Cache::flush();
-        config(['settings.system_email_address' => 'staff@example.test', 'settings.mail_disable' => false]);
+        config(['settings.system_email_address' => 'staff@example.test', 'settings.mail_disable' => false,
+            'settings.paypal_legacy_receivers' => 'billing@example.test, MERCHANT123']);
     }
 
     /** @param  array<string, string>  $fields */
@@ -67,7 +68,7 @@ class LegacyPayPalIpnTest extends TestCase
     {
         Http::fake(['https://ipnpb.paypal.com/*' => Http::response('VERIFIED')]);
 
-        $this->ipn(['txn_type' => 'subscr_cancel', 'subscr_id' => 'I-ABCDEF123456'])->assertOk();
+        $this->ipn(['txn_type' => 'subscr_cancel', 'subscr_id' => 'I-ABCDEF123456', 'receiver_id' => 'merchant123'])->assertOk();
 
         $this->assertSame([0, 1], [$this->staffMails('PayPal payment not recorded'), $this->staffMails('PayPal legacy notice')]);
     }
@@ -98,5 +99,59 @@ class LegacyPayPalIpnTest extends TestCase
         $this->ipn(['test_ipn' => '1'] + $this->subscrPayment())->assertOk();
 
         Http::assertSent(fn (Request $request) => str_starts_with($request->url(), 'https://ipnpb.sandbox.paypal.com/'));
+    }
+
+    public function test_a_genuine_ipn_for_someone_elses_paypal_account_is_not_ours(): void
+    {
+        // Code review CR-1: anyone can point an IPN of their own PayPal account at this address.
+        Http::fake(['https://ipnpb.paypal.com/*' => Http::response('VERIFIED')]);
+
+        $this->ipn(['receiver_email' => 'attacker@example.test'] + $this->subscrPayment())->assertOk();
+
+        $this->assertSame(0, EmailLog::query()->count());
+        $this->assertSame('foreign_receiver', PaymentGatewayEvent::query()->sole()->reason);
+    }
+
+    public function test_the_sandbox_is_refused_in_production(): void
+    {
+        // CR-1: PayPal's IPN simulator answers VERIFIED to anyone.
+        Http::fake(['*' => Http::response('VERIFIED')]);
+        $this->app['env'] = 'production';
+
+        $this->ipn(['test_ipn' => '1'] + $this->subscrPayment())->assertStatus(400);
+
+        Http::assertNothingSent();
+        $this->assertSame(0, EmailLog::query()->count());
+    }
+
+    public function test_no_account_set_tells_staff_once_to_set_it(): void
+    {
+        Http::fake(['https://ipnpb.paypal.com/*' => Http::response('VERIFIED')]);
+        config(['settings.paypal_legacy_receivers' => '']);
+
+        $this->ipn($this->subscrPayment())->assertOk();
+        $this->ipn($this->subscrPayment())->assertOk();
+
+        $this->assertSame(1, $this->staffMails('PayPal legacy notice not checked'));
+        $this->assertSame(0, $this->staffMails('PayPal payment not recorded'));
+    }
+
+    public function test_a_refund_or_chargeback_is_told_as_money_given_back(): void
+    {
+        // CR-5.
+        Http::fake(['https://ipnpb.paypal.com/*' => Http::response('VERIFIED')]);
+
+        $this->ipn(['payment_status' => 'Reversed', 'txn_type' => '', 'mc_gross' => '-12.40'] + $this->subscrPayment())->assertOk();
+
+        $this->assertSame(1, $this->staffMails('PayPal refund or reversal not recorded'));
+    }
+
+    public function test_a_body_too_large_is_not_sent_to_paypal(): void
+    {
+        Http::fake();
+
+        $this->ipn(['padding' => str_repeat('x', 30000)] + $this->subscrPayment())->assertStatus(413);
+
+        Http::assertNothingSent();
     }
 }

@@ -54,6 +54,8 @@ final class SplitInvoice
             $new->send_create_email = false;
             $new->split_from_id = $invoice->id;
             $new->kept_as_debt_at = $invoice->kept_as_debt_at;
+            // Kept from the cron's charge as the first was (PR H2b, code review CR-2).
+            $new->no_auto_charge = (bool) $invoice->no_auto_charge;
             // Issued when the first was: a suspension that waits for an invoice of a given age is not delayed (CR-5).
             $new->created_at = $invoice->created_at;
             $new->save();

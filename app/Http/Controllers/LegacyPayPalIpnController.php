@@ -17,13 +17,17 @@ use Throwable;
  * subscriptions are moved to the PayPal vault, and one that still pays (or a WHMCS-era one-off payment, a refund, a
  * cancellation) calls WHMCS's IPN URL. Nothing is recorded from here: an IPN that PayPal confirms is genuine is kept in the
  * gateway log and told to staff once, with what they need to find it in PayPal and record it by hand. A forged one is
- * refused quietly. PayPal down: 503, so it sends the IPN again.
+ * refused quietly, and so is a genuine one for someone else's PayPal account (anyone can point an IPN of their own at
+ * this address) or from PayPal's sandbox in production (code review CR-1). PayPal down: 503, so it sends the IPN again.
  */
 class LegacyPayPalIpnController extends Controller
 {
     private const VERIFY_LIVE = 'https://ipnpb.paypal.com/cgi-bin/webscr';
 
     private const VERIFY_SANDBOX = 'https://ipnpb.sandbox.paypal.com/cgi-bin/webscr';
+
+    /** An IPN is a few KB: a larger body is not PayPal's (code review CR-3). */
+    private const MAX_BYTES = 20000;
 
     public function __invoke(Request $request): Response
     {
@@ -32,10 +36,22 @@ class LegacyPayPalIpnController extends Controller
         if ($raw === '') {
             $raw = http_build_query($request->request->all());
         }
+        if (strlen($raw) > self::MAX_BYTES) {
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_REJECTED, 'too_large');
+
+            return response('', 413);
+        }
         parse_str($raw, $fields);
-        $url = ($fields['test_ipn'] ?? null) === '1' ? self::VERIFY_SANDBOX : self::VERIFY_LIVE;
+        $sandbox = ($fields['test_ipn'] ?? null) === '1';
+        if ($sandbox && app()->isProduction()) {
+            // PayPal's IPN simulator answers VERIFIED to anyone: never in production (CR-1).
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_REJECTED, 'sandbox_refused');
+
+            return response('', 400);
+        }
+        $url = $sandbox ? self::VERIFY_SANDBOX : self::VERIFY_LIVE;
         try {
-            $answer = Http::timeout(30)->withBody('cmd=_notify-validate&' . $raw, 'application/x-www-form-urlencoded')->post($url);
+            $answer = Http::connectTimeout(5)->timeout(10)->withBody('cmd=_notify-validate&' . $raw, 'application/x-www-form-urlencoded')->post($url);
         } catch (Throwable $e) {
             report($e);
 
@@ -52,6 +68,18 @@ class LegacyPayPalIpnController extends Controller
             return response('', 400);
         }
 
+        // Ours only: a genuine IPN of someone else's PayPal account pointed at this address is not our money (CR-1).
+        $receiver = self::receiver($fields);
+        if ($receiver === null) {
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_REJECTED, self::receivers() === [] ? 'receivers_not_set' : 'foreign_receiver');
+            if (self::receivers() === [] && Cache::add('paypal-legacy-ipn:receivers-not-set', true, now()->addDay())) {
+                NotificationHelper::sendSystemEmailNotification('PayPal legacy notice not checked', e(
+                    "A PayPal notice reached WHMCS's old IPN address, but no PayPal account of the WHMCS era is set (Settings, «PayPal accounts of the WHMCS era»): it was not looked at. Set it so that such notices are told to staff."));
+            }
+
+            return response('', 200);
+        }
+
         $type = self::field($fields, 'txn_type') ?: 'none';
         $status = self::field($fields, 'payment_status');
         $txn = self::field($fields, 'txn_id');
@@ -62,21 +90,60 @@ class LegacyPayPalIpnController extends Controller
             'amount' => is_numeric($amount) ? $amount : null, 'currency_code' => $currency, 'external_id' => $txn ?: $subscription,
         ]);
 
-        $money = $status === 'Completed';
+        $kind = match (true) {
+            $status === 'Completed' => 'money',
+            in_array($status, ['Refunded', 'Reversed', 'Canceled_Reversal'], true) => 'reversal',
+            default => 'notice',
+        };
         $message = sprintf(
-            "PayPal sent a %s notice (%s) to WHMCS's old IPN address. %s\n- transaction: %s\n- subscription: %s\n- amount: %s %s\n- WHMCS invoice (item_number): %s",
-            $type, $status ?: 'no payment status',
-            $money ? 'The money WAS taken by PayPal and is NOT recorded here: find it in PayPal by its transaction and record it on the customer\'s invoice by hand.'
-                : 'No money was recorded here; check it in PayPal (a cancelled or ended legacy subscription has nothing left to do).',
+            "PayPal sent a %s notice (%s) for %s to WHMCS's old IPN address. %s\n- transaction: %s\n- subscription: %s\n- amount: %s %s\n- WHMCS invoice (item_number): %s",
+            $type, $status ?: 'no payment status', $receiver,
+            match ($kind) {
+                'money' => 'The money WAS taken by PayPal and is NOT recorded here: find it in PayPal by its transaction and record it on the customer\'s invoice by hand.',
+                // A refund or a chargeback of a WHMCS-era payment: staff act on it (a credit note, the service) (CR-5).
+                'reversal' => 'Money was given back or taken back by PayPal (a refund, a chargeback) and is NOT recorded here: check it in PayPal and act on the customer\'s invoice and service.',
+                default => 'No money moved; check it in PayPal (a cancelled or ended legacy subscription has nothing left to do).',
+            },
             $txn ?: '-', $subscription ?: '-', $amount ?: '-', $currency ?: '', self::field($fields, 'item_number') ?: '-');
         PaymentsLog::warning($message);
-        // Once each: PayPal sends an IPN again until answered, and the IPN of a payment may come more than once.
+        // Once each transaction and status: PayPal sends an IPN again until answered, and the IPN of a payment may come
+        // more than once. Marked once the mail is queued: a mail that fails is sent with PayPal's next try (CR-6).
         $key = 'paypal-legacy-ipn:' . sha1($type . '|' . ($txn ?: $subscription) . '|' . $status);
-        if (Cache::add($key, true, now()->addDays(30))) {
-            NotificationHelper::sendSystemEmailNotification($money ? 'PayPal payment not recorded' : 'PayPal legacy notice', e($message));
+        if (!Cache::has($key)) {
+            NotificationHelper::sendSystemEmailNotification(match ($kind) {
+                'money' => 'PayPal payment not recorded',
+                'reversal' => 'PayPal refund or reversal not recorded',
+                default => 'PayPal legacy notice',
+            }, e($message));
+            Cache::put($key, true, now()->addDays(30));
         }
 
         return response('', 200);
+    }
+
+    /**
+     * The receiver the IPN names (receiver_email, receiver_id or business), when it is one of our PayPal accounts.
+     *
+     * @param  array<mixed>  $fields
+     */
+    private static function receiver(array $fields): ?string
+    {
+        $ours = self::receivers();
+        foreach (['receiver_email', 'receiver_id', 'business'] as $name) {
+            $value = strtolower(self::field($fields, $name));
+            if ($value !== '' && in_array($value, $ours, true)) {
+                return $value;
+            }
+        }
+
+        return null;
+    }
+
+    /** @return list<string> our PayPal accounts of the WHMCS era, lower case */
+    private static function receivers(): array
+    {
+        return array_values(array_filter(array_map(fn (string $value) => strtolower(trim($value)),
+            explode(',', (string) config('settings.paypal_legacy_receivers', '')))));
     }
 
     /** @param  array<mixed>  $fields */

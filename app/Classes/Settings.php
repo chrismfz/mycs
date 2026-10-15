@@ -613,6 +613,15 @@ class Settings
                     'description' => 'From this day of the month, customers whose saved payment method expires at the end of the month are told so, once (0: never; WHMCS here: 25).',
                 ],
                 [
+                    'name' => 'paypal_legacy_receivers',
+                    'section' => 'Billing Settings',
+                    'label' => 'PayPal accounts of the WHMCS era',
+                    'type' => 'text',
+                    'default' => '',
+                    'required' => false,
+                    'description' => 'The email(s) or merchant id(s) of our PayPal account(s), comma-separated. A PayPal notice still sent to WHMCS\'s old address is told to staff only when it is for one of them (PR H2b).',
+                ],
+                [
                     'name' => 'cronjob_order_cancel',
                     'section' => 'Billing Settings',
                     'label' => 'Cancel unpaid orders after',
