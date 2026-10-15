@@ -36,6 +36,8 @@ The design follows Ekdosi's (laravel/mcp, a server class, one tool per question)
 | `failed_jobs` | View Failed Jobs | failed jobs |
 | `logs` (level, laravel / payments) | View Failed Jobs | `mycs:logs` |
 | `zlic_probe` (key, ip) | View Services | `mycs:zlic` |
+| `server_test` (server) | Update Servers | Test Connection |
+| `proposal` (id) | Use the MCP Server | the outcome of your proposals |
 
 - **Masked:** passwords, PSKs, API credentials in URLs, Authorization headers and the config's secrets come out as
   `********`. A license key comes out as its prefix and last 4.
@@ -86,6 +88,28 @@ consent page. Approve it, logged in to the admin or with a key.
   ```
 - **Any client:** POST JSON-RPC to `/mcp` with `Accept: application/json, text/event-stream`.
 
-## Next
-- **Actions as proposals:** retry a module action, resend a mail, test a server module. Staff approve them in the
-  admin, with an atomic claim so each runs once. A proposal expires.
+## Proposals: changes staff approve (`App\Services\Mcp\Proposals`)
+An agent never changes anything by itself. A `propose_*` tool checks the request and files it. Staff then approve or
+reject it in **Other → MCP Proposals** within a day; the menu shows how many are waiting.
+
+| Tool | Proposes | Needs (who proposes and who approves) |
+|---|---|---|
+| `propose_retry_module_action` | the admin's Retry of a module action the queue gave up on | Update Services |
+| `propose_resolve_module_action` | Mark resolved (an account fixed by hand) | Update Services |
+| `propose_resend_mail` (to, with copies) | a Resend, as the log keeps the mail | Resend Email |
+
+- **Once:** an approval is an atomic claim, so two clicks or two members of staff never run it twice. The same request
+  proposed again while one waits is the same proposal.
+- **Checked again on approval:** the approver's permission, and the state (the module action still open and given up;
+  the mail still there). What fails is kept as **failed**, with why.
+- **The result is kept**, masked like every tool's error, and `proposal` tells it to the proposer and to whoever may
+  decide it. The same request asked again, by anyone, is that one proposal.
+- **Lifetimes:** undecided proposals expire after a day. A run interrupted by a timeout or a deploy is marked failed
+  after an hour, with its outcome unknown. Decided proposals are kept 90 days.
+- **Audit:** approvals and rejections are audited with who decided.
+- **Who sees what:** staff see their own proposals and those they may decide. A resend's addresses and subject are not
+  for everyone.
+- **Limit:** at most 30 waiting proposals per member of staff.
+- **`server_test`** (Update Servers) needs no approval: it changes nothing. It runs the admin's Test Connection with the
+  stored settings, at most once a minute per server; otherwise it returns the last result, so a looping agent never
+  gets MyCS locked out.

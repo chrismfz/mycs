@@ -20,6 +20,7 @@ use App\Models\McpCall;
 use App\Models\McpOauthClient;
 use App\Models\McpOauthCode;
 use App\Models\McpOauthGrant;
+use App\Models\McpProposal;
 use App\Models\Product;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
@@ -31,6 +32,7 @@ use App\Services\Invoice\PaymentReminders;
 use App\Services\Invoice\ProcessPaidInvoiceService;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Licensing\Licenses;
+use App\Services\Mcp\Proposals;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Service\RenewServiceService;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
@@ -343,6 +345,10 @@ class CronJob extends Command
 
                 return $number;
             });
+
+            // MCP proposals not decided within their day expire; decided ones are kept 90 days (docs/mcp.md).
+            $this->runCronJob('mcp_proposals_expired', fn () => Proposals::expire()
+                + McpProposal::query()->where('status', '!=', McpProposal::STATUS_PENDING)->where('updated_at', '<', now()->subDays(90))->delete());
 
             // The MCP calls' record (docs/mcp.md), 90 days.
             $this->runCronJob('mcp_calls_pruned', fn () => McpCall::query()->where('created_at', '<', now()->subDays(90))->delete()
