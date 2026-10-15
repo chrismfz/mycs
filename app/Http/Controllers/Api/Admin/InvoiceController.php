@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Exceptions\DisplayException;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\Admin\Invoices\CreateInvoiceRequest;
 use App\Http\Requests\Api\Admin\Invoices\DeleteInvoiceRequest;
