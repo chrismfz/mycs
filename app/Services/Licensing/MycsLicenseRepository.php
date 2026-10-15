@@ -118,17 +118,17 @@ final class MycsLicenseRepository implements LicenseRepository
     }
 
     /**
-     * The first such row today for this license, address and message (Cache::add); a cache outage logs the row rather
-     * than change the answer (review R-6).
+     * The first such row today for this license, address and message (Cache::add). A cache outage answers $onError: the
+     * failures are logged rather than lost (review R-6), «License Active» rows skipped rather than one per check.
      */
-    public static function firstToday(int $licenseId, string $ip, string $message): bool
+    public static function firstToday(int $licenseId, string $ip, string $message, bool $onError = true): bool
     {
         try {
             return Cache::add('zlic:log:' . $licenseId . ':' . md5($ip . '|' . $message) . ':' . now()->format('Ymd'), 1, now()->addDay());
         } catch (\Throwable $e) {
             report($e);
 
-            return true;
+            return $onError;
         }
     }
 
