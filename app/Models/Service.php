@@ -252,6 +252,18 @@ class Service extends Model implements Auditable
         );
     }
 
+    /**
+     * Its options for an invoice line (PR C, as WHMCS writes them in the line's description): «Option: Value», one a line.
+     * Hidden ones (staff's, not on the order form) are left out, as their price is (modules sweep §3).
+     */
+    public function describeOptions(): string
+    {
+        return $this->configs()->with(['configOption', 'configValue'])->get()
+            ->filter(fn (ServiceConfig $config) => $config->configOption !== null && !$config->configOption->hidden && $config->configValue !== null)
+            ->map(fn (ServiceConfig $config) => $config->configOption->name . ': ' . $config->configValue->name)
+            ->implode("\n");
+    }
+
     /** Invoice line text for one billing period. */
     public function describePeriod(CarbonInterface $start, ?CarbonInterface $end): string
     {
