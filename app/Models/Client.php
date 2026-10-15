@@ -373,4 +373,10 @@ class Client extends Model implements Auditable
     {
         static::query()->whereKey($clientId)->lockForUpdate()->first();
     }
+
+    /** The mails sent to this account (the mail audit, docs/mail.md). */
+    public function emailLogs(): HasMany
+    {
+        return $this->hasMany(EmailLog::class);
+    }
 }

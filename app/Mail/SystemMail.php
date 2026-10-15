@@ -2,6 +2,7 @@
 
 namespace App\Mail;
 
+use App\Mail\Concerns\LogsDelivery;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Mail\Mailable;
@@ -11,7 +12,7 @@ use Illuminate\Queue\SerializesModels;
 
 class SystemMail extends Mailable implements ShouldBeEncrypted
 {
-    use Queueable, SerializesModels;
+    use LogsDelivery, Queueable, SerializesModels;
 
     /** Retried with backoff: a mail server that is down for a while loses nothing. */
     public int $tries = 5;

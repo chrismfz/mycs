@@ -3,6 +3,7 @@
 use App\Console\Commands\CronJob;
 use App\Console\Commands\FetchEmails;
 use App\Console\Commands\GatewayLogPrune;
+use App\Console\Commands\MailSweep;
 use App\Console\Commands\MoneyCheckCommand;
 use App\Console\Commands\ScheduleHeartbeatCommand;
 use Illuminate\Support\Facades\Schedule;
@@ -14,3 +15,5 @@ Schedule::command(FetchEmails::class)->description('Import ticket emails using I
 // cron's run, so it sees the night's payments and yesterday's run. One task of the scheduler to come (ROADMAP).
 Schedule::command(MoneyCheckCommand::class)->description('Checks that the money adds up (read-only)')->dailyAt('06:30')->withoutOverlapping()->onOneServer();
 Schedule::command(GatewayLogPrune::class)->description('Deletes refused gateway requests that moved no money, after 90 days')->dailyAt('06:15')->withoutOverlapping()->onOneServer();
+// The mail audit (docs/mail.md): mails stuck in sending or pending are marked failed, for staff to resend.
+Schedule::command(MailSweep::class)->description('Marks mails stuck on their way out as failed')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();

@@ -19,6 +19,7 @@ use App\Models\ServiceCancellation;
 use App\Models\TicketMessage;
 use App\Models\User;
 use App\Services\Invoice\PaymentReminders;
+use App\Services\Mail\MailAudit;
 use App\Support\Redact;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\App;
@@ -92,6 +93,12 @@ class NotificationHelper
             'subject' => $mail->envelope()->subject,
             'to' => $user->email,
             'body' => self::bodyForLog($mail, $notificationTemplate, $data),
+            // The mail audit (docs/mail.md): from, copies, template and what it is about.
+            'from_address' => config('settings.mail_from_address'),
+            'cc' => MailAudit::addresses($notificationTemplate->cc) ?: null,
+            'bcc' => MailAudit::addresses($notificationTemplate->bcc) ?: null,
+            'template_key' => $notificationTemplate->key,
+            ...MailAudit::related($data),
         ]);
 
         // Add the email log id to the payload
@@ -127,6 +134,8 @@ class NotificationHelper
             'subject' => $mail->envelope()->subject,
             'to' => $email,
             'body' => $mail->render(),
+            'from_address' => config('settings.mail_from_address'),
+            'template_key' => 'system', // to staff: the cron's notices, failures
         ]);
 
         // Add the email log id to the payload
