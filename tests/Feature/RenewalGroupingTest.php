@@ -6,10 +6,10 @@ use App\Events\Invoice\Finalized;
 use App\Models\BillingAgreement;
 use App\Models\ConfigOption;
 use App\Models\Gateway;
-use App\Models\InvoiceTransaction;
 use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\InvoiceTransaction;
 use App\Models\Service;
 use App\Models\Setting;
 use App\Models\User;
@@ -25,6 +25,8 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
+use MyCS\Extensions\Gateways\GroupFake\GroupFake;
+use RuntimeException;
 use Tests\TestCase;
 
 /**
@@ -208,11 +210,11 @@ class RenewalGroupingTest extends TestCase
 
     private function agreement(): BillingAgreement
     {
-        if (!class_exists('MyCS\Extensions\Gateways\GroupFake\GroupFake')) {
+        if (!class_exists(GroupFake::class)) {
             eval('namespace MyCS\Extensions\Gateways\GroupFake; class GroupFake { public static array $charges = []; public function __construct($config = []) {}
                 public function charge($invoice, $amount, $agreement) { self::$charges[] = [(int) $invoice->id, number_format((float) $amount, 2, ".", "")]; return true; } }');
         }
-        \MyCS\Extensions\Gateways\GroupFake\GroupFake::$charges = [];
+        GroupFake::$charges = [];
         $gateway = Gateway::query()->firstOrCreate(['extension' => 'GroupFake'], ['name' => 'GroupFake', 'type' => 'gateway']);
 
         return BillingAgreement::query()->create(['client_id' => $this->user->client()->id, 'gateway_id' => $gateway->id, 'name' => 'Card', 'external_reference' => 'ref-' . uniqid()]);
@@ -227,7 +229,7 @@ class RenewalGroupingTest extends TestCase
         $this->cron();
 
         $invoice = $this->renewalInvoices()->sole();
-        $this->assertSame([[(int) $invoice->id, '20.00']], \MyCS\Extensions\Gateways\GroupFake\GroupFake::$charges);
+        $this->assertSame([[(int) $invoice->id, '20.00']], GroupFake::$charges);
     }
 
     public function test_different_saved_methods_are_separate_invoices(): void
@@ -278,7 +280,7 @@ class RenewalGroupingTest extends TestCase
         $this->cron();
         $invoice = $this->renewalInvoices()->sole();
         DB::table('invoices')->where('id', $invoice->id)->update(['finish_pending_at' => now()]);
-        \MyCS\Extensions\Gateways\GroupFake\GroupFake::$charges = [];
+        GroupFake::$charges = [];
 
         Carbon::setTestNow('2026-10-20 11:00:00');
         $this->cron();
@@ -286,7 +288,7 @@ class RenewalGroupingTest extends TestCase
 
         $this->assertCount(1, $this->renewalInvoices());
         $this->assertNull($invoice->fresh()->finish_pending_at);
-        $this->assertSame([[(int) $invoice->id, '20.00']], \MyCS\Extensions\Gateways\GroupFake\GroupFake::$charges);
+        $this->assertSame([[(int) $invoice->id, '20.00']], GroupFake::$charges);
         Event::assertDispatchedTimes(Finalized::class, 2); // the first run, then the one that finished what it left
     }
 
@@ -300,16 +302,21 @@ class RenewalGroupingTest extends TestCase
         (new CreditLedger)->add($this->user->client()->id, 'USD', 500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'credit');
         InvoiceTransaction::creating(function (InvoiceTransaction $txn) {
             if ($txn->is_credit_transaction) {
-                throw new \RuntimeException('credit failed');
+                throw new RuntimeException('credit failed');
             }
         });
 
-        Artisan::call('app:cron-job');
+        try {
+            Artisan::call('app:cron-job');
+            $this->fail('The credit failure is not reported');
+        } catch (RuntimeException $e) {
+            $this->assertSame('credit failed', $e->getMessage()); // the run reports what failed, once it has done the rest
+        }
 
         $invoice = $this->renewalInvoices()->sole();
         $this->assertNull($invoice->fresh()->finish_pending_at);
         $this->assertSame('5.00', number_format((float) Credit::query()->where('client_id', $this->user->client()->id)->value('amount'), 2, '.', ''));
-        $this->assertSame([[(int) $invoice->id, '20.00']], \MyCS\Extensions\Gateways\GroupFake\GroupFake::$charges);
+        $this->assertSame([[(int) $invoice->id, '20.00']], GroupFake::$charges);
         Event::assertDispatchedTimes(Finalized::class, 1);
     }
 

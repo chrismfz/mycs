@@ -36,11 +36,13 @@ class RewardAffiliate
         foreach ($invoice->items()->where('reference_type', Service::class)->get() as $line) {
             $order = $line->reference?->order; // a service deleted since: no order to reward
             $referral = $order ? AffiliateOrder::where('order_id', $order->id)->first() : null;
-            if (!$referral || !$referral->affiliate) {
+            /** @var Affiliate|null $affiliate */
+            $affiliate = $referral?->affiliate;
+            if (!$affiliate) {
                 continue;
             }
-            $referred[$referral->affiliate_id] ??= [$referral->affiliate, 0];
-            $referred[$referral->affiliate_id][1] += $line->totalCents();
+            $referred[$affiliate->id] ??= [$affiliate, 0];
+            $referred[$affiliate->id][1] += $line->totalCents();
         }
         if ($referred === []) {
             return;
@@ -48,7 +50,6 @@ class RewardAffiliate
 
         $extension = ExtensionHelper::getExtension('other', 'Affiliates');
         foreach ($referred as [$affiliate, $lineCents]) {
-            /** @var Affiliate $affiliate */
             $reward_percentage = $affiliate->reward ?: $extension->config('default_reward');
 
             // The reward becomes the affiliate's account credit, through the ledger (docs/money-trail.md §2).
