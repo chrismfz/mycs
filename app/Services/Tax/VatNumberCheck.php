@@ -74,7 +74,9 @@ final class VatNumberCheck
             $locked->forceFill(['vat_status' => $outcome, 'vat_checked_number' => $number, 'vat_checked_at' => now()])->save();
             $contact->setRawAttributes($locked->getAttributes(), true);
 
-            return $was === EuVat::STATUS_VALID && $outcome === VatCheck::RESULT_INVALID && $source === VatCheck::SOURCE_VIES;
+            // Only the primary contact's number bills (review CR-3): another one turning invalid changes nothing.
+            return $was === EuVat::STATUS_VALID && $outcome === VatCheck::RESULT_INVALID && $source === VatCheck::SOURCE_VIES
+                && $locked->isPrimary();
         });
         if ($turnedInvalid) {
             NotificationHelper::sendSystemEmailNotification('VAT number no longer valid', e(sprintf(

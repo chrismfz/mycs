@@ -81,9 +81,10 @@ class Contact extends Model
 
     protected static function booted(): void
     {
-        // A new VAT number is not known yet (PR G): VAT is charged until VIES says it is valid (fail closed).
+        // A new VAT number is not known yet (PR G): VAT is charged until VIES says it is valid (fail closed). A new
+        // country is one too when the number has no prefix: it is read with the contact's country (review CR-1).
         static::saving(function (self $contact) {
-            if (!$contact->isDirty('vat_number')) {
+            if (!$contact->isDirty(['vat_number', 'country'])) {
                 return;
             }
             $number = EuVat::normalized($contact->vat_number, $contact->country);
@@ -94,9 +95,10 @@ class Contact extends Model
                 $contact->vatCheckDue = true;
             }
         });
-        // Checked once the save commits; the hourly vat:recheck tries again while VIES gives no answer.
+        // Checked once the save commits; the hourly vat:recheck tries again while VIES gives no answer. Only the
+        // primary contact's number bills (review CR-3); another one is checked when it becomes primary.
         static::saved(function (self $contact) {
-            if ($contact->vatCheckDue && EuVat::enabled()) {
+            if ($contact->vatCheckDue && $contact->isPrimary() && EuVat::enabled()) {
                 CheckVatNumber::dispatch($contact->id)->afterCommit();
             }
             $contact->vatCheckDue = false;
