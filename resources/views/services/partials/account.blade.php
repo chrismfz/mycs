@@ -25,11 +25,13 @@
 </div>
 @endif
 @if(filled($service->password))
-<div class="flex items-center text-base" x-data="{ shown: false }">
+{{-- Not in the page: «Show» asks the server for it (revealPassword). --}}
+<div class="flex items-center text-base" x-data="{ shown: false, password: null }">
     <span class="mr-2">{{ __('services.password') }}:</span>
-    <span class="text-base/50" x-show="shown" x-cloak>{{ $service->password }}</span>
+    <span class="text-base/50 select-all" x-show="shown" x-cloak x-text="password"></span>
     <span class="text-base/50" x-show="!shown">••••••••</span>
-    <button type="button" class="ml-2 text-sm underline" x-on:click="shown = !shown"
+    <button type="button" class="ml-2 text-sm underline"
+        x-on:click="if (!shown && password === null) { password = await $wire.revealPassword(); } shown = !shown && password !== null"
         x-text="shown ? @js(__('services.hide')) : @js(__('services.show'))"></button>
 </div>
 @endif
