@@ -3,6 +3,7 @@
 namespace App\Admin\Resources;
 
 use App\Admin\Actions\MergeInvoicesAction;
+use App\Admin\Actions\PayInvoicesAction;
 use App\Admin\Clusters\InvoiceCluster;
 use App\Admin\Components\ClientComponent;
 use App\Admin\Resources\InvoiceResource\Pages\CreateInvoice;
@@ -264,6 +265,7 @@ class InvoiceResource extends Resource
             ])
             ->toolbarActions([
                 MergeInvoicesAction::make(),
+                PayInvoicesAction::make(),
             ]);
     }
 

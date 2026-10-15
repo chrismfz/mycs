@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\InvoiceResource\Pages;
 
+use App\Admin\Actions\ApplyCreditAction;
 use App\Admin\Actions\CloseInvoiceAsPaid;
 use App\Admin\Actions\MarkInvoicePaid;
 use App\Admin\Actions\SendInvoiceEmail;
@@ -105,6 +106,7 @@ class ViewInvoice extends ViewRecord
     {
         return [
             MarkInvoicePaid::make(),
+            ApplyCreditAction::make(),
             CloseInvoiceAsPaid::make(),
             SendInvoiceEmail::make(),
             SplitInvoiceAction::make(),

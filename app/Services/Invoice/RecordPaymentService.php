@@ -276,11 +276,11 @@ class RecordPaymentService
      * webhook finishes an interrupted allocation without paying a second cycle or spending other credit.
      * Null when nothing is paid.
      */
-    public function allocateFromTransaction(InvoiceTransaction $source, Invoice|int $target): ?InvoiceTransaction
+    public function allocateFromTransaction(InvoiceTransaction $source, Invoice|int $target, bool $oneCyclePerService = true): ?InvoiceTransaction
     {
         $targetId = $target instanceof Invoice ? $target->getKey() : $target;
 
-        return DB::transaction(function () use ($source, $targetId) {
+        return DB::transaction(function () use ($source, $targetId, $oneCyclePerService) {
             $invoice = $this->lockInvoice($targetId);
             $source = InvoiceTransaction::query()->whereKey($source->getKey())->lockForUpdate()->first();
             $sourceInvoice = $source === null ? null : Invoice::query()->whereKey($source->invoice_id)->first();
@@ -294,8 +294,10 @@ class RecordPaymentService
             $paidServices = InvoiceItem::query()->where('reference_type', Service::class)
                 ->whereIn('invoice_id', $allocations->pluck('invoice_id')->push($source->invoice_id))->pluck('reference_id');
             $targetServices = $invoice->items()->where('reference_type', Service::class)->pluck('reference_id');
-            if ($targetServices->intersect($paidServices)->isNotEmpty()) {
-                return null; // one cycle per service per sale
+            // One cycle per service per subscription sale. A payment staff spread over invoices they chose (PayInvoices) pays
+            // what they chose: two renewal invoices of one service too.
+            if ($oneCyclePerService && $targetServices->intersect($paidServices)->isNotEmpty()) {
+                return null;
             }
 
             $budget = self::toCents($source->credited_amount) - $allocations->sum(fn (InvoiceTransaction $paid) => self::toCents($paid->amount));
