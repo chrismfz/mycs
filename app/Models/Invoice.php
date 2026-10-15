@@ -116,6 +116,8 @@ class Invoice extends Model implements Auditable
 
     protected $casts = [
         'due_at' => 'date',
+        'merged_into_id' => 'integer',
+        'split_from_id' => 'integer',
         'apply_pending_since' => 'immutable_datetime',
         'kept_as_debt_at' => 'immutable_datetime',
         'finish_pending_at' => 'immutable_datetime',
@@ -470,6 +472,18 @@ class Invoice extends Model implements Auditable
     public function moneyEvents(): HasMany
     {
         return $this->hasMany(MoneyEvent::class);
+    }
+
+    /** @return BelongsTo<Invoice, $this> The invoice its lines were merged into (PR E). */
+    public function mergedInto(): BelongsTo
+    {
+        return $this->belongsTo(Invoice::class, 'merged_into_id');
+    }
+
+    /** @return BelongsTo<Invoice, $this> The invoice it was split from (PR E). */
+    public function splitFrom(): BelongsTo
+    {
+        return $this->belongsTo(Invoice::class, 'split_from_id');
     }
 
     /** @return HasOne<InvoiceSnapshot, $this> */

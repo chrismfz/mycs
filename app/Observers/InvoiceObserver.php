@@ -67,6 +67,11 @@ class InvoiceObserver
             && $invoice->status === Invoice::STATUS_PAID) {
             throw new DisplayException(__('A cancelled invoice cannot be marked paid: reopen it (unpaid) and record the payment.'));
         }
+        // Merged into another invoice (PR E): its lines are there now. Reopened, it would bill nothing.
+        if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_CANCELLED
+            && $invoice->merged_into_id !== null) {
+            throw new DisplayException(__('This invoice was merged into invoice #:id: its lines are there.', ['id' => $invoice->merged_into_id]));
+        }
         // Reopened after its period was billed again on another invoice (a cancellation request withdrawn, adversarial
         // D3A-10): the customer would be asked twice for it. Staff cancel the other one first.
         if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_CANCELLED
@@ -225,7 +230,9 @@ class InvoiceObserver
      */
     public function updated(Invoice $invoice): void
     {
-        if ($invoice->status === Invoice::STATUS_CANCELLED && $invoice->getOriginal('status') !== Invoice::STATUS_CANCELLED) {
+        // Merged (PR E): it bills nothing any more, so no credit note (which would also spend a credit note number).
+        if ($invoice->status === Invoice::STATUS_CANCELLED && $invoice->getOriginal('status') !== Invoice::STATUS_CANCELLED
+            && $invoice->merged_into_id === null) {
             $invoice->createCancellationCreditNote($invoice->cancellation_reason);
         }
 
@@ -306,6 +313,10 @@ class InvoiceObserver
     {
         if ($invoice->hasPayments(lock: true)) {
             throw new DisplayException(__('An invoice with payments cannot be deleted: cancel it, or delete its transactions first.'));
+        }
+        // Where a merge went (PR E, code review CR-7): kept, with the invoice its lines are on.
+        if ($invoice->merged_into_id !== null || Invoice::query()->where('merged_into_id', $invoice->id)->exists()) {
+            throw new DisplayException(__('This invoice is part of a merge: it is kept, so the merge can be traced.'));
         }
         // It records a period given up on (Δ3a, adversarial D3A-6): deleted, the cron would bill that period again.
         if ($invoice->recordsForgonePeriod()) {

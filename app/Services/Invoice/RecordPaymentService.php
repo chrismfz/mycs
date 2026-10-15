@@ -184,6 +184,19 @@ class RecordPaymentService
                 $reference = $enteredByStaff || $transaction->gateway_id === null ? null : $transaction->transaction_id;
                 (new MoneyTrail)->payment($target, $transaction, $source, reference: $reference);
                 $this->addCredit($target, $transaction, $excess, $source, $notices);
+                // Paid on an invoice staff merged meanwhile (PR E, adversarial E-ADV-6): a checkout or a transfer started
+                // before the merge. What it left as credit pays the invoice its lines went to, first.
+                if ($excess > 0 && $target->status === Invoice::STATUS_CANCELLED && $target->merged_into_id !== null) {
+                    $mergedInto = (int) $target->merged_into_id;
+                    $paid = $transaction;
+                    DB::afterCommit(function () use ($paid, $mergedInto) {
+                        try {
+                            (new self)->allocateFromTransaction($paid, self::mergedTarget($mergedInto));
+                        } catch (\Throwable $e) {
+                            report($e); // the payment stands as credit; staff apply it
+                        }
+                    });
+                }
                 // Credit that came in pays the customer's other open invoices (decision 5, MT-1e), once this payment
                 // commits. Not a subscription sale's: what it left pays the subscription's other services
                 // (allocateFromTransaction), never something else first.
@@ -209,6 +222,20 @@ class RecordPaymentService
 
             return $transaction;
         });
+    }
+
+    /** The invoice a merged one's lines are on now, following a later merge of that one too (PR E). */
+    private static function mergedTarget(int $id): int
+    {
+        for ($hops = 0; $hops < 10; $hops++) {
+            $next = Invoice::query()->whereKey($id)->value('merged_into_id');
+            if ($next === null) {
+                break;
+            }
+            $id = (int) $next;
+        }
+
+        return $id;
     }
 
     /**

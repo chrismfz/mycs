@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources;
 
+use App\Admin\Actions\MergeInvoicesAction;
 use App\Admin\Clusters\InvoiceCluster;
 use App\Admin\Components\ClientComponent;
 use App\Admin\Resources\InvoiceResource\Pages\CreateInvoice;
@@ -27,6 +28,7 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
+use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Utilities\Get;
@@ -72,6 +74,17 @@ class InvoiceResource extends Resource
                     ->label('Invoice Number')
                     ->helperText('The invoice number will be generated automatically')
                     ->disabled(),
+                // Where it went or came from (PR E).
+                TextEntry::make('merged_into_id')
+                    ->label(__('Merged into'))
+                    ->state(fn (?Invoice $record) => $record?->mergedInto ? '#' . ($record->mergedInto->number ?: $record->mergedInto->id) : null)
+                    ->url(fn (?Invoice $record) => $record?->merged_into_id ? self::getUrl('edit', ['record' => $record->merged_into_id]) : null)
+                    ->visible(fn (?Invoice $record): bool => $record?->merged_into_id !== null),
+                TextEntry::make('split_from_id')
+                    ->label(__('Split from'))
+                    ->state(fn (?Invoice $record) => $record?->splitFrom ? '#' . ($record->splitFrom->number ?: $record->splitFrom->id) : null)
+                    ->url(fn (?Invoice $record) => $record?->split_from_id ? self::getUrl('edit', ['record' => $record->split_from_id]) : null)
+                    ->visible(fn (?Invoice $record): bool => $record?->split_from_id !== null),
                 DatePicker::make('created_at')
                     ->label('Issued At')
                     ->required()
@@ -248,6 +261,9 @@ class InvoiceResource extends Resource
                     })
                     ->visible(fn (Invoice $record): bool => auth()->user()->can('update', Invoice::class)
                         && !in_array($record->status, [Invoice::STATUS_CANCELLED, Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED], true)),
+            ])
+            ->toolbarActions([
+                MergeInvoicesAction::make(),
             ]);
     }
 
