@@ -7,6 +7,7 @@ use App\Helpers\NotificationHelper;
 use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\Service;
+use App\Services\Payment\AutoCharge;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -187,7 +188,7 @@ class PaymentReminders
             return true;
         }
 
-        return $services->isNotEmpty() && $invoice->client?->autoChargeAgreement() !== null
+        return $services->isNotEmpty() && AutoCharge::agreementFor($invoice) !== null
             && $services->every(fn (Service $service) => $service->status === Service::STATUS_ACTIVE);
     }
 

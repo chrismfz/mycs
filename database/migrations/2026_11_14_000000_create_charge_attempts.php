@@ -25,7 +25,7 @@ return new class extends Migration
             $table->string('currency_code', 3);
             // cron, client, change (a billing cycle change), group (Mass Pay)
             $table->string('source', 16);
-            // started, succeeded, failed, action_required
+            // started, succeeded, failed, unknown (no answer: a timeout, a 5xx), action_required
             $table->string('status', 16);
             $table->string('error')->nullable();
             $table->timestamp('started_at');

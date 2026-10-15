@@ -44,6 +44,12 @@ class ChargeAttempt extends Model
 
     public const STATUS_FAILED = 'failed';
 
+    /**
+     * No answer about the money (a timeout, a 5xx): maybe taken. Holds the invoice, and the next charge of the same amount
+     * to the same method is sent again with its key (SavedMethodCharge::KEY_REUSE_HOURS).
+     */
+    public const STATUS_UNKNOWN = 'unknown';
+
     /** The bank asks the customer to confirm (3-D Secure): not retried until they pay themselves. */
     public const STATUS_ACTION_REQUIRED = 'action_required';
 

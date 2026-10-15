@@ -4,6 +4,7 @@ namespace App\Services\Payment;
 
 use App\Exceptions\DisplayException;
 use App\Helpers\NotificationHelper;
+use App\Models\BillingAgreement;
 use App\Models\ChargeAttempt;
 use App\Models\Invoice;
 use App\Models\Service;
@@ -16,9 +17,10 @@ use Throwable;
  * The cron's charge of saved payment methods (PR H, decision 5, docs/payments.md «Αυτόματη χρέωση»), as WHMCS here
  * (CCProcessDaysBefore 0, a retry every day): an open invoice of a customer with «Auto-charge» on is charged on its due
  * date (or autocharge_days_before earlier), and a declined charge is tried again every day, or on the days set, until it
- * is paid or its service is suspended. Never before the invoice is due, never twice a day, never while a payment is on its
- * way, never after the bank asked the customer to confirm (they pay it themselves), and not once the method has failed
- * autocharge_max_failures times in a row (staff are told; the method is kept).
+ * is paid or its service is suspended, and no later than the retry window (the suspension day, or the last retry day
+ * set). Never twice a day, never while a payment is on its way, never on a method after the bank asked the customer to
+ * confirm with it (they pay it themselves, or save another), and not once the method was declined on
+ * autocharge_max_failures days in a row (staff are told; the method is kept).
  *
  * Only renewal invoices of the customer's services, all active and not paid by a gateway subscription: an order or an
  * invoice staff made is paid by the customer (as before).
@@ -48,11 +50,33 @@ final class AutoCharge
             NotificationHelper::sendSystemEmailNotification('Automatic charges declined', e(sprintf(
                 "%d automatic charge(s) were declined today and will be tried again as set:\n%s", count($declined), implode("\n", $declined))));
         }
+        $this->tellOfTakenNotRecorded();
 
         return $charged;
     }
 
-    /** @return Builder<Invoice> open renewal invoices due by today (+ days before), of customers with «Auto-charge» on */
+    /**
+     * The method the cron charges this invoice to, or null: the account's (Auto-charge on), its gateway still there, not
+     * stopped at autocharge_max_failures, and not one the bank asked the customer to confirm a charge of this invoice
+     * with (a new default method is charged; adversarial ADV-7). Also what the reminder before the due date tells the
+     * customer (PaymentReminders::chargedOnItsOwn, adversarial ADV-6).
+     */
+    public static function agreementFor(Invoice $invoice): ?BillingAgreement
+    {
+        $agreement = $invoice->client?->autoChargeAgreement();
+        if ($agreement === null || $agreement->gateway === null) {
+            return null;
+        }
+        $max = max(0, (int) config('settings.autocharge_max_failures', 0));
+        if ($max > 0 && $agreement->failed_count >= $max) {
+            return null;
+        }
+        $last = ChargeAttempt::query()->where('invoice_id', $invoice->id)->where('billing_agreement_id', $agreement->id)->latest('id')->value('status');
+
+        return $last === ChargeAttempt::STATUS_ACTION_REQUIRED ? null : $agreement;
+    }
+
+    /** @return Builder<Invoice> open renewal invoices due in the window, of customers with «Auto-charge» on */
     private function due(CarbonImmutable $today): Builder
     {
         $notCharged = Service::query()->select('id')->where(fn ($query) => $query->where('status', '!=', Service::STATUS_ACTIVE)
@@ -60,6 +84,8 @@ final class AutoCharge
 
         return Invoice::query()->where('status', Invoice::STATUS_UNPAID)->whereNull('finish_pending_at')
             ->whereDate('due_at', '<=', $today->addDays(self::daysBefore())->toDateString())
+            // Not one overdue past the retry window: an old invoice is not charged at go-live, nor forever (adversarial ADV-5).
+            ->whereDate('due_at', '>=', $today->subDays(self::window())->toDateString())
             ->whereHas('client', fn ($client) => $client->where('auto_charge', true)->whereNotNull('default_billing_agreement_id'))
             ->whereHas('items', fn ($items) => $items->where('reference_type', Service::class))
             ->whereDoesntHave('items', fn ($items) => $items->where('reference_type', Service::class)->whereIn('reference_id', $notCharged))
@@ -70,20 +96,11 @@ final class AutoCharge
     private function chargeOne(int $id, CarbonImmutable $today, array &$declined): bool
     {
         $invoice = Invoice::query()->with('client')->find($id);
-        $agreement = $invoice?->client?->autoChargeAgreement();
+        $agreement = $invoice === null ? null : self::agreementFor($invoice);
         if ($invoice === null || $agreement === null || $invoice->remaining <= 0) {
             return false;
         }
-        $max = max(0, (int) config('settings.autocharge_max_failures', 0));
-        if ($max > 0 && $agreement->failed_count >= $max) {
-            return false;
-        }
-        $attempts = ChargeAttempt::query()->where('invoice_id', $invoice->id);
-        // The bank asked the customer to confirm: they pay it themselves.
-        if ((clone $attempts)->latest('id')->value('status') === ChargeAttempt::STATUS_ACTION_REQUIRED) {
-            return false;
-        }
-        $cron = (clone $attempts)->where('source', ChargeAttempt::SOURCE_CRON);
+        $cron = ChargeAttempt::query()->where('invoice_id', $invoice->id)->where('source', ChargeAttempt::SOURCE_CRON);
         if ((clone $cron)->where('started_at', '>=', $today)->exists()) {
             return false; // once a day, also when the cron runs twice
         }
@@ -103,22 +120,41 @@ final class AutoCharge
 
         $declined[] = sprintf('Invoice #%d (%s %s, customer #%d): %s', $invoice->id, $attempt->amount, $attempt->currency_code,
             $invoice->client_id, $attempt->error ?? 'declined');
+        if ($attempt->status === ChargeAttempt::STATUS_UNKNOWN) {
+            return false; // maybe taken: sent again with its key, the customer is not told it failed
+        }
         // The customer hears of it on the first decline, the last try before suspension and when the bank asks them to
         // confirm: not on every daily retry (Π7.7).
         $first = (clone $cron)->whereIn('status', [ChargeAttempt::STATUS_FAILED, ChargeAttempt::STATUS_ACTION_REQUIRED])->count() === 1;
-        $suspendDays = (int) config('settings.cronjob_order_suspend', 8);
-        $lastTry = (bool) config('settings.cronjob_suspend_enabled', true) && $offset === $suspendDays;
-        if ($first || $lastTry || $attempt->status === ChargeAttempt::STATUS_ACTION_REQUIRED) {
+        if ($first || $offset === self::lastTry() || $attempt->status === ChargeAttempt::STATUS_ACTION_REQUIRED) {
             NotificationHelper::invoicePaymentFailedNotification($invoice->client, $invoice);
         }
+        $max = max(0, (int) config('settings.autocharge_max_failures', 0));
         $failures = (int) $agreement->fresh()?->failed_count;
         if ($max > 0 && $failures >= $max && Cache::add("autocharge-stopped:{$agreement->id}", true, now()->addDay())) {
             NotificationHelper::sendSystemEmailNotification('Automatic charges stopped', e(sprintf(
-                'The saved payment method #%d (%s) of customer #%d was declined %d times in a row: it is no longer charged automatically until a charge succeeds or the customer pays with it.',
+                'The saved payment method #%d (%s) of customer #%d was declined on %d days in a row: it is no longer charged automatically until a charge succeeds or the customer pays with it.',
                 $agreement->id, $agreement->name, $invoice->client_id, $failures)));
         }
 
         return false;
+    }
+
+    /**
+     * Charges the gateway took whose payment was not recorded within an hour (Stripe's webhook late, failing, or its
+     * secret wrong): the invoice stays held (SavedMethodCharge::TAKEN_HOLD_DAYS) and staff are told once each.
+     */
+    private function tellOfTakenNotRecorded(): void
+    {
+        $taken = ChargeAttempt::query()->where('status', ChargeAttempt::STATUS_SUCCEEDED)
+            ->whereBetween('started_at', [now()->subDays(SavedMethodCharge::TAKEN_HOLD_DAYS), now()->subHour()])->get()
+            ->reject(fn (ChargeAttempt $attempt) => SavedMethodCharge::recordedSince($attempt))
+            ->filter(fn (ChargeAttempt $attempt) => Cache::add("autocharge-unrecorded:{$attempt->id}", true, now()->addDays(SavedMethodCharge::TAKEN_HOLD_DAYS + 1)));
+        if ($taken->isNotEmpty()) {
+            NotificationHelper::sendSystemEmailNotification('Automatic charges taken but not recorded', e(sprintf(
+                "The gateway took these charges but no payment was recorded since (check its webhooks): the invoices are held, not charged again.\n%s",
+                $taken->map(fn (ChargeAttempt $attempt) => "Invoice #{$attempt->invoice_id}: {$attempt->amount} {$attempt->currency_code}, attempt {$attempt->key}")->implode("\n"))));
+        }
     }
 
     private static function daysBefore(): int
@@ -126,12 +162,42 @@ final class AutoCharge
         return max(0, (int) config('settings.autocharge_days_before', 0));
     }
 
-    /** A retry today, $offset days after the due date: every day (empty setting), or the days set. */
+    /** @return list<int> the retry days set, after the due date; empty: every day */
+    private static function retryDays(): array
+    {
+        return array_values(array_map('intval', array_filter(array_map('trim', explode(',', (string) config('settings.autocharge_retry_days', ''))),
+            fn (string $day) => $day !== '' && ctype_digit($day))));
+    }
+
+    /** A retry today, $offset days after the due date: every day (no days set), or the days set. */
     private static function retryOn(int $offset): bool
     {
-        $days = array_values(array_filter(array_map('trim', explode(',', (string) config('settings.autocharge_retry_days', ''))),
-            fn (string $day) => $day !== '' && ctype_digit($day)));
+        $days = self::retryDays();
 
-        return $days === [] || in_array((string) $offset, $days, true);
+        return $days === [] || in_array($offset, $days, true);
+    }
+
+    /** The days after the due date the cron still charges: to the suspension day, or to the last retry day set if later. */
+    private static function window(): int
+    {
+        return max(self::suspendDays(), ...[0, ...self::retryDays()]);
+    }
+
+    /** The day of the last try before the suspension: the day before it, or the last retry day set before it (ADV-8). */
+    private static function lastTry(): int
+    {
+        $suspend = self::suspendDays();
+        $days = self::retryDays();
+        if ($days === []) {
+            return $suspend;
+        }
+        $before = array_filter($days, fn (int $day) => $day <= $suspend);
+
+        return $before === [] ? max($days) : max($before);
+    }
+
+    private static function suspendDays(): int
+    {
+        return max(0, (int) config('settings.cronjob_order_suspend', 8));
     }
 }

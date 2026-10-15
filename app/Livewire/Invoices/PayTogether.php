@@ -99,6 +99,9 @@ class PayTogether extends Component
 
             return $this->redirect(route('invoices.show', $this->paymentGroup->invoice) . '?checkPayment', true);
         }
+        if ($attempt->status === ChargeAttempt::STATUS_UNKNOWN) {
+            return $this->notify(__('We could not confirm the payment with your bank yet. Please check this invoice again in a few minutes before paying again.'), 'error');
+        }
 
         return $this->notify(__('Could not process payment. Please try again or use a different payment method.'), 'error');
     }

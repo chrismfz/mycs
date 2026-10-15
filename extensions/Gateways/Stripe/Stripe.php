@@ -24,6 +24,7 @@ use App\Services\Money\GatewayLog;
 use Carbon\Carbon;
 use Exception;
 use Filament\Notifications\Notification;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -858,8 +859,13 @@ class Stripe extends Gateway
         // Create customer if not exists
         if (!$stripeCustomerId) {
             throw new DisplayException('Stripe customer not found');
-        } else {
+        }
+        try {
             $customer = $this->request('get', '/customers/' . $stripeCustomerId->value);
+        } catch (Exception $e) {
+            report($e);
+
+            throw new DisplayException('Could not process payment'); // nothing was charged yet
         }
 
         // Create payment intent. The charge attempt's key is the idempotency key (PR H): a request repeated by the network
@@ -875,6 +881,11 @@ class Stripe extends Gateway
                 'metadata' => array_filter(['invoice_id' => $invoice->id, 'billing_agreement_id' => $billingAgreement->id, 'payment_group' => $invoice->payingGroup]),
             ], $invoice->chargeKey);
         } catch (Exception $e) {
+            // No answer about the money (a timeout, a 5xx): not a decline. Thrown as it is, so the attempt keeps its key and
+            // is sent again with it (PR H, adversarial ADV-3b).
+            if ($e instanceof ConnectionException || ($e instanceof RequestException && $e->response->status() >= 500)) {
+                throw $e;
+            }
             if ($e instanceof RequestException && in_array($e->response->status(), [400, 402], true)) {
                 $error = $e->response->object()->error ?? null;
                 // If error is invalid_request_error and message contains "The provided currency" we can show the message
