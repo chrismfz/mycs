@@ -526,13 +526,26 @@ class ExtensionHelper
      */
     public static function payGroup(Gateway $gateway, PaymentGroup $group)
     {
-        return self::getExtension('gateway', $gateway->extension, $gateway->settings)->pay($group->invoice, (float) $group->total);
+        $invoice = $group->invoice;
+        $invoice->payingGroup = $group->ulid;
+
+        return self::getExtension('gateway', $gateway->extension, $gateway->settings)->pay($invoice, (float) $group->total);
+    }
+
+    /** Whether the gateway carries a Mass Pay group to the provider and back (PR F2): only such a one is offered for a group. */
+    public static function supportsPaymentGroups(Gateway $gateway): bool
+    {
+        return self::hasFunction($gateway, 'supportsPaymentGroups')
+            && self::getExtension('gateway', $gateway->extension, $gateway->settings)->supportsPaymentGroups();
     }
 
     /** Charge a saved payment method for a Mass Pay group (PR F2), on the invoice due first, as payGroup(). */
     public static function chargeGroup(Gateway $gateway, PaymentGroup $group, BillingAgreement $billingAgreement): bool
     {
-        return self::charge($gateway, $group->invoice, $billingAgreement, (float) $group->total);
+        $invoice = $group->invoice;
+        $invoice->payingGroup = $group->ulid;
+
+        return self::charge($gateway, $invoice, $billingAgreement, (float) $group->total);
     }
 
     public static function charge(Gateway $gateway, Invoice $invoice, BillingAgreement $billingAgreement, ?float $total = null): bool
@@ -605,17 +618,19 @@ class ExtensionHelper
 
     /**
      * Add payment to invoice. Guards, idempotency and over-payment to credit: RecordPaymentService
-     * (docs/payments.md). Gateways should pass the currency the provider reports.
+     * (docs/payments.md). Gateways should pass the currency the provider reports, and the Mass Pay group the payment was
+     * opened for when the provider returns it ($paymentGroup, PR F2): what the invoice cannot take then pays the group's others.
      *
      * @param  Invoice|int  $invoice
      */
-    public static function addPayment($invoice, $gateway, $amount, $fee = null, $transactionId = null, InvoiceTransactionStatus $status = InvoiceTransactionStatus::Succeeded, $isCreditTransaction = false, ?string $currency = null)
+    public static function addPayment($invoice, $gateway, $amount, $fee = null, $transactionId = null, InvoiceTransactionStatus $status = InvoiceTransactionStatus::Succeeded, $isCreditTransaction = false, ?string $currency = null, ?string $paymentGroup = null)
     {
         if (isset($gateway)) {
             $gateway = Gateway::where('extension', $gateway)->first();
         }
 
-        $transaction = (new RecordPaymentService)->handle($invoice, $gateway, $amount, $fee, $transactionId === null ? null : (string) $transactionId, $status, (bool) $isCreditTransaction, $currency);
+        $transaction = (new RecordPaymentService)->handle($invoice, $gateway, $amount, $fee, $transactionId === null ? null : (string) $transactionId, $status, (bool) $isCreditTransaction, $currency,
+            paymentGroup: $paymentGroup === null || $paymentGroup === '' ? null : (string) $paymentGroup);
         // Refunds that arrived before their payment was money here are recorded now (PR 2c-2, F3).
         if ($transaction instanceof InvoiceTransaction && $gateway !== null && $transactionId !== null && $transaction->status === InvoiceTransactionStatus::Succeeded) {
             $extension = $gateway->extension;
@@ -631,9 +646,9 @@ class ExtensionHelper
         return $transaction;
     }
 
-    public static function addProcessingPayment($invoice, $gateway, $amount, $fee = null, $transactionId = null, ?string $currency = null)
+    public static function addProcessingPayment($invoice, $gateway, $amount, $fee = null, $transactionId = null, ?string $currency = null, ?string $paymentGroup = null)
     {
-        return self::addPayment($invoice, $gateway, $amount, $fee, $transactionId, InvoiceTransactionStatus::Processing, currency: $currency);
+        return self::addPayment($invoice, $gateway, $amount, $fee, $transactionId, InvoiceTransactionStatus::Processing, currency: $currency, paymentGroup: $paymentGroup);
     }
 
     public static function addFailedPayment($invoice, $gateway, $amount, $fee = null, $transactionId = null, ?string $currency = null)

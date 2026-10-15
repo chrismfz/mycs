@@ -65,6 +65,11 @@ class Mollie extends Gateway
      * @param  float  $total
      * @return string
      */
+    public function supportsPaymentGroups(): bool
+    {
+        return true;
+    }
+
     public function pay(Invoice $invoice, $total)
     {
         $response = $this->request('/v2/payments', 'post', [
@@ -76,9 +81,10 @@ class Mollie extends Gateway
             'redirectUrl' => route('invoices.show', $invoice) . '?checkPayment=true',
             'cancelUrl' => route('invoices.show', $invoice),
             'webhookUrl' => route('extensions.gateways.mollie.webhook', $invoice),
-            'metadata' => [
+            'metadata' => array_filter([
                 'invoice_id' => $invoice->id,
-            ],
+                'payment_group' => $invoice->payingGroup,
+            ]),
         ]);
 
         return $response['_links']['checkout']['href'];
@@ -102,7 +108,7 @@ class Mollie extends Gateway
         $payment = $response->json();
 
         if ($payment['status'] == 'paid') {
-            ExtensionHelper::addPayment($payment['metadata']['invoice_id'], 'Mollie', $payment['amount']['value'], transactionId: $payment['id'], currency: $payment['amount']['currency'] ?? null);
+            ExtensionHelper::addPayment($payment['metadata']['invoice_id'], 'Mollie', $payment['amount']['value'], transactionId: $payment['id'], currency: $payment['amount']['currency'] ?? null, paymentGroup: $payment['metadata']['payment_group'] ?? null);
         }
     }
 

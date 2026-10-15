@@ -56,6 +56,7 @@ class RecordPaymentService
         ?string $currency = null,
         bool $enteredByStaff = false,
         ?\DateTimeInterface $paidAt = null,
+        ?string $paymentGroup = null,
     ): ?InvoiceTransaction {
         $invoiceId = $invoice instanceof Invoice ? $invoice->getKey() : $invoice;
         $transactionId = $transactionId === null || $transactionId === '' ? null : (string) $transactionId;
@@ -73,7 +74,7 @@ class RecordPaymentService
 
         $notices = [];
         try {
-            $transaction = $this->record($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, $paidAt, $notices);
+            $transaction = $this->record($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, $paidAt, $notices, $paymentGroup);
         } catch (ModelNotFoundException $e) {
             // A gateway paid an invoice that does not exist (deleted, or another app's): the gateway log keeps what it
             // charged and staff hear of it (MT-2a). Still thrown: the gateway is told it failed.
@@ -94,9 +95,9 @@ class RecordPaymentService
     /**
      * @param  list<string>  $notices
      */
-    private function record(mixed $invoiceId, ?Gateway $gateway, int $cents, mixed $fee, ?string $transactionId, InvoiceTransactionStatus $status, bool $isCreditTransaction, ?string $currency, bool $enteredByStaff, ?\DateTimeInterface $paidAt, array &$notices): ?InvoiceTransaction
+    private function record(mixed $invoiceId, ?Gateway $gateway, int $cents, mixed $fee, ?string $transactionId, InvoiceTransactionStatus $status, bool $isCreditTransaction, ?string $currency, bool $enteredByStaff, ?\DateTimeInterface $paidAt, array &$notices, ?string $paymentGroup = null): ?InvoiceTransaction
     {
-        return DB::transaction(function () use ($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, $paidAt, &$notices) {
+        return DB::transaction(function () use ($invoiceId, $gateway, $cents, $fee, $transactionId, $status, $isCreditTransaction, $currency, $enteredByStaff, $paidAt, &$notices, $paymentGroup) {
             $invoice = $this->lockInvoice($invoiceId);
 
             // Same id on the same gateway, or recorded by staff without a gateway: the same money. Staff
@@ -138,6 +139,7 @@ class RecordPaymentService
 
             if ($existing !== null && $status !== InvoiceTransactionStatus::Succeeded) {
                 $existing->update(array_filter(['status' => $status, 'fee' => $fee], fn ($value) => $value !== null));
+                MassPay::link($target, $paymentGroup, $existing, $gateway !== null && !$isCreditTransaction && !$enteredByStaff);
                 GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_RECORDED, $status->value, [
                     'amount' => $cents / 100, 'currency_code' => $target->currency_code, 'external_id' => $transactionId,
                     'invoice_id' => $existing->invoice_id, 'invoice_transaction_id' => $existing->id,
@@ -178,6 +180,9 @@ class RecordPaymentService
                     $transaction->created_at = Carbon::instance($paidAt);
                 }
                 $transaction->save();
+                if ($status === InvoiceTransactionStatus::Processing) {
+                    MassPay::link($target, $paymentGroup, $transaction, $gateway !== null && !$isCreditTransaction && !$enteredByStaff);
+                }
             }
             // Only money that arrived is journaled: a processing/failed payment is, once (and if) it succeeds.
             if ($status === InvoiceTransactionStatus::Succeeded) {
@@ -186,15 +191,22 @@ class RecordPaymentService
                 // The provider's id only when the gateway recorded it; what staff type can name the payer (§9).
                 $reference = $enteredByStaff || $transaction->gateway_id === null ? null : $transaction->transaction_id;
                 (new MoneyTrail)->payment($target, $transaction, $source, reference: $reference);
-                // A customer's Mass Pay (F2): the checkout was opened on the invoice due first for the group's total. What
-                // that one cannot take pays the others now, under these locks, before credit is applied to anything else.
+                // A customer's Mass Pay (F2): the checkout was opened on the invoice due first for the group's total, and the
+                // gateway returned the group with the payment (or a processing payment was linked to it). What that invoice
+                // cannot take pays the group's others now, under these locks, before credit is applied to anything else.
                 // Only money a gateway checkout brought (a staff entry chose its invoices with PayInvoices).
                 $fromCheckout = !$isCreditTransaction && !$transaction->is_credit_transaction
                     && ($existing !== null ? $existing->gateway_id !== null : $gateway !== null && !$enteredByStaff);
-                $group = $excess > 0 && $fromCheckout ? MassPay::groupPaidBy($target, $cents) : null;
+                $group = $excess > 0 && $fromCheckout ? MassPay::groupPaidBy($target, $paymentGroup, $transaction) : null;
                 $this->addCredit($target, $transaction, $excess, $source, $notices, spread: $group !== null);
                 if ($group !== null) {
-                    MassPay::spread($group, $transaction);
+                    $placed = array_sum(array_map(fn (InvoiceTransaction $paid) => self::toCents($paid->amount), MassPay::spread($group, $transaction)));
+                    // What the group could not take (an invoice paid meanwhile, more than its total) is the customer's
+                    // money as credit: news for staff, a refund may be due (F2 CR-4, F2-ADV-2).
+                    if ($excess - $placed > 0) {
+                        $notices[] = sprintf('Mass Pay on invoice #%d: %s %s of the payment could not pay the chosen invoices; it was added to the customer\'s account credit.',
+                            $target->id, number_format(($excess - $placed) / 100, 2, '.', ''), $target->currency_code);
+                    }
                 }
                 // Paid on an invoice staff merged meanwhile (PR E, adversarial E-ADV-6): a checkout or a transfer started
                 // before the merge. What it left as credit pays the invoice its lines went to, first.

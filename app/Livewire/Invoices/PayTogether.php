@@ -9,6 +9,7 @@ use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\PaymentGroup;
 use App\Services\Invoice\MassPay;
+use Illuminate\Support\Facades\Cache;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 
@@ -42,13 +43,15 @@ class PayTogether extends Component
     {
         $items = $this->paymentGroup->invoices->flatMap(fn (Invoice $invoice) => $invoice->items);
 
-        return ExtensionHelper::getCheckoutGateways((float) $this->paymentGroup->total, $this->paymentGroup->currency_code, 'invoice', $items);
+        // Only a gateway that carries the group to the provider and back: its payment is the one spread.
+        return array_values(array_filter(ExtensionHelper::getCheckoutGateways((float) $this->paymentGroup->total, $this->paymentGroup->currency_code, 'invoice', $items),
+            fn (Gateway $gateway) => ExtensionHelper::supportsPaymentGroups($gateway)));
     }
 
     #[Computed]
     public function savedPaymentMethods()
     {
-        $usable = array_column(ExtensionHelper::getBillingAgreementGateways(), 'id');
+        $usable = array_column(array_filter(ExtensionHelper::getBillingAgreementGateways(), fn (Gateway $gateway) => ExtensionHelper::supportsPaymentGroups($gateway)), 'id');
 
         return BillingAgreement::query()->where('client_id', $this->paymentGroup->client_id)->whereIn('gateway_id', $usable)->with('gateway')->get();
     }
@@ -81,11 +84,25 @@ class PayTogether extends Component
         if ($agreement === null || $agreement->gateway === null) {
             return $this->notify(__('Invalid payment method.'), 'error');
         }
-        if (ExtensionHelper::chargeGroup($agreement->gateway, $this->paymentGroup, $agreement) === true) {
+        // A saved method is charged at once: a second click (or tab) before the payment is recorded would charge the total
+        // twice. After a charge the lock is kept for its time; a declined one frees it to try again (F2 review).
+        $lock = Cache::lock('payment-group-charge:' . $this->paymentGroup->id, 120);
+        if (!$lock->get()) {
+            return $this->notify(__('A payment for these invoices is already on its way.'), 'error');
+        }
+        try {
+            $charged = ExtensionHelper::chargeGroup($agreement->gateway, $this->paymentGroup, $agreement) === true;
+        } catch (\Throwable $e) {
+            $lock->release();
+
+            throw $e;
+        }
+        if ($charged) {
             $this->notify(__('Successfully charged the saved payment method.'), 'success');
 
             return $this->redirect(route('invoices.show', $this->paymentGroup->invoice) . '?checkPayment', true);
         }
+        $lock->release();
 
         return $this->notify(__('Could not process payment. Please try again or use a different payment method.'), 'error');
     }

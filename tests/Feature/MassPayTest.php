@@ -114,8 +114,10 @@ class MassPayTest extends TestCase
         $gateway = $this->mollie();
         Http::fake([
             'https://api.mollie.com/v2/payments' => Http::response(['id' => 'tr_mass', '_links' => ['checkout' => ['href' => 'https://mollie.test/checkout/tr_mass']]]),
-            'https://api.mollie.com/v2/payments/tr_mass' => Http::response([
-                'id' => 'tr_mass', 'status' => 'paid', 'amount' => ['value' => '45.00', 'currency' => 'USD'], 'metadata' => ['invoice_id' => $lead->id],
+            // Mollie returns the metadata the checkout was opened with: the invoice and the group.
+            'https://api.mollie.com/v2/payments/tr_mass' => fn () => Http::response([
+                'id' => 'tr_mass', 'status' => 'paid', 'amount' => ['value' => '45.00', 'currency' => 'USD'],
+                'metadata' => ['invoice_id' => $lead->id, 'payment_group' => PaymentGroup::query()->sole()->ulid],
             ]),
         ]);
         $this->actingAs($this->user);
@@ -134,7 +136,8 @@ class MassPayTest extends TestCase
             ->call('processPayment')
             ->assertRedirect('https://mollie.test/checkout/tr_mass');
         Http::assertSent(fn (Request $request) => $request->method() === 'POST' && $request->url() === 'https://api.mollie.com/v2/payments'
-            && $request['amount']['value'] === '45.00' && (int) $request['metadata']['invoice_id'] === $lead->id);
+            && $request['amount']['value'] === '45.00' && (int) $request['metadata']['invoice_id'] === $lead->id
+            && $request['metadata']['payment_group'] === $group->ulid);
 
         $this->post('/extensions/gateways/mollie/webhook', ['id' => 'tr_mass'])->assertOk();
 
@@ -158,7 +161,7 @@ class MassPayTest extends TestCase
         $this->mollie();
 
         // The checkout of the old choice completes after all.
-        ExtensionHelper::addPayment($a->id, 'Mollie', '25.00', transactionId: 'tr_old', currency: 'USD');
+        ExtensionHelper::addPayment($a->id, 'Mollie', '25.00', transactionId: 'tr_old', currency: 'USD', paymentGroup: $old->ulid);
 
         $this->assertSame(['paid', 'paid', 'unpaid'], $this->statuses(collect([$a, $b, $c])));
         $this->assertSame(PaymentGroup::STATUS_PAID, $old->fresh()->status);
@@ -172,8 +175,11 @@ class MassPayTest extends TestCase
         $group = (new MassPay)->open($this->user->client(), $invoices->pluck('id')->all(), $this->user);
         $this->mollie();
 
-        ExtensionHelper::addProcessingPayment($group->invoice_id, 'Mollie', '45.00', transactionId: 'tr_sepa', currency: 'USD');
+        ExtensionHelper::addProcessingPayment($group->invoice_id, 'Mollie', '45.00', transactionId: 'tr_sepa', currency: 'USD', paymentGroup: $group->ulid);
         $this->assertSame(['unpaid', 'unpaid', 'unpaid'], $this->statuses($invoices));
+        $this->assertNotNull(MassPay::refusal($invoices[0]), 'the group\'s others are held while its payment is processed');
+
+        // The completion may come back without the group: the processing payment was linked to it.
 
         ExtensionHelper::addPayment($group->invoice_id, 'Mollie', '45.00', transactionId: 'tr_sepa', currency: 'USD');
         ExtensionHelper::addPayment($group->invoice_id, 'Mollie', '45.00', transactionId: 'tr_sepa', currency: 'USD');
@@ -202,7 +208,7 @@ class MassPayTest extends TestCase
         (new RecordPaymentService)->handle($b, null, '15.00', transactionId: 'paid-apart');
         $this->mollie();
 
-        ExtensionHelper::addPayment($group->invoice_id, 'Mollie', '45.00', transactionId: 'tr_late', currency: 'USD');
+        ExtensionHelper::addPayment($group->invoice_id, 'Mollie', '45.00', transactionId: 'tr_late', currency: 'USD', paymentGroup: $group->ulid);
 
         $this->assertSame(['paid', 'paid', 'paid'], $this->statuses(collect([$a, $b, $c])));
         $this->assertSame(1500, $this->credit());
@@ -239,6 +245,7 @@ class MassPayTest extends TestCase
 
     public function test_the_page_is_the_accounts_own(): void
     {
+        $this->withoutVite();
         $invoices = $this->three();
         $group = (new MassPay)->open($this->user->client(), $invoices->pluck('id')->all(), $this->user);
         $stranger = User::factory()->create();

@@ -133,9 +133,9 @@ class PayPal extends Gateway
                         'invoice_id' => $invoice->id,
                         'amount' => [
                             'currency_code' => $invoice->currency_code,
-                            'value' => $total,
+                            'value' => number_format((float) $total, 2, '.', ''),
                         ],
-                    ],
+                    ] + self::groupOf($invoice),
                 ],
                 'payment_source' => [
                     'paypal' => [
@@ -168,6 +168,7 @@ class PayPal extends Gateway
                 $capture->id,
                 $capture->status === 'PENDING' ? InvoiceTransactionStatus::Processing : InvoiceTransactionStatus::Succeeded,
                 currency: $capture->amount->currency_code ?? null,
+                paymentGroup: $invoice->payingGroup,
             );
         } catch (Throwable $e) {
             report($e);
@@ -325,6 +326,17 @@ class PayPal extends Gateway
         return $response->object();
     }
 
+    public function supportsPaymentGroups(): bool
+    {
+        return true;
+    }
+
+    /** The Mass Pay group the order is for (PR F2), as custom_id: PayPal returns it with the order. */
+    private static function groupOf(Invoice $invoice): array
+    {
+        return $invoice->payingGroup === null ? [] : ['custom_id' => $invoice->payingGroup];
+    }
+
     public function pay($invoice, $total)
     {
         $url = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
@@ -335,9 +347,9 @@ class PayPal extends Gateway
                     'invoice_id' => $invoice->id,
                     'amount' => [
                         'currency_code' => $invoice->currency_code,
-                        'value' => $total,
+                        'value' => number_format((float) $total, 2, '.', ''),
                     ],
-                ],
+                ] + self::groupOf($invoice),
             ],
             'application_context' => [
                 'return_url' => route('invoices.show', $invoice),
@@ -409,6 +421,7 @@ class PayPal extends Gateway
             $capture->id,
             $capture->status === 'PENDING' ? InvoiceTransactionStatus::Processing : InvoiceTransactionStatus::Succeeded,
             currency: $capture->amount->currency_code ?? null,
+            paymentGroup: $order->purchase_units[0]->custom_id ?? null,
         );
 
         return $response;
@@ -575,7 +588,7 @@ class PayPal extends Gateway
                 // A capture in another currency is refused by RecordPaymentService (logged, staff told), not skipped here.
                 $invoice = Invoice::find($order->purchase_units[0]->invoice_id);
                 if ($invoice) {
-                    ExtensionHelper::addPayment($order->purchase_units[0]->invoice_id, 'PayPal', $order->purchase_units[0]->payments->captures[0]->amount->value, $order->purchase_units[0]->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value ?? null, $body['resource']['id'], currency: $order->purchase_units[0]->payments->captures[0]->amount->currency_code);
+                    ExtensionHelper::addPayment($order->purchase_units[0]->invoice_id, 'PayPal', $order->purchase_units[0]->payments->captures[0]->amount->value, $order->purchase_units[0]->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value ?? null, $body['resource']['id'], currency: $order->purchase_units[0]->payments->captures[0]->amount->currency_code, paymentGroup: $order->purchase_units[0]->custom_id ?? null);
                 }
             }
         }

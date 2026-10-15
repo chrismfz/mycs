@@ -19,6 +19,10 @@ use Illuminate\Support\Facades\DB;
  * their order, as allocations of that payment (spread(), from RecordPaymentService under its locks), as staff do with
  * PayInvoices. Each invoice holds its own share, so the Ekdosi bridge can issue one document or one per invoice.
  *
+ * The checkout carries the group (its ulid, in the provider's metadata) and the payment comes back with it: only that
+ * payment is spread, never one guessed by its invoice or amount (F2 review CR-1, F2-ADV-1/5). Only gateways that carry it
+ * are offered (Gateway::supportsPaymentGroups).
+ *
  * A new group of the account replaces its open one (customers start again): a payment that still arrives for the old
  * one is spread over the old one's invoices. Bank transfers are not offered here: staff record them with «Add payment
  * to invoices» (F1).
@@ -27,9 +31,6 @@ final class MassPay
 {
     /** More would be a statement, not a payment. */
     public const MAX_INVOICES = 50;
-
-    /** A checkout older than this (SEPA can take days) is not matched any more: its money becomes account credit. */
-    public const MATCH_DAYS = 30;
 
     public static function enabled(): bool
     {
@@ -56,8 +57,12 @@ final class MassPay
         if ($invoice->billsEndedService()) {
             return __('Invoice :invoice bills a service that has ended: please contact us.', ['invoice' => $label]);
         }
-        // A payment on its way (SEPA, a PayPal review): paying it again would pay it twice.
-        if ($invoice->transactions()->where('status', InvoiceTransactionStatus::Processing)->exists()) {
+        // A payment on its way (SEPA, a PayPal review): paying it again would pay it twice. A group's payment sits on its
+        // first invoice only, so the group's others are held too while it is processed (F2 review CR-3).
+        if ($invoice->transactions()->where('status', InvoiceTransactionStatus::Processing)->exists()
+            || PaymentGroup::query()->whereIn('status', [PaymentGroup::STATUS_OPEN, PaymentGroup::STATUS_REPLACED])
+                ->whereHas('invoices', fn ($query) => $query->whereKey($invoice->id))
+                ->whereHas('transaction', fn ($query) => $query->where('status', InvoiceTransactionStatus::Processing))->exists()) {
             return __('A payment for invoice :invoice is still being processed.', ['invoice' => $label]);
         }
 
@@ -129,11 +134,14 @@ final class MassPay
         if ($group->status !== PaymentGroup::STATUS_OPEN) {
             return __('These invoices were paid or chosen again: choose them again from your invoices.');
         }
-        // The invoice the gateway is paid on, gone (deleted by staff): nothing to pay on.
-        if ($group->invoice_id === null) {
+        // The invoice the gateway is paid on, or another, deleted by staff (its row goes with it): the total no longer
+        // adds up (F2 review CR-2, F2-ADV-3/4).
+        $invoices = $group->invoices()->get();
+        if ($group->invoice_id === null || !$invoices->contains('id', $group->invoice_id)
+            || $invoices->sum(fn (Invoice $invoice) => RecordPaymentService::toCents($invoice->pivot->amount)) !== RecordPaymentService::toCents($group->total)) {
             return __('One of these invoices changed: choose them again from your invoices.');
         }
-        foreach ($group->invoices()->get() as $invoice) {
+        foreach ($invoices as $invoice) {
             if ((int) $invoice->client_id !== (int) $group->client_id || $invoice->currency_code !== $group->currency_code
                 || self::refusal($invoice) !== null
                 || RecordPaymentService::toCents($invoice->remaining) !== RecordPaymentService::toCents($invoice->pivot->amount)) {
@@ -145,19 +153,38 @@ final class MassPay
     }
 
     /**
-     * The group a gateway payment on $lead pays, locked: the account's open or replaced one led by that invoice, of a
-     * recent checkout, the one of exactly that amount first, else the newest. Null when there is none. Called by
+     * The group a gateway payment on $lead pays, locked, or null: the one its checkout was opened for ($reference, the
+     * ulid the provider returned), else the one its processing payment was linked to (link()). It must be the account's,
+     * led by that invoice, in its currency, and not paid yet (open, or replaced by a later choice). Called by
      * RecordPaymentService under the customer → invoice locks, for money the lead cannot take.
      */
-    public static function groupPaidBy(Invoice $lead, int $cents): ?PaymentGroup
+    public static function groupPaidBy(Invoice $lead, ?string $reference, InvoiceTransaction $payment): ?PaymentGroup
     {
-        $groups = PaymentGroup::query()
-            ->where('invoice_id', $lead->id)->where('client_id', $lead->client_id)->where('currency_code', $lead->currency_code)
-            ->whereIn('status', [PaymentGroup::STATUS_OPEN, PaymentGroup::STATUS_REPLACED])
-            ->where('created_at', '>=', now()->subDays(self::MATCH_DAYS))
-            ->orderByDesc('id')->lockForUpdate()->get();
+        return self::unpaidLedBy($lead)
+            ->where(fn ($query) => $reference !== null
+                ? $query->where('ulid', $reference)->orWhere('invoice_transaction_id', $payment->id)
+                : $query->where('invoice_transaction_id', $payment->id))
+            ->lockForUpdate()->first();
+    }
 
-        return $groups->first(fn (PaymentGroup $group) => RecordPaymentService::toCents($group->total) === $cents) ?? $groups->first();
+    /**
+     * A processing payment of a group's checkout (SEPA, a PayPal review) is kept on the group: its completion may come
+     * back without the reference, and the group's invoices are held meanwhile (refusal()).
+     */
+    public static function link(Invoice $lead, ?string $reference, InvoiceTransaction $payment, bool $fromCheckout): void
+    {
+        if ($reference === null || !$fromCheckout) {
+            return;
+        }
+        self::unpaidLedBy($lead)->where('ulid', $reference)->update(['invoice_transaction_id' => $payment->id]);
+    }
+
+    /** @return \Illuminate\Database\Eloquent\Builder<PaymentGroup> */
+    private static function unpaidLedBy(Invoice $lead)
+    {
+        return PaymentGroup::query()
+            ->where('invoice_id', $lead->id)->where('client_id', $lead->client_id)->where('currency_code', $lead->currency_code)
+            ->whereIn('status', [PaymentGroup::STATUS_OPEN, PaymentGroup::STATUS_REPLACED]);
     }
 
     /**
