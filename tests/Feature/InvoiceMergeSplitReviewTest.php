@@ -75,7 +75,8 @@ class InvoiceMergeSplitReviewTest extends TestCase
         $this->assertGreaterThan(0, (float) $price);
         $upInvoice->items()->create(['reference_type' => ServiceUpgrade::class, 'reference_id' => $upgrade->id, 'price' => $price, 'quantity' => 1, 'description' => 'Upgrade']);
 
-        return [$upgrade, $upInvoice, $this->invoice()];
+        // A renewal on the other invoice: a loose line there would leave the upgrade's line to staff (CancelOpenInvoices).
+        return [$upgrade, $upInvoice, $this->invoice(line: ['reference_type' => Service::class, 'reference_id' => $this->service()->id, 'price' => 10])];
     }
 
     /** CR-1: the upgrade follows its line; paid on the target, it is not billed again. */
