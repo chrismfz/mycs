@@ -163,6 +163,8 @@ class Show extends Component
     {
         $this->authorize('update', $this->service);
         if (RateLimiter::tooManyAttempts($key = 'reveal-password:' . Auth::id(), 10)) {
+            $this->notify(__('services.reveal_too_many'), 'error');
+
             return null;
         }
         RateLimiter::hit($key, 60);

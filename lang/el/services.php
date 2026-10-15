@@ -94,6 +94,7 @@ return [
     'password' => 'Κωδικός',
     'show' => 'Εμφάνιση',
     'hide' => 'Απόκρυψη',
+    'reveal_too_many' => 'Πάρα πολλές προσπάθειες. Δοκιμάστε ξανά σε ένα λεπτό.',
     'suspend_reason' => 'Αιτία αναστολής',
     'suspend_reasons' => ['overdue' => 'Ληξιπρόθεσμη πληρωμή'],
     'registration_date' => 'Ημερομηνία εγγραφής',
