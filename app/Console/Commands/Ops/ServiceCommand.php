@@ -2,10 +2,10 @@
 
 namespace App\Console\Commands\Ops;
 
-use App\Models\License;
-use App\Models\Service;
 use App\Services\Ops\Dossier;
+use App\Services\Ops\Lookup;
 use Illuminate\Console\Command;
+use RuntimeException;
 
 /** Everything about a service, read-only (docs/ops.md). */
 class ServiceCommand extends Command
@@ -18,18 +18,14 @@ class ServiceCommand extends Command
 
     public function handle(): int
     {
-        $id = (string) $this->argument('id');
-        // An id, a license key, or a domain: of the services with that domain, a live one before an ended one (review 6).
-        $service = ctype_digit($id) ? Service::query()->find((int) $id)
-            : (Service::query()->find(License::query()->where('license_key', $id)->value('service_id'))
-                ?? Service::query()->where('domain', $id)->orderByRaw('CASE WHEN status IN (?, ?) THEN 1 ELSE 0 END', [Service::STATUS_CANCELLED, Service::STATUS_TERMINATED])
-                    ->latest('id')->first());
-        if ($service === null) {
-            $this->error("No service {$id}");
+        try {
+            $found = Lookup::service((string) $this->argument('id'));
+        } catch (RuntimeException $e) {
+            $this->error($e->getMessage());
 
             return self::FAILURE;
         }
-        $this->report(Dossier::service($service));
+        $this->report(Dossier::service($found));
 
         return self::SUCCESS;
     }

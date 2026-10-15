@@ -2,11 +2,10 @@
 
 namespace App\Console\Commands\Ops;
 
-use App\Models\Client;
-use App\Models\Contact;
-use App\Models\User;
 use App\Services\Ops\Dossier;
+use App\Services\Ops\Lookup;
 use Illuminate\Console\Command;
+use RuntimeException;
 
 /** Everything about an account, read-only (docs/ops.md). */
 class ClientCommand extends Command
@@ -19,28 +18,14 @@ class ClientCommand extends Command
 
     public function handle(): int
     {
-        $id = (string) $this->argument('id');
-        if (ctype_digit($id)) {
-            $client = Client::query()->find((int) $id);
-        } else {
-            // A primary contact's email first, then a login's, then any contact's; more than one account: named (review 7).
-            $ids = Contact::query()->where('email', $id)->whereNotNull('primary_of_client_id')->pluck('primary_of_client_id')->all()
-                ?: (array) User::query()->where('email', $id)->first()?->clients()->pluck('clients.id')->all()
-                ?: Contact::query()->where('email', $id)->pluck('client_id')->all();
-            $ids = array_values(array_unique(array_map('intval', $ids)));
-            if (count($ids) > 1) {
-                $this->error("{$id} is on accounts " . implode(', ', $ids) . ': ask by id');
-
-                return self::FAILURE;
-            }
-            $client = $ids === [] ? null : Client::query()->find($ids[0]);
-        }
-        if ($client === null) {
-            $this->error("No account {$id}");
+        try {
+            $found = Lookup::client((string) $this->argument('id'));
+        } catch (RuntimeException $e) {
+            $this->error($e->getMessage());
 
             return self::FAILURE;
         }
-        $this->report(Dossier::client($client));
+        $this->report(Dossier::client($found));
 
         return self::SUCCESS;
     }
