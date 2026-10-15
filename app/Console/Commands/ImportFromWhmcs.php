@@ -1073,7 +1073,8 @@ class ImportFromWhmcs extends Command
         // Set invoice number in settings to highest imported invoice number + 1. A Mass Pay parent (not imported, PR F3)
         // keeps its id too: a new invoice never takes the number a customer quotes for one.
         $highestInvoiceNumber = max((int) DB::table('invoices')->max('id'), (int) $this->pdo->query('SELECT MAX(id) FROM tblinvoices')->fetchColumn());
-        if (DB::getDriverName() === 'mysql' || DB::getDriverName() === 'mariadb') {
+        // DDL commits an open transaction (MySQL/MariaDB): only outside one, as the importer runs.
+        if ((DB::getDriverName() === 'mysql' || DB::getDriverName() === 'mariadb') && DB::transactionLevel() === 0) {
             DB::statement('ALTER TABLE invoices AUTO_INCREMENT = ' . ($highestInvoiceNumber + 1));
         }
         Setting::updateOrCreate(
