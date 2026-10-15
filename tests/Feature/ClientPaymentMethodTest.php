@@ -16,6 +16,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
+use MyCS\Extensions\Gateways\CpmPay\CpmPay;
 use Tests\TestCase;
 
 /**
@@ -28,7 +29,12 @@ class ClientPaymentMethodTest extends TestCase
 
     private function agreementOf(Client $client, string $ref): BillingAgreement
     {
-        $gateway = Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway']);
+        if (!class_exists(CpmPay::class)) {
+            eval('namespace MyCS\\Extensions\\Gateways\\CpmPay; class CpmPay { public function __construct($config = []) {}
+                public function supportsBillingAgreements() { return true; } public function cancelBillingAgreement($agreement): bool { return true; }
+                public function charge($invoice, $amount, $agreement) { return false; } }');
+        }
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'CpmPay'], ['name' => 'CpmPay', 'type' => 'gateway']);
 
         return BillingAgreement::query()->create(['client_id' => $client->id, 'gateway_id' => $gateway->id, 'name' => 'PayPal ' . $ref,
             'external_reference' => $ref, 'type' => 'paypal']);
@@ -126,7 +132,7 @@ class ClientPaymentMethodTest extends TestCase
             $this->livewireAs($user)->test(InvoiceShow::class, ['invoice' => $invoice])
                 ->set('selectedMethod', $second->ulid)->set('setAsDefault', true)->call('processPayment');
         } catch (\Throwable) {
-            // the charge itself may fail without a configured gateway: the change happens before it
+            // the charge is declined: a method that can pay is set all the same, as the customer asked
         }
 
         $client->refresh();
