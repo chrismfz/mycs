@@ -9,6 +9,7 @@ use App\Observers\ClientObserver;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
@@ -38,6 +39,8 @@ class Client extends Model implements Auditable
         'credit_auto_apply',
         'tax_exempt',
         'separate_invoices',
+        'default_billing_agreement_id',
+        'auto_charge',
     ];
 
     protected function casts(): array
@@ -46,6 +49,7 @@ class Client extends Model implements Auditable
             'credit_auto_apply' => 'boolean',
             'tax_exempt' => 'boolean',
             'separate_invoices' => 'boolean',
+            'auto_charge' => 'boolean',
         ];
     }
 
@@ -217,6 +221,27 @@ class Client extends Model implements Auditable
     public function billingAgreements(): HasMany
     {
         return $this->hasMany(BillingAgreement::class);
+    }
+
+    /**
+     * The saved method that pays its renewals (decision 6: one per account, as WHMCS and Blesta).
+     *
+     * @return BelongsTo<BillingAgreement, $this>
+     */
+    public function defaultBillingAgreement(): BelongsTo
+    {
+        return $this->belongsTo(BillingAgreement::class, 'default_billing_agreement_id');
+    }
+
+    /** The method the cron charges: its default, unless «Auto-charge» is off or the method is gone. */
+    public function autoChargeAgreement(): ?BillingAgreement
+    {
+        if (!$this->auto_charge || $this->default_billing_agreement_id === null) {
+            return null;
+        }
+        $agreement = $this->defaultBillingAgreement;
+
+        return $agreement !== null && (int) $agreement->client_id === (int) $this->id ? $agreement : null;
     }
 
     /** @return HasManyThrough<InvoiceTransaction, Invoice, $this> */

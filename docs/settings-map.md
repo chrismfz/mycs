@@ -142,4 +142,6 @@ nixpal (pilot). Τιμές από το `tblconfiguration` των δύο WHMCS, 2
 Ο importer **διαβάζει** αυτές τις ρυθμίσεις από το `tblconfiguration` και τις γράφει στο MyCS (μέρος του parity).
 
 - **Separate Invoices** (`tblclients.separateinvoices`, myip 3, nixpal 0) → `clients.separate_invoices`, ρύθμιση του πελάτη στο admin (PR C1).
+- **Disable Automatic CC Processing** (`tblclients.disableautocc`) → `clients.auto_charge` ανάποδα, και η προεπιλεγμένη μέθοδος
+  πληρωμής του πελάτη → `clients.default_billing_agreement_id` (PR C2, απόφαση 6).
 - **Group Similar Line Items** (nixpal on) → **όχι**: οι γραμμές ανανέωσης είναι περίοδοι υπηρεσιών (`billing-cursor.md` §Ομαδοποίηση).

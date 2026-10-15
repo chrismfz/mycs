@@ -297,16 +297,14 @@ class RenewalGroupingAdversarialTest extends TestCase
     public function test_the_saved_method_charges_once_what_partial_credit_left(): void
     {
         $this->settings(['credits_auto_use' => [true, 'boolean']]);
-        $agreement = $this->agreement();
-        $this->service(['billing_agreement_id' => $agreement->id]);
-        $this->service(['billing_agreement_id' => $agreement->id]);
-        $this->service(); // no saved method: its own invoice, never charged
+        $this->agreement(); // the account's method (decision 6, PR C2)
+        $this->service();
+        $this->service();
         $this->credit(500);
 
         $this->cron();
 
-        $this->assertCount(2, $this->renewalInvoices());
-        $charged = $this->renewalInvoices()->first(fn (Invoice $invoice) => $invoice->items->count() === 2);
+        $charged = $this->renewalInvoices()->sole();
         $this->assertSame([[(int) $charged->id, '15.00']], RenewalGroupingFakePay::$charges);
         $this->assertSame('0.00', $this->creditLeft());
     }
@@ -319,9 +317,9 @@ class RenewalGroupingAdversarialTest extends TestCase
     {
         $this->settings(['credits_auto_use' => [true, 'boolean']]);
         $this->user->client()->update(['credit_auto_apply' => false]);
-        $agreement = $this->agreement();
-        $this->service(['billing_agreement_id' => $agreement->id]);
-        $this->service(['billing_agreement_id' => $agreement->id]);
+        $this->agreement(); // the account's method (decision 6, PR C2)
+        $this->service();
+        $this->service();
         $this->credit(500);
 
         $this->cron();

@@ -183,12 +183,6 @@ class ServiceResource extends Resource
                             ->label('Recalculate Price')
                             ->icon('ri-refresh-line')
                     ),
-                Select::make('billing_agreement_id')
-                    ->label('Billing Agreement')
-                    ->relationship('billingAgreement', 'name', fn (Builder $query, Get $get) => $query->where('client_id', $get('client_id')))
-                    ->searchable()
-                    ->preload()
-                    ->placeholder('Select the billing agreement'),
                 // A gateway subscription of the old kind (Billing Agreement replaced it): shown only on a service that has one
                 // (nixpal: 5 PayPal ones).
                 TextInput::make('subscription_id')

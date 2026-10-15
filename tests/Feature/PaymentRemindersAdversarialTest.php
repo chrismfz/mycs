@@ -116,7 +116,7 @@ class PaymentRemindersAdversarialTest extends TestCase
         $gateway = Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway']);
         $agreement = BillingAgreement::create(['client_id' => $user->client()->id, 'gateway_id' => $gateway->id, 'name' => 'PayPal', 'external_reference' => 'VAULT-A2', 'type' => 'paypal']);
         Service::factory()->create(['client_id' => $user->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
-            'status' => 'active', 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1, 'expires_at' => '2026-10-25', 'billing_agreement_id' => $agreement->id]);
+            'status' => 'active', 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1, 'expires_at' => '2026-10-25']); // charged to the account's method $agreement (decision 6)
         MailFacade::fake();
 
         $this->artisan('app:cron-job'); // bills it and tries the agreement once: the charge fails (gateway not set up)
@@ -326,7 +326,7 @@ class PaymentRemindersAdversarialTest extends TestCase
         $service = $invoice->items->first()->reference;
         $gateway = Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway']);
         $agreement = BillingAgreement::create(['client_id' => $service->client_id, 'gateway_id' => $gateway->id, 'name' => 'PayPal', 'external_reference' => 'VAULT-H', 'type' => 'paypal']);
-        $service->update(['subscription_id' => null, 'billing_agreement_id' => $agreement->id]); // subscription cancelled
+        $service->update(['subscription_id' => null]); // subscription cancelled; the account's method is $agreement
         $agreement->delete(); // method removed
 
         $this->assertFalse(PaymentReminders::chargedOnItsOwn($invoice->fresh()));

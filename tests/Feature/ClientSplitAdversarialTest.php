@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Helpers\NotificationHelper;
 use App\Livewire\Client\PaymentMethods;
 use App\Livewire\Invoices\Show as InvoiceShow;
-use App\Livewire\Services\Show as ServiceShow;
 use App\Livewire\Tickets\Create as TicketCreate;
 use App\Models\BillingAgreement;
 use App\Models\Client;
@@ -78,7 +77,7 @@ class ClientSplitAdversarialTest extends TestCase
      * and ExtensionHelper::charge never checks that the agreement is the invoice's account's. Money moves from the
      * account that trusted U to U's own account.
      */
-    public function test_bug_a_service_takes_the_payment_method_of_another_account(): void
+    public function test_holds_an_account_is_not_set_to_another_accounts_payment_method(): void
     {
         $owner = User::factory()->create();
         $b = $owner->client();
@@ -88,19 +87,22 @@ class ClientSplitAdversarialTest extends TestCase
         $cardOfB = $this->agreementOf($b, 'VAULT-B');
         $serviceOfA = $this->recurringServiceOf($a);
 
-        $this->workOn($u, $b);
+        $this->workOn($u, $a);
         $this->assertTrue(Gate::forUser($u)->allows('update', $serviceOfA), 'precondition: U manages A\'s service');
 
+        // The method is the account's since decision 6 (PR C2): chosen on «Payment methods», looked up in the current one.
         try {
-            $this->livewireAs($u)->test(ServiceShow::class, ['service' => $serviceOfA])
-                ->set('selectedMethod', $cardOfB->ulid)
-                ->call('updateBillingAgreement');
+            $this->livewireAs($u)->test(PaymentMethods::class)->call('makeDefault', $cardOfB->ulid);
         } catch (\Throwable) {
-            // refusing by an exception is fine too: what matters is the service row
+            // refusing by an exception is fine too: what matters is the account row
+        }
+        try {
+            $a->fresh()->update(['default_billing_agreement_id' => $cardOfB->id]);
+        } catch (\Throwable) {
         }
 
-        $this->assertNotSame($cardOfB->id, (int) $serviceOfA->fresh()->billing_agreement_id,
-            'account A\'s service must never be billed to account B\'s saved payment method');
+        $this->assertNotSame($cardOfB->id, (int) $a->fresh()->default_billing_agreement_id,
+            'account A\'s renewals must never be charged to account B\'s saved payment method');
     }
 
     /** The same through the invoice page: «set as default» puts B's card on A's recurring services before paying. */
@@ -128,27 +130,24 @@ class ClientSplitAdversarialTest extends TestCase
         } catch (\Throwable) {
         }
 
-        $this->assertNotSame($cardOfB->id, (int) $serviceOfA->fresh()->billing_agreement_id,
-            'an invoice of account A is paid, and its services billed, only with account A\'s payment methods');
+        $this->assertNotSame($cardOfB->id, (int) $a->fresh()->default_billing_agreement_id,
+            'an invoice of account A is paid, and its renewals charged, only with account A\'s payment methods');
     }
 
     /** Without any grant on the other account its card is out of reach (the lookup is by the current account). */
-    public function test_holds_a_foreign_card_is_not_found_from_a_service_page(): void
+    public function test_holds_a_foreign_card_is_not_found_from_payment_methods(): void
     {
         $stranger = User::factory()->create()->client();
         $cardOfStranger = $this->agreementOf($stranger, 'VAULT-X');
         $u = User::factory()->create();
-        $serviceOfU = $this->recurringServiceOf($u->client());
         $this->actingAs($u);
 
         try {
-            $this->livewireAs($u)->test(ServiceShow::class, ['service' => $serviceOfU])
-                ->set('selectedMethod', $cardOfStranger->ulid)
-                ->call('updateBillingAgreement');
+            $this->livewireAs($u)->test(PaymentMethods::class)->call('makeDefault', $cardOfStranger->ulid);
         } catch (\Throwable) {
         }
 
-        $this->assertNull($serviceOfU->fresh()->billing_agreement_id);
+        $this->assertNull($u->client()->fresh()->default_billing_agreement_id);
     }
 
     public function test_holds_a_foreign_payment_method_cannot_be_removed(): void

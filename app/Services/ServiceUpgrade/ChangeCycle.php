@@ -229,7 +229,7 @@ final class ChangeCycle
                 'reference_type' => Service::class,
                 'price' => $quote['price'],
                 'quantity' => $locked->quantity,
-                'description' => $locked->describePeriod($start, $end),
+                'description' => $locked->describeLine($start, $end),
                 'period_start' => $start,
                 'period_end' => $end,
             ]);
@@ -241,14 +241,14 @@ final class ChangeCycle
             return null;
         }
         // As a renewal (CronJob::billRenewal): the credit pays what it covers, then a saved payment method the rest (S2).
-        $service = $service->fresh() ?? $service;
-        (new CreditAutoApply)->toInvoice($invoice, notify: !$service->billing_agreement_id);
+        // The account's saved method (decision 6), read again after the credit (a method removed meanwhile is not charged).
+        (new CreditAutoApply)->toInvoice($invoice, notify: $invoice->client?->autoChargeAgreement() === null);
         $invoice->refresh();
-        if ($service->billing_agreement_id && $invoice->status === Invoice::STATUS_UNPAID) {
+        $agreement = $invoice->client?->fresh()?->autoChargeAgreement();
+        if ($agreement !== null && $invoice->status === Invoice::STATUS_UNPAID) {
             try {
-                $agreement = $service->billingAgreement;
-                if ($agreement?->gateway === null) {
-                    throw new DisplayException("Service #{$service->id}: its saved payment method is gone.");
+                if ($agreement->gateway === null) {
+                    throw new DisplayException("Invoice #{$invoice->id}: the account's saved payment method is gone.");
                 }
                 ExtensionHelper::charge($agreement->gateway, $invoice, $agreement);
             } catch (Throwable $e) {

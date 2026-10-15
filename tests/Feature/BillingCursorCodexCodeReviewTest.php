@@ -103,7 +103,6 @@ class BillingCursorCodexCodeReviewTest extends TestCase
             'coupon_id' => $service->coupon_id,
             'currency_code' => $service->currency_code,
             'price' => (string) $service->price,
-            'billing_agreement_id' => $service->billing_agreement_id,
             'subscription_id' => $service->subscription_id,
         ], $changes);
     }

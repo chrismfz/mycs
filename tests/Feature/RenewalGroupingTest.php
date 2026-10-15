@@ -222,9 +222,9 @@ class RenewalGroupingTest extends TestCase
 
     public function test_the_saved_method_is_charged_once_for_the_grouped_invoice(): void
     {
-        $agreement = $this->agreement();
-        $this->service(['billing_agreement_id' => $agreement->id]);
-        $this->service(['billing_agreement_id' => $agreement->id]);
+        $this->agreement(); // the account's method (decision 6)
+        $this->service();
+        $this->service();
 
         $this->cron();
 
@@ -232,15 +232,54 @@ class RenewalGroupingTest extends TestCase
         $this->assertSame([[(int) $invoice->id, '20.00']], GroupFake::$charges);
     }
 
-    public function test_different_saved_methods_are_separate_invoices(): void
+    public function test_services_that_had_different_methods_are_one_invoice_charged_to_the_accounts_method(): void
     {
-        $this->service(['billing_agreement_id' => $this->agreement()->id]);
-        $this->service(['billing_agreement_id' => $this->agreement()->id]);
+        // Decision 6 (PR C2): one saved method per account. The newest one added is not the default: the first is.
+        $first = $this->agreement();
+        $this->agreement();
+        $this->service();
         $this->service();
 
         $this->cron();
 
-        $this->assertCount(3, $this->renewalInvoices());
+        $invoice = $this->renewalInvoices()->sole();
+        $this->assertSame($first->id, (int) $this->user->client()->fresh()->default_billing_agreement_id);
+        $this->assertSame([[(int) $invoice->id, '20.00']], GroupFake::$charges);
+    }
+
+    public function test_a_method_removed_before_the_charge_is_not_charged(): void
+    {
+        // Code review of C2: the method is read again when the charge runs (after commit), not when the invoice is finished.
+        $agreement = $this->agreement();
+        $this->service();
+        Event::listen(Finalized::class, fn () => $agreement->fresh()?->delete()); // the customer removes it meanwhile
+
+        $this->cron();
+
+        $this->assertSame([], GroupFake::$charges);
+        $this->assertSame(Invoice::STATUS_UNPAID, $this->renewalInvoices()->sole()->status);
+    }
+
+    public function test_auto_charge_off_charges_nothing(): void
+    {
+        $this->agreement();
+        $this->user->client()->update(['auto_charge' => false]);
+        $this->service();
+
+        $this->cron();
+
+        $this->assertSame(Invoice::STATUS_UNPAID, $this->renewalInvoices()->sole()->status);
+        $this->assertSame([], GroupFake::$charges);
+    }
+
+    public function test_a_gateway_subscription_renewal_is_not_charged_to_the_saved_method(): void
+    {
+        $this->agreement();
+        $this->service(['subscription_id' => 'sub_9']);
+
+        $this->cron();
+
+        $this->assertSame([], GroupFake::$charges); // its subscription pays it
     }
 
     public function test_a_group_invoice_paid_meanwhile_takes_no_more_lines(): void
@@ -276,9 +315,9 @@ class RenewalGroupingTest extends TestCase
     {
         // A run that stopped after billing (a crash) leaves its invoice marked: the next run emails and charges it, once.
         Event::fake([Finalized::class]);
-        $agreement = $this->agreement();
-        $this->service(['billing_agreement_id' => $agreement->id]);
-        $this->service(['billing_agreement_id' => $agreement->id]);
+        $this->agreement(); // the account's method (decision 6)
+        $this->service();
+        $this->service();
         $this->cron();
         $invoice = $this->renewalInvoices()->sole();
         DB::table('invoices')->where('id', $invoice->id)->update(['finish_pending_at' => now()]);
@@ -298,9 +337,9 @@ class RenewalGroupingTest extends TestCase
     {
         Event::fake([Finalized::class]);
         $this->settings(['credits_auto_use' => [true, 'boolean']]);
-        $agreement = $this->agreement();
-        $this->service(['billing_agreement_id' => $agreement->id]);
-        $this->service(['billing_agreement_id' => $agreement->id]);
+        $this->agreement(); // the account's method (decision 6)
+        $this->service();
+        $this->service();
         (new CreditLedger)->add($this->user->client()->id, 'USD', 500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'credit');
         InvoiceTransaction::creating(function (InvoiceTransaction $txn) {
             if ($txn->is_credit_transaction) {
