@@ -719,7 +719,9 @@ class CronJob extends Command
         // the same day. Not a gateway subscription's renewal (it pays its own invoice, in full), nor a customer with
         // «Separate invoices». The email, credit and saved-method charge come once all its lines are on it
         // (finishRenewalInvoices).
-        $key = $this->renewalGroupKey($service, $periodStart);
+        // A line of nothing (a short prorated hole rounding to zero cents) goes alone: closed as paid, it renews its service
+        // at once, not when the rest of a group is paid.
+        $key = RecordPaymentService::toCents($price) * (int) $service->quantity > 0 ? $this->renewalGroupKey($service, $periodStart) : null;
         $invoice = $key !== null && isset($this->renewalGroups[$key])
             ? (new RecordPaymentService)->lockInvoice($this->renewalGroups[$key]['invoice']) : null;
         if ($invoice !== null && ($invoice->status !== Invoice::STATUS_UNPAID || $invoice->hasPayments(lock: true))) {
