@@ -103,15 +103,14 @@ class OrderResource extends Resource
                             ->default(1),
                         TextInput::make('price')
                             ->label('Recurring price')
-                            // A pro rata product's first invoice is this price for the days to its day (PR D).
-                            ->helperText('The price it renews at. A pro rata product\'s first invoice is this price for the days up to its day.')
                             ->nullable()
                             ->numeric()
                             ->minValue(0)
                             ->prefix(fn (Get $get) => Currency::query()->find($get('../../currency_code'))?->prefix)
                             ->suffix(fn (Get $get) => Currency::query()->find($get('../../currency_code'))?->suffix)
                             ->placeholder(fn (Get $get) => self::catalogPrice($get) ?? 'Catalog price')
-                            ->helperText('Before tax: the invoice adds the client\'s tax. Empty: the catalog price. The setup fee is added to the first invoice. Options are not chosen here: add them on the service.'),
+                            // A pro rata product's first invoice is this price for the days to its day (PR D).
+                            ->helperText('The price it renews at, before tax: the invoice adds the client\'s tax. Empty: the catalog price. A pro rata product\'s first invoice is this price for the days up to its day. The setup fee is added to the first invoice. Options are not chosen here: add them on the service.'),
                     ]),
                 Repeater::make('services')
                     ->visibleOn('edit')
