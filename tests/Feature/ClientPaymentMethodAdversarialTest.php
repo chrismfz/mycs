@@ -395,7 +395,7 @@ class ClientPaymentMethodAdversarialTest extends TestCase
 
     private function rollback(): void
     {
-        $this->artisan('migrate:rollback', ['--step' => 1])->assertExitCode(0); // this PR's migration is the last one
+        $this->artisan('migrate:rollback', ['--path' => 'database/migrations/2026_11_08_000000_move_saved_payment_method_to_clients.php'])->assertExitCode(0); // only this migration, whatever came after
     }
 
     private function forward(): void
