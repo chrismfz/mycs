@@ -142,11 +142,11 @@ class InvoiceMergeSplitTest extends TestCase
     {
         $service = $this->service();
         $this->cron(); // Oct 25 → Nov 25
-        Carbon::setTestNow('2026-11-20 10:00:00');
-        $service->forceFill(['expires_at' => '2026-11-25'])->saveQuietly(); // as if the first had been paid late, still open
-        $this->cron(); // Nov 25 → Dec 25
-        [$first, $second] = $this->renewalInvoices($service)->all();
-        $service->forceFill(['expires_at' => '2026-10-25'])->saveQuietly();
+        $first = $this->renewalInvoices($service)->sole();
+        // The next period on its own invoice too (staff billed it ahead, as WHMCS lets them).
+        $second = Invoice::query()->create(['client_id' => $service->client_id, 'currency_code' => 'USD', 'due_at' => '2026-11-25', 'status' => Invoice::STATUS_UNPAID]);
+        $second->items()->create(['reference_type' => Service::class, 'reference_id' => $service->id, 'price' => 10, 'quantity' => 1,
+            'description' => 'next period', 'period_start' => '2026-11-25', 'period_end' => '2026-12-25']);
 
         $target = (new MergeInvoices)->handle($first->id, [$second->id]);
         (new RecordPaymentService)->handle($target, null, 20.0, transactionId: 'wire-2');
