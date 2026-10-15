@@ -49,7 +49,8 @@ class RenewServiceService
 
             if ($locked->isEnded()) {
                 PaymentsLog::warning('Payment for an ended service: not revived.', ['service_id' => $locked->id, 'invoice_item_id' => $item?->id]);
-                if ($item !== null && $item->applied_at === null) {
+                // A debt kept when it ended (Δ3a) is settled by its payment: nothing for staff to do.
+                if ($item !== null && $item->applied_at === null && $item->invoice?->kept_as_debt_at === null) {
                     // A payment, not the cron: the money is the staff's to refund or credit (as for an upgrade, SVC-6).
                     DB::afterCommit(fn () => NotificationHelper::sendSystemEmailNotification('Payment for an ended service: needs staff attention', e(
                         "Invoice #{$item->invoice_id} paid a renewal of service #{$locked->id}, which is {$locked->status}: it was not revived. Refund the payment or move it to credit."
@@ -129,6 +130,17 @@ class RenewServiceService
     private function activate(Service $service, ?CarbonImmutable $paidUntil): void
     {
         $manualHold = $service->status === Service::STATUS_SUSPENDED && $service->dunning_suspended_at === null;
+        // Suspended for non-payment and still overdue after this payment (another period unpaid): it stays suspended, else
+        // the next cron run would suspend it again (Δ3a). Staff are told; they unsuspend it by hand if they wish.
+        $stillOverdue = !$manualHold && $service->status === Service::STATUS_SUSPENDED && $paidUntil !== null && $service->stillOverdue($paidUntil);
+        if ($stillOverdue) {
+            $id = $service->id;
+            $until = $paidUntil->toDateString();
+            DB::afterCommit(fn () => NotificationHelper::sendSystemEmailNotification('Payment applied, service still overdue: needs staff attention', e(
+                "A payment renewed service #{$id} until {$until}, which is still past Suspend Days: it stays suspended until the rest is paid (unsuspend it by hand to give it time)."
+            )));
+            $manualHold = true; // kept as it is, as a hold would be
+        }
         // Its product is set up by staff (Auto Setup «on accept» or «never», Σ1-b): paid, it waits for them, pending.
         $waitsForStaff = $service->status === Service::STATUS_PENDING && $service->product !== null && !$service->product->setsUpOnPayment();
         if (!$manualHold && $service->status === Service::STATUS_SUSPENDED && !$service->provisioningServer()) {

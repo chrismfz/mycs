@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Api\Admin;
 
-use App\Exceptions\DisplayException;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\Admin\Invoices\CreateInvoiceRequest;
 use App\Http\Requests\Api\Admin\Invoices\DeleteInvoiceRequest;
@@ -100,6 +99,10 @@ class InvoiceController extends ApiController
         // An invoice with payments is never deleted (InvoiceObserver::deleting, docs/payments.md).
         if ($invoice->hasPayments()) {
             abort(422, 'An invoice with payments cannot be deleted: cancel it, or delete its transactions first.');
+        }
+        // It records a period given up on (Δ3a): kept (InvoiceObserver::deleting).
+        if ($invoice->recordsForgonePeriod()) {
+            abort(422, 'This cancelled invoice records a service period given up on: it is kept (reopen it to bill that period again).');
         }
         $invoice->delete();
 

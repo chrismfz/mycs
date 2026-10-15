@@ -235,6 +235,7 @@ class BillingCursorReview5Test extends TestCase
         $this->assertNotNull($service->fresh()->coupon_expired_at);
         $this->assertSame('10.00', $service->fresh()->calculatePrice());
         $invoice = $service->invoices()->where('status', 'unpaid')->sole();
+        $invoice->keep_periods_billable = true; // cancelled to bill it again at the new price (not given up on, Δ3a)
         $invoice->update(['status' => 'cancelled']);
         $service->fresh()->update(['price' => 7]);
         $this->cronOn('2026-12-08 11:00:00');

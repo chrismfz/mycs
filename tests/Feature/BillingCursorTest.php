@@ -146,11 +146,26 @@ class BillingCursorTest extends TestCase
         $this->assertSame('2026-11-15', $this->expires($service));
     }
 
-    public function test_a_cancelled_invoice_frees_its_period(): void
+    /** Δ3a (2026-10-15): a renewal staff cancel is a period given up on, not billed again (it was freed before). */
+    public function test_a_cancelled_invoice_gives_its_period_up(): void
     {
         $service = $this->service();
         $this->artisan('app:cron-job')->assertExitCode(0);
         $service->invoices()->sole()->update(['status' => 'cancelled']);
+
+        $this->artisan('app:cron-job')->assertExitCode(0);
+
+        $this->assertSame(0, $service->invoiceItems()->whereHas('invoice', fn ($q) => $q->where('status', 'unpaid'))->count());
+    }
+
+    /** Cancelled as a consequence (its service's cycle changed, CancelOpenInvoices): the period is billed again. */
+    public function test_an_invoice_cancelled_to_be_billed_again_frees_its_period(): void
+    {
+        $service = $this->service();
+        $this->artisan('app:cron-job')->assertExitCode(0);
+        $invoice = $service->invoices()->sole();
+        $invoice->keep_periods_billable = true;
+        $invoice->update(['status' => 'cancelled']);
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
@@ -290,6 +305,7 @@ class BillingCursorTest extends TestCase
         $service = $this->service(['price' => 30.00]);
         $october = $this->invoiceFor($service, '2026-10-15', '2026-11-15');
         $this->pay($this->invoiceFor($service, '2026-11-15', '2026-12-15'));
+        $october->keep_periods_billable = true; // to be billed again (not given up on, Δ3a)
         $october->update(['status' => 'cancelled']);
         $service->update(['expires_at' => '2026-10-31']); // comp half of October
 

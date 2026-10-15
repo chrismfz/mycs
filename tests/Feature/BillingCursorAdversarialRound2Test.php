@@ -199,12 +199,13 @@ class BillingCursorAdversarialRound2Test extends TestCase
 
         $this->pay($october);
         $this->assertSame('2026-11-15', $this->expires($service));
-        $this->assertSame('active', $service->fresh()->status);
+        // Δ3a: still past Suspend Days, the payment does not unsuspend it (it would be suspended again tonight).
+        $this->assertSame('suspended', $service->fresh()->status);
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
         // A2 (docs/billing-cursor.md): the old invoice is paid, so November is a new unpaid period with its
-        // one invoice; the service is suspended until it is paid (or staff adjust the date).
+        // one invoice (billed while suspended, as it paid since its suspension: Δ3a); suspended until it is paid.
         $this->assertSame('suspended', $service->fresh()->status);
         $this->assertSame('2026-11-15', $this->pendingLines($service)->sole()->period_start->toDateString());
     }
@@ -256,7 +257,9 @@ class BillingCursorAdversarialRound2Test extends TestCase
 
         $selects = 0;
         DB::listen(function ($query) use (&$selects) {
-            if (str_starts_with(strtolower($query->sql), 'select') && str_contains($query->sql, 'period_start')) {
+            // Reads of the period history (from invoice_items); not the run-wide termination query, whose subquery
+            // looks at paid periods ahead (Δ3a).
+            if (preg_match('/^select\s[^()]*?\sfrom\s["`]?invoice_items["`]?/is', $query->sql) && str_contains($query->sql, 'period_start')) {
                 $selects++;
             }
         });

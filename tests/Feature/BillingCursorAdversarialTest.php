@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Plan;
@@ -109,11 +110,14 @@ class BillingCursorAdversarialTest extends TestCase
     // ---------------------------------------------------------------- confirmed-defect candidates
 
     /**
-     * A paid period ahead of a cancelled one: invoicedUntil = max(period_end) jumps over the hole, so the
-     * cron never bills the cancelled period again and the paid one waits forever.
+     * A paid period ahead of a cancelled one: invoicedUntil = max(period_end) jumped over the hole (an old defect). Since
+     * Δ3a a cancelled period is given up on by decision, and staff are told about the paid one waiting behind it.
      */
-    public function test_a_cancelled_period_before_a_paid_ahead_period_is_billed_again(): void
+    public function test_a_cancelled_period_before_a_paid_ahead_period_is_not_billed_again_and_staff_are_told(): void
     {
+        // Δ3a (2026-10-15): a cancelled renewal is a period given up on, never billed again (it was, before). The paid
+        // November waits behind it: staff are told to reopen October or move the date over it.
+        config(['settings.system_email_address' => 'staff@example.test', 'settings.mail_disable' => false]);
         $service = $this->service();
         $october = $this->invoiceFor($service, '2026-10-15', '2026-11-15');
         $november = $this->invoiceFor($service, '2026-11-15', '2026-12-15');
@@ -122,9 +126,9 @@ class BillingCursorAdversarialTest extends TestCase
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 
-        $lines = $this->pendingLines($service);
-        $this->assertCount(1, $lines, 'October is owed again but the cron billed nothing');
-        $this->assertSame('2026-10-15', $lines->first()->period_start->toDateString());
+        $this->assertCount(0, $this->pendingLines($service), 'October was given up on: not billed again, nor December');
+        $this->assertTrue(EmailLog::query()->where('subject', 'like', '%needs staff attention%')
+            ->where('body', 'like', "%Service #{$service->id}: a paid period waits behind a period given up on%")->exists());
     }
 
     /**
@@ -253,19 +257,21 @@ class BillingCursorAdversarialTest extends TestCase
         $this->assertSame('2026-11-15', $this->expires($service));
     }
 
-    public function test_a_cancelled_invoice_paid_late_does_not_double_renew_its_rebilled_period(): void
+    public function test_a_cancelled_invoice_paid_late_renews_nothing_and_is_not_billed_again(): void
     {
+        // Δ3a (2026-10-15): the cancelled renewal is not billed again (before, a second invoice came the next day); a late
+        // gateway callback on it renews nothing (a cancelled invoice never becomes paid: the money becomes credit).
         $service = $this->service();
         $this->artisan('app:cron-job')->assertExitCode(0);
         $first = $service->invoices()->sole();
         $first->update(['status' => 'cancelled']);
         $this->artisan('app:cron-job')->assertExitCode(0);
-        $second = $service->invoices()->where('status', 'unpaid')->sole();
+        $this->assertCount(0, $this->pendingLines($service));
 
-        $this->pay($second);
         $this->pay($first->fresh()); // late gateway callback on the cancelled one
 
-        $this->assertSame('2026-11-15', $this->expires($service));
+        $this->assertSame('cancelled', $first->fresh()->status);
+        $this->assertSame('2026-10-15', $this->expires($service));
     }
 
     public function test_first_order_on_the_31st_keeps_the_31st(): void

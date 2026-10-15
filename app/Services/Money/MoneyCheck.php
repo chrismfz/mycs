@@ -193,7 +193,8 @@ final class MoneyCheck
      */
     private function paidForCancelled(): void
     {
-        Invoice::query()->where('status', Invoice::STATUS_PAID)
+        // A debt kept when its service ended (Δ3a) is paid as owed: not money that bought nothing.
+        Invoice::query()->where('status', Invoice::STATUS_PAID)->whereNull('kept_as_debt_at')
             ->whereHas('items', fn ($query) => $query->whereNull('applied_at')->where(fn ($line) => $line
                 ->where(fn ($renewal) => $renewal->where('reference_type', Service::class)
                     ->whereIn('reference_id', Service::query()->whereIn('status', Service::ENDED_STATUSES)->select('id')))
@@ -231,7 +232,7 @@ final class MoneyCheck
      */
     private function openForCancelled(): void
     {
-        Invoice::query()->whereIn('status', Invoice::OPEN_STATUSES)
+        Invoice::query()->whereIn('status', Invoice::OPEN_STATUSES)->whereNull('kept_as_debt_at') // a debt kept (Δ3a)
             ->whereHas('items', fn ($query) => $query->where('reference_type', Service::class))
             ->whereDoesntHave('items', fn ($query) => $query->where(fn ($line) => $line->whereNull('reference_type')
                 ->orWhere('reference_type', '!=', Service::class)->orWhereNotIn('reference_id',

@@ -223,9 +223,16 @@ class InvoiceResource extends Resource
                         TextInput::make('cancellation_reason')
                             ->label('Cancellation Reason')
                             ->required(),
+                        // Δ3a: by default a renewal cancelled is a period given up on, never billed again; to re-issue it (another
+                        // price, a mistake), staff bill it again.
+                        Toggle::make('bill_again')
+                            ->label('Bill its period again')
+                            ->helperText('Off: the service period it bills is given up on, the cron does not bill it again. On: the cron bills it again (to re-issue it).')
+                            ->default(false),
                     ])
                     ->action(function (Invoice $record, array $data) {
                         try {
+                            $record->keep_periods_billable = (bool) ($data['bill_again'] ?? false);
                             $record->update([
                                 'status' => Invoice::STATUS_CANCELLED,
                                 'cancellation_reason' => $data['cancellation_reason'],

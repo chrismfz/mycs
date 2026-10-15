@@ -140,6 +140,11 @@ class EditInvoice extends EditRecord
                             ->body(__('An invoice with payments cannot be deleted: cancel it, or delete its transactions first.'))->send();
                         $action->cancel();
                     }
+                    if ($record->recordsForgonePeriod()) { // Δ3a: deleted, its period would be billed again
+                        Notification::make()->danger()->title(__('Invoice not deleted'))
+                            ->body(__('This cancelled invoice records a service period given up on: it is kept (reopen it to bill that period again).'))->send();
+                        $action->cancel();
+                    }
                 }),
             SendInvoiceEmail::make(),
             Action::make('pdf')

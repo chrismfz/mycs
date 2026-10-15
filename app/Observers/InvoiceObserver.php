@@ -11,12 +11,14 @@ use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
+use App\Models\Service;
 use App\Services\Invoice\CreateInvoiceSnapshotService;
 use App\Services\Invoice\GrantBoughtCreditService;
 use App\Services\Invoice\InvoiceItemReference;
 use App\Services\Invoice\ProcessPaidInvoiceService;
 use App\Services\Invoice\RecordPaymentService;
 use App\Support\AfterCommit;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -64,6 +66,12 @@ class InvoiceObserver
         if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_CANCELLED
             && $invoice->status === Invoice::STATUS_PAID) {
             throw new DisplayException(__('A cancelled invoice cannot be marked paid: reopen it (unpaid) and record the payment.'));
+        }
+        // Reopened after its period was billed again on another invoice (a cancellation request withdrawn, adversarial
+        // D3A-10): the customer would be asked twice for it. Staff cancel the other one first.
+        if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_CANCELLED
+            && in_array($invoice->status, Invoice::OPEN_STATUSES, true) && ($other = self::billedElsewhere($invoice)) !== null) {
+            throw new DisplayException(__('Its period is billed again by invoice #:id: cancel that one first.', ['id' => $other]));
         }
         // Refunded (PR 2c, as WHMCS): all its money went back, to the customer or to their credit. Final: it holds
         // nothing to pay or to apply, and a later payment on it becomes credit (RecordPaymentService).
@@ -160,12 +168,78 @@ class InvoiceObserver
     }
 
     /**
+     * Its renewal lines are given up on (Δ3a): marked, so the cron does not bill their periods again. A renewal line with
+     * no period (an invoice the WHMCS importer brought, one staff made by hand; adversarial D3A-7) takes the period it
+     * would have paid, as a payment gives it one (RenewServiceService), and is marked too.
+     */
+    private static function givePeriodsUp(Invoice $invoice): void
+    {
+        $loose = InvoiceItem::query()->where('invoice_id', $invoice->id)->where('reference_type', Service::class)
+            ->where(fn ($line) => $line->whereNull('period_start')->orWhereNull('period_end'))->orderBy('id')->get();
+        foreach ($loose as $line) {
+            $service = Service::query()->find($line->reference_id);
+            if ($service === null || $service->plan === null || in_array($service->plan->type, ['one-time', 'free'], true) || $service->expires_at === null) {
+                continue;
+            }
+            [, $billed] = $service->billedPeriodLines();
+            $start = $service->nextPeriodStart($billed);
+            $end = $service->periodEnd($start, $billed);
+            if ($end !== null) {
+                // Not a money field: allowed on any invoice (InvoiceItemObserver).
+                InvoiceItem::query()->whereKey($line->id)->update(['period_start' => $start->toDateString(), 'period_end' => $end->toDateString(), 'forgone_at' => now()]);
+            }
+        }
+        self::renewalLines($invoice)->whereNull('forgone_at')->update(['forgone_at' => now()]);
+    }
+
+    /** Another live invoice billing one of its periods (the same service, overlapping), if any: its id. */
+    private static function billedElsewhere(Invoice $invoice): ?int
+    {
+        foreach (self::renewalLines($invoice)->get() as $line) {
+            $other = InvoiceItem::query()->where('reference_type', Service::class)->where('reference_id', $line->reference_id)
+                ->where('invoice_id', '!=', $invoice->id)
+                ->where('period_start', '<', $line->period_end)->where('period_end', '>', $line->period_start)
+                ->whereHas('invoice', fn ($q) => $q->whereNotIn('status', [Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED]))
+                ->value('invoice_id');
+            if ($other !== null) {
+                return (int) $other;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Its lines that bill a period of a service (Δ3).
+     *
+     * @return Builder<InvoiceItem>
+     */
+    private static function renewalLines(Invoice $invoice): Builder
+    {
+        return InvoiceItem::query()->where('invoice_id', $invoice->id)->where('reference_type', Service::class)
+            ->whereNotNull('period_start')->whereNotNull('period_end');
+    }
+
+    /**
      * Handle the Invoice "updated" event.
      */
     public function updated(Invoice $invoice): void
     {
         if ($invoice->status === Invoice::STATUS_CANCELLED && $invoice->getOriginal('status') !== Invoice::STATUS_CANCELLED) {
             $invoice->createCancellationCreditNote($invoice->cancellation_reason);
+        }
+
+        // Δ3 (decided 2026-10-15): a renewal cancelled (by staff, the API) or refunded is a period not billed: its lines
+        // are marked, and the cron does not bill that period again (the service falls to the suspension and termination
+        // rules). Reopened, the period is billed again by this invoice. Cancelled as a consequence of its service ending
+        // or changing cycle (CancelOpenInvoices), nothing is marked: a service that goes on is billed again.
+        if ($invoice->isDirty('status') && in_array($invoice->status, [Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED], true)
+            && !$invoice->keep_periods_billable) {
+            self::givePeriodsUp($invoice);
+        }
+        if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_CANCELLED
+            && in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true)) {
+            self::renewalLines($invoice)->update(['forgone_at' => null]);
         }
 
         // Reopened: the cancellation's credit note no longer applies, the invoice is payable again
@@ -232,6 +306,10 @@ class InvoiceObserver
     {
         if ($invoice->hasPayments(lock: true)) {
             throw new DisplayException(__('An invoice with payments cannot be deleted: cancel it, or delete its transactions first.'));
+        }
+        // It records a period given up on (Δ3a, adversarial D3A-6): deleted, the cron would bill that period again.
+        if ($invoice->recordsForgonePeriod()) {
+            throw new DisplayException(__('This cancelled invoice records a service period given up on: it is kept (reopen it to bill that period again).'));
         }
     }
 

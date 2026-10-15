@@ -93,11 +93,20 @@ class Invoice extends Model implements Auditable
         };
     }
 
-    /** It bills a service that has ended (cancelled or terminated): its open lines buy nothing any more. */
+    /**
+     * It bills a service that has ended (cancelled or terminated): its open lines buy nothing any more. Not one kept as a
+     * debt when its service ended (Δ3a): that is still owed, and paid.
+     */
     public function billsEndedService(): bool
     {
-        return $this->items()->where('reference_type', Service::class)
+        return $this->kept_as_debt_at === null && $this->items()->where('reference_type', Service::class)
             ->whereIn('reference_id', Service::query()->whereIn('status', Service::ENDED_STATUSES)->select('id'))->exists();
+    }
+
+    /** It records a service period given up on (Δ3a): kept, else the cron would bill that period again. */
+    public function recordsForgonePeriod(): bool
+    {
+        return $this->items()->where('reference_type', Service::class)->whereNotNull('forgone_at')->exists();
     }
 
     /** Not settled yet: what a cancellation gives up on (a draft too: finalised later, it would bill it). */
@@ -108,9 +117,16 @@ class Invoice extends Model implements Auditable
     protected $casts = [
         'due_at' => 'date',
         'apply_pending_since' => 'immutable_datetime',
+        'kept_as_debt_at' => 'immutable_datetime',
     ];
 
     public bool $send_create_email = true;
+
+    /**
+     * Cancelled as a consequence, not as such (CancelOpenInvoices: its service ends or changes cycle): its renewal lines
+     * are not marked given up on (Δ3), and a service that goes on is billed again. Not stored.
+     */
+    public bool $keep_periods_billable = false;
 
     /**
      * Status and its local money effects commit together under customer -> invoice locks. External

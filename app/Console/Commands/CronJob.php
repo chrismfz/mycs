@@ -292,7 +292,9 @@ class CronJob extends Command
                             // Only its own lines: an invoice imported from WHMCS bills every service due that day.
                             // Upgrades first: service, upgrade, then invoices (the order ServiceUpgradeService takes).
                             $this->leftOpen(CancelPendingUpgrades::forService($service, __('invoices.cancellation_reasons.service_terminated')));
-                            $this->cancelInvoices($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), __('invoices.cancellation_reasons.service_terminated'), $service);
+                            // Those overdue past the days set stay as a debt where «keep overdue invoices» is on (Δ3).
+                            $this->cancelInvoices(CancelOpenInvoices::onServiceEnd($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get()),
+                                __('invoices.cancellation_reasons.service_terminated'), $service);
                             if ($service->product?->stock !== null) {
                                 $service->product->increment('stock', $service->quantity);
                             }
@@ -447,7 +449,13 @@ class CronJob extends Command
         return $this->unheldWithNoPaymentOnItsWay(Service::query()->where('status', Service::STATUS_SUSPENDED))
             ->whereNotNull('dunning_suspended_at')
             ->whereDate('expires_at', '<', today()->subDays(self::days('cronjob_order_terminate', 60))->toDateString())
-            ->whereDate('dunning_suspended_at', '<=', today()->subDays(self::days('cronjob_terminate_min_suspended_days', 1))->toDateString());
+            ->whereDate('dunning_suspended_at', '<=', today()->subDays(self::days('cronjob_terminate_min_suspended_days', 1))->toDateString())
+            // A later period already paid (it waits behind one unpaid or given up on): ending the service would keep that
+            // money without the period. Staff decide; the cron tells them (billRenewal), as endAsRequested does.
+            ->whereNotExists(fn ($line) => $line->from('invoice_items')->join('invoices', 'invoices.id', '=', 'invoice_items.invoice_id')
+                ->where('invoice_items.reference_type', Service::class)->whereColumn('invoice_items.reference_id', 'services.id')
+                ->whereColumn('invoice_items.period_start', '>=', 'services.expires_at')
+                ->where('invoices.status', Invoice::STATUS_PAID));
     }
 
     /**
@@ -575,7 +583,9 @@ class CronJob extends Command
         TerminateJob::dispatch($service)->afterCommit();
         $service->forceFill(['status' => Service::STATUS_CANCELLED])->save();
         $this->leftOpen(CancelPendingUpgrades::forService($service, __('invoices.cancellation_reasons.cancellation_request')));
-        $this->cancelInvoices($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), __('invoices.cancellation_reasons.cancellation_request'), $service);
+        // Overdue ones past the days set stay as a debt where «keep overdue invoices» is on (Δ3a).
+        $this->cancelInvoices(CancelOpenInvoices::onServiceEnd($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get()),
+            __('invoices.cancellation_reasons.cancellation_request'), $service);
         if ($service->product?->stock !== null) {
             $service->product->increment('stock', $service->quantity);
         }
@@ -610,15 +620,31 @@ class CronJob extends Command
             return 0;
         }
 
-        $lines = $service->livePeriodLines();
+        // Read once (the history of a service can be long): the live lines, and with them those given up on (Δ3).
+        [$lines, $billed] = $service->billedPeriodLines();
         // A suspended service is not billed again (decision A2), except for a hole before a
-        // period that is already paid: otherwise that payment would be stranded.
-        if ($service->status === 'suspended' && !$lines->contains(fn ($line) => $line->invoice?->status === 'paid'
+        // period that is already paid: otherwise that payment would be stranded. And one suspended for non-payment that
+        // paid since, still overdue (Δ3a, adversarial D3A-9): its payment did not unsuspend it, its next period is billed
+        // so that it has something to pay (else it would be unsuspended, billed and suspended again the same night).
+        $paidSinceSuspended = $service->dunning_suspended_at !== null && $lines->contains(fn ($line) => $line->invoice?->status === 'paid'
+            && $line->applied_at !== null && $line->applied_at->greaterThanOrEqualTo($service->dunning_suspended_at));
+        if ($service->status === 'suspended' && !$paidSinceSuspended && !$lines->contains(fn ($line) => $line->invoice?->status === 'paid'
             && $line->period_start->greaterThan($service->paidUntilBase()))) {
             return 0;
         }
 
-        $periodStart = $service->nextPeriodStart($lines);
+        // Past the periods given up on too (Δ3): a renewal cancelled or refunded is not billed again.
+        $periodStart = $service->nextPeriodStart($billed);
+        // A period given up on at the paid-until date: nothing after it is billed (its payment would renew nothing behind
+        // the gap); the service falls to the suspension and termination rules. Staff close the gap (reopen the invoice,
+        // or move the date over it) to bill on. A paid period waiting behind the gap: staff are told.
+        if ($service->nextPeriodStart($lines)->lessThan($periodStart)) {
+            if ($lines->contains(fn ($line) => $line->invoice?->status === Invoice::STATUS_PAID && $line->period_start->greaterThan($service->paidUntilBase()))) {
+                $this->notices["invoices_created #{$id}"] = new DisplayException("Service #{$id}: a paid period waits behind a period given up on (a cancelled or refunded renewal): reopen that invoice, or move the service's date over the gap.");
+            }
+
+            return 0;
+        }
         if ($periodStart->greaterThanOrEqualTo($billUntil)) {
             return 0;
         }
@@ -666,7 +692,7 @@ class CronJob extends Command
         }
 
         // A hole shorter than a period (the next live period starts sooner): bill only the hole, prorated.
-        $nextStart = $lines->first(fn ($line) => $line->period_start->greaterThan($periodStart))?->period_start;
+        $nextStart = $billed->first(fn ($line) => $line->period_start->greaterThan($periodStart))?->period_start;
         if ($nextStart !== null && $periodEnd !== null && $nextStart->lessThan($periodEnd)) {
             $price = $service->priceForPeriod($periodStart, $nextStart);
             $periodEnd = $nextStart;

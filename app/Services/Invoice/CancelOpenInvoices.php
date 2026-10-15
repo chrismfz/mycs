@@ -11,6 +11,7 @@ use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Services\Money\CreditAutoApply;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -65,6 +66,32 @@ final class CancelOpenInvoices
         return $failures;
     }
 
+    /**
+     * The open invoices an ended service (terminated, or cancelled at its customer's request) gives up on (Δ3, decision
+     * 4 of 2026-10-15): all of them, as WHMCS does today at both companies. With «keep overdue invoices of ended
+     * services» on, an unpaid one overdue more than the days set stays as it is, a debt: its reminders go on, and paid
+     * later it renews nothing (an ended service is never revived, RenewServiceService). A draft was never sent: it goes.
+     *
+     * @param  Collection<int, Invoice>  $invoices
+     * @return Collection<int, Invoice>
+     */
+    public static function onServiceEnd(Collection $invoices): Collection
+    {
+        if (!config('settings.cronjob_end_keeps_overdue', false)) {
+            return $invoices;
+        }
+        $cutoff = CarbonImmutable::today()->subDays(max(0, (int) config('settings.cronjob_end_keeps_overdue_days', 0)));
+        $kept = $invoices->filter(fn (Invoice $invoice) => $invoice->status === Invoice::STATUS_UNPAID
+            && CarbonImmutable::parse($invoice->due_at ?? $invoice->created_at)->startOfDay()->lessThan($cutoff));
+        // Marked (in the caller's transaction): still payable from the client area and by credit, not an anomaly for
+        // the money check, and paid it tells nobody to refund it.
+        if ($kept->isNotEmpty()) {
+            Invoice::query()->whereKey($kept->pluck('id'))->whereNull('kept_as_debt_at')->update(['kept_as_debt_at' => now()]);
+        }
+
+        return $invoices->diffKeys($kept)->values();
+    }
+
     /** Cancel the invoice, or the lines of $onlyFor on it. Returns why it stays open for staff, or null. */
     private static function cancel(int $id, string $reason, Service|ServiceUpgrade|null $onlyFor): ?string
     {
@@ -114,7 +141,11 @@ final class CancelOpenInvoices
 
         if ($others->isEmpty()) {
             (new CreditAutoApply)->giveBack($invoice);
-            $invoice->refresh()->update(['status' => Invoice::STATUS_CANCELLED, 'cancellation_reason' => $reason]);
+            $invoice->refresh();
+            // A consequence of its service (it ends, changes cycle), not the invoice given up on: a service that goes on
+            // is billed again (Δ3a).
+            $invoice->keep_periods_billable = true;
+            $invoice->update(['status' => Invoice::STATUS_CANCELLED, 'cancellation_reason' => $reason]);
 
             return null;
         }

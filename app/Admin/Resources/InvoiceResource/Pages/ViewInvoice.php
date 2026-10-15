@@ -16,6 +16,7 @@ use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use Filament\Actions\Action;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
@@ -107,9 +108,16 @@ class ViewInvoice extends ViewRecord
                     TextInput::make('cancellation_reason')
                         ->label('Cancellation Reason')
                         ->required(),
+                    // Δ3a: by default a renewal cancelled is a period given up on, never billed again; to re-issue it (another
+                    // price, a mistake), staff bill it again.
+                    Toggle::make('bill_again')
+                        ->label('Bill its period again')
+                        ->helperText('Off: the service period it bills is given up on, the cron does not bill it again. On: the cron bills it again (to re-issue it).')
+                        ->default(false),
                 ])
                 ->action(function (Invoice $invoice, array $data) {
                     try {
+                        $invoice->keep_periods_billable = (bool) ($data['bill_again'] ?? false);
                         $invoice->update([
                             'status' => Invoice::STATUS_CANCELLED,
                             'cancellation_reason' => $data['cancellation_reason'],
