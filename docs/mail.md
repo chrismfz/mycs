@@ -19,9 +19,10 @@ tab of an account, an invoice and a service, and as the «Mail» column of the i
 The send itself keeps the row. Queue events do not, except the queue's last failure.
 
 - **Statuses:** `pending` (queued) → `sending` → `sent`, or `failed`.
-- **At most once:** the send claims its row (pending/failed → sending). A row already `sent`, or left `sending` by a
-  worker that stopped mid-send, is not sent again. A duplicate invoice mail is worse than a missing one, which staff
-  resend.
+- **At most once:** the send claims its row: `pending`, or `failed` without ever going out (`sending_at` empty), and
+  never a row already resent. A row already `sent`, one left `sending` by a worker that stopped mid-send (it may have
+  gone out), and a refused To are not sent again by the queue, `queue:retry` or the batch. A duplicate invoice mail is
+  worse than a missing one, which staff resend after checking.
 - **A Cc/Bcc refused for good** (5xx at RCPT; SMTP drops the whole mail on the first refusal): the mail goes out once
   more, to the To only. The row is `sent`, its Cc/Bcc cleared, and the error names the refused address.
 - **The To refused for good:** `failed` at once, with no retries. Retrying cannot help.
@@ -33,9 +34,12 @@ The send itself keeps the row. Queue events do not, except the queue's last fail
 ## Resend
 - **Who:** staff with **Resend Email** (`admin.email_logs.resend`).
 - **To whom:** the same address or another, with or without its Cc/Bcc.
-- **What goes out:** the body as the log keeps it. A masked password goes out masked.
+- **What goes out:** the body as the log keeps it. A masked password goes out masked. The links that are a login
+  (password reset, email verification) are never kept, so they never go out again.
+- **Not carried over:** a resent ticket reply loses its threading headers.
 - **A mail outage:** `php artisan app:mail-resend-failed [--days=7] [--limit=50] [--dry-run]` resends the customer mails
-  that failed and were not resent yet. It runs by hand only and is never scheduled.
+  that failed without ever going out and were not resent yet. Rows from before the audit are skipped. It runs by hand
+  only and is never scheduled.
 
 ## Kept
 `email_logs` rows are kept for 90 days (`cronjob_delete_email_logs`).

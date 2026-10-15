@@ -26,7 +26,7 @@ trait LogsDelivery
         if ($id === null) {
             return parent::send($mailer);
         }
-        $claimed = EmailLog::query()->whereKey($id)->whereIn('status', [EmailLog::STATUS_PENDING, EmailLog::STATUS_FAILED])
+        $claimed = EmailLog::query()->whereKey($id)->where(fn ($query) => self::claimable($query))
             ->update(['status' => EmailLog::STATUS_SENDING, 'sending_at' => now(), 'attempts' => DB::raw('attempts + 1')]);
         if ($claimed === 0) {
             return null;
@@ -57,6 +57,8 @@ trait LogsDelivery
                     return $this->refused($id, $again);
                 }
                 $this->retryLater($id, $again);
+            } catch (Throwable $again) {
+                $this->retryLater($id, $again); // a dropped connection: nothing went out (review R2)
             }
             $dropped = $refused !== null ? [$refused] : $extras;
             EmailLog::query()->whereKey($id)->update(['cc' => null, 'bcc' => null,
@@ -92,12 +94,26 @@ trait LogsDelivery
         return null;
     }
 
-    /** Back to pending with the error: the queue tries again (the last failure marks it failed, AppServiceProvider). */
+    /**
+     * Back to pending with the error: the queue tries again (the last failure marks it failed, AppServiceProvider).
+     * Nothing went out: sending_at is cleared, so a failed row with sending_at is one that may have gone out.
+     */
     private function retryLater(int $id, Throwable $e): never
     {
-        EmailLog::query()->whereKey($id)->update(['status' => EmailLog::STATUS_PENDING, 'error' => mb_substr($e->getMessage(), 0, 1000)]);
+        EmailLog::query()->whereKey($id)->update(['status' => EmailLog::STATUS_PENDING, 'sending_at' => null, 'error' => mb_substr($e->getMessage(), 0, 1000)]);
 
         throw $e;
+    }
+
+    /**
+     * A row this send may take (reviews R3, R4, R6): pending, or failed without ever going out (sending_at null: not
+     * one left mid-send, nor a refused To), and never one staff or a batch already resent.
+     */
+    public static function claimable($query)
+    {
+        return $query->where(fn ($query) => $query->where('status', EmailLog::STATUS_PENDING)
+            ->orWhere(fn ($query) => $query->where('status', EmailLog::STATUS_FAILED)->whereNull('sending_at')))
+            ->whereNotExists(fn ($query) => $query->from('email_logs as resends')->whereColumn('resends.resent_from_id', 'email_logs.id'));
     }
 
     /** A 5xx to RCPT TO: the one command Symfony checks against 250/251/252. */

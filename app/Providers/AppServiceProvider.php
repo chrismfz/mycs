@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Classes\Synths\PriceSynth;
+use App\Console\Commands\MailSweep;
 use App\Exceptions\ErrorHandler;
 use App\Helpers\ExtensionHelper;
 use App\Http\Middleware\EnsureClientPermission;
@@ -227,7 +228,16 @@ class AppServiceProvider extends ServiceProvider
         Queue::failing(function (JobFailed $event) {
             if (in_array($event->job->resolveName(), [Mail::class, SystemMail::class, ResentMail::class], true)) { // EVT-10: system mails too
                 $data = self::queuedCommand($event->job->getRawBody());
-                EmailLog::where('id', $data->mailable->email_log_id)->where('status', '!=', EmailLog::STATUS_SENT)->update([
+                $id = $data->mailable->email_log_id;
+                // Left «sending» (the worker died or timed out mid-send): it may have gone out; kept so (sending_at),
+                // never claimed nor batch-resent again (review R6).
+                EmailLog::where('id', $id)->where('status', EmailLog::STATUS_SENDING)->update([
+                    'status' => EmailLog::STATUS_FAILED,
+                    'failed_at' => now(),
+                    'error' => MailSweep::MAY_HAVE_GONE_OUT,
+                    'job_uuid' => $event->job->uuid(),
+                ]);
+                EmailLog::where('id', $id)->where('status', EmailLog::STATUS_PENDING)->update([
                     'status' => EmailLog::STATUS_FAILED,
                     'failed_at' => now(),
                     'error' => mb_substr($event->exception->getMessage(), 0, 1000),

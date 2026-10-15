@@ -20,7 +20,9 @@ class MailResendFailed extends Command
     {
         $failed = EmailLog::query()->where('status', EmailLog::STATUS_FAILED)
             ->where('created_at', '>=', now()->subDays(max(1, (int) $this->option('days'))))
-            ->where(fn ($query) => $query->whereNull('template_key')->orWhere('template_key', '!=', 'system'))
+            // Customer mails only (not staff's system ones, nor rows from before the audit), that never went out:
+            // not one that may have (left mid-send) nor a refused To, both with sending_at (review R5).
+            ->whereNotNull('template_key')->where('template_key', '!=', 'system')->whereNull('sending_at')
             ->whereNotExists(fn ($query) => $query->from('email_logs as resends')->whereColumn('resends.resent_from_id', 'email_logs.id'))
             ->orderBy('id')->limit(max(1, (int) $this->option('limit')))->get();
 

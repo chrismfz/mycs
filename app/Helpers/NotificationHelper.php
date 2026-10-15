@@ -32,6 +32,9 @@ use Throwable;
 
 class NotificationHelper
 {
+    /** Templates whose «url» is a live token (mail audit review R1). */
+    public const TOKEN_LINK_TEMPLATES = ['password_reset', 'email_verification'];
+
     /** The account a mail is about (docs/accounts.md, PR 2a): its email log is the account's. */
     private static ?Client $account = null;
 
@@ -65,6 +68,11 @@ class NotificationHelper
     private static function bodyForLog(Mail $mail, NotificationTemplate $template, array $data): string
     {
         $secrets = array_filter($data, fn ($value, $key) => Redact::isSecretKey($key) && is_string($value) && $value !== '', ARRAY_FILTER_USE_BOTH);
+        // A link that is a login (password reset, email verification): a live token, never kept, never resent (mail
+        // audit review R1).
+        if (in_array($template->key, self::TOKEN_LINK_TEMPLATES, true) && is_string($data['url'] ?? null) && $data['url'] !== '') {
+            $secrets['url'] = $data['url'];
+        }
         if ($secrets === []) {
             return $mail->render();
         }

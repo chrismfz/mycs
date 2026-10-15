@@ -16,6 +16,8 @@ class MailSweep extends Command
 
     public const PENDING_HOURS = 24;
 
+    public const MAY_HAVE_GONE_OUT = 'The worker stopped while sending: it may have gone out. Check before resending.';
+
     protected $signature = 'app:mail-sweep {--dry-run : Count only}';
 
     protected $description = 'Marks mails stuck in sending or pending as failed';
@@ -30,7 +32,7 @@ class MailSweep extends Command
             return self::SUCCESS;
         }
         $a = $sending->update(['status' => EmailLog::STATUS_FAILED, 'failed_at' => now(),
-            'error' => 'The worker stopped while sending: it may have gone out. Check before resending.']);
+            'error' => self::MAY_HAVE_GONE_OUT]);
         $b = $pending->update(['status' => EmailLog::STATUS_FAILED, 'failed_at' => now(),
             'error' => 'Never sent: the queue did not run it within ' . self::PENDING_HOURS . ' hours.']);
         $this->info("Marked failed: {$a} stuck sending, {$b} pending.");
