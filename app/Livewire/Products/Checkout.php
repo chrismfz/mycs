@@ -16,8 +16,8 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Locked;
-use MyCS\Pricing\LinePricer;
 use Livewire\Attributes\Url;
+use MyCS\Pricing\LinePricer;
 
 class Checkout extends Component
 {
