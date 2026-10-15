@@ -36,14 +36,10 @@ class Show extends Component
     #[Url('cancel', except: false)]
     public bool $showCancel = false;
 
-    public bool $showBillingAgreement = false;
-
     #[Url('label', except: false)]
     public bool $editLabel = false;
 
     public ?string $label = null;
-
-    public $selectedMethod;
 
     public function mount()
     {
@@ -108,38 +104,6 @@ class Show extends Component
         }
         $this->service->update(['contact_id' => $id]);
         $this->notify(__('services.related_contact_saved'), 'success');
-    }
-
-    public function updatedShowBillingAgreement()
-    {
-        if (Gate::denies('update', $this->service)) {
-            $this->showBillingAgreement = false;
-
-            return;
-        }
-        $this->selectedMethod = $this->service->client->billingAgreements()->where('id', $this->service->billing_agreement_id)->first()?->ulid;
-    }
-
-    public function updateBillingAgreement()
-    {
-        $this->authorize('update', $this->service); // `manageproducts` (docs/accounts.md, PR 2b)
-        // The service's account's payment methods (docs/accounts.md, PR 2a), whichever account the client area is on.
-        $agreement = $this->service->client->billingAgreements()->where('ulid', $this->selectedMethod)->first();
-        if (!$agreement) {
-            return $this->notify(__('Invalid payment method.'), 'error');
-        }
-        $this->service->billing_agreement_id = $agreement->id;
-        $this->service->save();
-
-        $this->showBillingAgreement = false;
-    }
-
-    public function clearBillingAgreement()
-    {
-        $this->authorize('update', $this->service);
-        $this->service->billing_agreement_id = null;
-        $this->service->save();
-        $this->selectedMethod = null;
     }
 
     /** The related contact (information only, docs/accounts.md 3b). */

@@ -13,7 +13,6 @@ use App\Models\Invoice;
 use App\Models\Service;
 use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Request;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
@@ -135,26 +134,13 @@ class Show extends Component
         }
 
         if ($this->setAsDefault) {
-            $invoiceItems = $this->recurringServices()->get();
             $agreement = $this->accountAgreements()->where('ulid', $this->selectedMethod)->first();
             if (!$agreement) {
                 return $this->notify(__('Invalid payment method.'), 'error');
             }
-
-            // A service's payment method is managing it (`manageproducts`, docs/accounts.md PR 2b): only those the
-            // login may manage take it.
-            $updated = 0;
-            foreach ($invoiceItems as $invoiceItem) {
-                $service = $invoiceItem->reference;
-                if (Gate::allows('update', $service)) {
-                    $service->update(['billing_agreement_id' => $agreement->id]);
-                    $updated++;
-                }
-            }
-
-            if ($updated > 0) {
-                $this->notify(__('Default payment method has been updated for recurring services.'), 'success');
-            }
+            // The account's method for its renewals (decision 6), set by a login that may pay its invoices.
+            $this->invoice->client->update(['default_billing_agreement_id' => $agreement->id, 'auto_charge' => true]);
+            $this->notify(__('Default payment method has been updated for recurring services.'), 'success');
         }
 
         return $this->payWithSavedMethod($this->selectedMethod);

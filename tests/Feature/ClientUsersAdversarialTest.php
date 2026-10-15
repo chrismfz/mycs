@@ -246,11 +246,11 @@ class ClientUsersAdversarialTest extends TestCase
     }
 
     /**
-     * F6 (nit): paying an invoice with «set as default» re-points the recurring services' payment method, which the
-     * PR documents as `manageproducts` (Services\Show::updateBillingAgreement is gated on it): an `invoices`-only
-     * member changes it anyway.
+     * F6 (nit, 2b): «set as default» while paying re-pointed the services' method without `manageproducts`. Since
+     * decision 6 (PR C2) the method is the account's, managed on «Payment methods» with `invoices`: an `invoices` member
+     * sets it, and no service changes.
      */
-    public function test_bug_invoices_only_member_changes_the_services_payment_method_while_paying(): void
+    public function test_holds_an_invoices_member_sets_the_accounts_payment_method_while_paying(): void
     {
         $client = User::factory()->create()->client();
         $service = $this->serviceOf($client);
@@ -270,7 +270,8 @@ class ClientUsersAdversarialTest extends TestCase
             // the charge itself may fail without a configured gateway: the change happens before it
         }
 
-        $this->assertNull($service->fresh()->billing_agreement_id, 'the service\'s payment method changed without `manageproducts`');
+        // Since decision 6 (PR C2) the method is the account's, managed with `invoices` («Payment methods»): set by design.
+        $this->assertSame($agreement->id, (int) $client->fresh()->default_billing_agreement_id);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -316,7 +317,7 @@ class ClientUsersAdversarialTest extends TestCase
 
         $this->workOn($viewer, $client);
         $page = $this->livewireAs($viewer)->test(ServiceShow::class, ['service' => $service]);
-        foreach ([fn () => $page->set('label', 'hacked')->call('updateLabel'), fn () => $page->call('clearBillingAgreement'),
+        foreach ([fn () => $page->set('label', 'hacked')->call('updateLabel'),
             fn () => $page->set('showCancel', true)] as $attempt) {
             try {
                 $attempt();

@@ -61,6 +61,13 @@
         $groupedAgreements = $billingAgreements->groupBy('gateway.name');
         @endphp
 
+        @if($billingAgreements->count() > 0)
+        <div class="mt-4">
+            <x-form.toggle :label="__('account.auto_charge')" wire:model.live="autoCharge" />
+            <p class="text-sm text-base/70 mt-1">{{ __('account.auto_charge_description') }}</p>
+        </div>
+        @endif
+
         @if($groupedAgreements->count() > 0)
         @foreach($groupedAgreements as $gatewayName => $agreements)
         <div class="flex items-center justify-between mb-6">
@@ -110,15 +117,20 @@
                             {{ __('account.expires', ['date' => \Carbon\Carbon::parse($agreement->expiry)->format('m/Y')]) }}
                         </div>
                         @endif
-                        @if($agreement->services()->count() > 0)
+                        @if((int) $defaultAgreementId === (int) $agreement->id)
                         <div class="text-xs text-base/50 mt-1">
-                            {{ __('account.services_linked', ['count' => $agreement->services()->count()]) }}
+                            {{ __('account.default_payment_method') }}
                         </div>
                         @endif
                     </div>
                 </div>
 
                 <div class="flex items-center gap-2">
+                    @if((int) $defaultAgreementId !== (int) $agreement->id)
+                    <x-button.secondary class="!w-fit !px-2 text-sm" wire:click="makeDefault('{{ $agreement->ulid }}')" wire:loading.attr="disabled">
+                        {{ __('account.make_default_payment_method') }}
+                    </x-button.secondary>
+                    @endif
                     <x-button.danger class="!px-2" x-on:click="$store.confirmation.confirm({
                                 title: '{{ __('account.remove_payment_method') }}',
                                 message: '{{ __('account.remove_payment_method_confirm', ['name' => $agreement->name]) }}',

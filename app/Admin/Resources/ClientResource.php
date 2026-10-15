@@ -19,6 +19,7 @@ use App\Admin\Schemas\ContactForm;
 use App\Models\Client;
 use App\Models\Credit;
 use Filament\Actions\EditAction;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Pages\Page;
@@ -98,6 +99,16 @@ class ClientResource extends Resource
                     ->label(__('Separate invoices'))
                     ->helperText(__('One invoice per service renewal, instead of one per due date.'))
                     ->default(false),
+                // Decision 6 (PR C2): one saved method per account pays its renewals (WHMCS «Disable automatic card charging»).
+                Toggle::make('auto_charge')
+                    ->label(__('Charge renewals automatically'))
+                    ->helperText(__('Renewal invoices are charged to the saved payment method below.'))
+                    ->default(true),
+                Select::make('default_billing_agreement_id')
+                    ->label(__('Payment method for renewals'))
+                    ->relationship('defaultBillingAgreement', 'name', fn (Builder $query, ?Client $record) => $query->where('client_id', $record?->id ?? 0))
+                    ->visibleOn('edit')
+                    ->placeholder(__('None')),
             ]);
     }
 

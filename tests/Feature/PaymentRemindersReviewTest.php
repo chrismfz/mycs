@@ -76,7 +76,7 @@ class PaymentRemindersReviewTest extends TestCase
         $invoice = $this->invoice('2026-10-25');
         $gateway = Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway']);
         $agreement = BillingAgreement::create(['client_id' => $invoice->client_id, 'gateway_id' => $gateway->id, 'name' => 'PayPal', 'external_reference' => 'VAULT-1', 'type' => 'paypal']);
-        Service::query()->whereKey($invoice->items->first()->reference_id)->update(['billing_agreement_id' => $agreement->id]);
+        $this->assertSame($agreement->id, (int) $invoice->client->fresh()->default_billing_agreement_id, 'precondition: the account\'s method (decision 6)');
 
         (new PaymentReminders)->send();
 

@@ -263,5 +263,9 @@
     "This cancelled invoice records a service period given up on: it is kept (reopen it to bill that period again).": "Αυτό το ακυρωμένο τιμολόγιο καταγράφει περίοδο υπηρεσίας που δεν χρεώνεται: κρατιέται (ανοίξτε το ξανά για να χρεωθεί η περίοδος).",
     "This invoice has payments: its lines keep their amounts. Refund the payment first (back, or to account credit), or give a discount with a note.": "Αυτό το τιμολόγιο έχει πληρωμές: οι γραμμές του κρατούν τα ποσά τους. Επιστρέψτε πρώτα την πληρωμή (πίσω ή σε πίστωση λογαριασμού) ή δώστε έκπτωση με σημείωμα.",
     "Separate invoices": "Ξεχωριστά τιμολόγια",
+    "Charge renewals automatically": "Αυτόματη χρέωση ανανεώσεων",
+    "Renewal invoices are charged to the saved payment method below.": "Τα τιμολόγια ανανέωσης χρεώνονται στον αποθηκευμένο τρόπο πληρωμής παρακάτω.",
+    "Payment method for renewals": "Τρόπος πληρωμής ανανεώσεων",
+    "None": "Κανένας",
     "One invoice per service renewal, instead of one per due date.": "Ένα τιμολόγιο ανά ανανέωση υπηρεσίας, αντί για ένα ανά ημερομηνία λήξης."
 }

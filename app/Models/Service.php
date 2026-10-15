@@ -106,7 +106,6 @@ class Service extends Model implements Auditable
         'client_id',
         'contact_id',
         'currency_code',
-        'billing_agreement_id',
         'suspend_hold_until',
         // WHMCS's tblhosting fields (2026_11_02 migration)
         'server_id',
@@ -953,11 +952,5 @@ class Service extends Model implements Auditable
     public function upgrade(): HasMany
     {
         return $this->hasMany(ServiceUpgrade::class);
-    }
-
-    /** @return BelongsTo<BillingAgreement, $this> */
-    public function billingAgreement(): BelongsTo
-    {
-        return $this->belongsTo(BillingAgreement::class, 'billing_agreement_id');
     }
 }

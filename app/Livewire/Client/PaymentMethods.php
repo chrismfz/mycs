@@ -20,6 +20,31 @@ class PaymentMethods extends Component
 
     public $gateway;
 
+    /** Renewals charged to the account's saved method (decision 6; WHMCS «disable automatic card charging» inverted). */
+    public bool $autoCharge = true;
+
+    public function mount(): void
+    {
+        $this->autoCharge = (bool) CurrentClient::model()->auto_charge;
+    }
+
+    public function updatedAutoCharge($value): void
+    {
+        CurrentClient::model()->update(['auto_charge' => (bool) $value]);
+        $this->notify(__('account.auto_charge_saved'), 'success');
+    }
+
+    /** The method that pays the account's renewals (one per account, decision 6). */
+    public function makeDefault($billingAgreementUlid)
+    {
+        $agreement = CurrentClient::model()->billingAgreements()->where('ulid', $billingAgreementUlid)->first();
+        if (!$agreement) {
+            return $this->notify(__('Billing agreement not found'), 'error');
+        }
+        CurrentClient::model()->update(['default_billing_agreement_id' => $agreement->id]);
+        $this->notify(__('account.default_payment_method_saved'), 'success');
+    }
+
     private $setup = null;
 
     #[Computed]
@@ -91,6 +116,7 @@ class PaymentMethods extends Component
         return view('client.account.payment-methods', [
             'transactions' => CurrentClient::model()->transactions()->with(['invoice', 'gateway'])->latest()->paginate(config('settings.pagination')),
             'billingAgreements' => CurrentClient::model()->billingAgreements()->latest()->get(),
+            'defaultAgreementId' => CurrentClient::model()->fresh()?->default_billing_agreement_id,
         ])->layoutData([
             'sidebar' => true,
             'title' => 'Payment Methods',

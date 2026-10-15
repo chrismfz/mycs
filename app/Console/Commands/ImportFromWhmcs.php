@@ -274,7 +274,8 @@ class ImportFromWhmcs extends Command
                 ];
                 // The account keeps the WHMCS client id; its owner is the login (docs/accounts.md, PR 2a).
                 $clients[] = ['id' => $record['id'], 'created_at' => end($data)['created_at'], 'updated_at' => end($data)['updated_at'],
-                    'tax_exempt' => (bool) ($record['taxexempt'] ?? false), 'separate_invoices' => (bool) ($record['separateinvoices'] ?? false)];
+                    'tax_exempt' => (bool) ($record['taxexempt'] ?? false), 'separate_invoices' => (bool) ($record['separateinvoices'] ?? false),
+                    'auto_charge' => !($record['disableautocc'] ?? false)];
 
                 // The account's details are its primary contact, field for field (docs/accounts.md, PR 3a).
                 $value = fn (string $key) => isset($record[$key]) && trim((string) $record[$key]) !== '' ? trim((string) $record[$key]) : null;

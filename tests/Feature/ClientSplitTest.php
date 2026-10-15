@@ -220,18 +220,17 @@ class ClientSplitTest extends TestCase
         ExtensionHelper::charge($gateway, $invoice, $foreign);
     }
 
-    public function test_a_service_moved_to_another_account_leaves_the_old_accounts_card_behind(): void
+    public function test_an_account_is_charged_only_to_its_own_card(): void
     {
+        // Decision 6 (PR C2): the method is the account's; a service moved to another account is charged to that one's.
         $from = User::factory()->create()->client();
         $to = User::factory()->create()->client();
         $gateway = Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway']);
         $card = BillingAgreement::create(['client_id' => $from->id, 'gateway_id' => $gateway->id,
             'name' => 'PayPal', 'external_reference' => 'VAULT-M', 'type' => 'paypal']);
-        $service = Service::factory()->create(['client_id' => $from->id, 'billing_agreement_id' => $card->id]);
 
-        $service->update(['client_id' => $to->id]);
-
-        $this->assertNull($service->fresh()->billing_agreement_id);
+        $this->expectException(DisplayException::class);
+        $to->update(['default_billing_agreement_id' => $card->id]);
     }
 
     public function test_the_api_opens_and_reads_accounts(): void

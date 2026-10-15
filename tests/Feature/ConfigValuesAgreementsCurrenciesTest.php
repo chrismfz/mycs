@@ -100,16 +100,16 @@ class ConfigValuesAgreementsCurrenciesTest extends TestCase
         $this->assertSame(0, ConfigOption::query()->count());
     }
 
-    public function test_a_removed_payment_method_leaves_its_services(): void
+    public function test_a_removed_payment_method_is_no_longer_the_accounts_default(): void
     {
         $user = User::factory()->create();
         $gateway = Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway']);
         $agreement = BillingAgreement::create(['client_id' => $user->client()->id, 'gateway_id' => $gateway->id, 'name' => 'PayPal', 'external_reference' => 'VAULT-1', 'type' => 'paypal']);
-        $service = $this->service(['client_id' => $user->client()->id, 'billing_agreement_id' => $agreement->id]);
+        $this->assertSame($agreement->id, (int) $user->client()->fresh()->default_billing_agreement_id, 'the first method is the default');
 
         $agreement->delete(); // soft: the customer took it off
 
-        $this->assertNull($service->fresh()->billing_agreement_id);
+        $this->assertNull($user->client()->fresh()->default_billing_agreement_id);
     }
 
     public function test_the_cron_survives_a_service_whose_payment_method_is_gone(): void
@@ -118,8 +118,8 @@ class ConfigValuesAgreementsCurrenciesTest extends TestCase
         $user = User::factory()->create();
         $gateway = Gateway::query()->firstOrCreate(['extension' => 'PayPal'], ['name' => 'PayPal', 'type' => 'gateway']);
         $agreement = BillingAgreement::create(['client_id' => $user->client()->id, 'gateway_id' => $gateway->id, 'name' => 'PayPal', 'external_reference' => 'VAULT-1', 'type' => 'paypal']);
-        $service = $this->service(['client_id' => $user->client()->id, 'billing_agreement_id' => $agreement->id, 'expires_at' => '2026-10-25']);
-        DB::table('billing_agreements')->where('id', $agreement->id)->update(['deleted_at' => now()]); // removed before this fix: the service kept it
+        $service = $this->service(['client_id' => $user->client()->id, 'expires_at' => '2026-10-25']);
+        DB::table('billing_agreements')->where('id', $agreement->id)->update(['deleted_at' => now()]); // removed behind the model's back: still the default
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 

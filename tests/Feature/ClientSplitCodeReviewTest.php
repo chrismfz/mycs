@@ -3,8 +3,8 @@
 namespace Tests\Feature;
 
 use App\Admin\Resources\UserResource\Pages\EditUser;
+use App\Livewire\Client\PaymentMethods;
 use App\Livewire\Invoices\Show as InvoiceShow;
-use App\Livewire\Services\Show as ServiceShow;
 use App\Models\BillingAgreement;
 use App\Models\Client;
 use App\Models\ClientUser;
@@ -59,16 +59,15 @@ class ClientSplitCodeReviewTest extends TestCase
         $this->assertSame($own->id, CurrentClient::id());
         $this->assertTrue(Gate::forUser($user)->allows('view', $service)); // the policy opens B's service
 
+        // Decision 6 (PR C2): the method is chosen per account, on the current one's «Payment methods».
         try {
-            Livewire::test(ServiceShow::class, ['service' => $service])
-                ->set('selectedMethod', $ownCard->ulid)
-                ->call('updateBillingAgreement');
+            Livewire::test(PaymentMethods::class)->call('makeDefault', $ownCard->ulid);
         } catch (\Throwable) {
             // refusing is fine
         }
 
-        $this->assertNotSame($ownCard->id, $service->fresh()->billing_agreement_id,
-            "account B's service was set to be renewed with account A's saved card");
+        $this->assertNotSame($ownCard->id, (int) $other->fresh()->default_billing_agreement_id,
+            "account B's services were set to be renewed with account A's saved card");
     }
 
     public function test_an_invoice_of_another_account_lists_that_accounts_payment_methods(): void

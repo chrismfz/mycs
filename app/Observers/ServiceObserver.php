@@ -4,7 +4,6 @@ namespace App\Observers;
 
 use App\Events\Service as ServiceEvent;
 use App\Exceptions\DisplayException;
-use App\Models\BillingAgreement;
 use App\Models\Contact;
 use App\Models\Order;
 use App\Models\Service;
@@ -39,27 +38,12 @@ class ServiceObserver
      * (e.g. comping an unpaid month before a paid one) picks those periods up, as a payment would.
      * Moving it back is a correction and is left as set.
      */
-    /**
-     * A service is billed only to a payment method of its own account (docs/accounts.md, PR 2a): a login with access
-     * to several accounts must not put one account's card on another's renewals.
-     */
     public function saving(Service $service): void
     {
         if ($service->status === Service::STATUS_ACTIVE && $service->activated_at === null) {
             $service->activated_at = now(); // its first start (Σ1-b1): the only one that moves its dates
         }
         self::keepContactInAccount($service);
-        if ($service->billing_agreement_id === null || !$service->isDirty(['billing_agreement_id', 'client_id'])
-            || BillingAgreement::withTrashed()->whereKey($service->billing_agreement_id)->where('client_id', $service->client_id)->exists()) {
-            return;
-        }
-        if (!$service->isDirty('billing_agreement_id')) {
-            $service->billing_agreement_id = null; // moved to another account: the old account's card stays behind
-
-            return;
-        }
-
-        throw new DisplayException(__('This payment method belongs to another account.'));
     }
 
     /**

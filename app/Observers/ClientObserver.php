@@ -4,11 +4,21 @@ namespace App\Observers;
 
 use App\Events\Service\RenewalTaxChanged;
 use App\Exceptions\DisplayException;
+use App\Models\BillingAgreement;
 use App\Models\Client;
 use App\Models\Service;
 
 class ClientObserver
 {
+    /** Its renewals are charged only to one of its own methods (docs/accounts.md, PR 2a; decision 6). */
+    public function saving(Client $client): void
+    {
+        if ($client->isDirty('default_billing_agreement_id') && $client->default_billing_agreement_id !== null
+            && !BillingAgreement::query()->whereKey($client->default_billing_agreement_id)->where('client_id', $client->id)->exists()) {
+            throw new DisplayException(__('This payment method belongs to another account.'));
+        }
+    }
+
     /** Tax exempt or not changes what its subscriptions bill (Δ1). */
     public function updated(Client $client): void
     {

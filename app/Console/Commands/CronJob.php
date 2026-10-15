@@ -10,6 +10,7 @@ use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Jobs\Server\SuspendJob;
 use App\Jobs\Server\TerminateJob;
+use App\Models\BillingAgreement;
 use App\Models\CronStat;
 use App\Models\DebugLog;
 use App\Models\EmailLog;
@@ -763,7 +764,7 @@ class CronJob extends Command
     }
 
     /**
-     * The renewal invoices of this run (one per group, PR C), its key: customer, due date, currency and saved method; null
+     * The renewal invoices of this run (one per group, PR C), its key: customer, due date and currency; null
      * for one billed alone (a gateway subscription's renewal, a customer with «Separate invoices»).
      */
     private function renewalGroupKey(Service $service, CarbonInterface $periodStart): ?string
@@ -772,7 +773,7 @@ class CronJob extends Command
             return null;
         }
 
-        return implode('|', [$service->client_id, $periodStart->toDateString(), $service->currency_code, (int) $service->billing_agreement_id]);
+        return implode('|', [$service->client_id, $periodStart->toDateString(), $service->currency_code]);
     }
 
     /**
@@ -804,17 +805,19 @@ class CronJob extends Command
 
                         return;
                     }
-                    // Its services share the saved method (the group key); any one still there stands for them.
+                    // A gateway subscription pays its own invoice; any other is charged to the account's saved method (decision 6).
                     $service = Service::query()->whereIn('id', $invoice->items()->where('reference_type', Service::class)->select('reference_id'))
                         ->orderBy('id')->first();
+                    $subscription = (string) $service?->subscription_id !== '';
+                    $agreement = $subscription ? null : $invoice->client?->autoChargeAgreement();
                     try {
-                        DB::transaction(fn () => $this->payInvoiceWithCredits($invoice, $service));
+                        DB::transaction(fn () => $this->payInvoiceWithCredits($invoice, $subscription, notify: $agreement === null));
                     } catch (Throwable $e) {
                         report($e);
                         $this->failures["invoices_created credit invoice #{$id}"] = $e;
                     }
-                    if ($service?->billing_agreement_id && $invoice->fresh()->status === Invoice::STATUS_UNPAID) {
-                        $this->chargeSavedMethod($invoice, $service);
+                    if ($agreement !== null && $invoice->fresh()->status === Invoice::STATUS_UNPAID) {
+                        $this->chargeSavedMethod($invoice, $agreement);
                     }
                 });
             } catch (Throwable $e) {
@@ -824,14 +827,13 @@ class CronJob extends Command
         }
     }
 
-    /** The saved method of the service pays its renewal invoice, after commit (DATA-9: a method gone, the customer is told). */
-    private function chargeSavedMethod(Invoice $invoice, Service $service): void
+    /** The account's saved method pays its renewal invoice, after commit (DATA-9: a method gone, the customer is told). */
+    private function chargeSavedMethod(Invoice $invoice, BillingAgreement $agreement): void
     {
-        DB::afterCommit(function () use ($invoice, $service) {
+        DB::afterCommit(function () use ($invoice, $agreement) {
             try {
-                $agreement = $service->billingAgreement;
-                if ($agreement?->gateway === null) {
-                    throw new DisplayException("Service #{$service->id}: its saved payment method is gone.");
+                if ($agreement->gateway === null) {
+                    throw new DisplayException("Invoice #{$invoice->id}: the account's saved payment method is gone.");
                 }
                 ExtensionHelper::charge($agreement->gateway, $invoice, $agreement);
 
@@ -845,17 +847,17 @@ class CronJob extends Command
         });
     }
 
-    private function payInvoiceWithCredits(Invoice $invoice, ?Service $service): void
+    private function payInvoiceWithCredits(Invoice $invoice, bool $subscription, bool $notify): void
     {
         // As much as the credit covers, also in part (decision 5, MT-1e); read and spent under the payment locks.
         // Off with credits, or with "Automatically use credits", or for the invoices CreditAutoApply leaves alone.
         // A gateway subscription's renewal only in full: a subscription sale that became credit pays it.
-        if ((string) $service?->subscription_id !== '') {
+        if ($subscription) {
             (new CreditAutoApply)->toSubscriptionRenewal($invoice);
 
             return;
         }
-        (new CreditAutoApply)->toInvoice($invoice, notify: !$service?->billing_agreement_id);
+        (new CreditAutoApply)->toInvoice($invoice, notify: $notify);
     }
 
     /**

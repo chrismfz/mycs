@@ -6,7 +6,6 @@ use App\Models\Traits\HasProperties;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use OwenIt\Auditing\Contracts\Auditable;
 
@@ -46,20 +45,21 @@ class BillingAgreement extends Model implements Auditable
         return $this->belongsTo(Gateway::class, 'gateway_id');
     }
 
-    /** @return HasMany<Service, $this> */
-    public function services(): HasMany
-    {
-        return $this->hasMany(Service::class, 'billing_agreement_id');
-    }
-
     /**
-     * Removed (soft-deleted: the customer took the method off): no service charges it any more (DATA-9). The foreign key
-     * only acts on a hard delete, so the services kept it and the cron failed charging a method that was gone.
+     * Removed (soft-deleted: the customer took the method off): no renewal charges it any more (DATA-9). The foreign key
+     * only acts on a hard delete. The account is left with no default rather than another card it did not choose; the next
+     * method it adds becomes it.
      */
     protected static function booted(): void
     {
+        // The first method of an account is its default, as in WHMCS: renewals are charged to it.
+        static::created(function (self $agreement) {
+            Client::query()->whereKey($agreement->client_id)->whereNull('default_billing_agreement_id')
+                ->update(['default_billing_agreement_id' => $agreement->getKey()]);
+        });
         static::deleting(function (self $agreement) {
-            Service::query()->where('billing_agreement_id', $agreement->getKey())->update(['billing_agreement_id' => null]);
+            Client::query()->whereKey($agreement->client_id)->where('default_billing_agreement_id', $agreement->getKey())
+                ->update(['default_billing_agreement_id' => null]);
         });
     }
 }
