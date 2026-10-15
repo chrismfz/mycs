@@ -48,6 +48,11 @@ class PayPal_IPN extends Gateway
         ];
     }
 
+    public function supportsPaymentGroups(): bool
+    {
+        return true;
+    }
+
     /**
      * Return a view or a url to redirect to
      *
@@ -66,6 +71,9 @@ class PayPal_IPN extends Gateway
         $query = '?cmd=_xclick';
         $query .= '&item_name=' . urlencode('Invoice #' . $invoice->id);
         $query .= '&item_number=' . $invoice->id;
+        if ($invoice->payingGroup !== null) {
+            $query .= '&custom=' . urlencode($invoice->payingGroup);
+        }
         $query .= '&amount=' . number_format($total, 2, '.', '');
         $query .= '&currency_code=' . $invoice->currency_code;
         $query .= '&business=' . $paypal_email;
@@ -103,7 +111,8 @@ class PayPal_IPN extends Gateway
             if (!$invoice) {
                 return;
             }
-            ExtensionHelper::addPayment($request->item_number, 'PayPal', $request->mc_gross, $request->mc_fee, transactionId: $request->txn_id, currency: $request->mc_currency);
+            ExtensionHelper::addPayment($request->item_number, 'PayPal', $request->mc_gross, $request->mc_fee, transactionId: $request->txn_id, currency: $request->mc_currency,
+                paymentGroup: is_string($request->custom) ? $request->custom : null);
         }
     }
 }

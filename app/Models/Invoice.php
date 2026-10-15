@@ -52,6 +52,12 @@ class Invoice extends Model implements Auditable
 {
     use HasFactory, HasProperties, Traits\Auditable;
 
+    /**
+     * The Mass Pay group (its ulid) a gateway is opened for on this invoice (PR F2): never stored, set by
+     * ExtensionHelper::payGroup()/chargeGroup() for the gateway to pass to the provider and get back with the payment.
+     */
+    public ?string $payingGroup = null;
+
     public const STATUS_DRAFT = 'draft';
 
     /** Waiting for its payment: WHMCS's «Unpaid», the same word in the database and on every screen. */

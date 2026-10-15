@@ -15,7 +15,7 @@
 | Enable PDF Invoices (συνημμένο στο email) | off | on | **Ν** |
 | PDF font/μέγεθος | Freesans, A4 | Helvetica, A4 | P~ (dompdf)· Freesans/DejaVu για τα ελληνικά |
 | Store Client Data Snapshot | off | off | **P:** `invoice_snapshot` |
-| **Enable Mass Payment** | on | on | **Ν** (#1137, `whmcs-usage.md`) |
+| **Enable Mass Payment** | on | on | **Ν:** `mass_pay_enabled` (PR F2, `payments.md`): ομάδα πληρωμής χωρίς container τιμολόγιο |
 | Clients Choose Gateway | on | on | P (επιλογή gateway στην πληρωμή) |
 | Group Similar Line Items | off | **on** | **Ν** |
 | Cancellation Request → ακύρωση απλήρωτων τιμολογίων | on | on | **M** (#61): σταθερή συμπεριφορά (on και στις δύο)· τιμολόγιο με χρήματα gateway ή με γραμμές άλλων υπηρεσιών μένει ανοιχτό για το staff (MT-2) |

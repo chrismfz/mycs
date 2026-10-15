@@ -53,7 +53,7 @@ final class PayInvoices
             $payment = (new RecordPaymentService)->recordByStaff($ordered->first(), $gateway, $amount, $transactionId, paidAt: $paidAt, excessIsSpread: true);
             $paid = [];
             foreach ($ordered->slice(1) as $invoice) {
-                $allocation = (new RecordPaymentService)->allocateFromTransaction($payment, $invoice, oneCyclePerService: false, chosenByStaff: true);
+                $allocation = (new RecordPaymentService)->allocateFromTransaction($payment, $invoice, oneCyclePerService: false, chosenForPayment: true);
                 if ($allocation !== null) {
                     $paid[] = $allocation;
                 }

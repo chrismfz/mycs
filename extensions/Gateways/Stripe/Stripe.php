@@ -200,14 +200,19 @@ class Stripe extends Gateway
         ]))->asForm()->$method('https://api.stripe.com/v1' . $url, $data)->throw()->object();
     }
 
+    public function supportsPaymentGroups(): bool
+    {
+        return true;
+    }
+
     public function pay($invoice, $total)
     {
         $intentData = [
             'description' => __('invoices.payment_for_invoice', ['number' => $invoice->number ?? $invoice->id]),
-            'amount' => $total * 100,
+            'amount' => (int) round($total * 100),
             'currency' => $invoice->currency_code,
             'automatic_payment_methods' => ['enabled' => 'true'],
-            'metadata' => ['invoice_id' => $invoice->id],
+            'metadata' => array_filter(['invoice_id' => $invoice->id, 'payment_group' => $invoice->payingGroup]),
         ];
 
         try {
@@ -243,7 +248,7 @@ class Stripe extends Gateway
                 if (!isset($paymentIntent->metadata->invoice_id)) {
                     break;
                 }
-                ExtensionHelper::addProcessingPayment($paymentIntent->metadata->invoice_id, 'Stripe', $paymentIntent->amount / 100, null, $paymentIntent->id, currency: $paymentIntent->currency ?? null);
+                ExtensionHelper::addProcessingPayment($paymentIntent->metadata->invoice_id, 'Stripe', $paymentIntent->amount / 100, null, $paymentIntent->id, currency: $paymentIntent->currency ?? null, paymentGroup: $paymentIntent->metadata->payment_group ?? null);
                 break;
                 // Normal payment
             case 'payment_intent.succeeded':
@@ -251,7 +256,7 @@ class Stripe extends Gateway
                 if (!isset($paymentIntent->metadata->invoice_id)) {
                     break;
                 }
-                ExtensionHelper::addPayment($paymentIntent->metadata->invoice_id, 'Stripe', $paymentIntent->amount / 100, null, $paymentIntent->id, currency: $paymentIntent->currency ?? null);
+                ExtensionHelper::addPayment($paymentIntent->metadata->invoice_id, 'Stripe', $paymentIntent->amount / 100, null, $paymentIntent->id, currency: $paymentIntent->currency ?? null, paymentGroup: $paymentIntent->metadata->payment_group ?? null);
                 break;
             case 'payment_intent.payment_failed':
                 $paymentIntent = $event->data->object; // contains a StripePaymentIntent
@@ -859,13 +864,13 @@ class Stripe extends Gateway
         // Create payment intent
         try {
             $intent = $this->request('post', '/payment_intents', [
-                'amount' => $amount * 100,
+                'amount' => (int) round($amount * 100),
                 'currency' => $invoice->currency_code,
                 'customer' => $customer->id,
                 'payment_method' => $billingAgreement->external_reference,
                 'off_session' => 'true',
                 'confirm' => 'true',
-                'metadata' => ['invoice_id' => $invoice->id, 'billing_agreement_id' => $billingAgreement->id],
+                'metadata' => array_filter(['invoice_id' => $invoice->id, 'billing_agreement_id' => $billingAgreement->id, 'payment_group' => $invoice->payingGroup]),
             ]);
         } catch (Exception $e) {
             if ($e instanceof RequestException && $e->response->status() === 400) {

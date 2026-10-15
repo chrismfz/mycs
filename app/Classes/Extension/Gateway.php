@@ -23,6 +23,16 @@ abstract class Gateway extends Extension
     abstract public function pay(Invoice $invoice, $total);
 
     /**
+     * Whether pay() and charge() carry the customer's Mass Pay group ($invoice->payingGroup, PR F2) to the provider and
+     * its payment comes back with it (ExtensionHelper::addPayment(..., paymentGroup:)). Only such a gateway is offered
+     * for a group: its payment is the one spread over the group's invoices, never a guess.
+     */
+    public function supportsPaymentGroups(): bool
+    {
+        return false;
+    }
+
+    /**
      * Check if gateway supports billing agreements.
      */
     public function supportsBillingAgreements(): bool
