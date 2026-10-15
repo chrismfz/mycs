@@ -11,6 +11,9 @@ use App\Models\Product;
 use App\Models\TaxRate;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
+use MyCS\BillingPeriod\Prorata;
 use MyCS\Pricing\Discount;
 use MyCS\Pricing\LinePrice;
 use MyCS\Pricing\LinePricer;
@@ -86,6 +89,39 @@ final class OrderPricing
     public static function line(array $catalog, ?Discount $discount, ?Client $client, ?Product $product = null): LinePrice
     {
         return LinePricer::price($catalog['price'], $catalog['setup_fee'], $discount, self::taxRate($client, $product), self::taxMode());
+    }
+
+    /**
+     * The first period of a pro rata product's service ordered on $start (decision 3, PR D): to the product's day, and the
+     * next full period too when ordered on or after its «charge next month» day. Null when the product does not prorate
+     * this plan (the period then starts when it is paid, docs/billing-cursor.md).
+     *
+     * @return array{start: CarbonImmutable, end: CarbonImmutable}|null
+     */
+    public static function firstPeriod(Product $product, Plan $plan, CarbonInterface $start): ?array
+    {
+        if (!$product->proratesPlan($plan)) {
+            return null;
+        }
+        $start = CarbonImmutable::instance($start)->startOfDay();
+        $period = Prorata::firstPeriod($start, (string) $plan->billing_unit, (int) $plan->billing_period, (int) $product->prorata_day, $product->prorata_next_after_day);
+
+        return ['start' => $start, 'end' => $period['end']];
+    }
+
+    /**
+     * One unit's first invoice, net (Δ1: the invoice line adds its tax): the (discounted) price, or staff's, and the setup
+     * fee. A pro rata product's price is for its first period, to its day (decision 3, PR D).
+     */
+    public static function firstPaymentNet(LinePrice $price, Product $product, Plan $plan, CarbonInterface $start, ?string $staffPrice = null): string
+    {
+        $recurring = $staffPrice ?? $price->netPrice;
+        if ($product->proratesPlan($plan)) {
+            $recurring = Prorata::firstPrice((string) BigDecimal::of($recurring)->toScale(2, RoundingMode::HalfUp), $start,
+                (string) $plan->billing_unit, (int) $plan->billing_period, (int) $product->prorata_day, $product->prorata_next_after_day);
+        }
+
+        return (string) BigDecimal::of($recurring)->plus($price->netSetupFee)->toScale(2, RoundingMode::HalfUp);
     }
 
     /**

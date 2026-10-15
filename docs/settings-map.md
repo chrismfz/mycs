@@ -141,6 +141,8 @@ nixpal (pilot). Τιμές από το `tblconfiguration` των δύο WHMCS, 2
 
 Ο importer **διαβάζει** αυτές τις ρυθμίσεις από το `tblconfiguration` και τις γράφει στο MyCS (μέρος του parity).
 
+- **Prorata Billing** (`tblproducts.proratabilling/proratadate/proratachargenextmonth`, nixpal 6 προϊόντα, μέρα 1 και 5, «charge next
+  month» 20) → `products.prorata_day`, `products.prorata_next_after_day` (PR D, απόφαση 3).
 - **Separate Invoices** (`tblclients.separateinvoices`, myip 3, nixpal 0) → `clients.separate_invoices`, ρύθμιση του πελάτη στο admin (PR C1).
 - **Disable Automatic CC Processing** (`tblclients.disableautocc`) → `clients.auto_charge` ανάποδα, και η προεπιλεγμένη μέθοδος
   πληρωμής του πελάτη → `clients.default_billing_agreement_id` (PR C2, απόφαση 6).

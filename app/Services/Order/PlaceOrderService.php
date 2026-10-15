@@ -89,7 +89,9 @@ final class PlaceOrderService
                 $service = $this->createService($order, $client, $currency, $line, $price, $fullPrice, $coupon);
                 // The hook for provisioning on order and for the product's custom fields (Σ1).
                 Ordered::dispatch($service, $line);
-                $firstPayment = $this->firstPayment($line, $price);
+                $firstPayment = OrderPricing::firstPaymentNet($price, $line->product, $line->plan, now(), $line->price);
+                // A pro rata product's first period is set now, to its day (decision 3, PR D); any other starts when paid.
+                $period = OrderPricing::firstPeriod($line->product, $line->plan, now());
 
                 if (BigDecimal::of($firstPayment)->isPositive()) {
                     // Made only when something is due (CART-7), with the lines priced in this transaction.
@@ -104,8 +106,11 @@ final class PlaceOrderService
                         'reference_type' => Service::class,
                         'price' => $firstPayment,
                         'quantity' => $line->quantity,
-                        'description' => $service->description,
-                    ]);
+                    ] + ($period === null ? ['description' => $service->description] : [
+                        'description' => $service->describeLine($period['start'], $period['end']),
+                        'period_start' => $period['start'],
+                        'period_end' => $period['end'],
+                    ]));
 
                     continue;
                 }
@@ -113,6 +118,10 @@ final class PlaceOrderService
                 // Nothing to pay: started now, the way a payment starts it (one activation path for Σ1: the period
                 // from the billing cursor, the server job after commit).
                 (new RenewServiceService)->handle($service);
+                if ($period !== null) {
+                    // A pro rata product's free first period still ends on its day (code review of PR D).
+                    $service->forceFill(['expires_at' => $period['end']])->save();
+                }
             }
 
             if ($invoice !== null) {
@@ -234,18 +243,5 @@ final class PlaceOrderService
         }
 
         return $service;
-    }
-
-    /**
-     * One unit's first invoice, net (Δ1: the line adds its tax): the (discounted) price and setup fee, or staff's price
-     * plus the setup fee.
-     */
-    private function firstPayment(OrderLine $line, LinePrice $price): string
-    {
-        if ($line->price !== null) {
-            return (string) BigDecimal::of($line->price)->plus($price->netSetupFee)->toScale(2);
-        }
-
-        return $price->firstPaymentNet();
     }
 }

@@ -603,6 +603,10 @@ class ImportFromWhmcs extends Command
             $upgrades = [];
 
             foreach ($records as $record) {
+                if (($record['proratabilling'] ?? 0) && (int) ($record['proratadate'] ?? 0) > 28) {
+                    // MyCS aligns to a day every month has (PR D): the parity check should show it.
+                    $this->warn("Product #{$record['id']}: pro rata day {$record['proratadate']} imported as 28.");
+                }
                 $data[] = [
                     'id' => $record['id'],
                     'category_id' => $record['gid'],
@@ -612,6 +616,11 @@ class ImportFromWhmcs extends Command
                     'hidden' => $record['hidden'],
                     // WHMCS «Apply Tax» (Δ1).
                     'taxable' => (bool) ($record['tax'] ?? true),
+                    // WHMCS «Prorata Billing» (decision 3, PR D): its day, and «charge next month» (over 31: never).
+                    'prorata_day' => ($record['proratabilling'] ?? 0) && (int) ($record['proratadate'] ?? 0) >= 1
+                        ? min((int) $record['proratadate'], 28) : null,
+                    'prorata_next_after_day' => ($record['proratabilling'] ?? 0) && (int) ($record['proratachargenextmonth'] ?? 0) >= 1
+                        && (int) $record['proratachargenextmonth'] <= 31 ? (int) $record['proratachargenextmonth'] : null,
                     // When its service is set up (Σ1-b): '' (never), on (Accept), order, payment.
                     'autosetup' => Product::AUTOSETUP_FROM_WHMCS[$record['autosetup'] ?? 'payment'] ?? Product::AUTOSETUP_PAYMENT,
                     'stock' => $record['stockcontrol'] ? $record['qty'] : null,

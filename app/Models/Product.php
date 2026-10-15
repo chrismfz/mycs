@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use MyCS\BillingPeriod\Prorata;
 use OwenIt\Auditing\Contracts\Auditable;
 
 class Product extends Model implements Auditable
@@ -39,6 +40,8 @@ class Product extends Model implements Auditable
 
     protected $casts = [
         'taxable' => 'boolean',
+        'prorata_day' => 'integer',
+        'prorata_next_after_day' => 'integer',
     ];
 
     protected $auditInclude = [
@@ -136,5 +139,16 @@ class Product extends Model implements Auditable
     public function upgradableConfigOptions(): HasManyThrough
     {
         return $this->hasManyThrough(ConfigOption::class, ConfigOptionProduct::class, 'product_id', 'id', 'id', 'config_option_id')->where('config_options.hidden', false)->where('config_options.upgradable', true)->orderBy('config_options.sort', 'asc')->orderBy('config_options.id', 'desc');
+    }
+
+    /**
+     * Its services of $plan renew on its pro rata day (decision 3, PR D): on, and a month or year cycle (a day or week
+     * cycle, a one-time or free plan has no day of the month to align to).
+     */
+    public function proratesPlan(?Plan $plan): bool
+    {
+        return $this->prorata_day !== null && $this->prorata_day >= 1 && $this->prorata_day <= Prorata::MAX_DAY
+            && $plan !== null && $plan->type === 'recurring'
+            && in_array($plan->billing_unit, ['month', 'year'], true) && (int) $plan->billing_period >= 1;
     }
 }

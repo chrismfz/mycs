@@ -109,7 +109,8 @@ class OrderResource extends Resource
                             ->prefix(fn (Get $get) => Currency::query()->find($get('../../currency_code'))?->prefix)
                             ->suffix(fn (Get $get) => Currency::query()->find($get('../../currency_code'))?->suffix)
                             ->placeholder(fn (Get $get) => self::catalogPrice($get) ?? 'Catalog price')
-                            ->helperText('Before tax: the invoice adds the client\'s tax. Empty: the catalog price. The setup fee is added to the first invoice. Options are not chosen here: add them on the service.'),
+                            // A pro rata product's first invoice is this price for the days to its day (PR D).
+                            ->helperText('The price it renews at, before tax: the invoice adds the client\'s tax. Empty: the catalog price. A pro rata product\'s first invoice is this price for the days up to its day. The setup fee is added to the first invoice. Options are not chosen here: add them on the service.'),
                     ]),
                 Repeater::make('services')
                     ->visibleOn('edit')
@@ -197,7 +198,11 @@ class OrderResource extends Resource
         }
         $line = OrderPricing::line($catalog, null, $get('../../client_id') ? Client::query()->find($get('../../client_id')) : null, $product);
 
-        return $line->netPrice . (BigDecimal::of($line->netSetupFee)->isPositive() ? " (+ {$line->netSetupFee} setup fee)" : '') . ' + tax';
+        $first = OrderPricing::firstPeriod($product, $plan, now());
+
+        return $line->netPrice . (BigDecimal::of($line->netSetupFee)->isPositive() ? " (+ {$line->netSetupFee} setup fee)" : '') . ' + tax'
+            // A pro rata product (decision 3, PR D): its first invoice is for the days to its day.
+            . ($first === null ? '' : '; first invoice pro rata to ' . $first['end']->toDateString());
     }
 
     /** Pending Orders (Σ1-b2): waiting for staff's Accept, or for a service to be set up. */

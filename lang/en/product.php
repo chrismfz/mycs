@@ -6,6 +6,7 @@ return [
     'checkout' => 'Checkout',
     'remove' => 'Remove',
     'empty_cart' => 'Your cart is empty',
+    'prorata_first_invoice' => 'Pro rata: the first invoice is :amount, for the days up to :date; it renews from that day on.',
     'total_today' => 'Total today',
     'subtotal' => 'Subtotal',
     'total' => 'Total',

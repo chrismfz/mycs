@@ -12,7 +12,6 @@ use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
-use MyCS\BillingPeriod\BillingPeriod;
 use MyCS\Pricing\LinePricer;
 use OwenIt\Auditing\Contracts\Auditable;
 
@@ -79,7 +78,7 @@ class ServiceUpgrade extends Model implements Auditable
             return $this->makePrice((float) (string) BigDecimal::max($difference, BigDecimal::zero())->toScale(2, RoundingMode::HalfUp));
         }
 
-        return $this->makePrice((float) BillingPeriod::remaining((string) $difference, $start, $service->expires_at, Carbon::now()));
+        return $this->makePrice((float) $service->remainingOf((string) $difference, $start, Carbon::now()));
     }
 
     /**
@@ -112,7 +111,7 @@ class ServiceUpgrade extends Model implements Auditable
 
         // A downgrade has an expiry (one without is never negative, calculatePrice).
         return $this->makePrice($start === null ? 0.0
-            : (float) BillingPeriod::remaining($difference, $start, $service->expires_at, Carbon::now()));
+            : (float) $service->remainingOf($difference, $start, Carbon::now()));
     }
 
     /**
