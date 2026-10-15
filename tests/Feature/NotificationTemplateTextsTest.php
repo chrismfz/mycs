@@ -50,6 +50,7 @@ class NotificationTemplateTextsTest extends TestCase
 
         return match ($key) {
             'new_login_detected' => ['ip' => '192.0.2.1', 'device' => 'Firefox', 'time' => '2026-10-14 10:00'],
+            'card_expiring' => ['method_name' => 'Visa 4242', 'expiry' => '11/2026'],
             'new_invoice_created', 'invoice_paid', 'invoice_payment_failed', 'invoice_payment_reminder', 'card_payment_due', 'invoice_modified' => ['invoice' => $invoice, 'items' => $invoice->items, 'total' => $invoice->formattedTotal, 'has_subscription' => false],
             'invoice_overdue' => ['invoice' => $invoice, 'items' => $invoice->items, 'total' => $invoice->formattedTotal, 'overdue' => ['days' => 3, 'last' => true, 'suspend_on' => '27/10/2026']],
             'credit_applied' => ['invoice' => $invoice, 'credit' => ['applied' => '$3.00', 'remaining' => '$7.00']],

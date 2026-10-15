@@ -33,6 +33,7 @@ use App\Services\Licensing\Licenses;
 use App\Services\Mcp\Proposals;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Payment\AutoCharge;
+use App\Services\Payment\CardExpiryNotices;
 use App\Services\Service\RenewServiceService;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use App\Support\AfterCommit;
@@ -184,6 +185,13 @@ class CronJob extends Command
                 $this->successFullCharges += $charged;
 
                 return $charged;
+            }, transaction: false);
+
+            // Saved payment methods expiring this month (PR H2b, WHMCS CCDaySendExpiryNotices).
+            $this->runCronJob('card_expiry_notices', function () {
+                return (new CardExpiryNotices)->run(function (int $id, Throwable $e) {
+                    $this->failures["card_expiry_notices #{$id}"] = $e;
+                });
             }, transaction: false);
 
             $this->runCronJob('orders_cancelled', function ($number = 0) {

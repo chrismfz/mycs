@@ -147,3 +147,6 @@ nixpal (pilot). Τιμές από το `tblconfiguration` των δύο WHMCS, 2
 - **Disable Automatic CC Processing** (`tblclients.disableautocc`) → `clients.auto_charge` ανάποδα, και η προεπιλεγμένη μέθοδος
   πληρωμής του πελάτη → `clients.default_billing_agreement_id` (PR C2, απόφαση 6).
 - **Group Similar Line Items** (nixpal on) → **όχι**: οι γραμμές ανανέωσης είναι περίοδοι υπηρεσιών (`billing-cursor.md` §Ομαδοποίηση).
+
+PR H2b (2026-10-15): `cc_expiry_notice_day` (WHMCS `CCDaySendExpiryNotices`, 25 και στις δύο εταιρείες)· `paypal_legacy_receivers`
+(οι λογαριασμοί PayPal της εποχής του WHMCS, για το δίχτυ του IPN· nixpal και myip ο καθένας τους δικούς του).

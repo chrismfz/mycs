@@ -88,6 +88,7 @@ class TemplateRenderer
             'new_ticket' => route('tickets.create'),
             'password_reset' => route('password.request'),
             'security' => route('account.security'),
+            'payment_methods' => route('account.payment-methods'),
             'invoice' => $invoice instanceof Invoice ? route('invoices.show', $invoice) : null,
             'service' => $service instanceof Service ? route('services.show', $service) : null,
             'ticket' => $ticketMessage instanceof TicketMessage ? route('tickets.show', $ticketMessage->ticket_id) : null,

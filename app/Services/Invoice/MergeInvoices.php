@@ -49,6 +49,13 @@ final class MergeInvoices
 
             $label = '#' . ($target->number ?: $target->id);
             InvoiceLineMove::move(InvoiceItem::query()->whereIn('invoice_id', $sources->pluck('id'))->orderBy('id')->get(), $target);
+            // One kept from the cron's charge keeps the merged one from it (PR H2b, code review CR-2): its lines are not
+            // charged because they moved.
+            if ($invoices->contains(fn (Invoice $invoice) => (bool) $invoice->no_auto_charge) && !$target->no_auto_charge) {
+                Invoice::query()->whereKey($target->id)->update(['no_auto_charge' => true]);
+                $target->no_auto_charge = true;
+                $target->syncOriginalAttribute('no_auto_charge');
+            }
             $earliest = $invoices->min(fn (Invoice $invoice) => $invoice->due_at?->toDateString());
             if ($earliest !== null && $target->due_at?->toDateString() !== $earliest) {
                 $target->update(['due_at' => $earliest]);
