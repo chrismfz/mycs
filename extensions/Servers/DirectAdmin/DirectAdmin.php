@@ -8,6 +8,7 @@ use App\Models\Service;
 use App\Rules\Domain;
 use Exception;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 
 #[ExtensionMeta(
     name: 'DirectAdmin',
@@ -162,8 +163,9 @@ class DirectAdmin extends Server
      */
     public function createServer(Service $service, $settings, $properties)
     {
-        $password = substr(str_shuffle(str_repeat($x = 'abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ(!@.$%', ceil(10 / strlen($x)))), 1, 12);
-        $username = substr(str_shuffle(str_repeat($x = 'abcdefghijklmnopqrstuvwxyz', ceil(8 / strlen($x)))), 1, 8);
+        // A CSPRNG (str_shuffle is not one: sweep §6 #16); the symbols DirectAdmin accepts.
+        $password = Str::password(16, symbols: false) . '!';
+        $username = chr(random_int(97, 122)) . Str::lower(Str::random(7)); // a letter first, as DirectAdmin wants
         $settings = array_merge($settings, $properties);
 
         if (isset($settings['ip'])) {
@@ -200,12 +202,9 @@ class DirectAdmin extends Server
             'value' => $username,
         ]);
 
-        $service->properties()->updateOrCreate([
-            'key' => 'directadmin_password',
-        ], [
-            'name' => 'DirectAdmin password',
-            'value' => $password,
-        ]);
+        // The password goes to the service's own field, encrypted and kept out of audits and serialization, not to a
+        // property (stored in clear, audited, shown to staff: sweep §6 #2). Modules read it back as `password`.
+        $service->forceFill(['username' => $username, 'password' => $password])->save();
 
         return [
             'username' => $username,
@@ -290,15 +289,16 @@ class DirectAdmin extends Server
             throw new Exception('Error terminating DirectAdmin account: ' . $response['text']);
         }
 
-        // Delete the properties
-        $service->properties()->where('key', 'directadmin_username')->delete();
+        // Delete the properties, and the login with them
+        $service->properties()->whereIn('key', ['directadmin_username', 'directadmin_password'])->delete();
+        $service->forceFill(['password' => null])->save();
 
         return true;
     }
 
     public function getActions(Service $service, $settings, $properties): array
     {
-        if (!isset($properties['directadmin_username'], $properties['directadmin_password'])) {
+        if (!isset($properties['directadmin_username']) || self::password($properties) === null) {
             return [];
         }
 
@@ -315,11 +315,11 @@ class DirectAdmin extends Server
 
     public function ssoLink(Service $service, $settings, $properties): string
     {
-        if (!isset($properties['directadmin_username'], $properties['directadmin_password'])) {
+        if (!isset($properties['directadmin_username']) || self::password($properties) === null) {
             return '';
         }
 
-        $response = Http::withBasicAuth($properties['directadmin_username'], $properties['directadmin_password'])
+        $response = Http::withBasicAuth($properties['directadmin_username'], self::password($properties))
             ->post(rtrim($this->config('host'), '/') . '/CMD_API_LOGIN_KEYS', [
                 'action' => 'create',
                 'type' => 'one_time_url',
@@ -337,5 +337,13 @@ class DirectAdmin extends Server
         }
 
         return $response['details'] ?? '';
+    }
+
+    /** The account's password: the service's own (encrypted) field; a property only on accounts made before. */
+    private static function password(array $properties): ?string
+    {
+        $password = $properties['password'] ?? $properties['directadmin_password'] ?? null;
+
+        return is_string($password) && $password !== '' ? $password : null;
     }
 }

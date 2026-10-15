@@ -6,6 +6,7 @@ use App\Events\Setting\Retrieved;
 use App\Events\Setting\Saved;
 use App\Events\Setting\Saving;
 use App\Redactors\FullRedactor;
+use App\Support\Redact;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Support\Facades\Crypt;
 use OwenIt\Auditing\Contracts\Auditable;
@@ -89,5 +90,8 @@ class Setting extends Model implements Auditable
         static::saving(function (self $setting) {
             $setting->offsetUnset('scope');
         });
+        // The secrets the logs take out (Redact) are read again after a change.
+        static::saved(fn () => Redact::forget());
+        static::deleted(fn () => Redact::forget());
     }
 }

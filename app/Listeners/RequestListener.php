@@ -3,20 +3,19 @@
 namespace App\Listeners;
 
 use App\Models\DebugLog;
+use App\Support\Redact;
 use Illuminate\Http\Client\Events\ConnectionFailed;
 use Illuminate\Http\Client\Events\ResponseReceived;
 use Illuminate\Http\Client\Request;
 use Illuminate\Http\Client\Response;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\File\File;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 
-// Part of this code is from the Laravel Telescope package
+// Part of this code is from the Laravel Telescope package. Secrets are taken out with Redact (sweep §6 #12): keys at any
+// depth, the URL's query, cPanel session tokens and every stored secret.
 class RequestListener
 {
-    private const hiddenParamaters = ['authorization', 'password', 'password_confirmation'];
-
     /**
      * Handle the event.
      *
@@ -46,7 +45,7 @@ class RequestListener
             'type' => 'http',
             'context' => $this->encodeContext([
                 'method' => $event->request->method(),
-                'url' => $event->request->url(),
+                'url' => Redact::url($event->request->url()),
                 'headers' => $this->headers($event->request->headers()),
                 'payload' => $this->payload($this->input($event->request)),
                 'response' => 'Connection Failed',
@@ -65,7 +64,7 @@ class RequestListener
             'type' => 'http',
             'context' => $this->encodeContext([
                 'method' => $event->request->method(),
-                'url' => $event->request->url(),
+                'url' => Redact::url($event->request->url()),
                 'headers' => $this->headers($event->request->headers()),
                 'payload' => $this->payload($this->input($event->request)),
                 'response_status' => $event->response->status(),
@@ -121,17 +120,17 @@ class RequestListener
                 json_last_error() === JSON_ERROR_NONE
             ) {
                 return $this->contentWithinLimits($content)
-                    ? $this->hideParameters(json_decode($content, true), self::hiddenParamaters)
+                    ? Redact::array(json_decode($content, true))
                     : 'Hidden Content';
             }
 
             if (Str::startsWith(strtolower($response->header('Content-Type') ?? ''), 'text/plain')) {
-                return $this->contentWithinLimits($content) ? $content : 'Hidden Content';
+                return $this->contentWithinLimits($content) ? Redact::text($content) : 'Hidden Content';
             }
         }
 
         if ($response->redirect()) {
-            return 'Redirected to ' . $response->header('Location');
+            return 'Redirected to ' . Redact::url($response->header('Location'));
         }
 
         if (empty($content)) {
@@ -159,10 +158,7 @@ class RequestListener
 
         $headers = array_combine($headerNames, $headerValues);
 
-        return $this->hideParameters(
-            $headers,
-            self::hiddenParamaters
-        );
+        return Redact::array($headers);
     }
 
     /**
@@ -173,28 +169,7 @@ class RequestListener
      */
     protected function payload($payload)
     {
-        return $this->hideParameters(
-            $payload,
-            self::hiddenParamaters
-        );
-    }
-
-    /**
-     * Hide the given parameters.
-     *
-     * @param  array  $data
-     * @param  array  $hidden
-     * @return mixed
-     */
-    protected function hideParameters($data, $hidden)
-    {
-        foreach ($hidden as $parameter) {
-            if (Arr::get($data, $parameter)) {
-                Arr::set($data, $parameter, '********');
-            }
-        }
-
-        return $data;
+        return Redact::array($payload);
     }
 
     /**

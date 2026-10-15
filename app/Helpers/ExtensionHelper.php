@@ -25,6 +25,7 @@ use App\Models\PaymentGatewayEvent;
 use App\Models\Product;
 use App\Models\Server;
 use App\Models\Service;
+use App\Models\Setting;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
@@ -43,6 +44,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use OwenIt\Auditing\Events\AuditCustom;
 use ReflectionClass;
@@ -143,6 +145,65 @@ class ExtensionHelper
                 'encrypted' => $option['encrypted'] ?? false,
             ]);
         }
+    }
+
+    /**
+     * The keys of the secrets stored on an extension (encrypted settings with a value).
+     *
+     * @return list<string>
+     */
+    public static function storedSecretKeys(Extension $record): array
+    {
+        return $record->settings()->where('encrypted', true)->get()
+            ->filter(fn (Setting $setting) => $setting->value !== null && $setting->value !== '')->pluck('key')->values()->all();
+    }
+
+    /**
+     * A form's settings with every secret left empty filled from what is stored (the form never had it). Not when the form
+     * now points somewhere else (a host, an IP, a port, a URL changed: review R6): a stored root key is never sent to a
+     * host typed by someone who could not read it. Then it must be typed again.
+     *
+     * @param  array<string, mixed>  $values
+     * @return array<string, mixed>
+     *
+     * @throws ValidationException naming each secret to type again
+     */
+    public static function withStoredSecrets(?Extension $record, array $values): array
+    {
+        if ($record === null) {
+            return $values;
+        }
+        $stored = $record->settings->pluck('value', 'key');
+        $moved = collect($values)->keys()->filter(fn ($key) => preg_match('/host|^ip$|_ip$|port|url|endpoint|hostname|server/i', (string) $key)
+            && $stored->has($key) && (string) $stored[$key] !== (string) ($values[$key] ?? ''))->isNotEmpty();
+        $missing = [];
+        foreach ($record->settings->where('encrypted', true) as $setting) {
+            if (($values[$setting->key] ?? null) !== null && $values[$setting->key] !== '') {
+                continue;
+            }
+            if ($moved && $setting->value !== null && $setting->value !== '') {
+                $missing['data.settings.' . $setting->key] = __('The address changed: enter this secret again.');
+
+                continue;
+            }
+            $values[$setting->key] = $setting->value;
+        }
+        if ($missing !== []) {
+            throw ValidationException::withMessages($missing);
+        }
+
+        return $values;
+    }
+
+    /** A form's settings, a stored secret left out (sweep §6 #4): the page never gets it. */
+    public static function settingsForForm(Extension $record): array
+    {
+        $values = [];
+        foreach ($record->settings as $setting) {
+            $values[$setting->key] = $setting->encrypted ? null : $setting->value;
+        }
+
+        return $values;
     }
 
     /**
@@ -316,16 +377,22 @@ class ExtensionHelper
      * @param  Extension  $extension
      * @return object
      */
-    public static function getConfigAsInputs(string $type, ?string $name, $config = [])
+    public static function getConfigAsInputs(string $type, ?string $name, $config = [], ?Extension $record = null)
     {
         if (!$name) {
             return [];
         }
 
         $settings = [];
+        $stored = $record === null ? [] : self::storedSecretKeys($record);
 
         try {
-            foreach (self::getConfig($type, $name, $config) as $key => $config) {
+            foreach (self::getConfig($type, $name, rescue(fn () => self::withStoredSecrets($record, (array) $config), (array) $config, false)) as $key => $config) {
+                // A secret already stored is not sent to the page (sweep §6 #4): left empty, it is kept.
+                if (($config['encrypted'] ?? false) && in_array($config['name'], $stored, true)) {
+                    $config['required'] = false;
+                    $config['placeholder'] = __('Stored: leave empty to keep it');
+                }
                 $config['name'] = 'settings.' . $config['name'];
                 $settings[] = FilamentInput::convert($config);
             }

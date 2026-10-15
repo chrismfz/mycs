@@ -19,6 +19,7 @@ use App\Models\ServiceCancellation;
 use App\Models\TicketMessage;
 use App\Models\User;
 use App\Services\Invoice\PaymentReminders;
+use App\Support\Redact;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Cache;
@@ -56,6 +57,22 @@ class NotificationHelper
     }
 
     /**
+     * The mail as the log keeps it: rendered again with every secret of its data (under a secret's name: service_password,
+     * a module's password) replaced, not searched for afterwards (Markdown and escaping change how a password reads:
+     * review R1). Without secrets, the mail itself.
+     */
+    private static function bodyForLog(Mail $mail, NotificationTemplate $template, array $data): string
+    {
+        $secrets = array_filter($data, fn ($value, $key) => Redact::isSecretKey($key) && is_string($value) && $value !== '', ARRAY_FILTER_USE_BOTH);
+        if ($secrets === []) {
+            return $mail->render();
+        }
+        $masked = (new Mail($template, array_merge($data, array_fill_keys(array_keys($secrets), Redact::MASK))))->locale($mail->locale);
+
+        return Redact::values($masked->render(), $secrets);
+    }
+
+    /**
      * Send an email notification.
      */
     public static function sendEmailNotification(
@@ -68,11 +85,13 @@ class NotificationHelper
         // Rendered (header and footer too) in the language it was written in, also by the queue worker.
         $mail->locale(app()->getLocale());
 
+        // The log keeps the mail without its secrets (sweep §6 #10): the welcome mail's password, or what a module gave
+        // under a secret's name. The customer's mail keeps them.
         $emailLog = EmailLog::create([
             'client_id' => self::$account?->id,
             'subject' => $mail->envelope()->subject,
             'to' => $user->email,
-            'body' => $mail->render(),
+            'body' => self::bodyForLog($mail, $notificationTemplate, $data),
         ]);
 
         // Add the email log id to the payload
