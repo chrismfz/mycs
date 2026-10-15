@@ -8,7 +8,10 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
 
-/** Its license's access log (WHMCS's mod_licensinglog, 90 days): every check zlic.php answered, and reissues. */
+/**
+ * Its license's access log (WHMCS's mod_licensinglog, 90 days): the failed checks as WHMCS logs them, one «License Active»
+ * a day per address (beyond WHMCS), and reissues.
+ */
 class LicenseAccessLogsRelationManager extends RelationManager
 {
     protected static string $relationship = 'licenseAccessLogs';

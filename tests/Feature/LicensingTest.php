@@ -17,7 +17,9 @@ use App\Services\Licensing\Licenses;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -127,6 +129,52 @@ class LicensingTest extends TestCase
         $day = DB::table('license_check_days')->where('license_id', $license->id)->sole();
         $this->assertSame([2, 1], [(int) $day->ok, (int) $day->failed]);
         Carbon::setTestNow();
+    }
+
+    public function test_a_good_check_is_in_the_access_log_once_a_day(): void
+    {
+        Carbon::setTestNow('2026-10-20 10:00:00');
+        ExtensionHelper::createServer($this->service);
+        $key = License::query()->sole()->license_key;
+
+        $this->check($key);
+        $this->check($key);
+        $this->assertSame(['License Active'], LicenseAccessLog::query()->pluck('message')->all(), 'one a day, not one a check');
+        $this->assertSame('198.51.100.7', LicenseAccessLog::query()->value('ip'));
+
+        $this->assertSame(License::query()->sole()->valid_domain, LicenseAccessLog::query()->value('domain'), 'the binding it answered for');
+
+        $this->check($key, psk: 'wrong');
+        $this->assertSame(1, LicenseAccessLog::query()->where('message', 'License Active')->count(), 'a refused check is not one');
+        Setting::query()->where('key', 'allow_ip_conflict')->delete();
+        (new Setting)->forceFill(['key' => 'allow_ip_conflict', 'value' => '1', 'type' => 'boolean', 'settingable_id' => $this->service->product_id,
+            'settingable_type' => $this->service->product->getMorphClass()])->save();
+        $this->check($key, ip: '203.0.113.9');
+        $this->assertSame(2, LicenseAccessLog::query()->where('message', 'License Active')->count(), 'per address');
+
+        ExtensionHelper::suspendServer($this->service->fresh());
+        $this->check($key);
+        ExtensionHelper::unsuspendServer($this->service->fresh());
+        $this->check($key);
+        $this->assertSame(['License Active', 'License Active', 'License Suspended'], LicenseAccessLog::query()->whereIn('message', ['License Active', 'License Suspended'])->orderBy('message')->pluck('message')->all(),
+            'the same day: one of each, no shared dedupe');
+
+        Carbon::setTestNow('2026-10-21 10:00:00');
+        $this->check($key);
+        $this->assertSame(3, LicenseAccessLog::query()->where('message', 'License Active')->count());
+        Carbon::setTestNow();
+    }
+
+    public function test_a_failed_log_write_never_changes_the_answer(): void
+    {
+        ExtensionHelper::createServer($this->service);
+        $key = License::query()->sole()->license_key;
+        $expected = $this->check($key)['status'];
+        Cache::flush(); // the day's row not yet written
+        Schema::drop('license_access_logs');
+
+        $this->assertSame($expected, $this->check($key)['status']);
+        $this->assertSame(2, (int) DB::table('license_check_days')->value('ok'), 'counted before the log write');
     }
 
     public function test_the_access_log_is_pruned_after_90_days(): void
