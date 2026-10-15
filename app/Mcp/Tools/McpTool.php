@@ -4,10 +4,14 @@ namespace App\Mcp\Tools;
 
 use App\Http\Middleware\McpAuth;
 use App\Models\ApiKey;
+use App\Models\License;
 use App\Models\McpCall;
 use App\Models\Staff;
+use App\Services\Ops\NotFound;
 use App\Services\Ops\Scrub;
+use App\Support\CallerIp;
 use App\Support\Redact;
+use Illuminate\JsonSchema\JsonSchemaTypeFactory;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Tool;
@@ -37,6 +41,7 @@ abstract class McpTool extends Tool
     {
         $staff = $request->user();
         $started = hrtime(true);
+        $this->findKeys($request);
         if (!self::allowed($staff, $this->permission())) {
             $this->record($staff, $request, 'denied', null, $started);
 
@@ -45,8 +50,10 @@ abstract class McpTool extends Tool
         try {
             $data = $this->run($request);
         } catch (Throwable $e) {
-            report($e);
-            $message = (string) Scrub::text($e->getMessage());
+            if (!$e instanceof NotFound) {
+                report($e); // not a routine «no such record»
+            }
+            $message = $this->maskKeys((string) Scrub::text($e->getMessage()));
             $this->record($staff, $request, 'error', $message, $started);
 
             return Response::error($message !== '' ? $message : 'The tool failed.');
@@ -66,6 +73,39 @@ abstract class McpTool extends Tool
         return max(1, min($max, (int) ($request->get('limit') ?? $default)));
     }
 
+    /**
+     * The tool's own arguments only, each bounded, secrets masked, license keys as prefix…last4 (reviews MCP-R2, R3).
+     *
+     * @return array<string, mixed>
+     */
+    private function recordedArguments(Request $request): array
+    {
+        $names = array_keys($this->schema(new JsonSchemaTypeFactory));
+        $arguments = Redact::array(array_intersect_key($request->all(), array_flip($names)));
+
+        return array_map(fn ($value) => is_string($value) ? mb_substr($this->maskKeys($value), 0, 255) : (is_scalar($value) || $value === null ? $value : '[…]'), $arguments);
+    }
+
+    /** @var list<string> license keys among this call's arguments */
+    private array $keys = [];
+
+    /** A license key of this call (an argument, «No service <key>»): its prefix and last 4 (review MCP-R2). */
+    private function maskKeys(string $text): string
+    {
+        foreach ($this->keys as $key) {
+            $text = str_replace($key, (string) Scrub::licenseKey($key), $text);
+        }
+
+        return $text;
+    }
+
+    /** The arguments that are license keys, looked up (any format: imported keys are not all hex). */
+    private function findKeys(Request $request): void
+    {
+        $values = array_values(array_filter($request->all(), fn ($value) => is_string($value) && $value !== '' && mb_strlen($value) <= 191));
+        $this->keys = $values === [] ? [] : License::query()->whereIn('license_key', $values)->pluck('license_key')->all();
+    }
+
     private function record(mixed $staff, Request $request, string $outcome, ?string $error, int $started): void
     {
         try {
@@ -74,11 +114,11 @@ abstract class McpTool extends Tool
                 'staff_id' => $staff instanceof Staff ? $staff->id : null,
                 'api_key_id' => $key instanceof ApiKey ? $key->id : null,
                 'tool' => $this->name(),
-                'arguments' => Redact::array($request->all()),
+                'arguments' => $this->recordedArguments($request),
                 'outcome' => $outcome,
-                'error' => $error === null ? null : mb_substr($error, 0, 255),
+                'error' => $error === null ? null : mb_substr($this->maskKeys($error), 0, 255),
                 'duration_ms' => (int) ((hrtime(true) - $started) / 1_000_000),
-                'ip' => request()->ip(),
+                'ip' => CallerIp::of(request()),
                 'created_at' => now(),
             ]);
         } catch (Throwable $e) {

@@ -13,8 +13,15 @@ The design follows Ekdosi's (laravel/mcp, a server class, one tool per question)
 - **How:** the client sends the key as `Authorization: Bearer <key>`, and the request acts as that member of staff.
 - **Per tool:** each tool is offered only to a role that may see what it shows. For example, `invoice` needs View
   Invoices.
-- **Recorded:** every call (staff, key, tool, arguments with secrets masked, outcome, duration) goes to **Other → MCP
-  Calls**, kept 90 days.
+- **What a key opens:** the MCP, and in it what its owner's role may see. The key's own API permissions do not narrow
+  the tools further: most tools have no API permission of their own. For a narrower agent, give it a key of a member of
+  staff with a narrower role.
+- **Recorded:** every call that reaches a tool goes to **Other → MCP Calls**, kept 90 days. The row has the staff, the
+  key, the tool, its own arguments (bounded; secrets masked; license keys as prefix…last4), the outcome and the
+  duration. A tool the role may not use is not offered at all, so a call to it ends as «not found», before any tool
+  runs.
+- **Addresses:** the key's IP allowlist and the recorded address use the connection's address. A caller cannot name
+  its own in X-Forwarded-For, even with «trust all proxies» (`App\Support\CallerIp`, as zlic.php and the admin API).
 - **No OAuth yet.** The claude.ai web connector needs OAuth. MyCS's Passport serves the customers, so the connector
   needs its own staff guard and consent screen first. That comes later, as its own PR.
 

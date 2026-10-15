@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Services\Licensing\LicenseActivity;
 use App\Services\Licensing\MycsLicenseRepository;
+use App\Support\CallerIp;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Nixpal\Licensing\Zlic;
@@ -23,7 +24,7 @@ class ZlicController extends Controller
     {
         // Strings only (review ADV-L5): «license[]=…» is a missing parameter, as for zlic.php, not an exception.
         $params = array_filter($request->post() + $request->query(), 'is_string');
-        $ip = self::callerIp($request);
+        $ip = CallerIp::of($request);
         try {
             $response = (new Zlic(new MycsLicenseRepository, null, null, null, self::DIRECTORY))->handle($params, $ip);
         } catch (Throwable $e) {
@@ -42,17 +43,5 @@ class ZlicController extends Controller
         }
 
         return response($response->json(), $response->httpStatus, ['Content-Type' => 'application/json']);
-    }
-
-    /**
-     * The address the license is bound to and checked against: the connection's, unless it comes through a proxy staff
-     * listed by address (review ADV-L3). «Trust all proxies» (*) would let any caller name its address in
-     * X-Forwarded-For and pass the IP binding, the one per-customer check.
-     */
-    private static function callerIp(Request $request): string
-    {
-        $proxies = (array) config('settings.trusted_proxies', []);
-
-        return in_array('*', $proxies, true) ? (string) $request->server('REMOTE_ADDR') : (string) $request->ip();
     }
 }

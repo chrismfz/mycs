@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Classes\PermissionGuard;
 use App\Models\ApiKey;
+use App\Support\CallerIp;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -32,7 +33,8 @@ class McpAuth
         if ($key === null) {
             return self::deny(401, 'The API key is invalid or disabled.');
         }
-        if ($key->type !== 'admin' || ($key->ip_addresses && !in_array($request->ip(), $key->ip_addresses, true))) {
+        // The connection's address, never one a caller names in X-Forwarded-For (review MCP-R1).
+        if ($key->type !== 'admin' || ($key->ip_addresses && !in_array(CallerIp::of($request), $key->ip_addresses, true))) {
             return self::deny(403, 'This key may not be used from here.');
         }
         $staff = $key->staff;

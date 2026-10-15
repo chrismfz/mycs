@@ -4,6 +4,7 @@ namespace App\Http\Middleware\Api;
 
 use App\Classes\PermissionGuard;
 use App\Models\ApiKey;
+use App\Support\CallerIp;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -29,7 +30,7 @@ class AdminApi
             });
 
         // Check if the token is of type 'admin'
-        if ($token->type !== 'admin' || ($token->ip_addresses && !in_array($request->ip(), $token->ip_addresses))) {
+        if ($token->type !== 'admin' || ($token->ip_addresses && !in_array(CallerIp::of($request), $token->ip_addresses))) {
             abort(403, 'You do not have permission to access this resource.');
         }
 
