@@ -17,11 +17,13 @@ use App\Models\Service;
 use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\MergeInvoices;
+use App\Services\Invoice\PaymentReminders;
 use App\Services\Invoice\SplitInvoice;
 use App\Services\Payment\AutoCharge;
 use App\Services\Payment\CardExpiryNotices;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -163,7 +165,7 @@ class AutoChargeExtrasAdversarialTest extends TestCase
         $invoice = $this->invoice('2026-11-15');
         $this->flag($invoice);
 
-        $this->assertFalse(\App\Services\Invoice\PaymentReminders::chargedOnItsOwn($invoice->fresh()));
+        $this->assertFalse(PaymentReminders::chargedOnItsOwn($invoice->fresh()));
     }
 
     /**
@@ -354,7 +356,7 @@ class AutoChargeExtrasAdversarialTest extends TestCase
      */
     public function test_adv3_forged_requests_do_not_use_up_the_budget_of_a_genuine_ipn(): void
     {
-        Http::fake(fn (\Illuminate\Http\Client\Request $request) => str_contains($request->body(), 'txn_id=GENUINE')
+        Http::fake(fn (Request $request) => str_contains($request->body(), 'txn_id=GENUINE')
             ? Http::response('VERIFIED') : Http::response('INVALID'));
 
         for ($i = 0; $i < 30; $i++) {
