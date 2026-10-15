@@ -31,6 +31,8 @@ class PaymentGroup extends Model
         'total',
         'status',
         'invoice_transaction_id',
+        // A WHMCS Mass Pay parent invoice it was imported from (PR F3).
+        'whmcs_invoice_id',
     ];
 
     protected $casts = [
