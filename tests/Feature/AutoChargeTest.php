@@ -24,6 +24,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail as MailFacade;
+use Illuminate\Support\Str;
 use MyCS\Extensions\Gateways\AcPay\AcPay;
 use Tests\TestCase;
 
@@ -249,7 +250,7 @@ class AutoChargeTest extends TestCase
     public function test_a_charge_on_its_way_holds_the_invoice(): void
     {
         $invoice = $this->invoice('2026-11-10');
-        ChargeAttempt::query()->create(['key' => 'k1', 'invoice_id' => $invoice->id, 'client_id' => $this->client->id,
+        ChargeAttempt::query()->create(['key' => (string) Str::uuid(), 'invoice_id' => $invoice->id, 'client_id' => $this->client->id,
             'billing_agreement_id' => $this->agreement->id, 'amount' => 10, 'currency_code' => 'USD', 'source' => ChargeAttempt::SOURCE_CLIENT,
             'status' => ChargeAttempt::STATUS_STARTED, 'started_at' => now()]);
 
@@ -282,7 +283,7 @@ class AutoChargeTest extends TestCase
         $this->assertSame(ChargeAttempt::STATUS_FAILED, $declined->status);
         $this->assertSame(0, (int) $this->agreement->fresh()->failed_count, 'only the cron\'s declines count');
 
-        ChargeAttempt::query()->create(['key' => 'k-old', 'invoice_id' => $invoice->id, 'client_id' => $this->client->id,
+        ChargeAttempt::query()->create(['key' => (string) Str::uuid(), 'invoice_id' => $invoice->id, 'client_id' => $this->client->id,
             'billing_agreement_id' => $this->agreement->id, 'amount' => 10, 'currency_code' => 'USD', 'source' => ChargeAttempt::SOURCE_CLIENT,
             'status' => ChargeAttempt::STATUS_STARTED, 'started_at' => now()->subMinutes(ChargeAttempt::HOLD_MINUTES + 1)]);
         $this->paysWhenCharged();

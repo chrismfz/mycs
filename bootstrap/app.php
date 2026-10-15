@@ -32,10 +32,11 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->append(ProxyMiddleware::class);
         // zlic.php is a machine contract (CLAUDE.md, review ADV-L4/L7): answered during a deploy too (its own
-        // «Remote Check Failed» is what clients fall back on), and its input as sent, never trimmed or nulled.
+        // «Remote Check Failed» is what clients fall back on), and its input as sent, never trimmed or nulled. So is the
+        // Cardlink vPOS return: its digest signs the values as posted, an empty or padded one included (PR H2a, CR-1).
         $middleware->preventRequestsDuringMaintenance(except: ['zlic.php']);
-        $middleware->trimStrings(except: [fn ($request) => $request->is('zlic.php')]);
-        $middleware->convertEmptyStringsToNull(except: [fn ($request) => $request->is('zlic.php')]);
+        $middleware->trimStrings(except: [fn ($request) => $request->is('zlic.php', 'extensions/cardlink/return')]);
+        $middleware->convertEmptyStringsToNull(except: [fn ($request) => $request->is('zlic.php', 'extensions/cardlink/return')]);
         $middleware->alias([
             'has' => EnsureUserHasPermissions::class,
             'scope' => CheckTokenForAnyScope::class,
