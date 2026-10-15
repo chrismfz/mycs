@@ -88,6 +88,24 @@ class LicensingScreensTest extends TestCase
         $this->assertSame([License::STATUS_REISSUED, null, 1], [$this->license->status, $this->license->valid_ip, $this->license->reissues]);
     }
 
+    public function test_the_customer_sees_the_last_check_and_a_failure_newer_than_it(): void
+    {
+        $this->assertStringContainsString(__('services.license.never_checked'), $this->page($this->owner));
+
+        $this->license->update(['last_ok_at' => now()->subMinutes(5), 'last_failure_at' => now()->subHour(), 'last_failure' => 'IP Address Invalid (203.0.113.9)']);
+        $html = $this->page($this->owner);
+        $this->assertStringContainsString(now()->subMinutes(5)->diffForHumans(), $html);
+        $this->assertStringNotContainsString(__('services.license.failure_ip'), $html, 'an older failure the next good check put right');
+
+        $this->license->update(['last_failure_at' => now()->subMinute()]);
+        $html = $this->page($this->owner);
+        $this->assertStringContainsString(__('services.license.failure_ip'), $html, 'the reason, not the recorded text');
+        $this->assertStringNotContainsString('203.0.113.9', $html);
+
+        $this->license->update(['last_failure' => 'MD5 Checksum Verification Failed (198.51.100.7)']);
+        $this->assertStringContainsString(__('services.license.failure_other'), $this->page($this->owner));
+    }
+
     public function test_reissue_is_for_who_manages_the_service_within_what_the_product_allows(): void
     {
         $viewer = User::factory()->withoutClient()->create();
