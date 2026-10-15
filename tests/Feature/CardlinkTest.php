@@ -47,6 +47,7 @@ class CardlinkTest extends TestCase
             $this->gateway->settings()->updateOrCreate(['key' => $key], ['value' => $value]);
         }
         $this->cardlink()->boot();
+        app('router')->getRoutes()->refreshNameLookups(); // as after the extensions boot
     }
 
     /** @return array<string, string> */
