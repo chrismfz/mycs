@@ -109,7 +109,7 @@ class EditTicket extends EditRecord
                 TextEntry::make('client_id')
                     ->size(TextSize::Large)
                     ->formatStateUsing(fn ($record) => $record->client->name)
-                    ->url(fn ($record) => ClientResource::getUrl('edit', ['record' => $record->client]))
+                    ->url(fn ($record) => ClientResource::getUrl('view', ['record' => $record->client]))
                     ->label('Client'),
                 TextEntry::make('subject')
                     ->size(TextSize::Large)

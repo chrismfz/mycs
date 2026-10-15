@@ -3,6 +3,7 @@
 namespace App\Admin\Resources;
 
 use App\Admin\RelationManagers\EmailLogsRelationManager;
+use App\Admin\Resources\ClientResource\Pages\ClientSummaryPage;
 use App\Admin\Resources\ClientResource\Pages\CreateClient;
 use App\Admin\Resources\ClientResource\Pages\EditClient;
 use App\Admin\Resources\ClientResource\Pages\ListClients;
@@ -20,9 +21,11 @@ use App\Admin\Schemas\ContactForm;
 use App\Models\Client;
 use App\Models\Credit;
 use Filament\Actions\EditAction;
+use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
+use Filament\Pages\Enums\SubNavigationPosition;
 use Filament\Resources\Pages\Page;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Section;
@@ -49,6 +52,9 @@ class ClientResource extends Resource
     protected static string|\BackedEnum|null $activeNavigationIcon = 'ri-building-fill';
 
     protected static ?int $navigationSort = -1;
+
+    // The client's pages as WHMCS's tabs (Summary, Edit, Services, …), above the page.
+    protected static ?SubNavigationPosition $subNavigationPosition = SubNavigationPosition::Top;
 
     public static function getGloballySearchableAttributes(): array
     {
@@ -147,6 +153,7 @@ class ClientResource extends Resource
                     ->query(fn ($query) => $query->whereHas('services', fn ($q) => $q->where('status', 'active'))),
             ])
             ->recordActions([
+                ViewAction::make()->label(__('Summary')),
                 EditAction::make(),
             ])
             ->defaultSort('id', 'desc');
@@ -168,6 +175,7 @@ class ClientResource extends Resource
         return [
             'index' => ListClients::route('/'),
             'create' => CreateClient::route('/create'),
+            'view' => ClientSummaryPage::route('/{record}'),
             'edit' => EditClient::route('/{record}/edit'),
             'services' => ShowServices::route('/{record}/services'),
             'invoices' => ShowInvoices::route('/{record}/invoices'),
@@ -181,6 +189,7 @@ class ClientResource extends Resource
     public static function getRecordSubNavigation(Page $page): array
     {
         return $page->generateNavigationItems([
+            ClientSummaryPage::class,
             EditClient::class,
             ShowServices::class,
             ShowInvoices::class,

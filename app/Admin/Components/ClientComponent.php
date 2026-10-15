@@ -29,8 +29,10 @@ class ClientComponent extends Select
                 ->get()
                 ->mapWithKeys(fn (Client $client) => [$client->id => self::optionLabel($client)])
                 ->toArray())
-            ->hint(fn ($get) => $get($name ?? 'client_id') ? new HtmlString('<a href="' . ClientResource::getUrl('edit', ['record' => $get($name ?? 'client_id')]) . '" target="_blank">' . e(__('Go to Client')) . '</a>') : null)
+            ->hint(fn ($get) => $get($name ?? 'client_id') ? new HtmlString('<a href="' . ClientResource::getUrl('view', ['record' => $get($name ?? 'client_id')]) . '" target="_blank">' . e(__('Go to Client')) . '</a>') : null)
             ->live()
+            // «Create Invoice», «Add New Order», «Open New Ticket» from a client's Summary come with ?client_id=.
+            ->default(fn () => request()->integer('client_id') ?: null)
             ->required();
     }
 
