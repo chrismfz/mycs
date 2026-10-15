@@ -115,7 +115,7 @@ class ServiceResource extends Resource
                     ->default(1)
                     ->placeholder('Enter the quantity')
                     ->hidden(fn (?Service $record) => $record !== null && (int) $record->quantity <= 1
-                        && ($record->product?->allow_quantity ?? 'disabled') === 'disabled'),
+                        && ($record->product->allow_quantity ?? 'disabled') === 'disabled'),
                 DatePicker::make('expires_at')
                     ->label('Expires At')
                     ->required(fn (Get $get) => $get('plan')?->type != 'one-time' && $get('plan')?->type != 'free' && $get('status') !== 'pending')
