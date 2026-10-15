@@ -525,6 +525,10 @@ class ExtensionHelper
         if ($invoice->client_id === null || (int) $billingAgreement->client_id !== (int) $invoice->client_id) {
             throw new DisplayException(__('This payment method belongs to another account.'));
         }
+        // Removed by the customer (soft-deleted): never charged again.
+        if ($billingAgreement->trashed() || !BillingAgreement::query()->whereKey($billingAgreement->getKey())->exists()) {
+            throw new DisplayException(__('This payment method was removed.'));
+        }
 
         return self::getExtension('gateway', $gateway->extension, $gateway->settings)->charge($invoice, $invoice->remaining, $billingAgreement);
     }

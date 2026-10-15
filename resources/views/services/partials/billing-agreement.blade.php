@@ -4,7 +4,7 @@
     <!-- Auto paying using: the account's method (decision 6) -->
     <span class="mr-2">{{ __(key: 'services.auto_pay') }}:</span>
     <span class="text-base/50">{{ $agreement ? $agreement->name : __('services.auto_pay_not_configured') }}
-        @if(\App\Support\CurrentClient::allows('invoices'))
+        @if((int) $service->client_id === (int) \App\Support\CurrentClient::id() && \App\Support\CurrentClient::allows('invoices'))
         <a href="{{ route('account.payment-methods') }}" wire:navigate class="cursor-pointer">
             <x-ri-edit-line class="inline size-4 ml-1 text-base/50" />
         </a>

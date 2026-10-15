@@ -22,15 +22,17 @@ return new class extends Migration
     public function up(): void
     {
         $sqlite = DB::getDriverName() === 'sqlite';
-        Schema::table('clients', function (Blueprint $table) use ($sqlite) {
-            $table->unsignedBigInteger('default_billing_agreement_id')->nullable()->after('separate_invoices');
-            $table->boolean('auto_charge')->default(true)->after('default_billing_agreement_id');
-            if (!$sqlite) {
-                $table->foreign('default_billing_agreement_id')->references('id')->on('billing_agreements')->nullOnDelete();
-            }
-        });
+        if (!Schema::hasColumn('clients', 'default_billing_agreement_id')) { // re-runnable after a failure past this step
+            Schema::table('clients', function (Blueprint $table) use ($sqlite) {
+                $table->unsignedBigInteger('default_billing_agreement_id')->nullable()->after('separate_invoices');
+                $table->boolean('auto_charge')->default(true)->after('default_billing_agreement_id');
+                if (!$sqlite) {
+                    $table->foreign('default_billing_agreement_id')->references('id')->on('billing_agreements')->nullOnDelete();
+                }
+            });
+        }
 
-        $used = DB::table('services')
+        $used = !Schema::hasColumn('services', 'billing_agreement_id') ? collect() : DB::table('services')
             ->join('billing_agreements', 'billing_agreements.id', '=', 'services.billing_agreement_id')
             ->whereColumn('billing_agreements.client_id', 'services.client_id')
             ->whereNull('billing_agreements.deleted_at')
@@ -42,7 +44,7 @@ return new class extends Migration
             DB::table('clients')->where('id', $row->client_id)->update(['default_billing_agreement_id' => $row->billing_agreement_id]);
         }
 
-        if (!$sqlite) {
+        if (!$sqlite && Schema::hasColumn('services', 'billing_agreement_id')) {
             Schema::table('services', function (Blueprint $table) {
                 $table->dropConstrainedForeignId('billing_agreement_id');
             });
@@ -57,9 +59,11 @@ return new class extends Migration
                 $table->foreignId('billing_agreement_id')->nullable()->constrained('billing_agreements')->nullOnDelete();
             });
         }
-        // Back on the running services of accounts that charge automatically.
+        // Back on the running services of accounts that charge automatically, except gateway subscriptions. Lossy: services
+        // that had no method, or another, before up() cannot be told apart.
         foreach (DB::table('clients')->whereNotNull('default_billing_agreement_id')->where('auto_charge', true)->get(['id', 'default_billing_agreement_id']) as $client) {
             DB::table('services')->where('client_id', $client->id)->whereIn('status', ['active', 'suspended'])
+                ->where(fn ($query) => $query->whereNull('subscription_id')->orWhere('subscription_id', ''))
                 ->update(['billing_agreement_id' => $client->default_billing_agreement_id]);
         }
         Schema::table('clients', function (Blueprint $table) use ($sqlite) {

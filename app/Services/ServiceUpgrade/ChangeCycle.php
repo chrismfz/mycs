@@ -241,10 +241,10 @@ final class ChangeCycle
             return null;
         }
         // As a renewal (CronJob::billRenewal): the credit pays what it covers, then a saved payment method the rest (S2).
-        // The account's saved method (decision 6).
-        $agreement = $invoice->client?->autoChargeAgreement();
-        (new CreditAutoApply)->toInvoice($invoice, notify: $agreement === null);
+        // The account's saved method (decision 6), read again after the credit (a method removed meanwhile is not charged).
+        (new CreditAutoApply)->toInvoice($invoice, notify: $invoice->client?->autoChargeAgreement() === null);
         $invoice->refresh();
+        $agreement = $invoice->client?->fresh()?->autoChargeAgreement();
         if ($agreement !== null && $invoice->status === Invoice::STATUS_UNPAID) {
             try {
                 if ($agreement->gateway === null) {

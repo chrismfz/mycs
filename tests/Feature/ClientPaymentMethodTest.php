@@ -6,10 +6,12 @@ use App\Livewire\Client\PaymentMethods;
 use App\Livewire\Invoices\Show as InvoiceShow;
 use App\Models\BillingAgreement;
 use App\Models\Client;
+use App\Models\ClientUser;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\Service;
 use App\Models\User;
+use App\Support\CurrentClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -39,6 +41,54 @@ class ClientPaymentMethodTest extends TestCase
         $this->agreementOf($client, 'B');
 
         $this->assertSame($first->id, $client->fresh()->autoChargeAgreement()?->id);
+    }
+
+    public function test_removing_the_default_leaves_none_and_the_next_card_added_is_the_default(): void
+    {
+        $client = User::factory()->create()->client();
+        $first = $this->agreementOf($client, 'A');
+        $this->agreementOf($client, 'B');
+
+        $first->delete();
+        $this->assertNull($client->fresh()->default_billing_agreement_id, 'not another card the customer did not choose');
+
+        $next = $this->agreementOf($client, 'C');
+        $this->assertSame($next->id, (int) $client->fresh()->default_billing_agreement_id);
+    }
+
+    public function test_a_page_opened_for_one_account_does_not_change_another(): void
+    {
+        $user = User::factory()->create();
+        $a = $user->client();
+        $b = Client::factory()->ownedBy()->create();
+        ClientUser::query()->create(['client_id' => $b->id, 'user_id' => $user->id, 'granted_at' => now()]);
+        $this->actingAs($user);
+        $page = $this->livewireAs($user)->test(PaymentMethods::class);
+
+        $this->assertTrue(app(CurrentClient::class)->switchTo($b->id)); // another tab switched account
+        $page->set('autoCharge', false);
+
+        $this->assertTrue($a->fresh()->auto_charge);
+        $this->assertTrue($b->fresh()->auto_charge);
+    }
+
+    public function test_a_login_without_invoices_cannot_change_the_method(): void
+    {
+        $owner = User::factory()->create();
+        $client = $owner->client();
+        $this->agreementOf($client, 'A');
+        $second = $this->agreementOf($client, 'B');
+        $member = User::factory()->create();
+        ClientUser::query()->create(['client_id' => $client->id, 'user_id' => $member->id, 'granted_at' => now(), 'permissions' => ['tickets']]);
+        $this->actingAs($member);
+        $this->assertTrue(app(CurrentClient::class)->switchTo($client->id));
+
+        try {
+            $this->livewireAs($member)->test(PaymentMethods::class)->call('makeDefault', $second->ulid);
+        } catch (\Throwable) {
+        }
+
+        $this->assertNotSame($second->id, (int) $client->fresh()->default_billing_agreement_id);
     }
 
     public function test_the_customer_picks_the_method_and_turns_auto_charge_off(): void

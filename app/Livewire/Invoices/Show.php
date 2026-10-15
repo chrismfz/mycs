@@ -133,16 +133,6 @@ class Show extends Component
             return $this->payWithMethod($gatewayId);
         }
 
-        if ($this->setAsDefault) {
-            $agreement = $this->accountAgreements()->where('ulid', $this->selectedMethod)->first();
-            if (!$agreement) {
-                return $this->notify(__('Invalid payment method.'), 'error');
-            }
-            // The account's method for its renewals (decision 6), set by a login that may pay its invoices.
-            $this->invoice->client->update(['default_billing_agreement_id' => $agreement->id, 'auto_charge' => true]);
-            $this->notify(__('Default payment method has been updated for recurring services.'), 'success');
-        }
-
         return $this->payWithSavedMethod($this->selectedMethod);
     }
 
@@ -182,6 +172,12 @@ class Show extends Component
 
         if ($agreement->gateway === null || !in_array($agreement->gateway->id, array_column($this->paymentMethods, 'id'))) {
             return $this->notify(__('This payment method cannot be used for this invoice.'), 'error');
+        }
+
+        // The account's method for its renewals (decision 6), set by a login that may pay its invoices: one that can pay.
+        if ($this->setAsDefault && $this->recurringServices()->exists()) {
+            $this->invoice->client->update(['default_billing_agreement_id' => $agreement->id, 'auto_charge' => true]);
+            $this->notify(__('Default payment method has been updated for recurring services.'), 'success');
         }
 
         $success = ExtensionHelper::charge($agreement->gateway, $this->invoice, $agreement);

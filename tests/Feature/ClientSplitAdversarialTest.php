@@ -77,7 +77,7 @@ class ClientSplitAdversarialTest extends TestCase
      * and ExtensionHelper::charge never checks that the agreement is the invoice's account's. Money moves from the
      * account that trusted U to U's own account.
      */
-    public function test_bug_a_service_takes_the_payment_method_of_another_account(): void
+    public function test_holds_an_account_is_not_set_to_another_accounts_payment_method(): void
     {
         $owner = User::factory()->create();
         $b = $owner->client();

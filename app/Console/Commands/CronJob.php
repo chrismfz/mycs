@@ -827,11 +827,17 @@ class CronJob extends Command
         }
     }
 
-    /** The account's saved method pays its renewal invoice, after commit (DATA-9: a method gone, the customer is told). */
+    /**
+     * The account's saved method pays its renewal invoice, after commit (DATA-9: a method gone, the customer is told). Read
+     * again then (code review of C2): removed, replaced or with «Auto-charge» turned off meanwhile, it is not charged.
+     */
     private function chargeSavedMethod(Invoice $invoice, BillingAgreement $agreement): void
     {
         DB::afterCommit(function () use ($invoice, $agreement) {
             try {
+                if ((int) $invoice->client?->fresh()?->autoChargeAgreement()?->id !== (int) $agreement->id) {
+                    return;
+                }
                 if ($agreement->gateway === null) {
                     throw new DisplayException("Invoice #{$invoice->id}: the account's saved payment method is gone.");
                 }

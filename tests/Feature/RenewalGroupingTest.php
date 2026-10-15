@@ -247,6 +247,19 @@ class RenewalGroupingTest extends TestCase
         $this->assertSame([[(int) $invoice->id, '20.00']], GroupFake::$charges);
     }
 
+    public function test_a_method_removed_before_the_charge_is_not_charged(): void
+    {
+        // Code review of C2: the method is read again when the charge runs (after commit), not when the invoice is finished.
+        $agreement = $this->agreement();
+        $this->service();
+        Event::listen(Finalized::class, fn () => $agreement->fresh()?->delete()); // the customer removes it meanwhile
+
+        $this->cron();
+
+        $this->assertSame([], GroupFake::$charges);
+        $this->assertSame(Invoice::STATUS_UNPAID, $this->renewalInvoices()->sole()->status);
+    }
+
     public function test_auto_charge_off_charges_nothing(): void
     {
         $this->agreement();
