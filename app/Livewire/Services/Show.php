@@ -8,6 +8,7 @@ use App\Livewire\Component;
 use App\Models\ClientUser;
 use App\Models\Service;
 use App\Models\User;
+use App\Services\Licensing\Licenses;
 use App\Services\Money\MoneyTrail;
 use App\Services\ServiceUpgrade\ChangeCycle;
 use App\Support\Actor;
@@ -186,6 +187,43 @@ class Show extends Component
         $this->notify(__('Service label updated successfully'), 'success');
     }
 
+    /**
+     * The customer's Reissue (WHMCS «Reissue License»): who may manage the service, when the product allows it, under the
+     * limit (Licenses::canReissue, checked again under the lock). The next check binds the license to its new server.
+     */
+    public function reissueLicense(): void
+    {
+        $this->authorize('update', $this->service);
+        $license = $this->service->license;
+        if ($license === null) {
+            return;
+        }
+        try {
+            Licenses::reissue($license, (string) request()->ip());
+        } catch (DisplayException $e) {
+            $this->notify($e->getMessage(), 'error');
+
+            return;
+        }
+        $this->service->unsetRelation('license');
+        $this->notify(__('services.license.reissued'));
+    }
+
+    /**
+     * The custom fields the license reports (the product's «Custom Fields Reported», as zlic.php sends them).
+     *
+     * @return array<string, string>
+     */
+    private function licenseFields(): array
+    {
+        if ($this->service->license === null) {
+            return [];
+        }
+        $reported = array_filter(array_map('trim', explode(',', (string) (ExtensionHelper::settingsToArray($this->service->product->settings)['custom_fields'] ?? ''))));
+
+        return $this->service->properties()->whereIn('key', $reported)->where('value', '!=', '')->pluck('value', 'name')->all();
+    }
+
     public function changeView($view)
     {
         if (!$view) {
@@ -290,6 +328,7 @@ class Show extends Component
             'canEditContact' => $canEditContact,
             'canSeeContact' => $canEditContact || $this->canSeeContact(),
             'contactOptions' => $options,
+            'licenseFields' => $this->licenseFields(),
         ])->layoutData([
             'title' => 'Services',
             'sidebar' => true,

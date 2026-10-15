@@ -1,5 +1,5 @@
 {{-- The service's own details, as WHMCS's product details: domain, IPs and, for whoever may manage it, the login. --}}
-@if(filled($service->domain))
+@if(filled($service->domain) && $service->domain !== $service->license?->license_key)
 <div class="flex items-center text-base">
     <span class="mr-2">{{ __('services.domain') }}:</span>
     <span class="text-base/50">{{ $service->domain }}</span>

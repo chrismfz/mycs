@@ -746,6 +746,18 @@ class Service extends Model implements Auditable
         return $this->server_id !== null ? $this->server : $this->product?->server;
     }
 
+    /** @return HasManyThrough<LicenseAccessLog, License, $this> its license's access log */
+    public function licenseAccessLogs(): HasManyThrough
+    {
+        return $this->hasManyThrough(LicenseAccessLog::class, License::class);
+    }
+
+    /** @return HasOne<License, $this> its nixpal license (NixpalLicensing), if it has one */
+    public function license(): HasOne
+    {
+        return $this->hasOne(License::class);
+    }
+
     /** @return BelongsTo<Product, $this> */
     public function product(): BelongsTo
     {
