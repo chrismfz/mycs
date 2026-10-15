@@ -2,7 +2,6 @@
 
 namespace App\Classes;
 
-use MyCS\Vies\VatCountry;
 use App\Admin\Actions\ResetColorsAction;
 use App\Admin\Actions\SendTestEmailAction;
 use App\Helpers\TemplateRenderer;
@@ -17,6 +16,7 @@ use Exception;
 use Filament\Schemas\Components\Utilities\Get;
 use Illuminate\Support\Facades\Auth;
 use Minishlink\WebPush\VAPID;
+use MyCS\Vies\VatCountry;
 
 class Settings
 {

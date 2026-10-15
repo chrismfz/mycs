@@ -25,8 +25,6 @@ use Dedoc\Scramble\Scramble;
 use Dedoc\Scramble\Support\Generator\OpenApi;
 use Dedoc\Scramble\Support\Generator\SecurityScheme;
 use Exception;
-use MyCS\Vies\CurlTransport;
-use MyCS\Vies\Vies;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -48,6 +46,8 @@ use Illuminate\Support\Str;
 use Laravel\Passport\Passport;
 use League\CommonMark\Extension\Table\TableExtension;
 use Livewire\Livewire;
+use MyCS\Vies\CurlTransport;
+use MyCS\Vies\Vies;
 use SocialiteProviders\Discord\Provider;
 use SocialiteProviders\Manager\SocialiteWasCalled;
 

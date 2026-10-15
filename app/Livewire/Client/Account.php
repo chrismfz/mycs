@@ -2,12 +2,12 @@
 
 namespace App\Livewire\Client;
 
-use App\Services\Tax\EuVat;
 use App\Helpers\NotificationHelper;
 use App\Livewire\ComponentWithProperties;
 use App\Livewire\Traits\EditsContact;
 use App\Models\Client;
 use App\Models\User;
+use App\Services\Tax\EuVat;
 use App\Support\CurrentClient;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;

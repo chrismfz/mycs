@@ -2,11 +2,11 @@
 
 namespace App\Livewire\Client;
 
-use App\Services\Tax\EuVat;
 use App\Livewire\Component;
 use App\Livewire\Traits\EditsContact;
 use App\Models\Client;
 use App\Models\Contact;
+use App\Services\Tax\EuVat;
 use App\Support\CurrentClient;
 
 /**
