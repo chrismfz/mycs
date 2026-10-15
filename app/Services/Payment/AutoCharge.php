@@ -101,7 +101,7 @@ final class AutoCharge
             return false;
         }
         $cron = ChargeAttempt::query()->where('invoice_id', $invoice->id)->where('source', ChargeAttempt::SOURCE_CRON);
-        if ((clone $cron)->where('started_at', '>=', $today)->exists()) {
+        if ((clone $cron)->where('sent_at', '>=', $today)->exists()) {
             return false; // once a day, also when the cron runs twice
         }
         $offset = (int) $invoice->due_at->startOfDay()->diffInDays($today, false);
@@ -147,7 +147,7 @@ final class AutoCharge
     private function tellOfTakenNotRecorded(): void
     {
         $taken = ChargeAttempt::query()->where('status', ChargeAttempt::STATUS_SUCCEEDED)
-            ->whereBetween('started_at', [now()->subDays(SavedMethodCharge::TAKEN_HOLD_DAYS), now()->subHour()])->get()
+            ->whereBetween('sent_at', [now()->subDays(SavedMethodCharge::TAKEN_HOLD_DAYS), now()->subHour()])->get()
             ->reject(fn (ChargeAttempt $attempt) => SavedMethodCharge::recordedSince($attempt))
             ->filter(fn (ChargeAttempt $attempt) => Cache::add("autocharge-unrecorded:{$attempt->id}", true, now()->addDays(SavedMethodCharge::TAKEN_HOLD_DAYS + 1)));
         if ($taken->isNotEmpty()) {

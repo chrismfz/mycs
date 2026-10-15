@@ -21,7 +21,8 @@ use Illuminate\Support\Carbon;
  * @property string $source
  * @property string $status
  * @property string|null $error
- * @property Carbon $started_at
+ * @property Carbon $started_at the first time it was sent (its key's age)
+ * @property Carbon $sent_at the last time it was sent
  * @property Carbon|null $finished_at
  */
 class ChargeAttempt extends Model
@@ -61,14 +62,23 @@ class ChargeAttempt extends Model
 
     protected $fillable = [
         'key', 'invoice_id', 'client_id', 'billing_agreement_id', 'payment_group_id', 'amount', 'currency_code', 'source', 'status',
-        'error', 'started_at', 'finished_at',
+        'error', 'started_at', 'sent_at', 'finished_at',
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
         'started_at' => 'datetime',
+        'sent_at' => 'datetime',
         'finished_at' => 'datetime',
     ];
+
+    protected static function booted(): void
+    {
+        // Sent when it starts; sent_at moves on when an unknown outcome is sent again with its key.
+        static::creating(function (self $attempt) {
+            $attempt->sent_at ??= $attempt->started_at;
+        });
+    }
 
     /** @return BelongsTo<Invoice, $this> */
     public function invoice(): BelongsTo

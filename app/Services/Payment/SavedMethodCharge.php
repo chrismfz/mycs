@@ -54,7 +54,7 @@ final class SavedMethodCharge
             $unknown = ChargeAttempt::query()->where('invoice_id', $locked->id)->where('billing_agreement_id', $agreement->id)
                 ->where(fn ($query) => $query->where('status', ChargeAttempt::STATUS_UNKNOWN)
                     ->orWhere(fn ($stale) => $stale->where('status', ChargeAttempt::STATUS_STARTED)
-                        ->where('started_at', '<=', now()->subMinutes(ChargeAttempt::HOLD_MINUTES))))
+                        ->where('sent_at', '<=', now()->subMinutes(ChargeAttempt::HOLD_MINUTES))))
                 ->where('started_at', '>', now()->subHours(self::KEY_REUSE_HOURS))
                 ->latest('id')->first();
             if ($unknown !== null && RecordPaymentService::toCents($unknown->amount) !== $amount) {
@@ -64,7 +64,7 @@ final class SavedMethodCharge
                 throw new DisplayException(__('A payment for this invoice is already on its way.'));
             }
             if ($unknown !== null) {
-                $unknown->update(['status' => ChargeAttempt::STATUS_STARTED, 'source' => $source, 'error' => null, 'finished_at' => null]);
+                $unknown->update(['status' => ChargeAttempt::STATUS_STARTED, 'source' => $source, 'error' => null, 'sent_at' => now(), 'finished_at' => null]);
 
                 return $unknown;
             }
@@ -80,6 +80,7 @@ final class SavedMethodCharge
                 'source' => $source,
                 'status' => ChargeAttempt::STATUS_STARTED,
                 'started_at' => now(),
+                'sent_at' => now(),
             ]);
         });
 
@@ -120,14 +121,14 @@ final class SavedMethodCharge
         $ids = self::related($invoice, $group);
         $attempts = ChargeAttempt::query()->whereIn('invoice_id', $ids)->when($except !== null, fn ($query) => $query->whereKeyNot($except));
         $held = (clone $attempts)->where(fn ($query) => $query
-            ->where(fn ($started) => $started->where('status', ChargeAttempt::STATUS_STARTED)->where('started_at', '>', now()->subMinutes(ChargeAttempt::HOLD_MINUTES)))
+            ->where(fn ($started) => $started->where('status', ChargeAttempt::STATUS_STARTED)->where('sent_at', '>', now()->subMinutes(ChargeAttempt::HOLD_MINUTES)))
             ->orWhere(fn ($unknown) => $unknown->where('status', ChargeAttempt::STATUS_UNKNOWN)->where('started_at', '>', now()->subHours(self::KEY_REUSE_HOURS))))
             ->exists();
         if ($held) {
             return true;
         }
         // Taken by the gateway: held until a payment is recorded on its invoice after it.
-        foreach ((clone $attempts)->where('status', ChargeAttempt::STATUS_SUCCEEDED)->where('started_at', '>', now()->subDays(self::TAKEN_HOLD_DAYS))->get() as $taken) {
+        foreach ((clone $attempts)->where('status', ChargeAttempt::STATUS_SUCCEEDED)->where('sent_at', '>', now()->subDays(self::TAKEN_HOLD_DAYS))->get() as $taken) {
             if (!self::recordedSince($taken)) {
                 return true;
             }
@@ -136,11 +137,18 @@ final class SavedMethodCharge
         return InvoiceTransaction::query()->whereIn('invoice_id', $ids)->where('status', InvoiceTransactionStatus::Processing)->exists();
     }
 
-    /** A payment was recorded on the attempt's invoice since it was sent (from the gateway's answer or its webhook). */
+    /**
+     * The charge's payment was recorded (from the gateway's answer or its webhook): a payment on its invoice since it was
+     * sent, through its method's gateway, of at least its amount. Credit, a transfer staff record or a smaller payment is
+     * not it, and does not release the hold (code review CR-7).
+     */
     public static function recordedSince(ChargeAttempt $attempt): bool
     {
-        return InvoiceTransaction::query()->where('invoice_id', $attempt->invoice_id)
-            ->where('created_at', '>=', $attempt->started_at->copy()->subMinute())->exists();
+        $gatewayId = $attempt->billingAgreement?->gateway_id;
+
+        return $gatewayId !== null && InvoiceTransaction::query()->where('invoice_id', $attempt->invoice_id)
+            ->where('gateway_id', $gatewayId)->where('is_credit_transaction', false)->where('amount', '>=', $attempt->amount)
+            ->where('created_at', '>=', $attempt->sent_at->copy()->subMinute())->exists();
     }
 
     /** @return list<int> the invoice, and the invoices of the Mass Pay groups it is in (or of $group) */

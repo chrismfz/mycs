@@ -29,9 +29,11 @@ return new class extends Migration
             $table->string('status', 16);
             $table->string('error')->nullable();
             $table->timestamp('started_at');
+            // The last time it was sent: an unknown outcome sent again with its key counts as that day's charge (CR-8).
+            $table->timestamp('sent_at');
             $table->timestamp('finished_at')->nullable();
             $table->timestamps();
-            $table->index(['invoice_id', 'started_at']);
+            $table->index(['invoice_id', 'sent_at']);
         });
 
         Schema::table('billing_agreements', function (Blueprint $table) {
