@@ -39,6 +39,10 @@ class Extension extends Model implements Auditable
             if ($extension->type === 'server' && ($accounts = Server::liveAccountsOn($extension->id)) > 0) {
                 throw new ServerHasAccounts("Server «{$extension->name}» still has {$accounts} account(s): move them to another server or end them first.");
             }
+            // Nor one products make their accounts on (sweep §7): their next order would find no server.
+            if ($extension->type === 'server' && ($products = Product::query()->where('server_id', $extension->id)->count()) > 0) {
+                throw new ServerHasAccounts("Server «{$extension->name}» is the server of {$products} product(s): choose another server for them first.");
+            }
         });
     }
 

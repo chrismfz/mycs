@@ -117,7 +117,7 @@ class ServerAdapterFailureTest extends TestCase
             'suspend' => ['suspendServer', '/suspendacct'],
             'unsuspend' => ['unsuspendServer', '/unsuspendacct'],
             'terminate' => ['terminateServer', '/removeacct'],
-            'upgrade' => ['upgradeServer', '/modifyacct'],
+            'upgrade' => ['upgradeServer', '/changepackage'],
         ];
     }
 

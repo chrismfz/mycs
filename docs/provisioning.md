@@ -119,3 +119,22 @@
 - Test: κάθε πεδίο `password` στο `getConfig()` server/gateway είναι `encrypted`.
 - Μένει (εκτός PR): ο κωδικός στη σελίδα υπηρεσίας του πελάτη είναι ήδη στο HTML πίσω από «Show» (sweep §6 #7)· παλιά
   email logs με κωδικούς σβήνονται στις 90 μέρες.
+
+## Provisioning fixes (sweep §2, §4, §7)
+- **cPanel «Change Package» = WHM `changepackage` (`user`, `pkg`).** Το `modifyacct` με `plan` δεν άλλαζε ποτέ πακέτο:
+  το WHM το αγνοεί (μόνο ένα «Unrecognized modifyacct parameter» στο log του) και απαντά `result: 1`, «Account
+  Modified». Επαληθεύτηκε σε WHM 138 (virgo, λογαριασμός του ιδιοκτήτη, 2026-10-15):
+  - `modifyacct plan=…` → `result 1`, κανένα warning, το πακέτο ίδιο.
+  - `changepackage` → `result 1`, «OK», και στο `output.raw` τι άλλαξε· το πακέτο εφαρμόστηκε.
+  - λάθη → `result 0` και `reason` («API failure: (XID …) Specified package does not exist.», «You do not have a user
+    named “…”.»): exception, Pending Module Actions με αυτό το μήνυμα.
+  - **Ένα πακέτο χωρίς shell κόβει το shell** του λογαριασμού (και τα cron του). Πριν το cut-over: έλεγχος των
+    πακέτων του myip (`HASSHELL`) απέναντι στους λογαριασμούς που έχουν shell.
+- **cPanel create idempotent:** το username γράφεται πριν το `createacct` (`cpanel_pending_username`)· retry: αν ο WHM
+  έχει ήδη τον λογαριασμό (`accountsummary`), ολοκληρώνεται χωρίς δεύτερο· αλλιώς ξαναγίνεται με το ίδιο όνομα. Τα
+  suspend/terminate δεν βλέπουν το «pending» όνομα. Username: πεζά, γράμμα πρώτα, 8 χαρακτήρες.
+- `UpgradeJob` όχι σε υπηρεσία που τελείωσε. Upgrade μόνο σε προϊόν του ίδιου module (λίστα πελάτη και φόρμα
+  «Upgrades» του προϊόντος).
+- **Επιλογή server:** ο server του προϊόντος μόνο αν είναι enabled και έχει χώρο· αλλιώς το create αποτυγχάνει
+  (`NoServerWithRoom`, Pending Module Actions), δεν γεμίζει σιωπηλά. Group: servers ενός module. Δεν σβήνεται group
+  ή server που τον χρησιμοποιούν προϊόντα.

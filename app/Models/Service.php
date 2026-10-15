@@ -760,7 +760,14 @@ class Service extends Model implements Auditable
             return collect();
         }
 
-        return $this->product->upgrades->filter(function ($product): bool {
+        $module = $this->product->server?->extension;
+
+        return $this->product->upgrades->filter(function ($product) use ($module): bool {
+            // Only to a product of the same module (sweep §4, as Blesta): another module's would leave the account on the
+            // old server, alive, and fail the change.
+            if ($product->server?->extension !== $module) {
+                return false;
+            }
             // Check stock
             if ($product->stock !== null && ($product->stock - $this->quantity) < 0) {
                 return false;

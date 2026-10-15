@@ -144,11 +144,15 @@ class CPanel extends Server
      */
     public function createServer(Service $service, $settings, $properties)
     {
-        $username = Str::random();
-        // If first one is a number, add a letter
-        if (is_numeric($username[0])) {
-            $username = 'a' . substr($username, 1);
+        // Idempotent (sweep §2): the username is kept before the account is asked for, so a retry after a lost answer
+        // (a timeout once WHM made it) asks WHM whether that account exists instead of making a second one under a new
+        // name. Kept as «pending» until made: suspend/terminate never act on an account that may not exist.
+        $pending = $service->properties()->where('key', 'cpanel_pending_username')->value('value');
+        if (is_string($pending) && $pending !== '' && $this->accountExists($pending)) {
+            return $this->created($service, $pending, $properties); // made by the attempt whose answer was lost
         }
+        $username = is_string($pending) && $pending !== '' ? $pending : chr(random_int(97, 122)) . Str::lower(Str::random(7)); // a letter first, lowercase
+        $service->properties()->updateOrCreate(['key' => 'cpanel_pending_username'], ['name' => 'cPanel username (being created)', 'value' => $username]);
 
         $this->whm('/createacct', [
             'username' => $username,
@@ -157,14 +161,27 @@ class CPanel extends Server
             'plan' => $properties['package'] ?? $settings['package'],
         ]);
 
+        return $this->created($service, $username, $properties);
+    }
+
+    private function accountExists(string $username): bool
+    {
+        $json = $this->request('/accountsummary', 'get', ['api.version' => 1, 'user' => $username])->json();
+
+        return ($json['metadata']['result'] ?? null) === 1;
+    }
+
+    private function created(Service $service, string $username, array $properties): bool
+    {
         $service->properties()->updateOrCreate([
             'key' => 'cpanel_username',
         ], [
             'name' => 'cPanel username',
-            'value' => strtolower($username),
+            'value' => $username,
         ]);
+        $service->properties()->where('key', 'cpanel_pending_username')->delete();
         // The service's own fields too, as WHMCS keeps them (shown to staff and the customer, searched).
-        $service->forceFill(['username' => strtolower($username), 'domain' => $service->domain ?? $properties['domain']])->save();
+        $service->forceFill(['username' => $username, 'domain' => $service->domain ?? $properties['domain']])->save();
 
         return true;
     }
@@ -240,9 +257,11 @@ class CPanel extends Server
             throw new Exception('Service has not been created');
         }
 
-        $this->whm('/modifyacct', [
+        // WHM's «Change Package» (sweep §2/§4): modifyacct ignores a `plan` (an «Unrecognized modifyacct parameter»
+        // warning in WHM's log) and answers result 1, so the package never changed. Verified on WHM 138 (2026-10-15).
+        $this->whm('/changepackage', [
             'user' => $properties['cpanel_username'],
-            'plan' => $settings['package'],
+            'pkg' => $settings['package'],
         ]);
 
         return true;

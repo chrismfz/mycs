@@ -123,7 +123,17 @@ class ProductResource extends Resource
                                     ->relationship('upgrades', 'name', ignoreRecord: true)
                                     ->multiple()
                                     ->preload()
-                                    ->placeholder('Select the products that this product can upgrade to'),
+                                    ->placeholder('Select the products that this product can upgrade to')
+                                    // Only products of the same module (sweep §4): the account cannot move to another one.
+                                    ->rule(fn (Get $get) => function (string $attribute, mixed $value, \Closure $fail) use ($get) {
+                                        $module = $get('server_id') ? Server::query()->find($get('server_id'))?->extension : null;
+                                        $other = Product::query()->whereKey((array) $value)->with('server')->get()
+                                            ->reject(fn (Product $product) => $product->server?->extension === $module)->pluck('name');
+                                        if ($other->isNotEmpty()) {
+                                            $fail(__('Not of this product\'s module: :products', ['products' => $other->implode(', ')]));
+                                        }
+                                    })
+                                    ->helperText('Products of the same module only (the account stays on its server).'),
                             ]),
 
                         Tab::make('Server')

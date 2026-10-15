@@ -2,6 +2,7 @@
 
 namespace App\Services\Service;
 
+use App\Exceptions\NoServerWithRoom;
 use App\Models\Product;
 use App\Models\Server;
 use App\Models\ServerGroup;
@@ -11,7 +12,8 @@ use Illuminate\Support\Facades\DB;
 /**
  * The server a new account is created on (WHMCS): the product's group picks one by its fill rule, among its enabled
  * servers of the product's module with room under their max accounts; without a group (or none with room) the
- * product's own server, whose module the product's settings are for: a product without one gets none (review F3).
+ * product's own server, whose module the product's settings are for, if it is enabled and has room (sweep §7): a
+ * product without one gets none (review F3); one whose servers are all full or disabled fails its create.
  * Least full: the lowest share of max accounts, a server with no limit counting as empty, then the fewest accounts.
  * In order: the first with room.
  *
@@ -24,13 +26,16 @@ class ServerSelector
     {
         $group = $product->serverGroup;
         $module = $product->server?->extension;
-        if ($group === null || $module === null) {
-            return $product->server;
+        if ($module === null) {
+            return null; // no module, nothing to make an account on
         }
-        $candidates = $group->servers->filter(fn (Server $server) => $server->enabled
+        $candidates = $group === null ? collect() : $group->servers->filter(fn (Server $server) => $server->enabled
             && $server->extension === $module && $server->hasRoom())->values();
         if ($candidates->isEmpty()) {
-            return $product->server;
+            // The product's own server, only enabled and with room (sweep §7): else none, and the create says why.
+            $own = $product->server; // there is one: it gave the module
+
+            return $own->enabled && $own->hasRoom() ? $own : null;
         }
         if ($group->fill_type === ServerGroup::FILL_IN_ORDER) {
             return $candidates->first();
@@ -64,6 +69,10 @@ class ServerSelector
                 $server = self::forNewAccount($locked->product);
                 if ($server !== null) {
                     $locked->forceFill(['server_id' => $server->id])->save();
+                } elseif ($locked->product->server !== null) {
+                    // A module, but no server that may take it: a failure staff see (Pending Module Actions), never a
+                    // «nothing to do» that would start the service without an account.
+                    throw new NoServerWithRoom("No enabled server with room for «{$locked->product->name}»: raise a server's max accounts, enable one, or add one to its group.");
                 }
             }
             $service->setRawAttributes($locked->getAttributes(), true);
