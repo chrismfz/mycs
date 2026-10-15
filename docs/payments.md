@@ -530,5 +530,35 @@ context του συγγραφέα), οκτώ ευρήματα, όλα επιβε
   - Το staff παίρνει ένα συγκεντρωτικό mail ανά εκτέλεση με τις απορρίψεις.
   - Η υπενθύμιση πριν τη λήξη λέει «θα χρεωθεί» (`card_payment_due`) μόνο για τιμολόγιο που το cron θα χρεώσει
     (`AutoCharge::agreementFor`: όχι σε μέθοδο σταματημένη στο όριο, χωρίς gateway ή με εκκρεμή επιβεβαίωση, ADV-6).
-- **Μένουν για το H2:** gateway eurobank/Cardlink, ειδοποίηση λήξης κάρτας (μέρα 25, όπως το WHMCS), οι PayPal subscriptions
+- **Μένουν για το H2b:** ειδοποίηση λήξης κάρτας (μέρα 25, όπως το WHMCS), οι PayPal subscriptions
   του WHMCS (Π7.9), και flag «να μη χρεωθεί αυτόματα» ανά τιμολόγιο για το staff.
+
+## Cardlink / Eurobank (PR H2a, 2026-10-15)
+
+Το gateway `extensions/Gateways/Cardlink` πάνω στο `packages/cardlink-eurobank` (σχεδιασμός: `docs/history/blesta-modules/importer.md`
+«Cardlink / Eurobank»). Η hosted σελίδα της τράπεζας παίρνει κάρτα, Apple/Google Pay και **IRIS**· για εμάς είναι μία ροή, το
+`payMethod` του return κρατιέται στην παραγγελία. Μόνο EUR.
+
+- **Παραγγελία:** το `pay()` γράφει μια `cardlink_orders` (order id `<invoice>Inv<ymdHis><2 ψηφία>`, όπως το WHMCS: το portal
+  της τράπεζας διαβάζεται ίδια πριν και μετά): ποιο τιμολόγιο, ποιος πελάτης, ποιο Mass Pay group, ποσό, νόμισμα. Μετά
+  δείχνει τη φόρμα με το digest, που στέλνεται αμέσως στο vPOS. Αντί για το `ReturnTicket` του Blesta (HMAC στο query), η
+  παραγγελία είναι στη βάση: ένα return πληρώνει μόνο ό,τι γράφει η παραγγελία του, και ένα order id που δεν φτιάξαμε
+  εμείς δεν πληρώνει τίποτα (η ίδια προστασία απέναντι στα request digests ως oracle). Το query `?o=` του confirm URL
+  χρησιμοποιείται μόνο για να ξέρουμε σε ποιο τιμολόγιο να γυρίσει ο browser μετά από cancel.
+- **Return:** το vPOS στέλνει το αποτέλεσμα δύο φορές στο ίδιο URL (browser και server). Περνά από το `ReturnVerifier`
+  (fail-closed: άγνωστα πεδία, digest στη σταθερή σειρά, `mid` του τερματικού, `currency`). Απορριφθέν → 400, τίποτα
+  δεν γράφεται, το gateway log το κρατά με τα ονόματα των πεδίων.
+- **Μία πληρωμή:** CAPTURED → `addPayment` με transaction id = order id, άρα το δεύτερο σκέλος είναι replay
+  (RecordPaymentService, κάτω από το lock του τιμολογίου). Καταγράφεται το ποσό που υπέγραψε το vPOS ότι πήρε· αν διαφέρει
+  από την παραγγελία, το staff ειδοποιείται (ό,τι περισσεύει πάει πίστωση). Άλλο νόμισμα το απορρίπτει το RecordPaymentService.
+- **Status:** REFUSED / CANCELED / ERROR → τίποτα (η παραγγελία κρατά το status). Η αλλαγή status πάει μόνο μπροστά: μια
+  CAPTURED μένει CAPTURED. AUTHORIZED (δεν ζητάμε pre-authorisation) → τίποτα, και το staff ειδοποιείται να κάνει capture ή
+  void στο portal. CAPTURED για order id που δεν είναι δικό μας → τίποτα, και το staff ειδοποιείται (τα χρήματα πάρθηκαν).
+- **Browser:** μια μικρή σελίδα που τον στέλνει στο τιμολόγιο (με `?checkPayment` όταν πληρώθηκε)· το σκέλος του vPOS
+  παίρνει την ίδια σελίδα με 200. Το route είναι εκτός web group (χωρίς session ή CSRF· το return το υπογράφει το vPOS).
+- **Ρυθμίσεις:** merchant id, shared secret (κρυπτογραφημένο), test mode (μόνο το endpoint αλλάζει). Στο cut-over το
+  `cs.nixpal.com` / το domain του myip πρέπει να δηλωθεί στην Cardlink για τα confirm URLs.
+- **Δεν κάνει:** refunds (γίνονται στο portal της Cardlink και καταγράφονται από το staff), αποθηκευμένες κάρτες, auto-charge.
+- **Ανοιχτά (staging):** μία πραγματική πληρωμή 1-2 € με κάρτα και με IRIS στο test τερματικό, το background σκέλος
+  από τον server της Cardlink, και ότι το test τερματικό κρατά το query του confirm URL.
+

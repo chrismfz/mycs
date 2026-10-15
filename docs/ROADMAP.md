@@ -312,7 +312,8 @@ importer):
       με πρόσβαση σε >1 λογαριασμό, 93 λογαριασμοί με >1 χρήστη (+432 παλιά contacts)· στη nixpal 14 / 2.
       Το upstream δεν το έχει (χρήστης = πελάτης). Μοτίβο του Ekdosi (χρήστης ↔ εταιρείες με ρόλο/δικαιώματα),
       επιλογέας λογαριασμού στο client area, importer από `tblusers_clients` (2026-10-11).
-- [ ] **Eurobank/Cardlink + IRIS** (`packages/cardlink-eurobank`, με server-to-server returns): το 42% των πληρωμών.
+- [x] **Eurobank/Cardlink + IRIS** (`packages/cardlink-eurobank`, με server-to-server returns): το 42% των πληρωμών. PR H2a
+  (`docs/payments.md` «Cardlink / Eurobank»)· μένει μία πραγματική πληρωμή στο test τερματικό.
 - [ ] Έμβασμα + `payments_tracking` (αντιστοίχιση καταθέσεων από IMAP τράπεζας) πάνω στον allocator: ο πελάτης
       γράφει τον αριθμό προτιμολογίου στην αιτιολογία· αν ταιριάζει, mark paid το συγκεκριμένο τιμολόγιο (port του
       δικού μας κώδικα από το WHMCS).

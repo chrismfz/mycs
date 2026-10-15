@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Helpers\ExtensionHelper;
+use App\Livewire\Invoices\Show;
 use App\Models\EmailLog;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -279,5 +280,17 @@ class CardlinkTest extends TestCase
 
         $this->expectException(\App\Exceptions\DisplayException::class);
         (new Cardlink(['merchant_id' => Fixtures::MID, 'shared_secret' => '']))->pay($invoice, 25);
+    }
+
+    public function test_the_customer_is_sent_to_the_vpos_from_the_invoice(): void
+    {
+        $invoice = $this->invoice(25);
+
+        $this->livewireAs($this->user)->test(Show::class, ['invoice' => $invoice])
+            ->set('selectedMethod', 'gateway-' . $this->gateway->id)
+            ->call('processPayment')
+            ->assertSee('id="cardlink-form"', false)
+            ->assertSee('action="' . PaymentRequest::ENDPOINT_TEST . '"', false)
+            ->assertSee(CardlinkOrder::query()->sole()->order_id);
     }
 }
