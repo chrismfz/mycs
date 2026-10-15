@@ -7,6 +7,7 @@ use App\Admin\Resources\InvoiceResource\Pages\ListInvoices;
 use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
+use App\Models\Credit;
 use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
@@ -417,7 +418,7 @@ class PayInvoicesAdversarialTest extends TestCase
     {
         (new CreditLedger)->add($this->user->client()->id, 'USD', 5000, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'goodwill');
         $buy = Invoice::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'USD', 'due_at' => '2026-10-25', 'status' => Invoice::STATUS_UNPAID]);
-        $buy->items()->create(['description' => 'Account credit', 'price' => 20, 'quantity' => 1, 'reference_type' => \App\Models\Credit::class]);
+        $buy->items()->create(['description' => 'Account credit', 'price' => 20, 'quantity' => 1, 'reference_type' => Credit::class]);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
 
         $this->livewireAs(Staff::factory()->admin()->create())->test(EditInvoice::class, ['record' => $buy->id])->assertActionHidden('applyCredit');

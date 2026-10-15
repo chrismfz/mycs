@@ -7,6 +7,7 @@ use App\Models\Client;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -66,9 +67,9 @@ final class PayInvoices
      * The invoices, locked: their customer first, then each in id order (the one order every money path takes).
      *
      * @param  list<int>  $ids
-     * @return \Illuminate\Database\Eloquent\Collection<int, Invoice>
+     * @return Collection<int, Invoice>
      */
-    private static function lock(array $ids): \Illuminate\Database\Eloquent\Collection
+    private static function lock(array $ids): Collection
     {
         sort($ids);
         $clients = Invoice::query()->whereKey($ids)->distinct()->pluck('client_id');
