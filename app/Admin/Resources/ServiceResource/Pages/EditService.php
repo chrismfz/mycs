@@ -5,6 +5,7 @@ namespace App\Admin\Resources\ServiceResource\Pages;
 use App\Admin\Actions\AuditAction;
 use App\Admin\Resources\ServiceResource;
 use App\Exceptions\DisplayException;
+use App\Exceptions\NothingToDoOnServer;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Models\License;
@@ -192,10 +193,14 @@ class EditService extends EditRecord
                             case 'suspend':
                                 // A manual hold, saved before the adapter runs (pending/cancelled keep their status).
                                 $record->placeOnHold();
-                                $sdata = ExtensionHelper::suspendServer($record);
+                                $sdata = self::onServer(fn () => ExtensionHelper::suspendServer($record));
+                                if ($data['sendNotification'] && $record->status === Service::STATUS_SUSPENDED) {
+                                    // WHMCS's «Service Suspension Notification» on a manual suspend too (sweep modules §7).
+                                    NotificationHelper::serverSuspendedNotification($record->client, $record, is_array($sdata) ? $sdata : []);
+                                }
                                 break;
                             case 'unsuspend':
-                                $sdata = ExtensionHelper::unsuspendServer($record);
+                                $sdata = self::onServer(fn () => ExtensionHelper::unsuspendServer($record));
                                 // Only suspended -> active: a pending or cancelled service is not revived.
                                 if ($record->status === Service::STATUS_SUSPENDED) {
                                     $record->applyStaffChanges(['status' => Service::STATUS_ACTIVE]);
@@ -293,5 +298,15 @@ class EditService extends EditRecord
         return [
             ServiceResource\Widgets\CancellationOverview::class,
         ];
+    }
+
+    /** A service without a module (or a module without the action) is suspended or unsuspended here only, as the jobs do. */
+    private static function onServer(\Closure $action): mixed
+    {
+        try {
+            return $action();
+        } catch (NothingToDoOnServer) {
+            return [];
+        }
     }
 }

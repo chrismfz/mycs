@@ -41,9 +41,18 @@ class TerminateJob implements ShouldQueue
             // No module, or a module without this action: nothing to do (not retried).
         }
 
-        if ($this->sendNotification) {
-            NotificationHelper::serverTerminatedNotification($this->service->client, $this->service, is_array($data) ? $data : []);
+        if (!$this->sendNotification) {
+            return;
         }
+        // Ended because its customer asked: an immediate request was already told it ends now (its confirmation), the
+        // end of the period is told so; any other end is «terminated» (sweep modules §21).
+        $requested = $this->service->cancellation()->latest('id')->value('type');
+        if ($requested === 'immediate') {
+            return;
+        }
+        $requested === 'end_of_period'
+            ? NotificationHelper::serviceCancelledNotification($this->service->client, $this->service, is_array($data) ? $data : [])
+            : NotificationHelper::serverTerminatedNotification($this->service->client, $this->service, is_array($data) ? $data : []);
     }
 
     protected function moduleAction(): string

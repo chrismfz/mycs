@@ -55,7 +55,7 @@ class NotificationTemplateTextsTest extends TestCase
             'credit_applied' => ['invoice' => $invoice, 'credit' => ['applied' => '$3.00', 'remaining' => '$7.00']],
             'invoice_refunded' => ['invoice' => $invoice, 'refund' => ['amount' => '$5.00', 'to_credit' => false, 'by_gateway' => true]],
             'new_order_created' => ['order' => $order, 'items' => collect([$service]), 'total' => '$10.00'],
-            'new_server_created', 'server_suspended', 'server_unsuspended', 'server_terminated' => ['service' => $service],
+            'new_server_created', 'server_suspended', 'server_unsuspended', 'server_terminated', 'service_cancelled' => ['service' => $service],
             'new_ticket_message' => ['ticketMessage' => $ticket->messages()->create(['user_id' => $user->id, 'message' => 'Hello **there**'])],
             'email_verification', 'password_reset' => ['url' => 'https://example.test/link'],
             'client_invite' => ['account' => ['name' => 'Acme'], 'invite' => ['url' => 'https://example.test/invite/x', 'by' => 'Maria', 'expires_at' => now()->addWeek()]],

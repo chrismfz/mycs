@@ -19,8 +19,9 @@ branch `feat/order-status`), ετυμηγορία, αν μας αφορά κατ
    προϊόντος από group ή τον active server του module· οι εξαιρέσεις αναστολής ανά υπηρεσία (`overideautosuspend`,
    `overidesuspenduntil`: 14 στη nixpal) στο `suspend_hold_until`· custom fields με parity.
 4. **Σ1-c custom fields προϊόντος** (§3): σχήμα και ροή εκεί· WHMCS χωρίς conditions, άρα όχι conditions.
-5. Μικρά (§1, §5): πόσες απλήρωτες στο modal του Accept, μαζικό Accept· email στο «Suspend server» του staff· όχι
-   email «Terminated» όταν ολοκληρώνεται ακύρωση που ζήτησε ο πελάτης· `OrderDaysGrace` (myip 8, nixpal 0): τι σημαίνει το 0 στο WHMCS, πριν το cut-over.
+5. Μικρά (§1, §5): πόσες απλήρωτες στο modal του Accept, μαζικό Accept· ~~email στο «Suspend server» του staff· όχι
+   email «Terminated» όταν ολοκληρώνεται ακύρωση που ζήτησε ο πελάτης~~ (έγινε: «Send Notification» στο suspend, template
+   `service_cancelled` στο τέλος περιόδου, κανένα δεύτερο mail στην άμεση)· `OrderDaysGrace` (myip 8, nixpal 0): τι σημαίνει το 0 στο WHMCS, πριν το cut-over.
 
 Ανοιχτές ερωτήσεις: πουλά το myip reseller cPanel (`setresellerlimits`, §4); Τι σημαίνει `OrderDaysGrace` = 0 στο
 WHMCS (§1); Τα θέματα χρέωσης στο τέλος (για τη session του billing).
