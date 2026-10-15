@@ -160,6 +160,7 @@ class Settings
                     'name' => 'captcha_secret',
                     'label' => 'Captcha Secret',
                     'type' => 'text',
+                    'encrypted' => true, // a secret: stored encrypted, never sent to the page (sweep §6 review R4)
                     'required' => fn (Get $get) => $get('captcha') && $get('captcha') !== 'disabled',
                 ],
 
@@ -212,6 +213,7 @@ class Settings
                     'name' => 'oauth_google_client_secret',
                     'label' => 'Google Client Secret',
                     'type' => 'text',
+                    'encrypted' => true, // a secret: stored encrypted, never sent to the page (sweep §6 review R4)
                     'required' => false,
                 ],
                 [
@@ -232,6 +234,7 @@ class Settings
                     'name' => 'oauth_github_client_secret',
                     'label' => 'Github Client Secret',
                     'type' => 'text',
+                    'encrypted' => true, // a secret: stored encrypted, never sent to the page (sweep §6 review R4)
                     'required' => false,
                 ],
                 [
@@ -252,6 +255,7 @@ class Settings
                     'name' => 'oauth_discord_client_secret',
                     'label' => 'Discord Client Secret',
                     'type' => 'text',
+                    'encrypted' => true, // a secret: stored encrypted, never sent to the page (sweep §6 review R4)
                     'required' => false,
                 ],
             ],

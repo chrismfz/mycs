@@ -5,6 +5,7 @@ namespace App\Mail;
 use App\Helpers\TemplateRenderer;
 use App\Models\NotificationTemplate;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
@@ -12,9 +13,10 @@ use Illuminate\Mail\Mailables\Envelope;
 /**
  * A customer mail from a notification template, rendered when it is made (audit sweep EVT-10): the queued job carries
  * the subject and the HTML, not the template's data (whole models, the customer's password hash among them), and
- * sends what the email log shows.
+ * sends what the email log shows. Encrypted in the queue (and in failed_jobs): the welcome mail carries a password
+ * (sweep §6 #11).
  */
-class Mail extends Mailable
+class Mail extends Mailable implements ShouldBeEncrypted
 {
     use Queueable;
 

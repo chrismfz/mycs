@@ -6,6 +6,7 @@ use App\Admin\Resources\ServerResource\Pages\CreateServer;
 use App\Admin\Resources\ServerResource\Pages\EditServer;
 use App\Admin\Resources\ServerResource\Pages\ListServers;
 use App\Helpers\ExtensionHelper;
+use App\Models\Extension;
 use App\Models\Server;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
@@ -24,6 +25,7 @@ use Filament\Tables\Table;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
+use Illuminate\Validation\ValidationException;
 
 class ServerResource extends Resource
 {
@@ -85,8 +87,15 @@ class ServerResource extends Resource
                     ->hintAction(
                         Action::make('Test Configuration')
                             ->action(function (Get $get, $record) {
-                                // Dd settings
-                                $connection = ExtensionHelper::testConfig($record, $get('settings'));
+                                try {
+                                    $settings = ExtensionHelper::withStoredSecrets($record, (array) $get('settings'));
+                                } catch (ValidationException $e) {
+                                    // A new address: the stored secrets are not sent to it (review R6).
+                                    Notification::make()->title('Enter the secrets again')->body(collect($e->errors())->flatten()->first())->danger()->send();
+
+                                    return;
+                                }
+                                $connection = ExtensionHelper::testConfig($record, $settings);
 
                                 if ($connection === true) {
                                     Notification::make()
@@ -108,7 +117,7 @@ class ServerResource extends Resource
                     ->columnSpanFull()
                     ->description('Specific settings for the selected server')
                     ->schema([
-                        Grid::make()->schema(fn (Get $get) => ExtensionHelper::getConfigAsInputs('server', $get('extension'), $get('settings')))->key('settings'),
+                        Grid::make()->schema(fn (Get $get, ?Model $record) => ExtensionHelper::getConfigAsInputs('server', $get('extension'), $get('settings'), $record instanceof Extension ? $record : null))->key('settings'),
                     ]),
             ]);
     }

@@ -95,3 +95,27 @@
 - Κλειδώματα: υπηρεσίες, μετά η παραγγελία (Accept, Cancel), όπως μια πληρωμή ή ένα create που τελειώνει.
 - Pending Orders: tab της λίστας (`?tab=pending`), στο top menu (Orders, active μόνο σε αυτό το tab), badge και μετρητής
   στο dashboard.
+
+## Μυστικά (sweep §6, PR ασφαλείας)
+- **Κανένα μυστικό σε property.** Ο κωδικός ενός λογαριασμού πάει στο `services.password` (encrypted, `$hidden`, εκτός
+  audit) και τα modules τον διαβάζουν ως `password` (`getServiceProperties`). Το DirectAdmin έγραφε το
+  `directadmin_password` καθαρό· το migration `2026_11_06_000000` τα μεταφέρει και σβήνει την τιμή από τα audits.
+  Κωδικοί λογαριασμών με CSPRNG (`Str::password`).
+- **Logs:** `App\Support\Redact`: κλειδιά που ονομάζουν μυστικό (pass, secret, token, key, authorization, cookie,
+  session) σε κάθε βάθος και στο query του URL, τα cPanel `cpsess…`, και κάθε αποθηκευμένο μυστικό (τα encrypted
+  settings) όπου κι αν εμφανιστεί. Το debug log των requests (`RequestListener`) περνά από εκεί. Το email log κρατά το
+  mail χωρίς τα μυστικά των δεδομένων του (`service_password`, ένα password που έδωσε το module)· ο πελάτης τα παίρνει.
+- **Ουρά:** `Mail` και `SystemMail` είναι `ShouldBeEncrypted` (και στα `failed_jobs`)· ο listener του email log τα
+  αποκρυπτογραφεί όπως ο worker.
+- **Φόρμες:** server, gateway, extension δεν στέλνουν ποτέ στη σελίδα ένα αποθηκευμένο μυστικό· κενό = κρατιέται (όπως
+  οι Ρυθμίσεις και τα product settings). Το «Test connection» χρησιμοποιεί το αποθηκευμένο.
+- **Νέα διεύθυνση = ξανά τα μυστικά:** αν αλλάξει host/IP/port/URL ενός server, gateway ή extension, τα αποθηκευμένα
+  μυστικά δεν στέλνονται (ούτε στο «Test connection») μέχρι να γραφτούν ξανά: ένα root key δεν φεύγει ποτέ προς
+  διεύθυνση που έγραψε κάποιος που δεν μπορούσε να το διαβάσει. Μετά την αποθήκευση, ό,τι γράφτηκε φεύγει από τη σελίδα.
+- Μυστικά του πυρήνα στις Ρυθμίσεις (captcha secret, OAuth client secrets) και το Discord webhook: `encrypted`.
+- Το email log κρατά ένα δεύτερο render του mail με τα μυστικά ήδη αντικατεστημένα (όχι αναζήτηση μετά: η Markdown και
+  το escaping αλλάζουν πώς γράφεται ένας κωδικός). `Redact` ξαναδιαβάζει τα αποθηκευμένα μυστικά κάθε λεπτό (workers),
+  και δεν ξαναχτίζει το URL.
+- Test: κάθε πεδίο `password` στο `getConfig()` server/gateway είναι `encrypted`.
+- Μένει (εκτός PR): ο κωδικός στη σελίδα υπηρεσίας του πελάτη είναι ήδη στο HTML πίσω από «Show» (sweep §6 #7)· παλιά
+  email logs με κωδικούς σβήνονται στις 90 μέρες.
