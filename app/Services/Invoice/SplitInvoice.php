@@ -46,17 +46,20 @@ final class SplitInvoice
             $new->send_create_email = false;
             $new->split_from_id = $invoice->id;
             $new->kept_as_debt_at = $invoice->kept_as_debt_at;
+            // Issued when the first was: a suspension that waits for an invoice of a given age is not delayed (CR-5).
+            $new->created_at = $invoice->created_at;
             $new->save();
-            // Billed as the first was when issued: a split never re-taxes or re-addresses a line.
+            // Billed as the first was when issued: a split never re-taxes or re-addresses a line. The first has none (an
+            // imported invoice, snapshots off): nor does the new one (CR-8).
             $first = $invoice->snapshot()->first();
             $snapshot = $new->snapshot()->first();
             if ($first !== null && $snapshot !== null) {
                 $snapshot->update($first->only(['name', 'properties', 'bill_to', 'tax_name', 'tax_rate', 'tax_country']));
+            } elseif ($first === null) {
+                $snapshot?->delete();
             }
 
-            InvoiceItem::query()->whereKey($lineIds)->orderBy('id')->get()
-                // One by one, through the model: each move is audited, and keeps its tax (InvoiceItemObserver).
-                ->each(fn (InvoiceItem $line) => $line->update(['invoice_id' => $new->id]));
+            InvoiceLineMove::move(InvoiceItem::query()->whereKey($lineIds)->orderBy('id')->get(), $new);
 
             return $new->fresh();
         });

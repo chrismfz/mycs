@@ -8,7 +8,9 @@ use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\Order;
 use App\Models\Service;
+use App\Models\ServiceUpgrade;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
@@ -33,14 +35,15 @@ final class InvoiceLineMove
         if ($clients->count() !== 1 || $clients->first() === null) {
             throw new DisplayException(__('Only invoices of one customer are merged.'));
         }
-        Client::lock((int) $clients->first());
+        $client = (int) $clients->first();
+        Client::lock($client);
         $invoices = Invoice::query()->whereKey($ids)->orderBy('id')->lockForUpdate()->get();
         if ($invoices->count() !== count($ids)) {
             throw new DisplayException(__('One of these invoices no longer exists: reload the page.'));
         }
-        // Moved to another customer between the read and the lock.
-        if ($invoices->pluck('client_id')->unique()->count() !== 1) {
-            throw new DisplayException(__('Only invoices of one customer are merged.'));
+        // Moved to another customer between the read and the lock (code review CR-6): the lock held is not theirs.
+        if ($invoices->contains(fn (Invoice $invoice) => (int) $invoice->client_id !== $client)) {
+            throw new DisplayException(__('One of these invoices changed meanwhile: reload the page.'));
         }
 
         return $invoices;
@@ -74,6 +77,15 @@ final class InvoiceLineMove
         if ($lines->contains(fn (InvoiceItem $line) => $line->reference_type === Credit::class)) {
             return __('Invoice :invoice buys account credit: it is not merged or split.', ['invoice' => $label]);
         }
+        // An order's own invoice: «Cancel & Refund» refunds the payments of that invoice (code review CR-4).
+        if (Order::query()->where('invoice_id', $invoice->id)->exists()) {
+            return __('Invoice :invoice is the invoice of an order: it is not merged or split.', ['invoice' => $label]);
+        }
+        // Lines of a service that ended, left open for staff (CancelOpenInvoices): moved, they would make another invoice
+        // one the customer cannot pay (code review CR-3). A debt kept for it (Δ3a) moves as a debt.
+        if ($invoice->kept_as_debt_at === null && $invoice->billsEndedService()) {
+            return __('Invoice :invoice bills a service that has ended: cancel it, or keep it as a debt.', ['invoice' => $label]);
+        }
         // A gateway subscription pays its own invoice (decision 6).
         $services = $lines->where('reference_type', Service::class)->pluck('reference_id')->all();
         if ($services !== [] && Service::query()->whereKey($services)->whereNotNull('subscription_id')->where('subscription_id', '!=', '')->exists()) {
@@ -81,6 +93,24 @@ final class InvoiceLineMove
         }
 
         return null;
+    }
+
+    /**
+     * The lines move to $to, and the upgrades they bill follow them: an upgrade reads its lines on its own invoice (what
+     * was billed, its cancellation; code review CR-1/CR-2).
+     *
+     * @param  \Illuminate\Support\Collection<int, InvoiceItem>  $lines
+     */
+    public static function move(\Illuminate\Support\Collection $lines, Invoice $to): void
+    {
+        foreach ($lines as $line) {
+            // One by one, through the model: each move is audited, and keeps its tax (InvoiceItemObserver).
+            $line->update(['invoice_id' => $to->id]);
+        }
+        $upgrades = $lines->where('reference_type', ServiceUpgrade::class)->pluck('reference_id')->unique()->all();
+        foreach (ServiceUpgrade::query()->whereKey($upgrades)->get() as $upgrade) {
+            $upgrade->forceFill(['invoice_id' => $to->id])->save();
+        }
     }
 
     /** What the customer was billed as on it (the snapshot taken when it was issued): name, address, tax. */

@@ -48,9 +48,7 @@ final class MergeInvoices
             }
 
             $label = '#' . ($target->number ?: $target->id);
-            InvoiceItem::query()->whereIn('invoice_id', $sources->pluck('id'))->orderBy('id')->get()
-                // One by one, through the model: each move is audited, and keeps its tax (InvoiceItemObserver).
-                ->each(fn (InvoiceItem $line) => $line->update(['invoice_id' => $target->id]));
+            InvoiceLineMove::move(InvoiceItem::query()->whereIn('invoice_id', $sources->pluck('id'))->orderBy('id')->get(), $target);
             $earliest = $invoices->min(fn (Invoice $invoice) => $invoice->due_at?->toDateString());
             if ($earliest !== null && $target->due_at?->toDateString() !== $earliest) {
                 $target->update(['due_at' => $earliest]);

@@ -314,6 +314,10 @@ class InvoiceObserver
         if ($invoice->hasPayments(lock: true)) {
             throw new DisplayException(__('An invoice with payments cannot be deleted: cancel it, or delete its transactions first.'));
         }
+        // Where a merge went (PR E, code review CR-7): kept, with the invoice its lines are on.
+        if ($invoice->merged_into_id !== null || Invoice::query()->where('merged_into_id', $invoice->id)->exists()) {
+            throw new DisplayException(__('This invoice is part of a merge: it is kept, so the merge can be traced.'));
+        }
         // It records a period given up on (Δ3a, adversarial D3A-6): deleted, the cron would bill that period again.
         if ($invoice->recordsForgonePeriod()) {
             throw new DisplayException(__('This cancelled invoice records a service period given up on: it is kept (reopen it to bill that period again).'));
