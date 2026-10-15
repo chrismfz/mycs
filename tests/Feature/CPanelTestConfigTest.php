@@ -66,4 +66,14 @@ class CPanelTestConfigTest extends TestCase
 
         $this->assertSame('Could not reach WHM: cURL error 7: Failed to connect', $this->test());
     }
+
+    public function test_an_answer_that_is_not_whms_is_text(): void
+    {
+        Http::fake([self::WHM . '/version*' => Http::sequence()
+            ->push('<html>Login</html>', 200)
+            ->push('<html>Bad gateway</html>', 502)]);
+
+        $this->assertSame('cPanel version failed: no reason given', $this->test());
+        $this->assertSame('WHM answered HTTP 502', $this->test());
+    }
 }
