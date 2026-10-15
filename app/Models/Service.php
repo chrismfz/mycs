@@ -1002,4 +1002,10 @@ class Service extends Model implements Auditable
     {
         return $this->hasMany(ServiceUpgrade::class);
     }
+
+    /** The mails about this service (the mail audit, docs/mail.md). */
+    public function emailLogs(): MorphMany
+    {
+        return $this->morphMany(EmailLog::class, 'related');
+    }
 }

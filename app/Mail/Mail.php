@@ -3,6 +3,7 @@
 namespace App\Mail;
 
 use App\Helpers\TemplateRenderer;
+use App\Mail\Concerns\LogsDelivery;
 use App\Models\NotificationTemplate;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
@@ -18,7 +19,7 @@ use Illuminate\Mail\Mailables\Envelope;
  */
 class Mail extends Mailable implements ShouldBeEncrypted
 {
-    use Queueable;
+    use LogsDelivery, Queueable;
 
     /** Retried with backoff: a mail server that is down for a while loses nothing. */
     public int $tries = 5;

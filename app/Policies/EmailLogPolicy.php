@@ -22,4 +22,10 @@ class EmailLogPolicy
     {
         return $user->hasPermission('admin.email_logs.view');
     }
+
+    /** Send a logged mail again, to its address or another (the mail audit, docs/mail.md). */
+    public function resend(User|Staff $user): bool
+    {
+        return $user->hasPermission('admin.email_logs.resend');
+    }
 }

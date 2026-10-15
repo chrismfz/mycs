@@ -19,6 +19,7 @@ use App\Models\ServiceCancellation;
 use App\Models\TicketMessage;
 use App\Models\User;
 use App\Services\Invoice\PaymentReminders;
+use App\Services\Mail\MailAudit;
 use App\Support\Redact;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\App;
@@ -31,6 +32,9 @@ use Throwable;
 
 class NotificationHelper
 {
+    /** Templates whose «url» is a live token (mail audit review R1). */
+    public const TOKEN_LINK_TEMPLATES = ['password_reset', 'email_verification'];
+
     /** The account a mail is about (docs/accounts.md, PR 2a): its email log is the account's. */
     private static ?Client $account = null;
 
@@ -64,6 +68,11 @@ class NotificationHelper
     private static function bodyForLog(Mail $mail, NotificationTemplate $template, array $data): string
     {
         $secrets = array_filter($data, fn ($value, $key) => Redact::isSecretKey($key) && is_string($value) && $value !== '', ARRAY_FILTER_USE_BOTH);
+        // A link that is a login (password reset, email verification): a live token, never kept, never resent (mail
+        // audit review R1).
+        if (in_array($template->key, self::TOKEN_LINK_TEMPLATES, true) && is_string($data['url'] ?? null) && $data['url'] !== '') {
+            $secrets['url'] = $data['url'];
+        }
         if ($secrets === []) {
             return $mail->render();
         }
@@ -92,6 +101,12 @@ class NotificationHelper
             'subject' => $mail->envelope()->subject,
             'to' => $user->email,
             'body' => self::bodyForLog($mail, $notificationTemplate, $data),
+            // The mail audit (docs/mail.md): from, copies, template and what it is about.
+            'from_address' => config('settings.mail_from_address'),
+            'cc' => MailAudit::addresses($notificationTemplate->cc) ?: null,
+            'bcc' => MailAudit::addresses($notificationTemplate->bcc) ?: null,
+            'template_key' => $notificationTemplate->key,
+            ...MailAudit::related($data),
         ]);
 
         // Add the email log id to the payload
@@ -127,6 +142,8 @@ class NotificationHelper
             'subject' => $mail->envelope()->subject,
             'to' => $email,
             'body' => $mail->render(),
+            'from_address' => config('settings.mail_from_address'),
+            'template_key' => 'system', // to staff: the cron's notices, failures
         ]);
 
         // Add the email log id to the payload

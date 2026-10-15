@@ -5,6 +5,7 @@ namespace App\Admin\Resources;
 use App\Admin\Actions\CancelSubscriptionAction;
 use App\Admin\Clusters\Services;
 use App\Admin\Components\ClientComponent;
+use App\Admin\RelationManagers\EmailLogsRelationManager;
 use App\Admin\Resources\Common\RelationManagers\PropertiesRelationManager;
 use App\Admin\Resources\ServiceResource\Pages\CreateService;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
@@ -354,6 +355,7 @@ class ServiceResource extends Resource
             LicenseAccessLogsRelationManager::class,
             PropertiesRelationManager::class,
             ConfigOptionsRelationManager::class,
+            EmailLogsRelationManager::class,
         ];
     }
 

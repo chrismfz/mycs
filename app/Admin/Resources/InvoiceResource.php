@@ -6,6 +6,7 @@ use App\Admin\Actions\MergeInvoicesAction;
 use App\Admin\Actions\PayInvoicesAction;
 use App\Admin\Clusters\InvoiceCluster;
 use App\Admin\Components\ClientComponent;
+use App\Admin\RelationManagers\EmailLogsRelationManager;
 use App\Admin\Resources\InvoiceResource\Pages\CreateInvoice;
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Admin\Resources\InvoiceResource\Pages\ListInvoices;
@@ -15,6 +16,7 @@ use App\Admin\Resources\InvoiceResource\RelationManagers\MoneyEventsRelationMana
 use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationManager;
 use App\Exceptions\DisplayException;
 use App\Models\Currency;
+use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
@@ -184,7 +186,7 @@ class InvoiceResource extends Resource
     {
         return $table
             // The account's name is its owner's (until the contacts, PR 3): loaded with the rows, not per row.
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user']))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user', 'latestEmailLog']))
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -212,6 +214,15 @@ class InvoiceResource extends Resource
                     ->label('Total'),
                 TextColumn::make('formattedCurrentBalance')
                     ->label('Remaining'),
+                // Its latest mail (the mail audit, docs/mail.md): the error on hover.
+                TextColumn::make('latestEmailLog.status')
+                    ->label('Mail')
+                    ->badge()
+                    ->formatStateUsing(fn (?string $state) => EmailLogResource::statusLabel($state))
+                    ->color(fn (?string $state) => EmailLogResource::statusColor($state))
+                    ->tooltip(fn (Invoice $record) => $record->latestEmailLog instanceof EmailLog ? $record->latestEmailLog->error : null)
+                    ->placeholder('—')
+                    ->toggleable(),
             ])
             ->defaultSort(function (Builder $query): Builder {
                 return $query
@@ -223,6 +234,10 @@ class InvoiceResource extends Resource
                     ->options(Invoice::statusOptions()),
                 // Paid, its services not renewed yet (BIL-9): the cron's paid_applied tries again; the money check
                 // reports one still waiting after a day (MT-3).
+                // Its latest mail failed (the mail audit): to resend.
+                Filter::make('mail_failed')
+                    ->label('Last mail failed')
+                    ->query(fn (Builder $query) => $query->whereHas('latestEmailLog', fn (Builder $query) => $query->where('status', EmailLog::STATUS_FAILED))),
                 Filter::make('paid_not_applied')
                     ->label(__('Paid, not applied'))
                     ->query(fn (Builder $query) => $query->where('status', Invoice::STATUS_PAID)->whereNotNull('apply_pending_since')),
@@ -277,6 +292,7 @@ class InvoiceResource extends Resource
 
         $relations[] = AdjustmentNotesRelationManager::class;
         $relations[] = MoneyEventsRelationManager::class;
+        $relations[] = EmailLogsRelationManager::class;
 
         return $relations;
     }

@@ -17,6 +17,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Lang;
 use OwenIt\Auditing\Contracts\Auditable;
@@ -43,6 +45,7 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property-read mixed $billTo
  * @property-read mixed $pdf
  * @property int|null $client_id
+ * @property EmailLog|null $latestEmailLog
  */
 #[ObservedBy([InvoiceObserver::class])]
 class Invoice extends Model implements Auditable
@@ -529,5 +532,17 @@ class Invoice extends Model implements Auditable
     private static function numberIsKey(mixed $number): bool
     {
         return is_string($number) && preg_match('/^[A-Za-z0-9._~-]+$/', $number) === 1 && !ctype_digit($number);
+    }
+
+    /** The mails about this invoice (the mail audit, docs/mail.md). */
+    public function emailLogs(): MorphMany
+    {
+        return $this->morphMany(EmailLog::class, 'related');
+    }
+
+    /** Its latest mail, for the list's «Mail» column. */
+    public function latestEmailLog(): MorphOne
+    {
+        return $this->morphOne(EmailLog::class, 'related')->latestOfMany();
     }
 }

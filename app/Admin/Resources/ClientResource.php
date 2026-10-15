@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources;
 
+use App\Admin\RelationManagers\EmailLogsRelationManager;
 use App\Admin\Resources\ClientResource\Pages\CreateClient;
 use App\Admin\Resources\ClientResource\Pages\EditClient;
 use App\Admin\Resources\ClientResource\Pages\ListClients;
@@ -152,6 +153,7 @@ class ClientResource extends Resource
             InvitesRelationManager::class,
             ContactsRelationManager::class,
             PropertiesRelationManager::class,
+            EmailLogsRelationManager::class,
         ];
     }
 

@@ -202,6 +202,7 @@ return [
             'email_logs' => [
                 'viewAny' => 'View Email Logs',
                 'view' => 'View Email Log',
+                'resend' => 'Resend Email',
             ],
             'gateway_events' => [
                 'viewAny' => 'View Gateway Log',
