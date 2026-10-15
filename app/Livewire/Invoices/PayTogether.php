@@ -69,7 +69,7 @@ class PayTogether extends Component
 
         if (str_starts_with($this->selectedMethod, 'gateway-')) {
             $gatewayId = substr($this->selectedMethod, 8);
-            if (!in_array($gatewayId, array_map('strval', array_column($this->gateways, 'id')), true)) {
+            if (!in_array($gatewayId, array_map('strval', array_column($this->gateways(), 'id')), true)) {
                 return $this->notify(__('Invalid payment method.'), 'error');
             }
             $this->pay = ExtensionHelper::payGroup(Gateway::query()->findOrFail($gatewayId), $this->paymentGroup);
@@ -80,7 +80,7 @@ class PayTogether extends Component
             return;
         }
 
-        $agreement = $this->savedPaymentMethods->firstWhere('ulid', $this->selectedMethod);
+        $agreement = $this->savedPaymentMethods()->firstWhere('ulid', $this->selectedMethod);
         if ($agreement === null || $agreement->gateway === null) {
             return $this->notify(__('Invalid payment method.'), 'error');
         }

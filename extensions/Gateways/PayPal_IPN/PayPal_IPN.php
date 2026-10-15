@@ -48,17 +48,17 @@ class PayPal_IPN extends Gateway
         ];
     }
 
+    public function supportsPaymentGroups(): bool
+    {
+        return true;
+    }
+
     /**
      * Return a view or a url to redirect to
      *
      * @param  float  $total
      * @return string
      */
-    public function supportsPaymentGroups(): bool
-    {
-        return true;
-    }
-
     public function pay(Invoice $invoice, $total)
     {
         $paypal_url = $this->config('test_mode') ? 'https://www.sandbox.paypal.com/cgi-bin/webscr' : 'https://www.paypal.com/cgi-bin/webscr';

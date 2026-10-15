@@ -59,17 +59,17 @@ class Mollie extends Gateway
         ];
     }
 
+    public function supportsPaymentGroups(): bool
+    {
+        return true;
+    }
+
     /**
      * Return a view or a url to redirect to
      *
      * @param  float  $total
      * @return string
      */
-    public function supportsPaymentGroups(): bool
-    {
-        return true;
-    }
-
     public function pay(Invoice $invoice, $total)
     {
         $response = $this->request('/v2/payments', 'post', [

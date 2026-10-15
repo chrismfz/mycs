@@ -139,13 +139,13 @@ final class MassPay
         // adds up (F2 review CR-2, F2-ADV-3/4).
         $invoices = $group->invoices()->get();
         if ($group->invoice_id === null || !$invoices->contains('id', $group->invoice_id)
-            || $invoices->sum(fn (Invoice $invoice) => RecordPaymentService::toCents($invoice->pivot->amount)) !== RecordPaymentService::toCents($group->total)) {
+            || $invoices->sum(fn (Invoice $invoice) => RecordPaymentService::toCents($invoice->getRelation('pivot')->amount)) !== RecordPaymentService::toCents($group->total)) {
             return __('One of these invoices changed: choose them again from your invoices.');
         }
         foreach ($invoices as $invoice) {
             if ((int) $invoice->client_id !== (int) $group->client_id || $invoice->currency_code !== $group->currency_code
                 || self::refusal($invoice) !== null
-                || RecordPaymentService::toCents($invoice->remaining) !== RecordPaymentService::toCents($invoice->pivot->amount)) {
+                || RecordPaymentService::toCents($invoice->remaining) !== RecordPaymentService::toCents($invoice->getRelation('pivot')->amount)) {
                 return __('One of these invoices changed: choose them again from your invoices.');
             }
         }
