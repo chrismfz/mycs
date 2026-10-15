@@ -362,3 +362,12 @@ context του συγγραφέα), οκτώ ευρήματα, όλα επιβε
   - Υπάρχον Stripe endpoint: χρειάζεται τα `charge.dispute.*` (dashboard, ή άδειασμα του webhook secret και Save).
 - **Webhooks:** Stripe: τα τρία `charge.dispute.*` (το endpoint που φτιάχνει το extension τα ζητά). PayPal:
   `PAYMENT.CAPTURE.REVERSED`, `CUSTOMER.DISPUTE.CREATED`, `CUSTOMER.DISPUTE.RESOLVED` στο webhook της εφαρμογής.
+
+## Γραμμές τιμολογίου από το staff (PR B, sweep Π2.11, 2026-10-15)
+- Η φόρμα του admin και το API (`invoice-items` store/update/destroy) αλλάζουν γραμμές **κάτω από τα locks πληρωμών**
+  (πελάτης, μετά τιμολόγιο: `StaffLineEdit`), ώστε μια πληρωμή που φτάνει την ίδια στιγμή να περιμένει την αλλαγή.
+- Ανοιχτό τιμολόγιο **με πληρωμές** (και σε επεξεργασία) κρατά τα ποσά του, όπως στο Blesta: καμία γραμμή δεν προστίθεται,
+  δεν αφαιρείται, δεν αλλάζει τιμή, ποσότητα ή ΦΠΑ. Αλλιώς έμενε απλήρωτο με πληρωμή πάνω από ό,τι χρωστιέται. Το staff
+  επιστρέφει πρώτα την πληρωμή (πίσω ή σε πίστωση λογαριασμού) ή δίνει έκπτωση με σημείωμα. Η περιγραφή αλλάζει πάντα.
+- Οι αλλαγές της εφαρμογής έχουν τους δικούς τους κανόνες (`ChangeOpenLine`, `CancelOpenInvoices`).
+- Follow-up: τα σημειώματα έκπτωσης (`AdjustmentNotesRelationManager`) αλλάζουν κι αυτά ό,τι χρωστιέται χωρίς τα locks.

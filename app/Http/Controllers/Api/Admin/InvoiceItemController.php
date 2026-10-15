@@ -10,7 +10,9 @@ use App\Http\Requests\Api\Admin\InvoiceItems\GetInvoiceItemRequest;
 use App\Http\Requests\Api\Admin\InvoiceItems\GetInvoiceItemsRequest;
 use App\Http\Requests\Api\Admin\InvoiceItems\UpdateInvoiceItemRequest;
 use App\Http\Resources\InvoiceItemResource;
+use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Services\Invoice\StaffLineEdit;
 use Dedoc\Scramble\Attributes\Group;
 use Dedoc\Scramble\Attributes\QueryParameter;
 use Spatie\QueryBuilder\QueryBuilder;
@@ -48,7 +50,9 @@ class InvoiceItemController extends ApiController
     public function store(CreateInvoiceItemRequest $request)
     {
         // Validate and create the invoice item
-        $invoiceItem = $this->guarded(fn () => InvoiceItem::create($request->validated()));
+        // Under the payment locks; an invoice with payments keeps its amounts (StaffLineEdit).
+        $invoiceItem = $this->guarded(fn () => StaffLineEdit::run($request->validated('invoice_id'), true,
+            fn () => InvoiceItem::create($request->validated())));
 
         // Return the created invoice as a JSON response
         return new InvoiceItemResource($this->loadAllowedIncludes($invoiceItem, self::INCLUDES));
@@ -75,7 +79,17 @@ class InvoiceItemController extends ApiController
     public function update(UpdateInvoiceItemRequest $request, InvoiceItem $invoiceItem)
     {
         // Validate and update the invoice item
-        $this->guarded(fn () => $invoiceItem->update($request->validated()));
+        // Under the payment locks, the line read again there; its amounts stay on an invoice with payments, its
+        // description still changes (StaffLineEdit).
+        $this->guarded(fn () => StaffLineEdit::run($invoiceItem->invoice_id, false, function (Invoice $invoice) use ($invoiceItem, $request) {
+            $locked = InvoiceItem::query()->whereKey($invoiceItem->getKey())->lockForUpdate()->firstOrFail();
+            $locked->fill($request->validated());
+            if ($locked->isDirty(['price', 'quantity', 'taxed', 'reference_type', 'reference_id'])) {
+                StaffLineEdit::refuseWithPayments($invoice);
+            }
+            $locked->save();
+            $invoiceItem->setRawAttributes($locked->getAttributes(), true);
+        }));
 
         // Return the updated invoice item as a JSON response
         return new InvoiceItemResource($this->loadAllowedIncludes($invoiceItem, self::INCLUDES));
@@ -89,7 +103,7 @@ class InvoiceItemController extends ApiController
     public function destroy(DeleteInvoiceItemRequest $request, InvoiceItem $invoiceItem)
     {
         // Delete the invoice item
-        $this->guarded(fn () => $invoiceItem->delete());
+        $this->guarded(fn () => StaffLineEdit::run($invoiceItem->invoice_id, true, fn () => $invoiceItem->delete()));
 
         return $this->returnNoContent();
     }
