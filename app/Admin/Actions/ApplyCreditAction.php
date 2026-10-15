@@ -2,6 +2,7 @@
 
 namespace App\Admin\Actions;
 
+use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Services\Invoice\RecordPaymentService;
@@ -28,8 +29,10 @@ class ApplyCreditAction
             ->label(__('Apply credit'))
             ->icon('heroicon-o-wallet')
             ->color('success')
+            // Not a credit purchase: credit would buy credit, and the invoice would read paid with no money in (F1 adversarial).
             ->visible(fn (Invoice $record): bool => $record->status === Invoice::STATUS_UNPAID && self::creditCents($record) > 0
-                && RecordPaymentService::toCents($record->remaining) > 0)
+                && RecordPaymentService::toCents($record->remaining) > 0
+                && !$record->items()->where('reference_type', Credit::class)->exists())
             // It records a payment: the permission «Add Payment» needs too, not only the invoice's.
             ->authorize(function (Invoice $record): bool {
                 $user = auth()->user();
