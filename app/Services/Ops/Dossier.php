@@ -13,7 +13,8 @@ use OwenIt\Auditing\Models\Audit;
 
 /**
  * Everything about one service, account or invoice on one page (docs/ops.md), for troubleshooting: read-only, no
- * secret (no password, no PSK; of the audit only which fields changed). The same answer for `mycs:service`,
+ * secret (no password, no PSK, a license key by its prefix and last 4, error texts through Scrub; of the audit only
+ * which fields changed). The same answer for `mycs:service`,
  * `mycs:client`, `mycs:invoice` and the MCP.
  */
 final class Dossier
@@ -32,7 +33,7 @@ final class Dossier
             'product' => $service->product ? "#{$service->product->id} {$service->product->name}" : null,
             'plan' => $service->plan ? "#{$service->plan->id} {$service->plan->name} ({$service->plan->type})" : null,
             'price' => $service->price . ' ' . $service->currency_code . ' × ' . $service->quantity,
-            'domain' => $service->domain,
+            'domain' => $service->license && $service->domain === $service->license->license_key ? Scrub::licenseKey($service->domain) : $service->domain,
             'username' => $service->username,
             'server' => $service->server ? "#{$service->server->id} {$service->server->name} ({$service->server->extension})" : null,
             'dates' => array_map(fn ($date) => $date?->toDateTimeString(), [
@@ -44,15 +45,15 @@ final class Dossier
             'cancellation' => $service->cancellation ? ['type' => $service->cancellation->type, 'reason' => $service->cancellation->reason,
                 'requested' => $service->cancellation->created_at?->toDateTimeString()] : null,
             'license' => $service->license ? [
-                'key' => $service->license->license_key, 'status' => $service->license->status, 'valid_ip' => $service->license->valid_ip,
+                'key' => Scrub::licenseKey($service->license->license_key), 'status' => $service->license->status, 'valid_ip' => $service->license->valid_ip,
                 'valid_domain' => $service->license->valid_domain, 'reissues' => $service->license->reissues,
                 'last_ok' => $service->license->last_ok_at?->toDateTimeString(), 'last_seen' => trim($service->license->last_seen_ip . ' ' . $service->license->last_seen_client) ?: null,
-                'last_failure' => $service->license->last_failure_at ? $service->license->last_failure_at->toDateTimeString() . ': ' . $service->license->last_failure : null,
+                'last_failure' => $service->license->last_failure_at ? $service->license->last_failure_at->toDateTimeString() . ': ' . Scrub::text($service->license->last_failure) : null,
             ] : null,
             'invoices' => $service->invoices()->latest('invoices.id')->limit(self::RECENT)->get()->map(fn (Invoice $invoice) => self::invoiceLine($invoice))->all(),
             'module_actions' => ModuleAction::query()->where('service_id', $service->id)->latest('id')->limit(self::RECENT)->get()
                 ->map(fn (ModuleAction $action) => ['id' => $action->id, 'action' => $action->action, 'status' => $action->status, 'attempts' => $action->attempts,
-                    'given_up' => $action->given_up_at ? (string) $action->given_up_at : null, 'error' => $action->last_error, 'at' => $action->updated_at?->toDateTimeString()])->all(),
+                    'given_up' => $action->given_up_at ? (string) $action->given_up_at : null, 'error' => Scrub::text($action->last_error), 'at' => $action->updated_at?->toDateTimeString()])->all(),
             'emails' => self::emails($service->emailLogs()),
             'audit' => self::audit($service),
         ];
@@ -69,7 +70,7 @@ final class Dossier
             'login' => $client->ownerGrant?->user?->email,
             'credit' => $client->credits->mapWithKeys(fn ($credit) => [$credit->currency_code => (string) $credit->amount])->all(),
             'services' => $client->services()->with('product')->latest('id')->limit(50)->get()->map(fn (Service $service) => [
-                'id' => $service->id, 'status' => $service->status, 'product' => $service->product?->name, 'domain' => $service->domain,
+                'id' => $service->id, 'status' => $service->status, 'product' => $service->product?->name, 'domain' => $service->license && $service->domain === $service->license->license_key ? Scrub::licenseKey($service->domain) : $service->domain,
                 'expires' => $service->expires_at?->toDateString()])->all(),
             'invoices' => $client->invoices()->latest('id')->limit(self::RECENT)->get()->map(fn (Invoice $invoice) => self::invoiceLine($invoice))->all(),
             'open_invoices' => $client->invoices()->whereIn('status', Invoice::OPEN_STATUSES)->count(),
@@ -119,7 +120,7 @@ final class Dossier
     private static function emails($relation): array
     {
         return $relation->latest('id')->limit(self::RECENT)->get()->map(fn (EmailLog $log) => ['id' => $log->id, 'template' => $log->template_key,
-            'to' => $log->to, 'status' => $log->status, 'queued' => $log->created_at?->toDateTimeString(), 'error' => $log->error])->all();
+            'to' => $log->to, 'status' => $log->status, 'queued' => $log->created_at?->toDateTimeString(), 'error' => Scrub::text($log->error)])->all();
     }
 
     /** Who changed what and when; the fields only, never their values (a secret may be one). @return list<array<string, mixed>> */

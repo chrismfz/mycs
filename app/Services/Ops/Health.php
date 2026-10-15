@@ -2,6 +2,7 @@
 
 namespace App\Services\Ops;
 
+use App\Admin\Widgets\CronStat\CronStat;
 use App\Console\Commands\MailSweep;
 use App\Models\EmailLog;
 use App\Models\License;
@@ -33,7 +34,7 @@ final class Health
             try {
                 $checks[$name] = call_user_func([self::class, $name]);
             } catch (Throwable $e) {
-                $checks[$name] = ['status' => self::FAIL, 'detail' => 'Check failed: ' . $e->getMessage()];
+                $checks[$name] = ['status' => self::FAIL, 'detail' => 'Check failed: ' . Scrub::text($e->getMessage())];
             }
         }
         $statuses = array_column($checks, 'status');
@@ -64,7 +65,7 @@ final class Health
 
     private static function scheduler(): array
     {
-        $last = Setting::query()->where('key', 'last_scheduler_run')->value('value');
+        $last = Setting::query()->where('key', 'last_scheduler_run')->where('settingable_type', CronStat::class)->value('value');
         $at = $last ? Carbon::parse($last) : null;
 
         return ['status' => $at && $at->gt(now()->subMinutes(5)) ? self::OK : self::FAIL,
@@ -73,7 +74,7 @@ final class Health
 
     private static function cron(): array
     {
-        $last = Setting::query()->where('key', 'last_cron_run')->value('value');
+        $last = Setting::query()->where('key', 'last_cron_run')->where('settingable_type', CronStat::class)->value('value');
         $at = $last ? Carbon::parse($last) : null;
 
         return ['status' => $at && $at->gt(now()->subHours(25)) ? self::OK : self::WARN,

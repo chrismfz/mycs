@@ -10,7 +10,7 @@ class LogsCommand extends Command
 {
     use PrintsReport;
 
-    protected $signature = 'mycs:logs {--limit=20} {--level=error : Lowest level shown} {--channel=laravel : Log file prefix (laravel, payments)} {--json : JSON output}';
+    protected $signature = 'mycs:logs {--limit=20 : At most 200} {--level=error : Lowest level shown} {--channel=laravel : Log name (laravel, payments)} {--json : JSON output}';
 
     protected $description = 'Read-only tail of the app log, newest first, secrets masked';
 
