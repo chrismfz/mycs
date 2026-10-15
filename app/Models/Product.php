@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use MyCS\BillingPeriod\Prorata;
 use OwenIt\Auditing\Contracts\Auditable;
 
 class Product extends Model implements Auditable
@@ -146,7 +147,8 @@ class Product extends Model implements Auditable
      */
     public function proratesPlan(?Plan $plan): bool
     {
-        return $this->prorata_day !== null && $plan !== null && $plan->type === 'recurring'
+        return $this->prorata_day !== null && $this->prorata_day >= 1 && $this->prorata_day <= Prorata::MAX_DAY
+            && $plan !== null && $plan->type === 'recurring'
             && in_array($plan->billing_unit, ['month', 'year'], true) && (int) $plan->billing_period >= 1;
     }
 }

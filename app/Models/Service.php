@@ -27,6 +27,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Lang;
 use MyCS\BillingPeriod\BillingPeriod;
+use MyCS\BillingPeriod\Prorata;
 use MyCS\Pricing\LinePricer;
 use OwenIt\Auditing\Contracts\Auditable;
 
@@ -368,8 +369,9 @@ class Service extends Model implements Auditable
      */
     public function rememberBillingDay(CarbonInterface $periodStart): void
     {
-        // A pro rata product's services bill on its day (PR D), whatever day the first, partial period started on.
-        if ($this->product?->proratesPlan($this->plan)) {
+        // A pro rata product's new service bills on its day (PR D), whatever day the first, partial period started on; one
+        // that already has a day (it renewed before the product turned pro rata) keeps it.
+        if ($this->billing_day === null && $this->product?->proratesPlan($this->plan)) {
             $this->billing_day = (int) $this->product->prorata_day;
 
             return;
@@ -669,8 +671,17 @@ class Service extends Model implements Auditable
 
             return;
         }
-        // A pro rata product's service renews on the product's day (PR D): its first period already ends there.
+        // A pro rata product's service renews on the product's day (PR D): its first period already ends there. Started
+        // after that day (paid late), it is not suspended the day it starts (adversarial D-ADV-4): Suspend Days from today.
         if ($this->product?->proratesPlan($this->plan)) {
+            $today = CarbonImmutable::today();
+            if (CarbonImmutable::parse($this->expires_at)->startOfDay()->lessThan($today)) {
+                $hold = $today->addDays(max(0, (int) config('settings.cronjob_order_suspend', 8)));
+                if ($this->suspend_hold_until === null || $hold->greaterThan($this->suspend_hold_until)) {
+                    $this->suspend_hold_until = $hold->toMutable();
+                }
+            }
+
             return;
         }
         // Its first period began when it was paid, or, with nothing to pay (a free first period), when it was ordered
@@ -914,6 +925,22 @@ class Service extends Model implements Auditable
      * Start of the period it is in (the one ending at its expiry): its period line ending there, else one cycle back
      * (a period clamped to a short month keeps its real length). None without an expiry or a plan of whole days.
      */
+    /**
+     * What is left on $today of $amount for the period from $start to its expiry (an upgrade's difference, SVC-14): by the
+     * day, and for a pro rata product's first period the way it was priced (PR D, adversarial D-ADV-3).
+     */
+    public function remainingOf(string $amount, CarbonInterface $start, CarbonInterface $today): string
+    {
+        // Its first period, to the product's day; a service that renewed on its own day before the product turned pro rata
+        // keeps its plain periods.
+        if ($this->product?->proratesPlan($this->plan) && $this->expires_at?->day === (int) $this->product->prorata_day) {
+            return Prorata::remaining($amount, $start, $this->expires_at, $today, (string) $this->plan->billing_unit,
+                (int) $this->plan->billing_period, (int) $this->product->prorata_day);
+        }
+
+        return BillingPeriod::remaining($amount, $start, $this->expires_at, $today);
+    }
+
     public function currentPeriodStart(): ?CarbonImmutable
     {
         $plan = $this->plan;

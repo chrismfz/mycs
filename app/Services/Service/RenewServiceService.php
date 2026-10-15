@@ -168,6 +168,15 @@ class RenewServiceService
         }
 
         $service->expires_at = $paidUntil?->toMutable();
+        // A pro rata product's first period ends on its day (PR D): paid after it, the service starts already expired, and
+        // gets Suspend Days from today rather than being suspended the day it starts (adversarial D-ADV-4).
+        if ($service->status === Service::STATUS_PENDING && $paidUntil !== null && $paidUntil->lessThan(CarbonImmutable::today())
+            && $service->product?->proratesPlan($service->plan)) {
+            $hold = CarbonImmutable::today()->addDays(max(0, (int) config('settings.cronjob_order_suspend', 8)));
+            if ($service->suspend_hold_until === null || $hold->greaterThan($service->suspend_hold_until)) {
+                $service->suspend_hold_until = $hold->toMutable();
+            }
+        }
         // A pending one with a server turns active once its account is made (CreateJob, Σ1): paid now, it may still
         // fail on the server and wait in Pending Module Actions. Without a server there is nothing to make.
         $awaitsCreate = $service->status === Service::STATUS_PENDING && $service->provisioningServer() !== null;

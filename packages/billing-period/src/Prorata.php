@@ -63,6 +63,31 @@ final class Prorata
         return (string) ($period['extended'] ? $stub->plus(BigDecimal::of($price)->toScale(2, RoundingMode::HalfUp)) : $stub);
     }
 
+    /**
+     * What is left on $today of a first period from $start to $end (an upgrade's difference, SVC-14), priced the way the
+     * period was: the days to the aligned day as a share of a full period from the start, the rest as the full period it
+     * is. A period that starts on the day is an ordinary one.
+     */
+    public static function remaining(string $amount, CarbonInterface $start, CarbonInterface $end, CarbonInterface $today, string $unit, int $count, int $day): string
+    {
+        self::check($unit, $count, $day);
+        $start = CarbonImmutable::instance($start)->startOfDay();
+        $end = CarbonImmutable::instance($end)->startOfDay();
+        $today = CarbonImmutable::instance($today)->startOfDay();
+        if ($start->day === $day) {
+            return BillingPeriod::remaining($amount, $start, $end, $today);
+        }
+        $aligned = CarbonImmutable::instance(BillingPeriod::end($start, $unit, $count))->min(self::firstPeriod($start, $unit, $count, $day)['aligned'])->min($end);
+
+        $from = $today->max($start);
+        $stubDays = $from->lessThan($aligned) ? (int) $from->diffInDays($aligned) : 0;
+        $fullDays = (int) $start->diffInDays(BillingPeriod::end($start, $unit, $count));
+        $stub = BigDecimal::of($amount)->multipliedBy($stubDays)->dividedBy($fullDays, 2, RoundingMode::HalfUp);
+        $rest = $aligned->lessThan($end) ? BigDecimal::of(BillingPeriod::remaining($amount, $aligned, $end, $today->max($aligned))) : BigDecimal::zero();
+
+        return (string) $stub->plus($rest);
+    }
+
     private static function check(string $unit, int $count, int $day): void
     {
         if (!in_array($unit, ['month', 'year'], true)) {

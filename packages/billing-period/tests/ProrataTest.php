@@ -46,6 +46,19 @@ final class ProrataTest extends TestCase
         $this->assertSame(['2026-02-01', '2027-02-01'], [$late['aligned']->toDateString(), $late['end']->toDateString()]);
     }
 
+    public function test_what_is_left_of_a_first_period_is_priced_as_it_was(): void
+    {
+        $remaining = fn (string $start, string $end, string $today) => Prorata::remaining('30.00', CarbonImmutable::parse($start),
+            CarbonImmutable::parse($end), CarbonImmutable::parse($today), 'month', 1, 1);
+
+        $this->assertSame('21.29', $remaining('2026-01-10', '2026-02-01', '2026-01-10')); // 22 of 31, as it was billed
+        $this->assertSame('10.65', $remaining('2026-01-10', '2026-02-01', '2026-01-21')); // 11 of 31
+        $this->assertSame('36.00', $remaining('2026-06-25', '2026-08-01', '2026-06-25')); // 6 of 30, and July
+        $this->assertSame('14.52', $remaining('2026-06-25', '2026-08-01', '2026-07-17')); // 15 of July's 31
+        $this->assertSame('0.00', $remaining('2026-01-10', '2026-02-01', '2026-02-03'));
+        $this->assertSame('15.48', $remaining('2026-03-01', '2026-04-01', '2026-03-16')); // an ordinary month: 16 of 31
+    }
+
     public function test_time_of_day_is_dropped(): void
     {
         $this->assertSame('2026-02-01', Prorata::firstPeriod(CarbonImmutable::parse('2026-01-10 23:59'), 'month', 1, 1)['end']->toDateString());
