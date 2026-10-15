@@ -22,7 +22,9 @@ Binding μόνο σε IP (απόφαση 2026-10-08): domain (rDNS) και direc
 Conflict, Free Trial και Support/Updates Addon δεν μεταφέρονται (σε όλα τα προϊόντα: on/on/off/None, άρα χωρίς επίδραση).
 
 ## Κύκλος ζωής
-Create → κλειδί `prefix + hex` (ίδια μορφή με σήμερα), Active· δεύτερο create κρατά το κλειδί. Suspend → Suspended,
+Create → κλειδί `prefix + hex` (ίδια μορφή με σήμερα), Active· δεύτερο create κρατά το κλειδί. Το κλειδί γράφεται
+και ως **domain της υπηρεσίας**, όπως στο WHMCS (1.340/1.341 της nixpal): φαίνεται στις λίστες, στον πελάτη και στην
+αναζήτηση· ένα domain που έχει ήδη η υπηρεσία κρατιέται. Suspend → Suspended,
 unsuspend → Active (ένα Reissued μένει Reissued), terminate → Expired. Reissue (πελάτης: Active, το προϊόν το επιτρέπει,
 κάτω από το όριο· staff: πάντα): καθαρίζει τα bindings, status Reissued, +1, log «License Reissued»· το επόμενο check
 δένει την άδεια στη νέα IP.
@@ -35,6 +37,7 @@ Active), `last_seen_ip`, `last_seen_client` (μέθοδος + User-Agent: πόσ
 ## Επόμενα
 - **L2:** καρτέλα άδειας στην υπηρεσία (admin, πελάτης: κλειδί, IPs, status, Reissue, τελευταίο check), κονσόλα
   (σύνολα, «ενεργές αλλά σιωπηλές», «ληγμένες που ρωτάνε ακόμα», λίστα, access logs).
-- **L3:** import από `mod_licensing` (ίδια κλειδιά, bindings, reissues, status, `whmcs_id`· PSK από `configoption8`
+- **L3:** το **εργαλείο** import (έτοιμο και ελεγμένο με parity, **όχι** import στο live πριν το cut-over: απόφαση
+  2026-10-15) από `mod_licensing` (ίδια κλειδιά, bindings, reissues, status, `whmcs_id`· PSK από `configoption8`
   κρυπτογραφημένο στο προϊόν· `comments` στις ιδιότητες της υπηρεσίας), cache/rate-limit για Expired/Suspended
   (~209k checks τον μήνα).

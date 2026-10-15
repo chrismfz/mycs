@@ -36,17 +36,35 @@ class Licenses
                 if ($license->status === License::STATUS_SUSPENDED && $service->status === Service::STATUS_ACTIVE) {
                     $license->update(['status' => License::STATUS_ACTIVE]);
                 }
+                self::keyAsDomain($service, $license->license_key);
 
                 return $license;
             }
 
-            return License::query()->create([
+            $license = License::query()->create([
                 'service_id' => $service->id,
                 'license_key' => self::newKey((string) ($settings['key_prefix'] ?? ''), (int) ($settings['key_length'] ?? 16)),
                 'status' => License::STATUS_ACTIVE,
                 'reissues' => 0,
             ]);
+            self::keyAsDomain($service, $license->license_key);
+
+            return $license;
         });
+    }
+
+    /**
+     * The key is the service's domain, as WHMCS keeps it (1.340 of nixpal's 1.341 licenses): shown under the product in
+     * every list, to staff and the customer, and found by the admin search. A domain the service has is kept.
+     */
+    private static function keyAsDomain(Service $service, string $key): void
+    {
+        if ($service->domain !== null && $service->domain !== '') {
+            return;
+        }
+        Service::query()->whereKey($service->id)->where(fn ($q) => $q->whereNull('domain')->orWhere('domain', ''))->update(['domain' => $key]);
+        $service->setAttribute('domain', $key);
+        $service->syncOriginalAttribute('domain');
     }
 
     /** The license follows its service: Suspended, Active again, or Expired. Nothing when it has none. */
