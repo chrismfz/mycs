@@ -4,6 +4,7 @@ return [
 
     'cronjob' => [
         'invoices_created' => 'Invoices created',
+        'invoices_charged' => 'Invoices charged to saved payment methods',
         'orders_cancelled' => 'Orders cancelled',
         'upgrade_invoices_updated' => 'Upgrade invoices updated',
         'credit_applied' => 'Account credit applied to open invoices',

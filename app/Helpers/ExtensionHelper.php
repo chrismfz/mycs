@@ -540,16 +540,21 @@ class ExtensionHelper
     }
 
     /** Charge a saved payment method for a Mass Pay group (PR F2), on the invoice due first, as payGroup(). */
-    public static function chargeGroup(Gateway $gateway, PaymentGroup $group, BillingAgreement $billingAgreement): bool
+    public static function chargeGroup(Gateway $gateway, PaymentGroup $group, BillingAgreement $billingAgreement, ?string $key = null): bool
     {
         $invoice = $group->invoice;
         $invoice->payingGroup = $group->ulid;
 
-        return self::charge($gateway, $invoice, $billingAgreement, (float) $group->total);
+        return self::charge($gateway, $invoice, $billingAgreement, (float) $group->total, $key);
     }
 
-    public static function charge(Gateway $gateway, Invoice $invoice, BillingAgreement $billingAgreement, ?float $total = null): bool
+    /**
+     * Charge a saved payment method. Called by SavedMethodCharge only (PR H), which holds the invoice and passes its
+     * attempt's key: the gateway sends it as its idempotency key (Invoice::$chargeKey).
+     */
+    public static function charge(Gateway $gateway, Invoice $invoice, BillingAgreement $billingAgreement, ?float $total = null, ?string $key = null): bool
     {
+        $invoice->chargeKey = $key;
         // Only the invoice's own account's payment method pays it (docs/accounts.md, PR 2a).
         if ($invoice->client_id === null || (int) $billingAgreement->client_id !== (int) $invoice->client_id) {
             throw new DisplayException(__('This payment method belongs to another account.'));

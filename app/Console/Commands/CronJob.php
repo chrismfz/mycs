@@ -6,11 +6,9 @@ use App\Enums\AdjustmentNoteStatus;
 use App\Enums\InvoiceTransactionStatus;
 use App\Events\Invoice as InvoiceEvent;
 use App\Exceptions\DisplayException;
-use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Jobs\Server\SuspendJob;
 use App\Jobs\Server\TerminateJob;
-use App\Models\BillingAgreement;
 use App\Models\CronStat;
 use App\Models\DebugLog;
 use App\Models\EmailLog;
@@ -32,6 +30,7 @@ use App\Services\Invoice\ProcessPaidInvoiceService;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Licensing\Licenses;
 use App\Services\Money\CreditAutoApply;
+use App\Services\Payment\AutoCharge;
 use App\Services\Service\RenewServiceService;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use App\Support\AfterCommit;
@@ -168,10 +167,21 @@ class CronJob extends Command
                         $this->failures["invoices_created #{$id}"] = $e;
                     }
                 }
-                // Grouped renewals (PR C): emailed, paid by credit and charged once all their lines are on them.
+                // Grouped renewals (PR C): emailed and paid by credit once all their lines are on them.
                 $this->finishRenewalInvoices();
 
                 return $number;
+            }, transaction: false);
+
+            // Saved payment methods are charged on the due date and declined charges tried again (PR H, decision 5): after
+            // the renewals (one due today is charged in the same run), before the reminders and the suspensions.
+            $this->runCronJob('invoices_charged', function () {
+                $charged = (new AutoCharge)->run(function (int $id, Throwable $e) {
+                    $this->failures["invoices_charged #{$id}"] = $e;
+                });
+                $this->successFullCharges += $charged;
+
+                return $charged;
             }, transaction: false);
 
             $this->runCronJob('orders_cancelled', function ($number = 0) {
@@ -747,7 +757,7 @@ class CronJob extends Command
                 'due_at' => $periodStart,
                 'currency_code' => $service->currency_code,
             ]);
-            // Finalized, emailed, paid by credit and charged once all its lines are on it (finishRenewalInvoices): marked
+            // Finalized, emailed and paid by credit once all its lines are on it (finishRenewalInvoices): marked
             // in the same commit as its first line, so that a run that fails or stops before then leaves it to the next.
             $invoice->finalize_later = true;
             $invoice->forceFill(['finish_pending_at' => now()]);
@@ -791,10 +801,10 @@ class CronJob extends Command
 
     /**
      * Each renewal invoice still to finish (PR C), once all its lines are on it: this run's, and any a previous run left
-     * (a failure, a crash). Its Finalized event (the email) fires, nothing to pay closes it as paid, credit pays it (MT-1e)
-     * and its saved method is charged. One invoice per transaction, which clears its mark: finished once. A credit
-     * failure is reported and does not hold back the email or the charge; any other failure leaves it marked, for the next
-     * run.
+     * (a failure, a crash). Its Finalized event (the email) fires, nothing to pay closes it as paid and credit pays it
+     * (MT-1e); its saved method is charged on its due date (invoices_charged, PR H). One invoice per transaction, which
+     * clears its mark: finished once. A credit failure is reported and does not hold back the email; any other failure
+     * leaves it marked, for the next run.
      */
     private function finishRenewalInvoices(): void
     {
@@ -829,41 +839,13 @@ class CronJob extends Command
                         report($e);
                         $this->failures["invoices_created credit invoice #{$id}"] = $e;
                     }
-                    if ($agreement !== null && $invoice->fresh()->status === Invoice::STATUS_UNPAID) {
-                        $this->chargeSavedMethod($invoice, $agreement);
-                    }
+                    // Its saved method is charged on its due date by invoices_charged (PR H), not now.
                 });
             } catch (Throwable $e) {
                 report($e);
                 $this->failures["invoices_created invoice #{$id}"] = $e;
             }
         }
-    }
-
-    /**
-     * The account's saved method pays its renewal invoice, after commit (DATA-9: a method gone, the customer is told). Read
-     * again then (code review of C2): removed, replaced or with «Auto-charge» turned off meanwhile, it is not charged.
-     */
-    private function chargeSavedMethod(Invoice $invoice, BillingAgreement $agreement): void
-    {
-        DB::afterCommit(function () use ($invoice, $agreement) {
-            try {
-                if ((int) $invoice->client?->fresh()?->autoChargeAgreement()?->id !== (int) $agreement->id) {
-                    return;
-                }
-                if ($agreement->gateway === null) {
-                    throw new DisplayException("Invoice #{$invoice->id}: the account's saved payment method is gone.");
-                }
-                ExtensionHelper::charge($agreement->gateway, $invoice, $agreement);
-
-                $this->successFullCharges++;
-            } catch (Throwable $e) {
-                if (!$e instanceof DisplayException) {
-                    report($e);
-                }
-                NotificationHelper::invoicePaymentFailedNotification($invoice->client, $invoice);
-            }
-        });
     }
 
     private function payInvoiceWithCredits(Invoice $invoice, bool $subscription, bool $notify): void

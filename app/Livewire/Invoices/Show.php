@@ -4,14 +4,17 @@ namespace App\Livewire\Invoices;
 
 use App\Classes\PDF;
 use App\Enums\InvoiceTransactionStatus;
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
 use App\Models\BillingAgreement;
+use App\Models\ChargeAttempt;
 use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\Service;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Payment\SavedMethodCharge;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Request;
 use Livewire\Attributes\Computed;
@@ -180,15 +183,24 @@ class Show extends Component
             $this->notify(__('Default payment method has been updated for recurring services.'), 'success');
         }
 
-        $success = ExtensionHelper::charge($agreement->gateway, $this->invoice, $agreement);
+        // One charge at a time, under the payment locks, with its idempotency key (PR H, PAY-3): a second click, another
+        // tab or the cron while this one is on its way is refused.
+        try {
+            $attempt = (new SavedMethodCharge)->charge($this->invoice, $agreement, ChargeAttempt::SOURCE_CLIENT);
+        } catch (DisplayException $e) {
+            return $this->notify($e->getMessage(), 'error');
+        }
 
-        if ($success === true) {
+        if ($attempt->status === ChargeAttempt::STATUS_SUCCEEDED) {
             $this->notify(__('Successfully charged the saved payment method.'), 'success');
 
             return $this->redirect(route('invoices.show', $this->invoice) . '?checkPayment', true);
-        } else {
-            return $this->notify(__('Could not process payment. Please try again or use a different payment method.'), 'error');
         }
+        if ($attempt->status === ChargeAttempt::STATUS_ACTION_REQUIRED) {
+            return $this->notify(__('Your bank asks you to confirm this payment: please pay the invoice with your card instead.'), 'error');
+        }
+
+        return $this->notify(__('Could not process payment. Please try again or use a different payment method.'), 'error');
     }
 
     public function exitPay()

@@ -142,7 +142,7 @@ class PayPal extends Gateway
                         'vault_id' => $billingAgreement->external_reference,
                     ],
                 ],
-            ]);
+            ], $invoice->chargeKey); // the charge attempt's key (PR H): PayPal answers a repeated request with the same order
         } catch (PayPalApiException $e) {
             report($e);
 

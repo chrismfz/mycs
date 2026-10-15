@@ -103,11 +103,11 @@ class PaymentRemindersAdversarialTest extends TestCase
     }
 
     /**
-     * A2: a service with a saved payment method (billing agreement) is charged ONCE, when the cron creates its invoice
-     * (CronJob::billRenewal). If that charge failed the invoice stays unpaid and nothing charges it again, yet the
-     * reminder is «card_payment_due»: «will be charged automatically on <due date>. There is nothing you need to do.»
+     * A2, revised by PR H: the account's saved method is no longer charged once when the cron creates the invoice, but on
+     * its due date and again after a decline (AutoCharge, decision 5). So before the due date the reminder rightly says
+     * «card_payment_due»: it will be charged then.
      */
-    public function test_a2_a_billing_agreement_invoice_left_unpaid_is_not_told_it_will_be_charged(): void
+    public function test_a2_a_billing_agreement_invoice_is_told_it_will_be_charged_on_its_due_date(): void
     {
         config(['settings.cronjob_invoice' => 7, 'settings.credits_auto_use' => false]);
         Carbon::setTestNow('2026-10-18 09:00:00');
@@ -119,15 +119,15 @@ class PaymentRemindersAdversarialTest extends TestCase
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1, 'expires_at' => '2026-10-25']); // charged to the account's method $agreement (decision 6)
         MailFacade::fake();
 
-        $this->artisan('app:cron-job'); // bills it and tries the agreement once: the charge fails (gateway not set up)
+        $this->artisan('app:cron-job'); // bills it; not charged yet (due 2026-10-25)
         $invoice = Invoice::query()->where('client_id', $user->client()->id)->sole();
-        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->status, 'precondition: the one automatic charge failed');
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->status, 'precondition');
         MailFacade::fake();
 
         Carbon::setTestNow('2026-10-19 09:00:00');
         (new PaymentReminders)->send();
 
-        $this->assertSame(['invoice_payment_reminder'], $this->sent(), 'nothing will charge it again: the customer must be asked to pay');
+        $this->assertSame(['card_payment_due'], $this->sent(), 'the cron charges it on its due date');
     }
 
     /** A3: subscription_id '' (an empty string, as the cron itself treats it: `(string) subscription_id !== ''`) is no subscription. */
