@@ -27,7 +27,8 @@ class CreateClient extends CreateRecord
             ]);
             $staff = Auth::guard('staff')->user();
             $client = Client::openFor($owner, grantedBy: $staff instanceof Staff ? $staff : null);
-            $client->forceFill(['credit_auto_apply' => (bool) ($data['credit_auto_apply'] ?? true), 'tax_exempt' => (bool) ($data['tax_exempt'] ?? false)])->save();
+            $client->forceFill(['credit_auto_apply' => (bool) ($data['credit_auto_apply'] ?? true), 'tax_exempt' => (bool) ($data['tax_exempt'] ?? false),
+                'separate_invoices' => (bool) ($data['separate_invoices'] ?? false)])->save();
             // The account's details (PR 3a): what staff typed over what the owner gave.
             $contact = array_filter((array) ($data['contact'] ?? []), fn ($value) => $value !== null && $value !== '' && $value !== []);
             $client->primaryContact?->update($contact);

@@ -3,7 +3,10 @@
 namespace Tests\Feature;
 
 use App\Events\Invoice\Finalized;
+use App\Models\BillingAgreement;
 use App\Models\ConfigOption;
+use App\Models\Gateway;
+use App\Models\InvoiceTransaction;
 use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
@@ -17,7 +20,9 @@ use App\Services\Money\MoneyTrail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
@@ -92,7 +97,7 @@ class RenewalGroupingTest extends TestCase
         $this->assertSame([$one->id, $two->id], $invoice->items->pluck('reference_id')->map(fn ($id) => (int) $id)->sort()->values()->all());
         $this->assertSame('20.00', number_format((float) $invoice->total, 2, '.', ''));
         $this->assertSame('2026-10-25', $invoice->due_at->toDateString());
-        Event::assertDispatchedTimes(Finalized::class, 2); // created (no email), then once all its lines are on it (email)
+        Event::assertDispatchedTimes(Finalized::class, 1); // once all its lines are on it, not when it is created (Discord, email)
         Event::assertDispatched(Finalized::class, fn (Finalized $event) => $event->sendEmail && $event->invoice->is($invoice));
     }
 
@@ -199,5 +204,124 @@ class RenewalGroupingTest extends TestCase
         $description = $this->renewalInvoices()->sole()->items->sole()->description;
         $this->assertStringContainsString("\nLocation: Athens", $description);
         $this->assertStringNotContainsString('Internal', $description);
+    }
+
+    private function agreement(): BillingAgreement
+    {
+        if (!class_exists('MyCS\Extensions\Gateways\GroupFake\GroupFake')) {
+            eval('namespace MyCS\Extensions\Gateways\GroupFake; class GroupFake { public static array $charges = []; public function __construct($config = []) {}
+                public function charge($invoice, $amount, $agreement) { self::$charges[] = [(int) $invoice->id, number_format((float) $amount, 2, ".", "")]; return true; } }');
+        }
+        \MyCS\Extensions\Gateways\GroupFake\GroupFake::$charges = [];
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'GroupFake'], ['name' => 'GroupFake', 'type' => 'gateway']);
+
+        return BillingAgreement::query()->create(['client_id' => $this->user->client()->id, 'gateway_id' => $gateway->id, 'name' => 'Card', 'external_reference' => 'ref-' . uniqid()]);
+    }
+
+    public function test_the_saved_method_is_charged_once_for_the_grouped_invoice(): void
+    {
+        $agreement = $this->agreement();
+        $this->service(['billing_agreement_id' => $agreement->id]);
+        $this->service(['billing_agreement_id' => $agreement->id]);
+
+        $this->cron();
+
+        $invoice = $this->renewalInvoices()->sole();
+        $this->assertSame([[(int) $invoice->id, '20.00']], \MyCS\Extensions\Gateways\GroupFake\GroupFake::$charges);
+    }
+
+    public function test_different_saved_methods_are_separate_invoices(): void
+    {
+        $this->service(['billing_agreement_id' => $this->agreement()->id]);
+        $this->service(['billing_agreement_id' => $this->agreement()->id]);
+        $this->service();
+
+        $this->cron();
+
+        $this->assertCount(3, $this->renewalInvoices());
+    }
+
+    public function test_a_group_invoice_paid_meanwhile_takes_no_more_lines(): void
+    {
+        $this->service();
+        $this->service();
+        $paid = false;
+        InvoiceItem::created(function (InvoiceItem $line) use (&$paid) {
+            if (!$paid) {
+                $paid = true;
+                DB::table('invoices')->where('id', $line->invoice_id)->update(['status' => Invoice::STATUS_PAID]);
+            }
+        });
+
+        $this->cron();
+
+        $this->assertSame([1, 1], $this->renewalInvoices()->map(fn (Invoice $invoice) => $invoice->items->count())->all());
+    }
+
+    public function test_a_line_of_nothing_goes_alone_and_closes_as_paid(): void
+    {
+        $this->service(['price' => 0.004]);
+        $this->service();
+
+        $this->cron();
+
+        $this->assertSame([Invoice::STATUS_PAID, Invoice::STATUS_UNPAID], $this->renewalInvoices()->pluck('status')->all());
+    }
+
+    public function test_an_invoice_a_previous_run_left_unfinished_is_finished(): void
+    {
+        // A run that stopped after billing (a crash) leaves its invoice marked: the next run emails and charges it, once.
+        Event::fake([Finalized::class]);
+        $agreement = $this->agreement();
+        $this->service(['billing_agreement_id' => $agreement->id]);
+        $this->service(['billing_agreement_id' => $agreement->id]);
+        $this->cron();
+        $invoice = $this->renewalInvoices()->sole();
+        DB::table('invoices')->where('id', $invoice->id)->update(['finish_pending_at' => now()]);
+        \MyCS\Extensions\Gateways\GroupFake\GroupFake::$charges = [];
+
+        Carbon::setTestNow('2026-10-20 11:00:00');
+        $this->cron();
+        $this->cron();
+
+        $this->assertCount(1, $this->renewalInvoices());
+        $this->assertNull($invoice->fresh()->finish_pending_at);
+        $this->assertSame([[(int) $invoice->id, '20.00']], \MyCS\Extensions\Gateways\GroupFake\GroupFake::$charges);
+        Event::assertDispatchedTimes(Finalized::class, 2); // the first run, then the one that finished what it left
+    }
+
+    public function test_a_credit_failure_does_not_hold_back_the_email_or_the_charge(): void
+    {
+        Event::fake([Finalized::class]);
+        $this->settings(['credits_auto_use' => [true, 'boolean']]);
+        $agreement = $this->agreement();
+        $this->service(['billing_agreement_id' => $agreement->id]);
+        $this->service(['billing_agreement_id' => $agreement->id]);
+        (new CreditLedger)->add($this->user->client()->id, 'USD', 500, MoneyTrail::CAUSE_STAFF_ADJUSTMENT, MoneyTrail::SOURCE_STAFF, note: 'credit');
+        InvoiceTransaction::creating(function (InvoiceTransaction $txn) {
+            if ($txn->is_credit_transaction) {
+                throw new \RuntimeException('credit failed');
+            }
+        });
+
+        Artisan::call('app:cron-job');
+
+        $invoice = $this->renewalInvoices()->sole();
+        $this->assertNull($invoice->fresh()->finish_pending_at);
+        $this->assertSame('5.00', number_format((float) Credit::query()->where('client_id', $this->user->client()->id)->value('amount'), 2, '.', ''));
+        $this->assertSame([[(int) $invoice->id, '20.00']], \MyCS\Extensions\Gateways\GroupFake\GroupFake::$charges);
+        Event::assertDispatchedTimes(Finalized::class, 1);
+    }
+
+    public function test_options_are_in_the_products_order(): void
+    {
+        $service = $this->service();
+        foreach ([['Second', 2, 'B'], ['First', 1, 'A']] as [$name, $sort, $valueName]) {
+            $option = ConfigOption::query()->create(['name' => $name, 'type' => 'select', 'hidden' => false, 'sort' => $sort]);
+            $value = ConfigOption::query()->create(['name' => $valueName, 'type' => 'select', 'parent_id' => $option->id, 'hidden' => false]);
+            $service->configs()->create(['config_option_id' => $option->id, 'config_value_id' => $value->id]);
+        }
+
+        $this->assertSame("First: A\nSecond: B", $service->describeOptions());
     }
 }

@@ -261,8 +261,16 @@ class Service extends Model implements Auditable
     {
         return $this->configs()->with(['configOption', 'configValue'])->get()
             ->filter(fn (ServiceConfig $config) => $config->configOption !== null && !$config->configOption->getAttribute('hidden') && $config->configValue !== null)
+            // In the order the product shows them.
+            ->sortBy(fn (ServiceConfig $config) => [$config->configOption->sort ?? PHP_INT_MAX, $config->configOption->id])
             ->map(fn (ServiceConfig $config) => $config->configOption->name . ': ' . $config->configValue->name)
             ->implode("\n");
+    }
+
+    /** A renewal line's text: the period, then the service's options (PR C, as WHMCS). */
+    public function describeLine(CarbonInterface $start, ?CarbonInterface $end): string
+    {
+        return trim($this->describePeriod($start, $end) . "\n" . $this->describeOptions());
     }
 
     /** Invoice line text for one billing period. */
@@ -545,7 +553,7 @@ class Service extends Model implements Auditable
                 // Under the payment locks; an invoice with a payment on it keeps its line (R9 of #68).
                 ChangeOpenLine::handle($line, fn (InvoiceItem $locked) => $locked->forceFill([
                     'period_end' => $end,
-                    'description' => $this->describePeriod($locked->period_start, $end),
+                    'description' => $this->describeLine($locked->period_start, $end),
                     'price' => $this->priceForPeriod($locked->period_start, $end),
                 ] + ($retax ? ['tax_rate' => LineTax::rateFor($locked)] : [])));
             }

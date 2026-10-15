@@ -66,16 +66,9 @@ class CronJob extends Command
     /**
      * This run's renewal invoices by group key (PR C): the invoice the next line of the same group goes on.
      *
-     * @var array<string, array{invoice: int, service: int}>
+     * @var array<string, int>
      */
     private array $renewalGroups = [];
-
-    /**
-     * This run's renewal invoices, to finish once their lines are on them.
-     *
-     * @var list<array{invoice: int, service: int}>
-     */
-    private array $renewalInvoices = [];
 
     /**
      * Execute the console command.
@@ -100,6 +93,8 @@ class CronJob extends Command
     private function runSteps()
     {
         Config::set('audit.console', true);
+        // One command object can run twice (a test, a long-lived worker): nothing carries over from a run to the next.
+        $this->renewalGroups = $this->failures = $this->notices = [];
 
         // Each job commits on its own (renewals: per service): one failure no longer rolls back the
         // whole run, nothing stays locked for the whole run, and each step sees what the previous
@@ -722,10 +717,14 @@ class CronJob extends Command
         // A line of nothing (a short prorated hole rounding to zero cents) goes alone: closed as paid, it renews its service
         // at once, not when the rest of a group is paid.
         $key = RecordPaymentService::toCents($price) * (int) $service->quantity > 0 ? $this->renewalGroupKey($service, $periodStart) : null;
+        // Lock order: the service (above), then its group's invoice, as for every line of the group; the services of a
+        // group are billed one after another, never two at once (one cron run at a time).
         $invoice = $key !== null && isset($this->renewalGroups[$key])
-            ? (new RecordPaymentService)->lockInvoice($this->renewalGroups[$key]['invoice']) : null;
-        if ($invoice !== null && ($invoice->status !== Invoice::STATUS_UNPAID || $invoice->hasPayments(lock: true))) {
-            $invoice = null; // paid or changed meanwhile: a new one
+            ? (new RecordPaymentService)->lockInvoice($this->renewalGroups[$key]) : null;
+        if ($invoice !== null && ($invoice->status !== Invoice::STATUS_UNPAID || $invoice->finish_pending_at === null
+            || (int) $invoice->client_id !== (int) $service->client_id || $invoice->currency_code !== $service->currency_code
+            || $invoice->hasPayments(lock: true))) {
+            $invoice = null; // paid, finished or changed meanwhile: a new one
         }
         if ($invoice === null) {
             $invoice = $service->invoices()->make([
@@ -734,13 +733,19 @@ class CronJob extends Command
                 'due_at' => $periodStart,
                 'currency_code' => $service->currency_code,
             ]);
-            $invoice->send_create_email = false; // sent with all its lines
+            // Finalized, emailed, paid by credit and charged once all its lines are on it (finishRenewalInvoices): marked
+            // in the same commit as its first line, so that a run that fails or stops before then leaves it to the next.
+            $invoice->finalize_later = true;
+            $invoice->forceFill(['finish_pending_at' => now()]);
             $invoice->save();
-            $entry = ['invoice' => (int) $invoice->id, 'service' => (int) $service->id];
+            // Known to the group once this service's transaction commits (adversarial C1-ADV-1): one rolled back leaves
+            // no invoice behind for the next line to land on.
             if ($key !== null) {
-                $this->renewalGroups[$key] = $entry;
+                $id = (int) $invoice->id;
+                DB::afterCommit(function () use ($key, $id) {
+                    $this->renewalGroups[$key] = $id;
+                });
             }
-            $this->renewalInvoices[] = $entry;
         }
         // The line records the period it pays for.
         $invoice->items()->create([
@@ -749,7 +754,7 @@ class CronJob extends Command
             'price' => $price,
             'quantity' => $service->quantity,
             // With its options (PR C, as WHMCS): one invoice can bill several services of the same product.
-            'description' => trim($service->describePeriod($periodStart, $periodEnd) . "\n" . $service->describeOptions()),
+            'description' => $service->describeLine($periodStart, $periodEnd),
             'period_start' => $periodStart,
             'period_end' => $periodEnd,
         ]);
@@ -771,19 +776,26 @@ class CronJob extends Command
     }
 
     /**
-     * Each renewal invoice of this run, once all its lines are on it: nothing to pay closes it as paid, credit pays it
-     * (MT-1e), its email goes out, and its saved method is charged. One invoice per transaction; a failure is reported
-     * and the invoice stays open (the daily credit sweep and the reminders take it from there).
+     * Each renewal invoice still to finish (PR C), once all its lines are on it: this run's, and any a previous run left
+     * (a failure, a crash). Its Finalized event (the email) fires, nothing to pay closes it as paid, credit pays it (MT-1e)
+     * and its saved method is charged. One invoice per transaction, which clears its mark: finished once. A credit
+     * failure is reported and does not hold back the email or the charge; any other failure leaves it marked, for the next
+     * run.
      */
     private function finishRenewalInvoices(): void
     {
-        foreach ($this->renewalInvoices as ['invoice' => $id, 'service' => $serviceId]) {
+        $this->renewalGroups = [];
+        $ids = Invoice::query()->whereNotNull('finish_pending_at')->orderBy('id')->pluck('id');
+        foreach ($ids as $id) {
             try {
-                DB::transaction(function () use ($id, $serviceId) {
+                DB::transaction(function () use ($id) {
                     $invoice = (new RecordPaymentService)->lockInvoice($id);
-                    $service = Service::query()->find($serviceId);
-                    if ($invoice->status !== Invoice::STATUS_UNPAID || $service === null) {
+                    if ($invoice->finish_pending_at === null) {
                         return;
+                    }
+                    $invoice->forceFill(['finish_pending_at' => null])->saveQuietly();
+                    if ($invoice->status !== Invoice::STATUS_UNPAID) {
+                        return; // staff cancelled or settled it meanwhile
                     }
                     AfterCommit::event(new InvoiceEvent\Finalized($invoice, true), $invoice);
                     // A short prorated hole can round to zero cents; no gateway can collect that amount.
@@ -792,8 +804,16 @@ class CronJob extends Command
 
                         return;
                     }
-                    $this->payInvoiceWithCredits($invoice, $service);
-                    if ($service->billing_agreement_id && $invoice->fresh()->status === Invoice::STATUS_UNPAID) {
+                    // Its services share the saved method (the group key); any one still there stands for them.
+                    $service = Service::query()->whereIn('id', $invoice->items()->where('reference_type', Service::class)->select('reference_id'))
+                        ->orderBy('id')->first();
+                    try {
+                        DB::transaction(fn () => $this->payInvoiceWithCredits($invoice, $service));
+                    } catch (Throwable $e) {
+                        report($e);
+                        $this->failures["invoices_created credit invoice #{$id}"] = $e;
+                    }
+                    if ($service?->billing_agreement_id && $invoice->fresh()->status === Invoice::STATUS_UNPAID) {
                         $this->chargeSavedMethod($invoice, $service);
                     }
                 });
@@ -802,8 +822,6 @@ class CronJob extends Command
                 $this->failures["invoices_created invoice #{$id}"] = $e;
             }
         }
-        $this->renewalInvoices = [];
-        $this->renewalGroups = [];
     }
 
     /** The saved method of the service pays its renewal invoice, after commit (DATA-9: a method gone, the customer is told). */
@@ -827,17 +845,17 @@ class CronJob extends Command
         });
     }
 
-    private function payInvoiceWithCredits(Invoice $invoice, Service $service): void
+    private function payInvoiceWithCredits(Invoice $invoice, ?Service $service): void
     {
         // As much as the credit covers, also in part (decision 5, MT-1e); read and spent under the payment locks.
         // Off with credits, or with "Automatically use credits", or for the invoices CreditAutoApply leaves alone.
         // A gateway subscription's renewal only in full: a subscription sale that became credit pays it.
-        if ((string) $service->subscription_id !== '') {
+        if ((string) $service?->subscription_id !== '') {
             (new CreditAutoApply)->toSubscriptionRenewal($invoice);
 
             return;
         }
-        (new CreditAutoApply)->toInvoice($invoice, notify: !$service->billing_agreement_id);
+        (new CreditAutoApply)->toInvoice($invoice, notify: !$service?->billing_agreement_id);
     }
 
     /**
