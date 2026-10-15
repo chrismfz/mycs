@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "2e6788e01f5d4fd0e8a7bec04f8f50c3",
+    "content-hash": "20595d2b22e13948237ff57ee29cb3e6",
     "packages": [
         {
             "name": "andreiio/blade-remix-icon",
@@ -5092,6 +5092,42 @@
                 "MIT"
             ],
             "description": "Prices one order line in decimal: coupon discount, tax inclusive or exclusive, rounded to cents. Framework-free.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "mycs/vies",
+            "version": "1.0.0",
+            "dist": {
+                "type": "path",
+                "url": "packages/vies",
+                "reference": "cfda941cc7d978ce7d58efb54f1fb5a9460ff103"
+            },
+            "require": {
+                "ext-curl": "*",
+                "ext-json": "*",
+                "php": "^8.3"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^11.5|^12.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "MyCS\\Vies\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "MyCS\\Vies\\Tests\\": "tests/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Checks an EU VAT number with the European Commission's VIES service (https, REST). Fails closed: an error is never a valid number. Framework-free.",
             "transport-options": {
                 "symlink": true,
                 "relative": true
@@ -15385,5 +15421,5 @@
     "platform-overrides": {
         "php": "8.3.0"
     },
-    "plugin-api-version": "2.9.0"
+    "plugin-api-version": "2.6.0"
 }

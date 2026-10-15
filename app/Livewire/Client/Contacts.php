@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Client;
 
+use App\Services\Tax\EuVat;
 use App\Livewire\Component;
 use App\Livewire\Traits\EditsContact;
 use App\Models\Client;
@@ -59,14 +60,17 @@ class Contacts extends Component
         $this->validate($this->contactRules());
 
         if ($this->editing !== null) {
-            $this->contactOf($this->editing)->update($this->contactValues());
+            $contact = $this->contactOf($this->editing);
+            $contact->update($this->contactValues());
         } else {
-            $client->contacts()->create($this->contactValues());
+            $contact = $client->contacts()->create($this->contactValues());
         }
 
         $this->showForm = false;
         $this->editing = null;
-        $this->notify(__('account.contact_saved'), 'success');
+        // A new EU VAT number is charged VAT until VIES finds it valid (PR G): the customer is told.
+        $this->notify(__('account.contact_saved') . (EuVat::enabled() && $contact->fresh()?->vat_status === EuVat::STATUS_PENDING
+            ? ' ' . __('vat.saved_pending') : ''), 'success');
     }
 
     public function archive(int $id): void

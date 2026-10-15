@@ -8,26 +8,35 @@ use App\Models\Product;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Services\Order\OrderPricing;
+use App\Services\Tax\EuVat;
 use MyCS\Pricing\LinePricer;
 
 /**
  * The tax of an invoice line (Δ1, docs/orders.md): the rate is decided when the line is made, from the invoice's account
  * (its country, tax exempt) and the line's product (taxable), and kept: a later change of either does not change an
- * issued line. The amounts are worked out again whenever the price, quantity or rate changes.
+ * issued line. The amounts are worked out again whenever the price, quantity or rate changes. A line without VAT keeps
+ * why (tax_reason, PR G), for the proforma's note and Ekdosi's exemption category.
  */
 final class LineTax
 {
-    /** The rate for a new line, or for one whose «taxed» flag changed; 0 when it is not taxed. */
-    public static function rateFor(InvoiceItem $item): string
+    /**
+     * The rate for a new line, or for one whose «taxed» flag changed (0 when it is not taxed), and when 0, why (PR G:
+     * reverse_charge, outside_eu, exempt, not_taxable): decided together, set both on the line.
+     *
+     * @return array{tax_rate: string, tax_reason: ?string}
+     */
+    public static function decide(InvoiceItem $item): array
     {
-        // Credit bought is not a sale (WHMCS «Add Funds»): never taxed.
-        if (!($item->taxed ?? true) || $item->reference_type === Credit::class) {
-            return '0';
+        // Credit bought is not a sale (WHMCS «Add Funds»): never taxed, and nothing for a VAT note.
+        if ($item->reference_type === Credit::class) {
+            return ['tax_rate' => '0', 'tax_reason' => null];
         }
-        $client = $item->invoice?->client;
-        $rate = OrderPricing::taxRate($client, self::product($item));
+        if (!($item->taxed ?? true)) {
+            return ['tax_rate' => '0', 'tax_reason' => config('settings.tax_enabled', false) ? EuVat::REASON_NOT_TAXABLE : null];
+        }
+        $decision = OrderPricing::taxDecision($item->invoice?->client, self::product($item));
 
-        return $rate ?? '0';
+        return ['tax_rate' => $decision['rate'] ?? '0', 'tax_reason' => $decision['rate'] === null ? $decision['reason'] : null];
     }
 
     /** Set the line's tax and total from its net price, quantity and rate. */

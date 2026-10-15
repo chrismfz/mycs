@@ -227,6 +227,11 @@
 
     <div style="clear: both;"></div>
 
+    {{-- PR G: why lines carry no VAT (reverse charge, outside the EU). --}}
+    @foreach ($invoice->taxNotes() as $taxNote)
+    <p style="margin-top: 15px;">{{ $taxNote }}</p>
+    @endforeach
+
     @php
         $clientAdjustmentNotes = $invoice->adjustmentNotes;
     @endphp

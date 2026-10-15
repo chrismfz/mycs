@@ -92,6 +92,8 @@ return [
     'refund_notify' => 'Ενημέρωση του πελάτη με email για την επιστροφή',
     'tax_id_line' => 'ΑΦΜ: :tax_id',
     'vat_number_line' => 'ΑΦΜ ΕΕ (VIES): :vat_number',
+    'reverse_charge_note' => 'Αντίστροφη επιβάρυνση: ο ΦΠΑ οφείλεται από τον λήπτη (άρθρο 196 της Οδηγίας 2006/112/ΕΚ).',
+    'outside_eu_note' => 'Εκτός πεδίου ΦΠΑ: υπηρεσίες σε πελάτη εκτός ΕΕ.',
     'tax_office_line' => 'ΔΟΥ: :tax_office',
     'deleted_user' => 'Διαγραμμένος χρήστης',
 

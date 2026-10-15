@@ -117,7 +117,7 @@ class ServiceUpgradeService
                 ->each(fn ($item) => ChangeOpenLine::handle($item, function ($line) use ($service, $productChanged) {
                     $line->price = $service->price;
                     if ($productChanged) {
-                        $line->tax_rate = LineTax::rateFor($line);
+                        $line->forceFill(LineTax::decide($line));
                     }
                 }));
 

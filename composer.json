@@ -38,6 +38,7 @@
         "mycs/billing-period": "^1.0",
         "mycs/mail-template": "^1.0",
         "mycs/pricing": "^1.0",
+        "mycs/vies": "^1.0",
         "nixpal/cardlink-eurobank": "^1.0",
         "nixpal/domain-tools": "^1.0",
         "nixpal/licensing": "^1.0",

@@ -2,6 +2,7 @@
 
 namespace App\Classes;
 
+use MyCS\Vies\VatCountry;
 use App\Admin\Actions\ResetColorsAction;
 use App\Admin\Actions\SendTestEmailAction;
 use App\Helpers\TemplateRenderer;
@@ -277,6 +278,30 @@ class Settings
                     ],
                     // Both companies' WHMCS are Exclusive (docs/decisions.md Δ1).
                     'default' => 'exclusive',
+                ],
+                // EU VAT (PR G, docs/eu-vat.md): nixpal on, home EE (decision 9); myip off.
+                [
+                    'name' => 'eu_vat_enabled',
+                    'label' => 'EU VAT',
+                    'type' => 'checkbox',
+                    'database_type' => 'boolean',
+                    'default' => false,
+                    'description' => 'Customers outside the EU pay no VAT. EU businesses of another member state with a VAT number VIES finds valid pay no VAT (reverse charge). Until VIES answers, VAT is charged.',
+                ],
+                [
+                    'name' => 'eu_vat_home_country',
+                    'label' => 'EU VAT home country',
+                    'type' => 'select',
+                    'options' => array_intersect_key((array) config('app.countries'), array_flip(VatCountry::EU)),
+                    'required' => false,
+                    'description' => 'The member state the company is established in. Businesses there are never reverse charged; without it nobody is.',
+                ],
+                [
+                    'name' => 'eu_vat_requester',
+                    'label' => 'Own EU VAT number',
+                    'type' => 'text',
+                    'required' => false,
+                    'description' => 'Sent to VIES with each check, so it answers with a consultation number: the proof the customer\'s number was valid.',
                 ],
             ],
             'mail' => [

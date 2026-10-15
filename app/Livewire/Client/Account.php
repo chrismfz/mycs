@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Client;
 
+use App\Services\Tax\EuVat;
 use App\Helpers\NotificationHelper;
 use App\Livewire\ComponentWithProperties;
 use App\Livewire\Traits\EditsContact;
@@ -73,14 +74,17 @@ class Account extends ComponentWithProperties
             NotificationHelper::emailVerificationNotification($user);
         }
 
+        $pending = false;
         if (CurrentClient::allows('profile') && ($client = CurrentClient::model()) !== null) {
             $client->primaryContact?->update($this->contactValues());
             if (array_key_exists('properties', $validatedData)) {
                 $this->updateProperties($client, $validatedData['properties']);
             }
+            // A new EU VAT number is charged VAT until VIES finds it valid (PR G): the customer is told.
+            $pending = EuVat::enabled() && $client->primaryContact?->fresh()?->vat_status === EuVat::STATUS_PENDING;
         }
 
-        $this->notify(__('Account updated successfully.'));
+        $this->notify(__('Account updated successfully.') . ($pending ? ' ' . __('vat.saved_pending') : ''));
     }
 
     public function render()

@@ -25,6 +25,8 @@ use Dedoc\Scramble\Scramble;
 use Dedoc\Scramble\Support\Generator\OpenApi;
 use Dedoc\Scramble\Support\Generator\SecurityScheme;
 use Exception;
+use MyCS\Vies\CurlTransport;
+use MyCS\Vies\Vies;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -147,6 +149,8 @@ class AppServiceProvider extends ServiceProvider
         // The gateway log (MT-2a) lives for one request (or one Octane request).
         $this->app->scoped(GatewayLog::class);
         $this->app->scoped(CurrentClient::class);
+        // VIES (PR G): with the instance's own VAT number as requester, VIES gives the consultation number.
+        $this->app->bind(Vies::class, fn () => new Vies(new CurlTransport, config('settings.eu_vat_requester')));
     }
 
     /**

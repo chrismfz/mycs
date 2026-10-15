@@ -15,7 +15,7 @@ use App\Services\Invoice\LineTax;
  */
 class InvoiceItemObserver
 {
-    private const MONEY_FIELDS = ['price', 'quantity', 'reference_type', 'reference_id', 'invoice_id', 'taxed', 'tax_rate', 'tax_amount', 'line_total'];
+    private const MONEY_FIELDS = ['price', 'quantity', 'reference_type', 'reference_id', 'invoice_id', 'taxed', 'tax_rate', 'tax_reason', 'tax_amount', 'line_total'];
 
     private static function refuseOnPaidInvoice(mixed $invoiceId): void
     {
@@ -32,7 +32,7 @@ class InvoiceItemObserver
         self::refuseOnPaidInvoice($invoice->invoice_id);
         // Its tax (Δ1): the rate in force now, unless given (an import keeps the one it was issued with).
         if (!$invoice->isDirty('tax_rate')) {
-            $invoice->tax_rate = LineTax::rateFor($invoice);
+            $invoice->forceFill(LineTax::decide($invoice));
         }
         LineTax::apply($invoice);
         event(new InvoiceItemEvent\Creating($invoice));
@@ -53,7 +53,7 @@ class InvoiceItemObserver
     {
         // Taxed or not changed: the rate is decided again; else the line keeps its rate and only its amounts follow.
         if ($invoice->isDirty('taxed') && !$invoice->isDirty('tax_rate')) {
-            $invoice->tax_rate = LineTax::rateFor($invoice);
+            $invoice->forceFill(LineTax::decide($invoice));
         }
         if ($invoice->isDirty(['price', 'quantity', 'taxed', 'tax_rate'])) {
             LineTax::apply($invoice);

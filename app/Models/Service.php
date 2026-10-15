@@ -562,7 +562,7 @@ class Service extends Model implements Auditable
                     'period_end' => $end,
                     'description' => $this->describeLine($locked->period_start, $end),
                     'price' => $this->priceForPeriod($locked->period_start, $end),
-                ] + ($retax ? ['tax_rate' => LineTax::rateFor($locked)] : [])));
+                ] + ($retax ? LineTax::decide($locked) : [])));
             }
         }
     }
