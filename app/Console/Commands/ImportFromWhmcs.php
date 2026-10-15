@@ -1158,14 +1158,19 @@ class ImportFromWhmcs extends Command
         });
     }
 
-    /** @var array<int, true>|null WHMCS Mass Pay parents: invoices with lines of type «Invoice» */
+    /**
+     * @var array<int, true>|null WHMCS Mass Pay parents: invoices with lines of type «Invoice» of which at least one child
+     *                            still exists. One whose children were all deleted in WHMCS is imported as an invoice like
+     *                            any other, so its payment is not lost.
+     */
     private ?array $massPayParents = null;
 
     /** @return array<int, true> */
     private function massPayParents(): array
     {
-        return $this->massPayParents ??= array_fill_keys(array_map('intval',
-            $this->pdo->query("SELECT DISTINCT invoiceid FROM tblinvoiceitems WHERE type = 'Invoice'")->fetchAll(PDO::FETCH_COLUMN)), true);
+        return $this->massPayParents ??= array_fill_keys(array_map('intval', $this->pdo->query(
+            "SELECT DISTINCT ii.invoiceid FROM tblinvoiceitems ii JOIN tblinvoices c ON c.id = ii.relid WHERE ii.type = 'Invoice'"
+        )->fetchAll(PDO::FETCH_COLUMN)), true);
     }
 
     /**

@@ -147,4 +147,18 @@ class ImportMassPayTest extends TestCase
         $this->assertNull(InvoiceTransaction::query()->find(7020), 'a refund on a parent is left to staff');
         $this->assertStringContainsString('refund 7020', $this->output->fetch());
     }
+
+    /** A parent whose children were all deleted in WHMCS stays an invoice with its payment: no money is lost. */
+    public function test_a_parent_without_children_is_imported_as_an_invoice(): void
+    {
+        $this->invoice(930, 'Paid', 12);
+        $this->item(930, 'Invoice', 999, 12);
+        $this->payment(7030, 930, 12);
+
+        $this->import();
+
+        $this->assertSame(Invoice::STATUS_PAID, Invoice::query()->findOrFail(930)->status);
+        $this->assertSame(930, (int) InvoiceTransaction::query()->findOrFail(7030)->invoice_id);
+        $this->assertSame(0, PaymentGroup::query()->count());
+    }
 }

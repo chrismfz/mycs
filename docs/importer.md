@@ -36,6 +36,8 @@
   ακυρώνονται όλες μαζί (παλαιότερες από `cronjob_order_cancel` ημέρες) και το stock τους επιστρέφει. Να μετρηθούν
   πριν από το cut-over και να αποφασίσει το staff (να γίνουν cancelled στο import ή να μείνουν).
 - **Ρυθμίσεις αυτοματισμού:** από το `tblconfiguration` της εταιρείας στην καρτέλα Automation (`AutoSuspension`, `AutoSuspensionDays`, `AutoTermination`, `AutoTerminationDays`, `CreateInvoiceDaysBefore`, `CloseInactiveTickets` σε ώρες → ημέρες, `DailyCronExecutionHour`)· αντιστοίχιση στο `settings-map.md` (Αυτοματισμοί).
+- **Mass Pay:** τα γονικά τιμολόγια δεν γίνονται τιμολόγια· η πληρωμή τους πάει στα παιδιά (`WhmcsMassPay`, PR F3,
+  `payments.md`). Parity: πλήθος πληρωμένων γονικών = ομάδες με `whmcs_invoice_id`· χρήματα γονικών = άμεσα + allocations.
 - **Ό,τι άλλο βγάλει η απογραφή χρήσης του WHMCS** (`whmcs-usage.md`): mass pay/merge, πιστώσεις, promotions και εκπτώσεις ομάδων, κανόνες ΦΠΑ/VIES, custom fields, suspend overrides, guest tickets.
 
 ## Status τιμολογίων (2026-10-13)
