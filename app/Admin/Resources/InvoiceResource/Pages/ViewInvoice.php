@@ -6,8 +6,8 @@ use App\Admin\Actions\ApplyCreditAction;
 use App\Admin\Actions\CloseInvoiceAsPaid;
 use App\Admin\Actions\MarkInvoicePaid;
 use App\Admin\Actions\SendInvoiceEmail;
+use App\Admin\Actions\SetAutoCharge;
 use App\Admin\Actions\SplitInvoiceAction;
-use App\Admin\Actions\ToggleAutoCharge;
 use App\Admin\Resources\InvoiceResource;
 use App\Admin\Resources\InvoiceResource\RelationManagers\AdjustmentNotesRelationManager;
 use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationManager;
@@ -111,7 +111,8 @@ class ViewInvoice extends ViewRecord
             CloseInvoiceAsPaid::make(),
             SendInvoiceEmail::make(),
             SplitInvoiceAction::make(),
-            ToggleAutoCharge::make(),
+            SetAutoCharge::disable(),
+            SetAutoCharge::enable(),
             Action::make('cancel')
                 // Cancelling writes off what the customer owes: only staff who may change invoices (R1 of #84; this
                 // page opens to anyone who may view them).

@@ -129,8 +129,9 @@ class LegacyPayPalIpnTest extends TestCase
         Http::fake(['https://ipnpb.paypal.com/*' => Http::response('VERIFIED')]);
         config(['settings.paypal_legacy_receivers' => '']);
 
-        $this->ipn($this->subscrPayment())->assertOk();
-        $this->ipn($this->subscrPayment())->assertOk();
+        // Not looked at, and not lost: PayPal sends it again until the accounts are set (adversarial ADV-4).
+        $this->ipn($this->subscrPayment())->assertStatus(503);
+        $this->ipn($this->subscrPayment())->assertStatus(503);
 
         $this->assertSame(1, $this->staffMails('PayPal legacy notice not checked'));
         $this->assertSame(0, $this->staffMails('PayPal payment not recorded'));

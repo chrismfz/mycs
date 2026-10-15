@@ -118,11 +118,11 @@ class AutoChargeExtrasTest extends TestCase
         $staff = Staff::factory()->admin()->create();
         $invoice = $this->invoice('2026-11-10');
 
-        $this->livewireAs($staff)->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])->callAction('toggleAutoCharge');
+        $this->livewireAs($staff)->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])->callAction('disableAutoCharge');
         $this->assertTrue($invoice->fresh()->no_auto_charge);
         $this->assertSame(0, (new AutoCharge)->run());
 
-        $this->livewireAs($staff)->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])->callAction('toggleAutoCharge');
+        $this->livewireAs($staff)->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])->callAction('enableAutoCharge');
         $this->assertFalse($invoice->fresh()->no_auto_charge);
         // Who stopped, and allowed, the collection is in the invoice's audit (code review CR-4).
         $this->assertSame(['auto_charge_disabled', 'auto_charge_enabled'], Audit::query()->where('auditable_type', $invoice->getMorphClass())

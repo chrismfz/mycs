@@ -9,6 +9,7 @@ use App\Services\Money\PaymentsLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\RateLimiter;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
@@ -29,6 +30,13 @@ class LegacyPayPalIpnController extends Controller
     /** An IPN is a few KB: a larger body is not PayPal's (code review CR-3). */
     private const MAX_BYTES = 20000;
 
+    /**
+     * Forged requests (PayPal answered INVALID) an address may make a minute before we stop calling PayPal for it (CR-3).
+     * Only forged ones count, so a genuine IPN never spends the budget; one that comes past it is answered 503 and PayPal
+     * sends it again later (adversarial ADV-3). Behind a proxy, set the trusted proxies so that each caller has its address.
+     */
+    private const FORGED_PER_MINUTE = 30;
+
     public function __invoke(Request $request): Response
     {
         // PayPal checks the message as it sent it: the raw body, not the parsed fields (which trimming changes).
@@ -40,6 +48,12 @@ class LegacyPayPalIpnController extends Controller
             GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_REJECTED, 'too_large');
 
             return response('', 413);
+        }
+        $limit = 'paypal-legacy-ipn-forged:' . $request->ip();
+        if (RateLimiter::tooManyAttempts($limit, self::FORGED_PER_MINUTE)) {
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_REJECTED, 'throttled');
+
+            return response('', 503);
         }
         parse_str($raw, $fields);
         $sandbox = ($fields['test_ipn'] ?? null) === '1';
@@ -63,19 +77,27 @@ class LegacyPayPalIpnController extends Controller
         $verified = trim($answer->body()) === 'VERIFIED';
         GatewayLog::current()->signature($verified);
         if (!$verified) {
+            RateLimiter::hit($limit, 60);
             GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_REJECTED, 'not_verified');
 
             return response('', 400);
         }
 
         // Ours only: a genuine IPN of someone else's PayPal account pointed at this address is not our money (CR-1).
+        if (self::receivers() === []) {
+            // Not looked at until the accounts are set: 503, so PayPal sends it again (for days) and nothing is lost in
+            // the meantime (adversarial ADV-4). Staff are told daily to set them.
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_ERROR, 'receivers_not_set');
+            if (Cache::add('paypal-legacy-ipn:receivers-not-set', true, now()->addDay())) {
+                NotificationHelper::sendSystemEmailNotification('PayPal legacy notice not checked', e(
+                    "A PayPal notice reached WHMCS's old IPN address, but no PayPal account of the WHMCS era is set (Settings, «PayPal accounts of the WHMCS era»). PayPal sends it again for a few days: set it so that such notices are told to staff."));
+            }
+
+            return response('', 503);
+        }
         $receiver = self::receiver($fields);
         if ($receiver === null) {
-            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_REJECTED, self::receivers() === [] ? 'receivers_not_set' : 'foreign_receiver');
-            if (self::receivers() === [] && Cache::add('paypal-legacy-ipn:receivers-not-set', true, now()->addDay())) {
-                NotificationHelper::sendSystemEmailNotification('PayPal legacy notice not checked', e(
-                    "A PayPal notice reached WHMCS's old IPN address, but no PayPal account of the WHMCS era is set (Settings, «PayPal accounts of the WHMCS era»): it was not looked at. Set it so that such notices are told to staff."));
-            }
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_REJECTED, 'foreign_receiver');
 
             return response('', 200);
         }
@@ -83,7 +105,8 @@ class LegacyPayPalIpnController extends Controller
         $type = self::field($fields, 'txn_type') ?: 'none';
         $status = self::field($fields, 'payment_status');
         $txn = self::field($fields, 'txn_id');
-        $subscription = self::field($fields, 'subscr_id');
+        // The subscription or profile it is about: notices without a transaction carry one of these (adversarial ADV-1).
+        $subscription = self::field($fields, 'subscr_id') ?: self::field($fields, 'recurring_payment_id') ?: self::field($fields, 'mp_id');
         $amount = self::field($fields, 'mc_gross') ?: self::field($fields, 'mc_amount3');
         $currency = self::field($fields, 'mc_currency');
         GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_IGNORED, substr('legacy_' . $type, 0, 50), [
@@ -108,7 +131,7 @@ class LegacyPayPalIpnController extends Controller
         PaymentsLog::warning($message);
         // Once each transaction and status: PayPal sends an IPN again until answered, and the IPN of a payment may come
         // more than once. Marked once the mail is queued: a mail that fails is sent with PayPal's next try (CR-6).
-        $key = 'paypal-legacy-ipn:' . sha1($type . '|' . ($txn ?: $subscription) . '|' . $status);
+        $key = 'paypal-legacy-ipn:' . sha1($type . '|' . ($txn ?: $subscription ?: self::field($fields, 'ipn_track_id')) . '|' . $status);
         if (!Cache::has($key)) {
             NotificationHelper::sendSystemEmailNotification(match ($kind) {
                 'money' => 'PayPal payment not recorded',
@@ -151,6 +174,7 @@ class LegacyPayPalIpnController extends Controller
     {
         $value = $fields[$name] ?? '';
 
-        return is_string($value) ? mb_substr(trim($value), 0, 100) : '';
+        // No control characters: a field never starts a new line of the log or the mail (adversarial ADV-2).
+        return is_string($value) ? mb_substr(trim((string) preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $value)), 0, 100) : '';
     }
 }
