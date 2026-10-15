@@ -107,10 +107,15 @@ class ServiceResource extends Resource
                     ->required()
                     ->options(Service::statusOptions())
                     ->default(Service::STATUS_PENDING),
+                // Only where it means something (WHMCS: no service with more than 1 at nixpal): the product allows a
+                // quantity, or the service has one. Hidden, it is kept as it is.
                 TextInput::make('quantity')
                     ->label('Quantity')
                     ->required()
-                    ->placeholder('Enter the quantity'),
+                    ->default(1)
+                    ->placeholder('Enter the quantity')
+                    ->hidden(fn (?Service $record) => $record !== null && (int) $record->quantity <= 1
+                        && ($record->product->allow_quantity ?? 'disabled') === 'disabled'),
                 DatePicker::make('expires_at')
                     ->label('Expires At')
                     ->required(fn (Get $get) => $get('plan')?->type != 'one-time' && $get('plan')?->type != 'free' && $get('status') !== 'pending')
@@ -173,8 +178,11 @@ class ServiceResource extends Resource
                             ->label('Recalculate Price')
                             ->icon('ri-refresh-line')
                     ),
+                // A gateway subscription of the old kind (Billing Agreement replaced it): shown only on a service that has one
+                // (nixpal: 5 PayPal ones).
                 TextInput::make('subscription_id')
                     ->label('Subscription ID (deprecated)')
+                    ->hidden(fn (?Service $record) => blank($record?->subscription_id))
                     ->nullable()
                     ->placeholder('Enter the subscription ID')
                     ->hintAction(

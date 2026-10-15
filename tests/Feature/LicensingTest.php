@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Admin\Resources\ProductResource\Pages\EditProduct;
+use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Helpers\ExtensionHelper;
 use App\Models\License;
 use App\Models\LicenseAccessLog;
@@ -156,5 +157,42 @@ class LicensingTest extends TestCase
         Livewire::actingAs($staff, 'staff')->test(EditProduct::class, ['record' => $product->getRouteKey()])
             ->set('data.settings.secret_key', 'NewSecret')->call('save')->assertHasNoErrors();
         $this->assertSame('NewSecret', ExtensionHelper::settingsToArray($product->fresh()->settings)['secret_key']);
+    }
+
+    public function test_the_key_is_the_services_domain_as_whmcs_keeps_it(): void
+    {
+        ExtensionHelper::createServer($this->service);
+        $key = License::query()->sole()->license_key;
+
+        $this->assertSame($key, $this->service->fresh()->domain, 'shown under the product and found by the search');
+
+        $other = Service::factory()->create(['client_id' => $this->service->client_id, 'plan_id' => $this->service->plan_id, 'product_id' => $this->service->product_id,
+            'status' => 'active', 'currency_code' => 'USD', 'price' => 0, 'quantity' => 1, 'domain' => 'kept.example.test']);
+        ExtensionHelper::createServer($other);
+        $this->assertSame('kept.example.test', $other->fresh()->domain, 'a domain the service has is kept');
+    }
+
+    public function test_licenses_issued_before_get_their_key_as_domain(): void
+    {
+        ExtensionHelper::createServer($this->service);
+        DB::table('services')->where('id', $this->service->id)->update(['domain' => null]);
+
+        (require database_path('migrations/2026_11_07_000000_license_keys_as_service_domains.php'))->up();
+
+        $this->assertSame(License::query()->sole()->license_key, $this->service->fresh()->domain);
+    }
+
+    public function test_quantity_and_the_old_subscription_id_show_only_where_they_mean_something(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+
+        $page = $this->livewireAs($staff)->test(EditService::class, ['record' => $this->service->getRouteKey()]);
+        $page->assertFormFieldIsHidden('quantity')->assertFormFieldIsHidden('subscription_id');
+
+        $this->service->update(['subscription_id' => 'I-LEGACY123']);
+        $this->service->product->update(['allow_quantity' => 'separated']);
+        $this->livewireAs($staff)->test(EditService::class, ['record' => $this->service->getRouteKey()])
+            ->assertFormFieldIsVisible('quantity')->assertFormFieldIsVisible('subscription_id');
     }
 }
