@@ -45,7 +45,20 @@ Active), `last_seen_ip`, `last_seen_client` (μέθοδος + User-Agent: πόσ
   - Κονσόλα «Licenses» (Services, και top menu): όλες, **Silent** (ενεργές χωρίς καλό check 7 μέρες), **Expired but
     calling** (ληγμένες/ανεσταλμένες που ρώτησαν τις 7 τελευταίες μέρες)· η γραμμή ανοίγει την υπηρεσία. Δικαιώματα
     των υπηρεσιών.
-- **L3:** το **εργαλείο** import (έτοιμο και ελεγμένο με parity, **όχι** import στο live πριν το cut-over: απόφαση
-  2026-10-15) από `mod_licensing` (ίδια κλειδιά, bindings, reissues, status, `whmcs_id`· PSK από `configoption8`
-  κρυπτογραφημένο στο προϊόν· `comments` στις ιδιότητες της υπηρεσίας), cache/rate-limit για Expired/Suspended
-  (~209k checks τον μήνα).
+- **L3 (έγινε, μόνο το εργαλείο· όχι import στο live πριν το cut-over: απόφαση 2026-10-15):**
+  - `App\Services\Licensing\WhmcsLicensingImport`, μέσα στο `app:import-from-whmcs` (μετά τις υπηρεσίες) και μόνο του:
+    `php artisan app:import-whmcs-licensing <whmcs_db> [user] [host] [port] [--log-days=90]` (μόνο ανάγνωση στο WHMCS,
+    ο κωδικός με prompt).
+  - Φέρνει: `mod_licensing` (ίδια κλειδιά, bindings· τα κενά του WHMCS = null, reissues, status, `lastaccess`,
+    `whmcs_id`)· τα προϊόντα (`servertype = licensing` ή με άδειες) στον server **nixpal Licensing**, με ρυθμίσεις από
+    configoption 1 (μήκος), 2 (prefix), 3 (reissue), 5 (IP conflict), 8 (PSK, **κρυπτογραφημένο**, ποτέ στην έξοδο· κενό
+    δεν σβήνει αυτό που έβαλε το staff) και τα custom fields του προϊόντος (Custom Fields Reported, χωρίς αυτό που
+    προσθέτει το `prepare_whmcs_copy.sh`)· τις τιμές τους ως ιδιότητες της υπηρεσίας· `whmcs_billingcycle` (το tag
+    του verify.php)· κλειδί ως domain όπου λείπει· τις τελευταίες 90 μέρες του `mod_licensinglog`.
+  - Re-runnable: ταίριασμα με το κλειδί, ιδιότητες/ρυθμίσεις upsert, το log του προηγούμενου τρεξίματος αντικαθίσταται.
+    Άδειες χωρίς εισαγμένη υπηρεσία μετρώνται και παραλείπονται.
+  - Parity: `LicensingImportTest` περνά το `WhmcsSchema` από το εργαλείο και συγκρίνει κάθε απάντηση του zlic.php
+    (md5hash, localkey) με του WHMCS.
+  - Όγκος: οι νεκροί agents (Expired/Suspended, ~47k checks/εβδομάδα στο WHMCS) γράφουν στο access log **μία φορά τη
+    μέρα** ανά άδεια, IP και μήνυμα. Η απάντηση δεν αλλάζει, και κάθε check μετράει (`license_check_days`,
+    `last_access`). Cache απαντήσεων δεν μπήκε: ~5 checks/λεπτό δεν το χρειάζονται, και το md5hash αλλάζει με το token.

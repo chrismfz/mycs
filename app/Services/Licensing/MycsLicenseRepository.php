@@ -22,6 +22,9 @@ final class MycsLicenseRepository implements LicenseRepository
 {
     public const UNKNOWN_PER_MINUTE = 10;
 
+    /** Messages logged once a day per license and address. */
+    public const REPEATED = ['License Expired', 'License Suspended'];
+
     public function findByKey($licenseKey)
     {
         $row = LicenseRow::query()->where('license_key', (string) $licenseKey)
@@ -97,6 +100,12 @@ final class MycsLicenseRepository implements LicenseRepository
     {
         // Unknown keys (unauthenticated) are logged at most UNKNOWN_PER_MINUTE times a minute per address (review ADV-L6).
         if ($license === null && Cache::increment('zlic:unknown:' . $ip . ':' . now()->format('YmdHi')) > self::UNKNOWN_PER_MINUTE) {
+            return;
+        }
+        // Dead agents of an ended or suspended license keep asking (WHMCS logged ~47k a week): once a day per license,
+        // address and message. The answer is the same; every check is still counted (license_check_days, last_access).
+        if ($license !== null && in_array($message, self::REPEATED, true)
+            && !Cache::add('zlic:log:' . $license->id . ':' . md5($ip . '|' . $message) . ':' . now()->format('Ymd'), 1, now()->addDay())) {
             return;
         }
         LicenseAccessLog::query()->create([
