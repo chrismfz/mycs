@@ -49,10 +49,10 @@ final class PayInvoices
 
             // On the first: its remaining, and the rest as credit (RecordPaymentService). Staff never type the id of
             // another invoice's payment here: recordByStaff refuses it.
-            $payment = (new RecordPaymentService)->recordByStaff($ordered->first(), $gateway, $amount, $transactionId, paidAt: $paidAt);
+            $payment = (new RecordPaymentService)->recordByStaff($ordered->first(), $gateway, $amount, $transactionId, paidAt: $paidAt, excessIsSpread: true);
             $paid = [];
             foreach ($ordered->slice(1) as $invoice) {
-                $allocation = (new RecordPaymentService)->allocateFromTransaction($payment, $invoice, oneCyclePerService: false);
+                $allocation = (new RecordPaymentService)->allocateFromTransaction($payment, $invoice, oneCyclePerService: false, chosenByStaff: true);
                 if ($allocation !== null) {
                     $paid[] = $allocation;
                 }

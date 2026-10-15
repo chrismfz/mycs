@@ -42,6 +42,9 @@ use Illuminate\Support\Facades\Log;
  */
 class RecordPaymentService
 {
+    /** The excess goes on to other invoices in the same transaction (PayInvoices): it is not news for staff (F1 CR-1). */
+    private bool $excessIsSpread = false;
+
     public function handle(
         Invoice|int $invoice,
         ?Gateway $gateway,
@@ -276,11 +279,11 @@ class RecordPaymentService
      * webhook finishes an interrupted allocation without paying a second cycle or spending other credit.
      * Null when nothing is paid.
      */
-    public function allocateFromTransaction(InvoiceTransaction $source, Invoice|int $target, bool $oneCyclePerService = true): ?InvoiceTransaction
+    public function allocateFromTransaction(InvoiceTransaction $source, Invoice|int $target, bool $oneCyclePerService = true, bool $chosenByStaff = false): ?InvoiceTransaction
     {
         $targetId = $target instanceof Invoice ? $target->getKey() : $target;
 
-        return DB::transaction(function () use ($source, $targetId, $oneCyclePerService) {
+        return DB::transaction(function () use ($source, $targetId, $oneCyclePerService, $chosenByStaff) {
             $invoice = $this->lockInvoice($targetId);
             $source = InvoiceTransaction::query()->whereKey($source->getKey())->lockForUpdate()->first();
             $sourceInvoice = $source === null ? null : Invoice::query()->whereKey($source->invoice_id)->first();
@@ -304,12 +307,15 @@ class RecordPaymentService
             $credit = $this->lockCredit($invoice);
             $available = $credit === null ? 0 : CreditLedger::cents($credit);
             $remaining = max(0, self::toCents($invoice->withLockedBalance()->remaining));
-            $cents = min($budget, $available, $remaining);
+            // Invoices staff chose for this payment (PayInvoices, F1 CR-3) take it on its own budget: an older debt on the
+            // account (negative credit, decision 1) stays a debt and does not eat the payment.
+            $cents = $chosenByStaff ? min($budget, $remaining) : min($budget, $available, $remaining);
             if ($credit === null || $cents <= 0) {
                 return null;
             }
 
-            return $this->spendCredit($invoice, $cents, $source->id);
+            // Dated as the payment it comes from (F1 CR-2): a transfer entered later shows on the day it arrived.
+            return $this->spendCredit($invoice, $cents, $source->id, $chosenByStaff ? $source->created_at : null, mayGoNegative: $chosenByStaff);
         });
     }
 
@@ -327,8 +333,10 @@ class RecordPaymentService
      * @throws DisplayException nothing recorded: not a positive amount, a cancelled invoice without $reopen, more than
      *                          what is left, or a transaction id already recorded or belonging to another invoice
      */
-    public function recordByStaff(Invoice $invoice, ?Gateway $gateway, mixed $amount, ?string $transactionId = null, mixed $fee = null, ?\DateTimeInterface $paidAt = null, bool $reopen = false, bool $upToRemaining = false): InvoiceTransaction
+    public function recordByStaff(Invoice $invoice, ?Gateway $gateway, mixed $amount, ?string $transactionId = null, mixed $fee = null, ?\DateTimeInterface $paidAt = null, bool $reopen = false, bool $upToRemaining = false, bool $excessIsSpread = false): InvoiceTransaction
     {
+        $this->excessIsSpread = $excessIsSpread;
+
         if (self::toCents($amount) <= 0) {
             throw new DisplayException(__('The amount must be positive.'));
         }
@@ -653,19 +661,23 @@ class RecordPaymentService
     }
 
     /** Pay $cents of the invoice from its customer's credit (checked by the caller under the same locks). */
-    private function spendCredit(Invoice $invoice, int $cents, ?int $sourceId = null): InvoiceTransaction
+    private function spendCredit(Invoice $invoice, int $cents, ?int $sourceId = null, ?\DateTimeInterface $at = null, bool $mayGoNegative = false): InvoiceTransaction
     {
-        $transaction = $invoice->transactions()->create(array_filter([
+        $transaction = $invoice->transactions()->make(array_filter([
             'amount' => $cents / 100,
             'status' => InvoiceTransactionStatus::Succeeded,
             'is_credit_transaction' => true,
             'source_transaction_id' => $sourceId,
         ], fn ($value) => $value !== null));
+        if ($at !== null) {
+            $transaction->created_at = Carbon::instance($at);
+        }
+        $transaction->save();
 
         // Credit one sale left, paying other invoices: its events are grouped under that sale's transaction.
         $group = $sourceId === null ? null : 'transaction:' . $sourceId;
         (new CreditLedger)->remove($invoice->client_id, $invoice->currency_code, $cents, MoneyTrail::CAUSE_CREDIT_PAYMENT,
-            MoneyTrail::SOURCE_CREDIT, $invoice, $transaction, group: $group);
+            MoneyTrail::SOURCE_CREDIT, $invoice, $transaction, group: $group, mayGoNegative: $mayGoNegative);
         (new MoneyTrail)->payment($invoice, $transaction, MoneyTrail::SOURCE_CREDIT, $group);
 
         return $transaction;
@@ -685,6 +697,9 @@ class RecordPaymentService
             return;
         }
         (new CreditLedger)->add($invoice->client_id, $invoice->currency_code, $cents, MoneyTrail::CAUSE_OVERPAYMENT, $source, $invoice, $transaction);
+        if ($this->excessIsSpread) {
+            return;
+        }
 
         $notices[] = sprintf(
             'Invoice #%d (%s) could not take %s %s of a payment; it was added to the customer\'s account credit.',
