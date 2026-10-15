@@ -11,6 +11,7 @@ use App\Models\Role;
 use App\Models\Service;
 use App\Models\Setting;
 use App\Providers\SettingsProvider;
+use App\Services\Licensing\WhmcsLicensingImport;
 use App\Services\Money\MoneyTrail;
 use Closure;
 use DB;
@@ -90,6 +91,7 @@ class ImportFromWhmcs extends Command
             $this->importTickets();
             $this->importOrders();
             $this->importServices();
+            $this->importLicensing();
             $this->importCancellations();
             $this->importInvoices();
             $this->importInvoiceItems();
@@ -971,6 +973,14 @@ class ImportFromWhmcs extends Command
 
             DB::table('services')->insert($data);
         });
+    }
+
+    /** nixpal's licenses (L3, docs/licensing.md); also on its own: app:import-whmcs-licensing. */
+    private function importLicensing()
+    {
+        $counts = (new WhmcsLicensingImport($this->pdo))->run();
+        $this->info("Licensing: {$counts['licenses']} licenses ({$counts['skipped']} without an imported service), {$counts['products']} products, "
+            . "{$counts['fields']} custom field values, {$counts['logs']} log rows.");
     }
 
     private function importCancellations()

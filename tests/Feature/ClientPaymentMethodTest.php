@@ -154,7 +154,7 @@ class ClientPaymentMethodTest extends TestCase
         $ids = [$service($client)->id, $service($client)->id, $service($client)->id, $service($client, ['status' => Service::STATUS_CANCELLED])->id,
             $service($other)->id];
 
-        $this->artisan('migrate:rollback', ['--step' => 1])->assertExitCode(0); // this PR's migration is the last one
+        $this->artisan('migrate:rollback', ['--path' => 'database/migrations/2026_11_08_000000_move_saved_payment_method_to_clients.php'])->assertExitCode(0); // only this migration, whatever came after
         $this->assertTrue(Schema::hasColumn('services', 'billing_agreement_id'));
         // Before C2: two running services on B, one on A, a cancelled one on A; the other account's method was removed.
         DB::table('services')->whereIn('id', [$ids[0], $ids[1]])->update(['billing_agreement_id' => $b->id]);
