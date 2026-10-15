@@ -197,8 +197,9 @@ class BillingCursorCodexAdversarialTest extends TestCase
     public function test_admin_form_unrelated_save_keeps_dunning_marker_and_payment_lifts_it(): void
     {
         $service = $this->service(['status' => 'suspended', 'dunning_suspended_at' => now(), 'expires_at' => '2026-10-08']);
-        $this->editForm($service)->set('data.quantity', 2)->call('save')->assertHasNoErrors();
-        $this->assertSame(2, (int) $service->fresh()->quantity);
+        // An unrelated field (the admin notes: Quantity is only shown on a product that allows one).
+        $this->editForm($service)->set('data.notes', 'Unrelated edit')->call('save')->assertHasNoErrors();
+        $this->assertSame('Unrelated edit', $service->fresh()->notes);
         $this->assertNotNull($service->fresh()->dunning_suspended_at);
         $this->pay($this->invoiceFor($service, '2026-10-08', '2026-11-08'));
         $this->assertSame('active', $service->fresh()->status);
