@@ -5,6 +5,7 @@ namespace MyCS\Extensions\Gateways\Cardlink;
 use App\Models\Invoice;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
 /**
  * An order sent to the Cardlink vPOS (PR H2a): its return pays this invoice (or this Mass Pay group), of this customer,
@@ -20,7 +21,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $status
  * @property string|null $tx_id
  * @property string|null $pay_method
- * @property \Illuminate\Support\Carbon|null $returned_at
+ * @property Carbon|null $returned_at
  */
 class CardlinkOrder extends Model
 {

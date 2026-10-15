@@ -123,7 +123,10 @@ class Cardlink extends Gateway
             throw new DisplayException(__('Could not process payment. Please try again or use a different payment method.'));
         }
 
-        return view('gateways.cardlink::pay', ['endpoint' => PaymentRequest::endpoint((bool) $this->config('test_mode')), 'fields' => $fields]);
+        /** @var view-string $form registered in boot() */
+        $form = 'gateways.cardlink::pay';
+
+        return view($form, ['endpoint' => PaymentRequest::endpoint((bool) $this->config('test_mode')), 'fields' => $fields]);
     }
 
     /**

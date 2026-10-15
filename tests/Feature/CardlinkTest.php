@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Invoices\Show;
 use App\Models\EmailLog;
@@ -278,7 +279,7 @@ class CardlinkTest extends TestCase
     {
         $invoice = $this->invoice(25);
 
-        $this->expectException(\App\Exceptions\DisplayException::class);
+        $this->expectException(DisplayException::class);
         (new Cardlink(['merchant_id' => Fixtures::MID, 'shared_secret' => '']))->pay($invoice, 25);
     }
 
