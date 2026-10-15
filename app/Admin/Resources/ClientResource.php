@@ -106,7 +106,7 @@ class ClientResource extends Resource
                     ->default(true),
                 Select::make('default_billing_agreement_id')
                     ->label(__('Payment method for renewals'))
-                    ->relationship('defaultBillingAgreement', 'name', fn (Builder $query, ?Client $record) => $query->where('client_id', $record?->id ?? 0))
+                    ->relationship('defaultBillingAgreement', 'name', fn (Builder $query, ?Client $record) => $query->where('client_id', $record === null ? 0 : $record->id))
                     ->visibleOn('edit')
                     ->placeholder(__('None')),
             ]);

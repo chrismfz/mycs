@@ -5,7 +5,9 @@ namespace Tests\Feature;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Exceptions\DisplayException;
 use App\Livewire\Services\Show as ServiceShow;
+use App\Models\BillingAgreement;
 use App\Models\Credit;
+use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Plan;
@@ -26,6 +28,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use MyCS\Extensions\Gateways\CycleFakePay\CycleFakePay;
 use Tests\TestCase;
 
 /**
@@ -256,6 +259,22 @@ class ChangeCycleTest extends TestCase
 
         $this->assertSame('74.60', number_format((float) Credit::query()->sole()->amount, 2, '.', ''), '148.80 × 183 / 365');
         $this->assertSame(14.88, (float) $invoice->fresh()->total);
+    }
+
+    public function test_now_charges_the_accounts_saved_method_once(): void
+    {
+        // Decision 6 (PR C2): the account's method pays the new period, as a renewal; not the service's.
+        if (!class_exists(CycleFakePay::class)) {
+            eval('namespace MyCS\\Extensions\\Gateways\\CycleFakePay; class CycleFakePay { public static array $charges = []; public function __construct($config = []) {}
+                public function charge($invoice, $amount, $agreement) { self::$charges[] = [(int) $invoice->id, number_format((float) $amount, 2, ".", "")]; return true; } }');
+        }
+        $service = $this->service();
+        $gateway = Gateway::query()->create(['extension' => 'CycleFakePay', 'name' => 'CycleFakePay', 'type' => 'gateway']);
+        BillingAgreement::query()->create(['client_id' => $service->client_id, 'gateway_id' => $gateway->id, 'name' => 'Card', 'external_reference' => 'c-1']);
+
+        $invoice = ChangeCycle::apply($service->fresh(), $this->monthly, ChangeCycle::NOW, MoneyTrail::SOURCE_STAFF);
+
+        $this->assertSame([[(int) $invoice->id, '12.00']], CycleFakePay::$charges);
     }
 
     public function test_now_is_refused_for_a_renewal_paid_ahead(): void
