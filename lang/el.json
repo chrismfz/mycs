@@ -317,5 +317,15 @@
     "Credit applied: :amount": "Χρησιμοποιήθηκε πίστωση: :amount",
     "Add payment to invoices": "Πληρωμή σε τιμολόγια",
     "One payment for the chosen unpaid invoices of one customer. It pays them oldest due first, each in full while it lasts; what is left becomes the customer's account credit.": "Μία πληρωμή για τα απλήρωτα τιμολόγια ενός πελάτη που διάλεξες. Τα πληρώνει από το παλαιότερο σε λήξη, το καθένα ολόκληρο όσο φτάνει· ό,τι περισσέψει γίνεται πίστωση λογαριασμού του πελάτη.",
-    "Payment recorded on :count invoices": "Η πληρωμή καταχωρήθηκε σε :count τιμολόγια"
+    "Payment recorded on :count invoices": "Η πληρωμή καταχωρήθηκε σε :count τιμολόγια",
+    "Paying several invoices at once is not available.": "Η πληρωμή πολλών τιμολογίων μαζί δεν είναι διαθέσιμη.",
+    "Choose at least two invoices.": "Διάλεξε τουλάχιστον δύο τιμολόγια.",
+    "Choose at most :count invoices.": "Διάλεξε το πολύ :count τιμολόγια.",
+    "Invoice :invoice is not unpaid.": "Το τιμολόγιο :invoice δεν είναι απλήρωτο.",
+    "Nothing is left to pay on invoice :invoice.": "Στο τιμολόγιο :invoice δεν μένει κάτι να πληρωθεί.",
+    "Invoice :invoice buys account credit: pay it on its own.": "Το τιμολόγιο :invoice αγοράζει πίστωση: πλήρωσέ το χωριστά.",
+    "Invoice :invoice bills a service that has ended: please contact us.": "Το τιμολόγιο :invoice χρεώνει υπηρεσία που έληξε: επικοινώνησε μαζί μας.",
+    "A payment for invoice :invoice is still being processed.": "Μια πληρωμή για το τιμολόγιο :invoice βρίσκεται ακόμη σε επεξεργασία.",
+    "These invoices were paid or chosen again: choose them again from your invoices.": "Αυτά τα τιμολόγια πληρώθηκαν ή επιλέχθηκαν ξανά: διάλεξέ τα ξανά από τα τιμολόγιά σου.",
+    "One of these invoices changed: choose them again from your invoices.": "Ένα από αυτά τα τιμολόγια άλλαξε: διάλεξέ τα ξανά από τα τιμολόγιά σου."
 }

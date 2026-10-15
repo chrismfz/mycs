@@ -907,6 +907,14 @@ class Settings
                     'description' => 'Proforma invoices will not be assigned an official invoice number until payment is received and will be marked as "Proforma".',
                 ],
                 [
+                    'name' => 'mass_pay_enabled',
+                    'label' => 'Mass Payment',
+                    'type' => 'checkbox',
+                    'database_type' => 'boolean',
+                    'default' => true,
+                    'description' => 'Customers choose several unpaid invoices and pay them at once through a gateway, as in WHMCS. No combined invoice is made: the payment is recorded on the invoice due first and pays the others in order.',
+                ],
+                [
                     'name' => 'immutable_invoices_enabled',
                     'label' => 'Immutable Invoices',
                     'type' => 'checkbox',

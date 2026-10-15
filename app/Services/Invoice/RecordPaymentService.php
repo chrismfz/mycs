@@ -42,7 +42,7 @@ use Illuminate\Support\Facades\Log;
  */
 class RecordPaymentService
 {
-    /** The excess goes on to other invoices in the same transaction (PayInvoices): it is not news for staff (F1 CR-1). */
+    /** The excess goes on to other invoices in the same transaction (PayInvoices, MassPay): it is not news for staff (F1 CR-1). */
     private bool $excessIsSpread = false;
 
     public function handle(
@@ -186,7 +186,16 @@ class RecordPaymentService
                 // The provider's id only when the gateway recorded it; what staff type can name the payer (§9).
                 $reference = $enteredByStaff || $transaction->gateway_id === null ? null : $transaction->transaction_id;
                 (new MoneyTrail)->payment($target, $transaction, $source, reference: $reference);
-                $this->addCredit($target, $transaction, $excess, $source, $notices);
+                // A customer's Mass Pay (F2): the checkout was opened on the invoice due first for the group's total. What
+                // that one cannot take pays the others now, under these locks, before credit is applied to anything else.
+                // Only money a gateway checkout brought (a staff entry chose its invoices with PayInvoices).
+                $fromCheckout = !$isCreditTransaction && !$transaction->is_credit_transaction
+                    && ($existing !== null ? $existing->gateway_id !== null : $gateway !== null && !$enteredByStaff);
+                $group = $excess > 0 && $fromCheckout ? MassPay::groupPaidBy($target, $cents) : null;
+                $this->addCredit($target, $transaction, $excess, $source, $notices, spread: $group !== null);
+                if ($group !== null) {
+                    MassPay::spread($group, $transaction);
+                }
                 // Paid on an invoice staff merged meanwhile (PR E, adversarial E-ADV-6): a checkout or a transfer started
                 // before the merge. What it left as credit pays the invoice its lines went to, first.
                 if ($excess > 0 && $target->status === Invoice::STATUS_CANCELLED && $target->merged_into_id !== null) {
@@ -279,11 +288,11 @@ class RecordPaymentService
      * webhook finishes an interrupted allocation without paying a second cycle or spending other credit.
      * Null when nothing is paid.
      */
-    public function allocateFromTransaction(InvoiceTransaction $source, Invoice|int $target, bool $oneCyclePerService = true, bool $chosenByStaff = false): ?InvoiceTransaction
+    public function allocateFromTransaction(InvoiceTransaction $source, Invoice|int $target, bool $oneCyclePerService = true, bool $chosenForPayment = false): ?InvoiceTransaction
     {
         $targetId = $target instanceof Invoice ? $target->getKey() : $target;
 
-        return DB::transaction(function () use ($source, $targetId, $oneCyclePerService, $chosenByStaff) {
+        return DB::transaction(function () use ($source, $targetId, $oneCyclePerService, $chosenForPayment) {
             $invoice = $this->lockInvoice($targetId);
             $source = InvoiceTransaction::query()->whereKey($source->getKey())->lockForUpdate()->first();
             $sourceInvoice = $source === null ? null : Invoice::query()->whereKey($source->invoice_id)->first();
@@ -307,15 +316,15 @@ class RecordPaymentService
             $credit = $this->lockCredit($invoice);
             $available = $credit === null ? 0 : CreditLedger::cents($credit);
             $remaining = max(0, self::toCents($invoice->withLockedBalance()->remaining));
-            // Invoices staff chose for this payment (PayInvoices, F1 CR-3) take it on its own budget: an older debt on the
-            // account (negative credit, decision 1) stays a debt and does not eat the payment.
-            $cents = $chosenByStaff ? min($budget, $remaining) : min($budget, $available, $remaining);
+            // Invoices chosen for this payment (staff: PayInvoices, F1 CR-3; the customer: MassPay, F2) take it on its own
+            // budget: an older debt on the account (negative credit, decision 1) stays a debt and does not eat the payment.
+            $cents = $chosenForPayment ? min($budget, $remaining) : min($budget, $available, $remaining);
             if ($credit === null || $cents <= 0) {
                 return null;
             }
 
             // Dated as the payment it comes from (F1 CR-2): a transfer entered later shows on the day it arrived.
-            return $this->spendCredit($invoice, $cents, $source->id, $chosenByStaff ? $source->created_at : null, mayGoNegative: $chosenByStaff);
+            return $this->spendCredit($invoice, $cents, $source->id, $chosenForPayment ? $source->created_at : null, mayGoNegative: $chosenForPayment);
         });
     }
 
@@ -691,13 +700,13 @@ class RecordPaymentService
     }
 
     /** @param  list<string>  $notices */
-    private function addCredit(Invoice $invoice, InvoiceTransaction $transaction, int $cents, string $source, array &$notices): void
+    private function addCredit(Invoice $invoice, InvoiceTransaction $transaction, int $cents, string $source, array &$notices, bool $spread = false): void
     {
         if ($cents <= 0) {
             return;
         }
         (new CreditLedger)->add($invoice->client_id, $invoice->currency_code, $cents, MoneyTrail::CAUSE_OVERPAYMENT, $source, $invoice, $transaction);
-        if ($this->excessIsSpread) {
+        if ($spread || $this->excessIsSpread) {
             return;
         }
 

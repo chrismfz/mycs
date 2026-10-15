@@ -22,6 +22,7 @@ use App\Models\InvoiceTransaction;
 use App\Models\ModuleAction;
 use App\Models\MoneyEvent;
 use App\Models\PaymentGatewayEvent;
+use App\Models\PaymentGroup;
 use App\Models\Product;
 use App\Models\Server;
 use App\Models\Service;
@@ -519,7 +520,22 @@ class ExtensionHelper
         return self::getExtension('gateway', $gateway->extension, $gateway->settings)->pay($invoice, $invoice->remaining);
     }
 
-    public static function charge(Gateway $gateway, Invoice $invoice, BillingAgreement $billingAgreement): bool
+    /**
+     * Pay a customer's Mass Pay group (PR F2): the gateway is opened on the invoice due first, for the group's total. The
+     * payment it reports lands there, and RecordPaymentService spreads what that invoice cannot take over the others.
+     */
+    public static function payGroup(Gateway $gateway, PaymentGroup $group)
+    {
+        return self::getExtension('gateway', $gateway->extension, $gateway->settings)->pay($group->invoice, (float) $group->total);
+    }
+
+    /** Charge a saved payment method for a Mass Pay group (PR F2), on the invoice due first, as payGroup(). */
+    public static function chargeGroup(Gateway $gateway, PaymentGroup $group, BillingAgreement $billingAgreement): bool
+    {
+        return self::charge($gateway, $group->invoice, $billingAgreement, (float) $group->total);
+    }
+
+    public static function charge(Gateway $gateway, Invoice $invoice, BillingAgreement $billingAgreement, ?float $total = null): bool
     {
         // Only the invoice's own account's payment method pays it (docs/accounts.md, PR 2a).
         if ($invoice->client_id === null || (int) $billingAgreement->client_id !== (int) $invoice->client_id) {
@@ -530,7 +546,7 @@ class ExtensionHelper
             throw new DisplayException(__('This payment method was removed.'));
         }
 
-        return self::getExtension('gateway', $gateway->extension, $gateway->settings)->charge($invoice, $invoice->remaining, $billingAgreement);
+        return self::getExtension('gateway', $gateway->extension, $gateway->settings)->charge($invoice, $total ?? $invoice->remaining, $billingAgreement);
     }
 
     public static function getBillingAgreementGateways()

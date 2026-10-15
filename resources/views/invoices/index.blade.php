@@ -1,8 +1,27 @@
 <div class="container mt-14 space-y-4">
     <x-navigation.breadcrumb />
 
+    @if ($massPay)
+    <div class="bg-background-secondary border border-neutral p-4 rounded-lg flex flex-wrap items-center justify-between gap-4">
+        <p class="text-base text-sm">{{ __('invoices.mass_pay_hint') }}</p>
+        <x-button.primary class="!w-fit" wire:click="payTogether" wire:loading.attr="disabled" :disabled="count($selected) < 2">
+            <x-loading target="payTogether" />
+            <span wire:loading.remove wire:target="payTogether">{{ __('invoices.mass_pay_button', ['count' => count($selected)]) }}</span>
+        </x-button.primary>
+    </div>
+    @endif
+
     @forelse ($invoices as $invoice)
-    <a href="{{ route('invoices.show', $invoice) }}" wire:navigate>
+    <div class="flex items-start gap-3">
+    @if ($massPay)
+    <div class="pt-5 w-5 shrink-0">
+        @if ($invoice->status === 'unpaid')
+        <input type="checkbox" value="{{ $invoice->id }}" wire:model.live="selected" aria-label="{{ __('invoices.mass_pay_select') }}"
+            class="size-4 rounded border-neutral text-primary focus:ring-primary" />
+        @endif
+    </div>
+    @endif
+    <a href="{{ route('invoices.show', $invoice) }}" wire:navigate class="grow">
         <div class="bg-background-secondary hover:bg-background-secondary/80 border border-neutral p-4 rounded-lg mb-4">
         <div class="flex items-center justify-between mb-2">
             <div class="flex items-center gap-3">
@@ -36,6 +55,7 @@
         @endforeach
         </div>
     </a>
+    </div>
     @empty
     <div class="bg-background-secondary border border-neutral p-4 rounded-lg">
         <p class="text-base text-sm">{{ __('invoices.no_invoices') }}</p>
