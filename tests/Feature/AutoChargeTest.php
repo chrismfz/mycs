@@ -93,7 +93,7 @@ class AutoChargeTest extends TestCase
         return $invoice->fresh();
     }
 
-    private function run(string $day): int
+    private function cronOn(string $day): int
     {
         Carbon::setTestNow($day . ' 09:00:00');
 
@@ -126,10 +126,10 @@ class AutoChargeTest extends TestCase
         $invoice = $this->invoice('2026-11-17');
         $this->paysWhenCharged();
 
-        $this->assertSame(0, $this->run('2026-11-10'), 'made 7 days before: not charged yet');
+        $this->assertSame(0, $this->cronOn('2026-11-10'), 'made 7 days before: not charged yet');
         $this->assertSame([], AcPay::$charges);
 
-        $this->assertSame(1, $this->run('2026-11-17'));
+        $this->assertSame(1, $this->cronOn('2026-11-17'));
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
         $attempt = ChargeAttempt::query()->sole();
         $this->assertSame([ChargeAttempt::SOURCE_CRON, ChargeAttempt::STATUS_SUCCEEDED, '10.00'], [$attempt->source, $attempt->status, (string) $attempt->amount]);
@@ -141,9 +141,9 @@ class AutoChargeTest extends TestCase
         config(['settings.autocharge_days_before' => 3]);
         $this->invoice('2026-11-17');
 
-        $this->run('2026-11-13');
+        $this->cronOn('2026-11-13');
         $this->assertSame([], AcPay::$charges);
-        $this->run('2026-11-14');
+        $this->cronOn('2026-11-14');
         $this->assertCount(1, AcPay::$charges);
     }
 
@@ -152,15 +152,15 @@ class AutoChargeTest extends TestCase
         $invoice = $this->invoice('2026-11-10');
         $this->declineAll();
 
-        $this->run('2026-11-10');
-        $this->run('2026-11-10'); // the cron ran twice
-        $this->run('2026-11-11');
-        $this->run('2026-11-12');
+        $this->cronOn('2026-11-10');
+        $this->cronOn('2026-11-10'); // the cron ran twice
+        $this->cronOn('2026-11-11');
+        $this->cronOn('2026-11-12');
 
         $this->assertCount(3, AcPay::$charges);
         $this->assertSame(3, (int) $this->agreement->fresh()->failed_count);
         $this->paysWhenCharged();
-        $this->run('2026-11-13');
+        $this->cronOn('2026-11-13');
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
         $this->assertSame(0, (int) $this->agreement->fresh()->failed_count, 'a success starts again');
     }
@@ -172,7 +172,7 @@ class AutoChargeTest extends TestCase
         $this->declineAll();
 
         foreach (['2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13', '2026-11-14', '2026-11-15'] as $day) {
-            $this->run($day);
+            $this->cronOn($day);
         }
 
         $this->assertCount(3, AcPay::$charges, 'the due date, then days 2 and 5 after it');
@@ -184,7 +184,7 @@ class AutoChargeTest extends TestCase
         $this->declineAll();
 
         foreach (range(10, 18) as $day) {
-            $this->run("2026-11-{$day}");
+            $this->cronOn("2026-11-{$day}");
         }
 
         $this->assertCount(9, AcPay::$charges);
@@ -200,7 +200,7 @@ class AutoChargeTest extends TestCase
         $this->declineAll();
 
         foreach (['2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13'] as $day) {
-            $this->run($day);
+            $this->cronOn($day);
         }
 
         $this->assertCount(2, AcPay::$charges);
@@ -213,8 +213,8 @@ class AutoChargeTest extends TestCase
         $this->invoice('2026-11-10');
         AcPay::$answer = fn () => throw new ChargeNeedsAction('confirm');
 
-        $this->run('2026-11-10');
-        $this->run('2026-11-11');
+        $this->cronOn('2026-11-10');
+        $this->cronOn('2026-11-11');
 
         $this->assertCount(1, AcPay::$charges);
         $this->assertSame(ChargeAttempt::STATUS_ACTION_REQUIRED, ChargeAttempt::query()->sole()->status);
@@ -230,7 +230,7 @@ class AutoChargeTest extends TestCase
         Invoice::factory()->create(['client_id' => $this->client->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => '2026-11-10'])
             ->items()->create(['description' => 'Staff line', 'price' => '5.00', 'quantity' => 1]);
 
-        $this->run('2026-11-10');
+        $this->cronOn('2026-11-10');
 
         $this->assertSame([], AcPay::$charges);
     }
@@ -240,7 +240,7 @@ class AutoChargeTest extends TestCase
         $this->invoice('2026-11-10');
         $this->client->update(['auto_charge' => false]);
 
-        $this->run('2026-11-10');
+        $this->cronOn('2026-11-10');
 
         $this->assertSame([], AcPay::$charges);
     }
@@ -259,7 +259,7 @@ class AutoChargeTest extends TestCase
         } catch (DisplayException $e) {
             $this->assertSame(__('A payment for this invoice is already on its way.'), $e->getMessage());
         }
-        $this->run('2026-11-10');
+        $this->cronOn('2026-11-10');
         $this->assertSame([], AcPay::$charges);
     }
 
@@ -296,7 +296,7 @@ class AutoChargeTest extends TestCase
         ExtensionHelper::addProcessingPayment($invoice->id, 'AcPay', 10.00, null, 'sepa_1', currency: 'USD');
         $this->assertSame(InvoiceTransactionStatus::Processing, $invoice->transactions()->sole()->status);
 
-        $this->run('2026-11-10');
+        $this->cronOn('2026-11-10');
 
         $this->assertSame([], AcPay::$charges);
     }
