@@ -27,6 +27,10 @@ class UpgradeJob implements ShouldQueue
      */
     public function handle(): void
     {
+        // An ended service has no account to change (sweep §2): a retry after a terminate must not reopen one.
+        if ($this->service->fresh()?->isEnded() ?? true) {
+            return;
+        }
         // $data is the data that will be used to send the email, data is coming from the extension itself
         try {
             ExtensionHelper::upgradeServer($this->service);

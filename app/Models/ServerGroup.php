@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Exceptions\DisplayException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -19,6 +20,16 @@ class ServerGroup extends Model
     public const FILL_IN_ORDER = 'in_order';
 
     protected $fillable = ['name', 'fill_type'];
+
+    protected static function booted(): void
+    {
+        // Not while products send their new accounts to it (sweep §7): they would quietly fall back to their own server.
+        static::deleting(function (self $group) {
+            if (($products = $group->products()->count()) > 0) {
+                throw new DisplayException("Server group «{$group->name}» is used by {$products} product(s): choose another group for them first.");
+            }
+        });
+    }
 
     /** @return BelongsToMany<Server, $this> */
     public function servers(): BelongsToMany

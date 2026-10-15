@@ -182,7 +182,7 @@ class ServiceServersTest extends TestCase
 
         $this->livewireAs($staff)->test(EditServer::class, ['record' => $busy->getRouteKey()])
             ->callAction(DeleteAction::class)
-            ->assertNotified('Servers with accounts are not deleted');
+            ->assertNotified('Servers in use are not deleted');
         $this->livewireAs($staff)->test(ListServers::class)
             ->callTableBulkAction(DeleteBulkAction::class, [$busy]);
         $this->assertNotNull(Server::query()->find($busy->id));

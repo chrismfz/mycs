@@ -7,6 +7,7 @@ use App\Admin\Resources\ServerResource\Pages\EditServer;
 use App\Admin\Resources\ServerResource\Pages\ListServers;
 use App\Helpers\ExtensionHelper;
 use App\Models\Extension;
+use App\Models\Product;
 use App\Models\Server;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
@@ -153,13 +154,14 @@ class ServerResource extends Resource
      */
     public static function refuseDeletingBusy(Action $action, Collection $servers): void
     {
-        $busy = $servers->filter(fn (Server $server) => $server->accountsCount() > 0);
+        $busy = $servers->filter(fn (Server $server) => $server->accountsCount() > 0 || Product::query()->where('server_id', $server->id)->exists());
         if ($busy->isEmpty()) {
             return;
         }
-        Notification::make()->danger()->title('Servers with accounts are not deleted')
-            ->body($busy->map(fn (Server $server) => "{$server->name}: {$server->accountsCount()} account(s)")->implode(', ')
-                . '. Move the accounts to another server or end them first.')
+        Notification::make()->danger()->title('Servers in use are not deleted')
+            ->body($busy->map(fn (Server $server) => "{$server->name}: {$server->accountsCount()} account(s), "
+                . Product::query()->where('server_id', $server->id)->count() . ' product(s)')->implode('; ')
+                . '. Move the accounts and choose another server for the products first.')
             ->send();
         $action->cancel();
     }

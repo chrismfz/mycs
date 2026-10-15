@@ -5,12 +5,14 @@ namespace App\Admin\Resources;
 use App\Admin\Resources\ServerGroupResource\Pages\CreateServerGroup;
 use App\Admin\Resources\ServerGroupResource\Pages\EditServerGroup;
 use App\Admin\Resources\ServerGroupResource\Pages\ListServerGroups;
+use App\Models\Server;
 use App\Models\ServerGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
@@ -37,7 +39,13 @@ class ServerGroupResource extends Resource
             Select::make('servers')->label('Servers')->multiple()->relationship('servers', 'name')->preload()
                 ->saveRelationshipsUsing(fn (ServerGroup $record, ?array $state) => $record->servers()->sync(
                     collect($state ?? [])->values()->mapWithKeys(fn ($id, int $position) => [(int) $id => ['position' => $position]])->all()))
-                ->helperText('Enabled servers of the product\'s module, with room under their max accounts. «Fill in order» fills them in the order listed here.')
+                // One module per group (sweep §7): a product only takes servers of its own module from it.
+                ->rule(fn () => function (string $attribute, mixed $value, \Closure $fail) {
+                    if (Server::query()->whereKey((array) $value)->distinct()->count('extension') > 1) {
+                        $fail(__('A group holds servers of one module only.'));
+                    }
+                })
+                ->helperText('Servers of one module, enabled and with room under their max accounts. «Fill in order» fills them in the order listed here.')
                 ->columnSpanFull(),
         ]);
     }
@@ -51,7 +59,13 @@ class ServerGroupResource extends Resource
                 TextColumn::make('fill_type')->label('Fill Type')
                     ->formatStateUsing(fn (string $state) => $state === ServerGroup::FILL_IN_ORDER ? 'In order' : 'Least full'),
             ])
-            ->recordActions([EditAction::make(), DeleteAction::make()]);
+            ->recordActions([EditAction::make(), DeleteAction::make()->before(function (DeleteAction $action, ServerGroup $record) {
+                // Not while products use it (the model refuses it too).
+                if (($products = $record->products()->count()) > 0) {
+                    Notification::make()->danger()->title("Used by {$products} product(s)")->body('Choose another group for them first.')->send();
+                    $action->cancel();
+                }
+            })]);
     }
 
     public static function getPages(): array
