@@ -129,6 +129,10 @@ final class MassPay
         if ($group->status !== PaymentGroup::STATUS_OPEN) {
             return __('These invoices were paid or chosen again: choose them again from your invoices.');
         }
+        // The invoice the gateway is paid on, gone (deleted by staff): nothing to pay on.
+        if ($group->invoice_id === null) {
+            return __('One of these invoices changed: choose them again from your invoices.');
+        }
         foreach ($group->invoices()->get() as $invoice) {
             if ((int) $invoice->client_id !== (int) $group->client_id || $invoice->currency_code !== $group->currency_code
                 || self::refusal($invoice) !== null
