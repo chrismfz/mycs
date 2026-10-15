@@ -7,6 +7,8 @@ use App\Classes\Extension\Server;
 use App\Models\Service;
 use App\Rules\Domain;
 use Exception;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -22,7 +24,8 @@ class CPanel extends Server
     private function request($endpoint, $method = 'get', $data = [])
     {
         $host = rtrim($this->config('host'), '/');
-        $response = Http::withHeaders([
+        // A server that never answers is told within 10 seconds, not the default 30 (the call itself may take longer).
+        $response = Http::connectTimeout(10)->withHeaders([
             'Authorization' => 'whm ' . $this->config('username') . ':' . $this->config('apikey'),
         ])->$method($host . '/json-api' . $endpoint, $data)->throw();
 
@@ -109,13 +112,23 @@ class CPanel extends Server
     }
 
     /**
-     * Check if currenct configuration is valid
+     * The admin's «Test Connection» (and the MCP's server_test): true, or why not, never an exception. WHM refuses a
+     * token or a privilege with HTTP 200 and metadata.result 0, so that is read too, not only the HTTP status;
+     * a cheap call (version) that any reseller or root token may make.
      */
     public function testConfig(): bool|string
     {
-        $request = $this->request('/listaccts');
-        if (!$request->successful()) {
-            return $request->json('statusmsg');
+        try {
+            $this->whm('/version', []);
+        } catch (RequestException $e) {
+            $json = $e->response->json();
+            $reason = is_array($json) ? ($json['metadata']['reason'] ?? $json['statusmsg'] ?? $json['cpanelresult']['error'] ?? null) : null;
+
+            return 'WHM answered HTTP ' . $e->response->status() . (is_string($reason) && $reason !== '' ? ': ' . $reason : '');
+        } catch (ConnectionException $e) {
+            return 'Could not reach WHM: ' . $e->getMessage();
+        } catch (Exception $e) {
+            return $e->getMessage();
         }
 
         return true;
