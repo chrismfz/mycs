@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ClientResource\Pages\ClientSummaryPage;
+use App\Admin\Resources\ClientResource\RelationManagers\UsersRelationManager;
+use App\Admin\Resources\Common\RelationManagers\PropertiesRelationManager;
 use App\Admin\Resources\InvoiceResource\Pages\CreateInvoice;
 use App\Models\Credit;
 use App\Models\EmailLog;
@@ -14,6 +16,7 @@ use App\Models\Service;
 use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Models\UserAuthenticationLog;
 use App\Services\Admin\ClientSummary;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -71,7 +74,7 @@ class ClientSummaryTest extends TestCase
         Ticket::query()->create(['subject' => 'Help', 'status' => 'open', 'priority' => 'low', 'client_id' => $client->id]);
         Ticket::query()->create(['subject' => 'Done', 'status' => 'closed', 'priority' => 'low', 'client_id' => $client->id]);
 
-        $summary = ClientSummary::for($client->fresh());
+        $summary = ClientSummary::for($client->fresh(), $this->staff(['*']));
 
         $this->assertSame(2, $summary['invoices']['statuses'][Invoice::STATUS_PAID]['count']);
         $this->assertStringContainsString('10.20', implode(' ', $summary['invoices']['statuses'][Invoice::STATUS_PAID]['total']));
@@ -92,7 +95,7 @@ class ClientSummaryTest extends TestCase
             'client_id' => $this->user->client()->id]);
         $client = $this->user->client();
 
-        $this->actingAs($this->staff(['admin.clients.viewAny', 'admin.services.viewAny', 'admin.email_logs.view']))
+        $this->actingAs($this->staff(['admin.clients.viewAny', 'admin.services.viewAny', 'admin.email_logs.viewAny', 'admin.email_logs.view']))
             ->get(ClientResource::getUrl('view', ['record' => $client]))
             ->assertOk()->assertSee('Maria Summary')->assertSee('summary.example.test')->assertSee('Welcome aboard');
 
@@ -102,6 +105,49 @@ class ClientSummaryTest extends TestCase
             ->assertActionVisible('newInvoice')->assertActionVisible('newTicket')->assertActionVisible('edit');
 
         $this->actingAs($this->staff(['admin.services.viewAny']))->get(ClientResource::getUrl('view', ['record' => $client]))->assertForbidden();
+    }
+
+    public function test_staff_who_may_only_see_clients_see_no_money_services_mails_or_logins(): void
+    {
+        $client = $this->user->client();
+        $this->invoice(Invoice::STATUS_UNPAID, 123.45);
+        EmailLog::query()->create(['subject' => 'Secret subject', 'to' => 'maria@example.test', 'body' => 'b', 'status' => EmailLog::STATUS_SENT, 'client_id' => $client->id]);
+        DB::table('client_user')->where('client_id', $client->id)->update(['last_login_at' => now()]);
+        UserAuthenticationLog::query()->create(['user_id' => $this->user->id, 'ip_address' => '198.51.100.23']);
+
+        $page = $this->actingAs($this->staff(['admin.clients.viewAny']))->get(ClientResource::getUrl('view', ['record' => $client]))->assertOk()
+            ->assertSee('Maria Summary');
+        foreach (['123.45', 'summary.example.test', 'Secret subject', '198.51.100.23', __('Credit Balance')] as $hidden) {
+            $page->assertDontSee($hidden);
+        }
+        $this->assertSame(['details', 'invoices', 'credit', 'services', 'open_tickets', 'emails', 'other'], array_keys(ClientSummary::for($client, null)));
+        $this->assertNull(ClientSummary::for($client, null)['invoices']);
+
+        $this->actingAs($this->staff(['*']))->get(ClientResource::getUrl('view', ['record' => $client]))
+            ->assertSee('123.45')->assertSee('summary.example.test')->assertSee('Secret subject')->assertSee('198.51.100.23');
+    }
+
+    public function test_the_summary_has_no_relation_managers_to_edit_from(): void
+    {
+        $client = $this->user->client();
+
+        // Properties have an inline-editable value: on the Summary (viewAny only) they would be a write (review B1).
+        $this->actingAs($this->staff(['admin.clients.viewAny']))->get(ClientResource::getUrl('view', ['record' => $client]))
+            ->assertDontSeeLivewire(PropertiesRelationManager::class)->assertDontSeeLivewire(UsersRelationManager::class);
+        $this->actingAs($this->staff(['*']))->get(ClientResource::getUrl('edit', ['record' => $client]))
+            ->assertSeeLivewire(UsersRelationManager::class);
+    }
+
+    public function test_the_last_login_address_is_the_one_used_last(): void
+    {
+        $client = $this->user->client();
+        DB::table('client_user')->where('client_id', $client->id)->update(['last_login_at' => now()]);
+        $old = UserAuthenticationLog::query()->create(['user_id' => $this->user->id, 'ip_address' => '198.51.100.1']);
+        UserAuthenticationLog::query()->create(['user_id' => $this->user->id, 'ip_address' => '198.51.100.2']);
+        DB::table('user_authentication_logs')->where('ip_address', '198.51.100.2')->update(['last_used_at' => now()->subDay()]);
+        DB::table('user_authentication_logs')->where('id', $old->id)->update(['last_used_at' => now()]); // back on an older address
+
+        $this->assertSame('198.51.100.1', ClientSummary::for($client, $this->staff(['*']))['other']['last_login_ip']);
     }
 
     public function test_create_invoice_from_the_summary_comes_with_the_client(): void

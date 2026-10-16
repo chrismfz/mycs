@@ -2,16 +2,18 @@
 
 namespace App\Services\Admin;
 
+use App\Classes\Price;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Credit;
+use App\Models\Currency;
 use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\Plan;
 use App\Models\Service;
+use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\UserAuthenticationLog;
-use App\Services\Money\MoneyHistory;
 
 /**
  * The client's «Summary» in the admin, as WHMCS's client profile: its details, its invoices by status, its services,
@@ -21,21 +23,37 @@ class ClientSummary
 {
     public const INVOICE_STATUSES = [Invoice::STATUS_PAID, Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT, Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED];
 
-    /** @return array<string, mixed> */
-    public static function for(Client $client): array
+    /** Each panel and the permission of the page it summarises (as the client's own subpages require). */
+    public const PANELS = [
+        'invoices' => 'admin.invoices.viewAny',
+        'credit' => 'admin.credits.viewAny',
+        'services' => 'admin.services.viewAny',
+        'tickets' => 'admin.tickets.viewAny',
+        'emails' => 'admin.email_logs.viewAny',
+        'logins' => 'admin.users.viewAny',
+    ];
+
+    /**
+     * The panels staff may see; the others are null and never queried.
+     *
+     * @return array<string, mixed>
+     */
+    public static function for(Client $client, ?Staff $staff): array
     {
         $client->loadMissing(['primaryContact', 'ownerGrant.user']);
+        self::$currencies = [];
+        $may = fn (string $panel) => (bool) $staff?->hasPermission(self::PANELS[$panel]);
 
         return [
             'details' => self::details($client),
-            'invoices' => self::invoices($client),
-            'credit' => Credit::query()->where('client_id', $client->id)->where('amount', '!=', 0)->orderBy('currency_code')->get()
-                ->map(fn (Credit $credit) => MoneyHistory::money($credit->amount, $credit->currency_code))->all(),
-            'services' => self::services($client),
-            'other' => self::other($client),
-            'emails' => EmailLog::query()->where('client_id', $client->id)->latest('id')->limit(5)
-                ->get(['id', 'subject', 'status', 'created_at'])->all(),
-            'open_tickets' => Ticket::query()->where('client_id', $client->id)->where('status', '!=', 'closed')->count(),
+            'invoices' => $may('invoices') ? self::invoices($client) : null,
+            'credit' => $may('credit') ? Credit::query()->where('client_id', $client->id)->where('amount', '!=', 0)->orderBy('currency_code')->get()
+                ->map(fn (Credit $credit) => self::money((int) round((float) $credit->amount * 100), $credit->currency_code))->all() : null,
+            'services' => $may('services') ? self::services($client) : null,
+            'open_tickets' => $may('tickets') ? Ticket::query()->where('client_id', $client->id)->where('status', '!=', 'closed')->count() : null,
+            'emails' => $may('emails') ? EmailLog::query()->where('client_id', $client->id)->latest('id')->limit(5)
+                ->get(['id', 'subject', 'status', 'created_at'])->all() : null,
+            'other' => self::other($client, $may('logins')),
         ];
     }
 
@@ -63,7 +81,7 @@ class ClientSummary
     /**
      * Each status: how many, and their totals per currency; unpaid ones also what is still due.
      *
-     * @return array{statuses: array<string, array{count: int, total: list<string>}>, due: list<string>, paid_in: list<string>}
+     * @return array{statuses: array<string, array{count: int, total: list<string>}>, due: list<string>}
      */
     private static function invoices(Client $client): array
     {
@@ -84,16 +102,15 @@ class ClientSummary
         }
 
         return [
-            'statuses' => array_map(fn (array $row) => ['count' => $row['count'], 'total' => self::money($row['cents'])], $statuses),
-            'due' => self::money($due),
-            'paid_in' => self::money($statuses[Invoice::STATUS_PAID]['cents']),
+            'statuses' => array_map(fn (array $row) => ['count' => $row['count'], 'total' => self::amounts($row['cents'])], $statuses),
+            'due' => self::amounts($due),
         ];
     }
 
     /** @return array{counts: array<string, int>, rows: list<array<string, mixed>>} */
     private static function services(Client $client): array
     {
-        $services = Service::query()->where('client_id', $client->id)->with(['product', 'plan'])->orderByRaw("status = 'active' desc")->orderByDesc('id')->get();
+        $services = Service::query()->where('client_id', $client->id)->with(['product', 'plan', 'currency'])->orderByRaw("status = 'active' desc")->orderByDesc('id')->get();
         $counts = array_fill_keys(array_keys(Service::statusOptions()), 0);
         foreach ($services as $service) {
             $counts[$service->status] = ($counts[$service->status] ?? 0) + 1;
@@ -105,7 +122,7 @@ class ClientSummary
                 'id' => $service->id,
                 'product' => $service->product?->name,
                 'domain' => $service->domain,
-                'amount' => MoneyHistory::money($service->price * max(1, (int) $service->quantity), (string) $service->currency_code),
+                'amount' => (string) $service->formattedPrice, // as Products/Services shows it: with tax, what a renewal charges
                 'cycle' => self::cycle($service->plan),
                 'created' => $service->created_at,
                 'expires' => $service->expires_at,
@@ -115,19 +132,30 @@ class ClientSummary
     }
 
     /** @return array<string, mixed> */
-    private static function other(Client $client): array
+    private static function other(Client $client, bool $logins): array
     {
         $owner = $client->owner();
-        $grant = ClientUser::query()->where('client_id', $client->id)->whereNull('revoked_at')->whereNotNull('last_login_at')->latest('last_login_at')->first();
-        $log = $grant === null ? null : UserAuthenticationLog::query()->where('user_id', $grant->user_id)->latest('id')->first();
-
-        return [
+        $other = [
             'since' => $client->created_at,
+            'owner_verified' => $owner === null ? null : $owner->email_verified_at !== null,
+            'last_login' => null,
+            'last_login_ip' => null,
+            'users' => null,
+        ];
+        if (!$logins) {
+            return $other;
+        }
+        $grant = ClientUser::query()->where('client_id', $client->id)->whereNull('revoked_at')->whereNotNull('last_login_at')->latest('last_login_at')->first();
+        // One row per address a user logged in from, its last use bumped on each login (LoginDetectedListener): the
+        // address that user used last. The log is the user's, not the account's.
+        $log = $grant === null ? null : UserAuthenticationLog::query()->where('user_id', $grant->user_id)
+            ->orderByRaw('last_used_at is null')->orderByDesc('last_used_at')->orderByDesc('created_at')->orderByDesc('id')->first();
+
+        return array_merge($other, [
             'last_login' => $grant?->last_login_at,
             'last_login_ip' => $log?->ip_address,
-            'owner_verified' => $owner === null ? null : $owner->email_verified_at !== null,
             'users' => ClientUser::query()->where('client_id', $client->id)->whereNull('revoked_at')->count(),
-        ];
+        ]);
     }
 
     /** As WHMCS names the cycles: Monthly, Quarterly, …; else «every N units». */
@@ -157,13 +185,25 @@ class ClientSummary
     }
 
     /**
-     * @param  array<string, int>  $cents
+     * @param  array<string, int>  $cents  per currency
      * @return list<string>
      */
-    private static function money(array $cents): array
+    private static function amounts(array $cents): array
     {
         ksort($cents);
 
-        return array_map(fn (int $amount, string $currency) => MoneyHistory::money(number_format($amount / 100, 2, '.', ''), $currency), $cents, array_keys($cents));
+        return array_map(fn (int $amount, string $currency) => self::money($amount, $currency), $cents, array_keys($cents));
+    }
+
+    /** @var array<string, Currency|null> one lookup per currency, not per amount */
+    private static array $currencies = [];
+
+    private static function money(int $cents, string $currency): string
+    {
+        $model = self::$currencies[$currency] ??= Currency::query()->find($currency);
+        $amount = $cents / 100;
+
+        return $model === null ? number_format($amount, 2, '.', '') . ' ' . $currency
+            : (new Price(['price' => 0, 'currency' => $model], dontShowUnavailablePrice: true))->format($amount);
     }
 }

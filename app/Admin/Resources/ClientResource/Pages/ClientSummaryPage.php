@@ -9,6 +9,7 @@ use App\Admin\Resources\OrderResource;
 use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\TicketResource;
 use App\Models\Client;
+use App\Models\Staff;
 use App\Services\Admin\ClientSummary;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
@@ -26,6 +27,9 @@ class ClientSummaryPage extends ViewRecord
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-identification';
 
+    /** @var array<string, mixed>|null built once per request */
+    private ?array $summary = null;
+
     public static function getNavigationLabel(): string
     {
         return __('Summary');
@@ -42,8 +46,18 @@ class ClientSummaryPage extends ViewRecord
     {
         return $schema->components([
             View::make('admin.resources.client-resource.pages.client-summary')
-                ->viewData(fn () => $this->viewData()),
+                ->viewData(fn () => $this->viewData())
+                ->columnSpanFull(),
         ]);
+    }
+
+    /**
+     * None here: the client's users, contacts, invites and properties are edited on its Edit page, which needs
+     * `admin.clients.update`; the Summary needs only `admin.clients.viewAny` (review B1).
+     */
+    public function getRelationManagers(): array
+    {
+        return [];
     }
 
     /** @return array<string, mixed> */
@@ -56,7 +70,7 @@ class ClientSummaryPage extends ViewRecord
 
         return [
             'client' => $client,
-            'summary' => ClientSummary::for($client),
+            'summary' => $this->summary ??= ClientSummary::for($client, $staff instanceof Staff ? $staff : null),
             'links' => [
                 'services' => $can('admin.services.viewAny') ? ClientResource::getUrl('services', ['record' => $client]) : null,
                 'service' => $can('admin.services.update') ? fn (int $id) => ServiceResource::getUrl('edit', ['record' => $id]) : null,
