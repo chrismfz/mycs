@@ -16,6 +16,7 @@ use App\Support\Redact;
 use Closure;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
@@ -200,21 +201,39 @@ class DomainManagementService
             throw new InvalidArgumentException(__('domains.manage.contact_not_the_accounts'));
         }
         $handle = (string) $this->handleFor($domain, $role);
+        // Every unlinked role the registrar gives this same handle is that same person there: linked together (review 3),
+        // not one by one with a new contact each.
+        $roles = array_values(array_filter(Domain::ROLES, fn (string $r) => $this->isUnlinked($domain, $r) && $this->handleFor($domain, $r) === $handle));
         $linked = null;
-        $this->call($domain, 'link_contact', ['role' => $role, 'handle' => $handle, 'contact_id' => $contactId ?? 'new'], $staff,
-            function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $role, $handle, $contactId, &$linked) {
-                if ($contactId !== null) {
-                    $linked = Contact::query()->findOrFail($contactId);
-                } else {
-                    $record = $registrar->getContact($handle, $credentials)
-                        ?? throw new RuntimeException(__('domains.manage.not_at_the_registrar', ['handle' => $handle]));
-                    $linked = $this->contactFrom($domain, $record);
+        $this->call($domain, 'link_contact', ['roles' => $roles, 'handle' => $handle, 'contact_id' => $contactId ?? 'new'], $staff,
+            function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $roles, $handle, $contactId, &$linked) {
+                $record = $contactId === null ? ($registrar->getContact($handle, $credentials)
+                    ?? throw new RuntimeException(__('domains.manage.not_at_the_registrar', ['handle' => $handle]))) : null;
+                // One transaction: a failed save leaves no new contact behind (review 1).
+                DB::transaction(function () use ($domain, $roles, $handle, $contactId, $record, &$linked) {
+                    $linked = $record !== null ? $this->contactFrom($domain, $record) : Contact::query()->findOrFail($contactId);
+                    $meta = $domain->meta ?? [];
+                    $fill = [];
+                    foreach ($roles as $role) {
+                        // Both at once: the model would clear a role's handle whose contact changes on its own.
+                        $fill["{$role}_contact_id"] = $linked->id;
+                        $fill["{$role}_handle"] = $handle;
+                        // Linked by staff's word, not by a matching email: ensureHandles never lends it to another role of
+                        // this contact (review 2).
+                        $meta['linked_handles'][$role] = $handle;
+                    }
+                    $domain->forceFill($fill + ['meta' => $meta])->save(); // audited
+                });
+                // Done here whatever the registrar answers now: the re-read is best-effort (review 1), as after a write.
+                $synced = true;
+                try {
+                    $this->sync->sync($domain->refresh(), true, false); // this call holds the lock
+                    $this->lifecycle->advance($domain->refresh());
+                } catch (Throwable) {
+                    $synced = false;
                 }
-                // Both at once: the model would clear a role's handle whose contact changes on its own.
-                $domain->forceFill(["{$role}_contact_id" => $linked->id, "{$role}_handle" => $handle])->save(); // audited
-                $this->sync->sync($domain->refresh(), true, false); // the warning goes; this call holds the lock
 
-                return ['contact_id' => $linked->id, 'created' => $contactId === null];
+                return ['contact_id' => $linked?->id, 'created' => $contactId === null, 'synced' => $synced];
             });
 
         return $linked;
@@ -228,6 +247,9 @@ class DomainManagementService
         $person = $name !== '' && $name !== $org && $name !== $record->handle ? $name : '';
         [$first, $last] = $person !== '' ? array_pad(preg_split('/\s+/u', $person, 2) ?: [], 2, '') : ['', ''];
 
+        if ($first === '' && $last === '' && $org === '') {
+            $last = (string) $record->email; // a contact is never nameless (displayName)
+        }
         $contact = new Contact;
         $contact->forceFill([ // client_id is not fillable
             'client_id' => $domain->client_id,

@@ -50,6 +50,8 @@ class DomainManagementTest extends TestCase
     /** @var array<string, mixed> */
     private array $record = [];
 
+    private bool $registrarDown = false;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -99,6 +101,9 @@ class DomainManagementTest extends TestCase
             $url = $request->url();
             if (str_contains($url, '/auth/login')) {
                 return Http::response(['data' => ['token' => 'tok']]);
+            }
+            if ($this->registrarDown) {
+                return Http::response([], 500);
             }
             if (str_contains($url, '/authcode')) {
                 return Http::response(['data' => ['auth_code' => 'Epp-Code-77']]);
@@ -455,6 +460,43 @@ class DomainManagementTest extends TestCase
         $this->livewireAs($staff)->test(ListRoles::class)
             ->assertTableActionHidden('edit', $admin)->assertTableActionVisible('edit', $other)
             ->assertSee(__('Full access, not editable'));
+    }
+
+    /** D4c review: every role the registrar gives the same handle is linked together, to one contact, never lent on. */
+    public function test_a_handle_on_several_roles_is_linked_once_and_not_lent_to_other_roles(): void
+    {
+        $agency = $this->contact(['email' => 'agency@example.test']);
+        $tech = $this->contact();
+        $domain = $this->domain(['registrant_contact_id' => $agency->id]);
+        $this->fakeOp(['admin_handle' => 'CP935231-GR', 'billing_handle' => 'CP935231-GR']);
+        app(DomainSyncService::class)->sync($domain);
+
+        $contact = app(DomainManagementService::class)->linkContact($domain->fresh(), 'registrant', null, null);
+
+        $domain->refresh();
+        $this->assertSame([$contact->id, $contact->id, $contact->id], [$domain->registrant_contact_id, $domain->admin_contact_id, $domain->billing_contact_id]);
+        $this->assertSame(1, Contact::query()->where('email', 'owner@example.test')->count(), 'one new contact, not one per role');
+
+        // Tech becomes the agency's own contact: it gets its own handle, not the end customer's linked by staff.
+        $domain->forceFill(['tech_contact_id' => null])->save();
+        app(DomainManagementService::class)->setContacts($domain->fresh(), ['tech' => $tech->id], null);
+        $this->assertSame('NEW123-GR', end($this->puts)['tech_handle']);
+    }
+
+    /** D4c review: a link stands when the re-read after it fails; it is not reported as failed and redone. */
+    public function test_a_link_stands_when_the_reread_fails(): void
+    {
+        $owner = $this->contact(['email' => 'other@example.test']);
+        $domain = $this->domain(['registrant_contact_id' => $owner->id]);
+        $this->fakeOp();
+        app(DomainSyncService::class)->sync($domain);
+        $this->registrarDown = true;
+
+        app(DomainManagementService::class)->linkContact($domain->fresh(), 'registrant', $owner->id, null);
+
+        $this->assertSame('CP935231-GR', $domain->fresh()->registrant_handle);
+        $log = DomainRegistrarLog::query()->where('action', 'link_contact')->sole();
+        $this->assertSame([DomainRegistrarLog::STATUS_OK, false], [$log->status, $log->response['synced']]);
     }
 
     /** @param  class-string<\Throwable>  $class */

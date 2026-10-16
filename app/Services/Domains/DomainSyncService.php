@@ -217,10 +217,12 @@ class DomainSyncService
         if ($result->rawStatus !== null) {
             $meta['registrar_status'] = $result->rawStatus;
         }
+        if ($result->contactHandles !== []) {
+            // Per role, for staff to see and link a role this domain has not linked yet (D4c); whatever else is reported.
+            $meta['registrar_handles'] = $result->contactHandles;
+        }
         if ($result->details !== []) {
             // What staff see without the registrar's panel (D4b), its handles per role included.
-            // Per role too, for staff to see and link a role this domain has not linked yet (D4c).
-            $meta['registrar_handles'] = $result->contactHandles;
             $meta['registrar'] = $result->details + ($result->contactHandles !== []
                 ? ['handles' => implode(', ', array_map(fn ($role, $handle) => "{$role} {$handle}", array_keys($result->contactHandles), $result->contactHandles))]
                 : []);

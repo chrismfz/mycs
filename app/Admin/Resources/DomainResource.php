@@ -109,7 +109,7 @@ class DomainResource extends Resource
     {
         $yesNo = fn (?bool $state) => $state === null ? '—' : ($state ? __('Yes') : __('No'));
 
-        $domain = Section::make(__('domains.domain'))->columns(3)->schema([
+        $domain = Section::make(__('domains.domain'))->columns(['default' => 1, 'sm' => 2, '2xl' => 3])->schema([
             TextEntry::make('fqdn')->label(__('domains.domain')),
             TextEntry::make('status')->label(__('Status'))->badge(),
             TextEntry::make('client.name')->label(__('Client')),
@@ -146,7 +146,7 @@ class DomainResource extends Resource
         ));
 
         // All the registrar told the last sync (D4b): what staff would otherwise look up in its panel.
-        $registrar = Section::make(__('At the registrar'))->columns(3)->collapsible()
+        $registrar = Section::make(__('At the registrar'))->columns(['default' => 1, 'sm' => 2, '2xl' => 3])->collapsible()
             ->visible(fn (Domain $record) => !empty($record->meta['registrar'] ?? null))
             ->schema(array_map(
                 fn (string $key, string $label) => TextEntry::make("registrar_{$key}")->label(__($label))

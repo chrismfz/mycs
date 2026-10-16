@@ -212,6 +212,16 @@
    - Lock 10 λεπτά ανά domain (όσο η μεγαλύτερη κλήση).
    - Το WHOIS privacy εδώ είναι το `id_protection` του domain· το D5 **δεν** το χρεώνει επειδή το άλλαξε το staff
      (να επιβεβαιωθεί ότι ο Openprovider δεν το χρεώνει πριν το D5).
+4c. **D4c Επαφές από το domain** (ιδιοκτήτης 2026-10-16): κάθε ρόλος δείχνει το handle του (συνδεδεμένο, ή «μόνο στον
+   registrar»: `meta.registrar_handles` από το sync), «At the registrar» (η εγγραφή του handle εκεί), «Edit contact» (η
+   επαφή του λογαριασμού, `admin.clients.update`· **δεν** στέλνεται στον registrar) και **«Link here»**
+   (`admin.domains.manage`): το staff λέει ποιος είναι ένα handle που δεν συνδέθηκε αυτόματα (π.χ. ο τελικός πελάτης
+   ενός agency, με άλλο email). Σε υπάρχουσα επαφή του λογαριασμού (η εξαίρεση στον κανόνα του email του D4b, με την
+   ευθύνη του staff), ή σε **νέα επαφή** από την εγγραφή του registrar (θέλει και `admin.clients.update`). Κάθε ρόλος με
+   το ίδιο handle συνδέεται μαζί. Τίποτα δεν στέλνεται στον registrar· audit και log. Ένα handle που συνδέθηκε έτσι
+   (`meta.linked_handles`) δεν «δανείζεται» σε άλλο ρόλο της ίδιας επαφής σε μια αλλαγή επαφών. Το re-read μετά τη
+   σύνδεση είναι best-effort. Μαζί: σελίδα domain σε δύο ανεξάρτητες στήλες· ο ρόλος #1 (`*`) δεν προσφέρεται για
+   επεξεργασία (ήταν σκέτο 403)· το εύρος του D8 (ζήτησε ο ιδιοκτήτης στο ίδιο PR). Code + adversarial.
 5. **D5 Χρέωση:** γραμμή `Domain` στο τιμολόγιο, βήμα τιμολόγησης με ομαδοποίηση, κλάδος στην πληρωμή, renew on-paid, «Ανανέωση τώρα», adopt, fee grace/
    redemption στο υπάρχον τιμολόγιο, Pending Module Actions. Code + adversarial.
 6. **D6 Importer WHMCS:** domains, τιμές, TLDs, ρόλοι επαφών, additional fields· parity και σύγκριση με τον

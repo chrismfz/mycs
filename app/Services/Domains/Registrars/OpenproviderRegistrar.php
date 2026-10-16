@@ -421,7 +421,8 @@ class OpenproviderRegistrar implements DomainRegistrar
             if ($existing !== '') {
                 // The handle of this role's current contact: Domain clears it when the contact changes (review F3).
                 $handles[$role] = $existing;
-                if ($contact !== null) {
+                // A handle staff linked by their word (D4c) is this role's only: never lent to another role of the contact.
+                if ($contact !== null && ($domain->meta['linked_handles'][$role] ?? null) !== $existing) {
                     $byContact[$contact->id] ??= $existing;
                 }
 
