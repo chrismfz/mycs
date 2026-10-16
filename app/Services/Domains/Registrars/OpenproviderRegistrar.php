@@ -52,6 +52,12 @@ class OpenproviderRegistrar implements DomainRegistrar
     /** Tombstone statuses — a record in these represents NO ownership claim. */
     private const DEAD_STATUSES = ['DEL', 'FAI'];
 
+    /** The registrar's record fields staff see (D4b). An allow-list: the auth codes are never on it. */
+    private const DETAIL_KEYS = ['status', 'type', 'creation_date', 'registry_expiration_date', 'renewal_date', 'last_changed',
+        'is_lockable', 'is_locked', 'is_private_whois_allowed', 'is_private_whois_enabled', 'is_dnssec_enabled', 'dnssec',
+        'autorenew', 'can_renew', 'is_premium', 'is_abusive', 'trade_allowed', 'modify_owner_allowed',
+        'transfer_cancel_supported', 'is_hosted_whois', 'owner_company_name'];
+
     /** Openprovider price block → our DomainTldPrice operation (D-6, D-8: a restore is the redemption fee). */
     private const PRICE_KEYS = [
         'create_price' => 'register',
@@ -524,7 +530,39 @@ class OpenproviderRegistrar implements DomainRegistrar
             // overwrite the local mirror with a guessed false.
             transferLock: is_bool($data['is_locked'] ?? null) ? $data['is_locked'] : null,
             whoisPrivacy: is_bool($data['is_private_whois_enabled'] ?? null) ? $data['is_private_whois_enabled'] : null,
+            registeredAt: $this->datePart($data['creation_date'] ?? null),
+            details: $this->detailsFrom($data),
         );
+    }
+
+    /**
+     * What staff see of the registrar's record (D4b), from an allow-list: never the auth codes or anything else that
+     * is not on it. Scalars only; the nameservers' glue as «host ip».
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, scalar|null>
+     */
+    private function detailsFrom(array $data): array
+    {
+        $details = [];
+        foreach (self::DETAIL_KEYS as $key) {
+            if (array_key_exists($key, $data) && (is_scalar($data[$key]) || $data[$key] === null)) {
+                $value = $data[$key];
+                // OP's «no date» is a zero date.
+                $details[$key] = is_string($value) && str_starts_with($value, '0000-00-00') ? null : $value;
+            }
+        }
+        $glue = [];
+        foreach ((array) ($data['name_servers'] ?? []) as $ns) {
+            if (is_array($ns) && is_string($ns['name'] ?? null) && is_string($ns['ip'] ?? null) && $ns['ip'] !== '') {
+                $glue[] = mb_strtolower($ns['name']) . ' ' . $ns['ip'];
+            }
+        }
+        if ($glue !== []) {
+            $details['glue'] = implode(', ', $glue);
+        }
+
+        return $details;
     }
 
     /**

@@ -5,6 +5,7 @@ namespace App\Services\Domains;
 use App\Enums\DomainStatus;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
+use App\Models\DomainTld;
 use App\Support\Domains\DomainSyncResult;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -73,6 +74,19 @@ class DomainSyncService
     }
 
     /**
+     * The registrar's answer to a write (D4b: nameservers, lock, privacy, contacts) applied as a sync's would be.
+     *
+     * @return array<string, array{0: mixed, 1: mixed}>
+     */
+    public function applyResult(Domain $domain, DomainSyncResult $result): array
+    {
+        $changes = $this->plan($domain, $result);
+        $this->apply($domain, $result, $changes);
+
+        return $changes;
+    }
+
+    /**
      * What the registrar's answer would change; `_warning` carries what is not applied for staff to look at.
      *
      * @return array<string, array{0: mixed, 1: mixed}>
@@ -95,7 +109,17 @@ class DomainSyncService
                 $set('expires_at', $now, $result->expiresAt);
             }
         }
+        $set('registered_at', $domain->registered_at?->toDateString(), $result->registeredAt);
         $set('registrar_domain_id', $domain->registrar_domain_id, $result->registrarDomainId);
+        // The registrar's handle per role (D4b): one it holds that we lack, or another it now has. A handle it does not
+        // report is not cleared.
+        foreach (Domain::ROLES as $role) {
+            $set("{$role}_handle", $domain->{"{$role}_handle"}, $result->contactHandles[$role] ?? null);
+        }
+        // A domain that came in before its TLD (adopted, imported) is linked once the TLD is here.
+        if ($domain->domain_tld_id === null) {
+            $set('domain_tld_id', null, DomainTld::query()->where('tld', $domain->tld)->value('id'));
+        }
         $set('transfer_lock', $domain->transfer_lock, $result->transferLock);
         $set('id_protection', $domain->id_protection, $result->whoisPrivacy);
 
@@ -128,6 +152,9 @@ class DomainSyncService
         $meta = $domain->meta ?? [];
         if ($result->rawStatus !== null) {
             $meta['registrar_status'] = $result->rawStatus;
+        }
+        if ($result->details !== []) {
+            $meta['registrar'] = $result->details; // what staff see without the registrar's panel (D4b)
         }
         if (isset($changes['nameservers'])) {
             // Both, so the domain's audit shows what the delegation was and what it became (review F11).

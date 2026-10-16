@@ -44,5 +44,15 @@ final class DomainSyncResult
          */
         public readonly ?bool $transferLock = null,
         public readonly ?bool $whoisPrivacy = null,
+        /** Y-m-d the domain was first registered (at any registrar), null when not reported. */
+        public readonly ?string $registeredAt = null,
+        /**
+         * What else the registrar says about the domain, for staff to see without its panel (D4b): flat scalars
+         * (lockable, privacy allowed, DNSSEC, auto-renew there, dates, nameserver glue…). Never a secret: the adapter
+         * builds it from an allow-list, no auth code ever. [] = not reported.
+         *
+         * @var array<string, scalar|null>
+         */
+        public readonly array $details = [],
     ) {}
 }

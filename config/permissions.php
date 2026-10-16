@@ -91,7 +91,11 @@ return [
             'domains' => [
                 'viewAny' => 'View Domains',
                 'create' => 'Add Existing Domains',
-                'update' => 'Update Domains (sync)',
+                'update' => 'Update Domains (sync, auto renew, admin notes)',
+                // D4b: changes at the registrar (nameservers, lock, privacy, contacts), and its EPP code apart: it hands
+                // the domain over.
+                'manage' => 'Manage Domains at the Registrar',
+                'epp' => 'Get EPP Codes',
             ],
             // The TLDs sold and their prices (docs/domains.md D-6, D-7).
             'domain_tlds' => [
