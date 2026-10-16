@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Services\Whmcs\AdminImport;
 use Illuminate\Console\Command;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Config;
 use Throwable;
 
@@ -32,6 +33,11 @@ class ImportWhmcsAdmins extends Command
 
         try {
             $result = (new AdminImport)->run($admins, (bool) $this->option('dry-run'));
+        } catch (QueryException $e) {
+            // Its message carries the SQL with its bindings, a hash among them (review): the error code only.
+            $this->error('Nothing imported: database error ' . $e->getCode() . '.');
+
+            return self::FAILURE;
         } catch (Throwable $e) {
             $this->error('Nothing imported: ' . $e->getMessage());
 

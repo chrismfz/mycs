@@ -6,6 +6,7 @@ use App\Models\Role;
 use App\Models\Staff;
 use App\Services\Whmcs\AdminImport;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
@@ -70,5 +71,45 @@ class WhmcsAdminImportTest extends TestCase
         $this->artisan('app:import-whmcs-admins', ['file' => $file, '--dry-run' => true])
             ->doesntExpectOutputToContain('$2y$')->assertSuccessful();
         @unlink($file);
+    }
+
+    /** Review: a WHMCS role named like ours (or «admin») never takes a role here with «*». */
+    public function test_a_role_name_never_brings_full_access(): void
+    {
+        Role::query()->firstOrCreate(['name' => 'admin'], ['permissions' => ['*']]);
+        $rows = [['id' => 9, 'firstname' => 'Eve', 'lastname' => 'X', 'email' => 'eve@example.test', 'password' => password_hash('p', PASSWORD_BCRYPT, ['cost' => 10]), 'roleid' => 5, 'rolename' => 'Admin', 'disabled' => 0]];
+
+        (new AdminImport)->run($rows);
+
+        $role = Staff::query()->where('email', 'eve@example.test')->sole()->role;
+        $this->assertSame(['Admin (WHMCS)', []], [$role->name, $role->permissions]);
+    }
+
+    /** Review: $2a$/$2b$ log in (stored as $2y$), at production's cost, through the staff login and its rehash. */
+    public function test_a_whmcs_hash_logs_in_through_the_staff_guard(): void
+    {
+        config(['hashing.bcrypt.rounds' => 12]);
+        $hash = password_hash('whmcs-pass', PASSWORD_BCRYPT, ['cost' => 10]);
+        $rows = [
+            ['id' => 2, 'firstname' => 'A', 'lastname' => 'B', 'email' => 'ab@example.test', 'password' => '$2b$' . substr($hash, 4), 'roleid' => 1, 'rolename' => 'Full Administrator', 'disabled' => 0],
+            ['id' => 3, 'firstname' => 'C', 'lastname' => 'D', 'email' => 'AB@example.test', 'password' => $hash, 'roleid' => 1, 'rolename' => 'Full Administrator', 'disabled' => 0],
+        ];
+
+        $result = (new AdminImport)->run($rows);
+
+        $this->assertSame(1, $result['counts']['added']);
+        $this->assertNotEmpty(array_filter($result['notes'], fn ($n) => str_contains($n, 'shares its email with admin #2')));
+        $this->assertTrue(Auth::guard('staff')->attempt(['email' => 'ab@example.test', 'password' => 'whmcs-pass']));
+        $this->assertStringStartsWith('$2y$12$', Staff::query()->where('email', 'ab@example.test')->value('password'), 'rehashed at our cost on login');
+    }
+
+    public function test_a_dry_run_leaves_roles_and_audits_too(): void
+    {
+        config(['audit.console' => true]);
+        $before = [Role::query()->count(), DB::table('audits')->count()];
+
+        (new AdminImport)->run($this->admins(), true);
+
+        $this->assertSame($before, [Role::query()->count(), DB::table('audits')->count()]);
     }
 }

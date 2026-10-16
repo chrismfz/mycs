@@ -6,7 +6,6 @@ use App\Models\Role;
 use App\Models\Staff;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use InvalidArgumentException;
 use Throwable;
 
 /**
@@ -23,6 +22,9 @@ final class AdminImport
 
     /** @var list<string> */
     private array $notes = [];
+
+    /** @var array<string, int> email => the WHMCS admin that brought it in this run */
+    private array $seen = [];
 
     /**
      * @param  list<array<string, mixed>>  $admins  tbladmins rows joined with their role's name (`rolename`)
@@ -50,8 +52,16 @@ final class AdminImport
     {
         $email = mb_strtolower(trim((string) ($admin['email'] ?? '')));
         if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
-            throw new InvalidArgumentException("Admin #{$admin['id']}: no valid email.");
+            $this->notes[] = "Admin #{$admin['id']}: no valid email, skipped.";
+
+            return;
         }
+        if (isset($this->seen[$email])) {
+            $this->notes[] = "Admin #{$admin['id']}: shares its email with admin #{$this->seen[$email]} in WHMCS, skipped.";
+
+            return;
+        }
+        $this->seen[$email] = (int) $admin['id'];
         if (Staff::query()->whereRaw('LOWER(email) = ?', [$email])->exists()) {
             $this->counts['existing']++;
             $this->notes[] = "Admin #{$admin['id']} ({$email}): already staff here, left as it is.";
@@ -71,27 +81,49 @@ final class AdminImport
         ])->save(); // audited, without the password
         $this->counts['added']++;
 
-        // The hash as WHMCS keeps it, written past the model's `hashed` cast (it would re-check its cost): bcrypt only.
+        // The hash as WHMCS keeps it, written past the model's `hashed` cast (it would re-check its cost): bcrypt only, as
+        // $2y$ (PHP's own; $2a$/$2b$ are the same hash, but Laravel would refuse them at login: review).
         $hash = (string) ($admin['password'] ?? '');
-        if (preg_match('/^\$2[aby]\$\d{2}\$[.\/A-Za-z0-9]{53}$/', $hash) === 1) {
+        if (preg_match('/^\$2[ab]\$/', $hash) === 1) {
+            $hash = '$2y$' . substr($hash, 4);
+        }
+        if (preg_match('/^\$2y\$(0[4-9]|[12]\d|3[01])\$[.\/A-Za-z0-9]{53}\z/', $hash) === 1) {
             DB::table('staff')->where('id', $staff->id)->update(['password' => $hash]);
         } else {
             $this->counts['without_password']++;
             $this->notes[] = "Admin #{$admin['id']} ({$email}): no bcrypt password in WHMCS, «Forgot password» sets one.";
+        }
+        if (trim((string) ($admin['authmodule'] ?? '')) !== '') {
+            $this->notes[] = "Admin #{$admin['id']} ({$email}): had two-factor login in WHMCS, to set up again here.";
         }
     }
 
     private function role(int $whmcsRoleId, string $name): int
     {
         if ($whmcsRoleId === 1) {
-            return (int) Role::query()->firstOrCreate(['name' => 'admin'], ['permissions' => ['*']])->id;
+            $role = Role::query()->firstOrCreate(['name' => 'admin'], ['permissions' => ['*']]);
+            if ($role->wasRecentlyCreated) {
+                $this->counts['roles']++;
+                $this->notes[] = 'Role «admin»: added with all permissions (WHMCS Full Administrator).';
+            }
+
+            return (int) $role->id;
         }
         $name = trim($name) !== '' ? trim($name) : 'WHMCS role ' . $whmcsRoleId;
-        $role = Role::query()->firstOrCreate(['name' => $name], ['permissions' => []]);
-        if ($role->wasRecentlyCreated) {
-            $this->counts['roles']++;
-            $this->notes[] = "Role «{$name}»: added with no permissions, give it its permissions under Roles.";
+        $existing = Role::query()->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])->first();
+        // Never another role's power by its name (review): one called «admin», or one here with «*», is not reused.
+        if ($existing !== null && (mb_strtolower($name) === 'admin' || in_array('*', $existing->permissions ?? [], true))) {
+            $name .= ' (WHMCS)';
+            $existing = Role::query()->where('name', $name)->first();
         }
+        if ($existing !== null) {
+            $this->notes[] = "Role «{$existing->name}»: already here, used with its " . count($existing->permissions ?? []) . ' permission(s).';
+
+            return (int) $existing->id;
+        }
+        $role = Role::query()->create(['name' => $name, 'permissions' => []]);
+        $this->counts['roles']++;
+        $this->notes[] = "Role «{$name}»: added with no permissions, give it its permissions under Roles.";
 
         return (int) $role->id;
     }
