@@ -30,7 +30,7 @@
 | D-1 | **Ανανέωση στον registrar όταν πληρωθεί το τιμολόγιο.** Είναι υπηρεσία τρίτου που πληρώνουμε. Εξαίρεση: έμπιστοι πελάτες/συνεργάτες, που το staff ανανεώνει με «Ανανέωση τώρα» και πληρώνουν μετά. Η πληρωμή που έρχεται μετά **δεν** ξαναανανεώνει (το bug του WHMCS, το «hack» με το relid). | ιδιοκτήτης· `decisions.md` §5 |
 | D-2 | Μία ανανέωση ανά τιμολόγιο **και** περίοδο (`invoice_items.period_start/end`, #32). Πριν ανανεώσει, κάνει sync: αν ο registrar καλύπτει ήδη την περίοδο, την **υιοθετεί** (adopt) χωρίς δεύτερη χρέωση. | Ekdosi, spike |
 | D-3 | **Επαφές:** οι κοινές `contacts` του λογαριασμού, που φτιάχτηκαν για διπλό σκοπό (domains και, αργότερα, παραστατικά στο Ekdosi). Το domain δείχνει ποια επαφή είναι registrant/admin/tech/billing και κρατά μόνο το **handle** του registrar ανά ρόλο. Κανένας ξεχωριστός πίνακας επαφών domain. | ιδιοκτήτης· `accounts.md` |
-| D-4 | **Χρέωση μέσω `Service`:** κάθε domain έχει μία υπηρεσία που το χρεώνει. Έτσι ξαναχρησιμοποιούμε cursor, ομαδοποίηση, dunning, πιστώσεις, Pending Module Actions. Το `next due` της υπηρεσίας ακολουθεί τη λήξη (στο WHMCS `nextduedate = expirydate` σε όλα). | ιδιοκτήτης |
+| D-4 | **Το domain είναι ξεχωριστό** (δικό του μενού, σελίδα, πεδία, ενέργειες, όπως στο WHMCS), με μια **κρυφή εγγραφή χρέωσης** (`Service`) δεμένη 1:1. Αυτή δεν εμφανίζεται ούτε μετράει πουθενά ως υπηρεσία (λίστες, Summary, αναφορές, MCP, counters: ένα φίλτρο σε ένα σημείο, με tests)· δίνει στο domain τη χρέωση που υπάρχει ήδη (cursor, ομαδοποίηση, πιστώσεις, Mass Pay, merge/split, auto-charge, Pending Module Actions). **Due date = λήξη** (στο WHMCS `nextduedate = expirydate` σε όλα). | ιδιοκτήτης |
 | D-5 | **Πολυετή:** 1–10 έτη ανά TLD, με ελάχιστο και βήμα (.gr: 2/4/6/8 έτη, default 2). Τιμή ανά TLD, πράξη (register/renew/transfer), έτη και νόμισμα. | ιδιοκτήτης· whmcs-baseline §3 |
 | D-6 | **Τιμές TLD με importer/sync όπως το WHMCS** (Utilities → TLD Import & Pricing Sync): επιλογή registrar, margin (%/ποσό), στρογγυλοποίηση, προαιρετικά και grace/redemption fee, «auto-registration» με αυτόν τον registrar. Πίνακας κόστους/τρέχουσας τιμής/margin ανά TLD· εισάγει μόνο όσα επιλέξει το staff. | ιδιοκτήτης (screenshots WHMCS) |
 | D-7 | **Ρυθμίσεις ανά TLD όπως το WHMCS** (Domains/TLDs): registrar αυτόματης εγγραφής, EPP code για μεταφορά, DNS management / email forwarding / ID protection, τιμές, **grace και redemption: μέρες και τέλος**. Μαζική επεξεργασία. | ιδιοκτήτης |
@@ -40,7 +40,7 @@
 | D-11 | **Importer από το WHMCS** (~450–500 domains εκτός .gr): `tbldomains`, `tbldomainpricing`, ρυθμίσεις ανά TLD, additional fields· parity και σύγκριση με τους registrars. **Ποτέ** οι σημειώσεις (`additionalnotes`) ή το `mod_domain_migration.epp`: έχουν EPP codes και κωδικούς σε απλό κείμενο. | ιδιοκτήτης· whmcs-baseline §10 |
 | D-12 | Autorenew **κλειστό** στον registrar: το ρολόι της χρέωσης είναι δικό μας. Κάθε domain το ανανεώνει ένα μόνο σύστημα (κλείνει στο cut-over). | blesta `openprovider.md` |
 | D-13 | Restore: αυτόματο μόνο στην soft quarantine και για 1 έτος· στην hard quarantine αρνείται και αποφασίζει άνθρωπος. | blesta `RenewalPlan` |
-| D-14 | Υπενθυμίσεις λήξης **60/30/15/10/5** μέρες, χωριστά από τις υπενθυμίσεις τιμολογίων. Τιμολόγιο ανανέωσης 15 μέρες πριν (`CreateInvoiceDaysBefore` domains). Do-not-renew ανά domain. **Cut-over blocker.** | `settings-map.md`· whmcs-baseline §6 |
+| D-14 | **Τιμολόγιο Ν μέρες πριν τη λήξη** (ρύθμιση, default 15, `CreateInvoiceDaysBefore` domains). **Υπενθυμίσεις λήξης** σε μέρες που ρυθμίζονται (WHMCS `DomainRenewalNotices`· π.χ. 30/15/7, η myip σήμερα 60/30/15/10/5), χωριστά από τις υπενθυμίσεις τιμολογίων. **Ανανέωση on demand:** ο πελάτης (ή το staff) ζητά ανανέωση όποια στιγμή θέλει πριν βγει το τιμολόγιο· βγαίνει τιμολόγιο για την επόμενη περίοδο και ανανεώνεται όταν πληρωθεί (D-1). Do-not-renew ανά domain. **Cut-over blocker.** | ιδιοκτήτης· `settings-map.md`· whmcs-baseline §6· ROADMAP #1167 |
 | D-15 | Έλεγχος υπολοίπου στον registrar πριν την ανανέωση· αποτυχία → Pending Module Actions και ειδοποίηση staff· η πληρωμή του πελάτη **δεν** αποτυγχάνει ποτέ λόγω registrar. | whmcs-baseline §5· `provisioning.md` |
 | D-16 | Μεταφορά: στέλνουμε **πάντα** ρητά τους τρέχοντες nameservers (με glue IP για NS μέσα στο ίδιο domain)· η λήξη υιοθετείται μόνο με `ACT`, όχι όσο είναι pending. | spike (live) |
 | D-17 | Κάθε ενέργεια που χρεώνει στον registrar: lock ανά domain, log (αίτημα, απάντηση, τιμολόγιο), καμία δεύτερη εκτέλεση· **ένα live write test ανά ενέργεια** πριν το cut-over. | Ekdosi `GuardsRegistrarWrites`· spike |
@@ -64,7 +64,8 @@
 ## 4. Ροές
 - **Παραγγελία:** register/transfer στο καλάθι με τα έτη του TLD → τιμολόγιο → μετά την πληρωμή εγγραφή/μεταφορά
   (Auto Setup του Σ1) → η υπηρεσία γίνεται active μόλις ο registrar επιβεβαιώσει.
-- **Ανανέωση:** τιμολόγιο 15 μέρες πριν τη λήξη (D-14) → πληρωμή → `renewForInvoice` (D-1, D-2, D-15).
+- **Ανανέωση:** τιμολόγιο Ν μέρες πριν τη λήξη, ή νωρίτερα on demand (D-14) → πληρωμή → `renewForInvoice`
+  (D-1, D-2, D-15) → η λήξη, και μαζί το due date, προχωρά κατά τα έτη της περιόδου.
   «Ανανέωση τώρα» του staff (D-1): ανανεώνει, γράφει την περίοδο, και η μεταγενέστερη πληρωμή την υιοθετεί.
 - **Λήξη:** expired → grace (ανανέωση με το τέλος grace, αν υπάρχει) → redemption (restore με τέλος, D-13) →
   deleted. Οι μέρες από το TLD ή το override του domain.
