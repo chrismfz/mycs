@@ -27,7 +27,7 @@ class UpgradeKeepsConfigOptionsAdversarialTest extends TestCase
     {
         parent::setUp();
         // The expected amounts are «15 of 30 days»: a fixed day whose period has 30 days (2026-06-25 → 07-25). From the
-        // real today the period is 30 or 31 days long (on 2026-10-16 it ran to 10-31 and the test failed).
+        // real today the period is 28 to 31 days long (on 2026-10-16 it ran to 10-31 and the test failed).
         $this->travelTo(Carbon::parse('2026-07-10 12:00:00'));
     }
 
