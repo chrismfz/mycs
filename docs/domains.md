@@ -240,6 +240,13 @@
      έχει ήδη RDAP/port43/suggestions/rate limiter. Code + adversarial (κατάχρηση, enumeration).
    - **D8b (χρήματα):** register/transfer στο καλάθι (έτη του TLD, EPP code στη μεταφορά), τιμολόγιο, εγγραφή/μεταφορά
      μετά την πληρωμή. Code + adversarial.
+   - **Whois ανά TLD (μητρώο), όχι ανά registrar** (ιδιοκτήτης 2026-10-17): «είναι διαθέσιμο;» → η σύνδεση registrar
+     του TLD (`checkAvailability`: Openprovider σήμερα, grEPP `check` για το .gr αργότερα), RDAP ως fallback· «ποιος το
+     έχει;» → αλυσίδα πηγών ανά TLD: RDAP (bootstrap του IANA) → port 43 (server του TLD από το IANA) → **adapter** για
+     μητρώα εκτός προτύπων. Το **.gr** (ICS-FORTH) δεν έχει RDAP/port 43: HTTPS `plainWhois`/`plainDomainCheck`
+     (`domains/grepp.md` §1· HTML, να ζητηθεί το τρέχον REST doc). Προαιρετική «πηγή whois» ανά TLD στο Domain Pricing.
+     Νέος registrar δεν αλλάζει το whois· ένα ιδιόρρυθμο νέο TLD θέλει μόνο έναν adapter. Ο Openprovider δεν είναι
+     δημόσιο whois (μόνο για τα δικά μας), μόνο fallback διαθεσιμότητας.
 Μετά: CNIC module (αν προλάβουμε, D-10), .gr EPP (`packages/gr-epp`, Φάση 4: μαζί και η **ανάκληση** του .gr μέσα σε
 5 μέρες από την καταχώριση), additional fields ανά ccTLD, DNSSEC (επεξεργασία· σήμερα φαίνεται μόνο αν είναι ενεργό).
 
@@ -252,10 +259,12 @@
 - Τα credentials του registrar μόνο κρυπτογραφημένα στη βάση (σύνδεση registrar), ποτέ στο repo, σε logs ή στο chat.
 
 ## 8. Ανοιχτά
-- Openprovider: ποια ημερομηνία είναι η αλήθεια, `expiration_date` ή `renewal_date` (το `RenewalPlan` χρησιμοποιεί
-  και τις δύο· blesta H4: `expiration_date`)· επιβεβαίωση στο sandbox με το nixpal.com.
+- ~~Openprovider: `expiration_date` ή `renewal_date`;~~ **Απαντήθηκε (2026-10-17, live nixpal.com):**
+  `expiration_date`, `renewal_date` και `registry_expiration_date` είναι ίδια· κρατάμε `expiration_date` (όπως το
+  blesta H4). Αν διαφέρουν σε άλλο TLD, φαίνονται και τα τρία στα στοιχεία του registrar (D4b).
 - Ποια πεδία δίνει το API του Openprovider για grace/redemption ανά TLD (μέρες, τιμή restore, soft/hard
-  quarantine): επιβεβαίωση στο D2/D3 με το sandbox.
+  quarantine): **πρώτο βήμα του D5** (σήμερα οι μέρες μπαίνουν με το χέρι ανά TLD, D3).
+- Πριν το D5: ότι ο Openprovider δεν χρεώνει το WHOIS privacy (το `id_protection` που αλλάζει το staff, D4b).
 - Νόμισμα στο import του D-6: το κόστος του registrar είναι σε ένα νόμισμα (Openprovider: EUR) και το MyCS **δεν έχει
   ισοτιμίες**. Για τα άλλα νομίσματα του `currencies`: ισοτιμία που δίνει το staff στη φόρμα του import (όπως η
   ισοτιμία του WHMCS), ή τιμή με το χέρι. Ποτέ σιωπηλή μετατροπή.

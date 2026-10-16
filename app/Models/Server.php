@@ -38,6 +38,12 @@ class Server extends Extension
             ->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED, Service::STATUS_PENDING])->count();
     }
 
+    /** It has its settings (a host, a login): a server added but not set up yet takes no new account (closeout F2). */
+    public function isConfigured(): bool
+    {
+        return $this->settings()->exists();
+    }
+
     public function hasRoom(): bool
     {
         return $this->max_accounts === null || $this->accountsCount() < (int) $this->max_accounts;

@@ -214,11 +214,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::defaultDenialResponse(Response::denyAsNotFound());
 
         try {
-            foreach (
-                collect(Extension::where(function ($query) {
-                    $query->where('enabled', true)->orWhere('type', 'server')->orWhere('type', 'gateway');
-                })->get())->unique('extension') as $extension
-            ) {
+            foreach (ExtensionHelper::bootable() as $extension) {
                 ExtensionHelper::call($extension, 'boot', mayFail: true);
             }
         } catch (Exception $e) {

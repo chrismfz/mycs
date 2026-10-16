@@ -363,9 +363,14 @@ importer):
 - [ ] Shadow-run του licensing → cut-over της nixpal, **μετά τα domains της Φάσης 2** (Openprovider, CNIC).
 
 ## Φάση 2: Domains (2–4 εβδομάδες, μετά το spike)
-> Σχέδιο, αποφάσεις D-1…D-17 και σειρά PRs (D1–D8): [`domains.md`](domains.md) (2026-10-16).
-- [ ] Port του υποσυστήματος του Ekdosi: contract `DomainRegistrar`, models, Openprovider, Renewal/Registration/
-      Transfer/Sync/Management, adopt, tests.
+> Σχέδιο, αποφάσεις D-1…D-22 και σειρά PRs (D1–D8): [`domains.md`](domains.md) (2026-10-16).
+- [x] **D1** σχήμα, μοντέλα, admin read-only (#157)· **D2** registrars, Openprovider, συνδέσεις (#159)· **D3** TLDs και
+      τιμές, import και sync κόστους (#160)· **D4** sync, κύκλος ζωής, adopt (#161)· **D4b** διαχείριση από το admin:
+      nameservers, lock, privacy, επαφές, EPP code, registrar log (#164)· **D4c** σύνδεση handles του registrar με
+      επαφές, επεξεργασία επαφής από το domain (#165). Δοκιμασμένα live στο nixpal.com (sync, nameservers, «Link here»).
+- [x] Κατάλογος της nixpal από το WHMCS (#162) και οι admins της (#166).
+- [ ] **D5** χρέωση και ανανέωση· **D6** importer domains· **D7** υπενθυμίσεις και portal· **D8a/b** αναζήτηση, whois,
+      τιμοκατάλογος, παραγγελίες (`domains.md` §6).
 - [ ] Driver **CNIC** (CentralNic Reseller): myip 226, nixpal 4. Αρχικά σύνδεση `manual`· module μόνο αν προλάβουμε
       πριν μεταφερθούν στο Openprovider (`domains.md` D-10).
 - [ ] Πολιτική ανανέωσης: on-paid (default) / on-issue ανά πελάτη / «Ανανέωση τώρα» με prepaid.
@@ -376,11 +381,11 @@ importer):
 - [ ] Import domains από WHMCS + sync με τους registrars.
 - [ ] On-demand renewals (πρόωρη ανανέωση από πελάτη, #1167).
 - [ ] **Πολλοί registrars** ταυτόχρονα (Openprovider, CNIC, αργότερα .gr EPP), registrar ανά domain και ανά TLD.
-- [ ] **Τιμές TLD:** import από το WHMCS (`tbldomainpricing`) και sync με τις τιμές κόστους των registrars.
+- [x] **Τιμές TLD:** import από το WHMCS (`tbldomainpricing`, #162) και sync με τις τιμές κόστους των registrars (#160).
 - [ ] **Grace / redemption:** status, χρεώσεις και ανάκτηση (μαζί με τις ρυθμίσεις παραπάνω).
-- [ ] **Sync ημερομηνιών** (λήξη, next due) με τους registrars, με αναφορά διαφορών πριν αλλάξει κάτι.
-- Στον `main` δεν υπάρχει ακόμα κώδικας domains (μόνο `packages/domain-tools` και `packages/myopenprovider`· ο πυρήνας
-  είναι στο `spike/domains`).
+- [x] **Sync ημερομηνιών** με τους registrars, με αναφορά διαφορών πριν αλλάξει κάτι (`domains:sync --dry-run`, D4).
+- [ ] **Πολλοί WHM servers (myip 6–7):** ένας server χωρίς ρυθμίσεις δεν παίρνει πια τις ρυθμίσεις άλλου (closeout πριν
+      το D5)· να δοκιμαστεί με δύο WHM πριν το cut-over του myip.
 
 ## Φάση 3: Τα απαραίτητα του myip.gr (4–6 εβδομάδες)
 - [ ] ~~**Ένας χρήστης, πολλοί λογαριασμοί πελάτη**~~ → μεταφέρθηκε στη Φάση 1, «Λογαριασμοί» (2026-10-12).

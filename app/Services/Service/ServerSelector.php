@@ -30,7 +30,7 @@ class ServerSelector
             return null; // no module, nothing to make an account on
         }
         $candidates = $group === null ? collect() : $group->servers->filter(fn (Server $server) => $server->enabled
-            && $server->extension === $module && $server->hasRoom())->values();
+            && $server->extension === $module && $server->isConfigured() && $server->hasRoom())->values();
         if ($candidates->isEmpty()) {
             // The product's own server, only enabled and with room (sweep §7): else none, and the create says why.
             $own = $product->server; // there is one: it gave the module

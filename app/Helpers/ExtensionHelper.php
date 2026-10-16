@@ -85,8 +85,26 @@ class ExtensionHelper
      * @param  string  $extension
      * @return object
      */
+    /**
+     * The extensions booted at start-up, one per extension, each as its own typed record: a gateway's or server's
+     * settings are kept under its type, so a base Extension would boot with none (closeout adversarial: the Stripe and
+     * PayPal listeners registered in boot read null API keys).
+     *
+     * @return \Illuminate\Support\Collection<int, Extension>
+     */
+    public static function bootable(): \Illuminate\Support\Collection
+    {
+        return Extension::query()->where(fn ($query) => $query->where('enabled', true)->orWhere('type', 'server')->orWhere('type', 'gateway'))
+            ->get()->unique('extension')->map(fn (Extension $extension) => match ($extension->type) {
+                'gateway' => Gateway::query()->find($extension->id) ?? $extension,
+                'server' => Server::query()->find($extension->id) ?? $extension,
+                default => $extension,
+            })->values();
+    }
+
     public static function getExtension($type, $extension, $config = [])
     {
+        $given = func_num_args() >= 3; // a record's settings, even empty: never another record's (Extension::config)
         $extension = '\\MyCS\\Extensions\\' . ucfirst($type) . 's\\' . $extension . '\\' . $extension;
 
         if (!class_exists($extension)) {
@@ -97,7 +115,10 @@ class ExtensionHelper
             $config = self::settingsToArray($config);
         }
 
-        return new $extension($config);
+        $instance = new $extension($config);
+        $instance->explicitConfig = $given;
+
+        return $instance;
     }
 
     /**
@@ -107,7 +128,9 @@ class ExtensionHelper
      */
     public static function getConfig($type, $extension, $config = [])
     {
-        if (empty($config)) {
+        // A new server's form is never filled from another server's settings (closeout); a gateway or other extension
+        // has one record.
+        if (empty($config) && $type !== 'server') {
             $typeClass = ($type == 'gateway') ? Gateway::class : (($type == 'server') ? Server::class : Extension::class);
             $config = $typeClass::where('extension', $extension)->exists()
                 ? $typeClass::where('extension', $extension)->first()->settings->pluck('value', 'key')->toArray()

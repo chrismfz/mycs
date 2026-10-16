@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use OwenIt\Auditing\Contracts\Auditable;
 
 /**
  * A contact of a customer account (docs/accounts.md, PR 3a): WHMCS `tblcontacts` and Ekdosi's `mod_ekdosi_contacts`
@@ -48,9 +49,10 @@ use Illuminate\Support\Facades\DB;
  * @property Carbon|null $archived_at
  * @property-read Client $client
  */
-class Contact extends Model
+class Contact extends Model implements Auditable
 {
-    use HasFactory;
+    // Audited (closeout): contacts are edited on the account and on the domain page, and are WHOIS and invoice data.
+    use HasFactory, Traits\Auditable;
 
     public const TYPES = ['individual', 'business'];
 

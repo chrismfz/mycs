@@ -51,7 +51,10 @@ class ServiceServersTest extends TestCase
 
     private function server(string $name, ?int $max = null, bool $enabled = true, string $extension = 'NixpalLicensing'): Server
     {
-        return Server::query()->create(['name' => $name, 'extension' => $extension, 'type' => 'server', 'enabled' => $enabled, 'max_accounts' => $max]);
+        $server = Server::query()->create(['name' => $name, 'extension' => $extension, 'type' => 'server', 'enabled' => $enabled, 'max_accounts' => $max]);
+        $server->settings()->create(['key' => 'host', 'value' => "https://{$name}.test"]); // set up: it takes accounts
+
+        return $server;
     }
 
     private function service(array $attributes = []): Service
