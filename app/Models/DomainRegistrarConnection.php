@@ -30,10 +30,10 @@ class DomainRegistrarConnection extends Model implements Auditable
 
     protected $fillable = ['registrar', 'label', 'is_active', 'mode'];
 
-    /** Its settings are the credentials: never in a JSON or a template. */
-    protected $hidden = ['settings'];
+    /** Its settings are the credentials, its TLDs and domains every account's: never in a JSON or a template. */
+    protected $hidden = ['settings', 'tlds', 'domains'];
 
-    public const TEMPLATE_HIDDEN = ['settings'];
+    public const TEMPLATE_HIDDEN = ['settings', 'tlds', 'domains'];
 
     protected function casts(): array
     {
@@ -49,7 +49,7 @@ class DomainRegistrarConnection extends Model implements Auditable
             }
         });
         // Its credentials go with it.
-        static::deleted(fn (self $connection) => $connection->settings()->delete());
+        static::deleted(fn (self $connection) => $connection->settings()->get()->each->delete()); // with their audit
     }
 
     /** @return MorphMany<Setting, $this> */

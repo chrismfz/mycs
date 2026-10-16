@@ -162,6 +162,26 @@ class DomainsModelTest extends TestCase
         $this->assertSame(2, Domain::query()->where('fqdn', 'again.test')->count(), 'the ended one kept (D-18)');
     }
 
+    public function test_the_database_frees_a_name_by_status_whatever_writes_it(): void
+    {
+        $client = $this->user->client()->id;
+        foreach (DomainStatus::cases() as $i => $status) {
+            DB::table('domains')->insert(['client_id' => $client, 'sld' => "raw{$i}", 'tld' => 'test', 'fqdn' => "raw{$i}.test",
+                'status' => $status->value, 'currency_code' => 'USD', 'created_at' => now(), 'updated_at' => now()]);
+            $live = DB::table('domains')->where('fqdn', "raw{$i}.test")->value('live_fqdn');
+            $this->assertSame($status->isTerminal() ? null : "raw{$i}.test", $live, $status->value);
+        }
+    }
+
+    public function test_a_name_is_stored_in_one_form(): void
+    {
+        $idn = $this->domain(['sld' => 'Άλφα', 'tld' => 'GR', 'fqdn' => ' Άλφα.GR. ']);
+
+        $this->assertSame(['xn--hxak3a7b', 'gr', 'xn--hxak3a7b.gr'], [$idn->sld, $idn->tld, $idn->fqdn]);
+        $this->expectException(\InvalidArgumentException::class);
+        $this->domain(['sld' => 'one', 'tld' => 'test', 'fqdn' => 'other.test']);
+    }
+
     public function test_neither_the_domain_nor_its_connection_leak_into_a_template(): void
     {
         $connection = $this->connection();

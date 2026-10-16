@@ -26,6 +26,11 @@ class DomainTld extends Model implements Auditable
 
     public const OPERATIONS = ['register', 'renew', 'transfer', 'grace', 'redemption'];
 
+    /** Its domains are every account's, and its connection holds credentials: neither in a JSON or a template (review A4). */
+    protected $hidden = ['domains', 'registrarConnection'];
+
+    public const TEMPLATE_HIDDEN = ['domains', 'registrarConnection'];
+
     protected $fillable = [
         'tld', 'registrar_connection_id', 'epp_code_required', 'dns_management', 'email_forwarding', 'id_protection',
         'allow_idn', 'grace_days', 'redemption_days', 'is_active', 'sort',

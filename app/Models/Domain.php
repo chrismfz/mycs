@@ -9,6 +9,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
+use InvalidArgumentException;
+use Nixpal\DomainTools\DomainName;
 use OwenIt\Auditing\Contracts\Auditable;
 
 /**
@@ -22,7 +24,8 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property int|null $registrar_connection_id
  * @property string $sld
  * @property string $tld
- * @property string $fqdn
+ * @property string $fqdn lowercase ASCII (IDN as punycode)
+ * @property string|null $live_fqdn = fqdn while not ended, computed by the database
  * @property DomainStatus $status
  * @property Carbon|null $registered_at
  * @property Carbon|null $transferred_at
@@ -67,10 +70,29 @@ class Domain extends Model implements Auditable
 
     protected static function booted(): void
     {
-        // One live row per name (review H1): an ended domain frees its name.
+        // One form of a name (reviews A3, C): lowercase ASCII, IDN as punycode, no trailing dot, fqdn = sld.tld. The
+        // database compares names case- and accent-blind, so «άλφα.gr» and «αλφα.gr» must not both be stored as such.
         static::saving(function (self $domain) {
-            $domain->live_fqdn = $domain->status->isTerminal() ? null : $domain->fqdn;
+            $domain->sld = self::normalise($domain->sld);
+            $domain->tld = self::normalise($domain->tld);
+            $fqdn = self::normalise($domain->fqdn ?: $domain->sld . '.' . $domain->tld);
+            if ($fqdn !== $domain->sld . '.' . $domain->tld) {
+                throw new InvalidArgumentException("The domain «{$fqdn}» is not «{$domain->sld}» on «{$domain->tld}».");
+            }
+            $domain->fqdn = $fqdn;
         });
+    }
+
+    /** A name as it is stored: trimmed, lowercase, ASCII (punycode), without the root's trailing dot. */
+    public static function normalise(?string $name): string
+    {
+        $name = rtrim(mb_strtolower(trim((string) $name)), '.');
+        $ascii = DomainName::toAscii($name);
+        if ($ascii === null || $ascii === '' || preg_match('/[^a-z0-9.\-]/', $ascii)) {
+            throw new InvalidArgumentException("Not a domain name: «{$name}».");
+        }
+
+        return $ascii;
     }
 
     protected function casts(): array

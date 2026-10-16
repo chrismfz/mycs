@@ -206,10 +206,11 @@ class Contact extends Model
         if ($this->isPrimary()) {
             throw new DisplayException(__('The primary contact is the account\'s details: make another contact primary first.'));
         }
-        // A contact role of a domain still held (docs/domains.md D-3): its registrar data is this contact.
+        // A contact role of a domain still held (docs/domains.md D-3): its registrar data is this contact. A deleted
+        // domain counts: a restore can bring it back (review G).
         foreach (Domain::ROLES as $role) {
             $domain = Domain::query()->where("{$role}_contact_id", $this->id)
-                ->whereNotIn('status', DomainStatus::terminalValues())
+                ->whereNotIn('status', [DomainStatus::TransferredAway->value, DomainStatus::Cancelled->value])
                 ->first();
             if ($domain !== null) {
                 throw new DisplayException(__('domains.contact_in_use', ['role' => __('domains.role.' . $role), 'domain' => $domain->fqdn]));

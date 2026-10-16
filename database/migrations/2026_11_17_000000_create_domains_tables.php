@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\DomainStatus;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -49,7 +50,8 @@ return new class extends Migration
             $table->string('operation', 20); // register | renew | transfer | grace | redemption
             $table->unsignedTinyInteger('years');
             $table->string('currency_code', 3);
-            $table->foreign('currency_code')->references('code')->on('currencies')->restrictOnDelete();
+            // A currency deleted takes its TLD prices, as products' (a currency domains bill in is refused first).
+            $table->foreign('currency_code')->references('code')->on('currencies')->cascadeOnDelete();
             $table->decimal('price', 17, 2)->nullable();
             // The registrar's cost, in its own currency (the pricing sync writes only these).
             $table->decimal('cost', 17, 2)->nullable();
@@ -66,11 +68,13 @@ return new class extends Migration
             $table->foreignId('registrar_connection_id')->nullable()->constrained('domain_registrar_connections')->restrictOnDelete();
             $table->string('sld', 190);
             $table->string('tld', 63);
-            // An ended domain stays (D-18) and its name may come back: one *live* row per name, kept by `live_fqdn`
-            // (= fqdn while it is not ended, null after: a unique index MariaDB and SQLite both honour).
+            // Lowercase ASCII (IDN as punycode, no trailing dot): Domain normalises it.
             $table->string('fqdn', 255)->index();
-            $table->string('live_fqdn', 255)->nullable()->unique();
             $table->string('status', 30);
+            // An ended domain stays (D-18) and its name may come back: one *live* row per name. Computed by the database
+            // from the status, so no write can skip it (an importer, a query-builder update: reviews B, A2).
+            $ended = "'" . implode("','", DomainStatus::terminalValues()) . "'";
+            $table->string('live_fqdn', 255)->nullable()->storedAs("CASE WHEN status IN ({$ended}) THEN NULL ELSE fqdn END")->unique();
             $table->date('registered_at')->nullable();
             $table->date('transferred_at')->nullable();
             $table->date('expires_at')->nullable(); // the registrar's: the due date too (D-4)
@@ -101,7 +105,7 @@ return new class extends Migration
             $table->text('notes')->nullable(); // staff only
             $table->json('meta')->nullable(); // the registrar's raw status and the like
             $table->timestamps();
-            $table->index('status');
+            $table->index(['status', 'expires_at']);
             $table->index('expires_at');
         });
 
@@ -116,8 +120,9 @@ return new class extends Migration
         // Every call to a registrar (D-17): what was asked and answered, and the invoice it was for (once per invoice).
         Schema::create('domain_registrar_logs', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('domain_id')->nullable()->constrained()->nullOnDelete();
-            $table->foreignId('registrar_connection_id')->nullable()->constrained('domain_registrar_connections')->nullOnDelete();
+            // History (D-18): a domain or connection with a log is not deleted.
+            $table->foreignId('domain_id')->nullable()->constrained()->restrictOnDelete();
+            $table->foreignId('registrar_connection_id')->nullable()->constrained('domain_registrar_connections')->restrictOnDelete();
             $table->string('action', 40);
             $table->string('status', 20); // ok | adopted | failed
             $table->json('request')->nullable();
