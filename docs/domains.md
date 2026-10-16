@@ -174,7 +174,12 @@
    - Οι δωρεάν (0,00) και οι «δεν προσφέρεται» τιμές κρατιούνται, εκτός αν το staff πει αλλιώς· όσα δεν ζητήθηκαν
      (άλλα νομίσματα, περισσότερα έτη, grace) μένουν ως έχουν· TLD χωρίς καμία τιμή δεν δημιουργείται.
    - Αρνητικό ή ακατανόητο κόστος από τον registrar αγνοείται.
-4. **D4 Sync:** `domains:sync` και schedule, pending transfers, grace/redemption, αναφορά διαφορών. Code review.
+4. **D4 Sync** (#161): `domains:sync` κάθε 4 ώρες (και `--dry-run`: η αναφορά διαφορών, τίποτα γραμμένο),
+   «Sync now» στο domain (`admin.domains.update`), ο κύκλος ζωής από τις ημερομηνίες (expired → grace → redemption →
+   deleted με τις μέρες του TLD ή του domain· πίσω σε active όταν η λήξη πάει μπροστά· χωρίς γνωστές μέρες μόνο
+   expired), `domains:adopt` (ένα domain που είναι ήδη στον registrar, σε λογαριασμό: μόνο ανάγνωση εκεί), έλεγχος
+   «domains» στο health (σφάλματα sync, μεταφορές pending 14+ μέρες). Οι αλλαγές του cron γράφονται στο audit.
+   Code + adversarial (κύκλος ζωής).
 5. **D5 Χρέωση:** γραμμή `Domain` στο τιμολόγιο, βήμα τιμολόγησης με ομαδοποίηση, κλάδος στην πληρωμή, renew on-paid, «Ανανέωση τώρα», adopt, fee grace/
    redemption στο υπάρχον τιμολόγιο, Pending Module Actions. Code + adversarial.
 6. **D6 Importer WHMCS:** domains, τιμές, TLDs, ρόλοι επαφών, additional fields· parity και σύγκριση με τον

@@ -6,6 +6,7 @@ use App\Models\Domain;
 use App\Models\DomainTld;
 use App\Services\Domains\Pricing\TldCostSync;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Config;
 use InvalidArgumentException;
 use Throwable;
 
@@ -22,6 +23,7 @@ class SyncCosts extends Command
 
     public function handle(TldCostSync $sync): int
     {
+        Config::set('audit.console', true); // its changes are audited, as CronJob's (D-9)
         $query = DomainTld::query()->where('is_active', true)->with('registrarConnection');
         if ($this->option('tld')) {
             try {

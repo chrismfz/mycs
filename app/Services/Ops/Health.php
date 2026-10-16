@@ -2,8 +2,11 @@
 
 namespace App\Services\Ops;
 
+use App\Console\Commands\Domains\SyncDomains;
 use App\Console\Commands\MailSweep;
+use App\Enums\DomainStatus;
 use App\Models\CronStat;
+use App\Models\Domain;
 use App\Models\EmailLog;
 use App\Models\License;
 use App\Models\ModuleAction;
@@ -30,7 +33,7 @@ final class Health
     public static function report(): array
     {
         $checks = [];
-        foreach (['build', 'database', 'scheduler', 'cron', 'queue', 'mail', 'module_actions', 'licenses'] as $name) {
+        foreach (['build', 'database', 'scheduler', 'cron', 'queue', 'mail', 'module_actions', 'licenses', 'domains'] as $name) {
             try {
                 $checks[$name] = call_user_func([self::class, $name]);
             } catch (Throwable $e) {
@@ -129,5 +132,22 @@ final class Health
 
         return ['status' => self::OK, 'detail' => "{$ok} good / {$failed} failed checks today, {$silent} active licenses silent 7 days",
             'data' => ['ok_today' => $ok, 'failed_today' => $failed, 'silent' => $silent, 'active' => License::query()->where('status', License::STATUS_ACTIVE)->count()]];
+    }
+
+    /** Domains (docs/domains.md D-9): sync errors, pending transfers stuck for 14 days, the oldest sync. */
+    private static function domains(): array
+    {
+        if (!Schema::hasTable('domains')) {
+            return ['status' => self::OK, 'detail' => 'No domains'];
+        }
+        $live = Domain::query()->whereNotIn('status', DomainStatus::terminalValues());
+        $errors = (clone $live)->whereNotNull('sync_error')->count();
+        $stale = (clone $live)->where('status', DomainStatus::PendingTransfer->value)
+            ->where('updated_at', '<', now()->subDays(SyncDomains::STALE_TRANSFER_DAYS))->count();
+        $oldest = (clone $live)->whereNotNull('last_synced_at')->min('last_synced_at');
+        $status = $errors > 0 || $stale > 0 ? self::WARN : self::OK;
+
+        return ['status' => $status, 'detail' => "{$errors} with a sync error, {$stale} transfers pending 14+ days",
+            'data' => ['live' => (clone $live)->count(), 'sync_errors' => $errors, 'stale_transfers' => $stale, 'oldest_sync' => $oldest]];
     }
 }
