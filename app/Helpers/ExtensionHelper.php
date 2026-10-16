@@ -85,6 +85,23 @@ class ExtensionHelper
      * @param  string  $extension
      * @return object
      */
+    /**
+     * The extensions booted at start-up, one per extension, each as its own typed record: a gateway's or server's
+     * settings are kept under its type, so a base Extension would boot with none (closeout adversarial: the Stripe and
+     * PayPal listeners registered in boot read null API keys).
+     *
+     * @return \Illuminate\Support\Collection<int, Extension>
+     */
+    public static function bootable(): \Illuminate\Support\Collection
+    {
+        return Extension::query()->where(fn ($query) => $query->where('enabled', true)->orWhere('type', 'server')->orWhere('type', 'gateway'))
+            ->get()->unique('extension')->map(fn (Extension $extension) => match ($extension->type) {
+                'gateway' => Gateway::query()->find($extension->id) ?? $extension,
+                'server' => Server::query()->find($extension->id) ?? $extension,
+                default => $extension,
+            })->values();
+    }
+
     public static function getExtension($type, $extension, $config = [])
     {
         $given = func_num_args() >= 3; // a record's settings, even empty: never another record's (Extension::config)

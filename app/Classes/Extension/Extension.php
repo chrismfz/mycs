@@ -47,7 +47,9 @@ class Extension
                 }
                 $this->config = $records->first()->settings->pluck('value', 'key')->toArray();
             } else {
-                $this->config = ModelsExtension::where('extension', class_basename(static::class))->first()->settings->pluck('value', 'key')->toArray();
+                // An «other» extension's own record only, never a server's or gateway's of the same name (adversarial H1).
+                $this->config = ModelsExtension::where('extension', class_basename(static::class))->whereNotIn('type', ['server', 'gateway'])
+                    ->first()?->settings->pluck('value', 'key')->toArray() ?? [];
             }
         }
 

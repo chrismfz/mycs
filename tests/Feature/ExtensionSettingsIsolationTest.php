@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Helpers\ExtensionHelper;
 use App\Models\Contact;
+use App\Models\Gateway;
 use App\Models\Server;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -48,6 +49,18 @@ class ExtensionSettingsIsolationTest extends TestCase
         $this->assertStringContainsString("needs its server's settings", (string) ExtensionHelper::getExtension('server', 'CPanel')->testConfig());
         $this->assertStringContainsString('no host set', (string) ExtensionHelper::testConfig(Server::query()->sole(), []));
         Http::assertNothingSent();
+    }
+
+    /** Adversarial: the gateways booted at start-up (Stripe/PayPal listeners) have their own settings, not none. */
+    public function test_booted_gateways_carry_their_settings(): void
+    {
+        $gateway = Gateway::query()->create(['name' => 'Stripe', 'extension' => 'Stripe', 'type' => 'gateway', 'enabled' => true]);
+        $gateway->settings()->create(['key' => 'stripe_secret_key', 'value' => 'sk_test_x', 'encrypted' => true]);
+
+        $booted = ExtensionHelper::bootable()->firstWhere('extension', 'Stripe');
+
+        $this->assertInstanceOf(Gateway::class, $booted);
+        $this->assertSame('sk_test_x', ExtensionHelper::settingsToArray($booted->settings)['stripe_secret_key'] ?? null);
     }
 
     public function test_a_contact_change_is_audited(): void
