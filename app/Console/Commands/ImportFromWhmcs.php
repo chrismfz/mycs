@@ -73,7 +73,7 @@ class ImportFromWhmcs extends Command
         $password = password("Enter the password for user '$username':", required: true);
 
         try {
-            $this->pdo = new PDO("mysql:host=$host;port=$port;dbname=$dbname", $username, $password);
+            $this->pdo = new PDO("mysql:host=$host;port=$port;dbname=$dbname;charset=utf8mb4", $username, $password);
             $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
             $this->pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
             $this->info('Connected to WHMCS database, Starting migration...');

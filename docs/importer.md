@@ -96,18 +96,35 @@ Suspended) περνούν στα native πεδία της υπηρεσίας. Ο
 
 ## Κατάλογος (`app:import-whmcs-catalog`, 2026-10-16)
 Ένα «carbon copy» της εγκατάστασης **χωρίς πελάτες** (απόφαση ιδιοκτήτη 2026-10-16): νομίσματα (το default του
-WHMCS γίνεται default εδώ· τίποτα δεν σβήνεται), product groups, products με plans και τιμές (WHMCS `-1` = δεν
-προσφέρεται, `0.00` = δωρεάν και προσφέρεται), config options, upgrades, servers και server groups (**χωρίς** password
+WHMCS γίνεται default εδώ, εκτός με `--keep-default-currency`), product groups, products με plans και τιμές (WHMCS `-1` =
+δεν προσφέρεται, `0.00` = δωρεάν και προσφέρεται), config options, upgrades, servers και server groups (**χωρίς** password
 ή API token: τα βάζει το staff), το `package` των cPanel products, οι ρυθμίσεις των licensing products (χωρίς
-licenses), τα TLDs με τις τιμές τους ανά έτη και νόμισμα, τις μέρες grace/redemption και τα τέλη τους (στο default
-νόμισμα του WHMCS). Κανένας λογαριασμός, υπηρεσία, τιμολόγιο, παραγγελία ή ticket.
-- **Ξανατρέχει χωρίς να σβήνει:** κάθε εγγραφή βρίσκεται με το id του WHMCS (`whmcs_id`· `whmcs_ref` στα config
-  options), ενημερώνεται αν υπάρχει, προστίθεται αν όχι· ό,τι υπήρχε εδώ πριν μένει ανέγγιχτο. Όλα σε ένα transaction.
-- **`--dry-run`:** οι ίδιοι αριθμοί, τίποτα γραμμένο. `--keep-default-currency`, `--registrar-connection=ID` (τα TLDs
-  με αυτόματη καταχώριση στον registrar αυτής της σύνδεσης).
+licenses), τα TLDs με τις τιμές τους ανά έτη και νόμισμα (μόνο η βασική τιμή, όχι των client groups), τις μέρες
+grace/redemption και τα τέλη τους (στο default νόμισμα του WHMCS· `0.00` = δωρεάν, `-1` = όχι). Κανένας λογαριασμός,
+υπηρεσία, τιμολόγιο, παραγγελία ή ticket.
+- **Ό,τι έφερε ακολουθεί το WHMCS σε κάθε re-run** (βρίσκεται με `whmcs_id`· `whmcs_ref` στα config options): πεδία,
+  plans (ανά κύκλο, όχι όνομα: το staff μπορεί να τα μετονομάσει), τιμές. Κύκλος, νόμισμα ή περίοδος TLD που το WHMCS
+  δεν προσφέρει πια **αποσύρεται**: το plan σβήνεται, ή, αν το χρησιμοποιούν υπηρεσίες, μένει χωρίς τιμές· η τιμή TLD
+  γίνεται null (το κόστος του registrar μένει). Αλλαγές του staff σε πεδία εισαγμένων εγγραφών (όνομα, hidden, ρυθμίσεις
+  licensing) **αντικαθίστανται** από το re-run.
+- **Ό,τι υπήρχε εδώ πριν δεν το αγγίζει:** υπάρχον νόμισμα κρατά prefix/suffix/format· TLD με το ίδιο όνομα μένει
+  όπως είναι (σημείωση)· server του ίδιου module και host υιοθετείται χωρίς να αλλάξουν οι ρυθμίσεις του. Το host και
+  username ενός server γράφονται μόνο αν λείπουν (URL `https://host:port`, cPanel 2087), ώστε η διόρθωση του staff να
+  μένει. Upgrades και config options που πρόσθεσε το staff μένουν· ένα link που το WHMCS έβγαλε μένει κι αυτό (το
+  σβήνει το staff). Server που το staff έσβησε μένει σβησμένος.
+- **Retired** product του WHMCS: hidden και stock 0 (δεν παραγγέλνεται)· product κρυφού group: hidden. Ένα cPanel
+  product παίρνει server (ο πρώτος του group του, αλλιώς ο active server του module στο WHMCS), αλλιώς σημείωση.
+- Όλα σε ένα transaction. **`--dry-run`:** οι ίδιοι αριθμοί, τίποτα γραμμένο, η cache ανέγγιχτη. Σε κανονικό run, νέο
+  νόμισμα αδειάζει την cache μετά το commit (όπως όταν το προσθέτει το staff) και οι ρυθμίσεις ξαναφορτώνουν
+  (`queue:restart`). `--registrar-connection=ID`: τα TLDs με αυτόματη καταχώριση στον registrar αυτής της σύνδεσης·
+  λάθος id = αποτυχία.
 - **Πηγή: αντίγραφο**, ποτέ το production. Αρκούν οι πίνακες του καταλόγου (χωρίς δεδομένα πελατών):
   `tblcurrencies tblproductgroups tblproducts tblpricing tblproductconfiggroups tblproductconfigoptions
   tblproductconfigoptionssub tblproductconfiglinks tblproduct_upgrade_products tblservers tblservergroups
   tblservergroupsrel tbldomainpricing tblcustomfields`. Στο αντίγραφο του `tblservers` τα `password`/`accesshash`
-  μηδενίζονται (ο importer δεν τα διαβάζει ούτως ή άλλως).
+  μηδενίζονται (ο importer δεν τα διαβάζει ούτως ή άλλως), όπως και το `configoption8` (PSK) των products.
+- **Σειρά με τον πλήρη importer:** το `app:import-from-whmcs` ξεκινά με `migrate:fresh`: στο cut-over σβήνει ό,τι έφερε
+  αυτός ο κατάλογος και ό,τι πρόσθεσε το staff από πάνω (API keys, servers, συνδέσεις registrar, TLDs). Το
+  `app:import-whmcs-licensing` βρίσκει τα products με `whmcs_id` όταν υπάρχει, αλλιώς με το ίδιο id (πλήρης importer).
+- Οι συνδέσεις στο WHMCS είναι `utf8mb4` (αλλιώς το `€` και τα ελληνικά φτάνουν χαλασμένα).
 - Modules χωρίς extension εδώ (π.χ. άλλοι registrars ή servers) αναφέρονται στο τέλος και παραλείπονται.

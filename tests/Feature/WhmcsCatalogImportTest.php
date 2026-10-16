@@ -7,6 +7,7 @@ use App\Models\ConfigOption;
 use App\Models\Currency;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainTld;
+use App\Models\DomainTldPrice;
 use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Product;
@@ -16,6 +17,7 @@ use App\Models\Setting;
 use App\Services\Whmcs\CatalogImport;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 use PDO;
 use Tests\TestCase;
 
@@ -64,9 +66,9 @@ class WhmcsCatalogImportTest extends TestCase
                 VALUES ('product', 1, 11, 2, 0, 0, 0, 0, 0, 5, -1, 0, 50, -1, -1), ('product', 2, 11, 0, 0, 0, 0, 0, 0, 6, -1, -1, -1, -1, -1),
                 ('product', 1, 12, 0, 0, 0, 0, 0, 0, 9, -1, -1, 90, -1, -1),
                 ('configoptions', 1, 41, 0, 0, 0, 0, 0, 0, 1.5, -1, -1, 15, -1, -1),
-                ('domainregister', 1, 31, 16.5, 30, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1), ('domainrenew', 1, 31, 16.5, 33, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1),
-                ('domaintransfer', 1, 31, 16.5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1),
-                ('domainregister', 1, 32, -1, 19, -1, 38, -1, -1, -1, -1, -1, -1, -1, -1), ('domaintransfer', 1, 32, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1)",
+                ('domainregister', 1, 31, 16.5, 30, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1), ('domainrenew', 1, 31, 16.5, 33, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1),
+                ('domaintransfer', 1, 31, 16.5, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1),
+                ('domainregister', 1, 32, -1, 19, -1, 38, -1, 0, -1, -1, -1, -1, -1, -1), ('domaintransfer', 1, 32, 0, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1)",
             "INSERT INTO tblproductconfigoptions VALUES (40, 9, 'ips|Extra IPs', 1, 0, 0)",
             "INSERT INTO tblproductconfigoptionssub VALUES (41, 40, 'one|One IP', 1), (42, 40, 'none|None', 0)",
             'INSERT INTO tblproductconfiglinks VALUES (1, 9, 11)',
@@ -107,7 +109,7 @@ class WhmcsCatalogImportTest extends TestCase
 
         $server = Server::query()->where('whmcs_id', 2)->sole();
         $this->assertSame(['CPanel', 200], [$server->extension, $server->max_accounts]);
-        $this->assertSame(['host' => 'cp1.example.test', 'username' => 'root'], $server->settings()->pluck('value', 'key')->sort()->all());
+        $this->assertSame(['host' => 'https://cp1.example.test:2087', 'username' => 'root'], $server->settings()->pluck('value', 'key')->sort()->all());
         $this->assertStringNotContainsString('Encrypted-', DB::table('settings')->pluck('value')->implode(' '), 'no password, no token');
         $this->assertNull(Server::query()->where('whmcs_id', 3)->first(), 'no module for it: skipped and said');
         $this->assertContains($server->id, ServerGroup::query()->where('whmcs_id', 5)->sole()->servers()->pluck('extensions.id')->all());
@@ -151,5 +153,79 @@ class WhmcsCatalogImportTest extends TestCase
 
         $this->assertSame(3, $result['counts']['products']);
         $this->assertSame($before, [Product::query()->count(), Currency::query()->count(), DomainTld::query()->count(), Setting::query()->count()]);
+    }
+
+    /** Code review 1: a cPanel product without a server group gets WHMCS's default cPanel server, so it has a module. */
+    public function test_a_hosting_product_without_a_group_gets_the_default_server_of_its_module(): void
+    {
+        $this->whmcs->exec('UPDATE tblproducts SET servergroup = 0 WHERE id = 12');
+
+        $this->import();
+
+        $server = Server::query()->where('whmcs_id', 2)->sole();
+        $this->assertSame([$server->id, $server->id], [Product::query()->where('whmcs_id', 11)->value('server_id'), Product::query()->where('whmcs_id', 12)->value('server_id')]);
+        $this->assertNull(Product::query()->where('whmcs_id', 21)->value('server_group_id'));
+    }
+
+    /** Code review 2: a client group's domain price (its id in tsetupfee) never overwrites the default one. */
+    public function test_a_client_group_domain_price_is_not_the_price(): void
+    {
+        $this->whmcs->exec("INSERT INTO tblpricing (type, currency, relid, msetupfee, qsetupfee, ssetupfee, asetupfee, bsetupfee, tsetupfee, monthly, quarterly, semiannually, annually, biennially, triennially)
+            VALUES ('domainregister', 1, 31, 9.99, -1, -1, -1, -1, 4, -1, -1, -1, -1, -1, -1)");
+
+        $this->import();
+
+        $this->assertSame('16.50', DomainTld::query()->where('tld', 'com')->sole()->load('prices')->priceFor('register', 1, 'EUR'));
+    }
+
+    /** Code reviews 3, 8: a server's host is a URL the extension can call, and staff's correction stays; a fee of 0.00 is free and offered. */
+    public function test_the_server_host_is_a_url_staff_may_correct_and_a_zero_fee_is_offered(): void
+    {
+        $this->import();
+        $server = Server::query()->where('whmcs_id', 2)->sole();
+        Setting::query()->where(['settingable_type' => $server->getMorphClass(), 'settingable_id' => $server->id, 'key' => 'host'])->update(['value' => 'https://cp1.example.test:2083']);
+
+        $this->import();
+
+        $this->assertSame('https://cp1.example.test:2083', Setting::query()->where(['settingable_type' => $server->getMorphClass(), 'settingable_id' => $server->id, 'key' => 'host'])->value('value'));
+        $this->assertSame('0.00', DomainTld::query()->where('tld', 'com')->sole()->load('prices')->priceFor('grace', 1, 'EUR'));
+    }
+
+    /** Code review 6: an imported server staff deleted stays deleted, and the re-run does not fail on its WHMCS id. */
+    public function test_a_server_deleted_here_does_not_break_a_rerun(): void
+    {
+        $this->import();
+        Product::query()->whereNotNull('server_id')->update(['server_id' => null]); // staff move its products off it first
+        Server::query()->where('whmcs_id', 2)->sole()->delete();
+
+        $result = $this->import();
+
+        $this->assertSame(0, Server::query()->where('whmcs_id', 2)->count());
+        $this->assertNotEmpty(array_filter($result['notes'], fn ($n) => str_contains($n, 'left deleted')));
+        $this->assertNull(Product::query()->where('whmcs_id', 11)->value('server_id'), 'not its deleted server');
+    }
+
+    /** Code review 12: a registrar connection that does not exist is an error, not «no connection». */
+    public function test_an_unknown_registrar_connection_fails_the_import(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->import(connection: 999);
+    }
+
+    /** Code review 14: a WHMCS group order past a tinyint is clamped, not a failed import; a TLD price withdrawn keeps its registrar cost. */
+    public function test_a_large_group_order_and_a_withdrawn_tld_price_keeps_its_cost(): void
+    {
+        $this->whmcs->exec('UPDATE tblproductgroups SET "order" = 900 WHERE id = 3');
+        $this->import();
+        $com = DomainTld::query()->where('tld', 'com')->sole();
+        DomainTldPrice::query()->where(['domain_tld_id' => $com->id, 'operation' => 'register', 'years' => 2])->update(['cost' => '12.00', 'cost_currency' => 'USD']);
+        $this->whmcs->exec("UPDATE tblpricing SET qsetupfee = -1 WHERE type = 'domainregister' AND relid = 31");
+
+        $this->import();
+
+        $this->assertSame(255, (int) Category::query()->where('whmcs_id', 3)->value('sort'));
+        $row = DomainTldPrice::query()->where(['domain_tld_id' => $com->id, 'operation' => 'register', 'years' => 2])->sole();
+        $this->assertSame([null, '12.00'], [$row->price, number_format((float) $row->cost, 2, '.', '')]);
     }
 }

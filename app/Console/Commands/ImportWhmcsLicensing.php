@@ -24,7 +24,7 @@ class ImportWhmcsLicensing extends Command
     {
         $password = password("Enter the password for user '{$this->argument('username')}':", required: true);
         try {
-            $pdo = new PDO("mysql:host={$this->argument('host')};port={$this->argument('port')};dbname={$this->argument('dbname')}", $this->argument('username'), $password,
+            $pdo = new PDO("mysql:host={$this->argument('host')};port={$this->argument('port')};dbname={$this->argument('dbname')};charset=utf8mb4", $this->argument('username'), $password,
                 [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
         } catch (PDOException $e) {
             $this->error('Connection failed: ' . $e->getMessage());

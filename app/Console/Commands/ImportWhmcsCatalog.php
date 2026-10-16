@@ -14,7 +14,8 @@ use function Laravel\Prompts\password;
 /**
  * A WHMCS installation's catalog, copied into MyCS (docs/importer.md «Catalog»): currencies, groups, products and
  * prices, config options, servers and groups (without passwords), the licensing products' settings, TLDs and their
- * prices. No customer data. Re-runnable, never destructive; `--dry-run` reports what it would do and writes nothing.
+ * prices. No customer data. Re-runnable: what it brought follows WHMCS, what was here stays; `--dry-run` reports what
+ * it would do and writes nothing.
  * Read a copy of WHMCS, never production.
  */
 class ImportWhmcsCatalog extends Command
@@ -31,7 +32,7 @@ class ImportWhmcsCatalog extends Command
         Config::set('audit.console', true); // its changes are audited
         $password = password("Enter the password for user '{$this->argument('username')}':", required: true);
         try {
-            $pdo = new PDO("mysql:host={$this->argument('host')};port={$this->argument('port')};dbname={$this->argument('dbname')}", $this->argument('username'), $password,
+            $pdo = new PDO("mysql:host={$this->argument('host')};port={$this->argument('port')};dbname={$this->argument('dbname')};charset=utf8mb4", $this->argument('username'), $password,
                 [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
         } catch (PDOException $e) {
             $this->error('Connection failed: ' . $e->getMessage());
