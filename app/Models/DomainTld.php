@@ -39,6 +39,10 @@ class DomainTld extends Model implements Auditable
     protected static function booted(): void
     {
         // A TLD with domains is kept (D-18); one without them goes with its prices.
+        // One form of a TLD: lowercase ASCII without the dot (com, gr, xn--qxam for .ελ), as Domain stores its tld.
+        static::saving(function (self $tld) {
+            $tld->tld = Domain::normalise(ltrim((string) $tld->tld, '. '));
+        });
         static::deleting(function (self $tld) {
             if ($tld->domains()->exists()) {
                 throw new DisplayException(__('domains.tld_in_use', ['tld' => $tld->tld]));

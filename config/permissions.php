@@ -91,6 +91,13 @@ return [
             'domains' => [
                 'viewAny' => 'View Domains',
             ],
+            // The TLDs sold and their prices (docs/domains.md D-6, D-7).
+            'domain_tlds' => [
+                'viewAny' => 'View Domain Pricing',
+                'create' => 'Create TLDs',
+                'update' => 'Update TLDs and their Prices',
+                'delete' => 'Delete TLDs',
+            ],
             // Accounts at registrars and their credentials (docs/domains.md D-21).
             'domain_registrars' => [
                 'viewAny' => 'View Domain Registrars',

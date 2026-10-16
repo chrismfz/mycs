@@ -162,8 +162,11 @@
    - Register/transfer αρνούνται χωρίς nameservers (αλλιώς ο Openprovider βάζει τους δικούς του) και δεν υιοθετούν
      λήξη όσο είναι pending.
    - Το EPP code είναι secret και στα logs (`Redact`).
-3. **D3 TLDs και τιμές:** ρυθμίσεις ανά TLD (D-7), τιμές ανά έτη/νόμισμα, sync κόστους, importer με margin (D-6).
-   Code + adversarial (τιμές).
+3. **D3 TLDs και τιμές** (#160): «Domain Pricing» (ρυθμίσεις ανά TLD, τιμές ανά πράξη/έτη/νόμισμα), «Sync costs» και
+   `domains:sync-costs` (εβδομαδιαίο, **μόνο** κόστος), «TLD Import & Pricing Sync» (margin %/ποσό, στρογγυλοποίηση
+   x.00/x.50/x.99 προς τα πάνω, register/renew 1–N έτη = N × τιμή 1 έτους, transfer 1 έτος, τέλος redemption αν
+   ζητηθεί, αυτόματη καταχώριση, ισοτιμίες για τα άλλα νομίσματα). Χρήματα με bcmath. Code + adversarial. Οι μέρες
+   grace/redemption μπαίνουν με το χέρι ανά TLD ως ότου δούμε τι δίνει το API (§8).
 4. **D4 Sync:** `domains:sync` και schedule, pending transfers, grace/redemption, αναφορά διαφορών. Code review.
 5. **D5 Χρέωση:** γραμμή `Domain` στο τιμολόγιο, βήμα τιμολόγησης με ομαδοποίηση, κλάδος στην πληρωμή, renew on-paid, «Ανανέωση τώρα», adopt, fee grace/
    redemption στο υπάρχον τιμολόγιο, Pending Module Actions. Code + adversarial.
