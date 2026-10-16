@@ -98,7 +98,8 @@ class ClientSummaryPage extends ViewRecord
             ])->label(__('Actions'))->icon('heroicon-m-chevron-down')->button(),
             Action::make('edit')->label(__('Edit'))->icon('heroicon-o-pencil-square')->color('gray')
                 ->url(ClientResource::getUrl('edit', ['record' => $client]))->visible(ClientResource::canEdit($client)),
-            EditClient::loginAsClientAction(),
+            // As before the Summary: only staff who may also edit the client (review F2), besides impersonate.
+            EditClient::loginAsClientAction()->visible(fn (Client $record) => ClientResource::canEdit($record)),
         ];
     }
 }

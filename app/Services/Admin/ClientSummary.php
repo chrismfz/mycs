@@ -3,17 +3,21 @@
 namespace App\Services\Admin;
 
 use App\Classes\Price;
+use App\Enums\AdjustmentNoteStatus;
+use App\Models\AdjustmentNote;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Credit;
 use App\Models\Currency;
 use App\Models\EmailLog;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\Plan;
 use App\Models\Service;
 use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\UserAuthenticationLog;
+use App\Services\Invoice\RecordPaymentService;
 
 /**
  * The client's «Summary» in the admin, as WHMCS's client profile: its details, its invoices by status, its services,
@@ -63,9 +67,10 @@ class ClientSummary
         $contact = $client->primaryContact;
 
         return [
-            'name' => $contact === null ? null : (trim($contact->first_name . ' ' . $contact->last_name) ?: null),
+            // The account's own name and email: its primary contact's, else its owner's (a legacy account, review F3).
+            'name' => $client->name ?: null,
             'company' => $contact?->company_name,
-            'email' => $contact?->email,
+            'email' => $client->email ?: null,
             'address' => $contact?->address1,
             'address2' => $contact?->address2,
             'city' => $contact?->city,
@@ -95,7 +100,7 @@ class ClientSummary
             }
             $currency = (string) $invoice->currency_code;
             $statuses[$status]['count']++;
-            $statuses[$status]['cents'][$currency] = ($statuses[$status]['cents'][$currency] ?? 0) + (int) round((float) $invoice->total * 100);
+            $statuses[$status]['cents'][$currency] = ($statuses[$status]['cents'][$currency] ?? 0) + self::issuedCents($invoice);
             if ($status === Invoice::STATUS_UNPAID) {
                 $due[$currency] = ($due[$currency] ?? 0) + (int) round((float) $invoice->remaining * 100);
             }
@@ -105,6 +110,17 @@ class ClientSummary
             'statuses' => array_map(fn (array $row) => ['count' => $row['count'], 'total' => self::amounts($row['cents'])], $statuses),
             'due' => self::amounts($due),
         ];
+    }
+
+    /**
+     * What the invoice was issued for, as WHMCS lists it: its lines and staff's notes, not the notes of its cancellation
+     * or refunds (they bring `total` to 0 for a cancelled or refunded invoice, review F1). As CronJob::keepsItsMoney.
+     */
+    private static function issuedCents(Invoice $invoice): int
+    {
+        return $invoice->items->sum(fn (InvoiceItem $item) => $item->totalCents())
+            + $invoice->adjustmentNotes->where('status', AdjustmentNoteStatus::Active->value)->where('is_refund', false)->where('is_cancellation', false)
+                ->sum(fn (AdjustmentNote $note) => RecordPaymentService::toCents($note->amount));
     }
 
     /** @return array{counts: array<string, int>, rows: list<array<string, mixed>>} */
@@ -147,7 +163,8 @@ class ClientSummary
         }
         $grant = ClientUser::query()->where('client_id', $client->id)->whereNull('revoked_at')->whereNotNull('last_login_at')->latest('last_login_at')->first();
         // One row per address a user logged in from, its last use bumped on each login (LoginDetectedListener): the
-        // address that user used last. The log is the user's, not the account's.
+        // address that user used last. The log is the user's, not the account's: a user of several accounts shows the
+        // address of its last login to any of them (review F4).
         $log = $grant === null ? null : UserAuthenticationLog::query()->where('user_id', $grant->user_id)
             ->orderByRaw('last_used_at is null')->orderByDesc('last_used_at')->orderByDesc('created_at')->orderByDesc('id')->first();
 
