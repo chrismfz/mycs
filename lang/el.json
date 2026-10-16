@@ -377,5 +377,17 @@
     "Summary": "Σύνοψη",
     "Tickets": "Tickets",
     "Triennially": "Τριετής",
-    "Yes": "Ναι"
+    "Yes": "Ναι",
+    "Registrar": "Registrar",
+    "Expires": "Λήξη",
+    "Auto renew": "Αυτόματη ανανέωση",
+    "Expiring in 60 days": "Λήγουν σε 60 μέρες",
+    "Registered": "Καταχώριση",
+    "Period (years)": "Περίοδος (έτη)",
+    "Recurring amount": "Ποσό ανανέωσης",
+    "The TLD's renew price": "Η τιμή ανανέωσης του TLD",
+    "Last synced": "Τελευταίος συγχρονισμός",
+    "Sync error": "Σφάλμα συγχρονισμού",
+    "Nameservers": "Nameservers",
+    "No domains": "Κανένα domain"
 }

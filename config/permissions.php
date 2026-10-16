@@ -87,6 +87,10 @@ return [
                 'delete' => 'Delete Services',
                 'deleteAny' => 'Bulk Delete Services',
             ],
+            // Domains (docs/domains.md): seen in D1; their actions come with D2–D5.
+            'domains' => [
+                'viewAny' => 'View Domains',
+            ],
             'service_cancellations' => [
                 'create' => 'Create Service Cancellations',
                 'update' => 'Update Service Cancellations',
