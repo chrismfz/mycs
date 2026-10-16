@@ -24,4 +24,15 @@ return [
     'tld_in_use' => 'Το TLD .:tld έχει domains: κρατιέται μαζί τους.',
     'connection_in_use' => 'Αυτή η σύνδεση registrar χρησιμοποιείται από TLDs ή domains: μεταφέρετέ τα πρώτα σε άλλη.',
     'client_has_domains' => 'Αυτός ο λογαριασμός έχει domains: κρατιούνται με το ιστορικό τους.',
+    'manage' => [
+        'nameserver_count' => 'Ένα domain θέλει 2 έως 13 nameservers.',
+        'nameserver_invalid' => 'Το «:host» δεν είναι όνομα host.',
+        'contact_not_the_accounts' => 'Μια επαφή του domain πρέπει να είναι επαφή του λογαριασμού του.',
+        'registrant_required' => 'Ένα domain θέλει επαφή registrant.',
+        'no_epp_code' => 'Ο registrar δεν έδωσε κωδικό EPP.',
+        'not_manageable' => 'Το :domain δεν είναι σε registrar με API, ή έχει τελειώσει.',
+        'owner_change_not_here' => 'Ο registrar δεν επιτρέπει αλλαγή κατόχου από εδώ (μπορεί να είναι trade με χρέωση): δεν έγινε.',
+        'registrant_not_linked' => 'Ο registrant εδώ δεν είναι συνδεδεμένος με του registrar (το «Sync now» λέει γιατί): συνδέστε τον πριν αλλάξετε τις άλλες επαφές.',
+        'busy' => 'Γίνεται ήδη άλλη αλλαγή στο :domain: δοκιμάστε ξανά σε λίγο.',
+    ],
 ];

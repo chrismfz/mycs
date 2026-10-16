@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $id
  * @property int|null $domain_id
  * @property int|null $registrar_connection_id
+ * @property int|null $staff_id
  * @property string $action
  * @property string $status
  * @property array<string, mixed>|null $request
@@ -27,7 +28,7 @@ class DomainRegistrarLog extends Model
 
     public const STATUS_FAILED = 'failed';
 
-    protected $fillable = ['domain_id', 'registrar_connection_id', 'action', 'status', 'request', 'response', 'error', 'invoice_id'];
+    protected $fillable = ['domain_id', 'registrar_connection_id', 'staff_id', 'action', 'status', 'request', 'response', 'error', 'invoice_id'];
 
     protected function casts(): array
     {
@@ -44,6 +45,12 @@ class DomainRegistrarLog extends Model
     public function registrarConnection(): BelongsTo
     {
         return $this->belongsTo(DomainRegistrarConnection::class);
+    }
+
+    /** @return BelongsTo<Staff, $this> */
+    public function staff(): BelongsTo
+    {
+        return $this->belongsTo(Staff::class);
     }
 
     /** @return BelongsTo<Invoice, $this> */

@@ -52,6 +52,12 @@ class OpenproviderRegistrar implements DomainRegistrar
     /** Tombstone statuses — a record in these represents NO ownership claim. */
     private const DEAD_STATUSES = ['DEL', 'FAI'];
 
+    /** The registrar's record fields staff see (D4b). An allow-list: the auth codes are never on it. */
+    private const DETAIL_KEYS = ['status', 'type', 'creation_date', 'registry_expiration_date', 'renewal_date', 'last_changed',
+        'is_lockable', 'is_locked', 'is_private_whois_allowed', 'is_private_whois_enabled', 'is_dnssec_enabled', 'dnssec',
+        'autorenew', 'can_renew', 'is_premium', 'is_abusive', 'trade_allowed', 'modify_owner_allowed',
+        'transfer_cancel_supported', 'is_hosted_whois', 'owner_company_name'];
+
     /** Openprovider price block → our DomainTldPrice operation (D-6, D-8: a restore is the redemption fee). */
     private const PRICE_KEYS = [
         'create_price' => 'register',
@@ -227,8 +233,10 @@ class OpenproviderRegistrar implements DomainRegistrar
 
         $payload = [];
         if ($changes->nameservers !== null) {
+            // With its glue for a nameserver inside the domain, as register/transfer (review 3: OP answers 500 «IP is
+            // not specified» for ns1.<domain> without one).
             $payload['name_servers'] = array_map(
-                fn (string $h) => ['name' => mb_strtolower(trim($h))],
+                fn (string $h) => $this->nameserverEntry(mb_strtolower(trim($h)), $domain->fqdn),
                 $changes->nameservers,
             );
         }
@@ -264,6 +272,8 @@ class OpenproviderRegistrar implements DomainRegistrar
             deadRecord: $base->deadRecord,
             transferLock: $base->transferLock,
             whoisPrivacy: $base->whoisPrivacy,
+            registeredAt: $base->registeredAt,
+            details: $base->details,
         );
     }
 
@@ -427,6 +437,16 @@ class OpenproviderRegistrar implements DomainRegistrar
                 continue;
             }
 
+            // A customer this domain already made for this contact (a write the registrar then refused): reused, not made
+            // again (adversarial F5).
+            $made = $this->madeHandle($domain, $contact->id);
+            if ($made !== null) {
+                $this->keepHandle($domain, $role, $made);
+                $handles[$role] = $byContact[$contact->id] = $made;
+
+                continue;
+            }
+
             // Best-effort split of «Οδός 12» into the street and number OP requires; OP's own validation errors (400 +
             // desc) surface verbatim.
             $street = trim((string) $contact->address1);
@@ -480,10 +500,30 @@ class OpenproviderRegistrar implements DomainRegistrar
                 throw new RuntimeException("Openprovider returned no handle for the {$role} contact of {$domain->fqdn}.");
             }
             $this->keepHandle($domain, $role, $handle);
+            $this->rememberHandle($domain, $contact->id, $handle);
             $handles[$role] = $byContact[$contact->id] = $handle;
         }
 
         return $handles;
+    }
+
+    /** The customer this domain made at OP for a contact, if any (`meta.contact_handles`, contact id => handle). */
+    private function madeHandle(Domain $domain, int $contactId): ?string
+    {
+        $meta = json_decode((string) Domain::query()->toBase()->where('id', $domain->getKey())->value('meta'), true);
+        $handle = is_array($meta) ? ($meta['contact_handles'][$contactId] ?? null) : null;
+
+        return is_string($handle) && $handle !== '' ? $handle : null;
+    }
+
+    /** Kept at once, outside the caller's work and its undo, as keepHandle. */
+    private function rememberHandle(Domain $domain, int $contactId, string $handle): void
+    {
+        $meta = json_decode((string) Domain::query()->toBase()->where('id', $domain->getKey())->value('meta'), true);
+        $meta = is_array($meta) ? $meta : [];
+        $meta['contact_handles'][$contactId] = $handle;
+        Domain::query()->whereKey($domain->getKey())->update(['meta' => json_encode($meta)]);
+        $domain->forceFill(['meta' => $meta])->syncOriginalAttribute('meta');
     }
 
     /**
@@ -524,7 +564,39 @@ class OpenproviderRegistrar implements DomainRegistrar
             // overwrite the local mirror with a guessed false.
             transferLock: is_bool($data['is_locked'] ?? null) ? $data['is_locked'] : null,
             whoisPrivacy: is_bool($data['is_private_whois_enabled'] ?? null) ? $data['is_private_whois_enabled'] : null,
+            registeredAt: $this->datePart($data['creation_date'] ?? null),
+            details: $this->detailsFrom($data),
         );
+    }
+
+    /**
+     * What staff see of the registrar's record (D4b), from an allow-list: never the auth codes or anything else that
+     * is not on it. Scalars only; the nameservers' glue as «host ip».
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, scalar|null>
+     */
+    private function detailsFrom(array $data): array
+    {
+        $details = [];
+        foreach (self::DETAIL_KEYS as $key) {
+            if (array_key_exists($key, $data) && (is_scalar($data[$key]) || $data[$key] === null)) {
+                $value = $data[$key];
+                // OP's «no date» is a zero date.
+                $details[$key] = is_string($value) && str_starts_with($value, '0000-00-00') ? null : $value;
+            }
+        }
+        $glue = [];
+        foreach ((array) ($data['name_servers'] ?? []) as $ns) {
+            if (is_array($ns) && is_string($ns['name'] ?? null) && is_string($ns['ip'] ?? null) && $ns['ip'] !== '') {
+                $glue[] = mb_strtolower($ns['name']) . ' ' . $ns['ip'];
+            }
+        }
+        if ($glue !== []) {
+            $details['glue'] = implode(', ', $glue);
+        }
+
+        return $details;
     }
 
     /**
@@ -777,7 +849,8 @@ class OpenproviderRegistrar implements DomainRegistrar
     /** OP returns "YYYY-MM-DD HH:MM:SS" — the date part is our clock. */
     private function datePart(mixed $value): ?string
     {
-        return is_string($value) && $value !== '' ? substr($value, 0, 10) : null;
+        // OP's «no date» is a zero date (adversarial F3: it became year -1 and broke the sync).
+        return is_string($value) && $value !== '' && !str_starts_with($value, '0000-00-00') ? substr($value, 0, 10) : null;
     }
 
     /** @return array<string, mixed> */

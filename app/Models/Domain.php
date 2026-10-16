@@ -35,6 +35,10 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property string|null $recurring_amount
  * @property bool $auto_renew
  * @property string|null $sync_error
+ * @property int|null $registrant_contact_id
+ * @property int|null $admin_contact_id
+ * @property int|null $tech_contact_id
+ * @property int|null $billing_contact_id
  * @property string|null $registrant_handle
  * @property string|null $admin_handle
  * @property string|null $tech_handle

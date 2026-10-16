@@ -50,6 +50,7 @@
 | D-19 | **ΦΠΑ στα domains** (`TaxDomains=on` και στα δύο). | έλεγχος WHMCS· `sweeps/billing.md` |
 | D-20 | **Staff:** to-do για ό,τι θέλει χειροκίνητη ενέργεια (`DomainToDoListEntries`), admin emails «Renewal Successful/Failed», ημερήσια λίστα domains που λήγουν σύντομα (σήμερα μόνο .eu, 10 μέρες· γενικά ανά TLD). Registrar admin contact = τα στοιχεία του πελάτη. | έλεγχος WHMCS |
 | D-21 | **Συνδέσεις registrar:** δικό τους μοντέλο και πίνακας (ο registrar **δεν** είναι extension). Τα credentials αποθηκεύονται ως κρυπτογραφημένα `Setting` της σύνδεσης (`settingable`), όπως των extensions: κρυπτογράφηση, καθαρισμός από τα logs (`Redact`), απόκρυψη στο audit, ποτέ πίσω στη φόρμα. Mode off/sandbox/production, «Test Connection», σύνδεση `manual` χωρίς API. Δεν σβήνεται όσο τη χρησιμοποιεί TLD ή domain. | ιδιοκτήτης· sweep |
+| D-22 | **Ό,τι ξέρει ο registrar φαίνεται και διορθώνεται από το MyCS** (2026-10-16), ώστε να μη χρειάζεται το panel του: στο view όλα όσα φέρνει το API (status και id εκεί, ημερομηνίες, lock/lockable, privacy, DNSSEC, auto-renew εκεί, glue, handles), και ενέργειες για nameservers, lock, privacy, επαφές ανά ρόλο, EPP code (ποτέ αποθηκευμένο), επαφές όπως τις έχει ο registrar· admin notes και auto-renew εδώ. Κάθε κλήση με lock ανά domain και log με ποιος τη ζήτησε. | ιδιοκτήτης |
 
 ## 2a. Πώς δουλεύουν σήμερα τα δύο WHMCS (έλεγχος μόνο ανάγνωσης, 2026-10-16)
 Μόνο ρυθμίσεις και αθροιστικά· κανένα στοιχείο πελάτη. Ό,τι αλλάζει απόφαση είναι ήδη στο §2.
@@ -189,13 +190,36 @@
    - «Add existing domain» στο admin (`admin.domains.create`) = `domains:adopt`: μόνο ενεργό domain του ονόματος, με
      λήξη· νόμισμα του λογαριασμού (τελευταίο τιμολόγιο ή υπηρεσία) ή default. Domain **χωρίς πελάτη** (αδέσποτο):
      με το D6 (εισαγωγή όλου του portfolio και «ανάθεση σε πελάτη»).
+4b. **D4b Διαχείριση από το admin** (D-22): το sync γράφει και ημερομηνία εγγραφής, handles, σύνδεση με το TLD όταν
+   λείπει και τα στοιχεία του registrar (`meta.registrar`, από allow-list: ποτέ auth code). «At the registrar»:
+   nameservers (2–13, glue από το DNS για NS μέσα στο domain), lock, privacy, επαφές (του λογαριασμού· νέα επαφή → νέο
+   handle· αν ο registrar αρνηθεί, οι ρόλοι μένουν ως ήταν), «Contacts at the registrar», «Get EPP code» (δείχνεται μία
+   φορά, ούτε στο log). «Edit»: auto-renew και admin notes, μόνο εδώ. Permissions `admin.domains.manage`,
+   `admin.domains.epp`. Καρτέλα «Registrar log» (με ποιος, `staff_id`). Καμία ενέργεια που χρεώνει: το restore πάει στο D5.
+   Code + adversarial. Κανόνες μετά τα reviews:
+   - Handle από τον registrar μόνο σε ρόλο **με** επαφή και χωρίς handle, και **μόνο αν η εγγραφή του στον registrar έχει
+     το email της επαφής** (αλλιώς θα έδενε την επαφή μας με άλλο πρόσωπο εκεί)· αλλιώς ή διαφορετικό handle → σημείωση
+     στο sync_error, ποτέ σιωπηλή σύνδεση. Όλα τα handles του registrar φαίνονται στα στοιχεία του.
+   - **Αλλαγή registrant** μόνο όπου ο registrar λέει `modify_owner_allowed`· αλλιώς είναι trade (χρέωση, έγκριση
+     κατόχου) και πάει στο D5. Αλλαγή άλλων ρόλων αρνείται όσο ο registrant δεν είναι συνδεδεμένος (θα έφευγε ως νέος
+     κάτοχος).
+   - Customer που έφτιαξε ένα domain για μια επαφή κρατιέται (`meta.contact_handles`) και ξαναχρησιμοποιείται σε retry.
+   - Το sync παίρνει το ίδιο lock με τις εγγραφές: δεν γράφει πάνω σε αλλαγή που γίνεται.
+   - Ημερομηνία εγγραφής μόνο αν λείπει (ο importer του D6 κρατά τη δική του).
+   - Χωρίς απάντηση (timeout) τίποτα δεν αναιρείται: ξαναδιαβάζεται ο registrar (και δεν δένει handle που δεν επαληθεύεται).
+     Άρνηση στις επαφές → οι ρόλοι πίσω (με audit).
+   - Το EPP code φαίνεται μόνο μέσα στο modal (όχι notification, που το Filament κρατά σε cache).
+   - Lock 10 λεπτά ανά domain (όσο η μεγαλύτερη κλήση).
+   - Το WHOIS privacy εδώ είναι το `id_protection` του domain· το D5 **δεν** το χρεώνει επειδή το άλλαξε το staff
+     (να επιβεβαιωθεί ότι ο Openprovider δεν το χρεώνει πριν το D5).
 5. **D5 Χρέωση:** γραμμή `Domain` στο τιμολόγιο, βήμα τιμολόγησης με ομαδοποίηση, κλάδος στην πληρωμή, renew on-paid, «Ανανέωση τώρα», adopt, fee grace/
    redemption στο υπάρχον τιμολόγιο, Pending Module Actions. Code + adversarial.
 6. **D6 Importer WHMCS:** domains, τιμές, TLDs, ρόλοι επαφών, additional fields· parity και σύγκριση με τον
    registrar (`importer.md`). Code + adversarial.
 7. **D7 Υπενθυμίσεις και portal:** 60/30/15/10/5, do-not-renew, domains του πελάτη, NS, EPP code. Code review.
 8. **D8 Παραγγελίες:** register/transfer στο καλάθι, αναζήτηση. Code + adversarial.
-Μετά: CNIC module (αν προλάβουμε, D-10), .gr EPP (`packages/gr-epp`, Φάση 4), additional fields ανά ccTLD, DNSSEC.
+Μετά: CNIC module (αν προλάβουμε, D-10), .gr EPP (`packages/gr-epp`, Φάση 4: μαζί και η **ανάκληση** του .gr μέσα σε
+5 μέρες από την καταχώριση), additional fields ανά ccTLD, DNSSEC (επεξεργασία· σήμερα φαίνεται μόνο αν είναι ενεργό).
 
 ## 7. Δοκιμές σε live
 - **Domain δοκιμών: nixpal.com** (δικό μας, ήδη στο Openprovider από τη μεταφορά του spike), στον πελάτη δοκιμών
