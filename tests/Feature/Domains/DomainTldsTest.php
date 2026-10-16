@@ -95,7 +95,8 @@ class DomainTldsTest extends TestCase
     {
         $pricing = new TldPricing(tld: 'com', costs: ['register' => ['cost' => '9.80', 'currency' => 'EUR'], 'renew' => ['cost' => '9.80', 'currency' => 'EUR'],
             'transfer' => ['cost' => '9.80', 'currency' => 'EUR'], 'redemption' => ['cost' => '42.16', 'currency' => 'EUR']]);
-        $options = new TldImportOptions(marginType: 'percent', margin: '68.37', rounding: '.50', years: 3, autoRegister: true, rates: ['USD' => '1.1195']);
+        // 9.80 + 68.36% = 16.49128: up to .50 is 16.50 (68.37% is 16.50026, up to 17.00: rounded once, never down).
+        $options = new TldImportOptions(marginType: 'percent', margin: '68.36', rounding: '.50', years: 3, autoRegister: true, rates: ['USD' => '1.1195']);
 
         app(TldImport::class)->import($this->op, ['com' => $pricing], $options);
 
@@ -104,7 +105,7 @@ class DomainTldsTest extends TestCase
         $tld->load('prices');
         $this->assertSame('16.50', $tld->priceFor('register', 1, 'EUR'));
         $this->assertSame('49.50', $tld->priceFor('renew', 3, 'EUR'), '3 x the rounded 1-year price');
-        $this->assertSame('18.50', $tld->priceFor('register', 1, 'USD'), '9.80 x 1.1195 = 10.97, +68.37% = 18.47, to .50');
+        $this->assertSame('18.50', $tld->priceFor('register', 1, 'USD'), '9.80 x 1.1195 = 10.9711, +68.36% = 18.4709, up to .50');
         $this->assertSame('16.50', $tld->priceFor('transfer', 1, 'EUR'));
         $this->assertNull($tld->priceFor('transfer', 2, 'EUR'), 'a transfer is one year');
         $this->assertNull($tld->priceFor('redemption', 1, 'EUR'), 'not asked');
@@ -133,6 +134,37 @@ class DomainTldsTest extends TestCase
 
         $this->assertSame(['net'], DomainTld::query()->pluck('tld')->all());
         $this->assertSame('13.33', DomainTld::query()->sole()->load('prices')->priceFor('register', 1, 'EUR'));
+    }
+
+    public function test_free_and_not_offered_prices_are_kept_and_an_unpriceable_tld_is_not_created(): void
+    {
+        $tld = DomainTld::query()->create(['tld' => 'gr']);
+        $free = DomainTldPrice::query()->create(['domain_tld_id' => $tld->id, 'operation' => 'transfer', 'years' => 1, 'currency_code' => 'EUR', 'price' => '0.00']);
+        $closed = DomainTldPrice::query()->create(['domain_tld_id' => $tld->id, 'operation' => 'renew', 'years' => 1, 'currency_code' => 'EUR', 'price' => null]);
+        $costs = ['register' => ['cost' => '9.50', 'currency' => 'EUR'], 'renew' => ['cost' => '9.50', 'currency' => 'EUR'], 'transfer' => ['cost' => '9.50', 'currency' => 'EUR']];
+
+        app(TldImport::class)->import($this->op, ['gr' => new TldPricing(tld: 'gr', costs: $costs)], new TldImportOptions(marginType: 'percent', margin: '20'));
+        $this->assertSame(['0.00', null, '9.50'], [$free->fresh()->price, $closed->fresh()->price, $free->fresh()->cost], 'kept; the cost still updated');
+        app(TldImport::class)->import($this->op, ['gr' => new TldPricing(tld: 'gr', costs: $costs)], new TldImportOptions(marginType: 'percent', margin: '20', keepFreeAndClosed: false));
+        $this->assertSame(['11.40', '11.40'], [$free->fresh()->price, $closed->fresh()->price], 'replaced when staff say so');
+
+        $usdOnly = new TldPricing(tld: 'io', costs: ['register' => ['cost' => '40.00', 'currency' => 'GBP']]);
+        $this->assertSame(0, app(TldImport::class)->import($this->op, ['io' => $usdOnly], new TldImportOptions(marginType: 'percent', margin: '20')));
+        $this->assertNull(DomainTld::query()->where('tld', 'io')->first(), 'nothing priceable: not created');
+    }
+
+    public function test_nothing_is_ticked_by_default_and_costs_import_only_from_the_connection_they_came_from(): void
+    {
+        $this->fakeOpenprovider(['com' => $this->quote('9.80', '9.80')]);
+        $other = DomainRegistrarConnection::query()->create(['registrar' => 'openprovider', 'label' => 'OP 2', 'is_active' => true, 'mode' => 'production']);
+        $other->storeCredentials(['username' => 'u2', 'password' => 'Op-Secret-2'], ['password']);
+
+        $page = $this->livewireAs($this->staff())->test(ImportTlds::class)
+            ->fillForm(['connection_id' => $this->op->id, 'tlds' => 'com', 'margin_type' => 'percent', 'margin' => '20', 'rounding' => 'none', 'years' => 1])
+            ->call('fetch')->assertSet('selected', []);
+        $page->fillForm(['connection_id' => $other->id, 'auto_register' => true])->set('selected', ['com'])->call('import');
+
+        $this->assertSame(0, DomainTld::query()->count(), 'fetched from one connection, imported against another: refused');
     }
 
     public function test_who_may_see_change_and_import(): void

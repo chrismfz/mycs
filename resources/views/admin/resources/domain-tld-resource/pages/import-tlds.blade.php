@@ -26,7 +26,7 @@
                                         <tr class="border-t border-gray-100 dark:border-white/5">
                                             <td class="py-2 pr-3">
                                                 @if ($loop->parent->first && $loop->first)
-                                                    <input type="checkbox" value="{{ $tld }}" wire:model="selected" class="rounded">
+                                                    <input type="checkbox" value="{{ $tld }}" wire:model.live="selected" class="rounded" aria-label="{{ __('Import') }} .{{ $tld }}">
                                                 @endif
                                             </td>
                                             <td class="py-2 pr-3">@if ($loop->parent->first && $loop->first).{{ $tld }}@if (!$row['exists']) <span class="text-gray-500">({{ __('new') }})</span>@endif @endif</td>

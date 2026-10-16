@@ -6,8 +6,9 @@ use InvalidArgumentException;
 
 /**
  * The arithmetic of TLD prices (docs/domains.md D-6), as WHMCS's «TLD Import & Pricing Sync»: a margin on the
- * registrar's cost (a percentage or an amount), rounded up to a price people are used to, and the price of N years.
- * Amounts are decimal strings with two decimals, computed with bcmath: never a float (CLAUDE.md).
+ * registrar's cost (a percentage, or an amount in the price's currency), rounded once, up, to a price people are used
+ * to, and the price of N years. Amounts are non-negative decimal strings, computed with bcmath at 8 decimals and
+ * rounded only at the end: never a float (CLAUDE.md). Zero stays zero: a free operation is free (D-6).
  */
 final class TldPriceMath
 {
@@ -18,41 +19,42 @@ final class TldPriceMath
     /** How a price is rounded: none (to the cent, half up), or UP to the next whole, .50 or .99. */
     public const ROUNDING = ['none', '.00', '.50', '.99'];
 
-    /** Cost plus margin, to the cent (half up). */
+    private const SCALE = 8;
+
+    /** Cost plus margin, exact (8 decimals): rounded once, by round(). */
     public static function withMargin(string $cost, string $type, string $margin): string
     {
-        self::number($cost);
-        self::number($margin);
+        self::amount($cost);
+        self::amount($margin);
 
-        $price = match ($type) {
-            self::MARGIN_PERCENT => bcmul($cost, bcadd('1', bcdiv($margin, '100', 8), 8), 8),
-            self::MARGIN_FIXED => bcadd($cost, $margin, 8),
+        return match ($type) {
+            self::MARGIN_PERCENT => bcmul($cost, bcadd('1', bcdiv($margin, '100', self::SCALE), self::SCALE), self::SCALE),
+            self::MARGIN_FIXED => bcadd($cost, $margin, self::SCALE),
             default => throw new InvalidArgumentException("Unknown margin type «{$type}»."),
         };
-
-        return self::cents($price);
     }
 
-    /** A price rounded as staff chose: never down. */
+    /** A price rounded as staff chose: to the cent half up, or up to an ending; zero stays zero. */
     public static function round(string $price, string $rounding): string
     {
-        $price = self::cents($price);
+        self::amount($price);
         if (!in_array($rounding, self::ROUNDING, true)) {
             throw new InvalidArgumentException("Unknown rounding «{$rounding}».");
         }
-        if ($rounding === 'none') {
-            return $price;
+        if ($rounding === 'none' || bccomp($price, '0', self::SCALE) === 0) {
+            return self::cents($price);
         }
         $whole = bcadd($price, '0', 0); // truncated
-        $fraction = bcsub($price, $whole, 2);
-        // The endings allowed within a unit, lowest first: the first at or above the fraction, else the next unit's.
+        $fraction = bcsub($price, $whole, self::SCALE);
+        // The endings allowed within a unit, lowest first: the first at or above the exact fraction, else the next
+        // unit's (a whole number already ends in .00).
         $endings = match ($rounding) {
-            '.00' => ['0.00'],
-            '.50' => ['0.00', '0.50'],
+            '.00' => ['0'],
+            '.50' => ['0', '0.5'],
             default => ['0.99'],
         };
         foreach ($endings as $ending) {
-            if (bccomp($fraction, $ending, 2) <= 0) {
+            if (bccomp($fraction, $ending, self::SCALE) <= 0) {
                 return bcadd($whole, $ending, 2);
             }
         }
@@ -70,29 +72,35 @@ final class TldPriceMath
         return bcmul(self::cents($yearly), (string) $years, 2);
     }
 
-    /** A cost in another currency of MyCS, by the rate staff gave (1 unit of the cost's currency = rate units). */
+    /** A cost in another currency of MyCS, exact, by the rate staff gave (1 unit of the cost's currency = rate units). */
     public static function convert(string $amount, string $rate): string
     {
-        self::number($amount);
-        self::number($rate);
-        if (bccomp($rate, '0', 8) <= 0) {
+        self::amount($amount);
+        self::amount($rate);
+        if (bccomp($rate, '0', self::SCALE) <= 0) {
             throw new InvalidArgumentException('An exchange rate is above zero.');
         }
 
-        return self::cents(bcmul($amount, $rate, 8));
+        return bcmul($amount, $rate, self::SCALE);
     }
 
-    /** Two decimals, half up (for the non-negative amounts of prices). */
+    /** Two decimals, half up. */
     public static function cents(string $amount): string
     {
-        self::number($amount);
+        self::amount($amount);
 
-        return bcadd($amount, bccomp($amount, '0', 8) >= 0 ? '0.005' : '-0.005', 2);
+        return bcadd($amount, '0.005', 2);
     }
 
-    private static function number(string $value): void
+    /** A non-negative decimal amount (a registrar may never make a price negative: review F1). */
+    public static function isAmount(mixed $value): bool
     {
-        if (!preg_match('/^-?\d+(\.\d+)?$/', $value)) {
+        return is_string($value) && preg_match('/^\d{1,12}(\.\d{1,8})?\z/', $value) === 1;
+    }
+
+    private static function amount(string $value): void
+    {
+        if (!self::isAmount($value)) {
             throw new InvalidArgumentException("Not an amount: «{$value}».");
         }
     }

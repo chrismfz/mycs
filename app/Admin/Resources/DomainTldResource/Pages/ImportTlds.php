@@ -25,6 +25,7 @@ use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Facades\Auth;
 use InvalidArgumentException;
+use Livewire\Attributes\Locked;
 use Throwable;
 
 /**
@@ -47,10 +48,20 @@ class ImportTlds extends Page implements HasForms
     /** @var array<string, mixed> */
     public ?array $data = [];
 
-    /** @var array<string, array{costs?: array<string, array{cost: string, currency: string}>, error?: string}> tld => what the registrar answered */
+    /**
+     * What the registrar answered, per TLD. Locked: written only by fetch() on the server, never from the browser (a
+     * forged cost would become a price: review F2).
+     *
+     * @var array<string, array{costs?: array<string, array{cost: string, currency: string}>, error?: string}>
+     */
+    #[Locked]
     public array $fetched = [];
 
-    /** @var list<string> */
+    /** The connection the costs were fetched from: the import uses it, and only it. */
+    #[Locked]
+    public ?int $fetchedFrom = null;
+
+    /** @var list<string> the TLDs ticked; nothing is ticked by default (WHMCS too) */
     public array $selected = [];
 
     public static function canAccess(array $parameters = []): bool
@@ -70,6 +81,7 @@ class ImportTlds extends Page implements HasForms
             'years' => 1,
             'redemption_fee' => false,
             'auto_register' => false,
+            'keep_free_and_closed' => true,
         ]);
     }
 
@@ -104,10 +116,17 @@ class ImportTlds extends Page implements HasForms
                     ->helperText(__('2 to N years at N times the one-year price.')),
                 Toggle::make('redemption_fee')->label(__('Import the redemption fee'))->helperText(__('With the same margin.')),
                 Toggle::make('auto_register')->label(__('Automatic registration with this registrar')),
+                Toggle::make('keep_free_and_closed')->label(__('Keep free and not-offered prices'))
+                    ->helperText(__('A 0.00 (free) or empty (not offered) price stays as it is.')),
             ]),
             Section::make(__('Exchange rates'))->columns(4)
                 ->description(__('MyCS keeps no rates: one unit of the registrar\'s currency is how much of each other currency. A currency left empty gets no price from the import.'))
-                ->schema(array_map(fn (string $code) => TextInput::make("rates.{$code}")->label($code)->regex('/^\d+(\.\d{1,8})?$/'), $currencies)),
+                ->schema(array_map(fn (string $code) => TextInput::make("rates.{$code}")->label($code)
+                    ->rule(fn () => function (string $attribute, mixed $value, \Closure $fail) {
+                        if (filled($value) && (!TldPriceMath::isAmount((string) $value) || bccomp((string) $value, '0', 8) <= 0)) {
+                            $fail(__('An exchange rate is a number above zero.'));
+                        }
+                    }), $currencies)),
         ]);
     }
 
@@ -123,6 +142,7 @@ class ImportTlds extends Page implements HasForms
             redemptionFee: (bool) ($data['redemption_fee'] ?? false),
             autoRegister: (bool) ($data['auto_register'] ?? false),
             rates: array_filter((array) ($data['rates'] ?? []), fn ($rate) => is_string($rate) && $rate !== ''),
+            keepFreeAndClosed: (bool) ($data['keep_free_and_closed'] ?? true),
         );
     }
 
@@ -159,7 +179,8 @@ class ImportTlds extends Page implements HasForms
         foreach (app(TldImport::class)->fetch($connection, $this->tlds()) as $tld => $answer) {
             $this->fetched[$tld] = $answer instanceof TldPricing ? ['costs' => $answer->costs] : ['error' => $answer];
         }
-        $this->selected = array_keys(array_filter($this->fetched, fn (array $row) => ($row['costs'] ?? []) !== []));
+        $this->fetchedFrom = $connection->id;
+        $this->selected = []; // nothing ticked: an import is staff's choice, TLD by TLD (review 2)
     }
 
     /**
@@ -173,10 +194,15 @@ class ImportTlds extends Page implements HasForms
             return [];
         }
         try {
-            $options = $this->options();
+            return $this->buildRows($this->options());
         } catch (Throwable) {
-            return [];
+            return []; // an invalid option shows its form error, never a broken page
         }
+    }
+
+    /** @return array<string, array<string, mixed>> */
+    private function buildRows(TldImportOptions $options): array
+    {
         $import = app(TldImport::class);
         $rows = [];
         foreach ($this->fetched as $tld => $row) {
@@ -204,6 +230,11 @@ class ImportTlds extends Page implements HasForms
     {
         $options = $this->options();
         $connection = $this->connection();
+        if ($this->fetchedFrom !== $connection->id) {
+            Notification::make()->warning()->title(__('Fetch the costs from this registrar first.'))->send();
+
+            return;
+        }
         $pricings = [];
         foreach ($this->selected as $tld) {
             $costs = $this->fetched[$tld]['costs'] ?? null;

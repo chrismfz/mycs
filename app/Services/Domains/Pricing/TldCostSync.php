@@ -6,6 +6,7 @@ use App\Models\DomainRegistrarConnection;
 use App\Models\DomainTld;
 use App\Services\Domains\DomainRegistrarFactory;
 use App\Services\Domains\DomainRegistrarNotConfigured;
+use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
 /**
@@ -43,18 +44,23 @@ class TldCostSync
             throw new RuntimeException("The registrar quoted no cost for .{$tld->tld}.");
         }
 
-        $changed = 0;
-        foreach ($pricing->costs as $operation => $entry) {
-            foreach ($tld->prices()->where('operation', $operation)->get() as $row) {
-                $cost = in_array($operation, ['register', 'renew'], true) ? TldPriceMath::years($entry['cost'], $row->years) : $entry['cost'];
-                $row->fill(['cost' => $cost, 'cost_currency' => $entry['currency']]);
-                if ($row->isDirty(['cost', 'cost_currency'])) {
-                    $row->save();
-                    $changed++;
+        return DB::transaction(function () use ($tld, $pricing) {
+            $changed = 0;
+            foreach ($pricing->costs as $operation => $entry) {
+                if (!TldPriceMath::isAmount($entry['cost'])) {
+                    continue; // a negative or garbled cost is never written
+                }
+                foreach ($tld->prices()->where('operation', $operation)->whereBetween('years', [1, 10])->get() as $row) {
+                    $cost = TldPriceMath::years($entry['cost'], in_array($operation, ['register', 'renew'], true) ? $row->years : 1);
+                    $row->fill(['cost' => $cost, 'cost_currency' => $entry['currency']]);
+                    if ($row->isDirty(['cost', 'cost_currency'])) {
+                        $row->save();
+                        $changed++;
+                    }
                 }
             }
-        }
 
-        return $changed;
+            return $changed;
+        });
     }
 }

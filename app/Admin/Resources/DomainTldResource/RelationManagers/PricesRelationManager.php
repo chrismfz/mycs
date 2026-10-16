@@ -56,7 +56,7 @@ class PricesRelationManager extends RelationManager
                     ->where('operation', $get('operation'))->where('currency_code', $get('currency_code'))),
             Select::make('currency_code')->label(__('Currency'))->required()
                 ->options(fn () => Currency::query()->orderBy('code')->pluck('code', 'code')),
-            TextInput::make('price')->label(__('Price'))->numeric()->minValue(0)->maxValue(99999)
+            TextInput::make('price')->label(__('Price'))->numeric()->minValue(0)->maxValue(99999)->rule('decimal:0,2')
                 ->helperText(__('Empty: not offered. 0.00: free and offered.')),
         ]);
     }

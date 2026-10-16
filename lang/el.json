@@ -461,5 +461,12 @@
     "With the same margin.": "Με το ίδιο περιθώριο.",
     "Without the dot: com, gr, com.gr.": "Χωρίς τελεία: com, gr, com.gr.",
     "Years": "Έτη",
-    "new": "νέο"
+    "new": "νέο",
+    "Keep free and not-offered prices": "Κράτα τις δωρεάν τιμές και όσες δεν προσφέρονται",
+    "A 0.00 (free) or empty (not offered) price stays as it is.": "Μια τιμή 0,00 (δωρεάν) ή κενή (δεν προσφέρεται) μένει ως έχει.",
+    "An exchange rate is a number above zero.": "Η ισοτιμία είναι αριθμός πάνω από μηδέν.",
+    "Fetch the costs from this registrar first.": "Πρώτα ανακτήστε τα κόστη από αυτόν τον registrar.",
+    "Not a TLD.": "Δεν είναι TLD.",
+    "The TLD .:tld exists already.": "Το TLD .:tld υπάρχει ήδη.",
+    "Import": "Εισαγωγή"
 }

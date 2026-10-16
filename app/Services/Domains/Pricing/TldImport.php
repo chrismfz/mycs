@@ -16,7 +16,8 @@ use Throwable;
  * the price the margin would make, and import only the TLDs staff ticked: each TLD (created if new; its registrar for
  * automatic registration if asked) and its prices in every currency of MyCS that has a rate. Register and renew for 1
  * to N years (N times the rounded 1-year price), transfer for 1 year, the redemption fee if asked. A price is written
- * with the cost it came from.
+ * with the cost it came from. Prices it was not asked for (other currencies, more years, grace) stay as they are, and
+ * so do free and not-offered ones unless staff say otherwise. A TLD nothing could be priced for is not created.
  */
 class TldImport
 {
@@ -65,9 +66,10 @@ class TldImport
                     continue;
                 }
                 $rate = $currency === $entry['currency'] ? '1' : ($options->rates[$currency] ?? null);
-                if ($rate === null || $rate === '') {
-                    continue; // never a silent conversion
+                if ($rate === null || $rate === '' || !TldPriceMath::isAmount($entry['cost'])) {
+                    continue; // never a silent conversion, never a negative or garbled cost
                 }
+                // Exact until one rounding (review: converting, then adding the margin, each to the cent, drifted).
                 $yearly = TldPriceMath::round(
                     TldPriceMath::withMargin(TldPriceMath::convert($entry['cost'], $rate), $options->marginType, $options->margin),
                     $options->rounding,
@@ -75,7 +77,7 @@ class TldImport
                 foreach (range(1, $perYear ? $options->years : 1) as $years) {
                     $out[$currency][$operation][$years] = [
                         'price' => TldPriceMath::years($yearly, $years),
-                        'cost' => $perYear ? TldPriceMath::years($entry['cost'], $years) : $entry['cost'],
+                        'cost' => TldPriceMath::years($entry['cost'], $perYear ? $years : 1),
                         'cost_currency' => $entry['currency'],
                     ];
                 }
@@ -94,7 +96,12 @@ class TldImport
     public function import(DomainRegistrarConnection $connection, array $pricings, TldImportOptions $options): int
     {
         return DB::transaction(function () use ($connection, $pricings, $options) {
+            $imported = 0;
             foreach ($pricings as $tld => $pricing) {
+                $prices = $this->prices($pricing, $options);
+                if ($prices === []) {
+                    continue; // nothing could be priced (no rate for the registrar's currency): not even the TLD
+                }
                 $row = DomainTld::query()->firstOrNew(['tld' => $tld]);
                 if (!$row->exists) {
                     $row->is_active = true;
@@ -104,9 +111,16 @@ class TldImport
                 }
                 $row->save();
 
-                foreach ($this->prices($pricing, $options) as $currency => $operations) {
+                foreach ($prices as $currency => $operations) {
                     foreach ($operations as $operation => $byYears) {
                         foreach ($byYears as $years => $price) {
+                            $existing = DomainTldPrice::query()->where(['domain_tld_id' => $row->id, 'operation' => $operation, 'years' => $years, 'currency_code' => $currency])->first();
+                            // Free and not offered are staff's decisions (D-6): the import keeps them unless told not to.
+                            if ($existing !== null && $options->keepFreeAndClosed && ($existing->price === null || bccomp((string) $existing->price, '0', 2) === 0)) {
+                                $existing->update(['cost' => $price['cost'], 'cost_currency' => $price['cost_currency']]);
+
+                                continue;
+                            }
                             DomainTldPrice::query()->updateOrCreate(
                                 ['domain_tld_id' => $row->id, 'operation' => $operation, 'years' => $years, 'currency_code' => $currency],
                                 $price,
@@ -114,9 +128,10 @@ class TldImport
                         }
                     }
                 }
+                $imported++;
             }
 
-            return count($pricings);
+            return $imported;
         });
     }
 }

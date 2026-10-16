@@ -2,9 +2,11 @@
 
 namespace App\Console\Commands\Domains;
 
+use App\Models\Domain;
 use App\Models\DomainTld;
 use App\Services\Domains\Pricing\TldCostSync;
 use Illuminate\Console\Command;
+use InvalidArgumentException;
 use Throwable;
 
 /**
@@ -22,7 +24,19 @@ class SyncCosts extends Command
     {
         $query = DomainTld::query()->where('is_active', true)->with('registrarConnection');
         if ($this->option('tld')) {
-            $query->where('tld', ltrim((string) $this->option('tld'), '.'));
+            try {
+                $tld = Domain::normalise(ltrim((string) $this->option('tld'), '. '));
+            } catch (InvalidArgumentException) {
+                $this->error('Not a TLD.');
+
+                return self::FAILURE;
+            }
+            $query->where('tld', $tld);
+            if (!$query->clone()->exists()) {
+                $this->error("No active TLD .{$tld}.");
+
+                return self::FAILURE;
+            }
         }
         $failed = 0;
         foreach ($query->get() as $tld) {

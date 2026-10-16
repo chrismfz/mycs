@@ -7,6 +7,7 @@ use App\Admin\Resources\DomainTldResource\Pages\EditDomainTld;
 use App\Admin\Resources\DomainTldResource\Pages\ImportTlds;
 use App\Admin\Resources\DomainTldResource\Pages\ListDomainTlds;
 use App\Admin\Resources\DomainTldResource\RelationManagers\PricesRelationManager;
+use App\Models\Domain;
 use App\Models\DomainTld;
 use App\Services\Domains\Pricing\TldCostSync;
 use Filament\Actions\Action;
@@ -21,6 +22,7 @@ use Filament\Schemas\Schema;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use InvalidArgumentException;
 use Throwable;
 
 /**
@@ -47,7 +49,20 @@ class DomainTldResource extends Resource
         return $schema->columns(1)->components([
             Section::make('TLD')->columns(3)->schema([
                 TextInput::make('tld')->label('TLD')->required()->maxLength(63)->prefix('.')
-                    ->unique(ignoreRecord: true)->helperText(__('Without the dot: com, gr, com.gr.')),
+                    ->helperText(__('Without the dot: com, gr, com.gr.'))
+                    // Checked in the form it is stored in (review F4): «.COM» is «com», «ελ» is «xn--qxam».
+                    ->rule(fn (?DomainTld $record) => function (string $attribute, mixed $value, \Closure $fail) use ($record) {
+                        try {
+                            $tld = Domain::normalise(ltrim((string) $value, '. '));
+                        } catch (InvalidArgumentException) {
+                            $fail(__('Not a TLD.'));
+
+                            return;
+                        }
+                        if (DomainTld::query()->where('tld', $tld)->when($record, fn ($q) => $q->whereKeyNot($record->getKey()))->exists()) {
+                            $fail(__('The TLD .:tld exists already.', ['tld' => $tld]));
+                        }
+                    }),
                 Select::make('registrar_connection_id')->label(__('Automatic registration'))
                     ->relationship('registrarConnection', 'label')->placeholder(__('None (by hand)'))
                     ->helperText(__('The registrar its domains are registered and renewed at, unless a domain says otherwise.')),
