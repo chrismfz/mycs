@@ -4,7 +4,6 @@ namespace App\Classes\Extension;
 
 use App\Models\Extension as ModelsExtension;
 use App\Models\Gateway;
-use App\Models\Server;
 use RuntimeException;
 
 /**
@@ -35,9 +34,13 @@ class Extension
             $type = str_replace('MyCS\Extensions\\', '', $type);
             $type = str_replace('\\' . class_basename(static::class), '', $type);
             if (in_array($type, ['Servers', 'Gateways'])) {
-                $type = substr($type, 0, -1);
-                $type = ($type == 'Gateway') ? Gateway::class : Server::class;
-                // Only when there is one: with several servers of a module, which one is never guessed.
+                // A server's settings are always given (they are one server's, never its module's: code review); a
+                // gateway's webhooks build it bare and read its one record.
+                if ($type === 'Servers') {
+                    throw new RuntimeException(class_basename(static::class) . ': a server extension needs its server\'s settings.');
+                }
+                $type = Gateway::class;
+                // Only when there is one: with several records of an extension, which one is never guessed.
                 $records = $type::where('extension', class_basename(static::class))->limit(2)->get();
                 if ($records->count() !== 1) {
                     throw new RuntimeException(class_basename(static::class) . ': ' . ($records->isEmpty() ? 'no record to read its settings from' : 'several records, the settings must be given') . '.');

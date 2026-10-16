@@ -25,6 +25,9 @@ class CPanel extends Server
     {
         // A pasted token or host often carries a space or line break, which WHM answers as a bad token.
         $host = rtrim(trim((string) $this->config('host')), '/');
+        if ($host === '') {
+            throw new Exception('This server has no host set: enter its WHM address (https://host:2087).'); // not a request to nowhere
+        }
         // A server that never answers is told within 10 seconds, not the default 30 (the call itself may take longer).
         $response = Http::connectTimeout(10)->withHeaders([
             'Authorization' => 'whm ' . trim((string) $this->config('username')) . ':' . trim((string) $this->config('apikey')),

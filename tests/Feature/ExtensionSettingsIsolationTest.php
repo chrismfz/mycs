@@ -40,16 +40,14 @@ class ExtensionSettingsIsolationTest extends TestCase
         Http::assertNotSent(fn ($request) => str_contains($request->url(), 'first.test') || $request->hasHeader('Authorization', 'whm root:FIRST-KEY'));
     }
 
-    public function test_without_settings_the_one_server_is_read_but_never_one_of_several(): void
+    public function test_a_server_extension_without_its_servers_settings_reads_none(): void
     {
         Http::preventStrayRequests();
-        Http::fake(['*' => Http::response(['metadata' => ['result' => 1]])]);
         $this->whm('only', ['host' => 'https://only.test:2087', 'username' => 'root', 'apikey' => 'K']);
-        $this->assertTrue(ExtensionHelper::getExtension('server', 'CPanel')->testConfig());
-        Http::assertSent(fn ($request) => str_starts_with($request->url(), 'https://only.test:2087/'));
 
-        $this->whm('another', ['host' => 'https://another.test:2087', 'username' => 'root', 'apikey' => 'K2']);
-        $this->assertStringContainsString('several records', (string) ExtensionHelper::getExtension('server', 'CPanel')->testConfig());
+        $this->assertStringContainsString("needs its server's settings", (string) ExtensionHelper::getExtension('server', 'CPanel')->testConfig());
+        $this->assertStringContainsString('no host set', (string) ExtensionHelper::testConfig(Server::query()->sole(), []));
+        Http::assertNothingSent();
     }
 
     public function test_a_contact_change_is_audited(): void
