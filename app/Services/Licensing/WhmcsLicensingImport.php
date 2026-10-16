@@ -45,34 +45,19 @@ final class WhmcsLicensingImport
         return $this->counts;
     }
 
-    /** @return list<int> the MyCS products that sell licenses */
+    /** @return array<int, int> WHMCS product id => the MyCS product that sells licenses */
     private function products(Server $server): array
     {
         $rows = $this->whmcs->query("SELECT * FROM tblproducts WHERE servertype = 'licensing'
             OR id IN (SELECT h.packageid FROM tblhosting h JOIN mod_licensing l ON l.serviceid = h.id)")->fetchAll(PDO::FETCH_ASSOC);
         $ids = [];
         foreach ($rows as $row) {
-            $product = Product::query()->find((int) $row['id']);
+            $product = $this->product((int) $row['id']);
             if ($product === null) {
                 continue;
             }
-            $product->update(['server_id' => $server->id]);
-            $settings = [
-                'key_length' => [(string) ((int) ($row['configoption1'] ?? 0) ?: 16), 'string', false],
-                'key_prefix' => [(string) ($row['configoption2'] ?? ''), 'string', false],
-                'allow_reissue' => [($row['configoption3'] ?? '') === 'on' ? '1' : '0', 'boolean', false],
-                'allow_ip_conflict' => [($row['configoption5'] ?? '') === 'on' ? '1' : '0', 'boolean', false],
-                'custom_fields' => [MycsLicenseRepository::fieldSetting($this->fieldNames((int) $row['id'])), 'string', false],
-            ];
-            // An empty PSK never overwrites one staff typed.
-            if (($row['configoption8'] ?? '') !== '') {
-                $settings['secret_key'] = [(string) $row['configoption8'], 'string', true];
-            }
-            foreach ($settings as $key => [$value, $type, $encrypted]) {
-                $setting = Setting::query()->firstOrNew(['settingable_type' => $product->getMorphClass(), 'settingable_id' => $product->id, 'key' => $key]);
-                $setting->forceFill(['value' => $value, 'type' => $type, 'encrypted' => $encrypted])->save();
-            }
-            $ids[] = $product->id;
+            $this->productSettings($product, $row, $server);
+            $ids[(int) $row['id']] = $product->id;
             $this->counts['products']++;
         }
 
@@ -80,9 +65,50 @@ final class WhmcsLicensingImport
     }
 
     /**
+     * The MyCS product of this WHMCS product: the one the catalog import brought (`whmcs_id`), else the one of the same
+     * id (the full import keeps WHMCS's ids). Once the catalog import has run, never one by id alone: an id here
+     * may be another product (catalog review F8).
+     */
+    private function product(int $whmcsId): ?Product
+    {
+        $imported = Product::query()->where('whmcs_id', $whmcsId)->first();
+        if ($imported !== null || Product::query()->whereNotNull('whmcs_id')->exists()) {
+            return $imported;
+        }
+
+        return Product::query()->find($whmcsId);
+    }
+
+    /**
+     * A licensing product's module settings from its WHMCS row (configoptions; the PSK encrypted, never printed; an
+     * empty PSK never overwrites one staff typed), on the licensing server. Also the catalog import's
+     * (`app:import-whmcs-catalog`), which brings products without their licenses.
+     *
+     * @param  array<string, mixed>  $row  tblproducts
+     */
+    public function productSettings(Product $product, array $row, Server $server): void
+    {
+        $product->update(['server_id' => $server->id]);
+        $settings = [
+            'key_length' => [(string) ((int) ($row['configoption1'] ?? 0) ?: 16), 'string', false],
+            'key_prefix' => [(string) ($row['configoption2'] ?? ''), 'string', false],
+            'allow_reissue' => [($row['configoption3'] ?? '') === 'on' ? '1' : '0', 'boolean', false],
+            'allow_ip_conflict' => [($row['configoption5'] ?? '') === 'on' ? '1' : '0', 'boolean', false],
+            'custom_fields' => [MycsLicenseRepository::fieldSetting($this->fieldNames((int) $row['id'])), 'string', false],
+        ];
+        if (($row['configoption8'] ?? '') !== '') {
+            $settings['secret_key'] = [(string) $row['configoption8'], 'string', true];
+        }
+        foreach ($settings as $key => [$value, $type, $encrypted]) {
+            $setting = Setting::query()->firstOrNew(['settingable_type' => $product->getMorphClass(), 'settingable_id' => $product->id, 'key' => $key]);
+            $setting->forceFill(['value' => $value, 'type' => $type, 'encrypted' => $encrypted])->save();
+        }
+    }
+
+    /**
      * mod_licensing as it is; WHMCS's empty bindings are null here (unbound).
      *
-     * @param  list<int>  $products
+     * @param  array<int, int>  $products
      * @return array<int, int> mod_licensing.id => licenses.id
      */
     private function licenses(Server $server, array $products): array
@@ -151,17 +177,17 @@ final class WhmcsLicensingImport
         return array_values(array_filter(array_map('strval', $stmt->fetchAll(PDO::FETCH_COLUMN)), fn ($name) => $name !== ''));
     }
 
-    /** @param list<int> $products */
+    /** @param array<int, int> $products WHMCS product id => MyCS product id */
     private function customFields(array $products): void
     {
-        foreach ($products as $productId) {
-            $names = $this->fieldNames($productId);
+        foreach ($products as $whmcsId => $productId) {
+            $names = $this->fieldNames($whmcsId);
             if ($names === []) {
                 continue;
             }
             $stmt = $this->whmcs->prepare("SELECT f.fieldname, v.relid, v.value FROM tblcustomfields f JOIN tblcustomfieldsvalues v ON v.fieldid = f.id
                 WHERE f.type = 'product' AND f.relid = ?");
-            $stmt->execute([$productId]);
+            $stmt->execute([$whmcsId]);
             // Empty values too: one emptied on WHMCS since an earlier run is emptied here (review R-3).
             $rows = array_filter($stmt->fetchAll(PDO::FETCH_ASSOC), fn ($row) => in_array($row['fieldname'], $names, true));
             $services = Service::query()->where('product_id', $productId)->whereIn('id', array_column($rows, 'relid'))->pluck('id')->flip();
