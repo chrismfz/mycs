@@ -7,13 +7,16 @@ use App\Models\Contact;
 use App\Models\Extension as ExtensionModel;
 use App\Models\Gateway;
 use App\Models\Server;
+use App\Models\ServerGroup;
 use App\Models\Service;
 use App\Models\User;
+use App\Services\Service\ServerSelector;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request as HttpRequest;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
-use RuntimeException;
+use MyCS\Extensions\Gateways\Mollie\Mollie;
 use Tests\TestCase;
 use Throwable;
 
@@ -97,12 +100,12 @@ class ClosoutAdversarialTest extends TestCase
         $empty = $this->whm('second', []);
         $product = $this->createProduct()->product;
         $product->update(['server_id' => $first->id]);
-        $group = \App\Models\ServerGroup::query()->create(['name' => 'WHMs', 'fill_type' => \App\Models\ServerGroup::FILL_LEAST_FULL]);
+        $group = ServerGroup::query()->create(['name' => 'WHMs', 'fill_type' => ServerGroup::FILL_LEAST_FULL]);
         $group->servers()->attach($first->id, ['position' => 0]);
         $group->servers()->attach($empty->id, ['position' => 1]);
         $product->update(['server_group_id' => $group->id]);
 
-        $chosen = \App\Services\Service\ServerSelector::forNewAccount($product->refresh());
+        $chosen = ServerSelector::forNewAccount($product->refresh());
 
         $this->assertNotSame($empty->id, $chosen?->id, 'A new account went to a server with no host and no credentials.');
     }
@@ -118,7 +121,7 @@ class ClosoutAdversarialTest extends TestCase
         $empty = $this->whm('second', []);
         $product = $this->createProduct();
         $product->product->update(['server_id' => $first->id]);
-        $group = \App\Models\ServerGroup::query()->create(['name' => 'WHMs', 'fill_type' => \App\Models\ServerGroup::FILL_LEAST_FULL]);
+        $group = ServerGroup::query()->create(['name' => 'WHMs', 'fill_type' => ServerGroup::FILL_LEAST_FULL]);
         $group->servers()->attach($first->id, ['position' => 0]);
         $group->servers()->attach($empty->id, ['position' => 1]);
         $product->product->update(['server_group_id' => $group->id]);
@@ -226,7 +229,7 @@ class ClosoutAdversarialTest extends TestCase
         $gateway->settings()->create(['key' => 'api_key', 'value' => 'MOLLIE-KEY']);
 
         // As its route does: the container builds it bare (the route is registered at boot, before this record).
-        app(\MyCS\Extensions\Gateways\Mollie\Mollie::class)->webhook(\Illuminate\Http\Request::create('/', 'POST', ['id' => 'tr_abc']));
+        app(Mollie::class)->webhook(Request::create('/', 'POST', ['id' => 'tr_abc']));
 
         Http::assertSent(fn (HttpRequest $request) => $request->hasHeader('Authorization', 'Bearer MOLLIE-KEY'));
     }
