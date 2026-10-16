@@ -12,6 +12,7 @@ use App\Models\ServiceUpgrade;
 use App\Models\User;
 use App\Services\ServiceUpgrade\ServiceUpgradeService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
@@ -21,6 +22,14 @@ use Tests\TestCase;
 class UpgradeKeepsConfigOptionsAdversarialTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // The expected amounts are «15 of 30 days»: a fixed day whose period has 30 days (2026-06-25 → 07-25). From the
+        // real today the period is 30 or 31 days long (on 2026-10-16 it ran to 10-31 and the test failed).
+        $this->travelTo(Carbon::parse('2026-07-10 12:00:00'));
+    }
 
     private function option(string $name, bool $upgradable, array $values, array $productIds, bool $hidden = false): ConfigOption
     {
