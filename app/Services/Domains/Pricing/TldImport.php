@@ -22,7 +22,7 @@ use Throwable;
 class TldImport
 {
     /** The operations the import prices, and whether they are priced per year. */
-    private const OPERATIONS = ['register' => true, 'renew' => true, 'transfer' => false, 'redemption' => false];
+    private const OPERATIONS = ['register' => true, 'renew' => true, 'transfer' => false, 'grace' => false, 'redemption' => false];
 
     public function __construct(private readonly DomainRegistrarFactory $factory) {}
 
@@ -58,7 +58,8 @@ class TldImport
         $out = [];
         foreach (Currency::query()->orderBy('code')->pluck('code') as $currency) {
             foreach (self::OPERATIONS as $operation => $perYear) {
-                if ($operation === 'redemption' && !$options->redemptionFee) {
+                // The fees after expiry (D5a: the restore fee is the grace stage's where the TLD has no redemption).
+                if (in_array($operation, ['grace', 'redemption'], true) && !$options->redemptionFee) {
                     continue;
                 }
                 $entry = $pricing->costs[$operation] ?? null;
@@ -108,6 +109,11 @@ class TldImport
                 }
                 if ($options->autoRegister || !$row->exists) {
                     $row->registrar_connection_id = $options->autoRegister ? $connection->id : $row->registrar_connection_id;
+                }
+                // The registry's stages after expiry, as the registrar reports them (D5a): only from the TLD's own
+                // registrar (review 6).
+                if ($row->registrar_connection_id === $connection->id) {
+                    $row->fill(array_filter(['grace_days' => $pricing->graceDays, 'redemption_days' => $pricing->redemptionDays], fn ($days) => $days !== null));
                 }
                 $row->save();
 

@@ -54,6 +54,9 @@ final class DomainSyncResult
          * @var array<string, scalar|null>
          */
         public readonly array $details = [],
+        /** Y-m-d the registrar's grace (soft quarantine) and redemption (hard quarantine) end, when it is in them (D5a). */
+        public readonly ?string $graceEndsOn = null,
+        public readonly ?string $redemptionEndsOn = null,
     ) {}
 
     /** Nothing was read (a write whose re-read failed): no truth to apply, the next sync brings it (review 7). */

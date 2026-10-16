@@ -63,7 +63,7 @@ class SyncDomains extends Command
                         $domain->refresh();
                     } else {
                         // What the real run would see: the planned registrar truth, in memory only (review F10).
-                        $planned = array_intersect_key(array_map(fn (array $c) => $c[1], $changes), array_flip(['expires_at', 'status']));
+                        $planned = array_intersect_key(array_map(fn (array $c) => $c[1], $changes), array_flip(['expires_at', 'status', 'grace_ends_on', 'redemption_ends_on']));
                         $domain->forceFill($planned);
                     }
                 }

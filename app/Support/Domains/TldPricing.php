@@ -24,5 +24,12 @@ final class TldPricing
          * @var array<string, array{cost: string, currency: string}>
          */
         public readonly array $costs = [],
+        /**
+         * Days of the stages after expiry: the soft quarantine (our grace; its fee is `grace`, the restore fee where the
+         * TLD has no hard quarantine) and the hard quarantine (our redemption, `redemption`); 0 = that stage does not
+         * exist, null = not reported (D5a).
+         */
+        public readonly ?int $graceDays = null,
+        public readonly ?int $redemptionDays = null,
     ) {}
 }

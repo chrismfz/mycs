@@ -19,6 +19,7 @@ use App\Support\Domains\RegistrarDomainRecord;
 use App\Support\Domains\TldPricing;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
@@ -554,23 +555,39 @@ class OpenproviderRegistrar implements DomainRegistrar
             }
         }
 
+        // An expired domain is DEL at OP while still in its soft or hard quarantine (D5a): ours to renew or restore, never
+        // «deleted» while one of them runs (Amsterdam's day, as OP keeps them).
+        // Only on a DEL record (review 5: never an old pair kept on a restored, active one).
+        $graceEnds = $rawStatus === 'DEL' ? $this->datePart($data['soft_quarantine_expiry_date'] ?? null) : null;
+        $redemptionEnds = $rawStatus === 'DEL' ? $this->datePart($data['hard_quarantine_expiry_date'] ?? null) : null;
+        $today = Carbon::now('Europe/Amsterdam')->toDateString();
+        $status = $this->mapStatus($rawStatus);
+        $quarantined = false;
+        if ($rawStatus === 'DEL' && $graceEnds !== null && $graceEnds >= $today) {
+            [$status, $quarantined] = [DomainStatus::Grace, true];
+        } elseif ($rawStatus === 'DEL' && $redemptionEnds !== null && $redemptionEnds >= $today) {
+            [$status, $quarantined] = [DomainStatus::Redemption, true];
+        }
+
         return new DomainSyncResult(
             // A pending order carries a placeholder expiry (today + 1 year): never ours until it is active (live
             // finding, nixpal.com).
             expiresAt: in_array($rawStatus, self::PENDING_STATUSES, true) ? null : $this->datePart($data['expiration_date'] ?? null),
             nameservers: $nameservers,
             registrarDomainId: isset($data['id']) ? (string) $data['id'] : null,
-            status: $this->mapStatus($rawStatus),
+            status: $status,
             rawStatus: $rawStatus,
             contactHandles: $this->extractHandles($data),
-            // DEL = deleted, FAI = failed request — tombstones, not ownership.
-            deadRecord: in_array($rawStatus, self::DEAD_STATUSES, true),
+            // DEL = deleted, FAI = failed request — tombstones, not ownership; a DEL in quarantine is still ours (D5a).
+            deadRecord: in_array($rawStatus, self::DEAD_STATUSES, true) && !$quarantined,
             // Only an EXPLICIT boolean counts — an absent key must never
             // overwrite the local mirror with a guessed false.
             transferLock: is_bool($data['is_locked'] ?? null) ? $data['is_locked'] : null,
             whoisPrivacy: is_bool($data['is_private_whois_enabled'] ?? null) ? $data['is_private_whois_enabled'] : null,
             registeredAt: $this->datePart($data['creation_date'] ?? null),
             details: $this->detailsFrom($data),
+            graceEndsOn: $graceEnds,
+            redemptionEndsOn: $redemptionEnds,
         );
     }
 
@@ -627,24 +644,58 @@ class OpenproviderRegistrar implements DomainRegistrar
 
         $costs = [];
         foreach (self::PRICE_KEYS as $opKey => $operation) {
-            $block = $prices[$opKey] ?? null;
-            $entry = is_array($block) ? ($block['reseller'] ?? null) : null;
-            // A price we can use: a number, never negative (a negative would become a negative price: review F1).
-            if (!is_array($entry) || !is_scalar($entry['price'] ?? null) || !TldPriceMath::isAmount((string) $entry['price'])) {
-                continue;
+            $entry = $this->costEntry($prices[$opKey] ?? null);
+            if ($entry !== null) {
+                $costs[$operation] = $entry;
             }
-            // Its currency is never guessed: a price without one is left out.
-            if (!is_string($entry['currency'] ?? null) || trim($entry['currency']) === '') {
-                continue;
-            }
-            // Two decimals in decimal arithmetic, never through a float (CLAUDE.md); half up as the registrar bills.
-            $costs[$operation] = [
-                'cost' => bcadd((string) $entry['price'], '0.005', 2),
-                'currency' => strtoupper(trim($entry['currency'])),
-            ];
         }
 
-        return new TldPricing(tld: $tld, costs: $costs);
+        // The stages after expiry (D5a, Openprovider's TLD pages): soft quarantine (our grace) and hard quarantine (our
+        // redemption), in days. The restore fee belongs to the stage that has one: the hard quarantine if the TLD has it
+        // (.eu, .io, .ch); else the soft one (.com: 40 days, «Restore + Renew charges», no hard quarantine). The soft
+        // quarantine's own restore price applies to the grace of a TLD with both.
+        $graceDays = $this->days($data['soft_quarantine_period'] ?? null);
+        $redemptionDays = $this->days($data['quarantine_period'] ?? null);
+        $restore = $costs['redemption'] ?? null;
+        if ($graceDays !== null && $redemptionDays !== null) {
+            unset($costs['redemption']);
+            $softRestore = $this->costEntry($prices['soft_restore_price'] ?? null);
+            if ($redemptionDays > 0) {
+                if ($restore !== null) {
+                    $costs['redemption'] = $restore;
+                }
+                if ($graceDays > 0 && $softRestore !== null) {
+                    $costs['grace'] = $softRestore;
+                }
+            } elseif ($graceDays > 0 && $restore !== null) {
+                $costs['grace'] = $restore;
+            }
+        }
+
+        return new TldPricing(tld: $tld, costs: $costs, graceDays: $graceDays, redemptionDays: $redemptionDays);
+    }
+
+    /** A whole number of days from OP (0 included), or null: a negative or garbled one is not reported (adversarial F4). */
+    private function days(mixed $value): ?int
+    {
+        return is_int($value) && $value >= 0 ? $value : (is_string($value) && ctype_digit($value) ? (int) $value : null);
+    }
+
+    /**
+     * One reseller price block as a cost, or null: a non-negative amount (a negative would become a negative price: review
+     * F1) with its currency (never guessed), to two decimals in decimal arithmetic, half up as the registrar bills.
+     *
+     * @return array{cost: string, currency: string}|null
+     */
+    private function costEntry(mixed $block): ?array
+    {
+        $entry = is_array($block) ? ($block['reseller'] ?? null) : null;
+        if (!is_array($entry) || !is_scalar($entry['price'] ?? null) || !TldPriceMath::isAmount((string) $entry['price'])
+            || !is_string($entry['currency'] ?? null) || trim($entry['currency']) === '') {
+            return null;
+        }
+
+        return ['cost' => bcadd((string) $entry['price'], '0.005', 2), 'currency' => strtoupper(trim($entry['currency']))];
     }
 
     /**
@@ -855,7 +906,12 @@ class OpenproviderRegistrar implements DomainRegistrar
     private function datePart(mixed $value): ?string
     {
         // OP's «no date» is a zero date (adversarial F3: it became year -1 and broke the sync).
-        return is_string($value) && $value !== '' && !str_starts_with($value, '0000-00-00') ? substr($value, 0, 10) : null;
+        // A real date only (adversarial D5a F5: a garbled one kept a gone domain «in quarantine»).
+        if (!is_string($value) || preg_match('/^(\d{4})-(\d{2})-(\d{2})/', $value, $m) !== 1 || !checkdate((int) $m[2], (int) $m[3], (int) $m[1])) {
+            return null;
+        }
+
+        return substr($value, 0, 10);
     }
 
     /** @return array<string, mixed> */
