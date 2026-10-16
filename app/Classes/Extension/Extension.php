@@ -5,6 +5,7 @@ namespace App\Classes\Extension;
 use App\Models\Extension as ModelsExtension;
 use App\Models\Gateway;
 use App\Models\Server;
+use RuntimeException;
 
 /**
  * Base class for extensions
@@ -14,6 +15,13 @@ class Extension
     public function __construct(public $config = []) {}
 
     /**
+     * Its settings were given (ExtensionHelper::getExtension with a server's, a gateway's…), even empty: they are this
+     * instance's only settings. Without them it falls back to its extension's one record (closeout: an empty server
+     * took the first server's credentials, an account on the wrong WHM with myip's 6–7).
+     */
+    public bool $explicitConfig = false;
+
+    /**
      * Get a configuration value
      *
      * @param  string  $key
@@ -21,7 +29,7 @@ class Extension
      */
     public function config($key)
     {
-        if (empty($this->config)) {
+        if (empty($this->config) && !$this->explicitConfig) {
             // Check from which type its being called
             $type = debug_backtrace()[1]['class'];
             $type = str_replace('MyCS\Extensions\\', '', $type);
@@ -29,7 +37,12 @@ class Extension
             if (in_array($type, ['Servers', 'Gateways'])) {
                 $type = substr($type, 0, -1);
                 $type = ($type == 'Gateway') ? Gateway::class : Server::class;
-                $this->config = $type::where('extension', class_basename(static::class))->first()->settings->pluck('value', 'key')->toArray();
+                // Only when there is one: with several servers of a module, which one is never guessed.
+                $records = $type::where('extension', class_basename(static::class))->limit(2)->get();
+                if ($records->count() !== 1) {
+                    throw new RuntimeException(class_basename(static::class) . ': ' . ($records->isEmpty() ? 'no record to read its settings from' : 'several records, the settings must be given') . '.');
+                }
+                $this->config = $records->first()->settings->pluck('value', 'key')->toArray();
             } else {
                 $this->config = ModelsExtension::where('extension', class_basename(static::class))->first()->settings->pluck('value', 'key')->toArray();
             }

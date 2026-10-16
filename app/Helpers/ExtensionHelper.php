@@ -87,6 +87,7 @@ class ExtensionHelper
      */
     public static function getExtension($type, $extension, $config = [])
     {
+        $given = func_num_args() >= 3; // a record's settings, even empty: never another record's (Extension::config)
         $extension = '\\MyCS\\Extensions\\' . ucfirst($type) . 's\\' . $extension . '\\' . $extension;
 
         if (!class_exists($extension)) {
@@ -97,7 +98,10 @@ class ExtensionHelper
             $config = self::settingsToArray($config);
         }
 
-        return new $extension($config);
+        $instance = new $extension($config);
+        $instance->explicitConfig = $given;
+
+        return $instance;
     }
 
     /**
@@ -107,7 +111,9 @@ class ExtensionHelper
      */
     public static function getConfig($type, $extension, $config = [])
     {
-        if (empty($config)) {
+        // A new server's form is never filled from another server's settings (closeout); a gateway or other extension
+        // has one record.
+        if (empty($config) && $type !== 'server') {
             $typeClass = ($type == 'gateway') ? Gateway::class : (($type == 'server') ? Server::class : Extension::class);
             $config = $typeClass::where('extension', $extension)->exists()
                 ? $typeClass::where('extension', $extension)->first()->settings->pluck('value', 'key')->toArray()
