@@ -857,9 +857,6 @@ class CronJob extends Command
 
             return 0;
         }
-        if ($domain->client === null) {
-            return 0; // review 12
-        }
         // In grace or redemption one year (D-13: a restore brings back one year; review 8), at that year's price.
         $years = in_array($domain->status, [DomainStatus::Grace, DomainStatus::Redemption], true) ? 1 : max(1, (int) $domain->years);
         $price = $years === max(1, (int) $domain->years) ? $domain->renewalPrice()
@@ -875,7 +872,7 @@ class CronJob extends Command
         $periodEnd = $periodStart->copy()->addYearsNoOverflow($years);
         $due = $periodStart->greaterThan(today()) ? $periodStart : today();
 
-        $key = bccomp($price, '0', 2) > 0 && !$domain->client?->separate_invoices
+        $key = bccomp($price, '0', 2) > 0 && !$domain->client->separate_invoices
             ? implode('|', [$domain->client_id, $due->toDateString(), $domain->currency_code]) : null;
         $invoice = $key !== null && isset($this->renewalGroups[$key]) ? (new RecordPaymentService)->lockInvoice($this->renewalGroups[$key]) : null;
         if ($invoice !== null && ($invoice->status !== Invoice::STATUS_UNPAID || $invoice->finish_pending_at === null
