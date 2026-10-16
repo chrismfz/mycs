@@ -363,9 +363,11 @@ importer):
 - [ ] Shadow-run του licensing → cut-over της nixpal, **μετά τα domains της Φάσης 2** (Openprovider, CNIC).
 
 ## Φάση 2: Domains (2–4 εβδομάδες, μετά το spike)
+> Σχέδιο, αποφάσεις D-1…D-17 και σειρά PRs (D1–D8): [`domains.md`](domains.md) (2026-10-16).
 - [ ] Port του υποσυστήματος του Ekdosi: contract `DomainRegistrar`, models, Openprovider, Renewal/Registration/
       Transfer/Sync/Management, adopt, tests.
-- [ ] Driver **CNIC** (CentralNic Reseller): myip 209, nixpal 4. Το Ekdosi έχει μόνο Openprovider.
+- [ ] Driver **CNIC** (CentralNic Reseller): myip 226, nixpal 4. Αρχικά σύνδεση `manual`· module μόνο αν προλάβουμε
+      πριν μεταφερθούν στο Openprovider (`domains.md` D-10).
 - [ ] Πολιτική ανανέωσης: on-paid (default) / on-issue ανά πελάτη / «Ανανέωση τώρα» με prepaid.
 - [ ] Ρυθμίσεις domains (`settings-map.md`): auto renew on payment, default auto-renew, grace/redemption fee στο
       υπάρχον τιμολόγιο, default nameservers, IDN, to-do για αποτυχίες, renewal orders.

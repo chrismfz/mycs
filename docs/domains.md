@@ -1,0 +1,117 @@
+# Domains (Φάση 2): σχέδιο
+
+> Το ένα σημείο για τα domains του MyCS (D0, 2026-10-16). Μαζεύει ό,τι ήταν διάσπαρτο: το Ekdosi, το
+> `spike/domains`, το blesta-modules, το WHMCS της myip και τις αποφάσεις του ιδιοκτήτη. Όπου κάποια πηγή
+> διαφωνεί, ισχύει αυτό το αρχείο. Οι πηγές, για λεπτομέρειες:
+> - [`domains/ekdosi-design.md`](domains/ekdosi-design.md): το σχέδιο του Ekdosi (μοντέλο, Openprovider, ροές, guards).
+> - [`domains/whmcs-baseline.md`](domains/whmcs-baseline.md): μετρήσεις από το WHMCS της myip (μόνο αθροιστικά).
+> - [`domains/grepp.md`](domains/grepp.md): το μητρώο .gr (EPP over HTTPS, DACoR, κανόνες, μηνύματα λάθους).
+> - [`domains/spike.md`](domains/spike.md): το port στο MyCS και η live μεταφορά του nixpal.com.
+> - [`history/blesta-modules/openprovider.md`](history/blesta-modules/openprovider.md): κανόνες ανανέωσης/restore,
+>   ημερομηνία λήξης ανά TLD, pricing sync· [`history/blesta-modules/domain-tools.md`](history/blesta-modules/domain-tools.md).
+> - `decisions.md` §5, `settings-map.md` («Domains»), `accounts.md` (επαφές), `importer.md`, `whmcs-usage.md`.
+
+## 1. Πλαίσιο και αριθμοί
+- **Τι υπάρχει:** στο `main` μόνο τα `packages/myopenprovider` (client, `RenewalPlan`) και `packages/domain-tools`
+  (ονόματα/IDN, RDAP, whois). Το Ekdosi έχει πλήρες υποσύστημα (7 πίνακες, Openprovider, register/transfer/renew/
+  manage/restore, pricing sync, imports, Filament, ~170 tests με mock HTTP), **χωρίς** χρήση σε παραγωγή. Το spike
+  μετέφερε τον πυρήνα (48 tests) και έκανε μία live μεταφορά· είναι 670+ commits πίσω και **δεν** γίνεται merge.
+- **nixpal (pilot):** 11 domains: Openprovider 7, CNIC 3 + 1 σε grace.
+- **myip:** 1.833 active: .gr (grepp) 1.381, CNIC 226, Openprovider 224. Εκτός .gr: **~450–500**. Ανανεώσεις με
+  τον registrar μετά την πληρωμή 1.603 σε 2 χρόνια· «Credit limit exceeded» 46· υπενθυμίσεις 34.296.
+- **Δεν υπάρχει πουθενά:** κώδικας .gr EPP, importer του WHMCS για domains, υπενθυμίσεις λήξης, αυτόματο grace/
+  redemption, margin στις τιμές.
+
+## 2. Αποφάσεις
+Του ιδιοκτήτη, 2026-10-16, εκτός αν γράφει αλλιώς.
+
+| # | Απόφαση | Πηγή |
+|---|---|---|
+| D-1 | **Ανανέωση στον registrar όταν πληρωθεί το τιμολόγιο.** Είναι υπηρεσία τρίτου που πληρώνουμε. Εξαίρεση: έμπιστοι πελάτες/συνεργάτες, που το staff ανανεώνει με «Ανανέωση τώρα» και πληρώνουν μετά. Η πληρωμή που έρχεται μετά **δεν** ξαναανανεώνει (το bug του WHMCS, το «hack» με το relid). | ιδιοκτήτης· `decisions.md` §5 |
+| D-2 | Μία ανανέωση ανά τιμολόγιο **και** περίοδο (`invoice_items.period_start/end`, #32). Πριν ανανεώσει, κάνει sync: αν ο registrar καλύπτει ήδη την περίοδο, την **υιοθετεί** (adopt) χωρίς δεύτερη χρέωση. | Ekdosi, spike |
+| D-3 | **Επαφές:** οι κοινές `contacts` του λογαριασμού, που φτιάχτηκαν για διπλό σκοπό (domains και, αργότερα, παραστατικά στο Ekdosi). Το domain δείχνει ποια επαφή είναι registrant/admin/tech/billing και κρατά μόνο το **handle** του registrar ανά ρόλο. Κανένας ξεχωριστός πίνακας επαφών domain. | ιδιοκτήτης· `accounts.md` |
+| D-4 | **Χρέωση μέσω `Service`:** κάθε domain έχει μία υπηρεσία που το χρεώνει. Έτσι ξαναχρησιμοποιούμε cursor, ομαδοποίηση, dunning, πιστώσεις, Pending Module Actions. Το `next due` της υπηρεσίας ακολουθεί τη λήξη (στο WHMCS `nextduedate = expirydate` σε όλα). | ιδιοκτήτης |
+| D-5 | **Πολυετή:** 1–10 έτη ανά TLD, με ελάχιστο και βήμα (.gr: 2/4/6/8 έτη, default 2). Τιμή ανά TLD, πράξη (register/renew/transfer), έτη και νόμισμα. | ιδιοκτήτης· whmcs-baseline §3 |
+| D-6 | **Τιμές TLD με importer/sync όπως το WHMCS** (Utilities → TLD Import & Pricing Sync): επιλογή registrar, margin (%/ποσό), στρογγυλοποίηση, προαιρετικά και grace/redemption fee, «auto-registration» με αυτόν τον registrar. Πίνακας κόστους/τρέχουσας τιμής/margin ανά TLD· εισάγει μόνο όσα επιλέξει το staff. | ιδιοκτήτης (screenshots WHMCS) |
+| D-7 | **Ρυθμίσεις ανά TLD όπως το WHMCS** (Domains/TLDs): registrar αυτόματης εγγραφής, EPP code για μεταφορά, DNS management / email forwarding / ID protection, τιμές, **grace και redemption: μέρες και τέλος**. Μαζική επεξεργασία. | ιδιοκτήτης |
+| D-8 | **Grace/redemption από το API** του registrar όπου τα δίνει (Openprovider: μέρες και τιμή restore), αλλιώς με το χέρι. Το cron περνά το domain σε grace και μετά σε redemption με βάση τη λήξη. Το τέλος μπαίνει **στο υπάρχον τιμολόγιο** ανανέωσης (`DomainExpirationFeeHandling=existing`). | ιδιοκτήτης· `settings-map.md` |
+| D-9 | **Sync με cron:** pending transfers, grace/redemption, active/cancelled/expired, και λήξη που άλλαξε έξω από εμάς (π.χ. ανανέωση από την κονσόλα του Openprovider). Λήξη = `expiration_date` του registrar. Κάθε αλλαγή καταγράφεται· ο registrar μόνο προχωρά την κατάσταση. | ιδιοκτήτης· blesta H4· Ekdosi |
+| D-10 | **Registrars:** Openprovider σίγουρα. **CNIC = `manual`** (χρέωση κανονικά, χωρίς API/sync, με ρητή σύνδεση ανά domain), εκτός αν προλάβουμε μέσα σε 4–6 μήνες· τότε module/hook όπως σήμερα (μεταφορά στο Openprovider αντί για ανανέωση). Τα CNIC μεταφέρονται σταδιακά στο Openprovider. .gr EPP: Φάση 4 (myip). | ιδιοκτήτης |
+| D-11 | **Importer από το WHMCS** (~450–500 domains εκτός .gr): `tbldomains`, `tbldomainpricing`, ρυθμίσεις ανά TLD, additional fields· parity και σύγκριση με τους registrars. **Ποτέ** οι σημειώσεις (`additionalnotes`) ή το `mod_domain_migration.epp`: έχουν EPP codes και κωδικούς σε απλό κείμενο. | ιδιοκτήτης· whmcs-baseline §10 |
+| D-12 | Autorenew **κλειστό** στον registrar: το ρολόι της χρέωσης είναι δικό μας. Κάθε domain το ανανεώνει ένα μόνο σύστημα (κλείνει στο cut-over). | blesta `openprovider.md` |
+| D-13 | Restore: αυτόματο μόνο στην soft quarantine και για 1 έτος· στην hard quarantine αρνείται και αποφασίζει άνθρωπος. | blesta `RenewalPlan` |
+| D-14 | Υπενθυμίσεις λήξης **60/30/15/10/5** μέρες, χωριστά από τις υπενθυμίσεις τιμολογίων. Τιμολόγιο ανανέωσης 15 μέρες πριν (`CreateInvoiceDaysBefore` domains). Do-not-renew ανά domain. **Cut-over blocker.** | `settings-map.md`· whmcs-baseline §6 |
+| D-15 | Έλεγχος υπολοίπου στον registrar πριν την ανανέωση· αποτυχία → Pending Module Actions και ειδοποίηση staff· η πληρωμή του πελάτη **δεν** αποτυγχάνει ποτέ λόγω registrar. | whmcs-baseline §5· `provisioning.md` |
+| D-16 | Μεταφορά: στέλνουμε **πάντα** ρητά τους τρέχοντες nameservers (με glue IP για NS μέσα στο ίδιο domain)· η λήξη υιοθετείται μόνο με `ACT`, όχι όσο είναι pending. | spike (live) |
+| D-17 | Κάθε ενέργεια που χρεώνει στον registrar: lock ανά domain, log (αίτημα, απάντηση, τιμολόγιο), καμία δεύτερη εκτέλεση· **ένα live write test ανά ενέργεια** πριν το cut-over. | Ekdosi `GuardsRegistrarWrites`· spike |
+
+## 3. Μοντέλο (από το Ekdosi, χωρίς `company_id`)
+- `domain_registrar_connections`: registrar, label, active, mode (off/sandbox/production), `config` **encrypted**.
+  Πολλές συνδέσεις, και δύο στον ίδιο registrar. Η σύνδεση `manual` δεν καλεί API.
+- `domain_tlds`: tld, σύνδεση αυτόματης εγγραφής, έτη (min/max/βήμα), μήκος, IDN, EPP code, addons (DNS, email
+  forwarding, ID protection), **grace/redemption μέρες και τέλος**, active.
+- `domain_tld_prices`: tld, πράξη (register/renew/transfer/restore), **έτη**, νόμισμα, `cost`, `price`, enabled.
+  Το sync γράφει μόνο `cost`· η `price` αλλάζει μόνο με το import του D-6 ή με το χέρι. Νέα γραμμή χωρίς τιμή =
+  κλειστή (ποτέ δωρεάν κατά λάθος). Ιστορικό αλλαγών τιμής.
+- `domains`: `client_id`, `service_id` (D-4), tld, σύνδεση (υπερισχύει του TLD), fqdn, status, ημερομηνίες εγγραφής/
+  μεταφοράς/λήξης, auto-renew, lock, privacy, DNSSEC, id στον registrar, `last_synced_at`, `sync_error`, overrides
+  (grace/redemption/fee/τιμή), `legacy_id` (WHMCS `tbldomains.id`).
+- `domain_contacts` → **όχι** (D-3): ρόλοι ως `contact_id` στο domain, handle ανά ρόλο.
+- `domain_nameservers`, `domain_registrar_logs` (και `invoice_id` για το «μία φορά ανά τιμολόγιο»).
+- Statuses: active, pending_register, pending_transfer, expired, grace, redemption, transferred_away, cancelled,
+  deleted (όπως στο Ekdosi· labels σε `lang/`).
+
+## 4. Ροές
+- **Παραγγελία:** register/transfer στο καλάθι με τα έτη του TLD → τιμολόγιο → μετά την πληρωμή εγγραφή/μεταφορά
+  (Auto Setup του Σ1) → η υπηρεσία γίνεται active μόλις ο registrar επιβεβαιώσει.
+- **Ανανέωση:** τιμολόγιο 15 μέρες πριν τη λήξη (D-14) → πληρωμή → `renewForInvoice` (D-1, D-2, D-15).
+  «Ανανέωση τώρα» του staff (D-1): ανανεώνει, γράφει την περίοδο, και η μεταγενέστερη πληρωμή την υιοθετεί.
+- **Λήξη:** expired → grace (ανανέωση με το τέλος grace, αν υπάρχει) → redemption (restore με τέλος, D-13) →
+  deleted. Οι μέρες από το TLD ή το override του domain.
+- **Sync (D-9):** ημερήσιο για όλα, συχνότερο (κάθε 6 ώρες) για pending transfers με λήξη στις 14 μέρες. Πρώτα
+  **αναφορά διαφορών**· η εφαρμογή γράφει audit.
+- **Διαχείριση:** NS, lock, privacy, επαφές, EPP code (ποτέ αποθηκευμένο), restore. Πελάτης στο portal: NS, EPP
+  code, auto-renew.
+
+## 5. Τι παίρνουμε από πού
+| Κομμάτι | Από | Αλλαγές |
+|---|---|---|
+| Contract `DomainRegistrar`, DTOs, registry/factory/null, credentials | Ekdosi (= spike) | καμία ουσιαστική |
+| `OpenproviderRegistrar` | spike | **με τις 3 διορθώσεις της live μεταφοράς**· grace/redemption από το API (D-8) |
+| Sync, Transfer, Renewal (adopt) | spike | renewal on-paid (D-1), Pending Module Actions (D-15), grace/redemption (D-8) |
+| Registration, Management, Pricing sync, imports | Ekdosi | χωρίς `company_id`, `Service` αντί για `ServiceContract` |
+| `RenewalPlan` (restore/refuse) | `packages/myopenprovider` | adapter αντί για το Blesta meta store |
+| Αναζήτηση, whois, suggestions | `packages/domain-tools` | — |
+| Pricing importer με margin (D-6), grace/redemption cron, υπενθυμίσεις, importer WHMCS | **νέα** | — |
+
+## 6. PRs
+Κάθε PR με κώδικα: code review. Όσα αγγίζουν χρήματα (τιμές, τιμολόγια, ανανέωση): **και adversarial review**.
+1. **D1 Σχήμα και μοντέλα:** πίνακες, statuses, ρόλοι επαφών, admin read-only. Code review.
+2. **D2 Registrars:** contract, συνδέσεις (encrypted, test connection), Openprovider (sandbox), `manual`, guards και
+   log. Code + adversarial (writes που χρεώνουν).
+3. **D3 TLDs και τιμές:** ρυθμίσεις ανά TLD (D-7), τιμές ανά έτη/νόμισμα, sync κόστους, importer με margin (D-6).
+   Code + adversarial (τιμές).
+4. **D4 Sync:** `domains:sync` και schedule, pending transfers, grace/redemption, αναφορά διαφορών. Code review.
+5. **D5 Χρέωση:** domain ↔ `Service`, τιμολόγιο ανανέωσης, renew on-paid, «Ανανέωση τώρα», adopt, fee grace/
+   redemption στο υπάρχον τιμολόγιο, Pending Module Actions. Code + adversarial.
+6. **D6 Importer WHMCS:** domains, τιμές, TLDs, ρόλοι επαφών, additional fields· parity και σύγκριση με τον
+   registrar (`importer.md`). Code + adversarial.
+7. **D7 Υπενθυμίσεις και portal:** 60/30/15/10/5, do-not-renew, domains του πελάτη, NS, EPP code. Code review.
+8. **D8 Παραγγελίες:** register/transfer στο καλάθι, αναζήτηση. Code + adversarial.
+Μετά: CNIC module (αν προλάβουμε, D-10), .gr EPP (`packages/gr-epp`, Φάση 4), additional fields ανά ccTLD, DNSSEC.
+
+## 7. Δοκιμές σε live
+- **Domain δοκιμών: nixpal.com** (δικό μας, ήδη στο Openprovider από τη μεταφορά του spike), στον πελάτη δοκιμών
+  του staff. Από το D2: σύνδεση με τον registrar, sync ημερομηνιών και nameservers, το cron, οι
+  καταστάσεις· στο D5 μια ανανέωση από τιμολόγιο.
+- Πρώτα μόνο ανάγνωση (login, info, sync)· **κάθε ενέργεια που χρεώνει** (renew, transfer, restore) μόνο με ρητή
+  έγκριση του ιδιοκτήτη, μία φορά ανά ενέργεια (D-17).
+- Τα credentials του registrar μόνο κρυπτογραφημένα στη βάση (σύνδεση registrar), ποτέ στο repo, σε logs ή στο chat.
+
+## 8. Ανοιχτά
+- Ποια πεδία δίνει το API του Openprovider για grace/redemption ανά TLD (μέρες, τιμή restore, soft/hard
+  quarantine): επιβεβαίωση στο D2/D3 με το sandbox.
+- Νόμισμα: το Openprovider χρεώνει σε EUR· οι τιμές πώλησης ανά νόμισμα του MyCS (μετατροπή ή χωριστές τιμές).
+- Δωρεάν domain μαζί με πακέτο hosting (2 περιπτώσεις στο WHMCS).
+- Χρεωμένη αλλαγή ιδιοκτήτη (2 περιπτώσεις): με το χέρι ως τότε.
+- Οι 145 additional fields του WHMCS: ποια χρειάζονται τα ~450 domains εκτός .gr (≤16 domains το καθένα).
