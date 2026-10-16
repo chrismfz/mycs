@@ -7,6 +7,7 @@ use App\Enums\DomainStatus;
 use App\Models\Domain;
 use App\Services\Domains\DomainNotFoundAtRegistrar;
 use App\Services\Domains\DomainRegistrarNotConfigured;
+use App\Services\Domains\Pricing\TldPriceMath;
 use App\Support\Domains\AvailabilityResult;
 use App\Support\Domains\DomainChanges;
 use App\Support\Domains\DomainRegistrarCapabilities;
@@ -551,7 +552,8 @@ class OpenproviderRegistrar implements DomainRegistrar
         foreach (self::PRICE_KEYS as $opKey => $operation) {
             $block = $prices[$opKey] ?? null;
             $entry = is_array($block) ? ($block['reseller'] ?? null) : null;
-            if (!is_array($entry) || !is_numeric($entry['price'] ?? null)) {
+            // A price we can use: a number, never negative (a negative would become a negative price: review F1).
+            if (!is_array($entry) || !is_scalar($entry['price'] ?? null) || !TldPriceMath::isAmount((string) $entry['price'])) {
                 continue;
             }
             // Its currency is never guessed: a price without one is left out.

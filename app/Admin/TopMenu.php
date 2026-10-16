@@ -15,6 +15,7 @@ use App\Admin\Resources\CurrencyResource;
 use App\Admin\Resources\CustomPropertyResource;
 use App\Admin\Resources\DomainRegistrarConnectionResource;
 use App\Admin\Resources\DomainResource;
+use App\Admin\Resources\DomainTldResource;
 use App\Admin\Resources\EmailLogResource;
 use App\Admin\Resources\ExtensionResource;
 use App\Admin\Resources\FailedJobResource;
@@ -95,6 +96,7 @@ class TopMenu
             [GatewayResource::class, 'index', 'Payment Gateways'],
             [ServerResource::class, 'index', 'Servers'],
             [DomainRegistrarConnectionResource::class, 'index', 'Domain Registrars'],
+            [DomainTldResource::class, 'index', 'Domain Pricing'],
             [ServerGroupResource::class, 'index', 'Server Groups'],
             [NotificationTemplateResource::class, 'index', 'Email Templates'],
             [RoleResource::class, 'index', 'Staff Roles'],
