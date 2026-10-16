@@ -535,5 +535,18 @@
     "Hosted WHOIS": "Hosted WHOIS",
     "Registrant company": "Εταιρεία registrant",
     "Glue records": "Glue records",
-    "Handles at the registrar": "Handles στον registrar"
+    "Handles at the registrar": "Handles στον registrar",
+    "All": "Όλα",
+    "Full access, not editable": "Πλήρης πρόσβαση, δεν αλλάζει",
+    "At the registrar: :handle (not linked here)": "Στον registrar: :handle (δεν είναι συνδεδεμένο εδώ)",
+    "Edit contact": "Επεξεργασία επαφής",
+    "Link here": "Σύνδεση εδώ",
+    "Link :handle as the :role": "Σύνδεση του :handle ως :role",
+    "Contact": "Επαφή",
+    "A new contact of the account, from the registrar's record": "Νέα επαφή του λογαριασμού, από την εγγραφή του registrar",
+    "Linked.": "Συνδέθηκε.",
+    "Not linked.": "Δεν συνδέθηκε.",
+    "Not allowed.": "Δεν επιτρέπεται.",
+    "The contact of the account, wherever it is used. Changes here are not sent to the registrar: WHOIS keeps the registrar's record.": "Η επαφή του λογαριασμού, όπου κι αν χρησιμοποιείται. Οι αλλαγές εδώ δεν στέλνονται στον registrar: το WHOIS κρατά την εγγραφή του registrar.",
+    "Nothing is sent to the registrar: WHOIS stays as it is. You say who this handle is here; every role with this handle at the registrar is linked with it.": "Τίποτα δεν στέλνεται στον registrar: το WHOIS μένει ως έχει. Εσείς λέτε ποιος είναι αυτό το handle εδώ· κάθε ρόλος με αυτό το handle στον registrar συνδέεται μαζί."
 }

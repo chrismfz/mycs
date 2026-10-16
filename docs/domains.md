@@ -212,12 +212,34 @@
    - Lock 10 λεπτά ανά domain (όσο η μεγαλύτερη κλήση).
    - Το WHOIS privacy εδώ είναι το `id_protection` του domain· το D5 **δεν** το χρεώνει επειδή το άλλαξε το staff
      (να επιβεβαιωθεί ότι ο Openprovider δεν το χρεώνει πριν το D5).
+4c. **D4c Επαφές από το domain** (ιδιοκτήτης 2026-10-16): κάθε ρόλος δείχνει το handle του (συνδεδεμένο, ή «μόνο στον
+   registrar»: `meta.registrar_handles` από το sync), «At the registrar» (η εγγραφή του handle εκεί), «Edit contact» (η
+   επαφή του λογαριασμού, `admin.clients.update`· **δεν** στέλνεται στον registrar) και **«Link here»**
+   (`admin.domains.manage`): το staff λέει ποιος είναι ένα handle που δεν συνδέθηκε αυτόματα (π.χ. ο τελικός πελάτης
+   ενός agency, με άλλο email). Σε υπάρχουσα επαφή του λογαριασμού (η εξαίρεση στον κανόνα του email του D4b, με την
+   ευθύνη του staff), ή σε **νέα επαφή** από την εγγραφή του registrar (θέλει και `admin.clients.update`). Κάθε ρόλος με
+   το ίδιο handle συνδέεται μαζί. Τίποτα δεν στέλνεται στον registrar· audit και log. Ένα handle που συνδέθηκε έτσι
+   (`meta.linked_handles`) δεν «δανείζεται» σε άλλο ρόλο της ίδιας επαφής σε μια αλλαγή επαφών. Το re-read μετά τη
+   σύνδεση είναι best-effort. Κανόνες μετά το adversarial: η σύνδεση διαβάζει πρώτα τον registrar κάτω από το lock και
+   αρνείται αν το handle άλλαξε ή ο ρόλος συνδέθηκε στο μεταξύ· μαζί συνδέονται μόνο ρόλοι **χωρίς** επαφή εδώ (ποτέ δεν
+   αλλάζει ο registrant επειδή συνδέθηκε ο admin)· «νέα επαφή» για handle που ήδη έχει επαφή εδώ = εκείνη η επαφή.
+   Αλλαγή επαφών: ρόλοι χωρίς handle **δεν** στέλνονται (ο registrar κρατά τους δικούς του, αντί για fallback στον
+   registrant), και ρόλος με επαφή που δεν είναι συνδεδεμένος με το handle του registrar αρνείται ως ότου συνδεθεί. Μαζί: σελίδα domain σε δύο ανεξάρτητες στήλες· ο ρόλος #1 (`*`) δεν προσφέρεται για
+   επεξεργασία (ήταν σκέτο 403)· το εύρος του D8 (ζήτησε ο ιδιοκτήτης στο ίδιο PR). Code + adversarial.
 5. **D5 Χρέωση:** γραμμή `Domain` στο τιμολόγιο, βήμα τιμολόγησης με ομαδοποίηση, κλάδος στην πληρωμή, renew on-paid, «Ανανέωση τώρα», adopt, fee grace/
    redemption στο υπάρχον τιμολόγιο, Pending Module Actions. Code + adversarial.
 6. **D6 Importer WHMCS:** domains, τιμές, TLDs, ρόλοι επαφών, additional fields· parity και σύγκριση με τον
    registrar (`importer.md`). Code + adversarial.
 7. **D7 Υπενθυμίσεις και portal:** 60/30/15/10/5, do-not-renew, domains του πελάτη, NS, EPP code. Code review.
-8. **D8 Παραγγελίες:** register/transfer στο καλάθι, αναζήτηση. Code + adversarial.
+8. **D8 Παραγγελίες, αναζήτηση, whois, τιμοκατάλογος** (εύρος που ζήτησε ο ιδιοκτήτης 2026-10-16· πρώτα ιδέες από
+   WHMCS και Blesta). Δύο PRs:
+   - **D8a (χωρίς χρήματα):** αναζήτηση διαθεσιμότητας στο shop (μέσω registrar `checkAvailability`, RDAP ως fallback)
+     με suggestions (διαθέσιμο / κατειλημμένο → «μεταφορά» ή εναλλακτικές), **δημόσιο whois** (RDAP, port 43 ως fallback,
+     rate limit, χωρίς προσωπικά όπου το μητρώο τα κρύβει), **δημόσια σελίδα τιμοκαταλόγου** TLDs (register/renew/transfer
+     ανά έτη και νόμισμα) και **JSON API τιμοκαταλόγου** (cached, rate-limited) για το site. `packages/domain-tools`
+     έχει ήδη RDAP/port43/suggestions/rate limiter. Code + adversarial (κατάχρηση, enumeration).
+   - **D8b (χρήματα):** register/transfer στο καλάθι (έτη του TLD, EPP code στη μεταφορά), τιμολόγιο, εγγραφή/μεταφορά
+     μετά την πληρωμή. Code + adversarial.
 Μετά: CNIC module (αν προλάβουμε, D-10), .gr EPP (`packages/gr-epp`, Φάση 4: μαζί και η **ανάκληση** του .gr μέσα σε
 5 μέρες από την καταχώριση), additional fields ανά ccTLD, DNSSEC (επεξεργασία· σήμερα φαίνεται μόνο αν είναι ενεργό).
 

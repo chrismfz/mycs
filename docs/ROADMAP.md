@@ -372,7 +372,7 @@ importer):
 - [ ] Ρυθμίσεις domains (`settings-map.md`): auto renew on payment, default auto-renew, grace/redemption fee στο
       υπάρχον τιμολόγιο, default nameservers, IDN, to-do για αποτυχίες, renewal orders.
 - [ ] Ειδοποιήσεις λήξης 60/30/15/10/5· do-not-renew· EPP code· additional fields.
-- [ ] Αναζήτηση/whois/suggestions (`packages/domain-tools`)· domains στο portal· block existing domains.
+- [ ] Αναζήτηση/whois/suggestions (`packages/domain-tools`)· domains στο portal· block existing domains. Μαζί δημόσιος τιμοκατάλογος TLDs και JSON API του για το site (D8a, `docs/domains.md` §6).
 - [ ] Import domains από WHMCS + sync με τους registrars.
 - [ ] On-demand renewals (πρόωρη ανανέωση από πελάτη, #1167).
 - [ ] **Πολλοί registrars** ταυτόχρονα (Openprovider, CNIC, αργότερα .gr EPP), registrar ανά domain και ανά TLD.

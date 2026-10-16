@@ -16,6 +16,7 @@ use App\Support\Redact;
 use Closure;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
@@ -117,6 +118,13 @@ class DomainManagementService
             // Sending the other roles sends the registrant too: unlinked, it would become a new owner at the registrar.
             throw new InvalidArgumentException(__('domains.manage.registrant_not_linked'));
         }
+        // A role not changed that has a contact here but is not linked to the registrar's handle: sending it would replace
+        // the registrar's with a new one nobody asked for. Linked first (D4c).
+        foreach (Domain::ROLES as $role) {
+            if (!array_key_exists("{$role}_contact_id", $changed) && $domain->{"{$role}_contact_id"} !== null && $this->isUnlinked($domain, $role)) {
+                throw new InvalidArgumentException(__('domains.manage.role_not_linked', ['role' => __('domains.role.' . $role)]));
+            }
+        }
 
         $before = $domain->only(array_merge(...array_map(fn ($role) => ["{$role}_contact_id", "{$role}_handle"], Domain::ROLES)));
         $this->write($domain, 'contacts', $changed, $staff, function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $changed) {
@@ -150,11 +158,29 @@ class DomainManagementService
         return (string) $code;
     }
 
-    /** What the registrar holds for a role's handle (name, email, address…), read when staff ask. */
+    /** A role's handle: ours (linked), else the one the registrar reported at the last sync (not linked yet). */
+    public function handleFor(Domain $domain, string $role): ?string
+    {
+        if (!in_array($role, Domain::ROLES, true)) {
+            return null;
+        }
+        $ours = trim((string) $domain->{"{$role}_handle"});
+        $theirs = $domain->meta['registrar_handles'][$role] ?? null;
+
+        return $ours !== '' ? $ours : (is_string($theirs) && trim($theirs) !== '' ? trim($theirs) : null);
+    }
+
+    /** The registrar reports a handle for this role that is not linked to a contact here. */
+    public function isUnlinked(Domain $domain, string $role): bool
+    {
+        return trim((string) $domain->{"{$role}_handle"}) === '' && $this->handleFor($domain, $role) !== null;
+    }
+
+    /** What the registrar holds for a role's handle (name, email, address…), read when staff ask; linked or not. */
     public function registrarContact(Domain $domain, string $role, ?Staff $staff): ?RegistrarContact
     {
-        $handle = trim((string) $domain->{"{$role}_handle"});
-        if (!in_array($role, Domain::ROLES, true) || $handle === '') {
+        $handle = $this->handleFor($domain, $role);
+        if ($handle === null) {
             return null;
         }
         $contact = null;
@@ -164,6 +190,107 @@ class DomainManagementService
 
                 return ['found' => $contact !== null];
             });
+
+        return $contact;
+    }
+
+    /**
+     * A role's registrar handle linked here by staff (D4c): the registrar is not written, WHOIS stays as it is. To an
+     * existing contact of the account (staff say it is the same person, whatever its email), or to a new contact made
+     * from the registrar's record (an end customer registered by an agency account). Audited and logged.
+     */
+    public function linkContact(Domain $domain, string $role, ?int $contactId, ?Staff $staff): Contact
+    {
+        if (!$this->isUnlinked($domain, $role)) {
+            throw new InvalidArgumentException(__('domains.manage.nothing_to_link'));
+        }
+        // The account's own, and not archived: a contact holding a role is never archived (Contact::archive, adversarial A4).
+        if ($contactId !== null && !Contact::query()->whereKey($contactId)->where('client_id', $domain->client_id)->whereNull('archived_at')->exists()) {
+            throw new InvalidArgumentException(__('domains.manage.contact_not_the_accounts'));
+        }
+        $handle = (string) $this->handleFor($domain, $role);
+        $linked = null;
+        $this->call($domain, 'link_contact', ['role' => $role, 'handle' => $handle, 'contact_id' => $contactId ?? 'new'], $staff,
+            function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $role, $handle, &$contactId, &$linked) {
+                // Under the lock, from what is true now (adversarial A1, A2): the role still unlinked here, and the handle
+                // still the registrar's for it; a stale one would later be sent back to the registrar as this role's.
+                $domain->refresh();
+                if (trim((string) $domain->{"{$role}_handle"}) !== '') {
+                    throw new InvalidArgumentException(__('domains.manage.nothing_to_link'));
+                }
+                $now = $registrar->syncDomain($domain, $credentials)->contactHandles;
+                if (($now[$role] ?? null) !== $handle) {
+                    throw new InvalidArgumentException(__('domains.manage.handle_changed', ['handle' => $handle]));
+                }
+                // With it, every role the registrar gives the same handle that has no contact here (review 3); a role with
+                // a contact keeps it: linking the admin never replaces the registrant's (adversarial A3).
+                $roles = array_values(array_filter(Domain::ROLES, fn (string $r) => $r === $role || (($now[$r] ?? null) === $handle
+                    && trim((string) $domain->{"{$r}_handle"}) === '' && $domain->{"{$r}_contact_id"} === null)));
+                // A handle this domain already linked to a contact is that contact: never a second one (adversarial A5).
+                foreach (Domain::ROLES as $r) {
+                    if ($contactId === null && $domain->{"{$r}_handle"} === $handle && $domain->{"{$r}_contact_id"} !== null) {
+                        $contactId = (int) $domain->{"{$r}_contact_id"};
+                    }
+                }
+                $record = $contactId === null ? ($registrar->getContact($handle, $credentials)
+                    ?? throw new RuntimeException(__('domains.manage.not_at_the_registrar', ['handle' => $handle]))) : null;
+                // One transaction: a failed save leaves no new contact behind (review 1).
+                DB::transaction(function () use ($domain, $roles, $handle, $contactId, $record, &$linked) {
+                    $linked = $record !== null ? $this->contactFrom($domain, $record) : Contact::query()->findOrFail($contactId);
+                    $meta = $domain->meta ?? [];
+                    $fill = [];
+                    foreach ($roles as $role) {
+                        // Both at once: the model would clear a role's handle whose contact changes on its own.
+                        $fill["{$role}_contact_id"] = $linked->id;
+                        $fill["{$role}_handle"] = $handle;
+                        // Linked by staff's word, not by a matching email: ensureHandles never lends it to another role of
+                        // this contact (review 2).
+                        $meta['linked_handles'][$role] = $handle;
+                    }
+                    $domain->forceFill($fill + ['meta' => $meta])->save(); // audited
+                });
+                // Done here whatever the registrar answers now: the re-read is best-effort (review 1), as after a write.
+                $synced = true;
+                try {
+                    $this->sync->sync($domain->refresh(), true, false); // this call holds the lock
+                    $this->lifecycle->advance($domain->refresh());
+                } catch (Throwable) {
+                    $synced = false;
+                }
+
+                return ['contact_id' => $linked?->id, 'created' => $contactId === null, 'synced' => $synced];
+            });
+
+        return $linked;
+    }
+
+    /** A contact of the domain's account from the registrar's record of a handle. */
+    private function contactFrom(Domain $domain, RegistrarContact $record): Contact
+    {
+        $org = trim((string) $record->org);
+        $name = trim($record->name);
+        $person = $name !== '' && $name !== $org && $name !== $record->handle ? $name : '';
+        [$first, $last] = $person !== '' ? array_pad(preg_split('/\s+/u', $person, 2) ?: [], 2, '') : ['', ''];
+
+        if ($first === '' && $last === '' && $org === '') {
+            $last = (string) $record->email; // a contact is never nameless (displayName)
+        }
+        $cut = fn (?string $value, int $length = 255) => $value === null || trim($value) === '' ? null : mb_substr(trim($value), 0, $length);
+        $contact = new Contact;
+        $contact->forceFill([ // client_id is not fillable; the registrar's text cut to the columns (adversarial A6)
+            'client_id' => $domain->client_id,
+            'type' => $org !== '' && $person === '' ? 'business' : 'individual',
+            'first_name' => $cut($first),
+            'last_name' => $cut($last),
+            'company_name' => $cut($org),
+            'email' => $cut($record->email),
+            'phone' => $cut($record->phone),
+            'address1' => $cut($record->address1),
+            'address2' => $cut($record->address2),
+            'city' => $cut($record->city),
+            'postcode' => $cut($record->postcode),
+            'country' => $record->country !== null && preg_match('/^[A-Za-z]{2}$/', trim($record->country)) === 1 ? strtoupper(trim($record->country)) : null,
+        ])->save();
 
         return $contact;
     }

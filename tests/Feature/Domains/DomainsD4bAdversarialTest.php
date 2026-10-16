@@ -187,7 +187,14 @@ class DomainsD4bAdversarialTest extends TestCase
         $this->fakeOp(['admin_handle' => 'OTHER-PERSON-GR']);
 
         app(DomainSyncService::class)->sync($domain);
-        app(DomainManagementService::class)->setContacts($domain->fresh(), ['tech' => $tech->id], null);
+        // D4c: an unlinked admin with a contact is refused until staff link it; nothing reaches the registrar meanwhile.
+        try {
+            app(DomainManagementService::class)->setContacts($domain->fresh(), ['tech' => $tech->id], null);
+        } catch (InvalidArgumentException) {
+            $this->assertSame([], $this->puts);
+
+            return;
+        }
 
         $this->assertNotSame('OTHER-PERSON-GR', end($this->puts)['admin_handle'],
             'the admin contact chosen in MyCS never reaches the registrar: the role keeps another person\'s handle');
