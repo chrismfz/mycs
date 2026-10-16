@@ -55,4 +55,10 @@ final class DomainSyncResult
          */
         public readonly array $details = [],
     ) {}
+
+    /** Nothing was read (a write whose re-read failed): no truth to apply, the next sync brings it (review 7). */
+    public function readNothing(): bool
+    {
+        return $this->rawStatus === null && $this->expiresAt === null && $this->nameservers === [] && $this->details === [];
+    }
 }

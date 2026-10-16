@@ -97,6 +97,7 @@ class DomainResource extends Resource
         'is_hosted_whois' => 'Hosted WHOIS',
         'owner_company_name' => 'Registrant company',
         'glue' => 'Glue records',
+        'handles' => 'Handles at the registrar',
     ];
 
     public static function infolist(Schema $schema): Schema

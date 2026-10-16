@@ -233,8 +233,10 @@ class OpenproviderRegistrar implements DomainRegistrar
 
         $payload = [];
         if ($changes->nameservers !== null) {
+            // With its glue for a nameserver inside the domain, as register/transfer (review 3: OP answers 500 «IP is
+            // not specified» for ns1.<domain> without one).
             $payload['name_servers'] = array_map(
-                fn (string $h) => ['name' => mb_strtolower(trim($h))],
+                fn (string $h) => $this->nameserverEntry(mb_strtolower(trim($h)), $domain->fqdn),
                 $changes->nameservers,
             );
         }
@@ -270,6 +272,8 @@ class OpenproviderRegistrar implements DomainRegistrar
             deadRecord: $base->deadRecord,
             transferLock: $base->transferLock,
             whoisPrivacy: $base->whoisPrivacy,
+            registeredAt: $base->registeredAt,
+            details: $base->details,
         );
     }
 

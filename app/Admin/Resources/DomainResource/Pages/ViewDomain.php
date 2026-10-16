@@ -57,7 +57,7 @@ class ViewDomain extends ViewRecord
             $call();
             Notification::make()->success()->title($done)->send();
         } catch (Throwable $e) {
-            Notification::make()->danger()->title(__('The registrar did not accept it.'))->body($e->getMessage())->send();
+            Notification::make()->danger()->title(__('The registrar did not accept it.'))->body(e($e->getMessage()))->send();
         }
         $this->record->refresh();
         $this->refreshFormData([]);
@@ -76,7 +76,7 @@ class ViewDomain extends ViewRecord
                         Notification::make()->success()->title(__('Synced.'))
                             ->body($changes === [] ? __('Nothing changed.') : implode(', ', array_keys($changes)))->send();
                     } catch (Throwable $e) {
-                        Notification::make()->danger()->title(__('The registrar could not be read.'))->body($e->getMessage())->send();
+                        Notification::make()->danger()->title(__('The registrar could not be read.'))->body(e($e->getMessage()))->send();
                     }
                     $this->refreshFormData([]);
                 }),
@@ -136,19 +136,14 @@ class ViewDomain extends ViewRecord
                     ->modalSubmitAction(false)->modalCancelActionLabel(__('Close'))
                     ->modalContent(fn (Domain $record) => $this->registrarContacts($record)),
 
+                // Read when the modal opens and only rendered in it (review 4): not a notification, which Filament keeps in
+                // the cache and the page's state until shown. Each read is logged, the code never.
                 Action::make('eppCode')->label(__('Get EPP code'))->icon('heroicon-o-key')
                     ->visible(fn (Domain $record) => self::can('admin.domains.epp') && self::manageable($record))
-                    ->requiresConfirmation()
-                    ->modalDescription(__('The code transfers the domain to whoever has it. It is read from the registrar now, shown once, never stored; the read is logged.'))
-                    ->action(function (Domain $record) {
-                        try {
-                            $code = app(DomainManagementService::class)->eppCode($record, self::staff());
-                            Notification::make()->success()->persistent()->title(__('EPP code of :domain', ['domain' => $record->fqdn]))
-                                ->body(new HtmlString('<code style="user-select:all">' . e($code) . '</code>'))->send();
-                        } catch (Throwable $e) {
-                            Notification::make()->danger()->title(__('The registrar did not give it.'))->body($e->getMessage())->send();
-                        }
-                    }),
+                    ->modalHeading(fn (Domain $record) => __('EPP code of :domain', ['domain' => $record->fqdn]))
+                    ->modalDescription(__('The code transfers the domain to whoever has it. Read from the registrar now, never stored; the read is logged.'))
+                    ->modalSubmitAction(false)->modalCancelActionLabel(__('Close'))
+                    ->modalContent(fn (Domain $record) => $this->eppCode($record)),
             ])->label(__('At the registrar'))->icon('heroicon-o-globe-alt')->button(),
 
             // Here only, not at the registrar.
@@ -168,9 +163,32 @@ class ViewDomain extends ViewRecord
         ];
     }
 
+    /** Read once per request however often the modal renders (review 10). */
+    private ?HtmlString $eppCode = null;
+
+    private ?HtmlString $registrarContacts = null;
+
+    private function eppCode(Domain $record): HtmlString
+    {
+        if ($this->eppCode !== null) {
+            return $this->eppCode;
+        }
+        try {
+            $code = app(DomainManagementService::class)->eppCode($record, self::staff());
+            $html = '<code style="user-select:all;font-size:1.1em">' . e($code) . '</code>';
+        } catch (Throwable $e) {
+            $html = e(__('The registrar did not give it.') . ' ' . $e->getMessage());
+        }
+
+        return $this->eppCode = new HtmlString($html);
+    }
+
     /** Each role's handle and what the registrar holds for it (escaped: it is the registrar's text). */
     private function registrarContacts(Domain $record): HtmlString
     {
+        if ($this->registrarContacts !== null) {
+            return $this->registrarContacts;
+        }
         $rows = '';
         foreach (Domain::ROLES as $role) {
             $handle = (string) $record->{"{$role}_handle"};
@@ -187,6 +205,6 @@ class ViewDomain extends ViewRecord
                 . '<br><small>' . e($handle) . '</small></th><td style="padding:6px 0">' . $text . '</td></tr>';
         }
 
-        return new HtmlString('<table>' . $rows . '</table>');
+        return $this->registrarContacts = new HtmlString('<table>' . $rows . '</table>');
     }
 }

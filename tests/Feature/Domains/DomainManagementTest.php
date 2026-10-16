@@ -14,7 +14,10 @@ use App\Models\Staff;
 use App\Models\User;
 use App\Services\Domains\DomainManagementService;
 use App\Services\Domains\DomainSyncService;
+use App\Services\Domains\Registrars\OpenproviderRegistrar;
+use App\Support\Domains\DomainSyncResult;
 use Filament\Facades\Filament;
+use Filament\Forms\Components\Repeater;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
@@ -131,7 +134,7 @@ class DomainManagementTest extends TestCase
     public function test_the_sync_brings_what_staff_would_look_up_in_the_registrars_panel_but_no_auth_code(): void
     {
         $tld = DomainTld::query()->create(['tld' => 'com', 'is_active' => true]);
-        $domain = $this->domain();
+        $domain = $this->domain(['registrant_contact_id' => $this->contact()->id, 'registered_at' => null]);
         $this->fakeOp();
 
         app(DomainSyncService::class)->sync($domain);
@@ -277,9 +280,90 @@ class DomainManagementTest extends TestCase
         $this->assertSame([false, 'Customer asked to let it go.'], [$domain->fresh()->auto_renew, $domain->fresh()->notes]);
         $this->assertTrue($domain->audits()->where('event', 'updated')->get()->contains(fn ($audit) => array_key_exists('notes', $audit->new_values)));
 
-        $page(['admin.domains.viewAny', 'admin.domains.manage'])->callAction('nameservers', ['nameservers' => ['ns1.example.net', 'ns2.example.net']])
+        $undoRepeaterFake = Repeater::fake(); // list keys, as the test sends them
+        $page(['admin.domains.viewAny', 'admin.domains.manage'])
+            ->callAction('nameservers', ['nameservers' => [['host' => 'ns1.example.net'], ['host' => 'ns2.example.net']]])
             ->assertNotified(__('Nameservers changed at the registrar.'));
+        // Submitted as filled (the current ones): sent unchanged, the shape the form really gives.
+        $page(['admin.domains.viewAny', 'admin.domains.manage'])->callAction('nameservers')->assertNotified(__('Nameservers changed at the registrar.'));
+        $this->assertSame(['ns1.example.net', 'ns2.example.net'], array_column(end($this->puts)['name_servers'], 'name'));
+        $undoRepeaterFake();
         $this->assertSame(['ns1.example.net', 'ns2.example.net'], $domain->fresh()->nameservers()->orderBy('sort')->pluck('host')->all());
+    }
+
+    /** Code review 3: a nameserver inside the domain goes with its glue IP (OP refuses it without one). */
+    public function test_an_in_domain_nameserver_is_sent_with_its_glue(): void
+    {
+        OpenproviderRegistrar::$glueResolver = fn (string $host) => $host === 'ns1.nixpal.com' ? '192.0.2.6' : null;
+        $domain = $this->domain();
+        $this->fakeOp();
+
+        try {
+            app(DomainManagementService::class)->setNameservers($domain, ['ns1.nixpal.com', 'ns2.example.net'], null);
+        } finally {
+            OpenproviderRegistrar::$glueResolver = null;
+        }
+
+        $this->assertSame([['name' => 'ns1.nixpal.com', 'ip' => '192.0.2.6'], ['name' => 'ns2.example.net']], $this->puts[0]['name_servers']);
+    }
+
+    /**
+     * Code reviews 1, 2: the registrar's handle pairs only with a role that has a contact and no handle; a different
+     * one is said, never swapped in; a contact-less role keeps none, so a new registrant is not followed by the old one.
+     */
+    public function test_registrar_handles_never_pair_silently(): void
+    {
+        $owner = $this->contact();
+        $domain = $this->domain(['registrant_contact_id' => $owner->id]);
+        $this->fakeOp(['admin_handle' => 'CP935231-GR', 'tech_handle' => 'CP935231-GR']);
+
+        app(DomainSyncService::class)->sync($domain);
+        $domain->refresh();
+        $this->assertSame(['CP935231-GR', null, null], [$domain->registrant_handle, $domain->admin_handle, $domain->tech_handle]);
+        $this->assertStringContainsString('admin CP935231-GR', $domain->meta['registrar']['handles']);
+
+        $domain->forceFill(['registrant_handle' => 'OURS-1'])->save();
+        app(DomainSyncService::class)->sync($domain->fresh());
+        $this->assertSame('OURS-1', $domain->fresh()->registrant_handle);
+        $this->assertStringContainsString('registrant handle is CP935231-GR', (string) $domain->fresh()->sync_error);
+    }
+
+    /** Code review 8: an imported registration date stays; code review 7: a write whose re-read failed is not «synced». */
+    public function test_a_known_registration_date_stays_and_an_empty_reread_is_not_a_sync(): void
+    {
+        $domain = $this->domain(['registered_at' => '2012-11-16']);
+        $this->fakeOp();
+        app(DomainSyncService::class)->sync($domain);
+        $this->assertSame('2012-11-16', $domain->fresh()->registered_at->toDateString());
+
+        $domain->forceFill(['sync_error' => 'old error'])->save();
+        $this->assertSame([], app(DomainSyncService::class)->applyResult($domain->fresh(), new DomainSyncResult(registrarDomainId: '30391502')));
+        $this->assertSame('old error', $domain->fresh()->sync_error);
+    }
+
+    /** Code review 4: the EPP code is rendered in its modal only, never sent as a notification (Filament caches those). */
+    public function test_the_epp_code_shows_in_its_modal_not_in_a_notification(): void
+    {
+        $domain = $this->domain();
+        $this->fakeOp();
+
+        $this->livewireAs($this->staff(['admin.domains.viewAny', 'admin.domains.epp']))->test(ViewDomain::class, ['record' => $domain->getRouteKey()])
+            ->mountAction('eppCode')->assertMountedActionModalSee('Epp-Code-77')->assertNotNotified();
+        $this->assertSame(1, DomainRegistrarLog::query()->where('action', 'epp_code')->count(), 'one read, however often it renders');
+    }
+
+    /** Code review 6a: a refused contact change is put back with an audit, as it was made. */
+    public function test_a_refused_contact_change_is_put_back_audited(): void
+    {
+        $owner = $this->contact();
+        $other = $this->contact();
+        $domain = $this->domain(['registrant_contact_id' => $owner->id, 'registrant_handle' => 'CP935231-GR']);
+        $this->fakeOp([], refuse: 'Invalid handle');
+
+        $this->expectExceptionThrown(fn () => app(DomainManagementService::class)->setContacts($domain, ['tech' => $other->id], null), RuntimeException::class);
+
+        $reverted = $domain->audits()->where('event', 'updated')->get()->filter(fn ($audit) => array_key_exists('tech_contact_id', $audit->new_values));
+        $this->assertSame([$other->id, null], $reverted->map(fn ($audit) => $audit->new_values['tech_contact_id'])->values()->all());
     }
 
     /** @param  class-string<\Throwable>  $class */

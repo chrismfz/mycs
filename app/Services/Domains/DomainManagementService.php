@@ -14,6 +14,7 @@ use App\Support\Domains\DomainSyncResult;
 use App\Support\Domains\RegistrarContact;
 use App\Support\Redact;
 use Closure;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use InvalidArgumentException;
 use RuntimeException;
@@ -30,11 +31,14 @@ use Throwable;
 class DomainManagementService
 {
     /** RFC 1035 host name, lowercase ASCII (IDN as punycode). */
+    private const LOCK_SECONDS = 600;
+
     private const HOST = '/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/';
 
     public function __construct(
         private readonly DomainRegistrarFactory $factory,
         private readonly DomainSyncService $sync,
+        private readonly DomainLifecycle $lifecycle,
     ) {}
 
     /** It can be managed: routed to an active connection with an API, and not ended. */
@@ -113,9 +117,9 @@ class DomainManagementService
 
             return $registrar->updateDomain($domain, new DomainChanges(applyContacts: true), $credentials);
         }, function () use ($domain, $before) {
-            // Refused: the roles as they were (their handles too), not a half-change.
-            Domain::query()->whereKey($domain->id)->update($before);
-            $domain->refresh();
+            // Refused: the roles as they were (their handles too), not a half-change; audited as the change was (review
+            // 6a). A handle the registrar made meanwhile stays there unused (an orphan customer, harmless).
+            $domain->refresh()->forceFill($before)->save();
         });
     }
 
@@ -165,6 +169,14 @@ class DomainManagementService
         $this->call($domain, $action, $request, $staff, function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $send, $undo) {
             try {
                 $result = $send($registrar, $credentials);
+            } catch (ConnectionException $e) {
+                // No answer: it may have landed (review 6b). Nothing undone; the registrar is read again instead.
+                try {
+                    $this->sync->sync($domain->refresh());
+                } catch (Throwable) {
+                }
+
+                throw $e;
             } catch (Throwable $e) {
                 if ($undo !== null) {
                     $undo();
@@ -173,6 +185,7 @@ class DomainManagementService
                 throw $e;
             }
             $changes = $this->sync->applyResult($domain->refresh(), $result);
+            $this->lifecycle->advance($domain->refresh()); // as «Sync now» (review 9)
 
             return ['changed' => array_keys($changes), 'status' => $result->rawStatus, 'nameservers' => $result->nameservers,
                 'transfer_lock' => $result->transferLock, 'whois_privacy' => $result->whoisPrivacy];
@@ -192,7 +205,10 @@ class DomainManagementService
             throw new DomainRegistrarNotConfigured(__('domains.manage.not_manageable', ['domain' => $domain->fqdn]));
         }
 
-        $lock = Cache::lock("domain-registrar:{$domain->id}", 120);
+        // Longer than the longest call (review 5: contacts make up to 7 requests of 30s, each retried once on a 401), and
+        // PHP allowed as long, so the lock never lapses mid-call and `finally` always runs.
+        set_time_limit(self::LOCK_SECONDS);
+        $lock = Cache::lock("domain-registrar:{$domain->id}", self::LOCK_SECONDS);
         if (!$lock->get()) {
             throw new RuntimeException(__('domains.manage.busy', ['domain' => $domain->fqdn]));
         }

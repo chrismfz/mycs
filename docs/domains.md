@@ -196,7 +196,16 @@
    handle· αν ο registrar αρνηθεί, οι ρόλοι μένουν ως ήταν), «Contacts at the registrar», «Get EPP code» (δείχνεται μία
    φορά, ούτε στο log). «Edit»: auto-renew και admin notes, μόνο εδώ. Permissions `admin.domains.manage`,
    `admin.domains.epp`. Καρτέλα «Registrar log» (με ποιος, `staff_id`). Καμία ενέργεια που χρεώνει: το restore πάει στο D5.
-   Code + adversarial.
+   Code + adversarial. Κανόνες μετά τα reviews:
+   - Handle από τον registrar μόνο σε ρόλο **με** επαφή και χωρίς handle· διαφορετικό handle → σημείωση στο sync_error,
+     ποτέ σιωπηλή αντικατάσταση. Όλα τα handles του registrar φαίνονται στα στοιχεία του.
+   - Ημερομηνία εγγραφής μόνο αν λείπει (ο importer του D6 κρατά τη δική του).
+   - Χωρίς απάντηση (timeout) τίποτα δεν αναιρείται: ξαναδιαβάζεται ο registrar. Άρνηση στις επαφές → οι ρόλοι πίσω (με
+     audit)· ένα handle που πρόλαβε να φτιαχτεί μένει αχρησιμοποίητο στον registrar.
+   - Το EPP code φαίνεται μόνο μέσα στο modal (όχι notification, που το Filament κρατά σε cache).
+   - Lock 10 λεπτά ανά domain (όσο η μεγαλύτερη κλήση).
+   - Το WHOIS privacy εδώ είναι το `id_protection` του domain· το D5 **δεν** το χρεώνει επειδή το άλλαξε το staff
+     (να επιβεβαιωθεί ότι ο Openprovider δεν το χρεώνει πριν το D5).
 5. **D5 Χρέωση:** γραμμή `Domain` στο τιμολόγιο, βήμα τιμολόγησης με ομαδοποίηση, κλάδος στην πληρωμή, renew on-paid, «Ανανέωση τώρα», adopt, fee grace/
    redemption στο υπάρχον τιμολόγιο, Pending Module Actions. Code + adversarial.
 6. **D6 Importer WHMCS:** domains, τιμές, TLDs, ρόλοι επαφών, additional fields· parity και σύγκριση με τον

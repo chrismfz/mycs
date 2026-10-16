@@ -9,6 +9,7 @@ use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Model;
 
 /**
  * Every call to the registrar for this domain (docs/domains.md D-17, D4b): what was asked and answered, by whom, or why
@@ -18,7 +19,10 @@ class RegistrarLogsRelationManager extends RelationManager
 {
     protected static string $relationship = 'registrarLogs';
 
-    protected static ?string $title = 'Registrar log';
+    public static function getTitle(Model $ownerRecord, string $pageClass): string
+    {
+        return __('Registrar log');
+    }
 
     public function isReadOnly(): bool
     {
