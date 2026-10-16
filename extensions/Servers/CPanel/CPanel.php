@@ -23,10 +23,11 @@ class CPanel extends Server
 {
     private function request($endpoint, $method = 'get', $data = [])
     {
-        $host = rtrim($this->config('host'), '/');
+        // A pasted token or host often carries a space or line break, which WHM answers as a bad token.
+        $host = rtrim(trim((string) $this->config('host')), '/');
         // A server that never answers is told within 10 seconds, not the default 30 (the call itself may take longer).
         $response = Http::connectTimeout(10)->withHeaders([
-            'Authorization' => 'whm ' . $this->config('username') . ':' . $this->config('apikey'),
+            'Authorization' => 'whm ' . trim((string) $this->config('username')) . ':' . trim((string) $this->config('apikey')),
         ])->$method($host . '/json-api' . $endpoint, $data)->throw();
 
         return $response;
