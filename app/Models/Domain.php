@@ -32,6 +32,10 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property string|null $recurring_amount
  * @property bool $auto_renew
  * @property string|null $sync_error
+ * @property int|null $grace_days_override
+ * @property int|null $redemption_days_override
+ * @property string|null $notes
+ * @property array<string, mixed>|null $meta
  * @property Client $client
  * @property DomainTld|null $domainTld
  * @property DomainRegistrarConnection|null $registrarConnection
@@ -53,8 +57,21 @@ class Domain extends Model implements Auditable
         'grace_days_override', 'grace_fee_override', 'redemption_days_override', 'redemption_fee_override', 'notes', 'meta',
     ];
 
-    /** Staff's notes and the registrar's raw data never reach a template or the client area. */
-    public const TEMPLATE_HIDDEN = ['notes', 'meta', 'registrant_handle', 'admin_handle', 'tech_handle', 'billing_handle'];
+    /**
+     * Staff's notes, the registrar's raw data and handles never reach a template, the client area or a JSON of it
+     * (`{{ domain }}` prints the model: review M1); nor its connection, whose settings are the credentials.
+     */
+    protected $hidden = ['notes', 'meta', 'registrant_handle', 'admin_handle', 'tech_handle', 'billing_handle', 'registrarConnection', 'registrarLogs'];
+
+    public const TEMPLATE_HIDDEN = ['notes', 'meta', 'registrant_handle', 'admin_handle', 'tech_handle', 'billing_handle', 'registrarConnection', 'registrarLogs'];
+
+    protected static function booted(): void
+    {
+        // One live row per name (review H1): an ended domain frees its name.
+        static::saving(function (self $domain) {
+            $domain->live_fqdn = $domain->status->isTerminal() ? null : $domain->fqdn;
+        });
+    }
 
     protected function casts(): array
     {
@@ -72,6 +89,8 @@ class Domain extends Model implements Auditable
             'email_forwarding' => 'boolean',
             'dnssec_enabled' => 'boolean',
             'last_synced_at' => 'datetime',
+            'grace_days_override' => 'integer',
+            'redemption_days_override' => 'integer',
             'grace_fee_override' => 'decimal:2',
             'redemption_fee_override' => 'decimal:2',
             'meta' => 'array',

@@ -81,14 +81,18 @@
 ## 3. Μοντέλο (από το Ekdosi, χωρίς `company_id`)
 - `domain_registrar_connections`: registrar, label, active, mode (off/sandbox/production)· τα credentials ως
   κρυπτογραφημένα `Setting` της σύνδεσης (D-21). Πολλές συνδέσεις, και δύο στον ίδιο registrar. `manual` χωρίς API.
-- `domain_tlds`: tld, σύνδεση αυτόματης εγγραφής, έτη (min/max/βήμα), μήκος, IDN, EPP code, addons (DNS, email
-  forwarding, ID protection), **grace/redemption μέρες και τέλος**, active.
-- `domain_tld_prices`: tld, πράξη (register/renew/transfer/restore), **έτη**, νόμισμα, `cost`, `price`, enabled.
-  Το sync γράφει μόνο `cost`· η `price` αλλάζει μόνο με το import του D-6 ή με το χέρι. Νέα γραμμή χωρίς τιμή =
-  κλειστή (ποτέ δωρεάν κατά λάθος). Ιστορικό αλλαγών τιμής.
-- `domains`: **`id` = `tbldomains.id`** όταν εισάγεται (όπως ο importer κρατά τα IDs του WHMCS· D-11), `client_id`, tld, σύνδεση (υπερισχύει του TLD), fqdn, status, ημερομηνίες εγγραφής/
+- `domain_tlds`: tld (χωρίς τελεία), σύνδεση αυτόματης εγγραφής, EPP code, addons (DNS, email forwarding, ID
+  protection), IDN, **μέρες grace/redemption** (null = του registrar ή καμία), active. Δεν σβήνεται όσο έχει domains.
+- `domain_tld_prices`: tld, πράξη (**register/renew/transfer/grace/redemption**), **έτη**, νόμισμα του MyCS, `price`
+  (null = δεν προσφέρεται, 0,00 = δωρεάν), `cost` και `cost_currency`. Τα έτη που προσφέρονται = οι γραμμές με τιμή·
+  τα τέλη grace/redemption = η γραμμή 1 έτους της πράξης τους. Το sync γράφει μόνο `cost`· η `price` αλλάζει μόνο με
+  το import του D-6 ή με το χέρι. Ιστορικό αλλαγών: το audit.
+- `domains`: **`id` = `tbldomains.id`** όταν εισάγεται (όπως ο importer κρατά τα IDs του WHMCS· D-11· τα domains που
+  φτιάχτηκαν πριν το import, π.χ. η δοκιμή του §7, θέλουν AUTO_INCREMENT πάνω από το μέγιστο του WHMCS), `client_id`, tld, σύνδεση (υπερισχύει του TLD), fqdn, status, ημερομηνίες εγγραφής/
   μεταφοράς/λήξης, auto-renew, lock, privacy, DNSSEC, id στον registrar, `last_synced_at`, `sync_error`, τιμή ανανέωσης και έτη
-  της επόμενης περιόδου, auto-renew/do-not-renew, overrides (grace/redemption/fee/τιμή).
+  της επόμενης περιόδου, auto-renew/do-not-renew, overrides (grace/redemption/fee/τιμή). Το όνομα δεν είναι unique:
+  ένα domain που τελείωσε μένει (D-18) και το όνομα μπορεί να ξανάρθει· unique είναι το `live_fqdn` (= fqdn όσο δεν
+  έχει τελειώσει, αλλιώς null).
 - `domain_contacts` → **όχι** (D-3): `registrant/admin/tech/billing_contact_id` στο domain (admin: η κύρια επαφή,
   D-20) και handle ανά ρόλο. Επαφή που είναι ρόλος σε ενεργό domain δεν αρχειοθετείται.
 - `domain_reminders`: ποια ειδοποίηση στάλθηκε για ποια λήξη (όπως το `invoice_reminders`), ώστε να μη στέλνεται δύο φορές.

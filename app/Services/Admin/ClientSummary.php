@@ -151,14 +151,13 @@ class ClientSummary
         ];
     }
 
-    /** @return array{counts: array<string, int>, rows: list<array<string, mixed>>} */
+    /** @return array{rows: list<array<string, mixed>>} */
     private static function domains(Client $client): array
     {
         $domains = Domain::query()->where('client_id', $client->id)
             ->orderByRaw('status in (?, ?, ?) asc', DomainStatus::terminalValues())->orderBy('expires_at')->get();
 
         return [
-            'counts' => $domains->countBy(fn (Domain $domain) => $domain->status->value)->all(),
             'rows' => $domains->map(fn (Domain $domain) => [
                 'id' => $domain->id,
                 'fqdn' => $domain->fqdn,

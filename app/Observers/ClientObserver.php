@@ -36,12 +36,12 @@ class ClientObserver
         if ($client->hasMoneyHistory()) {
             throw new DisplayException(__('A customer with payments or account credit history cannot be deleted.'));
         }
-        // Its services are deleted first, one way (DeleteService: the server, the subscription, the invoices): the
-        // database cascade took them silently, and on MariaDB it fails on the orders' restrict (R7 of #82).
         // Domains end by status and keep their history (docs/domains.md D-18): an account that has any is kept.
         if ($client->domains()->exists()) {
             throw new DisplayException(__('domains.client_has_domains'));
         }
+        // Its services are deleted first, one way (DeleteService: the server, the subscription, the invoices): the
+        // database cascade took them silently, and on MariaDB it fails on the orders' restrict (R7 of #82).
         if ($client->services()->exists()) {
             throw new DisplayException(__('This customer has services: delete them first.'));
         }

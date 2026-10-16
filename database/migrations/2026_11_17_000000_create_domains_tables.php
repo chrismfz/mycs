@@ -41,8 +41,8 @@ return new class extends Migration
             $table->timestamps();
         });
 
-        // Per TLD, operation, years and currency of MyCS (D-5, D-6, D-8): price null = not offered, 0 = free and offered.
-        // The grace and redemption fees are years 1 of their operation.
+        // Per TLD, operation, years and currency of MyCS (D-5, D-6, D-8): price null = not offered, 0 = free and offered;
+        // the years offered are the rows with a price. The grace and redemption fees are years 1 of their operation.
         Schema::create('domain_tld_prices', function (Blueprint $table) {
             $table->id();
             $table->foreignId('domain_tld_id')->constrained()->cascadeOnDelete();
@@ -66,7 +66,10 @@ return new class extends Migration
             $table->foreignId('registrar_connection_id')->nullable()->constrained('domain_registrar_connections')->restrictOnDelete();
             $table->string('sld', 190);
             $table->string('tld', 63);
-            $table->string('fqdn', 255)->unique();
+            // An ended domain stays (D-18) and its name may come back: one *live* row per name, kept by `live_fqdn`
+            // (= fqdn while it is not ended, null after: a unique index MariaDB and SQLite both honour).
+            $table->string('fqdn', 255)->index();
+            $table->string('live_fqdn', 255)->nullable()->unique();
             $table->string('status', 30);
             $table->date('registered_at')->nullable();
             $table->date('transferred_at')->nullable();

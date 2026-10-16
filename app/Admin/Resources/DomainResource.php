@@ -2,9 +2,11 @@
 
 namespace App\Admin\Resources;
 
+use App\Admin\Components\ClientComponent;
 use App\Admin\Resources\DomainResource\Pages\ListDomains;
 use App\Admin\Resources\DomainResource\Pages\ViewDomain;
 use App\Enums\DomainStatus;
+use App\Models\Client;
 use App\Models\Domain;
 use Filament\Actions\ViewAction;
 use Filament\Infolists\Components\TextEntry;
@@ -66,7 +68,8 @@ class DomainResource extends Resource
                 SelectFilter::make('status')->label(__('Status'))->options(DomainStatus::options()),
                 Filter::make('expiring')->label(__('Expiring in 60 days'))
                     ->query(fn (Builder $query) => $query->whereBetween('expires_at', [today(), today()->addDays(60)])),
-                SelectFilter::make('client')->label(__('Client'))->relationship('client', 'id')->searchable(),
+                SelectFilter::make('client')->label(__('Client'))->relationship('client', 'id')->searchable()
+                    ->getOptionLabelFromRecordUsing(fn (Client $record) => ClientComponent::optionLabel($record)),
             ])
             ->recordActions([ViewAction::make()]);
     }

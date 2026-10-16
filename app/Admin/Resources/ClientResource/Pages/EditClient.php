@@ -61,6 +61,7 @@ class EditClient extends EditRecord
             AuditAction::make()->auditChildren([
                 'invoices',
                 'services',
+                'domains',
                 'tickets',
                 'credits',
                 'orders',

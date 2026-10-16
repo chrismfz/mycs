@@ -10,14 +10,17 @@ use App\Helpers\TemplateRenderer;
 use App\Models\Contact;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
+use App\Models\DomainRegistrarLog;
 use App\Models\DomainTld;
 use App\Models\DomainTldPrice;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Models\User;
+use App\Policies\DomainPolicy;
 use App\Services\Admin\ClientSummary;
 use App\Support\Redact;
 use Filament\Facades\Filament;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -141,6 +144,79 @@ class DomainsModelTest extends TestCase
         $domain = $this->domain(['notes' => 'Internal: friend of the house']);
 
         $this->assertSame($domain->fqdn . '|', TemplateRenderer::render('{{ domain.fqdn }}|{{ domain.notes }}', ['domain' => $domain], false));
+    }
+
+    public function test_an_ended_domains_name_may_come_back_but_only_once_live(): void
+    {
+        $old = $this->domain(['sld' => 'again', 'fqdn' => 'again.test']);
+        try {
+            $this->domain(['sld' => 'again', 'fqdn' => 'again.test']);
+            $this->fail('two live rows for one name');
+        } catch (UniqueConstraintViolationException) {
+        }
+
+        $old->update(['status' => DomainStatus::TransferredAway]);
+        $new = $this->domain(['sld' => 'again', 'fqdn' => 'again.test']);
+
+        $this->assertSame([null, 'again.test'], [$old->fresh()->live_fqdn, $new->fresh()->live_fqdn]);
+        $this->assertSame(2, Domain::query()->where('fqdn', 'again.test')->count(), 'the ended one kept (D-18)');
+    }
+
+    public function test_neither_the_domain_nor_its_connection_leak_into_a_template(): void
+    {
+        $connection = $this->connection();
+        $connection->storeCredentials(['username' => 'reseller-user', 'password' => 'Op-Secret-Pa55'], ['password']);
+        $domain = $this->domain(['notes' => 'Internal: friend of the house', 'registrar_connection_id' => $connection->id, 'registrant_handle' => 'XX123-GR']);
+
+        foreach (['{{ domain }}', '{{ domain.registrarConnection }}', '{{ domain.registrarConnection.settings }}', '{{ domain.registrant_handle }}'] as $template) {
+            $out = TemplateRenderer::render($template, ['domain' => $domain->fresh()], false);
+            foreach (['friend of the house', 'Op-Secret-Pa55', 'reseller-user', 'XX123-GR'] as $secret) {
+                $this->assertStringNotContainsString($secret, $out, $template);
+            }
+        }
+    }
+
+    public function test_a_tld_with_domains_and_a_currency_they_bill_in_are_kept(): void
+    {
+        $tld = DomainTld::query()->create(['tld' => 'com']);
+        $this->domain(['domain_tld_id' => $tld->id]);
+
+        try {
+            $tld->delete();
+            $this->fail('a TLD with domains was deleted');
+        } catch (DisplayException $e) {
+            $this->assertStringContainsString('.com', $e->getMessage());
+        }
+        $unused = DomainTld::query()->create(['tld' => 'net']);
+        DomainTldPrice::query()->create(['domain_tld_id' => $unused->id, 'operation' => 'register', 'years' => 1, 'currency_code' => 'USD', 'price' => '10.00']);
+        $unused->delete();
+        $this->assertSame(0, DomainTldPrice::query()->where('domain_tld_id', $unused->id)->count(), 'its prices go with it');
+    }
+
+    public function test_a_connection_with_a_log_is_kept_and_one_deleted_takes_its_secrets(): void
+    {
+        $logged = $this->connection();
+        DomainRegistrarLog::query()->create(['registrar_connection_id' => $logged->id, 'action' => 'ping', 'status' => 'ok']);
+        try {
+            $logged->delete();
+            $this->fail('a connection with a log was deleted');
+        } catch (DisplayException) {
+        }
+
+        $unused = $this->connection('Spare');
+        $unused->storeCredentials(['password' => 'Spare-Secret-1'], ['password']);
+        $unused->delete();
+        $this->assertSame(0, DB::table('settings')->where('settingable_type', $unused->getMorphClass())->where('settingable_id', $unused->id)->count());
+    }
+
+    public function test_a_customer_sees_a_domain_only_with_the_domains_grant(): void
+    {
+        $domain = $this->domain();
+        $policy = new DomainPolicy;
+
+        $this->assertTrue($policy->view($this->user, $domain), 'the owner');
+        $this->assertFalse($policy->view(User::factory()->create(), $domain), 'another customer');
+        $this->assertFalse($policy->viewAny($this->user), 'no admin list for customers');
     }
 
     public function test_staff_see_domains_only_with_the_permission(): void

@@ -30,6 +30,11 @@ class DomainRegistrarConnection extends Model implements Auditable
 
     protected $fillable = ['registrar', 'label', 'is_active', 'mode'];
 
+    /** Its settings are the credentials: never in a JSON or a template. */
+    protected $hidden = ['settings'];
+
+    public const TEMPLATE_HIDDEN = ['settings'];
+
     protected function casts(): array
     {
         return ['is_active' => 'boolean'];
@@ -38,10 +43,13 @@ class DomainRegistrarConnection extends Model implements Auditable
     protected static function booted(): void
     {
         static::deleting(function (self $connection) {
-            if ($connection->tlds()->exists() || $connection->domains()->exists()) {
+            // Its log is history too (D-17, D-18).
+            if ($connection->tlds()->exists() || $connection->domains()->exists() || DomainRegistrarLog::query()->where('registrar_connection_id', $connection->id)->exists()) {
                 throw new DisplayException(__('domains.connection_in_use'));
             }
         });
+        // Its credentials go with it.
+        static::deleted(fn (self $connection) => $connection->settings()->delete());
     }
 
     /** @return MorphMany<Setting, $this> */

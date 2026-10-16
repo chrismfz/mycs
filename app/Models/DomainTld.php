@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Exceptions\DisplayException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -29,6 +30,16 @@ class DomainTld extends Model implements Auditable
         'tld', 'registrar_connection_id', 'epp_code_required', 'dns_management', 'email_forwarding', 'id_protection',
         'allow_idn', 'grace_days', 'redemption_days', 'is_active', 'sort',
     ];
+
+    protected static function booted(): void
+    {
+        // A TLD with domains is kept (D-18); one without them goes with its prices.
+        static::deleting(function (self $tld) {
+            if ($tld->domains()->exists()) {
+                throw new DisplayException(__('domains.tld_in_use', ['tld' => $tld->tld]));
+            }
+        });
+    }
 
     protected function casts(): array
     {
