@@ -57,7 +57,7 @@ class OpsCommandsTest extends TestCase
 
         $report = Health::report();
 
-        $this->assertSame(['build', 'database', 'scheduler', 'cron', 'queue', 'mail', 'module_actions', 'licenses'], array_keys($report['checks']));
+        $this->assertSame(['build', 'database', 'scheduler', 'cron', 'queue', 'mail', 'module_actions', 'licenses', 'domains'], array_keys($report['checks']));
         $this->assertSame(Health::OK, $report['checks']['scheduler']['status']);
         $this->assertSame(Health::FAIL, $report['checks']['mail']['status'], 'a stuck mail');
         $this->assertSame(Health::FAIL, $report['status']);

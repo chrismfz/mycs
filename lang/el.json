@@ -468,5 +468,18 @@
     "Fetch the costs from this registrar first.": "Πρώτα ανακτήστε τα κόστη από αυτόν τον registrar.",
     "Not a TLD.": "Δεν είναι TLD.",
     "The TLD .:tld exists already.": "Το TLD .:tld υπάρχει ήδη.",
-    "Import": "Εισαγωγή"
+    "Import": "Εισαγωγή",
+    "Sync now": "Συγχρονισμός τώρα",
+    "Synced.": "Συγχρονίστηκε.",
+    "Nothing changed.": "Τίποτα δεν άλλαξε.",
+    "The registrar could not be read.": "Δεν διαβάστηκε ο registrar.",
+    "Add existing domain": "Προσθήκη υπάρχοντος domain",
+    "Read from the registrar, never changed or charged there: its expiry, status and nameservers come from it.": "Διαβάζεται από τον registrar, χωρίς καμία αλλαγή ή χρέωση εκεί: η λήξη, η κατάσταση και οι nameservers έρχονται από αυτόν.",
+    "The account's": "Του λογαριασμού",
+    ":domain added.": "Προστέθηκε το :domain.",
+    "Choose an active registrar connection with an API.": "Επιλέξτε ενεργή σύνδεση registrar με API.",
+    "Not a domain name.": "Δεν είναι όνομα domain.",
+    ":domain is already here.": "Το :domain υπάρχει ήδη.",
+    "No currency :code.": "Δεν υπάρχει νόμισμα :code.",
+    ":domain is «:status» at the registrar: only an active domain is added.": "Το :domain είναι «:status» στον registrar: προστίθεται μόνο ενεργό domain."
 }
