@@ -128,3 +128,14 @@ grace/redemption και τα τέλη τους (στο default νόμισμα τ
   `app:import-whmcs-licensing` βρίσκει τα products με `whmcs_id` όταν υπάρχει, αλλιώς με το ίδιο id (πλήρης importer).
 - Οι συνδέσεις στο WHMCS είναι `utf8mb4` (αλλιώς το `€` και τα ελληνικά φτάνουν χαλασμένα).
 - Modules χωρίς extension εδώ (π.χ. άλλοι registrars ή servers) αναφέρονται στο τέλος και παραλείπονται.
+
+## Admins (`app:import-whmcs-admins`, 2026-10-16)
+Οι admins μιας εγκατάστασης WHMCS ως staff σε ένα MyCS που **ήδη τρέχει** (ο πλήρης importer τους φέρνει μόνο με
+`migrate:fresh`). Οι ίδιοι κανόνες ρόλων: Full Administrator → `admin` (`*`), άλλος ρόλος → ρόλος με το όνομά του χωρίς
+permissions (τα δίνει το staff), οι disabled μένουν disabled. Ταίριασμα **με email**, ποτέ με id· staff που ήδη υπάρχει
+μένει όπως είναι (κωδικός, ρόλος, status). Το bcrypt hash του WHMCS κρατιέται όπως είναι (μπαίνουν με τον κωδικό του
+WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction, `--dry-run`.
+- **Είσοδος:** αρχείο JSON με γραμμές του `tbladmins` και `rolename`. Τα hashes **δεν** περνούν ποτέ σε καθαρό κείμενο
+  από κανάλι που καταγράφεται: στον server του WHMCS κρυπτογραφούνται (`openssl cms`, AES-256) με δημόσιο κλειδί που
+  φτιάχτηκε στον host του MyCS, ο οποίος μόνο τα αποκρυπτογραφεί σε αρχείο root-only, το εισάγει και το σβήνει μαζί με
+  το κλειδί. Ούτε η εντολή ούτε το audit τυπώνουν hash.
