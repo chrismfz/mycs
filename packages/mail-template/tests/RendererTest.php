@@ -15,6 +15,25 @@ final class RendererTest extends TestCase
         return (new Renderer)->render($template, $data, $escape);
     }
 
+    public function test_a_stringable_the_app_refuses_prints_nothing(): void
+    {
+        $record = new class implements \Stringable
+        {
+            public string $name = 'Visible';
+
+            public function __toString(): string
+            {
+                return '{"name":"Visible","notes":"Internal"}';
+            }
+        };
+        $refuse = new Renderer(null, fn (object $value) => !$value instanceof \Stringable || $value instanceof Html);
+
+        $this->assertSame('[]', $refuse->render('[{{ record }}]', ['record' => $record]));
+        $this->assertSame('Visible', $refuse->render('{{ record.name }}', ['record' => $record]), 'its fields still read');
+        $this->assertSame('<b>x</b>', $refuse->render('{{ html }}', ['html' => new Html('<b>x</b>')]));
+        $this->assertStringContainsString('Internal', (new Renderer)->render('{{ record }}', ['record' => $record], false), 'without a guard, as before');
+    }
+
     public function test_plain_text_passes_through(): void
     {
         $this->assertSame("Hello\n\n**world**", $this->render("Hello\n\n**world**"));

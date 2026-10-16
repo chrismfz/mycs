@@ -16,8 +16,9 @@ namespace MyCS\MailTemplate;
  *   {% if cancellation.type == "end_of_period" %} … {% endif %}   (also !=)
  *   {% for item in items %} {{ loop.index }} {{ item.description }} {% endfor %}
  *
- * A path only READS data: array keys, ArrayAccess offsets (Eloquent attributes and
- * relations) and public properties. There is no way to call a method or a function.
+ * A path only READS data: array keys, ArrayAccess offsets and public properties; no function
+ * is called. An ArrayAccess object decides what an offset does (an Eloquent model calls a
+ * relation method for it): the app's accessor must allow only reads (MyCS: TemplateRenderer).
  * Unknown paths render as an empty string; a syntax error throws TemplateError.
  *
  * A tag alone on its line takes the whole line with it, so loops can build Markdown
@@ -30,13 +31,19 @@ final class Renderer
     /** @var \Closure(mixed, string): mixed */
     private \Closure $accessor;
 
+    /** @var (\Closure(object): bool)|null */
+    private ?\Closure $printable;
+
     /**
      * @param  (\Closure(mixed $target, string $key): mixed)|null  $accessor  reads one path segment;
      *                                                                        the app wraps {@see self::read()} to hide fields (e.g. a model's $hidden).
+     * @param  (\Closure(object $value): bool)|null  $printable  whether a Stringable object may be printed as a whole;
+     *                                                           the app refuses records, whose string is all their fields.
      */
-    public function __construct(?\Closure $accessor = null)
+    public function __construct(?\Closure $accessor = null, ?\Closure $printable = null)
     {
         $this->accessor = $accessor ?? self::read(...);
+        $this->printable = $printable;
     }
 
     /**
@@ -450,7 +457,12 @@ final class Renderer
             return $value !== [];
         }
         if (is_object($value)) {
-            return !($value instanceof \Stringable) || (string) $value !== '';
+            // A value that may not print is still there: true, without turning it into text (a record into JSON).
+            if (!$value instanceof \Stringable || ($this->printable !== null && !($this->printable)($value))) {
+                return true;
+            }
+
+            return (string) $value !== '';
         }
 
         return (bool) $value;
@@ -466,7 +478,7 @@ final class Renderer
             $value instanceof \BackedEnum => (string) $value->value,
             $value instanceof \UnitEnum => $value->name,
             $value instanceof \DateTimeInterface => $value->format('Y-m-d H:i'),
-            $value instanceof \Stringable => (string) $value,
+            $value instanceof \Stringable => $this->printable === null || ($this->printable)($value) ? (string) $value : '',
             default => '',
         };
     }

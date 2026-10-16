@@ -58,6 +58,9 @@ class User extends Authenticatable implements Auditable, HasAvatar, OAuthenticat
         'tfa_secret',
     ];
 
+    /** Never in the audit trail (as staff's): the password hash, the remember token, the 2FA secret (PR #158 review A2). */
+    protected $auditExclude = ['password', 'remember_token', 'tfa_secret'];
+
     /**
      * Get the attributes that should be cast.
      *
