@@ -31,6 +31,8 @@ return [
         'registrant_required' => 'Ένα domain θέλει επαφή registrant.',
         'no_epp_code' => 'Ο registrar δεν έδωσε κωδικό EPP.',
         'not_manageable' => 'Το :domain δεν είναι σε registrar με API, ή έχει τελειώσει.',
+        'owner_change_not_here' => 'Ο registrar δεν επιτρέπει αλλαγή κατόχου από εδώ (μπορεί να είναι trade με χρέωση): δεν έγινε.',
+        'registrant_not_linked' => 'Ο registrant εδώ δεν είναι συνδεδεμένος με του registrar (το «Sync now» λέει γιατί): συνδέστε τον πριν αλλάξετε τις άλλες επαφές.',
         'busy' => 'Γίνεται ήδη άλλη αλλαγή στο :domain: δοκιμάστε ξανά σε λίγο.',
     ],
 ];

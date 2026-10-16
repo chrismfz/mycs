@@ -437,6 +437,16 @@ class OpenproviderRegistrar implements DomainRegistrar
                 continue;
             }
 
+            // A customer this domain already made for this contact (a write the registrar then refused): reused, not made
+            // again (adversarial F5).
+            $made = $this->madeHandle($domain, $contact->id);
+            if ($made !== null) {
+                $this->keepHandle($domain, $role, $made);
+                $handles[$role] = $byContact[$contact->id] = $made;
+
+                continue;
+            }
+
             // Best-effort split of «Οδός 12» into the street and number OP requires; OP's own validation errors (400 +
             // desc) surface verbatim.
             $street = trim((string) $contact->address1);
@@ -490,10 +500,30 @@ class OpenproviderRegistrar implements DomainRegistrar
                 throw new RuntimeException("Openprovider returned no handle for the {$role} contact of {$domain->fqdn}.");
             }
             $this->keepHandle($domain, $role, $handle);
+            $this->rememberHandle($domain, $contact->id, $handle);
             $handles[$role] = $byContact[$contact->id] = $handle;
         }
 
         return $handles;
+    }
+
+    /** The customer this domain made at OP for a contact, if any (`meta.contact_handles`, contact id => handle). */
+    private function madeHandle(Domain $domain, int $contactId): ?string
+    {
+        $meta = json_decode((string) Domain::query()->toBase()->where('id', $domain->getKey())->value('meta'), true);
+        $handle = is_array($meta) ? ($meta['contact_handles'][$contactId] ?? null) : null;
+
+        return is_string($handle) && $handle !== '' ? $handle : null;
+    }
+
+    /** Kept at once, outside the caller's work and its undo, as keepHandle. */
+    private function rememberHandle(Domain $domain, int $contactId, string $handle): void
+    {
+        $meta = json_decode((string) Domain::query()->toBase()->where('id', $domain->getKey())->value('meta'), true);
+        $meta = is_array($meta) ? $meta : [];
+        $meta['contact_handles'][$contactId] = $handle;
+        Domain::query()->whereKey($domain->getKey())->update(['meta' => json_encode($meta)]);
+        $domain->forceFill(['meta' => $meta])->syncOriginalAttribute('meta');
     }
 
     /**
@@ -819,7 +849,8 @@ class OpenproviderRegistrar implements DomainRegistrar
     /** OP returns "YYYY-MM-DD HH:MM:SS" — the date part is our clock. */
     private function datePart(mixed $value): ?string
     {
-        return is_string($value) && $value !== '' ? substr($value, 0, 10) : null;
+        // OP's «no date» is a zero date (adversarial F3: it became year -1 and broke the sync).
+        return is_string($value) && $value !== '' && !str_starts_with($value, '0000-00-00') ? substr($value, 0, 10) : null;
     }
 
     /** @return array<string, mixed> */

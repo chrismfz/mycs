@@ -134,7 +134,7 @@ class DomainManagementTest extends TestCase
     public function test_the_sync_brings_what_staff_would_look_up_in_the_registrars_panel_but_no_auth_code(): void
     {
         $tld = DomainTld::query()->create(['tld' => 'com', 'is_active' => true]);
-        $domain = $this->domain(['registrant_contact_id' => $this->contact()->id, 'registered_at' => null]);
+        $domain = $this->domain(['registrant_contact_id' => $this->contact(['email' => 'Owner@Example.test'])->id, 'registered_at' => null]);
         $this->fakeOp();
 
         app(DomainSyncService::class)->sync($domain);
@@ -313,7 +313,7 @@ class DomainManagementTest extends TestCase
      */
     public function test_registrar_handles_never_pair_silently(): void
     {
-        $owner = $this->contact();
+        $owner = $this->contact(['email' => 'owner@example.test']);
         $domain = $this->domain(['registrant_contact_id' => $owner->id]);
         $this->fakeOp(['admin_handle' => 'CP935231-GR', 'tech_handle' => 'CP935231-GR']);
 
@@ -364,6 +364,23 @@ class DomainManagementTest extends TestCase
 
         $reverted = $domain->audits()->where('event', 'updated')->get()->filter(fn ($audit) => array_key_exists('tech_contact_id', $audit->new_values));
         $this->assertSame([$other->id, null], $reverted->map(fn ($audit) => $audit->new_values['tech_contact_id'])->values()->all());
+    }
+
+    /** Adversarial F6: a new registrant only where the registrar lets the owner be modified; never an unlinked one sent. */
+    public function test_a_registrant_change_only_where_the_owner_may_be_modified(): void
+    {
+        $owner = $this->contact();
+        $buyer = $this->contact();
+        $tech = $this->contact();
+        $this->fakeOp();
+        $unlinked = $this->domain(['registrant_contact_id' => $owner->id, 'registrant_handle' => null]);
+        $this->expectExceptionThrown(fn () => app(DomainManagementService::class)->setContacts($unlinked, ['tech' => $tech->id], null), InvalidArgumentException::class);
+        $this->assertSame([], $this->puts, 'an unlinked registrant would have gone as a new owner');
+
+        $domain = $this->domain(['fqdn' => 'nixpal2.com', 'sld' => 'nixpal2', 'registrar_domain_id' => '30391503', 'registrant_contact_id' => $owner->id,
+            'registrant_handle' => 'CP935231-GR', 'meta' => ['registrar' => ['modify_owner_allowed' => true]]]);
+        app(DomainManagementService::class)->setContacts($domain, ['registrant' => $buyer->id], null);
+        $this->assertSame([$buyer->id, 'NEW123-GR'], [$domain->fresh()->registrant_contact_id, end($this->puts)['owner_handle']]);
     }
 
     /** @param  class-string<\Throwable>  $class */

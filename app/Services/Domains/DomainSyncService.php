@@ -8,7 +8,9 @@ use App\Models\DomainRegistrarConnection;
 use App\Models\DomainTld;
 use App\Support\Domains\DomainSyncResult;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -54,23 +56,61 @@ class DomainSyncService
      *
      * @return array<string, array{0: mixed, 1: mixed}> field => [now, registrar's]
      */
-    public function sync(Domain $domain, bool $write = true): array
+    public function sync(Domain $domain, bool $write = true, bool $lock = true): array
     {
+        // Under the lock the registrar writes take (D-17, adversarial F7): a sync read before a write must not land after
+        // it. A write under way is not the domain's error; the next sync reads it.
+        $held = $write && $lock ? Cache::lock("domain-registrar:{$domain->id}", 600) : null;
+        if ($held !== null && !$held->get()) {
+            throw new RuntimeException("A change to {$domain->fqdn} at the registrar is under way: synced later.");
+        }
         try {
-            $result = $this->read($domain);
-        } catch (Throwable $e) {
+            try {
+                $result = $this->read($domain);
+                $verified = $this->verifiedHandles($domain, $result);
+            } catch (Throwable $e) {
+                if ($write) {
+                    $this->bookkeep($domain, mb_substr($e->getMessage(), 0, 1000));
+                }
+
+                throw $e;
+            }
+            $changes = $this->plan($domain, $result, $verified);
             if ($write) {
-                $this->bookkeep($domain, mb_substr($e->getMessage(), 0, 1000));
+                $this->apply($domain, $result, $changes);
             }
 
-            throw $e;
+            return $changes;
+        } finally {
+            $held?->release();
         }
-        $changes = $this->plan($domain, $result);
-        if ($write) {
-            $this->apply($domain, $result, $changes);
+    }
+
+    /**
+     * The registrar's handles that are the role's contact here (adversarial F2, F8): only for a role with a contact and
+     * no handle, and only when the registrar's record for that handle has the contact's email. Anything else would pair
+     * a contact here with another person there.
+     *
+     * @return array<string, string> role => handle
+     */
+    private function verifiedHandles(Domain $domain, DomainSyncResult $result): array
+    {
+        $verified = [];
+        $connection = $domain->effectiveRegistrarConnection();
+        foreach (Domain::ROLES as $role) {
+            $theirs = $result->contactHandles[$role] ?? null;
+            $contact = $domain->{"{$role}Contact"};
+            if ($theirs === null || $contact === null || trim((string) $domain->{"{$role}_handle"}) !== '' || !$connection instanceof DomainRegistrarConnection) {
+                continue;
+            }
+            $record = $this->factory->for($connection)->getContact($theirs, $this->factory->credentialsFor($connection));
+            $email = mb_strtolower(trim((string) $contact->email));
+            if ($record !== null && $email !== '' && mb_strtolower(trim((string) $record->email)) === $email) {
+                $verified[$role] = $theirs;
+            }
         }
 
-        return $changes;
+        return $verified;
     }
 
     /**
@@ -92,9 +132,10 @@ class DomainSyncService
     /**
      * What the registrar's answer would change; `_warning` carries what is not applied for staff to look at.
      *
+     * @param  array<string, string>  $verified  the registrar's handles checked to be the role's contact (role => handle)
      * @return array<string, array{0: mixed, 1: mixed}>
      */
-    public function plan(Domain $domain, DomainSyncResult $result): array
+    public function plan(Domain $domain, DomainSyncResult $result, array $verified = []): array
     {
         $changes = [];
         $set = function (string $field, mixed $now, mixed $then) use (&$changes) {
@@ -128,7 +169,12 @@ class DomainSyncService
                 continue;
             }
             if ($ours === null || $ours === '') {
-                $set("{$role}_handle", null, $theirs);
+                if (isset($verified[$role])) {
+                    $set("{$role}_handle", null, $verified[$role]);
+                } else {
+                    $warning = "the registrar's {$role} is {$theirs}, not this domain's {$role} contact here: not linked, check it";
+                    $changes['_warning'] = [null, isset($changes['_warning']) ? $changes['_warning'][1] . '; ' . $warning : $warning];
+                }
             } elseif ($ours !== $theirs) {
                 $warning = "the registrar's {$role} handle is {$theirs}, ours {$ours}: check the {$role} contact";
                 $changes['_warning'] = [null, isset($changes['_warning']) ? $changes['_warning'][1] . '; ' . $warning : $warning];

@@ -106,6 +106,17 @@ class DomainManagementService
         if ($changed === []) {
             return;
         }
+        $details = $domain->meta['registrar'] ?? [];
+        if (array_key_exists('registrant_contact_id', $changed)) {
+            // A new registrant is an owner change: on many TLDs a trade, charged and approved by the owner (adversarial
+            // F6). Only where the registrar says the owner may simply be modified; a trade goes with D5.
+            if (($details['modify_owner_allowed'] ?? null) !== true) {
+                throw new InvalidArgumentException(__('domains.manage.owner_change_not_here'));
+            }
+        } elseif ($domain->registrant_contact_id !== null && trim((string) $domain->registrant_handle) === '') {
+            // Sending the other roles sends the registrant too: unlinked, it would become a new owner at the registrar.
+            throw new InvalidArgumentException(__('domains.manage.registrant_not_linked'));
+        }
 
         $before = $domain->only(array_merge(...array_map(fn ($role) => ["{$role}_contact_id", "{$role}_handle"], Domain::ROLES)));
         $this->write($domain, 'contacts', $changed, $staff, function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $changed) {
@@ -172,7 +183,7 @@ class DomainManagementService
             } catch (ConnectionException $e) {
                 // No answer: it may have landed (review 6b). Nothing undone; the registrar is read again instead.
                 try {
-                    $this->sync->sync($domain->refresh());
+                    $this->sync->sync($domain->refresh(), true, false); // this call holds the lock
                 } catch (Throwable) {
                 }
 

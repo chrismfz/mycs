@@ -31,6 +31,8 @@ return [
         'registrant_required' => 'A domain needs a registrant contact.',
         'no_epp_code' => 'The registrar gave no EPP code.',
         'not_manageable' => ':domain is not at a registrar with an API, or it has ended.',
+        'owner_change_not_here' => 'The registrar does not allow the owner to be changed here (it may be a paid trade): not done.',
+        'registrant_not_linked' => 'The registrant here is not linked to the registrar\'s (Sync now says why): link it before changing the other contacts.',
         'busy' => 'Another change to :domain is under way: try again in a moment.',
     ],
 ];
