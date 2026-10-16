@@ -113,9 +113,10 @@ class DomainResource extends Resource
             return null;
         }
         $date = $ends->translatedFormat('j M Y');
-        $left = (int) Carbon::today()->diffInDays($ends, false);
+        // Its last day counted (review 12): ending on the 20th, on the 17th that is 4 days.
+        $left = max(0, (int) Carbon::parse(Carbon::now('Europe/Amsterdam')->toDateString())->diffInDays($ends, false) + 1);
 
-        return $current ? __(':date (:days days left)', ['date' => $date, 'days' => max(0, $left)]) : $date;
+        return $current ? trans_choice(':date (:days day left)|:date (:days days left)', $left, ['date' => $date, 'days' => $left]) : $date;
     }
 
     public static function infolist(Schema $schema): Schema

@@ -158,10 +158,13 @@ class DomainSyncService
             $set('registered_at', null, $result->registeredAt);
         }
         $set('registrar_domain_id', $domain->registrar_domain_id, $result->registrarDomainId);
-        // When its grace and redemption end, as the registrar says while it is in them (D5a); renewed, they are gone.
-        $set('grace_ends_on', $domain->grace_ends_on?->toDateString(), $result->graceEndsOn);
-        $set('redemption_ends_on', $domain->redemption_ends_on?->toDateString(), $result->redemptionEndsOn);
-        if ($result->status === DomainStatus::Active && $result->graceEndsOn === null && $result->redemptionEndsOn === null) {
+        // When its grace and redemption end, as the registrar says while it is in them (D5a; never onto a pending order:
+        // review 2); active again, they are gone (review 5).
+        if (!$pending) {
+            $set('grace_ends_on', $domain->grace_ends_on?->toDateString(), $result->graceEndsOn);
+            $set('redemption_ends_on', $domain->redemption_ends_on?->toDateString(), $result->redemptionEndsOn);
+        }
+        if ($result->status === DomainStatus::Active) {
             foreach (['grace_ends_on', 'redemption_ends_on'] as $field) {
                 if ($domain->{$field} !== null) {
                     $changes[$field] = [$domain->{$field}->toDateString(), null];
@@ -199,7 +202,9 @@ class DomainSyncService
 
         $status = $result->status;
         $expiry = $changes['expires_at'][1] ?? $now;
-        if ($status === DomainStatus::Deleted && in_array($domain->status, self::PENDING, true)) {
+        // A pending order is moved only by its own activation: never by the past of its name (a deleted or quarantined
+        // record of the same name, review 2).
+        if ($status !== DomainStatus::Active && $status !== null && in_array($domain->status, self::PENDING, true)) {
             $status = null; // a tombstone of the name's past never ends a pending order
         }
         if ($status === DomainStatus::Active && in_array($domain->status, self::LAPSED, true)

@@ -155,7 +155,10 @@ class DomainQuarantineTest extends TestCase
         $io = DomainTld::query()->create(['tld' => 'io', 'grace_days' => 44, 'redemption_days' => 28, 'is_active' => true]);
         $other = $this->domain(['sld' => 'x', 'tld' => 'io', 'fqdn' => 'x.io', 'domain_tld_id' => $io->id, 'registrar_connection_id' => $manual->id, 'expires_at' => '2026-10-01']);
         $this->assertSame(DomainStatus::Redemption, $lifecycle->next($other, Carbon::parse('2026-11-20')));
-        $other->forceFill(['grace_ends_on' => '2026-11-25'])->save(); // the registrar's own date wins
+        // The registrar's own date wins, where its registrar has an API to keep it current (a manual one: ignored).
+        $other->forceFill(['grace_ends_on' => '2026-11-25'])->save();
+        $this->assertSame(DomainStatus::Redemption, $lifecycle->next($other->fresh(), Carbon::parse('2026-11-20')));
+        $other->forceFill(['registrar_connection_id' => $this->op->id])->save();
         $this->assertSame(DomainStatus::Grace, $lifecycle->next($other->fresh(), Carbon::parse('2026-11-20')));
     }
 
@@ -167,7 +170,7 @@ class DomainQuarantineTest extends TestCase
         $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'R' . uniqid(), 'permissions' => ['admin.domains.viewAny']])->id]);
 
         $this->livewireAs($staff)->test(ViewDomain::class, ['record' => $domain->getRouteKey()])
-            ->assertSee('10 Nov 2026')->assertSee('24 days left');
+            ->assertSee('10 Nov 2026')->assertSee('25 days left'); // 17 Oct to 10 Nov, its last day counted
         Carbon::setTestNow();
     }
 }

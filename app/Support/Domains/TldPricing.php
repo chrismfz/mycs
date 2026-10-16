@@ -25,8 +25,9 @@ final class TldPricing
          */
         public readonly array $costs = [],
         /**
-         * Days after expiry the registry keeps it at the normal renewal (soft quarantine, our grace) and then for a
-         * restore fee (hard quarantine, our redemption); 0 = that stage does not exist, null = not reported (D5a).
+         * Days of the stages after expiry: the soft quarantine (our grace; its fee is `grace`, the restore fee where the
+         * TLD has no hard quarantine) and the hard quarantine (our redemption, `redemption`); 0 = that stage does not
+         * exist, null = not reported (D5a).
          */
         public readonly ?int $graceDays = null,
         public readonly ?int $redemptionDays = null,

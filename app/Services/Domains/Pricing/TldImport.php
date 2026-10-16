@@ -110,8 +110,11 @@ class TldImport
                 if ($options->autoRegister || !$row->exists) {
                     $row->registrar_connection_id = $options->autoRegister ? $connection->id : $row->registrar_connection_id;
                 }
-                // The registry's stages after expiry, as the registrar reports them (D5a).
-                $row->fill(array_filter(['grace_days' => $pricing->graceDays, 'redemption_days' => $pricing->redemptionDays], fn ($days) => $days !== null));
+                // The registry's stages after expiry, as the registrar reports them (D5a): only from the TLD's own
+                // registrar (review 6).
+                if ($row->registrar_connection_id === $connection->id) {
+                    $row->fill(array_filter(['grace_days' => $pricing->graceDays, 'redemption_days' => $pricing->redemptionDays], fn ($days) => $days !== null));
+                }
                 $row->save();
 
                 foreach ($prices as $currency => $operations) {

@@ -87,6 +87,13 @@ class Domain extends Model implements Auditable
         // One form of a name (reviews A3, C): lowercase ASCII, IDN as punycode, no trailing dot, fqdn = sld.tld. The
         // database compares names case- and accent-blind, so «άλφα.gr» and «αλφα.gr» must not both be stored as such.
         static::saving(function (self $domain) {
+            // A new expiry ends the registrar's stage dates of the old one (adversarial D5a F1: a renewal elsewhere, or a
+            // move to a manual registrar, kept last year's dates and deleted the domain early), unless they are set with it.
+            if ($domain->exists && $domain->isDirty('expires_at') && !$domain->isDirty(['grace_ends_on', 'redemption_ends_on'])
+                && $domain->expires_at !== null && ($domain->getOriginal('expires_at') === null || $domain->expires_at->gt($domain->getOriginal('expires_at')))) {
+                $domain->grace_ends_on = null;
+                $domain->redemption_ends_on = null;
+            }
             $domain->sld = self::normalise($domain->sld);
             $domain->tld = self::normalise($domain->tld);
             $fqdn = self::normalise($domain->fqdn ?: $domain->sld . '.' . $domain->tld);
@@ -225,12 +232,23 @@ class Domain extends Model implements Auditable
     }
 
     /**
+     * Its stage dates are the registrar's own and still apply (adversarial D5a F1c): reported, and its registrar still has
+     * an API that keeps them current (a domain moved to a manual registrar goes by its expiry and days again).
+     */
+    public function hasRegistrarStageDates(): bool
+    {
+        $connection = $this->effectiveRegistrarConnection();
+
+        return ($this->grace_ends_on !== null || $this->redemption_ends_on !== null) && $connection !== null && $connection->isUsable();
+    }
+
+    /**
      * The last day of its grace (D5a): the registrar's date, else its expiry plus the grace days; null when it has no
      * grace (0 days or unknown) or no expiry.
      */
     public function graceEndsOn(): ?Carbon
     {
-        if ($this->grace_ends_on !== null) {
+        if ($this->grace_ends_on !== null && $this->hasRegistrarStageDates()) {
             return $this->grace_ends_on->copy();
         }
         $days = $this->graceDays();
@@ -244,12 +262,12 @@ class Domain extends Model implements Auditable
      */
     public function redemptionEndsOn(): ?Carbon
     {
-        if ($this->redemption_ends_on !== null) {
+        if ($this->redemption_ends_on !== null && $this->hasRegistrarStageDates()) {
             return $this->redemption_ends_on->copy();
         }
         $days = $this->redemptionDays();
         // Only after a known grace (D4 F6: an unknown grace never puts it in redemption the day after its expiry).
-        if ($this->graceDays() === null || $days === null || $days <= 0) {
+        if ((!$this->hasRegistrarStageDates() && $this->graceDays() === null) || $days === null || $days <= 0) {
             return null;
         }
         $from = $this->graceEndsOn() ?? $this->expires_at;

@@ -557,8 +557,9 @@ class OpenproviderRegistrar implements DomainRegistrar
 
         // An expired domain is DEL at OP while still in its soft or hard quarantine (D5a): ours to renew or restore, never
         // «deleted» while one of them runs (Amsterdam's day, as OP keeps them).
-        $graceEnds = $this->datePart($data['soft_quarantine_expiry_date'] ?? null);
-        $redemptionEnds = $this->datePart($data['hard_quarantine_expiry_date'] ?? null);
+        // Only on a DEL record (review 5: never an old pair kept on a restored, active one).
+        $graceEnds = $rawStatus === 'DEL' ? $this->datePart($data['soft_quarantine_expiry_date'] ?? null) : null;
+        $redemptionEnds = $rawStatus === 'DEL' ? $this->datePart($data['hard_quarantine_expiry_date'] ?? null) : null;
         $today = Carbon::now('Europe/Amsterdam')->toDateString();
         $status = $this->mapStatus($rawStatus);
         $quarantined = false;
@@ -643,21 +644,10 @@ class OpenproviderRegistrar implements DomainRegistrar
 
         $costs = [];
         foreach (self::PRICE_KEYS as $opKey => $operation) {
-            $block = $prices[$opKey] ?? null;
-            $entry = is_array($block) ? ($block['reseller'] ?? null) : null;
-            // A price we can use: a number, never negative (a negative would become a negative price: review F1).
-            if (!is_array($entry) || !is_scalar($entry['price'] ?? null) || !TldPriceMath::isAmount((string) $entry['price'])) {
-                continue;
+            $entry = $this->costEntry($prices[$opKey] ?? null);
+            if ($entry !== null) {
+                $costs[$operation] = $entry;
             }
-            // Its currency is never guessed: a price without one is left out.
-            if (!is_string($entry['currency'] ?? null) || trim($entry['currency']) === '') {
-                continue;
-            }
-            // Two decimals in decimal arithmetic, never through a float (CLAUDE.md); half up as the registrar bills.
-            $costs[$operation] = [
-                'cost' => bcadd((string) $entry['price'], '0.005', 2),
-                'currency' => strtoupper(trim($entry['currency'])),
-            ];
         }
 
         // The stages after expiry (D5a, Openprovider's TLD pages): soft quarantine (our grace) and hard quarantine (our
@@ -685,14 +675,15 @@ class OpenproviderRegistrar implements DomainRegistrar
         return new TldPricing(tld: $tld, costs: $costs, graceDays: $graceDays, redemptionDays: $redemptionDays);
     }
 
-    /** A whole number of days from OP (0 included), or null. */
+    /** A whole number of days from OP (0 included), or null: a negative or garbled one is not reported (adversarial F4). */
     private function days(mixed $value): ?int
     {
-        return is_int($value) || (is_string($value) && ctype_digit($value)) ? max(0, (int) $value) : null;
+        return is_int($value) && $value >= 0 ? $value : (is_string($value) && ctype_digit($value) ? (int) $value : null);
     }
 
     /**
-     * One reseller price block as a cost, or null (as the loop above: a non-negative amount with its currency).
+     * One reseller price block as a cost, or null: a non-negative amount (a negative would become a negative price: review
+     * F1) with its currency (never guessed), to two decimals in decimal arithmetic, half up as the registrar bills.
      *
      * @return array{cost: string, currency: string}|null
      */
@@ -915,7 +906,12 @@ class OpenproviderRegistrar implements DomainRegistrar
     private function datePart(mixed $value): ?string
     {
         // OP's «no date» is a zero date (adversarial F3: it became year -1 and broke the sync).
-        return is_string($value) && $value !== '' && !str_starts_with($value, '0000-00-00') ? substr($value, 0, 10) : null;
+        // A real date only (adversarial D5a F5: a garbled one kept a gone domain «in quarantine»).
+        if (!is_string($value) || preg_match('/^(\d{4})-(\d{2})-(\d{2})/', $value, $m) !== 1 || !checkdate((int) $m[2], (int) $m[3], (int) $m[1])) {
+            return null;
+        }
+
+        return substr($value, 0, 10);
     }
 
     /** @return array<string, mixed> */

@@ -31,7 +31,7 @@ class TldCostSync
     }
 
     /**
-     * @return int rows whose cost changed
+     * @return int rows changed: price rows whose cost moved, and the TLD when its days did
      *
      * @throws RuntimeException the registrar's own error, or no cost at all
      */

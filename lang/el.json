@@ -551,7 +551,7 @@
     "Nothing is sent to the registrar: WHOIS stays as it is. You say who this handle is here; every role with this handle at the registrar is linked with it.": "Τίποτα δεν στέλνεται στον registrar: το WHOIS μένει ως έχει. Εσείς λέτε ποιος είναι αυτό το handle εδώ· κάθε ρόλος με αυτό το handle στον registrar συνδέεται μαζί.",
     "Grace until": "Grace έως",
     "Redemption until": "Redemption έως",
-    ":date (:days days left)": ":date (απομένουν :days μέρες)",
     "Import the grace and redemption fees": "Εισαγωγή των τελών grace και redemption",
-    "The restore fee, with the same margin: on the redemption, or on the grace where the TLD has no redemption.": "Το τέλος restore, με το ίδιο margin: στο redemption, ή στο grace όπου το TLD δεν έχει redemption."
+    "The restore fee, with the same margin: on the redemption, or on the grace where the TLD has no redemption.": "Το τέλος restore, με το ίδιο margin: στο redemption, ή στο grace όπου το TLD δεν έχει redemption.",
+    ":date (:days day left)|:date (:days days left)": ":date (απομένει :days μέρα)|:date (απομένουν :days μέρες)"
 }
