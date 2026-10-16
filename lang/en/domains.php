@@ -35,6 +35,8 @@ return [
         'registrant_not_linked' => 'The registrant here is not linked to the registrar\'s (Sync now says why): link it before changing the other contacts.',
         'nothing_to_link' => 'This role has no handle at the registrar to link, or it is linked already.',
         'not_at_the_registrar' => 'The registrar has no contact :handle.',
+        'handle_changed' => 'The registrar no longer has :handle for this role: Sync now, then link.',
+        'role_not_linked' => 'The :role here is not linked to the registrar\'s: link it first (Link here).',
         'busy' => 'Another change to :domain is under way: try again in a moment.',
     ],
 ];

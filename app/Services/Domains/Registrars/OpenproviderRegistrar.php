@@ -252,10 +252,14 @@ class OpenproviderRegistrar implements DomainRegistrar
             if (!isset($handles['registrant'])) {
                 throw new RuntimeException("Το {$domain->fqdn} δεν έχει επαφή registrant — απαιτείται για την ενημέρωση επαφών.");
             }
+            // Only the roles we hold a handle for: a role left out keeps what the registrar has (adversarial D4c A1b: the
+            // registrant as a fallback rewrote an admin set at the registrar). Register/transfer still fall back.
             $payload['owner_handle'] = $handles['registrant'];
-            $payload['admin_handle'] = $handles['admin'] ?? $handles['registrant'];
-            $payload['tech_handle'] = $handles['tech'] ?? $handles['registrant'];
-            $payload['billing_handle'] = $handles['billing'] ?? $handles['registrant'];
+            foreach (['admin' => 'admin_handle', 'tech' => 'tech_handle', 'billing' => 'billing_handle'] as $role => $key) {
+                if (isset($handles[$role])) {
+                    $payload[$key] = $handles[$role];
+                }
+            }
         }
 
         $this->request($credentials, 'PUT', '/v1beta/domains/' . rawurlencode($id), $payload);

@@ -35,6 +35,8 @@ return [
         'registrant_not_linked' => 'Ο registrant εδώ δεν είναι συνδεδεμένος με του registrar (το «Sync now» λέει γιατί): συνδέστε τον πριν αλλάξετε τις άλλες επαφές.',
         'nothing_to_link' => 'Ο ρόλος δεν έχει handle στον registrar για σύνδεση, ή είναι ήδη συνδεδεμένος.',
         'not_at_the_registrar' => 'Ο registrar δεν έχει επαφή :handle.',
+        'handle_changed' => 'Ο registrar δεν έχει πια το :handle σε αυτόν τον ρόλο: «Sync now» και μετά σύνδεση.',
+        'role_not_linked' => 'Ο ρόλος :role εδώ δεν είναι συνδεδεμένος με του registrar: συνδέστε τον πρώτα («Link here»).',
         'busy' => 'Γίνεται ήδη άλλη αλλαγή στο :domain: δοκιμάστε ξανά σε λίγο.',
     ],
 ];

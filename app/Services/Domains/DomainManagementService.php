@@ -118,6 +118,13 @@ class DomainManagementService
             // Sending the other roles sends the registrant too: unlinked, it would become a new owner at the registrar.
             throw new InvalidArgumentException(__('domains.manage.registrant_not_linked'));
         }
+        // A role not changed that has a contact here but is not linked to the registrar's handle: sending it would replace
+        // the registrar's with a new one nobody asked for. Linked first (D4c).
+        foreach (Domain::ROLES as $role) {
+            if (!array_key_exists("{$role}_contact_id", $changed) && $domain->{"{$role}_contact_id"} !== null && $this->isUnlinked($domain, $role)) {
+                throw new InvalidArgumentException(__('domains.manage.role_not_linked', ['role' => __('domains.role.' . $role)]));
+            }
+        }
 
         $before = $domain->only(array_merge(...array_map(fn ($role) => ["{$role}_contact_id", "{$role}_handle"], Domain::ROLES)));
         $this->write($domain, 'contacts', $changed, $staff, function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $changed) {
@@ -197,16 +204,34 @@ class DomainManagementService
         if (!$this->isUnlinked($domain, $role)) {
             throw new InvalidArgumentException(__('domains.manage.nothing_to_link'));
         }
-        if ($contactId !== null && !Contact::query()->whereKey($contactId)->where('client_id', $domain->client_id)->exists()) {
+        // The account's own, and not archived: a contact holding a role is never archived (Contact::archive, adversarial A4).
+        if ($contactId !== null && !Contact::query()->whereKey($contactId)->where('client_id', $domain->client_id)->whereNull('archived_at')->exists()) {
             throw new InvalidArgumentException(__('domains.manage.contact_not_the_accounts'));
         }
         $handle = (string) $this->handleFor($domain, $role);
-        // Every unlinked role the registrar gives this same handle is that same person there: linked together (review 3),
-        // not one by one with a new contact each.
-        $roles = array_values(array_filter(Domain::ROLES, fn (string $r) => $this->isUnlinked($domain, $r) && $this->handleFor($domain, $r) === $handle));
         $linked = null;
-        $this->call($domain, 'link_contact', ['roles' => $roles, 'handle' => $handle, 'contact_id' => $contactId ?? 'new'], $staff,
-            function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $roles, $handle, $contactId, &$linked) {
+        $this->call($domain, 'link_contact', ['role' => $role, 'handle' => $handle, 'contact_id' => $contactId ?? 'new'], $staff,
+            function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $role, $handle, &$contactId, &$linked) {
+                // Under the lock, from what is true now (adversarial A1, A2): the role still unlinked here, and the handle
+                // still the registrar's for it; a stale one would later be sent back to the registrar as this role's.
+                $domain->refresh();
+                if (trim((string) $domain->{"{$role}_handle"}) !== '') {
+                    throw new InvalidArgumentException(__('domains.manage.nothing_to_link'));
+                }
+                $now = $registrar->syncDomain($domain, $credentials)->contactHandles;
+                if (($now[$role] ?? null) !== $handle) {
+                    throw new InvalidArgumentException(__('domains.manage.handle_changed', ['handle' => $handle]));
+                }
+                // With it, every role the registrar gives the same handle that has no contact here (review 3); a role with
+                // a contact keeps it: linking the admin never replaces the registrant's (adversarial A3).
+                $roles = array_values(array_filter(Domain::ROLES, fn (string $r) => $r === $role || (($now[$r] ?? null) === $handle
+                    && trim((string) $domain->{"{$r}_handle"}) === '' && $domain->{"{$r}_contact_id"} === null)));
+                // A handle this domain already linked to a contact is that contact: never a second one (adversarial A5).
+                foreach (Domain::ROLES as $r) {
+                    if ($contactId === null && $domain->{"{$r}_handle"} === $handle && $domain->{"{$r}_contact_id"} !== null) {
+                        $contactId = (int) $domain->{"{$r}_contact_id"};
+                    }
+                }
                 $record = $contactId === null ? ($registrar->getContact($handle, $credentials)
                     ?? throw new RuntimeException(__('domains.manage.not_at_the_registrar', ['handle' => $handle]))) : null;
                 // One transaction: a failed save leaves no new contact behind (review 1).
@@ -250,20 +275,21 @@ class DomainManagementService
         if ($first === '' && $last === '' && $org === '') {
             $last = (string) $record->email; // a contact is never nameless (displayName)
         }
+        $cut = fn (?string $value, int $length = 255) => $value === null || trim($value) === '' ? null : mb_substr(trim($value), 0, $length);
         $contact = new Contact;
-        $contact->forceFill([ // client_id is not fillable
+        $contact->forceFill([ // client_id is not fillable; the registrar's text cut to the columns (adversarial A6)
             'client_id' => $domain->client_id,
             'type' => $org !== '' && $person === '' ? 'business' : 'individual',
-            'first_name' => $first !== '' ? $first : null,
-            'last_name' => $last !== '' ? $last : null,
-            'company_name' => $org !== '' ? $org : null,
-            'email' => $record->email,
-            'phone' => $record->phone,
-            'address1' => $record->address1,
-            'address2' => $record->address2,
-            'city' => $record->city,
-            'postcode' => $record->postcode,
-            'country' => $record->country !== null ? strtoupper($record->country) : null,
+            'first_name' => $cut($first),
+            'last_name' => $cut($last),
+            'company_name' => $cut($org),
+            'email' => $cut($record->email),
+            'phone' => $cut($record->phone),
+            'address1' => $cut($record->address1),
+            'address2' => $cut($record->address2),
+            'city' => $cut($record->city),
+            'postcode' => $cut($record->postcode),
+            'country' => $record->country !== null && preg_match('/^[A-Za-z]{2}$/', trim($record->country)) === 1 ? strtoupper(trim($record->country)) : null,
         ])->save();
 
         return $contact;

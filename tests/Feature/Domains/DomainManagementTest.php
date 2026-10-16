@@ -483,8 +483,8 @@ class DomainManagementTest extends TestCase
         $this->assertSame('NEW123-GR', end($this->puts)['tech_handle']);
     }
 
-    /** D4c review: a link stands when the re-read after it fails; it is not reported as failed and redone. */
-    public function test_a_link_stands_when_the_reread_fails(): void
+    /** D4c adversarial A1: a link reads the registrar first; with the registrar down nothing is linked, nothing half-done. */
+    public function test_a_link_needs_the_registrar_now(): void
     {
         $owner = $this->contact(['email' => 'other@example.test']);
         $domain = $this->domain(['registrant_contact_id' => $owner->id]);
@@ -492,11 +492,10 @@ class DomainManagementTest extends TestCase
         app(DomainSyncService::class)->sync($domain);
         $this->registrarDown = true;
 
-        app(DomainManagementService::class)->linkContact($domain->fresh(), 'registrant', $owner->id, null);
+        $this->expectExceptionThrown(fn () => app(DomainManagementService::class)->linkContact($domain->fresh(), 'registrant', $owner->id, null), \Throwable::class);
 
-        $this->assertSame('CP935231-GR', $domain->fresh()->registrant_handle);
-        $log = DomainRegistrarLog::query()->where('action', 'link_contact')->sole();
-        $this->assertSame([DomainRegistrarLog::STATUS_OK, false], [$log->status, $log->response['synced']]);
+        $this->assertNull($domain->fresh()->registrant_handle);
+        $this->assertSame(DomainRegistrarLog::STATUS_FAILED, DomainRegistrarLog::query()->where('action', 'link_contact')->sole()->status);
     }
 
     /** @param  class-string<\Throwable>  $class */
