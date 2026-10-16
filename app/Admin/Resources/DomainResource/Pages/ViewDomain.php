@@ -191,7 +191,7 @@ class ViewDomain extends ViewRecord
         }
         $rows = '';
         foreach (Domain::ROLES as $role) {
-            $handle = (string) $record->{"{$role}_handle"};
+            $handle = (string) app(DomainManagementService::class)->handleFor($record, $role); // linked or only at the registrar (D4c)
             try {
                 $contact = $handle !== '' ? app(DomainManagementService::class)->registrarContact($record, $role, self::staff()) : null;
                 $text = $contact === null ? e($handle === '' ? __('No handle') : __('Not found at the registrar'))

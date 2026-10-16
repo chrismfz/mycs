@@ -33,6 +33,8 @@ return [
         'not_manageable' => 'Το :domain δεν είναι σε registrar με API, ή έχει τελειώσει.',
         'owner_change_not_here' => 'Ο registrar δεν επιτρέπει αλλαγή κατόχου από εδώ (μπορεί να είναι trade με χρέωση): δεν έγινε.',
         'registrant_not_linked' => 'Ο registrant εδώ δεν είναι συνδεδεμένος με του registrar (το «Sync now» λέει γιατί): συνδέστε τον πριν αλλάξετε τις άλλες επαφές.',
+        'nothing_to_link' => 'Ο ρόλος δεν έχει handle στον registrar για σύνδεση, ή είναι ήδη συνδεδεμένος.',
+        'not_at_the_registrar' => 'Ο registrar δεν έχει επαφή :handle.',
         'busy' => 'Γίνεται ήδη άλλη αλλαγή στο :domain: δοκιμάστε ξανά σε λίγο.',
     ],
 ];

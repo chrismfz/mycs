@@ -64,14 +64,17 @@ class RoleResource extends Resource
                 TextColumn::make('name')->sortable(),
                 TextColumn::make('permissions_count')
                     ->label('permissions')
-                    ->getStateUsing(fn (Role $record): string => in_array('*', $record->permissions) ? 'All' : (string) count($record->permissions))
+                    ->getStateUsing(fn (Role $record): string => in_array('*', $record->permissions) ? __('All') : (string) count($record->permissions))
+                    // The full administrators' role is not edited (canEdit), so nobody takes the last «*» away.
+                    ->description(fn (Role $record) => $record->id === 1 ? __('Full access, not editable') : null)
                     ->sortable(),
             ])
             ->filters([
                 //
             ])
+            ->recordUrl(fn (Role $record) => static::canEdit($record) ? static::getUrl('edit', ['record' => $record]) : null)
             ->recordActions([
-                EditAction::make(),
+                EditAction::make()->visible(fn (Role $record) => static::canEdit($record)),
             ]);
     }
 

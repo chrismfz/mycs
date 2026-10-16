@@ -150,11 +150,29 @@ class DomainManagementService
         return (string) $code;
     }
 
-    /** What the registrar holds for a role's handle (name, email, address…), read when staff ask. */
+    /** A role's handle: ours (linked), else the one the registrar reported at the last sync (not linked yet). */
+    public function handleFor(Domain $domain, string $role): ?string
+    {
+        if (!in_array($role, Domain::ROLES, true)) {
+            return null;
+        }
+        $ours = trim((string) $domain->{"{$role}_handle"});
+        $theirs = $domain->meta['registrar_handles'][$role] ?? null;
+
+        return $ours !== '' ? $ours : (is_string($theirs) && trim($theirs) !== '' ? trim($theirs) : null);
+    }
+
+    /** The registrar reports a handle for this role that is not linked to a contact here. */
+    public function isUnlinked(Domain $domain, string $role): bool
+    {
+        return trim((string) $domain->{"{$role}_handle"}) === '' && $this->handleFor($domain, $role) !== null;
+    }
+
+    /** What the registrar holds for a role's handle (name, email, address…), read when staff ask; linked or not. */
     public function registrarContact(Domain $domain, string $role, ?Staff $staff): ?RegistrarContact
     {
-        $handle = trim((string) $domain->{"{$role}_handle"});
-        if (!in_array($role, Domain::ROLES, true) || $handle === '') {
+        $handle = $this->handleFor($domain, $role);
+        if ($handle === null) {
             return null;
         }
         $contact = null;
@@ -164,6 +182,67 @@ class DomainManagementService
 
                 return ['found' => $contact !== null];
             });
+
+        return $contact;
+    }
+
+    /**
+     * A role's registrar handle linked here by staff (D4c): the registrar is not written, WHOIS stays as it is. To an
+     * existing contact of the account (staff say it is the same person, whatever its email), or to a new contact made
+     * from the registrar's record (an end customer registered by an agency account). Audited and logged.
+     */
+    public function linkContact(Domain $domain, string $role, ?int $contactId, ?Staff $staff): Contact
+    {
+        if (!$this->isUnlinked($domain, $role)) {
+            throw new InvalidArgumentException(__('domains.manage.nothing_to_link'));
+        }
+        if ($contactId !== null && !Contact::query()->whereKey($contactId)->where('client_id', $domain->client_id)->exists()) {
+            throw new InvalidArgumentException(__('domains.manage.contact_not_the_accounts'));
+        }
+        $handle = (string) $this->handleFor($domain, $role);
+        $linked = null;
+        $this->call($domain, 'link_contact', ['role' => $role, 'handle' => $handle, 'contact_id' => $contactId ?? 'new'], $staff,
+            function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $role, $handle, $contactId, &$linked) {
+                if ($contactId !== null) {
+                    $linked = Contact::query()->findOrFail($contactId);
+                } else {
+                    $record = $registrar->getContact($handle, $credentials)
+                        ?? throw new RuntimeException(__('domains.manage.not_at_the_registrar', ['handle' => $handle]));
+                    $linked = $this->contactFrom($domain, $record);
+                }
+                // Both at once: the model would clear a role's handle whose contact changes on its own.
+                $domain->forceFill(["{$role}_contact_id" => $linked->id, "{$role}_handle" => $handle])->save(); // audited
+                $this->sync->sync($domain->refresh(), true, false); // the warning goes; this call holds the lock
+
+                return ['contact_id' => $linked->id, 'created' => $contactId === null];
+            });
+
+        return $linked;
+    }
+
+    /** A contact of the domain's account from the registrar's record of a handle. */
+    private function contactFrom(Domain $domain, RegistrarContact $record): Contact
+    {
+        $org = trim((string) $record->org);
+        $name = trim($record->name);
+        $person = $name !== '' && $name !== $org && $name !== $record->handle ? $name : '';
+        [$first, $last] = $person !== '' ? array_pad(preg_split('/\s+/u', $person, 2) ?: [], 2, '') : ['', ''];
+
+        $contact = new Contact;
+        $contact->forceFill([ // client_id is not fillable
+            'client_id' => $domain->client_id,
+            'type' => $org !== '' && $person === '' ? 'business' : 'individual',
+            'first_name' => $first !== '' ? $first : null,
+            'last_name' => $last !== '' ? $last : null,
+            'company_name' => $org !== '' ? $org : null,
+            'email' => $record->email,
+            'phone' => $record->phone,
+            'address1' => $record->address1,
+            'address2' => $record->address2,
+            'city' => $record->city,
+            'postcode' => $record->postcode,
+            'country' => $record->country !== null ? strtoupper($record->country) : null,
+        ])->save();
 
         return $contact;
     }

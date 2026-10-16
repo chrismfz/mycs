@@ -217,7 +217,15 @@
 6. **D6 Importer WHMCS:** domains, τιμές, TLDs, ρόλοι επαφών, additional fields· parity και σύγκριση με τον
    registrar (`importer.md`). Code + adversarial.
 7. **D7 Υπενθυμίσεις και portal:** 60/30/15/10/5, do-not-renew, domains του πελάτη, NS, EPP code. Code review.
-8. **D8 Παραγγελίες:** register/transfer στο καλάθι, αναζήτηση. Code + adversarial.
+8. **D8 Παραγγελίες, αναζήτηση, whois, τιμοκατάλογος** (εύρος που ζήτησε ο ιδιοκτήτης 2026-10-16· πρώτα ιδέες από
+   WHMCS και Blesta). Δύο PRs:
+   - **D8a (χωρίς χρήματα):** αναζήτηση διαθεσιμότητας στο shop (μέσω registrar `checkAvailability`, RDAP ως fallback)
+     με suggestions (διαθέσιμο / κατειλημμένο → «μεταφορά» ή εναλλακτικές), **δημόσιο whois** (RDAP, port 43 ως fallback,
+     rate limit, χωρίς προσωπικά όπου το μητρώο τα κρύβει), **δημόσια σελίδα τιμοκαταλόγου** TLDs (register/renew/transfer
+     ανά έτη και νόμισμα) και **JSON API τιμοκαταλόγου** (cached, rate-limited) για το site. `packages/domain-tools`
+     έχει ήδη RDAP/port43/suggestions/rate limiter. Code + adversarial (κατάχρηση, enumeration).
+   - **D8b (χρήματα):** register/transfer στο καλάθι (έτη του TLD, EPP code στη μεταφορά), τιμολόγιο, εγγραφή/μεταφορά
+     μετά την πληρωμή. Code + adversarial.
 Μετά: CNIC module (αν προλάβουμε, D-10), .gr EPP (`packages/gr-epp`, Φάση 4: μαζί και η **ανάκληση** του .gr μέσα σε
 5 μέρες από την καταχώριση), additional fields ανά ccTLD, DNSSEC (επεξεργασία· σήμερα φαίνεται μόνο αν είναι ενεργό).
 

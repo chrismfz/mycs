@@ -3,15 +3,20 @@
 namespace App\Admin\Resources;
 
 use App\Admin\Components\ClientComponent;
+use App\Admin\Resources\DomainResource\DomainContactActions;
 use App\Admin\Resources\DomainResource\Pages\ListDomains;
 use App\Admin\Resources\DomainResource\Pages\ViewDomain;
 use App\Admin\Resources\DomainResource\RelationManagers\RegistrarLogsRelationManager;
 use App\Enums\DomainStatus;
 use App\Models\Client;
 use App\Models\Domain;
+use App\Services\Domains\DomainManagementService;
 use Filament\Actions\ViewAction;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\Actions;
+use Filament\Schemas\Components\Grid;
+use Filament\Schemas\Components\Group;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\IconColumn;
@@ -104,48 +109,72 @@ class DomainResource extends Resource
     {
         $yesNo = fn (?bool $state) => $state === null ? '—' : ($state ? __('Yes') : __('No'));
 
-        return $schema->components([
-            Section::make(__('domains.domain'))->columns(3)->schema([
-                TextEntry::make('fqdn')->label(__('domains.domain')),
-                TextEntry::make('status')->label(__('Status'))->badge(),
-                TextEntry::make('client.name')->label(__('Client')),
-                TextEntry::make('registrar')->label(__('Registrar'))
-                    ->state(fn (Domain $record) => $record->effectiveRegistrarConnection()->label ?? '—'),
-                TextEntry::make('registered_at')->label(__('Registered'))->date()->placeholder('—'),
-                TextEntry::make('expires_at')->label(__('Expires'))->date()->placeholder('—'),
-                TextEntry::make('years')->label(__('Period (years)')),
-                TextEntry::make('recurring_amount')->label(__('Recurring amount'))->placeholder(__('The TLD\'s renew price')),
-                TextEntry::make('auto_renew')->label(__('Auto renew'))->formatStateUsing(fn (bool $state) => $yesNo($state)),
-                TextEntry::make('transfer_lock')->label(__('Transfer lock'))->formatStateUsing(fn (bool $state) => $yesNo($state)),
-                TextEntry::make('id_protection')->label(__('WHOIS privacy'))->formatStateUsing(fn (bool $state) => $yesNo($state)),
-                TextEntry::make('registrar_domain_id')->label(__('ID at the registrar'))->placeholder('—'),
-                TextEntry::make('last_synced_at')->label(__('Last synced'))->dateTime()->placeholder('—'),
-                TextEntry::make('sync_error')->label(__('Sync error'))->placeholder('—')->columnSpan(2),
-            ]),
-            Section::make(__('Nameservers'))->schema([
-                TextEntry::make('nameservers.host')->hiddenLabel()->listWithLineBreaks()->placeholder('—'),
-            ]),
-            Section::make(__('Contacts'))->columns(4)->schema(array_map(
-                fn (string $role) => TextEntry::make("{$role}Contact.email")->label(__('domains.role.' . $role))
-                    ->state(fn (Domain $record) => $record->{"{$role}Contact"}?->displayName() ?? '—')
-                    ->helperText(fn (Domain $record) => $record->{"{$role}_handle"} ? __('Handle: :handle', ['handle' => $record->{"{$role}_handle"}]) : null),
-                Domain::ROLES,
-            )),
-            // All the registrar told the last sync (D4b): what staff would otherwise look up in its panel.
-            Section::make(__('At the registrar'))->columns(3)->collapsible()
-                ->visible(fn (Domain $record) => !empty($record->meta['registrar'] ?? null))
-                ->schema(array_map(
-                    fn (string $key, string $label) => TextEntry::make("registrar_{$key}")->label(__($label))
-                        ->state(function (Domain $record) use ($key, $yesNo) {
-                            $value = $record->meta['registrar'][$key] ?? null;
+        $domain = Section::make(__('domains.domain'))->columns(3)->schema([
+            TextEntry::make('fqdn')->label(__('domains.domain')),
+            TextEntry::make('status')->label(__('Status'))->badge(),
+            TextEntry::make('client.name')->label(__('Client')),
+            TextEntry::make('registrar')->label(__('Registrar'))
+                ->state(fn (Domain $record) => $record->effectiveRegistrarConnection()->label ?? '—'),
+            TextEntry::make('registered_at')->label(__('Registered'))->date()->placeholder('—'),
+            TextEntry::make('expires_at')->label(__('Expires'))->date()->placeholder('—'),
+            TextEntry::make('years')->label(__('Period (years)')),
+            TextEntry::make('recurring_amount')->label(__('Recurring amount'))->placeholder(__('The TLD\'s renew price')),
+            TextEntry::make('auto_renew')->label(__('Auto renew'))->formatStateUsing(fn (bool $state) => $yesNo($state)),
+            TextEntry::make('transfer_lock')->label(__('Transfer lock'))->formatStateUsing(fn (bool $state) => $yesNo($state)),
+            TextEntry::make('id_protection')->label(__('WHOIS privacy'))->formatStateUsing(fn (bool $state) => $yesNo($state)),
+            TextEntry::make('registrar_domain_id')->label(__('ID at the registrar'))->placeholder('—'),
+            TextEntry::make('last_synced_at')->label(__('Last synced'))->dateTime()->placeholder('—'),
+            TextEntry::make('sync_error')->label(__('Sync error'))->placeholder('—')->columnSpan(2),
+        ]);
 
-                            return is_bool($value) ? $yesNo($value) : ($value === null || $value === '' ? '—' : (string) $value);
-                        }),
-                    array_keys(self::REGISTRAR_DETAILS),
-                    self::REGISTRAR_DETAILS,
-                )),
-            Section::make(__('Admin notes'))->schema([
-                TextEntry::make('notes')->hiddenLabel()->placeholder('—')->prose(),
+        // Each role: its contact here, its handle (linked, or only at the registrar), and what staff do with it (D4c).
+        $contacts = Section::make(__('Contacts'))->columns(2)->schema(array_map(
+            fn (string $role) => Group::make([
+                TextEntry::make("{$role}Contact.email")->label(__('domains.role.' . $role))
+                    ->state(fn (Domain $record) => $record->{"{$role}Contact"}?->displayName() ?? '—')
+                    ->helperText(function (Domain $record) use ($role) {
+                        $service = app(DomainManagementService::class);
+                        $handle = $service->handleFor($record, $role);
+
+                        return $handle === null ? null : ($service->isUnlinked($record, $role)
+                            ? __('At the registrar: :handle (not linked here)', ['handle' => $handle])
+                            : __('Handle: :handle', ['handle' => $handle]));
+                    }),
+                Actions::make(DomainContactActions::for($role))->key("contacts_{$role}_actions")->alignStart(),
+            ]),
+            Domain::ROLES,
+        ));
+
+        // All the registrar told the last sync (D4b): what staff would otherwise look up in its panel.
+        $registrar = Section::make(__('At the registrar'))->columns(3)->collapsible()
+            ->visible(fn (Domain $record) => !empty($record->meta['registrar'] ?? null))
+            ->schema(array_map(
+                fn (string $key, string $label) => TextEntry::make("registrar_{$key}")->label(__($label))
+                    ->state(function (Domain $record) use ($key, $yesNo) {
+                        $value = $record->meta['registrar'][$key] ?? null;
+
+                        return is_bool($value) ? $yesNo($value) : ($value === null || $value === '' ? '—' : (string) $value);
+                    }),
+                array_keys(self::REGISTRAR_DETAILS),
+                self::REGISTRAR_DETAILS,
+            ));
+
+        // Two columns that each flow on their own: no gap beside a short section (D4c).
+        return $schema->columns(1)->components([
+            Grid::make(['default' => 1, 'lg' => 2])->schema([
+                Group::make([
+                    $domain,
+                    $contacts,
+                    Section::make(__('Admin notes'))->schema([
+                        TextEntry::make('notes')->hiddenLabel()->placeholder('—')->prose(),
+                    ]),
+                ]),
+                Group::make([
+                    Section::make(__('Nameservers'))->schema([
+                        TextEntry::make('nameservers.host')->hiddenLabel()->listWithLineBreaks()->placeholder('—'),
+                    ]),
+                    $registrar,
+                ]),
             ]),
         ]);
     }

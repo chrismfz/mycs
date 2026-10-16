@@ -3,6 +3,7 @@
 namespace Tests\Feature\Domains;
 
 use App\Admin\Resources\DomainResource\Pages\ViewDomain;
+use App\Admin\Resources\RoleResource\Pages\ListRoles;
 use App\Models\Client;
 use App\Models\Contact;
 use App\Models\Domain;
@@ -16,6 +17,7 @@ use App\Services\Domains\DomainManagementService;
 use App\Services\Domains\DomainSyncService;
 use App\Services\Domains\Registrars\OpenproviderRegistrar;
 use App\Support\Domains\DomainSyncResult;
+use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Repeater;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -381,6 +383,78 @@ class DomainManagementTest extends TestCase
             'registrant_handle' => 'CP935231-GR', 'meta' => ['registrar' => ['modify_owner_allowed' => true]]]);
         app(DomainManagementService::class)->setContacts($domain, ['registrant' => $buyer->id], null);
         $this->assertSame([$buyer->id, 'NEW123-GR'], [$domain->fresh()->registrant_contact_id, end($this->puts)['owner_handle']]);
+    }
+
+    /** D4c: a handle the registrar reports but nobody linked is shown and read; staff link it to an existing contact. */
+    public function test_staff_link_the_registrars_handle_to_an_existing_contact(): void
+    {
+        $owner = $this->contact(['email' => 'someone-else@example.test']);
+        $domain = $this->domain(['registrant_contact_id' => $owner->id]);
+        $this->fakeOp();
+        app(DomainSyncService::class)->sync($domain);
+        $domain->refresh();
+        $service = app(DomainManagementService::class);
+        $this->assertSame(['CP935231-GR', true], [$service->handleFor($domain, 'registrant'), $service->isUnlinked($domain, 'registrant')]);
+        $this->assertNotNull($domain->sync_error);
+        $this->assertSame('owner@example.test', $service->registrarContact($domain, 'registrant', null)?->email, 'read though not linked');
+        $staff = $this->staff(['admin.domains.viewAny', 'admin.domains.manage']);
+        $this->livewireAs($staff)->test(ViewDomain::class, ['record' => $domain->getRouteKey()])
+            ->assertSee('CP935231-GR (not linked here)', false);
+
+        $service->linkContact($domain, 'registrant', $owner->id, $staff);
+
+        $domain->refresh();
+        $this->assertSame([$owner->id, 'CP935231-GR', null], [$domain->registrant_contact_id, $domain->registrant_handle, $domain->sync_error]);
+        $this->assertSame([], $this->puts, 'nothing sent to the registrar');
+        $this->assertSame(['link_contact', $staff->id], [DomainRegistrarLog::query()->where('action', 'link_contact')->value('action'), DomainRegistrarLog::query()->where('action', 'link_contact')->value('staff_id')]);
+        $this->expectExceptionThrown(fn () => $service->linkContact($domain, 'registrant', $owner->id, null), InvalidArgumentException::class);
+    }
+
+    /** D4c: the agency case: the registrar's registrant becomes a new contact of the account, linked. */
+    public function test_staff_link_the_registrars_handle_as_a_new_contact_of_the_account(): void
+    {
+        $agency = $this->contact(['email' => 'agency@example.test']);
+        $stranger = Contact::factory()->create(['client_id' => User::factory()->create()->client()->id, 'country' => 'GR']);
+        $domain = $this->domain(['registrant_contact_id' => $agency->id]);
+        $this->fakeOp();
+        app(DomainSyncService::class)->sync($domain);
+        $domain->refresh();
+        $service = app(DomainManagementService::class);
+        $this->expectExceptionThrown(fn () => $service->linkContact($domain, 'registrant', $stranger->id, null), InvalidArgumentException::class);
+
+        $contact = $service->linkContact($domain, 'registrant', null, null);
+
+        $this->assertSame([$this->client()->id, 'owner@example.test', 'MyIP', 'Christos', 'P'], [$contact->client_id, $contact->email, $contact->company_name, $contact->first_name, $contact->last_name]);
+        $this->assertSame([$contact->id, 'CP935231-GR'], [$domain->fresh()->registrant_contact_id, $domain->fresh()->registrant_handle]);
+        $this->assertSame([], $this->puts);
+    }
+
+    /** D4c: the contact of a role is edited from the domain, with the account's permission. */
+    public function test_a_roles_contact_is_edited_from_the_domain(): void
+    {
+        $owner = $this->contact(['first_name' => 'Old']);
+        $domain = $this->domain(['registrant_contact_id' => $owner->id, 'registrant_handle' => 'CP935231-GR']);
+        $this->fakeOp();
+        $page = fn (array $permissions) => $this->livewireAs($this->staff($permissions))->test(ViewDomain::class, ['record' => $domain->getRouteKey()]);
+
+        $page(['admin.domains.viewAny'])->assertDontSee(__('Edit contact'));
+        $page(['admin.domains.viewAny', 'admin.clients.update'])
+            ->callAction(TestAction::make('editContact_registrant')->schemaComponent('contacts_registrant_actions', 'infolist'), ['first_name' => 'New'])
+            ->assertHasNoActionErrors();
+
+        $this->assertSame('New', $owner->fresh()->first_name);
+    }
+
+    /** D4c: the full administrators' role is not offered for editing (it was a bare 403). */
+    public function test_the_full_admin_role_is_not_offered_for_editing(): void
+    {
+        $admin = Role::query()->find(1) ?? Role::create(['id' => 1, 'name' => 'admin', 'permissions' => ['*']]);
+        $other = Role::create(['name' => 'Support', 'permissions' => ['admin.domains.viewAny']]);
+        $staff = Staff::factory()->create(['role_id' => $admin->id]);
+
+        $this->livewireAs($staff)->test(ListRoles::class)
+            ->assertTableActionHidden('edit', $admin)->assertTableActionVisible('edit', $other)
+            ->assertSee(__('Full access, not editable'));
     }
 
     /** @param  class-string<\Throwable>  $class */
