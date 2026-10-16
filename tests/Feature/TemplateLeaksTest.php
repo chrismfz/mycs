@@ -37,8 +37,8 @@ class TemplateLeaksTest extends TestCase
             }
         }
 
-        $this->assertSame('shop.example.test|cPanel One', TemplateRenderer::render('{{ service.domain }}|{{ service.server.name }}', $data, false), 'fields still read');
-        $this->assertSame('yes', TemplateRenderer::render('{% if service.server %}yes{% endif %}', $data, false), 'and test');
+        $this->assertSame('shop.example.test|' . $product->product->name, TemplateRenderer::render('{{ service.domain }}|{{ service.product.name }}', $data, false), 'fields and listed relations still read');
+        $this->assertSame('yes|', TemplateRenderer::render('{% if service.product %}yes{% endif %}|{{ service.server.name }}', $data, false), 'a relation not listed (server) reads as nothing');
 
         foreach (['{{ service.server.Settings }}', '{{ service.server.Settings.0.value }}', '{% for s in service.server.Settings %}{{ s.value }}{{ s }}{% endfor %}',
             '{{ service|upper }}', '{{ service|default("x") }}', '{% if service == "x" %}{% endif %}{{ service.server|lower }}'] as $template) {
@@ -59,8 +59,10 @@ class TemplateLeaksTest extends TestCase
             ['service' => $service->fresh()], false);
 
         $this->assertSame('active', $service->fresh()->status, 'nothing ran');
-        $this->assertStringStartsWith('[][][' . $product->product->name . '][', $out, 'attributes, relations and accessors still read');
+        $this->assertStringStartsWith('[][][' . $product->product->name . '][', $out, 'attributes, listed relations and accessors still read');
         $this->assertNotSame('[][][' . $product->product->name . '][]', $out);
+        $this->assertSame('', TemplateRenderer::render('{{ service.audits }}{% for a in service.audits %}{{ a.ip_address }}{% endfor %}', ['service' => $service->fresh()], false),
+            'a relation not listed reads as nothing');
     }
 
     public function test_a_template_does_not_reach_other_customers_through_shared_records(): void

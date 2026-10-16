@@ -10,9 +10,6 @@ class Currency extends Model
 {
     use HasFactory;
 
-    /** Never followed from a staff-edited template: they lead to every customer's records (PR #158 review). */
-    public const TEMPLATE_HIDDEN = ['services', 'orders', 'credits', 'carts'];
-
     public $timestamps = false;
 
     public $incrementing = false;

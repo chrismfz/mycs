@@ -33,9 +33,6 @@ class User extends Authenticatable implements Auditable, HasAvatar, OAuthenticat
 {
     use HasApiTokens, HasFactory, Notifiable, Traits\Auditable;
 
-    /** Never followed from a staff-edited template: a login's sessions, push keys and sign-in log (PR #158 review). */
-    public const TEMPLATE_HIDDEN = ['sessions', 'pushSubscriptions', 'authenticationLogs', 'notifications'];
-
     /**
      * The attributes that are mass assignable.
      *
@@ -60,6 +57,9 @@ class User extends Authenticatable implements Auditable, HasAvatar, OAuthenticat
         'remember_token',
         'tfa_secret',
     ];
+
+    /** Never in the audit trail (as staff's): the password hash, the remember token, the 2FA secret (PR #158 review A2). */
+    protected $auditExclude = ['password', 'remember_token', 'tfa_secret'];
 
     /**
      * Get the attributes that should be cast.

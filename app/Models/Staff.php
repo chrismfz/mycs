@@ -33,9 +33,6 @@ use SensitiveParameter;
  */
 class Staff extends Authenticatable implements Auditable, CanResetPasswordContract, FilamentUser, HasAppAuthentication, HasAppAuthenticationRecovery, HasAvatar, HasName
 {
-    /** Never followed from a staff-edited template: they lead to every customer's records (PR #158 review). */
-    public const TEMPLATE_HIDDEN = ['apiKeys', 'ticketMessages', 'role'];
-
     // RoutesNotifications, not Notifiable: mail (password reset) only; the `notifications` table is the customers'.
     use CanResetPassword, HasFactory, RoutesNotifications, Traits\Auditable;
 

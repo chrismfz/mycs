@@ -2,9 +2,15 @@
 
 namespace App\Helpers;
 
+use App\Models\Client;
+use App\Models\Domain;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
+use App\Models\Order;
 use App\Models\Service;
+use App\Models\ServiceCancellation;
 use App\Models\Setting;
+use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
 use App\Rules\ValidTemplate;
@@ -17,8 +23,6 @@ use Illuminate\Support\Str;
 use MyCS\MailTemplate\Html;
 use MyCS\MailTemplate\Renderer;
 use MyCS\MailTemplate\TemplateError;
-use ReflectionMethod;
-use ReflectionNamedType;
 
 /**
  * Laravel side of the mycs/mail-template renderer: staff-edited templates (email,
@@ -41,8 +45,8 @@ class TemplateRenderer
             if ($target instanceof Setting || ($target instanceof Model && strcasecmp($key, 'settings') === 0)) {
                 return null;
             }
-            // A path READS: a model's attribute, accessor or relation, never another method (Eloquent would call any
-            // argument-free one: `{{ invoice.createCancellationCreditNote }}` wrote a credit note, PR #158 review).
+            // A path READS: a stored field, or a relation or accessor listed in READS; never a method (Eloquent would
+            // call any argument-free one: `{{ invoice.createCancellationCreditNote }}` wrote a credit note, PR #158).
             if ($target instanceof Model && !self::readable($target, $key)) {
                 return null;
             }
@@ -60,30 +64,36 @@ class TemplateRenderer
             fn (object $value): bool => !$value instanceof Arrayable && !$value instanceof Jsonable);
     }
 
-    /** @var array<string, bool> class::key => whether it is a relation method */
-    private static array $relations = [];
-
     /**
-     * What a template may read on a model: a stored attribute, a loaded relation, an accessor (a get mutator or an
-     * Attribute method) or a method declared to return a Relation, by its exact name.
+     * What a template may follow beyond a record's stored fields: per model, its relations and its accessors, by name
+     * (docs/templates.md). Anything else reads as nothing: a method (Eloquent would call it), an accessor that does
+     * work (an invoice's PDF), a trait's relation (audits: staff notes, password hashes), a relation to other
+     * customers' records (a login shared by two accounts, a server's accounts) or to staff's notes (money events).
+     *
+     * @var array<class-string<Model>, array{relations?: list<string>, accessors?: list<string>}>
      */
+    public const READS = [
+        Client::class => ['relations' => ['primaryContact'], 'accessors' => ['name', 'email', 'firstName', 'lastName', 'country']],
+        Domain::class => ['relations' => ['nameservers']],
+        Invoice::class => ['relations' => ['items', 'client'], 'accessors' => ['total', 'remaining', 'formattedTotal', 'formattedRemaining']],
+        InvoiceItem::class => ['accessors' => ['formattedPrice', 'formattedTotal']],
+        Order::class => ['relations' => ['services', 'client'], 'accessors' => ['formattedTotal']],
+        Service::class => ['relations' => ['product', 'plan', 'client'], 'accessors' => ['formattedPrice', 'label']],
+        ServiceCancellation::class => ['relations' => ['service']],
+        Ticket::class => ['relations' => ['client', 'service']],
+        TicketMessage::class => ['relations' => ['ticket', 'user']],
+        User::class => ['accessors' => ['name']],
+    ];
+
+    /** A stored field, or a relation or accessor its model lists in READS (exact name). */
     private static function readable(Model $model, string $key): bool
     {
-        if (array_key_exists($key, $model->getAttributes()) || $model->relationLoaded($key)
-            || $model->hasGetMutator($key) || $model->hasAttributeGetMutator($key)) {
+        if (array_key_exists($key, $model->getAttributes())) {
             return true;
         }
+        $reads = self::READS[$model::class] ?? [];
 
-        return self::$relations[$model::class . '::' . $key] ??= (function () use ($model, $key): bool {
-            if (!method_exists($model, $key)) {
-                return false;
-            }
-            $method = new ReflectionMethod($model, $key);
-            $type = $method->getReturnType();
-
-            return $method->getName() === $key && $method->isPublic() && $method->getNumberOfRequiredParameters() === 0
-                && $type instanceof ReflectionNamedType && is_a($type->getName(), Relation::class, true);
-        })();
+        return in_array($key, $reads['relations'] ?? [], true) || in_array($key, $reads['accessors'] ?? [], true);
     }
 
     /** @param  array<string, mixed>  $data */
