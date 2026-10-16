@@ -18,7 +18,8 @@ final class Redact
      * Names of secrets: *pass*, secret, token, authorization, cookie, a session id, a signature, and «key» as a word of
      * its own (api_key, x-api-key, apikey, key) — not key_length, keyboard or monkey (review R12).
      */
-    private const SECRET_KEY = '/pass|secret|token|authori[sz]ation|cookie|^sess(ion)?(_?id)?$|session$|sig(nature)?$|apikey|(^|[_\-.])key$/i';
+    // An EPP/auth code transfers a domain away: a secret like a password (docs/domains.md D-11).
+    private const SECRET_KEY = '/pass|secret|token|authori[sz]ation|cookie|^sess(ion)?(_?id)?$|session$|sig(nature)?$|apikey|(^|[_\-.])key$|auth_?code|epp/i';
 
     /** Re-read this often: another process (the web request saving a server) may have changed one (review R8). */
     private const KNOWN_TTL = 60;

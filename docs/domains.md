@@ -151,8 +151,17 @@
 Κάθε PR με κώδικα: code review. Όσα αγγίζουν χρήματα (τιμές, τιμολόγια, ανανέωση): **και adversarial review**.
 1. **D1 Σχήμα και μοντέλα:** πίνακες, statuses, ρόλοι επαφών (και ο guard αρχειοθέτησης), συνδέσεις registrar με
    `Setting`, admin read-only (μενού Domains, πίνακας στη Summary του πελάτη). Code review.
-2. **D2 Registrars:** contract, συνδέσεις (encrypted, test connection), Openprovider (sandbox), `manual`, guards και
-   log. Code + adversarial (writes που χρεώνουν).
+2. **D2 Registrars** (#159): contract, συνδέσεις (credentials κρυπτογραφημένα, «Test Connection» μόνο για όσους
+   επεξεργάζονται, χωρίς log), Openprovider, `manual`. Code + adversarial. Τα guards (lock, log κάθε απόπειρας,
+   adopt) έρχονται με τον πρώτο που γράφει (D4/D5), εκεί που ελέγχονται. Σημειώσεις:
+   - Ένα token του Openprovider ανήκει στα ακριβή credentials (endpoint, username **και** password).
+   - Το δοκιμαστικό του Openprovider είναι σε **απλό HTTP** (`:8480`, όπως το τεκμηριώνει): μόνο τα στοιχεία του
+     δοκιμαστικού λογαριασμού, ποτέ του live (η φόρμα το λέει).
+   - Handles: ένας customer στον Openprovider ανά επαφή **ανά domain** (όχι κοινός σε domains)· αλλάζει η επαφή ενός
+     ρόλου → σβήνει το handle και φτιάχνεται νέο στην επόμενη εγγραφή· μόνο επαφές του ίδιου λογαριασμού, με χώρα.
+   - Register/transfer αρνούνται χωρίς nameservers (αλλιώς ο Openprovider βάζει τους δικούς του) και δεν υιοθετούν
+     λήξη όσο είναι pending.
+   - Το EPP code είναι secret και στα logs (`Redact`).
 3. **D3 TLDs και τιμές:** ρυθμίσεις ανά TLD (D-7), τιμές ανά έτη/νόμισμα, sync κόστους, importer με margin (D-6).
    Code + adversarial (τιμές).
 4. **D4 Sync:** `domains:sync` και schedule, pending transfers, grace/redemption, αναφορά διαφορών. Code review.

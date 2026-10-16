@@ -13,6 +13,7 @@ use App\Admin\Resources\ConfigOptionResource;
 use App\Admin\Resources\CouponResource;
 use App\Admin\Resources\CurrencyResource;
 use App\Admin\Resources\CustomPropertyResource;
+use App\Admin\Resources\DomainRegistrarConnectionResource;
 use App\Admin\Resources\DomainResource;
 use App\Admin\Resources\EmailLogResource;
 use App\Admin\Resources\ExtensionResource;
@@ -93,6 +94,7 @@ class TopMenu
             [TaxRateResource::class, 'index', 'Tax Rules'],
             [GatewayResource::class, 'index', 'Payment Gateways'],
             [ServerResource::class, 'index', 'Servers'],
+            [DomainRegistrarConnectionResource::class, 'index', 'Domain Registrars'],
             [ServerGroupResource::class, 'index', 'Server Groups'],
             [NotificationTemplateResource::class, 'index', 'Email Templates'],
             [RoleResource::class, 'index', 'Staff Roles'],

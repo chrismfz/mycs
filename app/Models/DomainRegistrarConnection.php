@@ -91,6 +91,9 @@ class DomainRegistrarConnection extends Model implements Auditable
     public function storeCredentials(array $values, array $secret): void
     {
         foreach ($values as $key => $value) {
+            if ($value !== null && !is_scalar($value)) {
+                throw new \InvalidArgumentException("A registrar credential is text: «{$key}» is not.");
+            }
             $isSecret = in_array($key, $secret, true);
             if ($isSecret && ($value === null || $value === '')) {
                 continue;
