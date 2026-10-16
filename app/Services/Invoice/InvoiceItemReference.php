@@ -2,18 +2,19 @@
 
 namespace App\Services\Invoice;
 
+use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 
 /**
- * What an invoice line may point at (audit sweep AUTH-8 / DATA-19): a service (renewal) or a service upgrade of the
- * invoice's own customer, or nothing. Any class name used to be accepted and instantiated (app($class)); a line on
+ * What an invoice line may point at (audit sweep AUTH-8 / DATA-19): a service (renewal), a service upgrade or a domain
+ * (renewal, D-4) of the invoice's own customer, or nothing. Any class name used to be accepted and instantiated (app($class)); a line on
  * Credit sold account credit, and one on another customer's service renewed it when this invoice was paid.
  */
 final class InvoiceItemReference
 {
-    public const TYPES = [Service::class, ServiceUpgrade::class];
+    public const TYPES = [Service::class, ServiceUpgrade::class, Domain::class];
 
     /**
      * Why the pair (type, id) the line will have is refused, as [field, message], or null. Checked as a pair: an
@@ -55,6 +56,7 @@ final class InvoiceItemReference
         $owner = match ($type) {
             Service::class => Service::query()->whereKey($id)->value('client_id'),
             ServiceUpgrade::class => ServiceUpgrade::query()->whereKey($id)->first()?->service?->client_id,
+            Domain::class => Domain::query()->whereKey($id)->value('client_id'), // its renewal (docs/domains.md D-4)
             default => null,
         };
 

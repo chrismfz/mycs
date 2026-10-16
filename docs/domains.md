@@ -251,6 +251,21 @@
      αναφέρθηκαν». Μια παραγγελία σε εκκρεμότητα δεν μετακινείται από το παρελθόν του ονόματός της. Ο κύκλος
      ζωής δεν πάει πίσω από grace/redemption σε expired.
    - Domains που το παλιό sync είχε κάνει deleted ενώ ήταν σε quarantine δεν διορθώνονται αυτόματα (κανένα σήμερα).
+5b-1. **D5b-1 Τιμολόγηση** (2026-10-17, χωρίς κλήσεις στον registrar): το domain είναι γραμμή τιμολογίου
+   (`reference_type = Domain`, `InvoiceItemReference`)· δικό του βήμα στο `invoices_created` του cron:
+   `domain_invoice_days` ημέρες πριν τη λήξη (κενό = όσο οι υπηρεσίες, `cronjob_invoice`), για τα domains active,
+   expired, grace, redemption με auto renew. Περίοδος από τη λήξη για τα έτη του, τιμή `recurring_amount` αλλιώς η renew
+   του TLD (χωρίς τιμή: σημείωση, δεν χρεώνεται), due = λήξη (αν πέρασε: σήμερα). Μία φορά ανά περίοδο, ό,τι κι αν έγινε
+   το τιμολόγιό της (ακυρωμένο από το staff = δεν ξαναβγαίνει· το staff το ξανανοίγει ή κλείνει το auto renew).
+   Ομαδοποίηση με τις ανανεώσεις υπηρεσιών της ίδιας ημέρας (εκτός «Separate invoices»), email, πίστωση και auto-charge
+   όπως εκείνες. Σε grace/redemption: το τέλος του σταδίου (`stageFee`: override του domain, αλλιώς του TLD) στο ανοιχτό
+   τιμολόγιο της ανανέωσης, ένα ανά τιμολόγιο (του grace γίνεται του redemption)· ποτέ σε τιμολόγιο με χρήματα (σημείωση
+   στο staff). Γραμμές τέλους: `invoice_items.kind` (`grace_fee`, `redemption_fee`). Μια πληρωμένη ανανέωση domain
+   **περιμένει** (paid, not applied) το D5b-2 που την ανανεώνει στον registrar· ποτέ «applied» χωρίς αυτό. ΦΠΑ με τους
+   κανόνες του πελάτη (D-19). Code + adversarial.
+5b-2. **D5b-2 Πληρωμή → registrar:** sync πρώτα (adopt αν ο registrar καλύπτει ήδη την περίοδο, D-2), renew ή restore
+   (D-13, 1 έτος), lock, log με το τιμολόγιο, Pending Module Actions σε αποτυχία (D-15), «Ανανέωση τώρα» (D-1).
+   Code + adversarial.
 5. **D5 Χρέωση:** γραμμή `Domain` στο τιμολόγιο, βήμα τιμολόγησης με ομαδοποίηση, κλάδος στην πληρωμή, renew on-paid, «Ανανέωση τώρα», adopt, fee grace/
    redemption στο υπάρχον τιμολόγιο, Pending Module Actions. Code + adversarial.
 6. **D6 Importer WHMCS:** domains, τιμές, TLDs, ρόλοι επαφών, additional fields· parity και σύγκριση με τον

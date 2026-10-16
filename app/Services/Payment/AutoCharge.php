@@ -2,10 +2,12 @@
 
 namespace App\Services\Payment;
 
+use App\Enums\DomainStatus;
 use App\Exceptions\DisplayException;
 use App\Helpers\NotificationHelper;
 use App\Models\BillingAgreement;
 use App\Models\ChargeAttempt;
+use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\Service;
 use Carbon\CarbonImmutable;
@@ -90,8 +92,11 @@ final class AutoCharge
             // Not one overdue past the retry window: an old invoice is not charged at go-live, nor forever (adversarial ADV-5).
             ->whereDate('due_at', '>=', $today->subDays(self::window())->toDateString())
             ->whereHas('client', fn ($client) => $client->where('auto_charge', true)->whereNotNull('default_billing_agreement_id'))
-            ->whereHas('items', fn ($items) => $items->where('reference_type', Service::class))
+            // A renewal: of a service, or of a domain (D5b); none of an ended domain.
+            ->whereHas('items', fn ($items) => $items->whereIn('reference_type', [Service::class, Domain::class]))
             ->whereDoesntHave('items', fn ($items) => $items->where('reference_type', Service::class)->whereIn('reference_id', $notCharged))
+            ->whereDoesntHave('items', fn ($items) => $items->where('reference_type', Domain::class)
+                ->whereIn('reference_id', Domain::query()->select('id')->whereIn('status', DomainStatus::terminalValues())))
             ->orderBy('due_at')->orderBy('id');
     }
 

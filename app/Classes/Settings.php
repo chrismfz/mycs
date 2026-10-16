@@ -571,6 +571,16 @@ class Settings
                     'min_value' => 0,
                     'description' => 'The number of days before the due date to generate the renewal invoice.',
                 ],
+                // Domains (docs/domains.md D-14; WHMCS CreateDomainInvoiceDaysBefore): their own, empty = as the services.
+                [
+                    'name' => 'domain_invoice_days',
+                    'section' => 'Billing Settings',
+                    'label' => 'Domain Invoice Generation',
+                    'type' => 'number',
+                    'required' => false,
+                    'min_value' => 0,
+                    'description' => 'The number of days before a domain expires to generate its renewal invoice. Empty: as Invoice Generation.',
+                ],
                 // Saved payment methods (PR H, decision 5; WHMCS CCProcessDaysBefore, CCAttemptOnlyOnce, CCRetryEveryWeekFor).
                 [
                     'name' => 'autocharge_days_before',

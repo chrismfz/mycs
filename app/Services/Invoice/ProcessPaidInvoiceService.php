@@ -2,6 +2,7 @@
 
 namespace App\Services\Invoice;
 
+use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
@@ -20,8 +21,16 @@ class ProcessPaidInvoiceService
         // The marker this run applies: a newer one (paid -> pending -> paid meanwhile) is left for its own run.
         $marker = Invoice::query()->whereKey($invoice->getKey())->value('apply_pending_since');
         $failures = [];
-        $invoice->items->each(function ($item) use (&$failures) {
+        $waiting = false;
+        $invoice->items->each(function ($item) use (&$failures, &$waiting) {
             try {
+                // A domain's renewal (D5b): renewed at its registrar by D5b-2. Until then it waits, never «applied»: the
+                // invoice stays paid-not-applied (the cron tries it again, staff see it), so no paid renewal is lost.
+                if ($item->reference_type == Domain::class && $item->kind === null && $item->period_start !== null && $item->applied_at === null) {
+                    $waiting = true;
+
+                    return;
+                }
                 if ($item->reference_type == Service::class) {
                     $service = $item->reference;
                     if (!$service || !($service instanceof Service)) {
@@ -43,6 +52,9 @@ class ProcessPaidInvoiceService
         });
         if ($failures !== []) {
             throw $failures[0];
+        }
+        if ($waiting) {
+            return;
         }
         // Applied (a line with nothing to apply counts too: a cancelled service, a one-time plan). Quietly: no invoice event.
         if ($marker !== null) {

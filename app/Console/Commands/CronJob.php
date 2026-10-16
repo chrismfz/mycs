@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Enums\AdjustmentNoteStatus;
+use App\Enums\DomainStatus;
 use App\Enums\InvoiceTransactionStatus;
 use App\Events\Invoice as InvoiceEvent;
 use App\Exceptions\DisplayException;
@@ -11,6 +12,7 @@ use App\Jobs\Server\SuspendJob;
 use App\Jobs\Server\TerminateJob;
 use App\Models\CronStat;
 use App\Models\DebugLog;
+use App\Models\Domain;
 use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
@@ -168,6 +170,20 @@ class CronJob extends Command
                     } catch (Throwable $e) {
                         report($e);
                         $this->failures["invoices_created #{$id}"] = $e;
+                    }
+                }
+                // Domains (docs/domains.md D-4, D-14, D5b): their own step, N days before expiry, grouped with the services
+                // due the same day; and the fee of a grace or redemption onto the open renewal invoice (D-8).
+                $domainsUntil = now()->addDays(self::domainInvoiceDays());
+                $domains = Domain::query()->whereIn('status', array_map(fn (DomainStatus $s) => $s->value, self::BILLED_DOMAINS))
+                    ->where('auto_renew', true)->whereNotNull('expires_at')->where('expires_at', '<', $domainsUntil)->pluck('id');
+                foreach ($domains as $id) {
+                    try {
+                        $number += DB::transaction(fn () => $this->billDomainRenewal($id, $domainsUntil));
+                        DB::transaction(fn () => $this->addStageFee($id));
+                    } catch (Throwable $e) {
+                        report($e);
+                        $this->failures["invoices_created domain #{$id}"] = $e;
                     }
                 }
                 // Grouped renewals (PR C): emailed and paid by credit once all their lines are on them.
@@ -798,6 +814,116 @@ class CronJob extends Command
         ]);
 
         return 1;
+    }
+
+    /** The domains billed for their next period (D5b): alive, the customer's still (expired, grace, redemption). */
+    private const BILLED_DOMAINS = [DomainStatus::Active, DomainStatus::Expired, DomainStatus::Grace, DomainStatus::Redemption];
+
+    /** Days before expiry a domain's renewal is invoiced (D-14): its own setting, else the services'. */
+    public static function domainInvoiceDays(): int
+    {
+        $days = config('settings.domain_invoice_days');
+
+        return $days === null || $days === '' ? (int) config('settings.cronjob_invoice', 7) : max(0, (int) $days);
+    }
+
+    /**
+     * Bill a domain's next period (docs/domains.md D-4, D5b): from its expiry, for its years, at its renewal price, due
+     * on its expiry (today, past it). A period is billed once, whatever became of its invoice: paid, open, or cancelled by
+     * staff (who reopen it, or turn auto renew off: do not renew). Grouped as the services' renewals (PR C).
+     */
+    private function billDomainRenewal(int $id, CarbonInterface $billUntil): int
+    {
+        $domain = Domain::query()->whereKey($id)->lockForUpdate()->first();
+        if ($domain === null || !in_array($domain->status, self::BILLED_DOMAINS, true) || !$domain->auto_renew || $domain->expires_at === null) {
+            return 0;
+        }
+        $periodStart = $domain->expires_at->copy()->startOfDay();
+        if ($periodStart->greaterThanOrEqualTo($billUntil)) {
+            return 0;
+        }
+        if ($domain->invoiceItems()->whereNull('kind')->whereDate('period_start', '>=', $periodStart->toDateString())->exists()) {
+            return 0; // billed (or paid and still to apply: BIL-9)
+        }
+        $price = $domain->renewalPrice();
+        if ($price === null) {
+            $this->notices["invoices_created domain #{$id}"] = new DisplayException("Domain {$domain->fqdn}: no renew price for "
+                . max(1, (int) $domain->years) . " year(s) in {$domain->currency_code}: not billed (set one on its TLD or the domain).");
+
+            return 0;
+        }
+        $years = max(1, (int) $domain->years);
+        $periodEnd = $periodStart->copy()->addYearsNoOverflow($years);
+        $due = $periodStart->greaterThan(today()) ? $periodStart : today();
+
+        $key = bccomp($price, '0', 2) > 0 && !$domain->client->separate_invoices
+            ? implode('|', [$domain->client_id, $due->toDateString(), $domain->currency_code]) : null;
+        $invoice = $key !== null && isset($this->renewalGroups[$key]) ? (new RecordPaymentService)->lockInvoice($this->renewalGroups[$key]) : null;
+        if ($invoice !== null && ($invoice->status !== Invoice::STATUS_UNPAID || $invoice->finish_pending_at === null
+            || (int) $invoice->client_id !== (int) $domain->client_id || $invoice->currency_code !== $domain->currency_code
+            || $invoice->hasPayments(lock: true))) {
+            $invoice = null;
+        }
+        if ($invoice === null) {
+            $invoice = new Invoice(['client_id' => $domain->client_id, 'status' => Invoice::STATUS_UNPAID, 'due_at' => $due,
+                'currency_code' => $domain->currency_code]);
+            $invoice->finalize_later = true;
+            $invoice->forceFill(['finish_pending_at' => now()]);
+            $invoice->save();
+            if ($key !== null) {
+                $invoiceId = (int) $invoice->id;
+                DB::afterCommit(function () use ($key, $invoiceId) {
+                    $this->renewalGroups[$key] = $invoiceId;
+                });
+            }
+        }
+        $invoice->items()->create([
+            'reference_type' => Domain::class,
+            'reference_id' => $domain->id,
+            'price' => $price,
+            'quantity' => 1,
+            'description' => $domain->describeRenewal($periodStart, $periodEnd),
+            'period_start' => $periodStart,
+            'period_end' => $periodEnd,
+        ]);
+
+        return 1;
+    }
+
+    /**
+     * The fee of the stage a domain is in (grace or redemption, D-8: «existing invoice»), on its open renewal invoice: one
+     * stage fee per invoice, the current stage's (grace's becomes redemption's). Never on an invoice with money on it
+     * (staff are told); a stage without a fee (none, or 0.00) adds nothing.
+     */
+    private function addStageFee(int $id): void
+    {
+        $domain = Domain::query()->whereKey($id)->lockForUpdate()->first();
+        if ($domain === null || !in_array($domain->status, [DomainStatus::Grace, DomainStatus::Redemption], true) || $domain->expires_at === null) {
+            return;
+        }
+        $fee = $domain->stageFee($domain->status);
+        if ($fee === null || bccomp($fee, '0', 2) <= 0) {
+            return;
+        }
+        $renewal = $domain->invoiceItems()->whereNull('kind')->whereDate('period_start', '>=', $domain->expires_at->toDateString())
+            ->whereHas('invoice', fn ($invoice) => $invoice->where('status', Invoice::STATUS_UNPAID))->orderByDesc('id')->first();
+        if ($renewal === null) {
+            return;
+        }
+        $invoice = (new RecordPaymentService)->lockInvoice($renewal->invoice_id);
+        $kind = $domain->status === DomainStatus::Grace ? 'grace_fee' : 'redemption_fee';
+        $existing = $invoice->items()->where('reference_type', Domain::class)->where('reference_id', $domain->id)->whereIn('kind', ['grace_fee', 'redemption_fee'])->first();
+        if ($invoice->status !== Invoice::STATUS_UNPAID || $existing?->kind === $kind) {
+            return;
+        }
+        if ($invoice->hasPayments(lock: true)) {
+            $this->notices["invoices_created domain fee #{$id}"] = new DisplayException("Domain {$domain->fqdn}: its renewal invoice #{$invoice->id} has payments: the {$kind} ({$fee}) was not added, bill it by hand.");
+
+            return;
+        }
+        $line = ['price' => $fee, 'quantity' => 1, 'kind' => $kind, 'description' => __('domains.invoice.' . $kind, ['domain' => $domain->fqdn])];
+        $existing !== null ? $existing->update($line) // grace's fee becomes redemption's
+            : $invoice->items()->create($line + ['reference_type' => Domain::class, 'reference_id' => $domain->id]);
     }
 
     /**
