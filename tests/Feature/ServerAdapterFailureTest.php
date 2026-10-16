@@ -167,4 +167,18 @@ class ServerAdapterFailureTest extends TestCase
         $this->expectExceptionMessage('Server action suspendServer failed for service #' . $this->service->id . ' (FalseServer)');
         ExtensionHelper::suspendServer($this->service->fresh());
     }
+
+    /** A token or host pasted with a space or line break still authenticates (WHM answered it as a bad token). */
+    public function test_a_pasted_token_with_whitespace_is_trimmed(): void
+    {
+        $server = Server::query()->create(['name' => 'WHM2', 'extension' => 'CPanel', 'type' => 'server', 'enabled' => true]);
+        foreach (['host' => " https://whm.test:2087/\n", 'username' => ' reseller ', 'apikey' => "TOKEN123\n"] as $key => $value) {
+            $server->settings()->create(['key' => $key, 'value' => $value]);
+        }
+        Http::fake([self::WHM . '/version*' => Http::response(['metadata' => ['result' => 1, 'reason' => 'OK'], 'data' => ['version' => '11.138']])]);
+
+        $values = $server->settings->mapWithKeys(fn ($setting) => [$setting->key => $setting->value])->all();
+        $this->assertTrue(ExtensionHelper::testConfig($server, $values));
+        Http::assertSent(fn ($request) => $request->hasHeader('Authorization', 'whm reseller:TOKEN123') && $request->url() === self::WHM . '/version?api.version=1');
+    }
 }
