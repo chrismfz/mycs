@@ -190,7 +190,7 @@ class DomainsD4bAdversarialTest extends TestCase
         // D4c: an unlinked admin with a contact is refused until staff link it; nothing reaches the registrar meanwhile.
         try {
             app(DomainManagementService::class)->setContacts($domain->fresh(), ['tech' => $tech->id], null);
-        } catch (\InvalidArgumentException) {
+        } catch (InvalidArgumentException) {
             $this->assertSame([], $this->puts);
 
             return;
