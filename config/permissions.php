@@ -91,6 +91,13 @@ return [
             'domains' => [
                 'viewAny' => 'View Domains',
             ],
+            // Accounts at registrars and their credentials (docs/domains.md D-21).
+            'domain_registrars' => [
+                'viewAny' => 'View Domain Registrars',
+                'create' => 'Create Domain Registrars',
+                'update' => 'Update Domain Registrars',
+                'delete' => 'Delete Domain Registrars',
+            ],
             'service_cancellations' => [
                 'create' => 'Create Service Cancellations',
                 'update' => 'Update Service Cancellations',
