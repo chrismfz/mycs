@@ -30,13 +30,19 @@ final class Renderer
     /** @var \Closure(mixed, string): mixed */
     private \Closure $accessor;
 
+    /** @var (\Closure(object): bool)|null */
+    private ?\Closure $printable;
+
     /**
      * @param  (\Closure(mixed $target, string $key): mixed)|null  $accessor  reads one path segment;
      *                                                                        the app wraps {@see self::read()} to hide fields (e.g. a model's $hidden).
+     * @param  (\Closure(object $value): bool)|null  $printable  whether a Stringable object may be printed as a whole;
+     *                                                           the app refuses records, whose string is all their fields.
      */
-    public function __construct(?\Closure $accessor = null)
+    public function __construct(?\Closure $accessor = null, ?\Closure $printable = null)
     {
         $this->accessor = $accessor ?? self::read(...);
+        $this->printable = $printable;
     }
 
     /**
@@ -466,7 +472,7 @@ final class Renderer
             $value instanceof \BackedEnum => (string) $value->value,
             $value instanceof \UnitEnum => $value->name,
             $value instanceof \DateTimeInterface => $value->format('Y-m-d H:i'),
-            $value instanceof \Stringable => (string) $value,
+            $value instanceof \Stringable => $this->printable === null || ($this->printable)($value) ? (string) $value : '',
             default => '',
         };
     }

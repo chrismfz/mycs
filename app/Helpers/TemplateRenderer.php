@@ -4,10 +4,12 @@ namespace App\Helpers;
 
 use App\Models\Invoice;
 use App\Models\Service;
+use App\Models\Setting;
 use App\Models\TicketMessage;
 use App\Models\User;
 use App\Rules\ValidTemplate;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use MyCS\MailTemplate\Html;
@@ -30,13 +32,23 @@ class TemplateRenderer
             if ($target instanceof Model && in_array($key, $target->getHidden(), true)) {
                 return null;
             }
+            // Settings are a module's or a registrar's credentials, already decrypted when read: never in a template
+            // (`service.server.settings`). A setting reached any other way reads as nothing too.
+            if ($target instanceof Setting || ($target instanceof Model && $key === 'settings')) {
+                return null;
+            }
             // Staff-only fields that are not $hidden (staff edit them in forms): a service's notes (review F2).
             if ($target instanceof Model && defined($target::class . '::TEMPLATE_HIDDEN') && in_array($key, constant($target::class . '::TEMPLATE_HIDDEN'), true)) {
                 return null;
             }
 
-            return Renderer::read($target, $key);
-        });
+            $value = Renderer::read($target, $key);
+
+            return $value instanceof Setting ? null : $value;
+        },
+            // A record or a list printed whole is all its fields as JSON (`{{ service }}`: its notes too): nothing. Its
+            // fields are read one by one, through the checks above; a loop still walks a list.
+            fn (object $value): bool => !$value instanceof Model && !$value instanceof Collection);
     }
 
     /** @param  array<string, mixed>  $data */
