@@ -31,7 +31,7 @@ class ClientsRelationManager extends RelationManager
                     ->state(fn (Client $record) => (bool) $record->getRelationValue('pivot')?->owner),
             ])
             ->recordActions([
-                Action::make('open')->label(__('Open'))->url(fn (Client $record) => ClientResource::getUrl('edit', ['record' => $record])),
+                Action::make('open')->label(__('Open'))->url(fn (Client $record) => ClientResource::getUrl('view', ['record' => $record])),
             ]);
     }
 }

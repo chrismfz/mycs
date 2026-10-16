@@ -96,7 +96,7 @@ class EmailLogResource extends Resource
                     TextEntry::make('related')->label('About')->state(fn (EmailLog $record) => $record->relatedLabel())
                         ->url(fn (EmailLog $record) => self::relatedUrl($record))->placeholder('—'),
                     TextEntry::make('client_id')->label('Account')->state(fn (EmailLog $record) => $record->client_id ? '#' . $record->client_id : null)
-                        ->url(fn (EmailLog $record) => $record->client_id ? ClientResource::getUrl('edit', ['record' => $record->client_id]) : null)->placeholder('—'),
+                        ->url(fn (EmailLog $record) => $record->client_id ? ClientResource::getUrl('view', ['record' => $record->client_id]) : null)->placeholder('—'),
                     TextEntry::make('trigger')->label('Sent by')
                         ->state(fn (EmailLog $record) => match ($record->trigger) {
                             EmailLog::TRIGGER_MANUAL => 'Resent by ' . ($record->staff instanceof Staff ? $record->staff->name : 'staff'),
@@ -192,7 +192,7 @@ class EmailLogResource extends Resource
             ->columns([
                 ...self::columns(),
                 TextColumn::make('client_id')->label('Account')->state(fn (EmailLog $record) => $record->client_id ? '#' . $record->client_id : null)
-                    ->url(fn (EmailLog $record) => $record->client_id ? ClientResource::getUrl('edit', ['record' => $record->client_id]) : null)->toggleable(),
+                    ->url(fn (EmailLog $record) => $record->client_id ? ClientResource::getUrl('view', ['record' => $record->client_id]) : null)->toggleable(),
             ])
             ->defaultSort('id', 'desc')
             ->filters([

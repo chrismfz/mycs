@@ -10,6 +10,7 @@ use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
+use Filament\Resources\Pages\Page;
 use Illuminate\Support\Facades\Auth;
 
 class EditClient extends EditRecord
@@ -26,6 +27,23 @@ class EditClient extends EditRecord
         }
     }
 
+    /** «Login as client» (AUTH-19): this account in the client area, as its owner sees it (WHMCS logs in as the owner). */
+    public static function loginAsClientAction(): Action
+    {
+        return Action::make('impersonate')
+            ->label(__('Login as client'))
+            ->icon('heroicon-o-arrow-right-end-on-rectangle')
+            ->disabled(fn (Client $record) => $record->owner() === null)
+            ->action(function (Client $record, Page $livewire) {
+                $owner = $record->owner();
+                if ($owner !== null) {
+                    EditUser::impersonate($owner, $record);
+                    $livewire->redirect('/dashboard');
+                }
+            })
+            ->hidden(fn () => !Auth::guard('staff')->user()?->hasPermission('admin.users.impersonate'));
+    }
+
     protected function getHeaderActions(): array
     {
         return [
@@ -39,19 +57,7 @@ class EditClient extends EditRecord
                         $action->cancel();
                     }
                 }),
-            // «Login as client» (AUTH-19): this account in the client area, as its owner sees it (WHMCS logs in as the owner).
-            Action::make('impersonate')
-                ->label(__('Login as client'))
-                ->icon('heroicon-o-arrow-right-end-on-rectangle')
-                ->disabled(fn (Client $record) => $record->owner() === null)
-                ->action(function (Client $record) {
-                    $owner = $record->owner();
-                    if ($owner !== null) {
-                        EditUser::impersonate($owner, $record);
-                        $this->redirect('/dashboard');
-                    }
-                })
-                ->hidden(fn () => !Auth::guard('staff')->user()?->hasPermission('admin.users.impersonate')),
+            self::loginAsClientAction(),
             AuditAction::make()->auditChildren([
                 'invoices',
                 'services',
