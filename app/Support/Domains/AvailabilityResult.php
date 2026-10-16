@@ -4,7 +4,7 @@ namespace App\Support\Domains;
 
 /**
  * Result of a DomainRegistrar::checkAvailability() call — uniform across
- * registrars (docs/domains/README.md §4.1). `reason` carries the registry's
+ * registrars (docs/domains/ekdosi-design.md §4.1). `reason` carries the registry's
  * human message when taken/invalid (the .gr registry answers in Greek — shown
  * to the operator as-is).
  *

@@ -136,7 +136,8 @@ class OpenproviderRegistrarTest extends TestCase
     {
         // Tokens are cached ENCRYPTED (a live bearer must never sit plaintext
         // in the cache table) — seed accordingly.
-        Cache::put('domains:op:token:' . md5(self::SANDBOX . '|myip'), Crypt::encryptString('stale-token'), 300);
+        // The key of these exact credentials (endpoint, username and password: review F1 of #159).
+        Cache::put('domains:op:token:' . hash_hmac('sha256', self::SANDBOX . '|myip|secret', (string) config('app.key')), Crypt::encryptString('stale-token'), 300);
 
         Http::fake([
             self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'fresh-token']]),

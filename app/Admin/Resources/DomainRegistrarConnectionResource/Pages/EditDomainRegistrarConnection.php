@@ -49,6 +49,18 @@ class EditDomainRegistrarConnection extends EditRecord
         });
     }
 
+    /** A secret just typed does not stay in the page (review F7). */
+    protected function afterSave(): void
+    {
+        /** @var DomainRegistrarConnection $connection */
+        $connection = $this->getRecord();
+        foreach (DomainRegistrarConnectionResource::credentialFields($connection->registrar) as $key => $field) {
+            if ($field['secret'] ?? false) {
+                $this->data['credentials'][$key] = null;
+            }
+        }
+    }
+
     /**
      * Only the registrar's own fields, and which of them are secret.
      *

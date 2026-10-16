@@ -6,7 +6,7 @@ namespace App\Support\Domains;
  * What a registrar adapter can actually do (Πυλώνας A) — the UI/import adapt on
  * these flags instead of `if ($registrar === 'openprovider')` chains, mirroring
  * App\Support\Billing\SourceCapabilities. Declared BY each adapter, so a new
- * registrar states its abilities in one place. docs/domains/README.md §2.
+ * registrar states its abilities in one place. docs/domains/ekdosi-design.md §2.
  *
  * Immutable.
  */

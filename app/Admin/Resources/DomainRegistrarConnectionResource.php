@@ -61,13 +61,13 @@ class DomainRegistrarConnectionResource extends Resource
                 TextInput::make('label')->label(__('Label'))->required()->maxLength(255),
                 Select::make('mode')->label(__('Mode'))->required()->default('sandbox')
                     ->options(['off' => __('Off'), 'sandbox' => __('Sandbox (test)'), 'production' => __('Production (live)')])
-                    ->helperText(__('Only «Production» reaches the live registrar; anything else stays on its test system.')),
+                    ->helperText(__('Only «Production» reaches the live registrar; anything else stays on its test system. Openprovider\'s test system is reached over plain HTTP: give it the test account\'s credentials, never the live ones.')),
                 Toggle::make('is_active')->label(__('Active'))->default(false),
             ]),
             Section::make(__('Credentials'))->columns(2)
                 ->visible(fn (Get $get) => self::credentialFields($get('registrar')) !== [])
                 ->schema(fn (Get $get) => collect(self::credentialFields($get('registrar')))->map(function (array $field, string $key) {
-                    $input = TextInput::make("credentials.{$key}")->label($field['label'] ?? $key)->maxLength(500);
+                    $input = TextInput::make("credentials.{$key}")->label($field['label'] ?? $key)->string()->maxLength(500);
 
                     return ($field['secret'] ?? false)
                         ? $input->password()->revealable(false)->dehydrated(fn ($state) => filled($state))
@@ -101,7 +101,8 @@ class DomainRegistrarConnectionResource extends Resource
     public static function testAction(): Action
     {
         return Action::make('test')->label(__('Test Connection'))->icon('heroicon-o-signal')
-            ->visible(fn () => static::canViewAny())
+            // It logs in with the stored secret: those who may change the connection (review F4).
+            ->visible(fn (DomainRegistrarConnection $record) => static::canEdit($record))
             ->action(function (DomainRegistrarConnection $record) {
                 if ($record->registrar === DomainRegistrarConnection::MANUAL) {
                     Notification::make()->info()->title(__('A manual connection calls no registrar.'))->send();

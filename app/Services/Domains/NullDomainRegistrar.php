@@ -19,7 +19,7 @@ use App\Support\Domains\TldPricing;
  * here) attach to a 'manual' connection and every API-shaped operation refuses
  * loudly. Also what DomainRegistrarRegistry returns for unknown/empty keys, so
  * a misconfigured connection can never fake a registrar success (the
- * NullProviderTransport discipline). docs/domains/README.md §4.2.
+ * NullProviderTransport discipline). docs/domains/ekdosi-design.md §4.2.
  */
 class NullDomainRegistrar implements DomainRegistrar
 {

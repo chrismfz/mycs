@@ -40,10 +40,13 @@ class OpenproviderRegistrar implements DomainRegistrar
     private const PRODUCTION_URL = 'https://api.openprovider.eu';
 
     // HTTP on :8480 and a .nl host — the registrar's documented sandbox; the
-    // old *.cte.openprovider.eu was retired (docs/domains/README.md §4.3).
+    // old *.cte.openprovider.eu was retired (docs/domains/ekdosi-design.md §4.3).
     private const SANDBOX_URL = 'http://api.sandbox.openprovider.nl:8480';
 
     private const TOKEN_TTL_SECONDS = 6 * 3600;
+
+    /** Pending: requested, not done. Our status stays what the caller set (pending register or transfer). */
+    private const PENDING_STATUSES = ['PEN', 'REQ'];
 
     /** Tombstone statuses — a record in these represents NO ownership claim. */
     private const DEAD_STATUSES = ['DEL', 'FAI'];
@@ -116,7 +119,7 @@ class OpenproviderRegistrar implements DomainRegistrar
     /**
      * Registrar truth for one domain. Uses the stored numeric OP id when we
      * have it; otherwise resolves it via ?full_name= (and the result carries it
-     * so the caller can persist it — docs/domains/README.md §4.3 gap note).
+     * so the caller can persist it — docs/domains/ekdosi-design.md §4.3 gap note).
      */
     public function syncDomain(Domain $domain, DomainRegistrarCredentials $credentials): DomainSyncResult
     {
@@ -126,7 +129,7 @@ class OpenproviderRegistrar implements DomainRegistrar
     /**
      * WRITE (A3): renew at Openprovider — POST /v1beta/domains/{id}/renew.
      * ONLY DomainRenewalService calls this (it owns the §6.6 adopt guard +
-     * the audit log). Resolves the OP id first (stale-id fallback included),
+     * the audit log). Uses the stored OP id, else resolves it by name,
      * fires the renewal, then RE-FETCHES the domain so the caller applies the
      * post-renewal truth through the one apply path.
      */
@@ -332,17 +335,22 @@ class OpenproviderRegistrar implements DomainRegistrar
     {
         [$name, $extension] = $this->splitFqdn($domain->fqdn);
 
-        $handles = $this->ensureHandles($domain, $credentials);
-        if (!isset($handles['registrant'])) {
-            throw new RuntimeException("Το {$domain->fqdn} δεν έχει επαφή registrant — απαιτείται για την ενέργεια στον registrar.");
-        }
-
+        // Nameservers are always sent, and checked before anything is created at the registrar: without them
+        // Openprovider puts its own and the sites go down (live finding; WHMCS hit it too).
         $nameservers = $domain->nameservers->pluck('host')
             ->map(fn ($h) => mb_strtolower(trim((string) $h)))
             ->filter(fn ($h) => $h !== '')
             ->map(fn ($h) => $this->nameserverEntry($h, $domain->fqdn))
             ->values()
             ->all();
+        if ($nameservers === []) {
+            throw new RuntimeException("{$domain->fqdn} has no nameservers: they are always sent explicitly, else Openprovider sets its own.");
+        }
+
+        $handles = $this->ensureHandles($domain, $credentials);
+        if (!isset($handles['registrant'])) {
+            throw new RuntimeException("{$domain->fqdn} has no registrant contact: the registrar needs one.");
+        }
 
         $payload = array_merge([
             'domain' => ['name' => $name, 'extension' => $extension],
@@ -351,12 +359,8 @@ class OpenproviderRegistrar implements DomainRegistrar
             'tech_handle' => $handles['tech'] ?? $handles['registrant'],
             'billing_handle' => $handles['billing'] ?? $handles['registrant'],
             'autorenew' => 'off',
+            'name_servers' => $nameservers,
         ], $extra);
-        if ($nameservers !== []) {
-            // A transfer may deliberately keep the current delegation — send
-            // nameservers only when the row carries them.
-            $payload['name_servers'] = $nameservers;
-        }
 
         $data = $this->request($credentials, 'POST', $path, $payload)->json('data');
         $base = is_array($data) ? $this->syncResultFrom($data) : new DomainSyncResult;
@@ -384,12 +388,27 @@ class OpenproviderRegistrar implements DomainRegistrar
      */
     private function ensureHandles(Domain $domain, DomainRegistrarCredentials $credentials): array
     {
+        // Before anything is created: a role's contact is the account's own (review F2: another account's contact
+        // would go to WHOIS), and has what the registrar requires.
+        foreach (Domain::ROLES as $role) {
+            $contact = $domain->{"{$role}Contact"};
+            if ($contact !== null && trim((string) $domain->{"{$role}_handle"}) === '') {
+                if ((int) $contact->client_id !== (int) $domain->client_id) {
+                    throw new RuntimeException("The {$role} contact of {$domain->fqdn} belongs to another account.");
+                }
+                if (trim((string) $contact->country) === '') {
+                    throw new RuntimeException("The {$role} contact of {$domain->fqdn} has no country.");
+                }
+            }
+        }
+
         $handles = [];
         $byContact = [];
         foreach (Domain::ROLES as $role) {
             $existing = trim((string) $domain->{"{$role}_handle"});
             $contact = $domain->{"{$role}Contact"};
             if ($existing !== '') {
+                // The handle of this role's current contact: Domain clears it when the contact changes (review F3).
                 $handles[$role] = $existing;
                 if ($contact !== null) {
                     $byContact[$contact->id] ??= $existing;
@@ -402,7 +421,7 @@ class OpenproviderRegistrar implements DomainRegistrar
             }
             if (isset($byContact[$contact->id])) {
                 $handles[$role] = $byContact[$contact->id];
-                $domain->forceFill(["{$role}_handle" => $handles[$role]])->save();
+                $this->keepHandle($domain, $role, $handles[$role]);
 
                 continue;
             }
@@ -413,19 +432,22 @@ class OpenproviderRegistrar implements DomainRegistrar
             $number = '';
             if (preg_match('/^(.*?)\s+(\S*\d\S*)$/u', $street, $m) === 1) {
                 [, $street, $number] = $m;
+            } elseif (preg_match('/^(\d\S*)\s+(.+)$/u', $street, $m) === 1) {
+                [, $number, $street] = $m; // «12 Main St»
             }
-            // Registrant phone is WHOIS data: split on real ITU country-code lengths; a local number keeps all its
-            // digits under the +30 default.
-            $digits = str_replace([' ', '-', '(', ')', '.'], '', trim((string) $contact->phone));
+            // Registrant phone is WHOIS data: digits only (and a leading +); split on real ITU country-code lengths; a
+            // local number keeps all its digits under the +30 default.
+            $digits = preg_replace('/(?!^\+)[^0-9]/', '', trim((string) $contact->phone)) ?? '';
             if (str_starts_with($digits, '00')) {
                 $digits = '+' . substr($digits, 2);
             }
             $phonePayload = null;
-            if ($digits !== '') {
+            if (ltrim($digits, '+') !== '') {
                 [$cc, $subscriber] = $this->splitCountryCode($digits);
-                // OP rejects an empty area_code («Invalid telephone region code», live finding); it only re-joins the
-                // parts, so a 3-digit head keeps every digit.
-                $area = strlen($subscriber) > 6 ? substr($subscriber, 0, 3) : '';
+                // OP rejects an empty area_code («Invalid telephone region code», live finding) and only re-joins the
+                // parts: a head of up to 3 digits, never all of them.
+                $len = strlen($subscriber);
+                $area = substr($subscriber, 0, $len > 6 ? 3 : max(1, min(2, $len - 1)));
                 $phonePayload = [
                     'country_code' => $cc,
                     'area_code' => $area,
@@ -441,24 +463,36 @@ class OpenproviderRegistrar implements DomainRegistrar
                 'company_name' => trim((string) $contact->company_name) !== '' ? trim((string) $contact->company_name) : null,
                 'email' => $contact->email,
                 'phone' => $phonePayload,
-                'address' => [
+                'address' => array_filter([
                     'street' => $street,
                     'number' => $number,
+                    'suffix' => trim((string) $contact->address2) !== '' ? trim((string) $contact->address2) : null,
                     'zipcode' => (string) $contact->postcode,
                     'city' => (string) $contact->city,
-                    'country' => $contact->country ?: 'GR',
-                ],
+                    'state' => trim((string) $contact->state) !== '' ? trim((string) $contact->state) : null,
+                    'country' => strtoupper((string) $contact->country),
+                ], fn ($v) => $v !== null),
             ], fn ($v) => $v !== null);
 
             $handle = $this->request($credentials, 'POST', '/v1beta/customers', $payload)->json('data.handle');
             if (!is_string($handle) || $handle === '') {
                 throw new RuntimeException("Openprovider returned no handle for the {$role} contact of {$domain->fqdn}.");
             }
-            $domain->forceFill(["{$role}_handle" => $handle])->save();
+            $this->keepHandle($domain, $role, $handle);
             $handles[$role] = $byContact[$contact->id] = $handle;
         }
 
         return $handles;
+    }
+
+    /**
+     * Save one role's handle at once and only it (review 4): not the caller's other unsaved changes, no model events;
+     * kept even if the caller later rolls back nothing, since it is a single statement outside the caller's work.
+     */
+    private function keepHandle(Domain $domain, string $role, string $handle): void
+    {
+        Domain::query()->whereKey($domain->getKey())->update(["{$role}_handle" => $handle]);
+        $domain->forceFill(["{$role}_handle" => $handle])->syncOriginalAttribute("{$role}_handle");
     }
 
     /** One OP domain payload → our truth DTO (sync + post-renew share it). */
@@ -475,7 +509,9 @@ class OpenproviderRegistrar implements DomainRegistrar
         }
 
         return new DomainSyncResult(
-            expiresAt: $this->datePart($data['expiration_date'] ?? null),
+            // A pending order carries a placeholder expiry (today + 1 year): never ours until it is active (live
+            // finding, nixpal.com).
+            expiresAt: in_array($rawStatus, self::PENDING_STATUSES, true) ? null : $this->datePart($data['expiration_date'] ?? null),
             nameservers: $nameservers,
             registrarDomainId: isset($data['id']) ? (string) $data['id'] : null,
             status: $this->mapStatus($rawStatus),
@@ -518,11 +554,15 @@ class OpenproviderRegistrar implements DomainRegistrar
             if (!is_array($entry) || !is_numeric($entry['price'] ?? null)) {
                 continue;
             }
-            $currency = is_string($entry['currency'] ?? null) && trim($entry['currency']) !== ''
-                ? strtoupper(trim($entry['currency']))
-                : 'EUR';
-            // As the registrar wrote it, two decimals: money is never a float here (CLAUDE.md).
-            $costs[$operation] = ['cost' => number_format((float) $entry['price'], 2, '.', ''), 'currency' => $currency];
+            // Its currency is never guessed: a price without one is left out.
+            if (!is_string($entry['currency'] ?? null) || trim($entry['currency']) === '') {
+                continue;
+            }
+            // Two decimals in decimal arithmetic, never through a float (CLAUDE.md); half up as the registrar bills.
+            $costs[$operation] = [
+                'cost' => bcadd((string) $entry['price'], '0.005', 2),
+                'currency' => strtoupper(trim($entry['currency'])),
+            ];
         }
 
         return new TldPricing(tld: $tld, costs: $costs);
@@ -675,14 +715,6 @@ class OpenproviderRegistrar implements DomainRegistrar
     }
 
     /**
-     * '+CC' + subscriber per ITU zone rules: +1/+7 are one-digit; zones 3/4
-     * (Europe) are two-digit EXCEPT the 35x/37x/38x/42x three-digit ranges
-     * (+357 Κύπρος, +353, +371, +380, +420, …); everything else defaults to
-     * two digits — a local (no-prefix) number keeps all its digits under +30.
-     *
-     * @return array{0: string, 1: string} [country_code, subscriber]
-     */
-    /**
      * Resolves a host to its IPv4 (null when it does not resolve). Replaceable in tests:
      * no live DNS in CI.
      *
@@ -715,6 +747,14 @@ class OpenproviderRegistrar implements DomainRegistrar
         return ['name' => $host, 'ip' => $ip];
     }
 
+    /**
+     * '+CC' + subscriber per ITU zone rules: +1/+7 are one-digit; zones 3/4
+     * (Europe) are two-digit EXCEPT the 35x/37x/38x/42x three-digit ranges
+     * (+357 Κύπρος, +353, +371, +380, +420, …); everything else defaults to
+     * two digits — a local (no-prefix) number keeps all its digits under +30.
+     *
+     * @return array{0: string, 1: string} [country_code, subscriber]
+     */
     private function splitCountryCode(string $digits): array
     {
         if (!str_starts_with($digits, '+')) {
@@ -796,7 +836,6 @@ class OpenproviderRegistrar implements DomainRegistrar
         return match ($raw) {
             'ACT' => DomainStatus::Active,
             'DEL' => DomainStatus::Deleted,
-            'PEN', 'REQ' => DomainStatus::PendingRegister,
             default => null,
         };
     }
@@ -827,7 +866,8 @@ class OpenproviderRegistrar implements DomainRegistrar
             $desc = $response->json('desc');
 
             throw new RuntimeException(
-                'Openprovider error ' . $response->status() . ': ' . (is_scalar($desc) && $desc !== '' ? (string) $desc : $response->body())
+                // Its own description only: a raw body may echo contact data (review 11).
+                'Openprovider error ' . $response->status() . ': ' . (is_scalar($desc) && $desc !== '' ? mb_substr((string) $desc, 0, 300) : 'no description')
             );
         }
 
@@ -850,6 +890,8 @@ class OpenproviderRegistrar implements DomainRegistrar
      */
     private function token(DomainRegistrarCredentials $credentials): string
     {
+        // Credentials first: a cached token is never a substitute for them (review F1b).
+        $this->requireCredentials($credentials);
         $key = $this->tokenCacheKey($credentials);
         $cached = Cache::get($key);
         if (is_string($cached) && $cached !== '') {
@@ -876,11 +918,7 @@ class OpenproviderRegistrar implements DomainRegistrar
      */
     private function freshToken(DomainRegistrarCredentials $credentials): ?string
     {
-        if (!$credentials->has('username') || !$credentials->has('password')) {
-            throw new DomainRegistrarNotConfigured(
-                'Η σύνδεση Openprovider δεν έχει username/password — συμπληρώστε τα στη «Σύνδεση registrar».'
-            );
-        }
+        $this->requireCredentials($credentials);
 
         $response = Http::acceptJson()
             ->timeout(30)
@@ -907,10 +945,23 @@ class OpenproviderRegistrar implements DomainRegistrar
         return $credentials->sandbox ? self::SANDBOX_URL : self::PRODUCTION_URL;
     }
 
+    /** @throws DomainRegistrarNotConfigured without a username and a password */
+    private function requireCredentials(DomainRegistrarCredentials $credentials): void
+    {
+        if (!$credentials->has('username') || !$credentials->has('password')) {
+            throw new DomainRegistrarNotConfigured('The Openprovider connection has no username or password: fill them in under Domain Registrars.');
+        }
+    }
+
+    /**
+     * A token belongs to the exact credentials that logged in: endpoint, username AND password (review F1: keyed by
+     * username alone, another connection with that username and any password reused it). The key is a keyed hash, so
+     * it carries no secret.
+     */
     private function tokenCacheKey(DomainRegistrarCredentials $credentials): string
     {
-        // Keyed by endpoint × username — never the password (no secret in a key).
-        return 'domains:op:token:' . md5($this->baseUrl($credentials) . '|' . (string) $credentials->get('username'));
+        return 'domains:op:token:' . hash_hmac('sha256', $this->baseUrl($credentials) . '|' . (string) $credentials->get('username')
+            . '|' . (string) $credentials->get('password'), (string) config('app.key'));
     }
 
     /** @return array{0: string, 1: string} name + extension for the OP payload shape. */

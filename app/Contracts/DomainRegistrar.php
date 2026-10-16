@@ -13,17 +13,10 @@ use App\Support\Domains\RegistrarDomainPage;
 use App\Support\Domains\TldPricing;
 
 /**
- * One registrar adapter per provider (Πυλώνας A) — the domains sibling of
- * EInvoiceProviderTransport: it knows ONLY how to talk to one registrar's API
- * (Openprovider REST, grEPP XML-over-HTTPS, …). Lifecycle, billing and
- * persistence live elsewhere. Adding a registrar = one class implementing this
- * + one line in config/ekdosi.php → domains.registrars.
- *
- * A0 ships the seam with the methods the foundation actually exercises; the
- * state-changing surface (register/renew/transfer/NS/contacts/DNSSEC/sync)
- * lands with A2/A3 per the full blueprint in docs/domains/README.md §4.1 —
- * extended here as each slice arrives, so the Null adapter never carries dead
- * unimplementable signatures.
+ * One adapter per registrar (docs/domains.md D2): it only knows how to talk to that registrar's API (Openprovider REST,
+ * the .gr registry's EPP over HTTPS, …). Life cycle, billing and storage live in the domain services. A new registrar is
+ * one class implementing this and one line in config/domains.php → registrars. Writes that cost money or change a
+ * domain are called by the domain services only, never from the UI (D-17).
  */
 interface DomainRegistrar
 {

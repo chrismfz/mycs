@@ -389,5 +389,19 @@
     "Last synced": "Τελευταίος συγχρονισμός",
     "Sync error": "Σφάλμα συγχρονισμού",
     "Nameservers": "Nameservers",
-    "No domains": "Κανένα domain"
+    "No domains": "Κανένα domain",
+    "A manual connection calls no registrar.": "Μια χειροκίνητη σύνδεση δεν καλεί registrar.",
+    "Active": "Ενεργή",
+    "Connected.": "Συνδέθηκε.",
+    "Credentials": "Στοιχεία σύνδεσης",
+    "Delete": "Διαγραφή",
+    "Label": "Όνομα",
+    "Mode": "Λειτουργία",
+    "Off": "Ανενεργή",
+    "Only «Production» reaches the live registrar; anything else stays on its test system. Openprovider's test system is reached over plain HTTP: give it the test account's credentials, never the live ones.": "Μόνο η «Παραγωγή» μιλά με τον πραγματικό registrar· οτιδήποτε άλλο μένει στο δοκιμαστικό του σύστημα. Το δοκιμαστικό του Openprovider είναι σε απλό HTTP: δώστε του τα στοιχεία του δοκιμαστικού λογαριασμού, ποτέ του πραγματικού.",
+    "Production (live)": "Παραγωγή (live)",
+    "Sandbox (test)": "Sandbox (δοκιμή)",
+    "Stored and never shown: leave empty to keep it.": "Αποθηκευμένο και δεν εμφανίζεται ποτέ: αφήστε κενό για να μείνει.",
+    "Test Connection": "Δοκιμή σύνδεσης",
+    "The registrar refused the login or could not be reached.": "Ο registrar αρνήθηκε τη σύνδεση ή δεν απάντησε."
 }

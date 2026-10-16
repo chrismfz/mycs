@@ -119,6 +119,7 @@ class DomainRegistrarsTest extends TestCase
         $tech->save();
         $domain = Domain::factory()->create(['client_id' => $user->client()->id, 'sld' => 'shop', 'fqdn' => 'shop.test', 'status' => 'pending_register',
             'registrant_contact_id' => $owner->id, 'admin_contact_id' => $owner->id, 'tech_contact_id' => $tech->id, 'billing_handle' => 'EX111-GR']);
+        $domain->nameservers()->create(['host' => 'ns1.example.net', 'sort' => 0]);
         $created = 0;
         Http::fake([
             self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),

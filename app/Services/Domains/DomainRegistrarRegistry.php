@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Log;
  * ALWAYS returns an adapter — the Null ('manual') one for empty/'manual'/unknown
  * keys — so callers never null-check, and an unknown key fails LOUDLY at
  * call-time (the Null adapter throws on API operations) instead of silently
- * pretending a registrar exists. docs/domains/README.md §4.2.
+ * pretending a registrar exists. docs/domains/ekdosi-design.md §4.2.
  */
 class DomainRegistrarRegistry
 {

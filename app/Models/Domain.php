@@ -85,6 +85,13 @@ class Domain extends Model implements Auditable
                 throw new InvalidArgumentException("The domain «{$fqdn}» is not «{$domain->sld}» on «{$domain->tld}».");
             }
             $domain->fqdn = $fqdn;
+            // A role's handle is its contact's at the registrar: another contact is another handle (review F3), made
+            // on the next write. A handle set with it (the importer, the sync) is kept.
+            foreach (self::ROLES as $role) {
+                if ($domain->isDirty("{$role}_contact_id") && !$domain->isDirty("{$role}_handle")) {
+                    $domain->{"{$role}_handle"} = null;
+                }
+            }
         });
     }
 
