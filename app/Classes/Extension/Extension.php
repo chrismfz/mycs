@@ -35,7 +35,10 @@ class Extension
             }
         }
 
-        return $this->config[$key] ?? null;
+        // A pasted host, key or token often carries a space or line break, which an API answers as a bad credential.
+        $value = $this->config[$key] ?? null;
+
+        return is_string($value) ? trim($value) : $value;
     }
 
     /**

@@ -179,6 +179,6 @@ class ServerAdapterFailureTest extends TestCase
 
         $values = $server->settings->mapWithKeys(fn ($setting) => [$setting->key => $setting->value])->all();
         $this->assertTrue(ExtensionHelper::testConfig($server, $values));
-        Http::assertSent(fn ($request) => $request->hasHeader('Authorization', 'whm reseller:TOKEN123') && str_starts_with($request->url(), self::WHM . '/version'));
+        Http::assertSent(fn ($request) => $request->hasHeader('Authorization', 'whm reseller:TOKEN123') && $request->url() === self::WHM . '/version?api.version=1');
     }
 }
