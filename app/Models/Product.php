@@ -18,6 +18,9 @@ class Product extends Model implements Auditable
 {
     use HasFactory, HasPlans, Traits\Auditable;
 
+    /** Never followed from a staff-edited template: they lead to every customer's records (PR #158 review). */
+    public const TEMPLATE_HIDDEN = ['services'];
+
     /** When its service is set up (WHMCS «Auto Setup», Σ1-b): with the order, the first payment, staff's Accept, never. */
     public const AUTOSETUP_ORDER = 'order';
 

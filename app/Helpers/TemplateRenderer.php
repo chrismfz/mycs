@@ -8,13 +8,17 @@ use App\Models\Setting;
 use App\Models\TicketMessage;
 use App\Models\User;
 use App\Rules\ValidTemplate;
+use Illuminate\Contracts\Support\Arrayable;
+use Illuminate\Contracts\Support\Jsonable;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Collection;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use MyCS\MailTemplate\Html;
 use MyCS\MailTemplate\Renderer;
 use MyCS\MailTemplate\TemplateError;
+use ReflectionMethod;
+use ReflectionNamedType;
 
 /**
  * Laravel side of the mycs/mail-template renderer: staff-edited templates (email,
@@ -33,8 +37,13 @@ class TemplateRenderer
                 return null;
             }
             // Settings are a module's or a registrar's credentials, already decrypted when read: never in a template
-            // (`service.server.settings`). A setting reached any other way reads as nothing too.
-            if ($target instanceof Setting || ($target instanceof Model && $key === 'settings')) {
+            // (`service.server.settings`, in any case). A setting reached any other way reads as nothing too.
+            if ($target instanceof Setting || ($target instanceof Model && strcasecmp($key, 'settings') === 0)) {
+                return null;
+            }
+            // A path READS: a model's attribute, accessor or relation, never another method (Eloquent would call any
+            // argument-free one: `{{ invoice.createCancellationCreditNote }}` wrote a credit note, PR #158 review).
+            if ($target instanceof Model && !self::readable($target, $key)) {
                 return null;
             }
             // Staff-only fields that are not $hidden (staff edit them in forms): a service's notes (review F2).
@@ -46,9 +55,35 @@ class TemplateRenderer
 
             return $value instanceof Setting ? null : $value;
         },
-            // A record or a list printed whole is all its fields as JSON (`{{ service }}`: its notes too): nothing. Its
-            // fields are read one by one, through the checks above; a loop still walks a list.
-            fn (object $value): bool => !$value instanceof Model && !$value instanceof Collection);
+            // A record or a list printed whole is all its fields as JSON (`{{ service }}`: its notes too): nothing, nor
+            // anything else that is JSON (Arrayable, Jsonable). Fields are read one by one; a loop still walks a list.
+            fn (object $value): bool => !$value instanceof Arrayable && !$value instanceof Jsonable);
+    }
+
+    /** @var array<string, bool> class::key => whether it is a relation method */
+    private static array $relations = [];
+
+    /**
+     * What a template may read on a model: a stored attribute, a loaded relation, an accessor (a get mutator or an
+     * Attribute method) or a method declared to return a Relation, by its exact name.
+     */
+    private static function readable(Model $model, string $key): bool
+    {
+        if (array_key_exists($key, $model->getAttributes()) || $model->relationLoaded($key)
+            || $model->hasGetMutator($key) || $model->hasAttributeGetMutator($key)) {
+            return true;
+        }
+
+        return self::$relations[$model::class . '::' . $key] ??= (function () use ($model, $key): bool {
+            if (!method_exists($model, $key)) {
+                return false;
+            }
+            $method = new ReflectionMethod($model, $key);
+            $type = $method->getReturnType();
+
+            return $method->getName() === $key && $method->isPublic() && $method->getNumberOfRequiredParameters() === 0
+                && $type instanceof ReflectionNamedType && is_a($type->getName(), Relation::class, true);
+        })();
     }
 
     /** @param  array<string, mixed>  $data */

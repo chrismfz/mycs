@@ -15,6 +15,9 @@ class ConfigOption extends Model implements Auditable
 {
     use HasFactory, HasPlans, Traits\Auditable;
 
+    /** Never followed from a staff-edited template: they lead to every customer's records (PR #158 review). */
+    public const TEMPLATE_HIDDEN = ['serviceConfigs'];
+
     protected $dontShowUnavailablePrice = true;
 
     protected $fillable = [

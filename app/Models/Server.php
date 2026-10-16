@@ -7,6 +7,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Server extends Extension
 {
+    /** Never followed from a staff-edited template: they lead to every customer's records (PR #158 review). */
+    public const TEMPLATE_HIDDEN = ['services', 'groups'];
+
     protected $table = 'extensions';
 
     public function newQuery()

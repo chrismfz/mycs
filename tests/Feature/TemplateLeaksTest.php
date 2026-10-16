@@ -39,5 +39,44 @@ class TemplateLeaksTest extends TestCase
 
         $this->assertSame('shop.example.test|cPanel One', TemplateRenderer::render('{{ service.domain }}|{{ service.server.name }}', $data, false), 'fields still read');
         $this->assertSame('yes', TemplateRenderer::render('{% if service.server %}yes{% endif %}', $data, false), 'and test');
+
+        foreach (['{{ service.server.Settings }}', '{{ service.server.Settings.0.value }}', '{% for s in service.server.Settings %}{{ s.value }}{{ s }}{% endfor %}',
+            '{{ service|upper }}', '{{ service|default("x") }}', '{% if service == "x" %}{% endif %}{{ service.server|lower }}'] as $template) {
+            $out = TemplateRenderer::render($template, $data, false);
+            foreach (['Module-Secret-T0ken', 'difficult customer', 'api_token', 'MODULE-SECRET-T0KEN', 'DIFFICULT CUSTOMER'] as $secret) {
+                $this->assertStringNotContainsString($secret, $out, $template);
+            }
+        }
+    }
+
+    public function test_a_template_reads_and_never_calls_a_method(): void
+    {
+        $product = $this->createProduct();
+        $service = Service::factory()->create(['client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id,
+            'product_id' => $product->product->id, 'status' => 'active', 'currency_code' => 'USD', 'price' => 5, 'quantity' => 1]);
+
+        $out = TemplateRenderer::render('[{{ service.placeOnHold }}][{{ service.markTerminated }}][{{ service.product.name }}][{{ service.formattedPrice }}]',
+            ['service' => $service->fresh()], false);
+
+        $this->assertSame('active', $service->fresh()->status, 'nothing ran');
+        $this->assertStringStartsWith('[][][' . $product->product->name . '][', $out, 'attributes, relations and accessors still read');
+        $this->assertNotSame('[][][' . $product->product->name . '][]', $out);
+    }
+
+    public function test_a_template_does_not_reach_other_customers_through_shared_records(): void
+    {
+        $server = Server::query()->create(['name' => 'Shared', 'extension' => 'CPanel', 'type' => 'server', 'enabled' => true]);
+        $product = $this->createProduct();
+        $make = fn (string $domain) => Service::factory()->create(['client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id,
+            'product_id' => $product->product->id, 'server_id' => $server->id, 'status' => 'active', 'currency_code' => 'USD', 'price' => 5,
+            'quantity' => 1, 'domain' => $domain]);
+        $mine = $make('mine.example.test');
+        $make('someone-else.example.test');
+
+        foreach (['server.services', 'product.services', 'plan.services', 'currency.services'] as $path) {
+            $out = TemplateRenderer::render("{% for s in service.{$path} %}{{ s.domain }}{% endfor %}", ['service' => $mine->fresh()], false);
+            $this->assertStringNotContainsString('someone-else', $out, $path);
+        }
+        $this->assertSame('', TemplateRenderer::render('{{ items }}', ['items' => Service::query()->get()], false), 'a collection never prints whole');
     }
 }

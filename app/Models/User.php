@@ -33,6 +33,9 @@ class User extends Authenticatable implements Auditable, HasAvatar, OAuthenticat
 {
     use HasApiTokens, HasFactory, Notifiable, Traits\Auditable;
 
+    /** Never followed from a staff-edited template: a login's sessions, push keys and sign-in log (PR #158 review). */
+    public const TEMPLATE_HIDDEN = ['sessions', 'pushSubscriptions', 'authenticationLogs', 'notifications'];
+
     /**
      * The attributes that are mass assignable.
      *
