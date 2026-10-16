@@ -548,5 +548,10 @@
     "Not linked.": "Δεν συνδέθηκε.",
     "Not allowed.": "Δεν επιτρέπεται.",
     "The contact of the account, wherever it is used. Changes here are not sent to the registrar: WHOIS keeps the registrar's record.": "Η επαφή του λογαριασμού, όπου κι αν χρησιμοποιείται. Οι αλλαγές εδώ δεν στέλνονται στον registrar: το WHOIS κρατά την εγγραφή του registrar.",
-    "Nothing is sent to the registrar: WHOIS stays as it is. You say who this handle is here; every role with this handle at the registrar is linked with it.": "Τίποτα δεν στέλνεται στον registrar: το WHOIS μένει ως έχει. Εσείς λέτε ποιος είναι αυτό το handle εδώ· κάθε ρόλος με αυτό το handle στον registrar συνδέεται μαζί."
+    "Nothing is sent to the registrar: WHOIS stays as it is. You say who this handle is here; every role with this handle at the registrar is linked with it.": "Τίποτα δεν στέλνεται στον registrar: το WHOIS μένει ως έχει. Εσείς λέτε ποιος είναι αυτό το handle εδώ· κάθε ρόλος με αυτό το handle στον registrar συνδέεται μαζί.",
+    "Grace until": "Grace έως",
+    "Redemption until": "Redemption έως",
+    ":date (:days days left)": ":date (απομένουν :days μέρες)",
+    "Import the grace and redemption fees": "Εισαγωγή των τελών grace και redemption",
+    "The restore fee, with the same margin: on the redemption, or on the grace where the TLD has no redemption.": "Το τέλος restore, με το ίδιο margin: στο redemption, ή στο grace όπου το TLD δεν έχει redemption."
 }

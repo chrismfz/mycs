@@ -114,7 +114,7 @@ class ImportTlds extends Page implements HasForms
                 Select::make('years')->label(__('Register and renew up to (years)'))->required()
                     ->options(collect(range(1, 10))->mapWithKeys(fn (int $n) => [$n => (string) $n])->all())
                     ->helperText(__('2 to N years at N times the one-year price.')),
-                Toggle::make('redemption_fee')->label(__('Import the redemption fee'))->helperText(__('With the same margin.')),
+                Toggle::make('redemption_fee')->label(__('Import the grace and redemption fees'))->helperText(__('The restore fee, with the same margin: on the redemption, or on the grace where the TLD has no redemption.')),
                 Toggle::make('auto_register')->label(__('Automatic registration with this registrar')),
                 Toggle::make('keep_free_and_closed')->label(__('Keep free and not-offered prices'))
                     ->helperText(__('A 0.00 (free) or empty (not offered) price stays as it is.')),

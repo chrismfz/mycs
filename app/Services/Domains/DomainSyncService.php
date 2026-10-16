@@ -158,6 +158,16 @@ class DomainSyncService
             $set('registered_at', null, $result->registeredAt);
         }
         $set('registrar_domain_id', $domain->registrar_domain_id, $result->registrarDomainId);
+        // When its grace and redemption end, as the registrar says while it is in them (D5a); renewed, they are gone.
+        $set('grace_ends_on', $domain->grace_ends_on?->toDateString(), $result->graceEndsOn);
+        $set('redemption_ends_on', $domain->redemption_ends_on?->toDateString(), $result->redemptionEndsOn);
+        if ($result->status === DomainStatus::Active && $result->graceEndsOn === null && $result->redemptionEndsOn === null) {
+            foreach (['grace_ends_on', 'redemption_ends_on'] as $field) {
+                if ($domain->{$field} !== null) {
+                    $changes[$field] = [$domain->{$field}->toDateString(), null];
+                }
+            }
+        }
         // A role's handle pairs it with its contact (ensureHandles reuses it): taken from the registrar only for a role
         // with a contact and no handle yet (reviews 1, 2: a contact-less role would keep the registrant's handle after
         // the registrant changes). Another handle at the registrar is shown to staff, never paired silently. The

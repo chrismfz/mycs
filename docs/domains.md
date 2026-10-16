@@ -226,6 +226,17 @@
    Αλλαγή επαφών: ρόλοι χωρίς handle **δεν** στέλνονται (ο registrar κρατά τους δικούς του, αντί για fallback στον
    registrant), και ρόλος με επαφή που δεν είναι συνδεδεμένος με το handle του registrar αρνείται ως ότου συνδεθεί. Μαζί: σελίδα domain σε δύο ανεξάρτητες στήλες· ο ρόλος #1 (`*`) δεν προσφέρεται για
    επεξεργασία (ήταν σκέτο 403)· το εύρος του D8 (ζήτησε ο ιδιοκτήτης στο ίδιο PR). Code + adversarial.
+5a. **D5a Grace και redemption από τον registrar** (2026-10-17, χωρίς χρεώσεις): ο Openprovider δίνει ανά TLD
+   `soft_quarantine_period` (= grace: η ανανέωση γυρνά στην κανονική τιμή) και `quarantine_period` (= redemption: με
+   τέλος restore)· 0 = το στάδιο δεν υπάρχει (π.χ. .com 40/0: «Restore + Renew charges», χωρίς hard quarantine, το
+   μητρώο πίσω του, Verisign, ορίζει τι επιτρέπεται). Το «Sync costs» φέρνει τις μέρες και τα κόστη: το `restore_price`
+   πάει στο redemption όπου το TLD έχει hard quarantine, αλλιώς στο grace· το `soft_restore_price` στο grace ενός TLD με
+   τα δύο. Το import (επιλογή «grace and redemption fees») βάζει τιμές με το margin. Ανά domain: ένα ληγμένο domain του
+   Openprovider είναι `DEL` **μέσα** στην quarantine, με `soft_quarantine_expiry_date` / `hard_quarantine_expiry_date`
+   (ώρα Amsterdam)· το sync τις κρατά (`grace_ends_on`, `redemption_ends_on`) και το κάνει grace/redemption, **ποτέ**
+   deleted όσο τρέχει κάποια (πριν: deleted, ενώ σωζόταν). Χωρίς αυτές, λήξη + μέρες του TLD (redemption μόνο μετά από
+   γνωστό grace). Η σελίδα του domain δείχνει «Grace until … (N days left)». Μένει να επιβεβαιωθεί στο πρώτο πραγματικό
+   restore ότι το .com χρεώνει restore μέσα στη soft quarantine (το registrar log θα το δείξει). Code + adversarial.
 5. **D5 Χρέωση:** γραμμή `Domain` στο τιμολόγιο, βήμα τιμολόγησης με ομαδοποίηση, κλάδος στην πληρωμή, renew on-paid, «Ανανέωση τώρα», adopt, fee grace/
    redemption στο υπάρχον τιμολόγιο, Pending Module Actions. Code + adversarial.
 6. **D6 Importer WHMCS:** domains, τιμές, TLDs, ρόλοι επαφών, additional fields· parity και σύγκριση με τον

@@ -24,5 +24,11 @@ final class TldPricing
          * @var array<string, array{cost: string, currency: string}>
          */
         public readonly array $costs = [],
+        /**
+         * Days after expiry the registry keeps it at the normal renewal (soft quarantine, our grace) and then for a
+         * restore fee (hard quarantine, our redemption); 0 = that stage does not exist, null = not reported (D5a).
+         */
+        public readonly ?int $graceDays = null,
+        public readonly ?int $redemptionDays = null,
     ) {}
 }

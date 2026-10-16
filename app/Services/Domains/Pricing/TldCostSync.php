@@ -13,7 +13,7 @@ use RuntimeException;
  * The registrar's cost, onto a TLD's price rows (docs/domains.md D-6): ONLY `cost` and `cost_currency`, never the price
  * a customer pays (that moves only with the import or by hand). A register or renew row of N years costs N times the
  * yearly cost; transfer, grace and redemption are one-off. Rows that do not exist are not created: the import makes
- * them.
+ * them. With them the TLD's grace and redemption days, as the registrar reports them (D5a; 0 = no such stage).
  */
 class TldCostSync
 {
@@ -46,6 +46,12 @@ class TldCostSync
 
         return DB::transaction(function () use ($tld, $pricing) {
             $changed = 0;
+            // The registry's stages after expiry, as the registrar reports them (D5a, D-8): its truth, as the costs.
+            $tld->fill(array_filter(['grace_days' => $pricing->graceDays, 'redemption_days' => $pricing->redemptionDays], fn ($days) => $days !== null));
+            if ($tld->isDirty(['grace_days', 'redemption_days'])) {
+                $tld->save(); // audited
+                $changed++;
+            }
             foreach ($pricing->costs as $operation => $entry) {
                 if (!TldPriceMath::isAmount($entry['cost'])) {
                     continue; // a negative or garbled cost is never written

@@ -30,6 +30,8 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property Carbon|null $registered_at
  * @property Carbon|null $transferred_at
  * @property Carbon|null $expires_at
+ * @property Carbon|null $grace_ends_on
+ * @property Carbon|null $redemption_ends_on
  * @property int $years
  * @property string $currency_code
  * @property string|null $recurring_amount
@@ -121,6 +123,8 @@ class Domain extends Model implements Auditable
             'registered_at' => 'date',
             'transferred_at' => 'date',
             'expires_at' => 'date',
+            'grace_ends_on' => 'date',
+            'redemption_ends_on' => 'date',
             'years' => 'integer',
             'recurring_amount' => 'decimal:2',
             'auto_renew' => 'boolean',
@@ -218,5 +222,38 @@ class Domain extends Model implements Auditable
     public function redemptionDays(): ?int
     {
         return $this->redemption_days_override ?? $this->domainTld?->redemption_days;
+    }
+
+    /**
+     * The last day of its grace (D5a): the registrar's date, else its expiry plus the grace days; null when it has no
+     * grace (0 days or unknown) or no expiry.
+     */
+    public function graceEndsOn(): ?Carbon
+    {
+        if ($this->grace_ends_on !== null) {
+            return $this->grace_ends_on->copy();
+        }
+        $days = $this->graceDays();
+
+        return $this->expires_at !== null && $days !== null && $days > 0 ? $this->expires_at->copy()->addDays($days) : null;
+    }
+
+    /**
+     * The last day of its redemption (D5a): the registrar's date, else the end of its grace (or its expiry) plus the
+     * redemption days; null when it has none.
+     */
+    public function redemptionEndsOn(): ?Carbon
+    {
+        if ($this->redemption_ends_on !== null) {
+            return $this->redemption_ends_on->copy();
+        }
+        $days = $this->redemptionDays();
+        // Only after a known grace (D4 F6: an unknown grace never puts it in redemption the day after its expiry).
+        if ($this->graceDays() === null || $days === null || $days <= 0) {
+            return null;
+        }
+        $from = $this->graceEndsOn() ?? $this->expires_at;
+
+        return $from?->copy()->addDays($days);
     }
 }

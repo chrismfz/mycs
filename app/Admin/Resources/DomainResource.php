@@ -25,6 +25,7 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Carbon;
 
 /**
  * WHMCS's «Domains» (docs/domains.md, D1): the domains of every account, on their own, beside Products/Services. Read
@@ -105,6 +106,18 @@ class DomainResource extends Resource
         'handles' => 'Handles at the registrar',
     ];
 
+    /** A stage's last day, with the days left while the domain is in it. */
+    private static function stageEnd(?Carbon $ends, bool $current): ?string
+    {
+        if ($ends === null) {
+            return null;
+        }
+        $date = $ends->translatedFormat('j M Y');
+        $left = (int) Carbon::today()->diffInDays($ends, false);
+
+        return $current ? __(':date (:days days left)', ['date' => $date, 'days' => max(0, $left)]) : $date;
+    }
+
     public static function infolist(Schema $schema): Schema
     {
         $yesNo = fn (?bool $state) => $state === null ? '—' : ($state ? __('Yes') : __('No'));
@@ -117,6 +130,12 @@ class DomainResource extends Resource
                 ->state(fn (Domain $record) => $record->effectiveRegistrarConnection()->label ?? '—'),
             TextEntry::make('registered_at')->label(__('Registered'))->date()->placeholder('—'),
             TextEntry::make('expires_at')->label(__('Expires'))->date()->placeholder('—'),
+            // Where it stands after expiry (D5a): each stage's last day, the registrar's or from the TLD's days, and the
+            // days left while it is in it.
+            TextEntry::make('grace_ends')->label(__('Grace until'))->placeholder('—')
+                ->state(fn (Domain $record) => self::stageEnd($record->graceEndsOn(), $record->status === DomainStatus::Grace)),
+            TextEntry::make('redemption_ends')->label(__('Redemption until'))->placeholder('—')
+                ->state(fn (Domain $record) => self::stageEnd($record->redemptionEndsOn(), $record->status === DomainStatus::Redemption)),
             TextEntry::make('years')->label(__('Period (years)')),
             TextEntry::make('recurring_amount')->label(__('Recurring amount'))->placeholder(__('The TLD\'s renew price')),
             TextEntry::make('auto_renew')->label(__('Auto renew'))->formatStateUsing(fn (bool $state) => $yesNo($state)),

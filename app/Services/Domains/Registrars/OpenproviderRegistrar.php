@@ -19,6 +19,7 @@ use App\Support\Domains\RegistrarDomainRecord;
 use App\Support\Domains\TldPricing;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
@@ -554,23 +555,38 @@ class OpenproviderRegistrar implements DomainRegistrar
             }
         }
 
+        // An expired domain is DEL at OP while still in its soft or hard quarantine (D5a): ours to renew or restore, never
+        // «deleted» while one of them runs (Amsterdam's day, as OP keeps them).
+        $graceEnds = $this->datePart($data['soft_quarantine_expiry_date'] ?? null);
+        $redemptionEnds = $this->datePart($data['hard_quarantine_expiry_date'] ?? null);
+        $today = Carbon::now('Europe/Amsterdam')->toDateString();
+        $status = $this->mapStatus($rawStatus);
+        $quarantined = false;
+        if ($rawStatus === 'DEL' && $graceEnds !== null && $graceEnds >= $today) {
+            [$status, $quarantined] = [DomainStatus::Grace, true];
+        } elseif ($rawStatus === 'DEL' && $redemptionEnds !== null && $redemptionEnds >= $today) {
+            [$status, $quarantined] = [DomainStatus::Redemption, true];
+        }
+
         return new DomainSyncResult(
             // A pending order carries a placeholder expiry (today + 1 year): never ours until it is active (live
             // finding, nixpal.com).
             expiresAt: in_array($rawStatus, self::PENDING_STATUSES, true) ? null : $this->datePart($data['expiration_date'] ?? null),
             nameservers: $nameservers,
             registrarDomainId: isset($data['id']) ? (string) $data['id'] : null,
-            status: $this->mapStatus($rawStatus),
+            status: $status,
             rawStatus: $rawStatus,
             contactHandles: $this->extractHandles($data),
-            // DEL = deleted, FAI = failed request — tombstones, not ownership.
-            deadRecord: in_array($rawStatus, self::DEAD_STATUSES, true),
+            // DEL = deleted, FAI = failed request — tombstones, not ownership; a DEL in quarantine is still ours (D5a).
+            deadRecord: in_array($rawStatus, self::DEAD_STATUSES, true) && !$quarantined,
             // Only an EXPLICIT boolean counts — an absent key must never
             // overwrite the local mirror with a guessed false.
             transferLock: is_bool($data['is_locked'] ?? null) ? $data['is_locked'] : null,
             whoisPrivacy: is_bool($data['is_private_whois_enabled'] ?? null) ? $data['is_private_whois_enabled'] : null,
             registeredAt: $this->datePart($data['creation_date'] ?? null),
             details: $this->detailsFrom($data),
+            graceEndsOn: $graceEnds,
+            redemptionEndsOn: $redemptionEnds,
         );
     }
 
@@ -644,7 +660,51 @@ class OpenproviderRegistrar implements DomainRegistrar
             ];
         }
 
-        return new TldPricing(tld: $tld, costs: $costs);
+        // The stages after expiry (D5a, Openprovider's TLD pages): soft quarantine (our grace) and hard quarantine (our
+        // redemption), in days. The restore fee belongs to the stage that has one: the hard quarantine if the TLD has it
+        // (.eu, .io, .ch); else the soft one (.com: 40 days, «Restore + Renew charges», no hard quarantine). The soft
+        // quarantine's own restore price applies to the grace of a TLD with both.
+        $graceDays = $this->days($data['soft_quarantine_period'] ?? null);
+        $redemptionDays = $this->days($data['quarantine_period'] ?? null);
+        $restore = $costs['redemption'] ?? null;
+        if ($graceDays !== null && $redemptionDays !== null) {
+            unset($costs['redemption']);
+            $softRestore = $this->costEntry($prices['soft_restore_price'] ?? null);
+            if ($redemptionDays > 0) {
+                if ($restore !== null) {
+                    $costs['redemption'] = $restore;
+                }
+                if ($graceDays > 0 && $softRestore !== null) {
+                    $costs['grace'] = $softRestore;
+                }
+            } elseif ($graceDays > 0 && $restore !== null) {
+                $costs['grace'] = $restore;
+            }
+        }
+
+        return new TldPricing(tld: $tld, costs: $costs, graceDays: $graceDays, redemptionDays: $redemptionDays);
+    }
+
+    /** A whole number of days from OP (0 included), or null. */
+    private function days(mixed $value): ?int
+    {
+        return is_int($value) || (is_string($value) && ctype_digit($value)) ? max(0, (int) $value) : null;
+    }
+
+    /**
+     * One reseller price block as a cost, or null (as the loop above: a non-negative amount with its currency).
+     *
+     * @return array{cost: string, currency: string}|null
+     */
+    private function costEntry(mixed $block): ?array
+    {
+        $entry = is_array($block) ? ($block['reseller'] ?? null) : null;
+        if (!is_array($entry) || !is_scalar($entry['price'] ?? null) || !TldPriceMath::isAmount((string) $entry['price'])
+            || !is_string($entry['currency'] ?? null) || trim($entry['currency']) === '') {
+            return null;
+        }
+
+        return ['cost' => bcadd((string) $entry['price'], '0.005', 2), 'currency' => strtoupper(trim($entry['currency']))];
     }
 
     /**
