@@ -93,3 +93,21 @@ Suspended) περνούν στα native πεδία της υπηρεσίας. Ο
 `servergroup` των προϊόντων και το `tblhosting.server` κάθε υπηρεσίας. Το `maxaccounts` 0 του WHMCS γίνεται null
 (χωρίς όριο)· ένα `tblhosting.server` που δείχνει σε server που δεν υπάρχει μένει null (όχι ο server του προϊόντος). myip: 6 cPanel servers (657 λογαριασμοί),
 7 groups· nixpal: 1 server.
+
+## Κατάλογος (`app:import-whmcs-catalog`, 2026-10-16)
+Ένα «carbon copy» της εγκατάστασης **χωρίς πελάτες** (απόφαση ιδιοκτήτη 2026-10-16): νομίσματα (το default του
+WHMCS γίνεται default εδώ· τίποτα δεν σβήνεται), product groups, products με plans και τιμές (WHMCS `-1` = δεν
+προσφέρεται, `0.00` = δωρεάν και προσφέρεται), config options, upgrades, servers και server groups (**χωρίς** password
+ή API token: τα βάζει το staff), το `package` των cPanel products, οι ρυθμίσεις των licensing products (χωρίς
+licenses), τα TLDs με τις τιμές τους ανά έτη και νόμισμα, τις μέρες grace/redemption και τα τέλη τους (στο default
+νόμισμα του WHMCS). Κανένας λογαριασμός, υπηρεσία, τιμολόγιο, παραγγελία ή ticket.
+- **Ξανατρέχει χωρίς να σβήνει:** κάθε εγγραφή βρίσκεται με το id του WHMCS (`whmcs_id`· `whmcs_ref` στα config
+  options), ενημερώνεται αν υπάρχει, προστίθεται αν όχι· ό,τι υπήρχε εδώ πριν μένει ανέγγιχτο. Όλα σε ένα transaction.
+- **`--dry-run`:** οι ίδιοι αριθμοί, τίποτα γραμμένο. `--keep-default-currency`, `--registrar-connection=ID` (τα TLDs
+  με αυτόματη καταχώριση στον registrar αυτής της σύνδεσης).
+- **Πηγή: αντίγραφο**, ποτέ το production. Αρκούν οι πίνακες του καταλόγου (χωρίς δεδομένα πελατών):
+  `tblcurrencies tblproductgroups tblproducts tblpricing tblproductconfiggroups tblproductconfigoptions
+  tblproductconfigoptionssub tblproductconfiglinks tblproduct_upgrade_products tblservers tblservergroups
+  tblservergroupsrel tbldomainpricing tblcustomfields`. Στο αντίγραφο του `tblservers` τα `password`/`accesshash`
+  μηδενίζονται (ο importer δεν τα διαβάζει ούτως ή άλλως).
+- Modules χωρίς extension εδώ (π.χ. άλλοι registrars ή servers) αναφέρονται στο τέλος και παραλείπονται.

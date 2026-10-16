@@ -56,27 +56,38 @@ final class WhmcsLicensingImport
             if ($product === null) {
                 continue;
             }
-            $product->update(['server_id' => $server->id]);
-            $settings = [
-                'key_length' => [(string) ((int) ($row['configoption1'] ?? 0) ?: 16), 'string', false],
-                'key_prefix' => [(string) ($row['configoption2'] ?? ''), 'string', false],
-                'allow_reissue' => [($row['configoption3'] ?? '') === 'on' ? '1' : '0', 'boolean', false],
-                'allow_ip_conflict' => [($row['configoption5'] ?? '') === 'on' ? '1' : '0', 'boolean', false],
-                'custom_fields' => [MycsLicenseRepository::fieldSetting($this->fieldNames((int) $row['id'])), 'string', false],
-            ];
-            // An empty PSK never overwrites one staff typed.
-            if (($row['configoption8'] ?? '') !== '') {
-                $settings['secret_key'] = [(string) $row['configoption8'], 'string', true];
-            }
-            foreach ($settings as $key => [$value, $type, $encrypted]) {
-                $setting = Setting::query()->firstOrNew(['settingable_type' => $product->getMorphClass(), 'settingable_id' => $product->id, 'key' => $key]);
-                $setting->forceFill(['value' => $value, 'type' => $type, 'encrypted' => $encrypted])->save();
-            }
+            $this->productSettings($product, $row, $server);
             $ids[] = $product->id;
             $this->counts['products']++;
         }
 
         return $ids;
+    }
+
+    /**
+     * A licensing product's module settings from its WHMCS row (configoptions; the PSK encrypted, never printed; an
+     * empty PSK never overwrites one staff typed), on the licensing server. Also the catalog import's
+     * (`app:import-whmcs-catalog`), which brings products without their licenses.
+     *
+     * @param  array<string, mixed>  $row  tblproducts
+     */
+    public function productSettings(Product $product, array $row, Server $server): void
+    {
+        $product->update(['server_id' => $server->id]);
+        $settings = [
+            'key_length' => [(string) ((int) ($row['configoption1'] ?? 0) ?: 16), 'string', false],
+            'key_prefix' => [(string) ($row['configoption2'] ?? ''), 'string', false],
+            'allow_reissue' => [($row['configoption3'] ?? '') === 'on' ? '1' : '0', 'boolean', false],
+            'allow_ip_conflict' => [($row['configoption5'] ?? '') === 'on' ? '1' : '0', 'boolean', false],
+            'custom_fields' => [MycsLicenseRepository::fieldSetting($this->fieldNames((int) $row['id'])), 'string', false],
+        ];
+        if (($row['configoption8'] ?? '') !== '') {
+            $settings['secret_key'] = [(string) $row['configoption8'], 'string', true];
+        }
+        foreach ($settings as $key => [$value, $type, $encrypted]) {
+            $setting = Setting::query()->firstOrNew(['settingable_type' => $product->getMorphClass(), 'settingable_id' => $product->id, 'key' => $key]);
+            $setting->forceFill(['value' => $value, 'type' => $type, 'encrypted' => $encrypted])->save();
+        }
     }
 
     /**

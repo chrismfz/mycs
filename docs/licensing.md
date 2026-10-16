@@ -46,6 +46,8 @@ Active), `last_seen_ip`, `last_seen_client` (μέθοδος + User-Agent: πόσ
     calling** (ληγμένες/ανεσταλμένες που ρώτησαν τις 7 τελευταίες μέρες)· η γραμμή ανοίγει την υπηρεσία. Δικαιώματα
     των υπηρεσιών.
 - **L3 (έγινε, μόνο το εργαλείο· όχι import στο live πριν το cut-over: απόφαση 2026-10-15):**
+  Τα **licensing products** με τις ρυθμίσεις τους (όχι τα licenses) είναι κατάλογος και έρχονται με το
+  `app:import-whmcs-catalog` (απόφαση ιδιοκτήτη 2026-10-16).
   - `App\Services\Licensing\WhmcsLicensingImport`, μέσα στο `app:import-from-whmcs` (μετά τις υπηρεσίες) και μόνο του:
     `php artisan app:import-whmcs-licensing <whmcs_db> [user] [host] [port] [--log-days=90]` (μόνο ανάγνωση στο WHMCS,
     ο κωδικός με prompt).
