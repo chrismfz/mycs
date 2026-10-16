@@ -70,7 +70,7 @@ class TemplateRenderer
      * work (an invoice's PDF), a trait's relation (audits: staff notes, password hashes), a relation to other
      * customers' records (a login shared by two accounts, a server's accounts) or to staff's notes (money events).
      *
-     * @var array<class-string<Model>, array{relations?: list<string>, accessors?: list<string>}>
+     * @var array<class-string, array<string, list<string>>>
      */
     public const READS = [
         Client::class => ['relations' => ['primaryContact'], 'accessors' => ['name', 'email', 'firstName', 'lastName', 'country']],
