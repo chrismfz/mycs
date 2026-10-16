@@ -4,11 +4,13 @@ namespace App\Services\Admin;
 
 use App\Classes\Price;
 use App\Enums\AdjustmentNoteStatus;
+use App\Enums\DomainStatus;
 use App\Models\AdjustmentNote;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Credit;
 use App\Models\Currency;
+use App\Models\Domain;
 use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
@@ -32,6 +34,7 @@ class ClientSummary
         'invoices' => 'admin.invoices.viewAny',
         'credit' => 'admin.credits.viewAny',
         'services' => 'admin.services.viewAny',
+        'domains' => 'admin.domains.viewAny',
         'tickets' => 'admin.tickets.viewAny',
         'emails' => 'admin.email_logs.viewAny',
         'logins' => 'admin.users.viewAny',
@@ -54,6 +57,7 @@ class ClientSummary
             'credit' => $may('credit') ? Credit::query()->where('client_id', $client->id)->where('amount', '!=', 0)->orderBy('currency_code')->get()
                 ->map(fn (Credit $credit) => self::money((int) round((float) $credit->amount * 100), $credit->currency_code))->all() : null,
             'services' => $may('services') ? self::services($client) : null,
+            'domains' => $may('domains') ? self::domains($client) : null,
             'open_tickets' => $may('tickets') ? Ticket::query()->where('client_id', $client->id)->where('status', '!=', 'closed')->count() : null,
             'emails' => $may('emails') ? EmailLog::query()->where('client_id', $client->id)->latest('id')->limit(5)
                 ->get(['id', 'subject', 'status', 'created_at'])->all() : null,
@@ -143,6 +147,24 @@ class ClientSummary
                 'created' => $service->created_at,
                 'expires' => $service->expires_at,
                 'status' => $service->status,
+            ])->all(),
+        ];
+    }
+
+    /** @return array{rows: list<array<string, mixed>>} */
+    private static function domains(Client $client): array
+    {
+        $domains = Domain::query()->where('client_id', $client->id)
+            ->orderByRaw('status in (?, ?, ?) asc', DomainStatus::terminalValues())->orderBy('expires_at')->get();
+
+        return [
+            'rows' => $domains->map(fn (Domain $domain) => [
+                'id' => $domain->id,
+                'fqdn' => $domain->fqdn,
+                'registered' => $domain->registered_at,
+                'expires' => $domain->expires_at,
+                'auto_renew' => $domain->auto_renew,
+                'status' => $domain->status,
             ])->all(),
         ];
     }

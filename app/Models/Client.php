@@ -183,6 +183,12 @@ class Client extends Model implements Auditable
         return $this->hasMany(Service::class);
     }
 
+    /** @return HasMany<Domain, $this> */
+    public function domains(): HasMany
+    {
+        return $this->hasMany(Domain::class);
+    }
+
     /** @return HasMany<Invoice, $this> */
     public function invoices(): HasMany
     {

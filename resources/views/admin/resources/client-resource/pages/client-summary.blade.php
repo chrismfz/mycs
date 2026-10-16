@@ -117,3 +117,32 @@
         </div>
     </x-filament::section>
 @endif
+
+@if ($summary['domains'] !== null)
+    <x-filament::section :heading="__('domains.domains')" class="mt-6">
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="text-left {{ $label }}">
+                        <th class="py-2 pr-3">ID</th><th class="py-2 pr-3">{{ __('domains.domain') }}</th><th class="py-2 pr-3">{{ __('Registered') }}</th>
+                        <th class="py-2 pr-3">{{ __('Expires') }}</th><th class="py-2 pr-3">{{ __('Auto renew') }}</th><th class="py-2">{{ __('Status') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse ($summary['domains']['rows'] as $dom)
+                        <tr class="border-t border-gray-100 dark:border-white/5">
+                            <td class="py-2 pr-3">@if ($links['domain'])<x-filament::link :href="($links['domain'])($dom['id'])">{{ $dom['id'] }}</x-filament::link>@else{{ $dom['id'] }}@endif</td>
+                            <td class="py-2 pr-3">{{ $dom['fqdn'] }}</td>
+                            <td class="py-2 pr-3 whitespace-nowrap">{{ $dom['registered']?->format('d/m/Y') ?? '—' }}</td>
+                            <td class="py-2 pr-3 whitespace-nowrap">{{ $dom['expires']?->format('d/m/Y') ?? '—' }}</td>
+                            <td class="py-2 pr-3">{{ $dom['auto_renew'] ? __('Yes') : __('No') }}</td>
+                            <td class="py-2"><x-filament::badge :color="$dom['status']->getColor()">{{ $dom['status']->getLabel() }}</x-filament::badge></td>
+                        </tr>
+                    @empty
+                        <tr><td colspan="6" class="py-3 {{ $label }}">{{ __('No domains') }}</td></tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+    </x-filament::section>
+@endif

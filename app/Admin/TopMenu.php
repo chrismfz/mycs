@@ -13,6 +13,7 @@ use App\Admin\Resources\ConfigOptionResource;
 use App\Admin\Resources\CouponResource;
 use App\Admin\Resources\CurrencyResource;
 use App\Admin\Resources\CustomPropertyResource;
+use App\Admin\Resources\DomainResource;
 use App\Admin\Resources\EmailLogResource;
 use App\Admin\Resources\ExtensionResource;
 use App\Admin\Resources\FailedJobResource;
@@ -55,6 +56,7 @@ class TopMenu
             [UserResource::class, 'index', 'View/Search Clients'],
             [UserResource::class, 'create', 'Add New Client'],
             [ServiceResource::class, 'index', 'Products/Services'],
+            [DomainResource::class, 'index', 'Domains'],
             [ServiceCancellationResource::class, 'index', 'Cancellation Requests'],
             [LicenseResource::class, 'index', 'Licenses'],
         ],

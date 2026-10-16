@@ -5,6 +5,7 @@ namespace App\Admin\Resources\CurrencyResource\Pages;
 use App\Admin\Resources\CurrencyResource;
 use App\Models\Cart;
 use App\Models\Currency;
+use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\Price;
 use Filament\Actions\DeleteAction;
@@ -29,7 +30,9 @@ class EditCurrency extends EditRecord
                 $creditCount = $record->credits()->where('amount', '>', 0)->count();
                 // Invoices too (DATA-16): their money, credit notes and transactions are in this currency.
                 $invoiceCount = Invoice::query()->where('currency_code', $record->code)->count();
-                if ($serviceCount > 0 || $orderCount > 0 || $creditCount > 0 || $invoiceCount > 0) {
+                // Domains are billed in it (docs/domains.md D-4); its TLD prices go with it (foreign key cascade).
+                $domainCount = Domain::query()->where('currency_code', $record->code)->count();
+                if ($serviceCount > 0 || $orderCount > 0 || $creditCount > 0 || $invoiceCount > 0 || $domainCount > 0) {
                     $message = 'Cannot delete currency because it is being used by ';
                     $parts = [];
                     if ($serviceCount > 0) {
@@ -43,6 +46,9 @@ class EditCurrency extends EditRecord
                     }
                     if ($invoiceCount > 0) {
                         $parts[] = "{$invoiceCount} invoice(s)";
+                    }
+                    if ($domainCount > 0) {
+                        $parts[] = "{$domainCount} domain(s)";
                     }
                     $message .= implode(', ', $parts) . '.';
                     Notification::make()
