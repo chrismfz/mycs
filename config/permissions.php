@@ -90,6 +90,7 @@ return [
             // Domains (docs/domains.md): seen in D1; their actions come with D2–D5.
             'domains' => [
                 'viewAny' => 'View Domains',
+                'create' => 'Add Existing Domains',
                 'update' => 'Update Domains (sync)',
             ],
             // The TLDs sold and their prices (docs/domains.md D-6, D-7).

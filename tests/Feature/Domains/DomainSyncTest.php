@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Domains;
 
+use App\Admin\Resources\DomainResource\Pages\ListDomains;
 use App\Admin\Resources\DomainResource\Pages\ViewDomain;
 use App\Enums\DomainStatus;
 use App\Models\Domain;
@@ -54,7 +55,7 @@ class DomainSyncTest extends TestCase
     /** @param  array<string, mixed>  $record */
     private function fakeRecord(array $record): void
     {
-        $record += ['id' => 30391502, 'status' => 'ACT', 'expiration_date' => '2027-11-17 00:00:00',
+        $record += ['domain' => ['name' => 'nixpal', 'extension' => 'com'], 'id' => 30391502, 'status' => 'ACT', 'expiration_date' => '2027-11-17 00:00:00',
             'name_servers' => [['name' => 'ns1.nixpal.com'], ['name' => 'ns2.nixpal.com']], 'is_locked' => true];
         Http::fake([
             self::PROD . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
@@ -132,7 +133,7 @@ class DomainSyncTest extends TestCase
 
     public function test_a_domain_is_adopted_from_the_registrar_or_not_at_all(): void
     {
-        $record = ['id' => 30391502, 'status' => 'ACT', 'expiration_date' => '2027-11-17 00:00:00', 'name_servers' => [['name' => 'ns1.nixpal.com']]];
+        $record = ['domain' => ['name' => 'nixpal', 'extension' => 'com'], 'id' => 30391502, 'status' => 'ACT', 'expiration_date' => '2027-11-17 00:00:00', 'name_servers' => [['name' => 'ns1.nixpal.com']]];
         Http::fake([
             self::PROD . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
             self::PROD . '/v1beta/domains?full_name=*' => fn ($request) => Http::response(['data' => ['results' => str_contains($request->url(), 'nixpal.com') ? [$record] : []]]),
@@ -147,6 +148,20 @@ class DomainSyncTest extends TestCase
 
         $this->artisan('domains:adopt', ['domain' => 'not-ours.com', '--client' => $client->id, '--connection' => $this->op->id])->assertFailed();
         $this->assertSame(1, Domain::query()->count(), 'not at the registrar: nothing created');
+    }
+
+    public function test_staff_add_an_existing_domain_from_the_admin(): void
+    {
+        $this->fakeRecord([]);
+        $staff = fn (array $permissions) => Staff::factory()->create(['role_id' => Role::create(['name' => 'R' . uniqid(), 'permissions' => $permissions])->id]);
+
+        $this->livewireAs($staff(['admin.domains.viewAny']))->test(ListDomains::class)->assertActionHidden('addExisting');
+        $this->livewireAs($staff(['admin.domains.viewAny', 'admin.domains.create']))->test(ListDomains::class)
+            ->callAction('addExisting', ['domain' => 'nixpal.com', 'client_id' => $this->user->client()->id, 'connection_id' => $this->op->id])
+            ->assertHasNoActionErrors();
+
+        $domain = Domain::query()->sole();
+        $this->assertSame(['nixpal.com', '2027-11-17', $this->user->client()->id], [$domain->fqdn, $domain->expires_at->toDateString(), $domain->client_id]);
     }
 
     public function test_sync_now_for_staff_who_may(): void

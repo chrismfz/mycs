@@ -179,7 +179,16 @@
    deleted με τις μέρες του TLD ή του domain· πίσω σε active όταν η λήξη πάει μπροστά· χωρίς γνωστές μέρες μόνο
    expired), `domains:adopt` (ένα domain που είναι ήδη στον registrar, σε λογαριασμό: μόνο ανάγνωση εκεί), έλεγχος
    «domains» στο health (σφάλματα sync, μεταφορές pending 14+ μέρες). Οι αλλαγές του cron γράφονται στο audit.
-   Code + adversarial (κύκλος ζωής).
+   Code + adversarial (κύκλος ζωής). Κανόνες μετά τα reviews:
+   - Μόνο εγγραφές **αυτού του ονόματος** από τον registrar (μια αναζήτηση μπορεί να φέρει άλλο domain).
+   - Μόνο προς τα εμπρός: active ξανά μόνο με λήξη στο μέλλον· λήξη που πάει **πίσω** δεν εφαρμόζεται, γράφεται ως
+     σφάλμα για το staff· τα deleted και τα τέλη του staff δεν συγχρονίζονται (η ανάκτηση με δική της ενέργεια).
+   - Ποτέ πέρα από ό,τι ξέρουμε: χωρίς μέρες grace μόνο expired· grace χωρίς redemption → grace και μετά expired·
+     deleted από τις ημερομηνίες **μόνο** χωρίς API (με API το λέει ο registrar).
+   - Audit μόνο όταν κάτι αλλάζει (το `last_synced_at` είναι λογιστική)· οι αλλαγές nameservers φαίνονται στο audit.
+   - «Add existing domain» στο admin (`admin.domains.create`) = `domains:adopt`: μόνο ενεργό domain του ονόματος, με
+     λήξη· νόμισμα του λογαριασμού (τελευταίο τιμολόγιο ή υπηρεσία) ή default. Domain **χωρίς πελάτη** (αδέσποτο):
+     με το D6 (εισαγωγή όλου του portfolio και «ανάθεση σε πελάτη»).
 5. **D5 Χρέωση:** γραμμή `Domain` στο τιμολόγιο, βήμα τιμολόγησης με ομαδοποίηση, κλάδος στην πληρωμή, renew on-paid, «Ανανέωση τώρα», adopt, fee grace/
    redemption στο υπάρχον τιμολόγιο, Pending Module Actions. Code + adversarial.
 6. **D6 Importer WHMCS:** domains, τιμές, TLDs, ρόλοι επαφών, additional fields· parity και σύγκριση με τον

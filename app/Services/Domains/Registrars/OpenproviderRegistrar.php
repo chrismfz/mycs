@@ -792,7 +792,8 @@ class OpenproviderRegistrar implements DomainRegistrar
         if ($domain->registrar_domain_id !== null && $domain->registrar_domain_id !== '') {
             try {
                 $data = $this->request($credentials, 'GET', '/v1beta/domains/' . rawurlencode($domain->registrar_domain_id))->json('data');
-                if (is_array($data)) {
+                // Only this domain's record: an id now pointing at another name is not ours (review F1).
+                if (is_array($data) && $this->isRecordOf($data, $domain->fqdn)) {
                     return $data;
                 }
             } catch (RuntimeException) {
@@ -810,7 +811,11 @@ class OpenproviderRegistrar implements DomainRegistrar
         // BOTH the lingering DEL tombstone AND the fresh ACT record for the
         // same fqdn (id-ascending puts the tombstone first) — picking the
         // tombstone would disown a registration that was just paid for.
-        $candidates = is_array($results) ? array_values(array_filter($results, 'is_array')) : [];
+        // Only records of this very name: a search may answer with others (review F1: another domain's id, expiry and
+        // nameservers were written onto ours, and a renewal would have charged for it).
+        $candidates = is_array($results)
+            ? array_values(array_filter($results, fn ($r) => is_array($r) && $this->isRecordOf($r, $domain->fqdn)))
+            : [];
         $first = null;
         foreach ($candidates as $candidate) {
             if (!in_array((string) ($candidate['status'] ?? ''), self::DEAD_STATUSES, true)) {
@@ -823,10 +828,19 @@ class OpenproviderRegistrar implements DomainRegistrar
             // TYPED: «not in the account» must be distinguishable from a
             // transport failure — the register adopt-guard acts on the
             // difference (third party vs could-not-read).
-            throw new DomainNotFoundAtRegistrar('Το ' . $domain->fqdn . ' δεν βρέθηκε στον λογαριασμό Openprovider.');
+            throw new DomainNotFoundAtRegistrar("{$domain->fqdn} is not in the Openprovider account.");
         }
 
         return $first;
+    }
+
+    /** The record is of this name (its domain.name + extension, lowercase). */
+    private function isRecordOf(array $record, string $fqdn): bool
+    {
+        $name = is_array($record['domain'] ?? null) ? $record['domain'] : [];
+        $full = mb_strtolower(trim((string) ($name['name'] ?? '')) . '.' . ltrim(trim((string) ($name['extension'] ?? '')), '.'));
+
+        return $full === mb_strtolower($fqdn);
     }
 
     /**

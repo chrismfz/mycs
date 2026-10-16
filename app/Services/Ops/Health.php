@@ -143,7 +143,7 @@ final class Health
         $live = Domain::query()->whereNotIn('status', DomainStatus::terminalValues());
         $errors = (clone $live)->whereNotNull('sync_error')->count();
         $stale = (clone $live)->where('status', DomainStatus::PendingTransfer->value)
-            ->where('updated_at', '<', now()->subDays(SyncDomains::STALE_TRANSFER_DAYS))->count();
+            ->where('created_at', '<', now()->subDays(SyncDomains::STALE_TRANSFER_DAYS))->count();
         $oldest = (clone $live)->whereNotNull('last_synced_at')->min('last_synced_at');
         $status = $errors > 0 || $stale > 0 ? self::WARN : self::OK;
 
