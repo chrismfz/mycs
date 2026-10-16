@@ -316,11 +316,12 @@ class Domain extends Model implements Auditable
     }
 
     /** Its renewal line's text, as the customer reads it (lang/). */
-    public function describeRenewal(CarbonInterface $start, CarbonInterface $end): string
+    public function describeRenewal(CarbonInterface $start, CarbonInterface $end, ?int $years = null): string
     {
         $format = __('services.invoice_period_date_format');
+        $years ??= max(1, (int) $this->years);
 
-        return trans_choice('domains.invoice.renewal', max(1, (int) $this->years), ['domain' => $this->fqdn, 'years' => max(1, (int) $this->years),
+        return trans_choice('domains.invoice.renewal', $years, ['domain' => $this->fqdn, 'years' => $years,
             'start' => $start->translatedFormat($format), 'end' => $end->translatedFormat($format)]);
     }
 }

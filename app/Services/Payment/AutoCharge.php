@@ -96,7 +96,8 @@ final class AutoCharge
             ->whereHas('items', fn ($items) => $items->whereIn('reference_type', [Service::class, Domain::class]))
             ->whereDoesntHave('items', fn ($items) => $items->where('reference_type', Service::class)->whereIn('reference_id', $notCharged))
             ->whereDoesntHave('items', fn ($items) => $items->where('reference_type', Domain::class)
-                ->whereIn('reference_id', Domain::query()->select('id')->whereIn('status', DomainStatus::terminalValues())))
+                ->whereIn('reference_id', Domain::query()->select('id')->where(fn ($domain) => $domain->whereIn('status', DomainStatus::terminalValues())
+                    ->orWhere('auto_renew', false))))
             ->orderBy('due_at')->orderBy('id');
     }
 

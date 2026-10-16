@@ -3,6 +3,7 @@
 namespace Tests\Feature\Domains;
 
 use App\Enums\DomainStatus;
+use App\Events\Invoice\Paid;
 use App\Models\Currency;
 use App\Models\Domain;
 use App\Models\DomainTld;
@@ -14,9 +15,11 @@ use App\Models\Setting;
 use App\Models\User;
 use App\Services\Invoice\InvoiceItemReference;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Order\OrderPricing;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
@@ -40,7 +43,7 @@ class DomainBillingTest extends TestCase
         Queue::fake();
         Currency::query()->firstOrCreate(['code' => 'EUR'], ['name' => 'Euro', 'suffix' => 'EUR', 'format' => '1.000,00']);
         $this->settings(['credits_enabled' => [true, 'boolean'], 'credits_auto_use' => [false, 'boolean'], 'default_currency' => ['EUR', 'string']]);
-        config(['settings.cronjob_invoice' => 7, 'settings.domain_invoice_days' => 15]);
+        config(['settings.cronjob_invoice' => 7, 'settings.domain_invoice_days' => 15, 'settings.domain_billing_enabled' => true]);
         $this->user = User::factory()->create();
         $this->tld = DomainTld::query()->create(['tld' => 'com', 'grace_days' => 40, 'redemption_days' => 0, 'is_active' => true]);
         foreach ([['renew', 1, '23.33'], ['renew', 2, '46.66'], ['grace', 1, '100.30']] as [$operation, $years, $price]) {
@@ -175,18 +178,72 @@ class DomainBillingTest extends TestCase
         $this->assertSame([[null, '23.33'], ['grace_fee', '100.30']], array_map(fn ($l) => [$l->kind, $l->price], $this->domainLines($other)));
     }
 
-    public function test_a_paid_domain_renewal_waits_for_the_registrar_and_is_never_marked_applied(): void
+    public function test_a_paid_domain_renewal_waits_for_the_registrar_and_its_paid_event_is_sent_once(): void
     {
         $domain = $this->domain();
         $this->cron();
         $invoice = $this->domainLines($domain)[0]->invoice;
+        Event::fake([Paid::class]);
 
         (new RecordPaymentService)->handle($invoice, null, 23.33, transactionId: 'tx-domain');
+        Carbon::setTestNow('2026-10-21 10:00:00');
+        $this->cron();
+        Carbon::setTestNow('2026-10-22 10:00:00');
+        $this->cron();
 
         $invoice->refresh();
-        $this->assertSame(Invoice::STATUS_PAID, $invoice->status);
-        $this->assertNotNull($invoice->apply_pending_since, 'paid, not applied: D5b-2 renews it at the registrar');
-        $this->assertNull($this->domainLines($domain)[0]->applied_at);
+        $this->assertSame([Invoice::STATUS_PAID, null], [$invoice->status, $invoice->apply_pending_since]);
+        $this->assertNull($this->domainLines($domain)[0]->applied_at, 'D5b-2 renews it at the registrar and applies it');
+        Event::assertDispatchedTimes(Paid::class, 1);
+    }
+
+    public function test_billing_is_off_until_the_registrar_renewal_is_live(): void
+    {
+        config(['settings.domain_billing_enabled' => false]);
+        $domain = $this->domain();
+
+        $this->cron();
+
+        $this->assertSame([], $this->domainLines($domain));
+    }
+
+    /** Review 3: an expiry moved a day (sync drift) is the same period, never billed again. */
+    public function test_an_expiry_moved_a_day_is_not_billed_again(): void
+    {
+        $domain = $this->domain();
+        $this->cron();
+        $domain->update(['expires_at' => '2026-11-02']);
+
+        $this->cron();
+
+        $this->assertCount(1, $this->domainLines($domain));
+    }
+
+    /** Reviews 4, 8: never billed past its last recoverable day; in redemption one year at that year's price. */
+    public function test_a_dead_domain_is_not_billed_and_redemption_bills_one_year(): void
+    {
+        $dead = $this->domain(['expires_at' => '2026-08-01', 'status' => DomainStatus::Expired]);
+        DomainTldPrice::query()->create(['domain_tld_id' => $this->tld->id, 'operation' => 'redemption', 'years' => 1, 'currency_code' => 'EUR', 'price' => '37.50']);
+        $this->tld->update(['redemption_days' => 30]);
+        $redeemable = $this->domain(['sld' => 'r', 'fqdn' => 'r.com', 'expires_at' => '2026-09-01', 'status' => DomainStatus::Redemption, 'years' => 2]);
+
+        $this->cron();
+
+        $this->assertSame([], $this->domainLines($dead));
+        [$line] = $this->domainLines($redeemable);
+        $this->assertSame(['23.33', '2027-09-01'], [$line->price, $line->period_end->toDateString()]);
+    }
+
+    /** Review 7: with prices including VAT, the line is net. */
+    public function test_prices_including_vat_are_billed_net(): void
+    {
+        $this->settings(['tax_enabled' => [true, 'boolean'], 'tax_type' => ['inclusive', 'string'], 'tax_rate' => [24, 'string']]);
+        config(['settings.tax_rate' => 24]);
+        $domain = $this->domain();
+
+        $this->cron();
+
+        $this->assertSame(OrderPricing::toNet('23.33', $this->user->client()), $this->domainLines($domain)[0]->price);
     }
 
     public function test_an_invoice_line_may_point_at_the_customers_own_domain_only(): void
