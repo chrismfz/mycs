@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\ClientResource\Pages;
 
+use App\Admin\Actions\InvoiceSelectedItemsAction;
 use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\DomainResource;
 use App\Models\Domain;
@@ -40,6 +41,8 @@ class ShowDomains extends ManageRelatedRecords
             ])
             ->recordActions([
                 ViewAction::make()->url(fn (Domain $record) => DomainResource::getUrl('view', ['record' => $record])),
-            ]);
+            ])
+            // D7a: the ticked rows on one invoice per currency.
+            ->toolbarActions([InvoiceSelectedItemsAction::bulk()]);
     }
 }

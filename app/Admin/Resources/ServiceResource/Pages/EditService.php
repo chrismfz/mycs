@@ -3,6 +3,7 @@
 namespace App\Admin\Resources\ServiceResource\Pages;
 
 use App\Admin\Actions\AuditAction;
+use App\Admin\Actions\InvoiceSelectedItemsAction;
 use App\Admin\Resources\ServiceResource;
 use App\Exceptions\DisplayException;
 use App\Exceptions\NothingToDoOnServer;
@@ -85,6 +86,7 @@ class EditService extends EditRecord
         $record = $this->getRecord();
 
         return [
+            InvoiceSelectedItemsAction::nextPeriod()->visible(in_array($record->status, ['active', 'suspended'], true)),
             DeleteAction::make()
                 ->form(function (DeleteAction $action) use ($record) {
                     // A record of an account already gone (terminated straight on the server): untick to delete only it.

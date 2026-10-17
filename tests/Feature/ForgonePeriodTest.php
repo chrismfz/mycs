@@ -200,7 +200,7 @@ class ForgonePeriodTest extends TestCase
         $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Inv' . uniqid(), 'permissions' => ['*']])->id]);
 
         $this->livewireAs($staff)->test(ListInvoices::class)
-            ->callTableAction('cancel', $invoice, data: ['cancellation_reason' => 'wrong price', 'bill_again' => true])->assertHasNoTableActionErrors();
+            ->callTableAction('cancel', $invoice, data: ['cancellation_reason' => 'wrong price', 'periods' => 'keep'])->assertHasNoTableActionErrors();
 
         $this->assertSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status);
         $this->assertNull($this->renewals($service)->sole()->forgone_at);

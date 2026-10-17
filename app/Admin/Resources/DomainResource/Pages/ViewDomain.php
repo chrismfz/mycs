@@ -2,10 +2,12 @@
 
 namespace App\Admin\Resources\DomainResource\Pages;
 
+use App\Admin\Actions\InvoiceSelectedItemsAction;
 use App\Admin\Resources\DomainResource;
 use App\Models\Contact;
 use App\Models\Domain;
 use App\Models\Staff;
+use App\Services\Billing\RenewalBilling;
 use App\Services\Domains\DomainLifecycle;
 use App\Services\Domains\DomainManagementService;
 use App\Services\Domains\DomainRenewalService;
@@ -84,6 +86,8 @@ class ViewDomain extends ViewRecord
 
             ActionGroup::make([
                 // D-1: a trusted customer's domain renewed now, paid later (the payment adopts it, never a second charge).
+                // D7a: its next period invoiced now, before its time (renewed when paid, D5b-2).
+                InvoiceSelectedItemsAction::nextPeriod()->visible(fn (Domain $record) => in_array($record->status, RenewalBilling::BILLED_DOMAINS, true)),
                 Action::make('renewNow')->label(__('Renew now'))->icon('heroicon-o-arrow-path-rounded-square')->color('warning')
                     ->visible(fn (Domain $record) => self::can('admin.domains.renew') && self::manageable($record))
                     ->requiresConfirmation()

@@ -10,6 +10,7 @@ use App\Enums\AdjustmentNoteType;
 use App\Enums\InvoiceTransactionStatus;
 use App\Models\Traits\HasProperties;
 use App\Observers\InvoiceObserver;
+use App\Services\Billing\RenewalBilling;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Tax\EuVat;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
@@ -122,7 +123,7 @@ class Invoice extends Model implements Auditable
     /** It records a service period given up on (Δ3a): kept, else the cron would bill that period again. */
     public function recordsForgonePeriod(): bool
     {
-        return $this->items()->where('reference_type', Service::class)->whereNotNull('forgone_at')->exists();
+        return $this->items()->whereIn('reference_type', [Service::class, Domain::class])->whereNotNull('forgone_at')->exists();
     }
 
     /** Not settled yet: what a cancellation gives up on (a draft too: finalised later, it would bill it). */
@@ -147,10 +148,37 @@ class Invoice extends Model implements Auditable
     public bool $finalize_later = false;
 
     /**
-     * Cancelled as a consequence, not as such (CancelOpenInvoices: its service ends or changes cycle): its renewal lines
-     * are not marked given up on (Δ3), and a service that goes on is billed again. Not stored.
+     * Whether cancelling it gives up the periods its renewal lines bill (Δ3). Not stored. true: kept billable (cancelled
+     * as a consequence, CancelOpenInvoices; staff's «Bill its period again»), false: given up (staff's «not this period»),
+     * null (nobody chose): a period the cron would not bill yet (it starts after its days before, billedFrom) is kept
+     * billable, the cron bills it at its time; one within them is given up (owner, 2026-10-17, D7a ADV-4: invoiced or paid
+     * early then taken back is no reason to lose the service; Δ3a stays for the cron's own renewals). A refund gives up
+     * unless true.
      */
-    public bool $keep_periods_billable = false;
+    public ?bool $keep_periods_billable = null;
+
+    /**
+     * The first day of a period the cron would not bill yet, as a date string: it bills a period starting before now plus
+     * its days before (services: Invoice Generation days; domains: their own, RenewalBilling::domainInvoiceDays), so up to
+     * that day itself (review A4-1).
+     *
+     * @param  class-string  $type
+     */
+    public static function billedFrom(string $type): string
+    {
+        $days = $type === Domain::class ? RenewalBilling::domainInvoiceDays() : (int) config('settings.cronjob_invoice', 7);
+
+        return today()->addDays($days + 1)->toDateString();
+    }
+
+    /** Its renewal lines all bill periods the cron would not bill yet: cancelled, kept billable (Δ3, ADV-4). */
+    public function billsOnlyPeriodsToCome(): bool
+    {
+        $lines = $this->items()->whereIn('reference_type', [Service::class, Domain::class])->whereNull('kind')->get(['reference_type', 'period_start']);
+
+        return $lines->isNotEmpty() && $lines->every(fn (InvoiceItem $line) => $line->period_start !== null
+            && $line->period_start->toDateString() >= self::billedFrom($line->reference_type));
+    }
 
     /**
      * Status and its local money effects commit together under customer -> invoice locks. External

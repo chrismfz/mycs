@@ -70,7 +70,7 @@ class DomainRenewalService
 
     /**
      * Its renewal line for the period from $start. Billed (D5b-1, the cron): a line whose period reaches past it on any
-     * invoice (a period staff cancelled is given up, not billed again), or one staff billed by hand this year on an invoice
+     * invoice but a cancelled one whose period was kept billable (Δ3, ADV-4: cancelled before it started), or one staff billed by hand this year on an invoice
      * not cancelled. Payable («Renew now»): only on an invoice still to be paid or paid, never a cancelled or refunded one
      * (adversarial ADV-3).
      */
@@ -80,7 +80,10 @@ class DomainRenewalService
 
         return $domain->invoiceItems()->whereNull('kind')
             ->where(fn ($line) => $line->where(fn ($period) => $period->whereDate('period_end', '>', $start->toDateString())
-                ->when($payable, fn ($q) => $q->whereHas('invoice', fn ($invoice) => $invoice->whereNotIn('status', $dead))))
+                ->when($payable, fn ($q) => $q->whereHas('invoice', fn ($invoice) => $invoice->whereNotIn('status', $dead)))
+                // Cancelled: billed only if given up (Δ3); one cancelled before its period started is billed again (ADV-4).
+                ->when(!$payable, fn ($q) => $q->where(fn ($kept) => $kept->whereNotNull('forgone_at')
+                    ->orWhereHas('invoice', fn ($invoice) => $invoice->where('status', '!=', Invoice::STATUS_CANCELLED)))))
                 ->orWhere(fn ($own) => $own->whereNull('period_start')->where('created_at', '>', $start->copy()->subYear())
                     ->whereHas('invoice', fn ($invoice) => $invoice->whereNotIn('status', $dead))))
             ->orderByDesc('id')->first();
