@@ -4,7 +4,7 @@
 > στο `packages/gr-epp/tests/fixtures/v4.3/` (fixtures των tests), το CA bundle (HARICA, δημόσιο) στο `packages/gr-epp/resources/ca/`,
 > το δείγμα client του μητρώου (`EppClient.java`, PDF) στο `docs/domains/grepp/`. Από τον ιδιοκτήτη (regweb hostmaster): ο
 > **Οδηγός Υλοποίησης EPP v4.3** (`docs/domains/grepp/EPP-Guide-el-v4.3.r20250213.pdf`) και η σελίδα πρόσβασης
-> (`docs/domains/grepp/access.md`). Το **WHOIS RESTful API v1.0** θέλει δικό του λογαριασμό και IP· η τεκμηρίωσή του είναι
+> (`docs/domains/grepp/access.md`), οι Συχνές Ερωτήσεις με το τι σημαίνουν για εμάς (`docs/domains/grepp/faq.md`). Το **WHOIS RESTful API v1.0** θέλει δικό του λογαριασμό και IP· η τεκμηρίωσή του είναι
 > στο `https://grwhois.ics.forth.gr:800/api/spec.html` (μόνο από δηλωμένη IP: να αποθηκευτεί εδώ όταν το διαβάσουμε).
 > Το WHOIS API **δεν** κάνει έλεγχο διαθεσιμότητας ούτε punycode: διαθεσιμότητα μόνο με EPP `<domain:check>`.
 
