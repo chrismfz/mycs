@@ -173,7 +173,7 @@ class DomainOrderFulfilmentAdversarialTest extends TestCase
 
     private function pay(Domain $domain, string $nameservers = "ns1.nixpal.com\nns2.nixpal.com", ?string $amount = null): void
     {
-        config(['settings.domain_default_nameservers' => $nameservers]); // a checkout reloads the settings
+        config(self::ns($nameservers)); // a checkout reloads the settings
         $invoice = $this->invoiceOf($domain);
         (new RecordPaymentService)->handle($invoice, null, $amount ?? (string) $invoice->total, transactionId: 'tx-' . $domain->id . '-' . ($amount ?? 'full'));
     }
@@ -202,7 +202,7 @@ class DomainOrderFulfilmentAdversarialTest extends TestCase
     public function test_adv1_an_order_whose_unpaid_invoice_was_deleted_is_not_registered_for_free(): void
     {
         $domain = $this->order('add', 'mybusiness.com');
-        config(['settings.domain_default_nameservers' => "ns1.nixpal.com\nns2.nixpal.com"]);
+        config(self::ns("ns1.nixpal.com\nns2.nixpal.com"));
         $this->invoiceOf($domain)->delete();
         $this->assertSame(DomainStatus::PendingRegister, $domain->fresh()->status, 'deleting the invoice leaves the domain pending');
 
@@ -219,7 +219,7 @@ class DomainOrderFulfilmentAdversarialTest extends TestCase
     public function test_adv1b_a_domain_whose_line_is_on_a_cancelled_invoice_is_not_treated_as_free(): void
     {
         $domain = $this->order('add', 'mybusiness.com');
-        config(['settings.domain_default_nameservers' => "ns1.nixpal.com\nns2.nixpal.com"]);
+        config(self::ns("ns1.nixpal.com\nns2.nixpal.com"));
         // E.g. a service of the same order cancelled first took the whole invoice (D8b-1 code review H1); the domain
         // stays pending until the unpaid-order step cancels it, cronjob_order_cancel days later.
         Invoice::query()->whereKey($this->invoiceOf($domain)->id)->update(['status' => Invoice::STATUS_CANCELLED]);
@@ -468,5 +468,13 @@ class DomainOrderFulfilmentAdversarialTest extends TestCase
         $this->cron();
         $this->assertSame(DomainOrderFulfilment::STAFF, app(DomainOrderFulfilment::class)->fulfil($domain->id));
         $this->assertSame([], $this->created);
+    }
+
+    /** The default nameservers as Settings → Domains holds them (NS1 to NS5), from one per line. */
+    private static function ns(string $hosts): array
+    {
+        $list = preg_split('/\s+/', trim($hosts)) ?: [];
+
+        return collect(range(1, 5))->mapWithKeys(fn (int $n) => ["settings.domain_nameserver_{$n}" => $list[$n - 1] ?? ''])->all();
     }
 }
