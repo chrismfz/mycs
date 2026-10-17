@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- ID: ext-gr-rls-1.0.xsd -->
+<!-- Description: [.gr] Registry Lock Service EPP extension -->
+<!-- Author: George Angeletos -->
+
+<schema
+  xmlns:eppcom="urn:ietf:params:xml:ns:eppcom-1.0"
+  xmlns:domain="urn:ietf:params:xml:ns:domain-1.0"
+  xmlns:grRLS="urn:ics-forth:params:xml:ns:ext-gr-rls-1.0"
+  xmlns="http://www.w3.org/2001/XMLSchema"
+  targetNamespace="urn:ics-forth:params:xml:ns:ext-gr-rls-1.0"
+  elementFormDefault="qualified">
+  <!-- Import common element types. -->
+  <import namespace="urn:ietf:params:xml:ns:eppcom-1.0" schemaLocation="eppcom-1.0.xsd"/>
+  <import namespace="urn:ietf:params:xml:ns:domain-1.0" schemaLocation="domain-1.0.xsd"/>
+  <annotation>
+    <documentation>
+      ICS-FORTH Extensible Provisioning Protocol (EPP) v1.0 extension schema for the provision of the Registry Lock Service.
+    </documentation>
+  </annotation>
+  <!-- Child elements found in EPP command requests. -->
+  <element name="info" type="grRLS:infoType"/>
+  <element name="create" type="grRLS:createType"/>
+  <element name="update" type="grRLS:updateType"/>
+  <element name="renew" type="grRLS:renewType"/>
+  <!-- Child elements of the <info> command. -->
+  <complexType name="infoType">
+    <sequence>
+      <element name="domain" type="grRLS:domainInfoType"/>
+    </sequence>
+  </complexType>
+
+  <!-- The Conflicting Registrant Locks (crl) attribute controls -->
+  <!-- the return of information relating to the list of other -->
+  <!-- domains, if any, currently holding a "registrant" lock on -->
+  <!-- the same shared Registrant contact object. -->
+  <complexType name="domainInfoType">
+    <simpleContent>
+      <extension base="eppcom:labelType">
+        <attribute name="crl" type="boolean" default="false"/>
+      </extension>
+    </simpleContent>
+  </complexType>
+  <!-- Child elements of the create command -->
+  <complexType name="createType">
+    <sequence>
+      <element name="domain" type="eppcom:labelType"/>
+      <element name="period" type="domain:periodType" minOccurs="0"/>
+      <element name="autoRenew" type="boolean" default="true" minOccurs="0"/>
+    </sequence>
+  </complexType>
+  <!-- Child elements of the renew command -->
+  <complexType name="renewType">
+    <sequence>
+      <element name="domain" type="eppcom:labelType"/>
+      <element name="curExpDate" type="date"/>
+      <element name="period" type="domain:periodType" minOccurs="0"/>
+    </sequence>
+  </complexType>
+  <!-- Child elements of the update command -->
+  <complexType name="updateType">
+    <sequence>
+      <element name="domain" type="eppcom:labelType"/>
+      <choice>
+        <element name="autoRenew" type="boolean" default="true"/>
+        <element name="request" type="grRLS:requestUpdateType"/>
+      </choice>
+    </sequence>
+  </complexType>
+  <complexType name="lockRequestDataType">
+    <sequence>
+      <element name="request" type="grRLS:requestInfoType" maxOccurs="unbounded"/>
+    </sequence>
+  </complexType>
+  <!-- The registry lock service request element - info response -->
+  <complexType name="requestInfoType">
+    <sequence>
+      <element name="chgWindow" type="grRLS:chgWindowType" minOccurs="0"/>
+      <element name="crDate" type="dateTime" minOccurs="0"/>
+      <element name="atptVerDate" type="dateTime" minOccurs="0"/>
+    </sequence>
+    <attribute name="op" type="grRLS:operationType" use="required"/>
+    <attribute name="object" type="grRLS:objectLockType" use="optional"/>
+    <attribute name="status" type="grRLS:requestStatusType" use="optional"/>
+  </complexType>
+  <!-- The registry lock service request element - update request -->
+  <complexType name="requestUpdateType">
+    <sequence>
+      <element name="chgWindow" type="grRLS:chgWindowType" minOccurs="0"/>
+    </sequence>
+    <attribute name="op" type="grRLS:operationType" use="required"/>
+    <attribute name="object" type="grRLS:objectLockType" use="optional"/>
+  </complexType>
+  <complexType name="chgWindowType">
+    <sequence>
+      <element name="timeSlotStarts" type="grRLS:timeSlotType"/>
+      <element name="timeSlotEnds" type="grRLS:timeSlotType"/>
+    </sequence>
+  </complexType>
+  <!-- The time slot type -->
+  <complexType name="timeSlotType">
+    <attribute name="at" type="dateTime" use="required"/>
+  </complexType>
+  <!-- | Registry lock service operations -->
+  <simpleType name="operationType">
+    <restriction base="token">
+      <enumeration value="activateService"/>
+      <enumeration value="deactivateService"/>
+      <enumeration value="cancelServiceDeactivation"/>
+      <enumeration value="cancelUnlock"/>
+      <enumeration value="lock"/>
+      <enumeration value="unlock"/>
+    </restriction>
+  </simpleType>
+  <!-- The service status type -->
+  <complexType name="rlsStatusType">
+    <attribute name="s" type="grRLS:serviceStatusValueType" use="required"/>
+  </complexType>
+  <!-- Lock Service status values -->
+  <simpleType name="serviceStatusValueType">
+    <restriction base="token">
+      <enumeration value="active"/>
+      <enumeration value="inactive"/>
+      <enumeration value="pendingCreate"/>
+      <enumeration value="pendingDeactivation"/>
+    </restriction>
+  </simpleType>
+  <!-- Lock request operation status values -->
+  <simpleType name="requestStatusType">
+    <restriction base="token">
+      <enumeration value="authorisationOverridden"/>
+      <enumeration value="authorised"/>
+      <enumeration value="pendingAuthorisation"/>
+    </restriction>
+  </simpleType>
+
+  <!-- Object Lock types: -->
+  <!-- 'domain' - domain and subordinate hosts are locked -->
+  <!-- 'registrant' - registrant contact is locked -->
+  <!-- 'all' - both domain and registrant locks are applied -->
+  <!-- 'none' - no locks are applied -->
+  <simpleType name="objectLockType">
+    <restriction base="token">
+      <enumeration value="domain"/>
+      <enumeration value="registrant"/>
+      <enumeration value="all"/>
+      <enumeration value="none"/>
+    </restriction>
+  </simpleType>
+  <!-- Registrant locked by domains data type -->
+  <complexType name="registrantLockHeldByDataType">
+    <sequence>
+      <element name="domain" type="eppcom:labelType" maxOccurs="200"/>
+    </sequence>
+  </complexType>
+  <!-- Child elements found in EPP responses -->
+
+  <!-- <info> response elements -->
+  <element name="infData" type="grRLS:infResDataType"/>
+  <complexType name="infResDataType">
+    <choice>
+      <sequence>
+        <element name="domain" type="eppcom:labelType"/>
+        <element name="roid" type="eppcom:roidType"/>
+        <element name="appliedLocks" type="grRLS:objectLockType"/>
+        <element name="status" type="grRLS:rlsStatusType"/>
+        <element name="autoRenew" type="boolean"/>
+        <element name="requestData" type="grRLS:lockRequestDataType" minOccurs="0"/>
+        <element name="registrantLockHeldBy" type="grRLS:registrantLockHeldByDataType" minOccurs="0"/>
+        <element name="clID" type="eppcom:clIDType"/>
+        <element name="crID" type="eppcom:clIDType"/>
+        <element name="crDate" type="dateTime"/>
+        <element name="exDate" type="dateTime"/>
+        <element name="upID" type="eppcom:clIDType" minOccurs="0"/>
+        <element name="upDate" type="dateTime" minOccurs="0"/>
+      </sequence>
+    </choice>
+  </complexType>
+  <!-- <create> response elements -->
+  <element name="creData" type="grRLS:createResDataType"/>
+  <complexType name="createResDataType">
+    <sequence>
+      <element name="domain" type="eppcom:labelType"/>
+      <element name="autoRenew" type="boolean"/>
+      <element name="crDate" type="dateTime"/>
+      <element name="exDate" type="dateTime"/>
+    </sequence>
+  </complexType>
+  <!-- <renew> response elements. -->
+  <element name="renData" type="grRLS:renewResDataType"/>
+  <complexType name="renewResDataType">
+    <sequence>
+      <element name="domain" type="eppcom:labelType"/>
+      <element name="exDate" type="dateTime"/>
+    </sequence>
+  </complexType>
+</schema>

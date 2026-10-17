@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp 
+  xmlns="urn:ietf:params:xml:ns:epp-1.0" 
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd">
+  <command>
+    <update>
+      <contact:update 
+        xmlns:contact="urn:ietf:params:xml:ns:contact-1.0" 
+        xsi:schemaLocation="urn:ietf:params:xml:ns:contact-1.0 contact-1.0.xsd">
+        <contact:id>reg_contact001</contact:id>
+        <contact:chg>
+          <contact:postalInfo type="loc">
+            <contact:addr>
+              <contact:street>Ν.Πλαστήρα 100</contact:street>
+              <contact:street>Βασιλικά Βουτών</contact:street>
+              <contact:city>Ηράκλειο</contact:city>
+              <contact:sp>Κρήτη</contact:sp>
+              <contact:pc>70013</contact:pc>
+              <contact:cc>gr</contact:cc>
+            </contact:addr>
+          </contact:postalInfo>
+          <contact:postalInfo type="int">
+            <contact:addr>
+              <contact:street>N. Plastira 100</contact:street>
+              <contact:street>Vassilika Voutwn</contact:street>
+              <contact:city>Heraklion</contact:city>
+              <contact:sp>Crete</contact:sp>
+              <contact:pc>70013</contact:pc>
+              <contact:cc>gr</contact:cc>
+            </contact:addr>
+          </contact:postalInfo>
+          <contact:voice x="1234">+30.2810391450</contact:voice>
+          <contact:fax x="1234">+30.2810391450</contact:fax>
+          <contact:email>hmaster-info@ics.forth.gr</contact:email>          
+        </contact:chg>
+      </contact:update>
+    </update>
+    <clTRID>gsa-0afdca30-6cd1-4fab-bbc7-1fe2fa5409da</clTRID>
+  </command>
+</epp>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp 
+  xmlns="urn:ietf:params:xml:ns:epp-1.0" 
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd">
+  <response>
+    <result code="2201">
+      <msg>Μη επαρκή δικαιώματα</msg>
+    </result>    
+    <trID>
+      <clTRID>trasreg2-d76256ac-769b-4a68-aed6-0376437bab83</clTRID>
+      <svTRID>20111019-122509006-894-gr</svTRID>
+    </trID>
+  </response>
+</epp>

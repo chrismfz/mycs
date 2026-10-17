@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp 
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd" 
+  xmlns="urn:ietf:params:xml:ns:epp-1.0" 
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <command>
+    <delete>
+      <domain:delete 
+        xsi:schemaLocation="urn:ietf:params:xml:ns:domain-1.0 domain-1.0.xsd" 
+        xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">
+        <domain:name>ιτέ.gr</domain:name>
+      </domain:delete>
+    </delete>
+    <extension>
+      <extdomain:delete 
+        xsi:schemaLocation="urn:ics-forth:params:xml:ns:extdomain-1.3 extdomain-1.3.xsd" 
+        xmlns:extdomain="urn:ics-forth:params:xml:ns:extdomain-1.3">
+        <extdomain:pw>domain-auth-code</extdomain:pw>
+        <extdomain:op>deleteHomograph</extdomain:op>
+      </extdomain:delete>
+    </extension>
+    <clTRID>ABC:ics-forth:1079699022918</clTRID>
+  </command>
+</epp>

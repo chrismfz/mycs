@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schema xmlns:extdomain="urn:ics-forth:params:xml:ns:extdomain-1.3" xmlns:epp="urn:ietf:params:xml:ns:epp-1.0" xmlns:eppcom="urn:ietf:params:xml:ns:eppcom-1.0" xmlns="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:ics-forth:params:xml:ns:extdomain-1.3" elementFormDefault="qualified">
+	<import namespace="urn:ietf:params:xml:ns:eppcom-1.0" schemaLocation="eppcom-1.0.xsd"/>
+	<import namespace="urn:ietf:params:xml:ns:epp-1.0" schemaLocation="epp-1.0.xsd"/>
+	<annotation>
+		<documentation>
+      ICS-FORTH Extensible Provisioning Protocol v1.0 extension
+    </documentation>
+	</annotation>
+	<element name="create" type="extdomain:createType"/>
+	<element name="resData" type="extdomain:resDataType"/>
+	<element name="delete" type="extdomain:deleteType"/>
+	<element name="transfer" type="extdomain:transferType"/>
+	<element name="renew" type="extdomain:renewType"/>
+	<element name="update" type="extdomain:updateType"/>
+	<element name="check" type="extdomain:checkType"/>
+	<complexType name="createType">
+		<sequence>
+			<element name="record" type="extdomain:recordAttrType"/>
+		</sequence>
+	</complexType>
+	<simpleType name="deleteOpType">
+		<restriction base="token">
+			<enumeration value="recallApplication"/>
+			<enumeration value="deleteDomain"/>
+			<enumeration value="deleteHomograph"/>
+		</restriction>
+	</simpleType>
+	<complexType name="deleteType">
+		<sequence>
+			<choice>
+				<element name="protocol" type="string"/>
+				<element name="pw" type="epp:pwType"/>
+			</choice>
+			<element name="op" type="extdomain:deleteOpType"/>
+			<element name="reason" type="extdomain:longStringType" minOccurs="0"/>
+		</sequence>
+	</complexType>
+	<simpleType name="longStringType">
+		<restriction base="string">
+			<maxLength value="256"/>
+		</restriction>
+	</simpleType>
+	<complexType name="commentType">
+		<simpleContent>
+			<extension base="extdomain:longStringType">
+				<attribute name="ref" type="string" use="optional"/>
+			</extension>
+		</simpleContent>
+	</complexType>
+	<complexType name="resDataType">
+		<sequence>
+			<element name="status" type="extdomain:regulatorStatusType" minOccurs="0" maxOccurs="11"/>
+			<element name="protocol" type="string" minOccurs="0"/>
+			<element name="comment" type="extdomain:commentType" minOccurs="0" maxOccurs="unbounded"/>
+			<element name="punycode" type="string" minOccurs="0"/>
+			<element name="bundle" type="extdomain:bundleType" minOccurs="0"/>
+		</sequence>
+	</complexType>
+	<complexType name="bundleType">
+		<sequence>
+			<element name="bundleName" type="extdomain:BundleNameType" maxOccurs="unbounded"/>
+		</sequence>
+	</complexType>
+	<complexType name="BundleNameType">
+		<simpleContent>
+			<extension base="eppcom:labelType">
+				<attribute name="chargeable" type="boolean" use="required"/>
+				<attribute name="recordType" type="extdomain:recordAttrType"/>
+			</extension>
+		</simpleContent>
+	</complexType>
+	<complexType name="transferType">
+		<sequence>
+			<element name="registrantid" type="eppcom:clIDType"/>
+		</sequence>
+	</complexType>
+	<complexType name="renewType">
+		<sequence>
+			<element name="registrantid" type="eppcom:clIDType"/>
+			<element name="currentPW" type="epp:pwType"/>
+		</sequence>
+	</complexType>
+	<complexType name="updateType">
+		<choice>
+			<element name="op" type="extdomain:updateOpType" minOccurs="0"/>
+			<sequence>
+				<element name="add" type="extdomain:addRemType" minOccurs="0"/>
+				<element name="rem" type="extdomain:addRemType" minOccurs="0"/>
+				<element name="chg" type="extdomain:updateChgType" minOccurs="0"/>
+			</sequence>
+		</choice>
+	</complexType>
+	<!-- Child elements of the <extdomain:add> and <extdomain:rem> elements -->
+	<!-- Since: v1.2 -->
+	<complexType name="addRemType">
+		<sequence>
+			<element name="status" type="extdomain:regulatorStatusType" maxOccurs="11"/>
+		</sequence>
+	</complexType>
+	<complexType name="regulatorStatusType">
+		<simpleContent>
+			<extension base="normalizedString">
+				<attribute name="s" type="extdomain:regulatorStatusValueType" use="required"/>
+			</extension>
+		</simpleContent>
+	</complexType>
+	<!-- 
+	Καταστάσεις που ξεκινούν με το πρόθεμα "regulator" είναι υπό την αποκλειστική διαχείριση
+	της ρυθμιστικής αρχής (ΕΕΤΤ). 
+	Οι καταστάστεις που ξεκινούν με το πρόθεμα "regulator" υπερισχύουν των "server" καταστάσεων.
+	Ονόματα για τα οποία εκκρεμμεί η επαλήθευση εγγραφών DS θα βρίσκονται στην κατάσταση 
+	serverUpdateProhibited έως ότου ολοκληρωθεί η επαλήθευσή τους.
+	Η κατάσταση 'pendingRegulatorApproval' προστίθεται σε γεωγραφικά ή gov.gr ονόματα για τα 
+	οποία υποβάλλεται αίτηση μεταβίβασης χρήσης.
+	-->
+	<simpleType name="regulatorStatusValueType">
+		<restriction base="token">
+			<enumeration value="pendingRegulatorApproval"/>
+			<enumeration value="regulatorUpdateProhibited"/>
+			<enumeration value="regulatorDeleteProhibited"/>
+			<enumeration value="regulatorTransferProhibited"/>
+			<enumeration value="regulatorRenewProhibited"/>
+			<enumeration value="regulatorHold"/>
+			<enumeration value="regulatorOwnerChangeProhibited"/>
+			<enumeration value="regulatorOwnerNameChangeProhibited"/>
+			<enumeration value="regulatorExpirationProhibited"/>
+			<enumeration value="regulatorDelegationChangeProhibited"/>
+			<enumeration value="regulatorDebtOwnership"/>
+		</restriction>
+	</simpleType>
+	<simpleType name="updateOpType">
+		<restriction base="token">
+			<enumeration value="ownerChange"/>
+			<enumeration value="ownerNameChange"/>
+		</restriction>
+	</simpleType>
+	<complexType name="updateChgType">
+		<sequence>
+			<element name="record" type="extdomain:record" minOccurs="0"/>
+		</sequence>
+	</complexType>
+	<complexType name="record">
+		<sequence>
+			<element name="recordType" type="extdomain:recordType" maxOccurs="10"/>
+		</sequence>
+	</complexType>
+	<complexType name="recordType">
+		<simpleContent>
+			<extension base="eppcom:labelType">
+				<attribute name="type" type="extdomain:recordAttrType"/>
+			</extension>
+		</simpleContent>
+	</complexType>
+	<simpleType name="recordAttrType">
+		<restriction base="token">
+			<enumeration value="domain"/>
+			<enumeration value="dname"/>
+		</restriction>
+	</simpleType>
+	<complexType name="checkType">
+		<sequence>
+			<element name="registrantid" type="eppcom:clIDType" minOccurs="0"/>
+		</sequence>
+	</complexType>
+</schema>

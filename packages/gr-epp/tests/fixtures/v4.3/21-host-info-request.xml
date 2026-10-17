@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp 
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd" 
+  xmlns="urn:ietf:params:xml:ns:epp-1.0" 
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <command>
+    <info>
+      <host:info 
+      xsi:schemaLocation="urn:ietf:params:xml:ns:host-1.0 host-1.0.xsd" 
+      xmlns:host="urn:ietf:params:xml:ns:host-1.0">
+        <host:name>ns1.forth.gr</host:name>
+      </host:info>
+    </info>
+    <clTRID>ABC:ics-forth:1079699022918</clTRID>
+  </command>
+</epp>

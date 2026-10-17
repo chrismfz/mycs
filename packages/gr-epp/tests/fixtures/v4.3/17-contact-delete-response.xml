@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp 
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd"
+  xmlns="urn:ietf:params:xml:ns:epp-1.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <response>
+    <result code="2304">
+      <msg>Η κατάσταση του αντικειμένου απαγορεύει την ενέργεια</msg>
+    </result>
+    <extension>
+      <extcontact:resData 
+        xsi:schemaLocation="urn:ics-forth:params:xml:ns:extcontact-1.0 extcontact-1.0.xsd"
+        xmlns:extcontact="urn:ics-forth:params:xml:ns:extcontact-1.0">
+        <extcontact:comment>Επαφές σε κατάσταση 'pendingCreate', 'pendingDelete', 
+        'pendingTransfer', 'pendingUpdate', 'clientDeleteProhibited' or 'serverDeleteProhibited' 
+        δεν επιτρέπεται να διαγραφούν.</extcontact:comment>
+      </extcontact:resData>
+    </extension>
+    <trID>
+      <clTRID>ABC:ics-forth:1079601349033</clTRID>
+      <svTRID>20110509-154935153-868-gr</svTRID>
+    </trID>
+  </response>
+</epp>

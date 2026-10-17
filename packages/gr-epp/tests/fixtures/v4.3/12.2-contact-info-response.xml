@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp 
+  xmlns="urn:ietf:params:xml:ns:epp-1.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd">
+  <response>
+    <result code="1000">
+      <msg>Η εντολή ολοκληρώθηκε επιτυχώς</msg>
+    </result>
+    <resData>
+      <contact:infData 
+        xmlns:contact="urn:ietf:params:xml:ns:contact-1.0"
+        xsi:schemaLocation="urn:ietf:params:xml:ns:contact-1.0 contact-1.0.xsd">
+        <contact:id>reg_contact002</contact:id>
+        <contact:roid>c61bcd883eed4450bb530d1513f8507ff-gr</contact:roid>
+        <contact:status s="serverDeleteProhibited"/>
+        <contact:postalInfo type="loc">
+          <contact:name>Μητρώο Ονομάτων Internet με κατάληξη .gr.</contact:name>
+          <contact:org>ICS/FORTH</contact:org>
+          <contact:addr>
+            <contact:street>Ν.Πλαστήρα 100</contact:street>
+            <contact:street>Βασιλικά Βουτών</contact:street>
+            <contact:city>Ηράκλειο</contact:city>
+            <contact:sp>Κρήτη</contact:sp>
+            <contact:pc>70013</contact:pc>
+            <contact:cc>gr</contact:cc>
+          </contact:addr>
+        </contact:postalInfo>
+        <contact:postalInfo type="int">
+          <contact:name>Registry of .gr Domain Names</contact:name>
+          <contact:org>ICS/FORTH</contact:org>
+          <contact:addr>
+            <contact:street>N. Plastira 100</contact:street>
+            <contact:street>Vassilika Vouton</contact:street>
+            <contact:city>Heraklion</contact:city>
+            <contact:sp>Crete</contact:sp>
+            <contact:pc>70013</contact:pc>
+            <contact:cc>gr</contact:cc>
+          </contact:addr>
+        </contact:postalInfo>
+        <contact:voice x="1450">+30.2810391400</contact:voice>
+        <contact:fax>+30.2810391451</contact:fax>
+        <contact:email>gr-tech@ics.forth.gr</contact:email>
+        <contact:clID>ics-forth</contact:clID>
+        <contact:crID>ics-forth</contact:crID>
+        <contact:crDate>2011-04-18T07:50:57.6Z</contact:crDate>
+        <contact:disclose flag="1">
+          <contact:name type="int"/>
+          <contact:name type="loc"/>
+          <contact:org type="int"/>
+          <contact:org type="loc"/>
+          <contact:addr type="int"/>
+          <contact:addr type="loc"/>
+          <contact:voice/>
+          <contact:fax/>
+          <contact:email/>
+        </contact:disclose>
+      </contact:infData>
+    </resData>
+    <trID>
+      <clTRID>ABC:ics-forth:1079597962952</clTRID>
+      <svTRID>20110318-081854273-310-gr</svTRID>
+    </trID>
+  </response>
+</epp>

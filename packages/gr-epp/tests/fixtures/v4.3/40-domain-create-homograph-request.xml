@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp 
+  xmlns="urn:ietf:params:xml:ns:epp-1.0" 
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd">
+  <command>
+    <create>
+      <domain:create 
+        xmlns:domain="urn:ietf:params:xml:ns:domain-1.0" 
+        xsi:schemaLocation="urn:ietf:params:xml:ns:domain-1.0 domain-1.0.xsd">
+        <domain:name>ιτέ.gr</domain:name>
+        <domain:authInfo>
+          <!-- 
+          Ο κωδικός εξουσιοδότησης του ήδη εκχωρημένου ονόματος χώρου για
+          το οποίο ζητείται η ενεργοποίηση αυτής της δεσμευμένης μορφής. 
+          -->
+          <domain:pw>domain-auth-code</domain:pw>
+        </domain:authInfo>
+      </domain:create>
+    </create>
+    <extension>
+      <extdomain:create 
+        xmlns:extdomain="urn:ics-forth:params:xml:ns:extdomain-1.3" 
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="urn:ics-forth:params:xml:ns:extdomain-1.3 extdomain-1.3.xsd">
+        <extdomain:record>dname</extdomain:record>
+      </extdomain:create>
+    </extension>
+    <clTRID>gsa-bdb227df-ec8d-4c04-a8fc-306bbb7d2ecb</clTRID>
+  </command>
+</epp>

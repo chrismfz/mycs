@@ -1,6 +1,28 @@
 > **Αντίγραφο από το Ekdosi** (`docs/domains/grepp/README.md`, 2026-09-25), για αναφορά. Γράφτηκε για το Ekdosi (`company_id`, φορολογικό
 > τιμολόγιο, `ServiceContract`, ανανέωση στην έκδοση)· όπου διαφωνεί, ισχύει το [`docs/domains.md`](../domains.md).
-> Τα υλικά του μητρώου (XSD, παραδείγματα v4.3, PDF, CA bundle) μένουν στο Ekdosi, `docs/domains/grepp/`.
+> Τα υλικά του μητρώου ήρθαν από το Ekdosi (2026-10-18, G0): XSD στο `packages/gr-epp/resources/xsd/`, τα 72 παραδείγματα v4.3
+> στο `packages/gr-epp/tests/fixtures/v4.3/` (fixtures των tests), το CA bundle (HARICA, δημόσιο) στο `packages/gr-epp/resources/ca/`,
+> το δείγμα client του μητρώου (`EppClient.java`, PDF) στο `docs/domains/grepp/`. Από τον ιδιοκτήτη (regweb hostmaster): ο
+> **Οδηγός Υλοποίησης EPP v4.3** (`docs/domains/grepp/EPP-Guide-el-v4.3.r20250213.pdf`) και η σελίδα πρόσβασης
+> (`docs/domains/grepp/access.md`), οι Συχνές Ερωτήσεις με το τι σημαίνουν για εμάς (`docs/domains/grepp/faq.md`). Το **WHOIS RESTful API v1.0** θέλει δικό του λογαριασμό και IP· η τεκμηρίωσή του είναι
+> στο `https://grwhois.ics.forth.gr:800/api/spec.html` (μόνο από δηλωμένη IP: να αποθηκευτεί εδώ όταν το διαβάσουμε).
+> Το WHOIS API **δεν** κάνει έλεγχο διαθεσιμότητας ούτε punycode: διαθεσιμότητα μόνο με EPP `<domain:check>`.
+
+## 0. Αποφάσεις ιδιοκτήτη (2026-10-18)
+
+- **Χωρίς UAT:** δοκιμές στην παραγωγή με δικά μας domains που δεν χρησιμοποιούνται (π.χ. cdnet.gr, nac.gr, infected.gr),
+  μεταφερμένα στο MyCS και εξαιρεμένα από το WHMCS. Εγγραφή δοκιμής επιτρέπεται, γιατί ακυρώνεται με **ανάκληση (recall)**
+  μέσα σε 5 μέρες: η ανάκληση γίνεται κουμπί.
+- **Credentials:** τα live του WHMCS (EPP addon και WHOIS addon), μόνο κρυπτογραφημένα στη σύνδεση του registrar (D-21),
+  ποτέ στο repo.
+- **IP:** δηλωμένες στο μητρώο οι orion, rigel και το alma10 VM (mycs.myip.gr).
+- **Πρόθεμα επαφών:** `c60` (π.χ. `c60_q1pcBkTq`), πεδίο της σύνδεσης (text), όπως το ζητά και το τωρινό plugin.
+- **Λατινικά επαφών:** όπως τα φτιάχνει το τωρινό plugin (να διαβαστεί πώς).
+- **NS στη μεταφορά:** από το WHOIS API του μητρώου (όπως το myip.gr/clients στον rigel), όχι RDAP.
+- **EPP code:** κουμπί που ζητά από το μητρώο να στείλει τον κωδικό με email (DACoR)· να ελεγχθεί αν δουλεύει ακόμα.
+- **Τα 1.388 .gr στο migration:** από το WHMCS, όπως όλα τα υπόλοιπα (importer D6)· όχι από το CSV του grweb. Μέχρι τότε
+  ετοιμάζουμε και δοκιμάζουμε το grepp με τα δικά μας domains.
+- **Ρυθμός:** baby steps, ένα PR τη φορά.
 
 # .gr / .ελ Registry (ICS-FORTH) — Οδηγός Υλοποίησης EPP
 

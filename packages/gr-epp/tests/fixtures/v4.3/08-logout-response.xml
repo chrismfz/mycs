@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp 
+  xmlns="urn:ietf:params:xml:ns:epp-1.0" 
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd">
+  <response>
+    <result code="1500">
+      <msg>Η εντολή ολοκληρώθηκε επιτυχώς; τέλος σύνδεσης</msg>
+    </result>
+    <trID>
+      <clTRID>232-4c57c967-2d1f-4111-bb96-9f9e0fa2c785</clTRID>
+      <svTRID>20110509-134908996-850-gr</svTRID>
+    </trID>
+  </response>
+</epp>
