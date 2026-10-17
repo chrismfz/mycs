@@ -161,6 +161,26 @@ class LicensingImportTest extends TestCase
         $this->assertSame(WhmcsSchema::SECRET, ExtensionHelper::settingsToArray(Product::query()->find(5)->settings)['secret_key']);
     }
 
+    /**
+     * A rerun writes nothing, not even updated_at: the second run a minute later leaves every row it reaches as it was
+     * (once flaky on CI when the two runs fell on different seconds).
+     */
+    public function test_a_rerun_a_minute_later_leaves_every_row_untouched(): void
+    {
+        Carbon::setTestNow('2026-10-20 10:00:00');
+        $this->import();
+        $rows = fn () => [License::query()->orderBy('id')->get()->toArray(), DB::table('properties')->orderBy('id')->get()->all(),
+            DB::table('settings')->orderBy('id')->get()->all(), DB::table('products')->orderBy('id')->get()->all(),
+            DB::table('services')->orderBy('id')->get()->all(), Server::query()->orderBy('id')->get()->toArray()];
+        $before = $rows();
+
+        Carbon::setTestNow('2026-10-20 10:01:00');
+        $this->import();
+
+        $this->assertEquals($before, $rows());
+        Carbon::setTestNow();
+    }
+
     public function test_a_license_without_an_imported_service_is_skipped_and_an_empty_domain_takes_the_key(): void
     {
         $this->whmcs->exec("INSERT INTO mod_licensing VALUES (4, 9999, 'ZCAgent-00000000000000dd', '', '', '', 0, 'Active', '2026-01-01 00:00:00')");

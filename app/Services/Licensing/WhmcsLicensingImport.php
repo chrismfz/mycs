@@ -101,6 +101,11 @@ final class WhmcsLicensingImport
         }
         foreach ($settings as $key => [$value, $type, $encrypted]) {
             $setting = Setting::query()->firstOrNew(['settingable_type' => $product->getMorphClass(), 'settingable_id' => $product->id, 'key' => $key]);
+            // As it is (read decoded): left alone, so a re-run neither touches it nor re-encrypts the PSK.
+            if ($setting->exists && $setting->type === $type && (bool) $setting->encrypted === $encrypted
+                && $setting->value === Setting::decodeValue($value, $type, false)) {
+                continue;
+            }
             $setting->forceFill(['value' => $value, 'type' => $type, 'encrypted' => $encrypted])->save();
         }
     }
@@ -132,7 +137,6 @@ final class WhmcsLicensingImport
                 'reissues' => (int) $row['reissues'],
                 'last_access' => self::date($row['lastaccess'] ?? null),
                 'whmcs_id' => (int) $row['id'],
-                'updated_at' => now(),
             ];
             // Followed by mod_licensing.id, also when staff edited its key on WHMCS since an earlier run (review R-4).
             $existing = DB::table('licenses')->where('whmcs_id', (int) $row['id'])->value('id')
@@ -144,9 +148,11 @@ final class WhmcsLicensingImport
 
                 continue;
             }
-            $existing === null
-                ? DB::table('licenses')->insert($values + ['created_at' => now()])
-                : DB::table('licenses')->where('id', $existing)->update($values);
+            if ($existing === null) {
+                DB::table('licenses')->insert($values + ['created_at' => now(), 'updated_at' => now()]);
+            } elseif (self::differs((array) DB::table('licenses')->where('id', $existing)->first(array_keys($values)), $values)) {
+                DB::table('licenses')->where('id', $existing)->update($values + ['updated_at' => now()]); // only a changed one
+            }
 
             // The key is the service's domain (as WHMCS keeps it), on the license module's server.
             DB::table('services')->where('id', $serviceId)->where(fn ($query) => $query->whereNull('domain')->orWhere('domain', ''))
@@ -225,10 +231,34 @@ final class WhmcsLicensingImport
         }
     }
 
+    /** Written only when new or changed: a re-run leaves it as it is, updated_at included. */
     private function property(int $serviceId, string $key, string $name, string $value): void
     {
-        DB::table('properties')->upsert([['model_type' => Service::class, 'model_id' => $serviceId, 'key' => $key, 'name' => $name, 'value' => $value,
-            'created_at' => now(), 'updated_at' => now()]], ['key', 'model_id', 'model_type'], ['name', 'value', 'updated_at']);
+        $match = ['model_type' => Service::class, 'model_id' => $serviceId, 'key' => $key];
+        $current = DB::table('properties')->where($match)->first(['name', 'value']);
+        if ($current === null) {
+            DB::table('properties')->insert($match + ['name' => $name, 'value' => $value, 'created_at' => now(), 'updated_at' => now()]);
+        } elseif (self::differs((array) $current, ['name' => $name, 'value' => $value])) {
+            DB::table('properties')->where($match)->update(['name' => $name, 'value' => $value, 'updated_at' => now()]);
+        }
+    }
+
+    /**
+     * Whether a stored row differs from the values to write, compared as text (drivers return numbers as int or string).
+     *
+     * @param  array<string, mixed>  $stored
+     * @param  array<string, mixed>  $values
+     */
+    private static function differs(array $stored, array $values): bool
+    {
+        foreach ($values as $column => $value) {
+            $current = $stored[$column] ?? null;
+            if (($current === null) !== ($value === null) || (string) $current !== (string) $value) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function hasTable(string $table): bool
