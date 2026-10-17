@@ -34,4 +34,24 @@ $session->logout();
   - `NotSent`: never reached the registry (no connection, login refused or failed): safe to send again.
 - The password: never in `var_dump`/`print_r` (`__debugInfo`), exceptions or a serialised copy (refused).
 
-Commands and their parsers come with G2; the app's driver with G3.
+## G2a: queries
+
+Each command builds its request (`Command\*::request(…, $clTRID)`) and reads its answer (`::parse(Response)`) into a
+`Data\*` object:
+
+| Command | Answer |
+|---|---|
+| `DomainCheck` (names, optional registrant id for .gov.gr) | `CheckResult` by name: available, the registry's reason and comment |
+| `DomainInfo` (name, optional auth code for another registrar's) | `DomainInfo`: statuses, regulator statuses, registrant, contacts by role, nameservers, hosts, dates (UTC), protocol, punycode, bundle, last DS check |
+| `ContactCheck`, `ContactInfo` (optional domain ROID + auth code for another registrar's) | `CheckResult`; `ContactInfo` with `loc`/`int` postal info, voice + extension, disclose |
+| `HostCheck`, `HostInfo` | `CheckResult`; `HostInfo` with v4/v6 addresses |
+| `AccountInfo` | `AccountInfo`: balance (decimal string, may be negative), currency, chargeable actions allowed, (to be) suspended on |
+
+```php
+$clTRID = $session->newTransactionId();
+$info = DomainInfo::parse($session->command(DomainInfo::request('nac.gr', $clTRID), $clTRID));
+```
+
+A success without the data asked for is `OutcomeUnknown`. Every request is valid to the registry's schemas
+(`tests/all-schemas.xsd` imports them all: a command's object is a strict wildcard of epp-1.0.xsd). Writes come with
+G2b; the app's driver with G3.
