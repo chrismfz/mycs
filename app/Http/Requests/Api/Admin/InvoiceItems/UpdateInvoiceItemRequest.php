@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Api\Admin\InvoiceItems;
 
 use App\Http\Requests\Api\Admin\AdminApiRequest;
+use App\Models\InvoiceItem;
 use App\Services\Invoice\InvoiceItemReference;
 use Illuminate\Validation\Validator;
 
@@ -19,6 +20,8 @@ class UpdateInvoiceItemRequest extends AdminApiRequest
             'price' => 'sometimes|numeric|min:0',
             'reference_type' => 'sometimes|nullable',
             'reference_id' => 'sometimes|nullable',
+            // A domain line that is not its renewal (an owner change, a fee): never taken for one (review R6 of #172).
+            'kind' => 'sometimes|nullable|in:' . InvoiceItem::KIND_CHARGE,
         ];
     }
 

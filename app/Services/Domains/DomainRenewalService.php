@@ -70,23 +70,45 @@ class DomainRenewalService
 
     /**
      * Its renewal line for the period from $start. Billed (D5b-1, the cron): a line whose period reaches past it on any
-     * invoice but a cancelled one whose period was kept billable (Δ3, ADV-4: cancelled before it started), or one staff billed by hand this year on an invoice
-     * not cancelled. Payable («Renew now»): only on an invoice still to be paid or paid, never a cancelled or refunded one
-     * (adversarial ADV-3).
+     * invoice but a cancelled one whose period was kept billable (Δ3, ADV-4: cancelled before it started). Payable («Renew
+     * now»): only on an invoice still to be paid or paid, never a cancelled or refunded one (adversarial ADV-3). By its
+     * period only: a renewal line always has one (givePeriod), and a line without one is never taken for this year's
+     * renewal (it used to be, by its date: an owner change or a late renewal of last year counted, review R6 of #172).
      */
     public static function billedLine(Domain $domain, Carbon $start, bool $payable = false): ?InvoiceItem
     {
         $dead = $payable ? [Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED] : [Invoice::STATUS_CANCELLED];
 
-        return $domain->invoiceItems()->whereNull('kind')
-            ->where(fn ($line) => $line->where(fn ($period) => $period->whereDate('period_end', '>', $start->toDateString())
-                ->when($payable, fn ($q) => $q->whereHas('invoice', fn ($invoice) => $invoice->whereNotIn('status', $dead)))
-                // Cancelled: billed only if given up (Δ3); one cancelled before its period started is billed again (ADV-4).
-                ->when(!$payable, fn ($q) => $q->where(fn ($kept) => $kept->whereNotNull('forgone_at')
-                    ->orWhereHas('invoice', fn ($invoice) => $invoice->where('status', '!=', Invoice::STATUS_CANCELLED)))))
-                ->orWhere(fn ($own) => $own->whereNull('period_start')->where('created_at', '>', $start->copy()->subYear())
-                    ->whereHas('invoice', fn ($invoice) => $invoice->whereNotIn('status', $dead))))
+        return $domain->invoiceItems()->whereNull('kind')->whereDate('period_end', '>', $start->toDateString())
+            ->when($payable, fn ($q) => $q->whereHas('invoice', fn ($invoice) => $invoice->whereNotIn('status', $dead)))
+            // Cancelled: billed only if given up (Δ3); one cancelled before its period started is billed again (ADV-4).
+            ->when(!$payable, fn ($q) => $q->where(fn ($kept) => $kept->whereNotNull('forgone_at')
+                ->orWhereHas('invoice', fn ($invoice) => $invoice->where('status', '!=', Invoice::STATUS_CANCELLED))))
             ->orderByDesc('id')->first();
+    }
+
+    /**
+     * A domain line is its renewal (InvoiceItemReference, D-4) unless it says otherwise (kind: a stage fee, or «charge»
+     * for anything else on the domain). One made without a period (the Admin API, an import, adversarial ADV-10 of D5b-1)
+     * gets one here: the domain's first period not on a live invoice, from its expiry, for its years. Then it counts as
+     * billed and, paid, renews the domain at its registrar (D5b-2), as any renewal.
+     */
+    public static function givePeriod(InvoiceItem $line): void
+    {
+        if ($line->reference_type !== Domain::class || $line->kind !== null || $line->period_start !== null || $line->period_end !== null) {
+            return;
+        }
+        $domain = Domain::query()->find($line->reference_id);
+        if ($domain?->expires_at === null) {
+            return;
+        }
+        $start = $domain->expires_at->copy()->startOfDay();
+        // Past the periods live invoices bill already (never the same year twice); bounded, as a period is at least a year.
+        for ($i = 0; $i < 20 && ($billed = self::billedLine($domain, $start, payable: true)) !== null && $billed->period_end !== null; $i++) {
+            $start = Carbon::instance($billed->period_end)->startOfDay();
+        }
+        $line->period_start = $start;
+        $line->period_end = $start->copy()->addYearsNoOverflow(max(1, (int) $domain->years));
     }
 
     /**

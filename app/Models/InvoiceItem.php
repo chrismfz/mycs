@@ -20,6 +20,9 @@ use OwenIt\Auditing\Contracts\Auditable;
 #[ObservedBy([InvoiceItemObserver::class])]
 class InvoiceItem extends Model implements Auditable
 {
+    /** A charge on a domain that is not its renewal (an owner change, a fee billed apart): kind, not a period. */
+    public const KIND_CHARGE = 'charge';
+
     use HasFactory, Traits\Auditable;
 
     protected $fillable = [

@@ -121,7 +121,11 @@ class DomainReminders
             $named = $renewal?->period_start !== null ? $renewal->invoice_id : null;
             // After the due date: the domain past its expiry gets the expired notice; one still Active (synced late)
             // gets it within the catch-up days.
-            if ((int) $named !== (int) $invoice->id || !(self::notifiable($domain, false) || self::notifiable($domain, true))) {
+            // Due when its notices come (the cron bills it due on the expiry, or today past it): one due months before (staff,
+            // early) keeps its own reminders, none would come until near the expiry.
+            $dueAligned = $invoice->due_at !== null && $domain->expires_at !== null
+                && $invoice->due_at->toDateString() >= $domain->expires_at->toDateString();
+            if ((int) $named !== (int) $invoice->id || !$dueAligned || !(self::notifiable($domain, false) || self::notifiable($domain, true))) {
                 return false;
             }
         }
