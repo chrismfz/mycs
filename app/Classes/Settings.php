@@ -588,9 +588,21 @@ class Settings
                     'section' => 'Billing Settings',
                     'label' => 'Domain Invoice Generation',
                     'type' => 'number',
+                    'default' => 15,
                     'required' => false,
                     'min_value' => 0,
-                    'description' => 'The number of days before a domain expires to generate its renewal invoice. Empty: as Invoice Generation.',
+                    'description' => 'The number of days before a domain expires to generate its renewal invoice (default 15). Empty: as Invoice Generation.',
+                ],
+                // Expiry notices (D7, docs/domains.md §2b; WHMCS DomainRenewalNotices; ICANN ERRP ~1 month, ~1 week, after).
+                [
+                    'name' => 'domain_reminder_days',
+                    'section' => 'Billing Settings',
+                    'label' => 'Domain Expiry Notices',
+                    'type' => 'text',
+                    'default' => '30,7,1,-3',
+                    'required' => false,
+                    'validation' => 'nullable|regex:/^\s*-?\d{1,3}(\s*,\s*-?\d{1,3})*\s*$/',
+                    'description' => 'Days before a domain expires to send its expiry notice, comma separated; negative days are after it (while it can still be renewed). Empty to disable. Domains set not to renew get none; one whose next year is paid gets none.',
                 ],
                 // Saved payment methods (PR H, decision 5; WHMCS CCProcessDaysBefore, CCAttemptOnlyOnce, CCRetryEveryWeekFor).
                 [

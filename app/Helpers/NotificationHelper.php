@@ -9,6 +9,7 @@ use App\Mail\SystemMail;
 use App\Models\BillingAgreement;
 use App\Models\Client;
 use App\Models\ClientInvite;
+use App\Models\Domain;
 use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
@@ -414,6 +415,13 @@ class NotificationHelper
         // can read the password (Service::TEMPLATE_HIDDEN).
         $data['service_password'] ??= rescue(fn () => $service->password, null);
         self::toAccount($client, 'new_server_created', $data);
+    }
+
+    /** A domain's expiry notice (D7, DomainReminders): before it expires, or after, while it can be recovered. */
+    public static function domainNotification(Client $client, Domain $domain, string $key, array $data = []): void
+    {
+        $data['domain'] = $domain;
+        self::toAccount($client, $key, $data);
     }
 
     public static function serverSuspendedNotification(Client $client, Service $service, array $data = []): void

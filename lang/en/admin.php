@@ -12,6 +12,7 @@ return [
         'cancellations_processed' => 'Cancellation requests processed',
         'paid_applied' => 'Paid invoices applied again',
         'reminders_sent' => 'Payment reminders sent',
+        'domain_reminders' => 'Domain expiry notices sent',
         'license_logs_pruned' => 'License access logs pruned',
         'mcp_calls_pruned' => 'MCP calls pruned',
         'mcp_proposals_expired' => 'MCP proposals expired',

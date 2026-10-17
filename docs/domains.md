@@ -79,6 +79,40 @@
 - **Templates:** τα standard του WHMCS (registration, renewal, transfer initiated/completed/failed, expired, upcoming
   renewal, upcoming free renewal) και στο myip custom (EPP request, ID protection, unlock, αλλαγή ιδιοκτήτη).
 
+## 2b. Ειδοποιήσεις λήξης: τι κάνουν σήμερα (έλεγχος μόνο ανάγνωσης, 2026-10-17)
+Μόνο ρυθμίσεις, ονόματα templates, κώδικας hooks και αθροιστικά· κανένα στοιχείο πελάτη.
+- **WHMCS nixpal** (`clnixpal_nixcldb`, orion): `DomainRenewalNotices = 30,7,-3`, `CreateDomainInvoiceDaysBefore` κενό
+  (→ 7 των υπηρεσιών), `DomainAutoRenewDefault` on, `AutoRenewDomainsonPayment` on, `DomainExpirationFeeHandling =
+  existing`, `FreeDomainAutoRenewRequiresProduct` on, `EnableDomainRenewalOrders` on, `DomainToDoListEntries` on.
+  Templates (μη τροποποιημένα): «Upcoming Domain Renewal Notice», «Upcoming Free Domain Renewal Notice», «Expired Domain
+  Notice», «Domain Renewal Confirmation», και τα registration/transfer.
+- **WHMCS myip** (`myipgr_clients`, rigel): `DomainRenewalNotices = 60,30,15,10,5` (μόνο πριν τη λήξη),
+  `CreateDomainInvoiceDaysBefore = 15`, τα υπόλοιπα όπως της nixpal. Ελληνικό θέμα ανά μέρα «Λήξη σε N ημέρες: domain»
+  (~250–300 ανά ημέρα-ειδοποίησης τον χρόνο) και «Ενημέρωση λήξης domain - Upcoming Domain Renewal Notice» (2.256 τον
+  χρόνο). Custom templates: «Domain EPP Request», «Domain Unlock Request», «Domain ID Protection Request», «Αλλαγή
+  ονόματος ιδιοκτήτη - επωνυμίας» (αιτήματα πελάτη που σήμερα πάνε με email· στο portal γίνονται ενέργειες, D7-2).
+- **Hooks της myip** (`includes/hooks`, μόνο ανάγνωση κώδικα):
+  - `expiring_eu_domains.php`: κάθε μέρα λίστα στο staff με τα active **.eu** που λήγουν σε 10 μέρες (`sendadminnotification`).
+    → Γενικεύεται στη λίστα «λήγουν σύντομα» του staff (D-20), όχι μόνο για .eu.
+  - `auto-cancellation.php`: ακυρώνει **απλήρωτα τιμολόγια μόνο-domain** ενός domain «Expired» 30 μέρες μετά την
+    έκδοσή τους (και παραγγελίες/add funds 31/30 μέρες). → Ανοιχτό για εμάς: σήμερα ένα domain που πεθαίνει αφήνει το
+    τιμολόγιό του ανοιχτό· απόφαση στο D7-1 (παρακάτω).
+  - `ExpiredDomains.php`: σβήνει εγγραφές Expired/Cancelled/Transferred Away (με λάθη: η «grace» δεν ορίζεται, οι μέρες
+    δεν χρησιμοποιούνται). → **Δεν** μεταφέρεται: κρατάμε το ιστορικό (D1: αρχειοθέτηση με guard, όχι διαγραφή).
+  - `domain_manual_renewal.php`: μετά από ανανέωση `nextduedate = expirydate` και .gr transferred → Active. → Δεν
+    χρειάζεται: ένα ρολόι (D-2, D-14).
+- **Blesta** (Domain Manager, [docs](https://docs.blesta.com/display/user/Domain+Manager)): τρεις ειδοποιήσεις με δικό
+  τους template, **1η 26–35 μέρες πριν** (default 35), **2η 4–10 πριν** (default 10), **λήξη 1–5 μετά** (default 1),
+  σύμφωνα με το ICANN ERRP. Γνωστό bug τους (CORE-5332, CORE-5482): η ειδοποίηση έδειχνε την εσωτερική ημερομηνία
+  ανανέωσης αντί για τη λήξη όταν είχε ήδη βγει τιμολόγιο. → Εμείς δείχνουμε πάντα τη λήξη του domain.
+- **ICANN ERRP** (gTLDs: .com/.net/.org κ.λπ.): ο registrar στέλνει ~1 μήνα και ~1 εβδομάδα πριν, και μία έως 5 μέρες
+  μετά τη λήξη. Το 30/7/−3 της nixpal το καλύπτει· το 60/30/15/10/5 της myip δεν έχει ειδοποίηση μετά τη λήξη.
+- **Συμπέρασμα για το D7-1:** ρύθμιση `domain_reminder_days` (default `30,7,-3`, όπως η nixpal και το ICANN· η myip
+  βάζει τα δικά της στο cut-over, και καλό είναι να προσθέσει μία αρνητική)· templates «domain_renewal_notice»,
+  «domain_free_renewal_notice», «domain_expired_notice» (en/el)· μόνο domains με auto renew (do-not-renew: καμία, όπως
+  WHMCS)· όχι όταν η επόμενη περίοδος είναι ήδη πληρωμένη· με το ανοιχτό τιμολόγιο ανανέωσης και «θα χρεωθεί αυτόματα»
+  όπου ισχύει· μετά τη λήξη μόνο όσο ανακτάται (ως το τέλος grace/redemption).
+
 ## 3. Μοντέλο (από το Ekdosi, χωρίς `company_id`)
 - `domain_registrar_connections`: registrar, label, active, mode (off/sandbox/production)· τα credentials ως
   κρυπτογραφημένα `Setting` της σύνδεσης (D-21). Πολλές συνδέσεις, και δύο στον ίδιο registrar. `manual` χωρίς API.
@@ -335,7 +369,19 @@
    redemption στο υπάρχον τιμολόγιο, Pending Module Actions. Code + adversarial.
 6. **D6 Importer WHMCS:** domains, τιμές, TLDs, ρόλοι επαφών, additional fields· parity και σύγκριση με τον
    registrar (`importer.md`). Code + adversarial.
-7. **D7 Υπενθυμίσεις και portal:** 60/30/15/10/5, do-not-renew, domains του πελάτη, NS, EPP code. Code review.
+7. **D7 Υπενθυμίσεις και portal:** δύο PRs.
+   - **D7-1 Ειδοποιήσεις λήξης** (`DomainReminders`, βήμα cron `domain_reminders` μετά τις υπενθυμίσεις τιμολογίων·
+     ευρήματα και επιλογές στο §2b). Ενιαία defaults (ιδιοκτήτης 2026-10-17): ειδοποιήσεις **30, 7, 1 μέρα πριν και 3
+     μετά** (`domain_reminder_days`), τιμολόγιο **15 μέρες πριν** (`domain_invoice_days`). Templates `domain_renewal_notice`,
+     `domain_free_renewal_notice`, `domain_expired_notice` (en/el). Μία ανά domain, μέρα και λήξη (`domain_reminders`)·
+     catch-up 3 μέρες. Καμία για do-not-renew, καμία όταν η επόμενη περίοδος είναι πληρωμένη, η «τελευταία» (≤1 μέρα)
+     όχι όταν χρεώνεται αυτόματα. Μετά τη λήξη μόνο σε grace/redemption και ως το τέλος τους (όχι Active που δεν
+     συγχρονίστηκε ακόμα). **Λένε τι κοστίζει η καθυστέρηση** (ιδιοκτήτης: ο σκοπός είναι να πληρωθεί πριν): πριν τη
+     λήξη το τέλος του πρώτου σταδίου μετά από αυτήν, μετά τη λήξη το τέλος του σταδίου όπου βρίσκεται (το ίδιο που
+     μπαίνει στο τιμολόγιο, D5b-1). Ένα τιμολόγιο μόνο ανανεώσεων τέτοιων domains **δεν** παίρνει και τις γενικές
+     υπενθυμίσεις τιμολογίου (οι ειδοποιήσεις το αναφέρουν): ένα email, όχι δύο.
+   - **D7-2 Portal:** domains του πελάτη, NS, EPP code, auto renew (do-not-renew), «Ανανέωση» (τιμολόγιο επόμενης περιόδου).
+   - Ανοιχτό: τιμολόγιο domain που χάθηκε οριστικά (το hook της myip το ακυρώνει στις 30 μέρες, §2b).
 8. **D8 Παραγγελίες, αναζήτηση, whois, τιμοκατάλογος** (εύρος που ζήτησε ο ιδιοκτήτης 2026-10-16· πρώτα ιδέες από
    WHMCS και Blesta). Δύο PRs:
    - **D8a (χωρίς χρήματα):** αναζήτηση διαθεσιμότητας στο shop (μέσω registrar `checkAvailability`, RDAP ως fallback)

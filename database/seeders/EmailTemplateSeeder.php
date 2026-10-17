@@ -719,6 +719,91 @@ class EmailTemplateSeeder extends Seeder
             'mail_enabled' => 'force',
             'in_app_enabled' => 'never',
         ],
+        // Domains (D7, DomainReminders): before the expiry and after it, on the days of domain_reminder_days.
+        'domain_renewal_notice' => [
+            'subject' => 'Your domain {{ fqdn }} expires on {{ expires }}',
+            'body' => <<<'HTML'
+                # Domain renewal
+
+                Dear {{ user.first_name }},
+
+                Your domain **{{ fqdn }}** expires on **{{ expires }}**{% if days_left %}, in {{ days_left }} day(s){% endif %}.
+
+                {% if invoice %}
+                Its renewal is on invoice **#{{ invoice_number }}** ({{ invoice.formattedTotal }}).{% if auto_charged %} It will be charged automatically with your saved payment method.{% else %} Please pay it before the expiry date so that your domain keeps working.{% endif %}
+                {% else %}
+                It renews for {{ years }} year(s){% if price %} at **{{ price }}**{% endif %}. We will send you its invoice before the expiry date.
+                {% endif %}
+
+                {% if late_fee %}
+                **Please renew it by {{ expires }}:** after that date its renewal costs **{{ late_fee }}** more (late renewal fee charged by the registry).
+                {% endif %}
+
+                If you do not want to keep it, let us know and we will not renew it.
+
+                {% if invoice %}
+                <div class="action">
+                	<a class="button button-blue" href="{{ urls.invoice }}">
+                		{% if auto_charged %}View invoice{% else %}View & pay invoice{% endif %}
+                	</a>
+                </div>
+                {% endif %}
+                HTML,
+            'in_app_title' => '{{ fqdn }} expires on {{ expires }}',
+            'in_app_body' => 'Your domain {{ fqdn }} expires on {{ expires }}.',
+            'mail_enabled' => 'choice_on',
+            'in_app_enabled' => 'choice_on',
+            'edit_preference_message' => 'Remind me before my domains expire',
+            'in_app_url' => '{{ urls.invoice }}',
+        ],
+        'domain_free_renewal_notice' => [
+            'subject' => 'Your domain {{ fqdn }} renews on {{ expires }}',
+            'body' => <<<'HTML'
+                # Domain renewal
+
+                Dear {{ user.first_name }},
+
+                Your domain **{{ fqdn }}** expires on **{{ expires }}**{% if days_left %}, in {{ days_left }} day(s){% endif %}. Its renewal is free with your hosting: there is nothing to pay, it renews on its own.
+
+                If you do not want to keep it, let us know and we will not renew it.
+                HTML,
+            'in_app_title' => '{{ fqdn }} renews on {{ expires }}',
+            'in_app_body' => 'Your domain {{ fqdn }} renews for free on {{ expires }}.',
+            'mail_enabled' => 'choice_on',
+            'in_app_enabled' => 'choice_on',
+            'edit_preference_message' => 'Remind me before my domains expire',
+            'in_app_url' => '',
+        ],
+        'domain_expired_notice' => [
+            'subject' => 'Your domain {{ fqdn }} has expired',
+            'body' => <<<'HTML'
+                # Expired domain
+
+                Dear {{ user.first_name }},
+
+                Your domain **{{ fqdn }}** expired on **{{ expires }}** and has stopped working: your website and email on it are down.
+
+                It can still be renewed until **{{ last_day }}**{% if late_fee %}, now with a late renewal fee of **{{ late_fee }}** charged by the registry{% endif %}. After that it may be lost, and anyone can register it.
+
+                {% if invoice %}
+                Its renewal is on invoice **#{{ invoice_number }}** ({{ invoice.formattedTotal }}). Once paid, it is renewed right away.
+
+                <div class="action">
+                	<a class="button button-blue" href="{{ urls.invoice }}">
+                		View & pay invoice
+                	</a>
+                </div>
+                {% else %}
+                Contact us to renew it.
+                {% endif %}
+                HTML,
+            'in_app_title' => '{{ fqdn }} has expired',
+            'in_app_body' => 'Your domain {{ fqdn }} expired on {{ expires }}; it can be renewed until {{ last_day }}.',
+            'mail_enabled' => 'force',
+            'in_app_enabled' => 'choice_on',
+            'edit_preference_message' => 'Tell me when a domain of mine has expired',
+            'in_app_url' => '{{ urls.invoice }}',
+        ],
     ];
 
     /**
@@ -1373,6 +1458,84 @@ class EmailTemplateSeeder extends Seeder
 
                     Αν δεν περιμένατε αυτή την πρόσκληση, αγνοήστε αυτό το email.
                     HTML,
+            ],
+        ],
+        'domain_renewal_notice' => [
+            'el' => [
+                'subject' => 'Το domain {{ fqdn }} λήγει στις {{ expires }}',
+                'body' => <<<'HTML'
+                    # Ανανέωση domain
+
+                    Αγαπητέ/ή {{ user.first_name }},
+
+                    Το domain σας **{{ fqdn }}** λήγει στις **{{ expires }}**{% if days_left %}, σε {{ days_left }} ημέρα/ες{% endif %}.
+
+                    {% if invoice %}
+                    Η ανανέωσή του είναι στο προτιμολόγιο **#{{ invoice_number }}** ({{ invoice.formattedTotal }}).{% if auto_charged %} Θα χρεωθεί αυτόματα στον αποθηκευμένο τρόπο πληρωμής σας.{% else %} Παρακαλούμε εξοφλήστε το πριν τη λήξη, ώστε το domain σας να συνεχίσει να λειτουργεί.{% endif %}
+                    {% else %}
+                    Ανανεώνεται για {{ years }} έτος/η{% if price %} με **{{ price }}**{% endif %}. Θα σας στείλουμε το προτιμολόγιο πριν τη λήξη.
+                    {% endif %}
+
+                    {% if late_fee %}
+                    **Ανανεώστε το έως τις {{ expires }}:** μετά από αυτή την ημερομηνία η ανανέωση κοστίζει **{{ late_fee }}** επιπλέον (χρέωση καθυστερημένης ανανέωσης από το μητρώο).
+                    {% endif %}
+
+                    Αν δεν θέλετε να το κρατήσετε, ενημερώστε μας και δεν θα το ανανεώσουμε.
+
+                    {% if invoice %}
+                    <div class="action">
+                    	<a class="button button-blue" href="{{ urls.invoice }}">
+                    		{% if auto_charged %}Προβολή προτιμολογίου{% else %}Εξόφληση προτιμολογίου{% endif %}
+                    	</a>
+                    </div>
+                    {% endif %}
+                    HTML,
+                'in_app_title' => 'Το {{ fqdn }} λήγει στις {{ expires }}',
+                'in_app_body' => 'Το domain σας {{ fqdn }} λήγει στις {{ expires }}.',
+            ],
+        ],
+        'domain_free_renewal_notice' => [
+            'el' => [
+                'subject' => 'Το domain {{ fqdn }} ανανεώνεται στις {{ expires }}',
+                'body' => <<<'HTML'
+                    # Ανανέωση domain
+
+                    Αγαπητέ/ή {{ user.first_name }},
+
+                    Το domain σας **{{ fqdn }}** λήγει στις **{{ expires }}**{% if days_left %}, σε {{ days_left }} ημέρα/ες{% endif %}. Η ανανέωσή του είναι δωρεάν με το πακέτο φιλοξενίας σας: δεν χρειάζεται πληρωμή, ανανεώνεται αυτόματα.
+
+                    Αν δεν θέλετε να το κρατήσετε, ενημερώστε μας και δεν θα το ανανεώσουμε.
+                    HTML,
+                'in_app_title' => 'Το {{ fqdn }} ανανεώνεται στις {{ expires }}',
+                'in_app_body' => 'Το domain σας {{ fqdn }} ανανεώνεται δωρεάν στις {{ expires }}.',
+            ],
+        ],
+        'domain_expired_notice' => [
+            'el' => [
+                'subject' => 'Το domain {{ fqdn }} έληξε',
+                'body' => <<<'HTML'
+                    # Ληγμένο domain
+
+                    Αγαπητέ/ή {{ user.first_name }},
+
+                    Το domain σας **{{ fqdn }}** έληξε στις **{{ expires }}** και δεν λειτουργεί: η ιστοσελίδα και το email σας σε αυτό είναι εκτός.
+
+                    Μπορεί ακόμα να ανανεωθεί έως τις **{{ last_day }}**{% if late_fee %}, πλέον με επιπλέον χρέωση καθυστερημένης ανανέωσης **{{ late_fee }}** από το μητρώο{% endif %}. Μετά ίσως χαθεί και να μπορεί να το καταχωρίσει οποιοσδήποτε.
+
+                    {% if invoice %}
+                    Η ανανέωσή του είναι στο προτιμολόγιο **#{{ invoice_number }}** ({{ invoice.formattedTotal }}). Μόλις εξοφληθεί, ανανεώνεται αμέσως.
+
+                    <div class="action">
+                    	<a class="button button-blue" href="{{ urls.invoice }}">
+                    		Εξόφληση προτιμολογίου
+                    	</a>
+                    </div>
+                    {% else %}
+                    Επικοινωνήστε μαζί μας για να το ανανεώσουμε.
+                    {% endif %}
+                    HTML,
+                'in_app_title' => 'Το {{ fqdn }} έληξε',
+                'in_app_body' => 'Το domain σας {{ fqdn }} έληξε στις {{ expires }}· μπορεί να ανανεωθεί έως τις {{ last_day }}.',
             ],
         ],
     ];

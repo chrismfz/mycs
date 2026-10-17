@@ -243,10 +243,11 @@ final class RenewalBilling
     /** The domains billed for their next period (D5b): alive, the customer's still (expired, grace, redemption). */
     public const BILLED_DOMAINS = [DomainStatus::Active, DomainStatus::Expired, DomainStatus::Grace, DomainStatus::Redemption];
 
-    /** Days before expiry a domain's renewal is invoiced (D-14): its own setting, else the services'. */
+    /** Days before expiry a domain's renewal is invoiced (D-14): its own setting (default 15), empty the services'. */
     public static function domainInvoiceDays(): int
     {
-        $days = config('settings.domain_invoice_days');
+        // Not set: 15 (D7, owner 2026-10-17: both companies alike); set empty: as the services'.
+        $days = config('settings.domain_invoice_days', 15);
 
         return $days === null || $days === '' ? (int) config('settings.cronjob_invoice', 7) : max(0, (int) $days);
     }
