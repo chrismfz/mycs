@@ -804,6 +804,57 @@ class EmailTemplateSeeder extends Seeder
             'edit_preference_message' => 'Tell me when a domain of mine has expired',
             'in_app_url' => '{{ urls.invoice }}',
         ],
+        // Domains ordered (D8b-2, DomainOrderFulfilment): registered, or its transfer started, at the registrar.
+        'domain_registered' => [
+            'subject' => 'Your domain {{ fqdn }} is registered',
+            'body' => <<<'HTML'
+                # Domain registered
+
+                Dear {{ user.first_name }},
+
+                Your domain **{{ fqdn }}** is registered{% if expires %}, until **{{ expires }}**{% endif %}.
+
+                {% if nameservers %}
+                Its nameservers: {{ nameservers }}. You can change them, and its contacts, from your account.
+                {% endif %}
+
+                <div class="action">
+                	<a class="button button-blue" href="{{ urls.domain }}">
+                		Manage domain
+                	</a>
+                </div>
+                HTML,
+            'in_app_title' => '{{ fqdn }} is registered',
+            'in_app_body' => 'Your domain {{ fqdn }} is registered.',
+            'mail_enabled' => 'force',
+            'in_app_enabled' => 'choice_on',
+            'edit_preference_message' => 'Tell me when a domain of mine is registered',
+            'in_app_url' => '{{ urls.domain }}',
+        ],
+        'domain_transfer_started' => [
+            'subject' => 'The transfer of {{ fqdn }} has started',
+            'body' => <<<'HTML'
+                # Domain transfer
+
+                Dear {{ user.first_name }},
+
+                The transfer of your domain **{{ fqdn }}** to us has started. It usually completes within 5 to 7 days; your current provider, or the domain owner's email, may be asked to approve it.
+
+                Your website and email keep working during the transfer. We will let you know if anything is needed.
+
+                <div class="action">
+                	<a class="button button-blue" href="{{ urls.domain }}">
+                		View domain
+                	</a>
+                </div>
+                HTML,
+            'in_app_title' => 'The transfer of {{ fqdn }} has started',
+            'in_app_body' => 'The transfer of your domain {{ fqdn }} to us has started.',
+            'mail_enabled' => 'force',
+            'in_app_enabled' => 'choice_on',
+            'edit_preference_message' => 'Tell me when the transfer of a domain of mine starts',
+            'in_app_url' => '{{ urls.domain }}',
+        ],
     ];
 
     /**
@@ -1536,6 +1587,52 @@ class EmailTemplateSeeder extends Seeder
                     HTML,
                 'in_app_title' => 'Το {{ fqdn }} έληξε',
                 'in_app_body' => 'Το domain σας {{ fqdn }} έληξε στις {{ expires }}· μπορεί να ανανεωθεί έως τις {{ last_day }}.',
+            ],
+        ],
+        'domain_registered' => [
+            'el' => [
+                'subject' => 'Το domain {{ fqdn }} καταχωρίστηκε',
+                'body' => <<<'HTML'
+                    # Καταχώριση domain
+
+                    Αγαπητέ/ή {{ user.first_name }},
+
+                    Το domain σας **{{ fqdn }}** καταχωρίστηκε{% if expires %}, έως τις **{{ expires }}**{% endif %}.
+
+                    {% if nameservers %}
+                    Οι nameservers του: {{ nameservers }}. Μπορείτε να τους αλλάξετε, όπως και τις επαφές του, από τον λογαριασμό σας.
+                    {% endif %}
+
+                    <div class="action">
+                    	<a class="button button-blue" href="{{ urls.domain }}">
+                    		Διαχείριση domain
+                    	</a>
+                    </div>
+                    HTML,
+                'in_app_title' => 'Το {{ fqdn }} καταχωρίστηκε',
+                'in_app_body' => 'Το domain σας {{ fqdn }} καταχωρίστηκε.',
+            ],
+        ],
+        'domain_transfer_started' => [
+            'el' => [
+                'subject' => 'Ξεκίνησε η μεταφορά του {{ fqdn }}',
+                'body' => <<<'HTML'
+                    # Μεταφορά domain
+
+                    Αγαπητέ/ή {{ user.first_name }},
+
+                    Η μεταφορά του domain σας **{{ fqdn }}** σε εμάς ξεκίνησε. Συνήθως ολοκληρώνεται σε 5 έως 7 ημέρες· ίσως ζητηθεί έγκριση από τον τωρινό σας πάροχο ή στο email του κατόχου.
+
+                    Η ιστοσελίδα και το email σας συνεχίζουν να λειτουργούν κατά τη μεταφορά. Θα σας ενημερώσουμε αν χρειαστεί κάτι.
+
+                    <div class="action">
+                    	<a class="button button-blue" href="{{ urls.domain }}">
+                    		Προβολή domain
+                    	</a>
+                    </div>
+                    HTML,
+                'in_app_title' => 'Ξεκίνησε η μεταφορά του {{ fqdn }}',
+                'in_app_body' => 'Η μεταφορά του domain σας {{ fqdn }} σε εμάς ξεκίνησε.',
             ],
         ],
     ];

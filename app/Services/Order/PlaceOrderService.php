@@ -6,6 +6,7 @@ use App\Enums\DomainStatus;
 use App\Events\Service\Ordered;
 use App\Exceptions\CouponUnusableException;
 use App\Exceptions\DisplayException;
+use App\Jobs\Domains\FulfilDomainOrderJob;
 use App\Models\Client;
 use App\Models\ConfigOption;
 use App\Models\Coupon;
@@ -163,6 +164,12 @@ final class PlaceOrderService
             throw new DisplayException(__('domains.order.epp_required', ['domain' => $fqdn]));
         }
         $price = (string) $tld->priceFor($line->operation, $line->years, $currency);
+        // Only a transfer may be free (D-6): a registration at 0.00 is a price mistake, never registered at our cost
+        // (code review 9).
+        $free = !BigDecimal::of($price)->isPositive();
+        if ($free && $line->operation === DomainOrderLine::REGISTER) {
+            throw new DisplayException(__('domains.order.not_offered'));
+        }
         [$sld] = explode('.', $fqdn, 2);
         try {
             $domain = Domain::query()->create([
@@ -175,12 +182,18 @@ final class PlaceOrderService
                 'registrant_contact_id' => $line->registrant->id, 'admin_contact_id' => $client->ensurePrimaryContact()->id,
                 'tech_contact_id' => $client->ensurePrimaryContact()->id, 'billing_contact_id' => $client->ensurePrimaryContact()->id,
                 'epp_code' => $line->operation === DomainOrderLine::TRANSFER ? trim((string) $line->eppCode) : null,
+                // Free as ordered, recorded (code review 1): a line removed later never makes it free.
+                'meta' => $free ? ['free_order' => true] : null,
             ]);
         } catch (UniqueConstraintViolationException) {
             throw new DisplayException(__('domains.order.already_here', ['domain' => $fqdn])); // ordered a moment ago
         }
         $net = OrderPricing::toNet($price, $client);
         if (!BigDecimal::of($net)->isPositive()) {
+            // Nothing to pay (a free transfer, D-6): sent to its registrar once this order commits (D8b-2).
+            $domainId = (int) $domain->id;
+            DB::afterCommit(fn () => FulfilDomainOrderJob::dispatch($domainId));
+
             return $invoice;
         }
         $invoice ??= Invoice::query()->create([

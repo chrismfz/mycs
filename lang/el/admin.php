@@ -13,6 +13,8 @@ return [
         'paid_applied' => 'Πληρωμένα τιμολόγια που εφαρμόστηκαν ξανά',
         'reminders_sent' => 'Υπενθυμίσεις πληρωμής',
         'domain_invoices_cancelled' => 'Ακυρωμένα τιμολόγια χαμένων domains',
+        'domains_ordered' => 'Καταχωρίσεις/μεταφορές domains',
+        'domain_epp_codes_cleared' => 'Διαγραφή EPP codes μεταφορών',
         'domain_reminders' => 'Ειδοποιήσεις λήξης domains',
         'license_logs_pruned' => 'Καθαρισμός log αδειών',
         'mcp_calls_pruned' => 'Καθαρισμός κλήσεων MCP',

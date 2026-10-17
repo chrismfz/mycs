@@ -2,9 +2,11 @@
 
 namespace App\Services\Invoice;
 
+use App\Jobs\Domains\FulfilDomainOrderJob;
 use App\Jobs\Domains\RenewDomainJob;
 use App\Models\Domain;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Services\Service\RenewServiceService;
@@ -31,6 +33,11 @@ class ProcessPaidInvoiceService
                     if ($item->kind === null && $item->period_end !== null && $item->applied_at === null) {
                         $lineId = (int) $item->id;
                         DB::afterCommit(fn () => RenewDomainJob::dispatch($lineId));
+                    }
+                    // A domain ordered (D8b-2): registered or its transfer started at its registrar, after this commit.
+                    if (in_array($item->kind, [InvoiceItem::KIND_REGISTER, InvoiceItem::KIND_TRANSFER], true) && $item->applied_at === null) {
+                        $domainId = (int) $item->reference_id;
+                        DB::afterCommit(fn () => FulfilDomainOrderJob::dispatch($domainId));
                     }
 
                     return;

@@ -174,6 +174,14 @@ final class Proposals
                 ? "Retry {$what} at its registrar now: it reads the registrar and charges the years it lacks, unless a charge is unconfirmed."
                 : "Mark {$what} renewed by hand: applied only if the registrar shows it (a manual registrar: its expiry moves to the end of the paid period)."];
         }
+        // A domain ordered (D8b-2): no queue retries it either.
+        if (in_array($action->action, [ModuleAction::DOMAIN_REGISTER, ModuleAction::DOMAIN_TRANSFER], true)) {
+            $what = ($action->action === ModuleAction::DOMAIN_REGISTER ? 'the registration of ' : 'the transfer of ') . ($action->domain->fqdn ?? "domain #{$action->domain_id}");
+
+            return [['module_action_id' => $action->id], $type === self::RETRY_MODULE_ACTION
+                ? "Send {$what} to its registrar now (charged to our account there), unless a charge is unconfirmed."
+                : "Mark {$what} done by hand at the registrar: the sync takes it on and its payment counts as used."];
+        }
         // A retry only once the automatic ones are over, as the admin's Retry: before that it would race the queue.
         if ($type === self::RETRY_MODULE_ACTION && $action->given_up_at === null) {
             throw new InvalidArgumentException("Module action #{$action->id} is still being retried by the queue.");

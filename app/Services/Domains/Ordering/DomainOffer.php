@@ -73,7 +73,10 @@ class DomainOffer
     /** @return Collection<int, int> the years $operation is priced for in $currency, ascending (D-5) */
     public function years(DomainTld $tld, string $operation, string $currency): Collection
     {
+        // A transfer adds one year at its registrar (transferIn has no period): never sold for more (adversarial note of
+        // #180), else the customer pays years they never get.
         return $tld->prices->where('operation', $operation)->where('currency_code', $currency)->whereNotNull('price')
-            ->pluck('years')->map(fn ($y) => (int) $y)->unique()->sort()->values();
+            ->pluck('years')->map(fn ($y) => (int) $y)->unique()
+            ->reject(fn (int $y) => $operation === DomainOrderLine::TRANSFER && $y !== 1)->sort()->values();
     }
 }

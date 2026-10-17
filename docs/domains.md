@@ -450,8 +450,32 @@
      domain cancelled, οι γραμμές του από το τιμολόγιο, το όνομα ελεύθερο ξανά. **Ο registrant** και **οι NS** (ιδιοκτήτης
      2026-10-17): η μεταφορά κρατά τους NS που έχει (από το μητρώο, RDAP)· η εγγραφή παίρνει τους default της εταιρείας
      (ρύθμιση, D8b-2)· ο πελάτης τους αλλάζει από το portal.
-   - **D8b-2 (επόμενο):** μετά την πληρωμή εγγραφή/μεταφορά στον registrar (lock, log, ποτέ δύο φορές, Pending Module
-     Actions `domain_register`/`domain_transfer`), default nameservers, emails.
+   - **D8b-2 έγινε** (μετά την πληρωμή, `DomainOrderFulfilment`): η εξόφληση στέλνει `FulfilDomainOrderJob` μετά το
+     commit (η δωρεάν μεταφορά αμέσως με την παραγγελία)· το cron (`domains_ordered`) στέλνει ό,τι έμεινε (job χαμένο,
+     registrar κάτω). Κάτω από το lock του domain, log `pending` **πριν** την κλήση, `register` (έτη της παραγγελίας) ή
+     `transferIn` (EPP code). **NS:** η εγγραφή τους `domain_default_nameservers` (ρύθμιση, ένας ανά γραμμή, τουλάχιστον
+     δύο), η μεταφορά αυτούς του μητρώου (RDAP), αλλιώς τους default· χωρίς δύο NS δεν στέλνεται (staff). Επιτυχία →
+     `meta.sent_at`, η γραμμή `applied_at`, sync (εγγραφή → Active με τη λήξη· μεταφορά → μένει pending μέχρι να
+     ολοκληρωθεί), email `domain_registered` / `domain_transfer_started`. Άρνηση (4xx) → log failed + Pending Module
+     Action· χωρίς απάντηση → το log μένει pending και **δεν ξαναστέλνεται** (ούτε από Retry) μέχρι το staff να ελέγξει
+     τον registrar: «Done by hand» (έγινε εκεί: sent, η γραμμή applied, το sync αναλαμβάνει) ή «Close (not done)» (το
+     pending log failed) και μετά Retry. Domain με ανοιχτό Module Action δεν το ξαναπιάνει το cron. TLD χωρίς σύνδεση
+     registrar → Module Action «by hand».
+     Μετά τα reviews του #180: «δωρεάν» μόνο ό,τι καταγράφηκε στην παραγγελία (`meta.free_order`, μόνο μεταφορά· εγγραφή
+     σε 0,00 δεν παραγγέλνεται)· γραμμή που σβήστηκε ή ακυρώθηκε δεν το κάνει δωρεάν. Πληρωμή/κατάσταση ξαναελέγχονται
+     πριν την κλήση και μετά (ακύρωση στο μεταξύ → Module Action, χωρίς email). Το `CancelOrder` δεν ακυρώνει ούτε
+     επιστρέφει χρήματα για domain που στάλθηκε ή στέλνεται (lock του registrar): μένει στο staff. Ενέργειες staff:
+     **Retry**, **Done by hand** (χωρίς API: εγγραφή → Active για τα έτη της, μεταφορά → Active, λήξη από το staff),
+     **Not done there** (το pending log failed, μένει ανοιχτό για Retry), **Close (stop it)** (`meta.on_hold`: δεν
+     ξαναστέλνεται ποτέ μόνο του). Η μεταφορά στέλνει **μόνο** τους NS του μητρώου (και έναν)· αν δεν διαβάζονται, staff
+     — ποτέ τους default στη θέση τους. Αποτυχία πριν το αίτημα (glue, επαφές) = `RegistrarNotAsked`, όχι «χωρίς
+     απάντηση». Η μεταφορά πουλιέται μόνο για 1 έτος. **EPP code μεταφοράς** (ιδιοκτήτης 2026-10-17): σβήνεται από το
+     cron (`domain_epp_codes_cleared`) όταν η μεταφορά δεν είναι πια pending και η παραγγελία έχει ≥30 μέρες.
+     **Δωρεάν μεταφορά** (ιδιοκτήτης 2026-10-18): ξεκινά αμέσως με την παραγγελία, χωρίς να περιμένει αποδοχή από το
+     staff (fraud review).
+   - **Έτη ανανέωσης ανά domain** (ιδιοκτήτης 2026-10-17, επόμενο PR, χρήματα): ξεκινά με τα έτη της παραγγελίας· ο
+     πελάτης (portal) και το staff τα αλλάζουν ανάμεσα στα έτη με τιμή ανανέωσης του TLD· ισχύει από το επόμενο
+     τιμολόγιο, ή αλλάζει το ανοιχτό απλήρωτο (`ChangeOpenLine`)· ήδη πληρωμένο → από την επόμενη φορά.
    - **D8b (χρήματα):** register/transfer στο καλάθι (έτη του TLD, EPP code στη μεταφορά), τιμολόγιο, εγγραφή/μεταφορά
      μετά την πληρωμή. Code + adversarial.
    - **Whois ανά TLD (μητρώο), όχι ανά registrar** (ιδιοκτήτης 2026-10-17): «είναι διαθέσιμο;» → η σύνδεση registrar
