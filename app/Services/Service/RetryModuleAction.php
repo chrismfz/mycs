@@ -9,6 +9,7 @@ use App\Jobs\Server\UnsuspendJob;
 use App\Jobs\Server\UpgradeJob;
 use App\Models\ModuleAction;
 use App\Services\Domains\DomainRenewalService;
+use App\Services\Domains\Ordering\DomainOrderFulfilment;
 
 /**
  * Staff's «Retry» on a Pending Module Action (Σ1): the same job, run now, with its own checks (a create only while the
@@ -26,6 +27,14 @@ final class RetryModuleAction
             $action->refresh();
 
             return $outcome !== DomainRenewalService::NOTHING && ($action->status !== ModuleAction::STATUS_OPEN || $action->attempts > $attempts);
+        }
+        // A domain ordered (D8b-2): sent to its registrar now, unless a charge is still unconfirmed.
+        if (in_array($action->action, [ModuleAction::DOMAIN_REGISTER, ModuleAction::DOMAIN_TRANSFER], true)) {
+            $attempts = $action->attempts;
+            $outcome = app(DomainOrderFulfilment::class)->fulfil((int) $action->domain_id);
+            $action->refresh();
+
+            return $outcome === DomainOrderFulfilment::SENT || $action->attempts > $attempts;
         }
         $service = $action->service;
         $job = match ($action->action) {

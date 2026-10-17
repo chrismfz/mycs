@@ -28,6 +28,7 @@ use App\Models\Ticket;
 use App\Services\Billing\RenewalBilling;
 use App\Services\Domains\DomainReminders;
 use App\Services\Domains\DomainRenewalService;
+use App\Services\Domains\Ordering\DomainOrderFulfilment;
 use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\Invoice\ChangeOpenLine;
 use App\Services\Invoice\PaymentReminders;
@@ -187,6 +188,21 @@ class CronJob extends Command
                     // What was done (ADV-4, F5): cancelled, or the domain's lines taken off.
                     $number += Invoice::query()->whereKey($invoices->pluck('id'))->where(fn ($q) => $q->where('status', Invoice::STATUS_CANCELLED)
                         ->orWhereDoesntHave('items', fn ($line) => $own($line->where('reference_type', Domain::class)->where('reference_id', $domain->id))))->count();
+                }
+
+                return $number;
+            }, transaction: false);
+
+            // Domains ordered and paid (or free) not sent to their registrar yet (D8b-2): a job lost, a registrar down. The
+            // service's guards (lock, sent once, a pending charge never asked again) make this harmless.
+            $this->runCronJob('domains_ordered', function ($number = 0) {
+                foreach (DomainOrderFulfilment::due()->where('updated_at', '<', now()->subMinutes(10))->pluck('id') as $id) {
+                    try {
+                        $number += app(DomainOrderFulfilment::class)->fulfil((int) $id) === DomainOrderFulfilment::SENT ? 1 : 0;
+                    } catch (Throwable $e) {
+                        report($e);
+                        $this->failures["domains_ordered #{$id}"] = $e;
+                    }
                 }
 
                 return $number;

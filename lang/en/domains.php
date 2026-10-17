@@ -172,5 +172,8 @@ return [
         'not_registered' => ':domain is not registered: register it instead of transferring it.',
         'epp_required' => 'Enter the EPP code of :domain to transfer it.',
         'contact_incomplete' => 'The domain owner needs a complete address, phone and country: complete it under Contacts.',
+        'unconfirmed' => ':domain: an earlier request to the registrar has no answer yet. Check the registrar: «Done by hand» if it went through, «Close» if it did not, then Retry.',
+        'by_hand' => ':domain: its TLD has no registrar connection in use: register it (or start its transfer) by hand, then «Done by hand».',
+        'no_nameservers' => ':domain: no nameservers to send (set «Default Nameservers», or add them to the domain), then Retry.',
     ],
 ];

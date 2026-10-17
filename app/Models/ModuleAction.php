@@ -7,6 +7,7 @@ use App\Services\Domains\DomainRenewalService;
 use App\Support\Redact;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -50,6 +51,13 @@ class ModuleAction extends Model
     /** A paid domain renewal at its registrar (D5b-2): the domain's row, with the paid line it is for. */
     public const DOMAIN_RENEW = 'domain_renew';
 
+    /** A domain ordered (D8b-2): its registration or transfer at its registrar, refused or with no answer. */
+    public const DOMAIN_REGISTER = 'domain_register';
+
+    public const DOMAIN_TRANSFER = 'domain_transfer';
+
+    public const DOMAIN_ACTIONS = [self::DOMAIN_RENEW, self::DOMAIN_REGISTER, self::DOMAIN_TRANSFER];
+
     protected $guarded = [];
 
     protected function casts(): array
@@ -80,22 +88,25 @@ class ModuleAction extends Model
         return $this->belongsTo(InvoiceItem::class);
     }
 
-    /** A domain's renewal failed, or waits for staff (D-15): one open row per paid line, its attempts counted. */
-    public static function domainFailed(Domain $domain, InvoiceItem $line, ?string $module, Throwable $error): self
+    /**
+     * A domain's renewal, registration or transfer failed, or waits for staff (D-15): one open row per domain, line (none
+     * for a free transfer) and action, its attempts counted.
+     */
+    public static function domainFailed(Domain $domain, ?InvoiceItem $line, ?string $module, Throwable $error, string $action = self::DOMAIN_RENEW): self
     {
-        $row = self::query()->open()->where('domain_id', $domain->id)->where('invoice_item_id', $line->id)->where('action', self::DOMAIN_RENEW)->latest('id')->first()
-            ?? new self(['domain_id' => $domain->id, 'invoice_item_id' => $line->id, 'action' => self::DOMAIN_RENEW, 'status' => self::STATUS_OPEN]);
+        $row = self::query()->open()->where('domain_id', $domain->id)->where('invoice_item_id', $line?->id)->where('action', $action)->latest('id')->first()
+            ?? new self(['domain_id' => $domain->id, 'invoice_item_id' => $line?->id, 'action' => $action, 'status' => self::STATUS_OPEN]);
         $row->fill(['module' => $module, 'attempts' => $row->attempts + 1, 'last_attempt_at' => now(),
             'last_error' => Str::limit(Redact::text($error->getMessage()), 2000)])->save();
 
         return $row;
     }
 
-    /** Done (renewed, adopted, or by hand): its open row, if any, completed. */
-    public static function domainSucceeded(Domain $domain, InvoiceItem $line): void
+    /** Done (renewed, registered, transferred, adopted, or by hand): its open row, if any, completed. */
+    public static function domainSucceeded(Domain $domain, ?InvoiceItem $line, string $action = self::DOMAIN_RENEW): void
     {
         $now = now();
-        self::query()->open()->where('domain_id', $domain->id)->where('invoice_item_id', $line->id)->where('action', self::DOMAIN_RENEW)
+        self::query()->open()->where('domain_id', $domain->id)->where('invoice_item_id', $line?->id)->where('action', $action)
             ->update(['status' => self::STATUS_COMPLETED, 'resolved_at' => $now, 'resolution' => 'succeeded', 'updated_at' => $now]);
     }
 
@@ -105,11 +116,13 @@ class ModuleAction extends Model
      */
     public function closeUnrenewed(?Staff $staff): void
     {
-        if ($this->action !== self::DOMAIN_RENEW || $this->status !== self::STATUS_OPEN) {
+        if (!in_array($this->action, self::DOMAIN_ACTIONS, true) || $this->status !== self::STATUS_OPEN) {
             return;
         }
+        // Its own charges: a renewal's (renew, restore), an order's (register, transfer: D8b-2).
+        $actions = $this->action === self::DOMAIN_RENEW ? ['renew', 'restore'] : ['register', 'transfer'];
         DomainRegistrarLog::query()->where('domain_id', $this->domain_id)->where('status', DomainRegistrarLog::STATUS_PENDING)
-            ->whereIn('action', ['renew', 'restore'])->update(['status' => DomainRegistrarLog::STATUS_FAILED,
+            ->whereIn('action', $actions)->update(['status' => DomainRegistrarLog::STATUS_FAILED,
                 'error' => 'Checked by staff at the registrar: not done.', 'staff_id' => $staff?->id, 'updated_at' => now()]);
         $this->forceFill(['status' => self::STATUS_RESOLVED, 'resolved_at' => now(), 'resolution' => 'closed without renewing',
             'resolved_by_staff_id' => $staff?->id])->save();
@@ -192,6 +205,26 @@ class ModuleAction extends Model
                 $this->forceFill(['status' => self::STATUS_RESOLVED, 'resolved_at' => now(), 'resolution' => 'renewed by hand',
                     'resolved_by_staff_id' => $staff?->id])->save();
             }
+
+            return;
+        }
+        // A domain ordered (D8b-2): «done by hand» (registered or its transfer started at the registrar by staff): it is
+        // sent (the sync takes it on from here) and its line applied; its unconfirmed charges count as done.
+        if (in_array($this->action, [self::DOMAIN_REGISTER, self::DOMAIN_TRANSFER], true)) {
+            DB::transaction(function () use ($staff) {
+                $domain = Domain::query()->lockForUpdate()->find($this->domain_id);
+                if ($domain !== null) {
+                    $meta = $domain->meta ?? [];
+                    $meta['sent_at'] ??= now()->toIso8601String();
+                    $domain->forceFill(['meta' => $meta])->save();
+                }
+                $this->invoiceItem?->forceFill(['applied_at' => $this->invoiceItem->applied_at ?? now()])->saveQuietly();
+                DomainRegistrarLog::query()->where('domain_id', $this->domain_id)->where('status', DomainRegistrarLog::STATUS_PENDING)
+                    ->whereIn('action', ['register', 'transfer'])->update(['status' => DomainRegistrarLog::STATUS_OK,
+                        'error' => 'Done by staff at the registrar.', 'staff_id' => $staff?->id, 'updated_at' => now()]);
+                $this->forceFill(['status' => self::STATUS_RESOLVED, 'resolved_at' => now(), 'resolution' => 'done by hand',
+                    'resolved_by_staff_id' => $staff?->id])->save();
+            });
 
             return;
         }

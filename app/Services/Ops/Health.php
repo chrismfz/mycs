@@ -115,7 +115,7 @@ final class Health
         $open = ModuleAction::query()->where('status', ModuleAction::STATUS_OPEN);
         $givenUp = (clone $open)->whereNotNull('given_up_at')->count();
         // A paid domain renewal waiting for staff (D5b-2, adversarial ADV-8): no automatic give-up, always theirs.
-        $domains = (clone $open)->where('action', ModuleAction::DOMAIN_RENEW)->count();
+        $domains = (clone $open)->whereIn('action', ModuleAction::DOMAIN_ACTIONS)->count();
 
         return ['status' => $givenUp + $domains > 0 ? self::WARN : self::OK, 'detail' => $open->count() . " open, {$givenUp} given up, {$domains} domain renewals (need staff)",
             'data' => ['open' => $open->count(), 'given_up' => $givenUp, 'domain_renewals' => $domains]];

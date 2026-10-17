@@ -7,6 +7,7 @@ use App\Admin\Resources\ModuleActionResource\Pages\ListModuleActions;
 use App\Models\ModuleAction;
 use App\Models\Staff;
 use App\Services\Domains\DomainRenewalService;
+use App\Services\Domains\Ordering\DomainOrderFulfilment;
 use App\Services\Service\RetryModuleAction;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -88,8 +89,8 @@ class ModuleActionResource extends Resource
                     ModuleAction::STATUS_COMPLETED => 'Completed',
                     ModuleAction::STATUS_RESOLVED => 'Resolved',
                 ])->default(ModuleAction::STATUS_OPEN),
-                SelectFilter::make('action')->options(array_combine([...ModuleAction::ACTIONS, ModuleAction::DOMAIN_RENEW],
-                    array_map(fn (string $action) => self::label($action), [...ModuleAction::ACTIONS, ModuleAction::DOMAIN_RENEW]))),
+                SelectFilter::make('action')->options(array_combine([...ModuleAction::ACTIONS, ...ModuleAction::DOMAIN_ACTIONS],
+                    array_map(fn (string $action) => self::label($action), [...ModuleAction::ACTIONS, ...ModuleAction::DOMAIN_ACTIONS]))),
             ])
             ->recordActions([
                 // Once the automatic retries are over: while one is still queued, a click would race it (two creates).
@@ -113,6 +114,20 @@ class ModuleActionResource extends Resource
                                 ->body("The service is {$record->service?->status} now: mark the action resolved if the account is as it should be.")->send();
                     }),
                 // A domain's renewal (D5b-2): its outcome said as it is (review 7).
+                // A domain ordered (D8b-2): sent to its registrar again (unless a charge is still unconfirmed).
+                Action::make('retryDomainOrder')->label('Retry')->icon('ri-loop-right-line')
+                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN
+                        && in_array($record->action, [ModuleAction::DOMAIN_REGISTER, ModuleAction::DOMAIN_TRANSFER], true))
+                    ->authorize('update')
+                    ->requiresConfirmation()
+                    ->modalDescription('Registers it, or starts its transfer, at the registrar now (charged to our account there), unless a charge is still unconfirmed: then check the registrar first.')
+                    ->action(function (ModuleAction $record) {
+                        $outcome = app(DomainOrderFulfilment::class)->fulfil((int) $record->domain_id);
+                        $record->refresh();
+                        $outcome === DomainOrderFulfilment::SENT
+                            ? Notification::make()->success()->title('Sent to the registrar')->send()
+                            : Notification::make()->warning()->title('Not sent')->body((string) $record->last_error)->send();
+                    }),
                 Action::make('retryDomain')->label('Retry')->icon('ri-loop-right-line')
                     ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && $record->action === ModuleAction::DOMAIN_RENEW)
                     ->authorize('update')
@@ -129,14 +144,20 @@ class ModuleActionResource extends Resource
                             default => Notification::make()->danger()->title('Not renewed')->body((string) $record->last_error)->send(),
                         };
                     }),
-                Action::make('resolve')->label(fn (ModuleAction $record) => $record->action === ModuleAction::DOMAIN_RENEW ? 'Renewed by hand' : 'Mark resolved')
+                Action::make('resolve')->label(fn (ModuleAction $record) => match ($record->action) {
+                    ModuleAction::DOMAIN_RENEW => 'Renewed by hand',
+                    ModuleAction::DOMAIN_REGISTER, ModuleAction::DOMAIN_TRANSFER => 'Done by hand',
+                    default => 'Mark resolved',
+                })
                     ->icon('ri-check-line')->color('gray')
                     ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN)
                     ->authorize('update')
                     ->requiresConfirmation()
-                    ->modalDescription(fn (ModuleAction $record) => $record->action === ModuleAction::DOMAIN_RENEW
-                        ? 'Applies its paid renewal: with a registrar API only if the registrar shows it renewed (its expiry is the registrar\'s); with a manual registrar the expiry moves to the end of the paid period.'
-                        : 'For an account fixed by hand on the server: closes it without running anything (a create: the service turns active).')
+                    ->modalDescription(fn (ModuleAction $record) => match ($record->action) {
+                        ModuleAction::DOMAIN_RENEW => 'Applies its paid renewal: with a registrar API only if the registrar shows it renewed (its expiry is the registrar\'s); with a manual registrar the expiry moves to the end of the paid period.',
+                        ModuleAction::DOMAIN_REGISTER, ModuleAction::DOMAIN_TRANSFER => 'Registered or its transfer started at the registrar by hand: the domain counts as sent, the sync takes it on (status, expiry), and its payment as used.',
+                        default => 'For an account fixed by hand on the server: closes it without running anything (a create: the service turns active).',
+                    })
                     ->action(function (ModuleAction $record) {
                         try {
                             $record->markResolved(self::staff());
@@ -144,8 +165,9 @@ class ModuleActionResource extends Resource
                             Notification::make()->danger()->title('Not applied')->body($e->getMessage())->send();
                         }
                     }),
-                Action::make('close')->label('Close (not renewed)')->icon('ri-close-line')->color('gray')
-                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && $record->action === ModuleAction::DOMAIN_RENEW)
+                Action::make('close')->label(fn (ModuleAction $record) => $record->action === ModuleAction::DOMAIN_RENEW ? 'Close (not renewed)' : 'Close (not done)')
+                    ->icon('ri-close-line')->color('gray')
+                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && in_array($record->action, ModuleAction::DOMAIN_ACTIONS, true))
                     ->authorize('update')
                     ->requiresConfirmation()
                     ->modalDescription('Closes it without renewing (refunded, the domain ended, or checked at the registrar: an unconfirmed charge was not done, so a later Retry may charge).')
@@ -165,6 +187,8 @@ class ModuleActionResource extends Resource
         return match ($action) {
             'upgrade' => 'Change Package',
             ModuleAction::DOMAIN_RENEW => 'Domain Renewal',
+            ModuleAction::DOMAIN_REGISTER => 'Domain Registration',
+            ModuleAction::DOMAIN_TRANSFER => 'Domain Transfer',
             default => ucfirst($action),
         };
     }

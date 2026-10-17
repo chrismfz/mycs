@@ -172,5 +172,8 @@ return [
         'not_registered' => 'Το :domain δεν είναι κατοχυρωμένο: καταχωρίστε το αντί να το μεταφέρετε.',
         'epp_required' => 'Γράψτε τον κωδικό EPP του :domain για να το μεταφέρετε.',
         'contact_incomplete' => 'Ο ιδιοκτήτης του domain χρειάζεται πλήρη διεύθυνση, τηλέφωνο και χώρα: συμπληρώστε τα στις Επαφές.',
+        'unconfirmed' => ':domain: προηγούμενο αίτημα στον registrar δεν έχει απάντηση ακόμη. Ελέγξτε τον registrar: «Done by hand» αν πέρασε, «Close» αν όχι, και μετά Retry.',
+        'by_hand' => ':domain: το TLD του δεν έχει ενεργή σύνδεση registrar: καταχωρίστε το (ή ξεκινήστε τη μεταφορά) με το χέρι, και μετά «Done by hand».',
+        'no_nameservers' => ':domain: δεν υπάρχουν nameservers να σταλούν (ορίστε «Default Nameservers» ή προσθέστε τους στο domain), και μετά Retry.',
     ],
 ];

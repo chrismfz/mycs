@@ -606,6 +606,16 @@ class Settings
                     'validation' => ['nullable', 'regex:/^\s*-?(36[0-5]|3[0-5]\d|[12]?\d{1,2})(\s*,\s*-?(36[0-5]|3[0-5]\d|[12]?\d{1,2}))*\s*$/'],
                     'description' => 'Days before a domain expires to send its expiry notice, comma separated; negative days are after it (while it can still be renewed). Empty to disable. Domains set not to renew get none; one whose next year is paid gets none.',
                 ],
+                // Nameservers of a domain registered from an order (D8b-2, owner 2026-10-17); a transfer keeps the registry's.
+                [
+                    'name' => 'domain_default_nameservers',
+                    'section' => 'Billing Settings',
+                    'label' => 'Default Nameservers',
+                    'type' => 'textarea',
+                    'default' => '',
+                    'required' => false,
+                    'description' => 'One per line, at least two: the nameservers of domains registered from an order (a transfer keeps those it has, else these). Empty: new registrations wait for staff.',
+                ],
                 // Saved payment methods (PR H, decision 5; WHMCS CCProcessDaysBefore, CCAttemptOnlyOnce, CCRetryEveryWeekFor).
                 [
                     'name' => 'autocharge_days_before',

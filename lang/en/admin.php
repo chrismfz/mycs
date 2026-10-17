@@ -13,6 +13,7 @@ return [
         'paid_applied' => 'Paid invoices applied again',
         'reminders_sent' => 'Payment reminders sent',
         'domain_invoices_cancelled' => 'Invoices of lost domains cancelled',
+        'domains_ordered' => 'Domains registered or transferred',
         'domain_reminders' => 'Domain expiry notices sent',
         'license_logs_pruned' => 'License access logs pruned',
         'mcp_calls_pruned' => 'MCP calls pruned',

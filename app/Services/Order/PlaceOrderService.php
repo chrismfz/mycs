@@ -6,6 +6,7 @@ use App\Enums\DomainStatus;
 use App\Events\Service\Ordered;
 use App\Exceptions\CouponUnusableException;
 use App\Exceptions\DisplayException;
+use App\Jobs\Domains\FulfilDomainOrderJob;
 use App\Models\Client;
 use App\Models\ConfigOption;
 use App\Models\Coupon;
@@ -181,6 +182,10 @@ final class PlaceOrderService
         }
         $net = OrderPricing::toNet($price, $client);
         if (!BigDecimal::of($net)->isPositive()) {
+            // Nothing to pay (a free transfer, D-6): sent to its registrar once this order commits (D8b-2).
+            $domainId = (int) $domain->id;
+            DB::afterCommit(fn () => FulfilDomainOrderJob::dispatch($domainId));
+
             return $invoice;
         }
         $invoice ??= Invoice::query()->create([

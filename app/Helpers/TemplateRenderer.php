@@ -148,6 +148,7 @@ class TemplateRenderer
             'payment_methods' => route('account.payment-methods'),
             'invoice' => $invoice instanceof Invoice ? route('invoices.show', $invoice) : null,
             'service' => $service instanceof Service ? route('services.show', $service) : null,
+            'domain' => ($data['domain'] ?? null) instanceof Domain ? route('domains.show', $data['domain']) : null,
             'ticket' => $ticketMessage instanceof TicketMessage ? route('tickets.show', $ticketMessage->ticket_id) : null,
         ]);
 

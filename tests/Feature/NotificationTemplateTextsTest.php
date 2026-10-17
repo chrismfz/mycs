@@ -68,6 +68,11 @@ class NotificationTemplateTextsTest extends TestCase
                 'stage_end' => '25/11/2026', 'free' => $key === 'domain_free_renewal_notice', 'price' => '€23.33', 'late_fee' => '€100.30',
                 'next_fee' => '€80.00', 'years' => 1, 'invoice' => $invoice, 'auto_charged' => false,
             ],
+            // D8b-2: a domain ordered, registered or its transfer started.
+            'domain_registered', 'domain_transfer_started' => [
+                'domain' => Domain::query()->where('fqdn', 'example.com')->first() ?? Domain::factory()->create(['client_id' => $user->client()->id, 'sld' => 'example', 'tld' => 'com', 'fqdn' => 'example.com', 'expires_at' => '2026-11-15']),
+                'fqdn' => 'example.com', 'expires' => '15/11/2027', 'years' => 1, 'nameservers' => 'ns1.example.net, ns2.example.net',
+            ],
             'service_cancellation_received' => ['service' => $service, 'cancellation' => ServiceCancellation::withoutEvents(fn () => ServiceCancellation::query()->create(['service_id' => $service->id, 'type' => 'end_of_period', 'reason' => 'Moving']))],
         };
     }

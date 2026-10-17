@@ -450,8 +450,17 @@
      domain cancelled, οι γραμμές του από το τιμολόγιο, το όνομα ελεύθερο ξανά. **Ο registrant** και **οι NS** (ιδιοκτήτης
      2026-10-17): η μεταφορά κρατά τους NS που έχει (από το μητρώο, RDAP)· η εγγραφή παίρνει τους default της εταιρείας
      (ρύθμιση, D8b-2)· ο πελάτης τους αλλάζει από το portal.
-   - **D8b-2 (επόμενο):** μετά την πληρωμή εγγραφή/μεταφορά στον registrar (lock, log, ποτέ δύο φορές, Pending Module
-     Actions `domain_register`/`domain_transfer`), default nameservers, emails.
+   - **D8b-2 έγινε** (μετά την πληρωμή, `DomainOrderFulfilment`): η εξόφληση στέλνει `FulfilDomainOrderJob` μετά το
+     commit (η δωρεάν μεταφορά αμέσως με την παραγγελία)· το cron (`domains_ordered`) στέλνει ό,τι έμεινε (job χαμένο,
+     registrar κάτω). Κάτω από το lock του domain, log `pending` **πριν** την κλήση, `register` (έτη της παραγγελίας) ή
+     `transferIn` (EPP code). **NS:** η εγγραφή τους `domain_default_nameservers` (ρύθμιση, ένας ανά γραμμή, τουλάχιστον
+     δύο), η μεταφορά αυτούς του μητρώου (RDAP), αλλιώς τους default· χωρίς δύο NS δεν στέλνεται (staff). Επιτυχία →
+     `meta.sent_at`, η γραμμή `applied_at`, sync (εγγραφή → Active με τη λήξη· μεταφορά → μένει pending μέχρι να
+     ολοκληρωθεί), email `domain_registered` / `domain_transfer_started`. Άρνηση (4xx) → log failed + Pending Module
+     Action· χωρίς απάντηση → το log μένει pending και **δεν ξαναστέλνεται** (ούτε από Retry) μέχρι το staff να ελέγξει
+     τον registrar: «Done by hand» (έγινε εκεί: sent, η γραμμή applied, το sync αναλαμβάνει) ή «Close (not done)» (το
+     pending log failed) και μετά Retry. Domain με ανοιχτό Module Action δεν το ξαναπιάνει το cron. TLD χωρίς σύνδεση
+     registrar → Module Action «by hand».
    - **D8b (χρήματα):** register/transfer στο καλάθι (έτη του TLD, EPP code στη μεταφορά), τιμολόγιο, εγγραφή/μεταφορά
      μετά την πληρωμή. Code + adversarial.
    - **Whois ανά TLD (μητρώο), όχι ανά registrar** (ιδιοκτήτης 2026-10-17): «είναι διαθέσιμο;» → η σύνδεση registrar
