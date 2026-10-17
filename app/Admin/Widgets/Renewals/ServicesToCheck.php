@@ -24,6 +24,7 @@ class ServicesToCheck extends TableWidget
         return $table
             ->heading(__('Services to check'))
             ->query(self::query())
+            ->defaultSort('id')
             ->columns([
                 TextColumn::make('label')->label(__('Service')),
                 TextColumn::make('client.name')->label(__('Client')),
@@ -32,7 +33,7 @@ class ServicesToCheck extends TableWidget
                     ->color(fn (string $state) => Service::statusColor($state)),
                 TextColumn::make('why')->label(__('Why'))->state(__('No due date: never billed nor suspended')),
             ])
-            ->recordUrl(fn (Service $record) => ServiceResource::getUrl('edit', ['record' => $record]))
+            ->recordUrl(fn (Service $record) => ServiceResource::canEdit($record) ? ServiceResource::getUrl('edit', ['record' => $record]) : null)
             ->emptyStateHeading(__('Nothing to check'))
             ->paginated([10, 25]);
     }
@@ -40,12 +41,12 @@ class ServicesToCheck extends TableWidget
     /** @return Builder<Service> */
     public static function query(): Builder
     {
-        return Service::query()->with(['client', 'product'])->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
+        return Service::query()->with(['client.primaryContact', 'client.ownerGrant.user', 'product'])->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
             ->whereNull('expires_at')->whereHas('plan', fn ($plan) => $plan->where('type', 'recurring'));
     }
 
     public static function canView(): bool
     {
-        return (bool) auth()->user()?->hasPermission('admin.widgets.renewals');
+        return (bool) auth()->user()?->hasPermission('admin.widgets.renewals') && ServiceResource::canViewAny();
     }
 }

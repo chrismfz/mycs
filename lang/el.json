@@ -582,6 +582,10 @@
     "Nothing to check": "Τίποτα για έλεγχο",
     "No expiry date": "Χωρίς ημερομηνία λήξης",
     "Transfer pending for more than :days days": "Μεταφορά σε εκκρεμότητα πάνω από :days ημέρες",
-    "Active but expired more than :days days ago: check its sync": "Ενεργό αλλά έληξε πριν από :days+ ημέρες: ελέγξτε το sync",
-    "No due date: never billed nor suspended": "Χωρίς ημερομηνία πληρωμής: δεν τιμολογείται ούτε αναστέλλεται ποτέ"
+    "No due date: never billed nor suspended": "Χωρίς ημερομηνία πληρωμής: δεν τιμολογείται ούτε αναστέλλεται ποτέ",
+    "Due date": "Ημερομηνία πληρωμής",
+    "Draft": "Πρόχειρο",
+    ":count year|:count years": ":count έτος|:count έτη",
+    "Registration pending for more than :days days": "Καταχώρηση σε εκκρεμότητα πάνω από :days ημέρες",
+    "Active but past its expiry: the domain sync has not run": "Ενεργό αλλά ληγμένο: το sync των domains δεν έτρεξε"
 }
