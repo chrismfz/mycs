@@ -175,5 +175,7 @@ return [
         'unconfirmed' => ':domain: an earlier request to the registrar has no answer yet. Check the registrar: «Done by hand» if it went through, «Close» if it did not, then Retry.',
         'by_hand' => ':domain: its TLD has no registrar connection in use: register it (or start its transfer) by hand, then «Done by hand».',
         'no_nameservers' => ':domain: no nameservers to send (set «Default Nameservers», or add them to the domain), then Retry.',
+        'sent_after_cancel' => ':domain: done at the registrar, but its order was cancelled or refunded meanwhile. Decide: keep it (re-bill), or delete it at the registrar.',
+        'ns_unknown' => ':domain: its current nameservers could not be read from the registry, so the transfer was not started (it must keep them). Add them to the domain, then Retry.',
     ],
 ];

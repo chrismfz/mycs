@@ -395,8 +395,10 @@ importer):
       Active αλλά ληγμένο (sync), υπηρεσία χωρίς ημερομηνία πληρωμής (`admin.widgets.renewals`). Μένει: υπόλοιπο
       registrar (χρειάζεται κλήση του Openprovider που δεν έχουμε ακόμα).
 - [x] D8a (αναζήτηση, whois, τιμοκατάλογος), D8b-1 (παραγγελία), D8b-2 (εγγραφή/μεταφορά μετά την πληρωμή,
-      `docs/domains.md` §6). Ανοιχτά στον ιδιοκτήτη: πόσο κρατιέται ο EPP code μετά τη μεταφορά (πρόταση: 30 μέρες)·
-      ρύθμιση `domain_default_nameservers` ανά instance πριν το πρώτο order.
+      `docs/domains.md` §6). EPP code μεταφοράς: 30 μέρες (ιδιοκτήτης 2026-10-17). Πριν το πρώτο order: Settings →
+      Billing → «Default Nameservers» ανά instance (το συμπληρώνει ο ιδιοκτήτης).
+- [ ] **Έτη ανανέωσης domain** που αλλάζει ο πελάτης/staff (ιδιοκτήτης 2026-10-17, `docs/domains.md` §6), μετά το D8b,
+      πριν το grepp. Code + adversarial.
 - [ ] **grepp** (.gr EPP, myip).
 - [ ] **Gateways της nixpal από το WHMCS** (ιδιοκτήτης 2026-10-17, στο τέλος, μαζί με τη δοκιμή πληρωμής ως πελάτης):
       PayPal, Stripe, Cardlink από το `tblpaymentgateways` της `clnixpal_nixcldb` (orion, μόνο ανάγνωση)· οι τιμές

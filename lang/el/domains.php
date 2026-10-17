@@ -175,5 +175,7 @@ return [
         'unconfirmed' => ':domain: προηγούμενο αίτημα στον registrar δεν έχει απάντηση ακόμη. Ελέγξτε τον registrar: «Done by hand» αν πέρασε, «Close» αν όχι, και μετά Retry.',
         'by_hand' => ':domain: το TLD του δεν έχει ενεργή σύνδεση registrar: καταχωρίστε το (ή ξεκινήστε τη μεταφορά) με το χέρι, και μετά «Done by hand».',
         'no_nameservers' => ':domain: δεν υπάρχουν nameservers να σταλούν (ορίστε «Default Nameservers» ή προσθέστε τους στο domain), και μετά Retry.',
+        'sent_after_cancel' => ':domain: έγινε στον registrar, αλλά η παραγγελία του ακυρώθηκε ή επιστράφηκαν τα χρήματα στο μεταξύ. Αποφασίστε: το κρατάμε (νέα χρέωση) ή το διαγράφουμε στον registrar.',
+        'ns_unknown' => ':domain: οι τωρινοί nameservers του δεν διαβάστηκαν από το μητρώο, οπότε η μεταφορά δεν ξεκίνησε (πρέπει να τους κρατήσει). Προσθέστε τους στο domain και μετά Retry.',
     ],
 ];

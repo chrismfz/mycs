@@ -51,6 +51,9 @@ class DomainOrderFulfilmentTest extends TestCase
     /** null: answers; 'refuse': 4xx; 'down': 5xx */
     private ?string $mode = null;
 
+    /** Run while the registrar is asked (a cancel racing the call). */
+    private ?\Closure $during = null;
+
     /** The registrar's record status after the call: ACT for a registration, REQ for a transfer. */
     private string $status = 'ACT';
 
@@ -124,6 +127,9 @@ class DomainOrderFulfilmentTest extends TestCase
             return Http::response([], 503);
         }
         $this->created[] = [$path, $data];
+        if ($this->during !== null) {
+            ($this->during)();
+        }
 
         return Http::response(['data' => ['id' => 9001, 'status' => $this->status]]);
     }
@@ -268,15 +274,15 @@ class DomainOrderFulfilmentTest extends TestCase
         $this->assertSame(0, DomainOrderFulfilment::due()->count());
     }
 
-    public function test_closing_it_settles_the_unconfirmed_charge_so_a_retry_can_send_it(): void
+    public function test_not_done_there_settles_the_unconfirmed_charge_so_a_retry_can_send_it(): void
     {
         $this->mode = 'down';
         $domain = $this->order('add', 'mybusiness.com');
         $this->pay($domain);
         $this->runJobs();
 
-        // Checked at the registrar: not registered. Closed, then sent again.
-        ModuleAction::query()->sole()->closeUnrenewed(null);
+        // Checked at the registrar: not registered. «Not done there», then sent again.
+        ModuleAction::query()->sole()->markNotDone(null);
         $this->assertSame(DomainRegistrarLog::STATUS_FAILED, DomainRegistrarLog::query()->where('domain_id', $domain->id)->value('status'));
         $this->mode = null;
         $this->assertSame(DomainOrderFulfilment::SENT, app(DomainOrderFulfilment::class)->fulfil($domain->id));
@@ -298,6 +304,121 @@ class DomainOrderFulfilmentTest extends TestCase
         ModuleAction::query()->delete();
         $this->assertSame(DomainOrderFulfilment::STAFF, app(DomainOrderFulfilment::class)->fulfil($domain->id));
         $this->assertSame(__('domains.order.by_hand', ['domain' => 'mybusiness.com']), ModuleAction::query()->sole()->last_error);
+    }
+
+    public function test_a_line_removed_from_the_invoice_does_not_make_it_free(): void
+    {
+        // Code review 1: staff delete the domain's line from the unpaid invoice.
+        $domain = $this->order('add', 'mybusiness.com');
+        InvoiceItem::query()->where('reference_id', $domain->id)->delete();
+
+        $this->assertSame(0, DomainOrderFulfilment::due()->count());
+        $this->assertSame(DomainOrderFulfilment::WAITING, app(DomainOrderFulfilment::class)->fulfil($domain->id));
+        Carbon::setTestNow('2026-10-20 11:00:00');
+        $this->artisan('app:cron-job')->assertExitCode(0);
+        $this->assertSame([], $this->created);
+    }
+
+    public function test_a_registration_priced_at_zero_is_not_ordered(): void
+    {
+        // Code review 9: only a transfer may be free (D-6).
+        DomainTldPrice::query()->where('operation', 'register')->update(['price' => '0.00']);
+        Livewire::test(Search::class)->call('add', 'mybusiness.com');
+        session([CurrentClient::SESSION_KEY => $this->user->client()->id]);
+        Livewire::withCookie('cart', (string) \App\Models\Cart::query()->latest('id')->value('ulid'))->actingAs($this->user)->test(Cart::class)
+            ->call('checkout')->assertNoRedirect();
+        $this->assertSame(0, Domain::query()->count());
+    }
+
+    public function test_a_free_transfer_is_sent_at_once_and_marked_free(): void
+    {
+        DomainTldPrice::query()->where('operation', 'transfer')->update(['price' => '0.00']);
+        $this->status = 'REQ';
+        config(['settings.domain_default_nameservers' => "ns1.nixpal.com\nns2.nixpal.com"]);
+        $domain = $this->order('transfer', 'nixpal.com', ['epp.{item}' => 'Code-1']);
+
+        $this->assertTrue($domain->meta['free_order'] ?? false);
+        $this->assertSame(0, InvoiceItem::query()->count());
+        $this->runJobs();
+        $this->assertCount(1, $this->created);
+    }
+
+    public function test_cancelled_while_the_registrar_is_asked_goes_to_staff_without_the_mail(): void
+    {
+        // Code review 2: staff Cancel & Refund while the job is calling the registrar.
+        $domain = $this->order('add', 'mybusiness.com');
+        $this->pay($domain);
+        $this->during = fn () => Domain::query()->whereKey($domain->id)->update(['status' => DomainStatus::Cancelled->value]);
+        $this->runJobs();
+
+        $this->assertCount(1, $this->created);
+        $action = ModuleAction::query()->sole();
+        $this->assertSame(__('domains.order.sent_after_cancel', ['domain' => 'mybusiness.com']), $action->last_error);
+        $this->assertNull(InvoiceItem::query()->where('reference_id', $domain->id)->value('applied_at'));
+        $this->assertNotNull($domain->fresh()->meta['sent_at'] ?? null, 'never sent again');
+        $this->assertNotContains('domain_registered', MailFacade::queued(Mail::class)->map(fn (Mail $mail) => $mail->templateKey)->all());
+    }
+
+    public function test_close_stops_it_and_not_done_there_lets_staff_retry(): void
+    {
+        $this->mode = 'refuse';
+        $domain = $this->order('add', 'mybusiness.com');
+        $this->pay($domain);
+        $this->runJobs();
+        $this->mode = null;
+
+        // «Not done there» keeps it open; Retry sends.
+        $action = ModuleAction::query()->sole();
+        $action->markNotDone(null);
+        $this->assertSame(ModuleAction::STATUS_OPEN, $action->fresh()->status);
+
+        // Close instead: on hold, the cron never sends it (code review 3).
+        $action->fresh()->closeUnrenewed(null);
+        Carbon::setTestNow('2026-10-20 11:00:00');
+        $this->artisan('app:cron-job')->assertExitCode(0);
+        $this->assertSame([], $this->created);
+        $this->assertSame(DomainOrderFulfilment::DONE, app(DomainOrderFulfilment::class)->fulfil($domain->id));
+    }
+
+    public function test_an_unconfirmed_free_transfer_is_not_cancelled_as_unpaid(): void
+    {
+        // Code review 4: a free transfer whose call had no answer may be done at the registrar.
+        DomainTldPrice::query()->where('operation', 'transfer')->update(['price' => '0.00']);
+        config(['settings.domain_default_nameservers' => "ns1.nixpal.com\nns2.nixpal.com", 'settings.cronjob_order_cancel' => 7]);
+        $this->mode = 'down';
+        $domain = $this->order('transfer', 'nixpal.com', ['epp.{item}' => 'Code-1']);
+        $this->runJobs();
+
+        Carbon::setTestNow('2026-10-30 10:00:00');
+        $this->artisan('app:cron-job')->assertExitCode(0);
+        $this->assertSame(DomainStatus::PendingTransfer, $domain->fresh()->status);
+    }
+
+    public function test_done_by_hand_without_a_registrar_api_makes_it_active_for_its_years(): void
+    {
+        // Code review 5: nothing would sync it.
+        $domain = $this->order('add', 'mybusiness.com');
+        DomainRegistrarConnection::query()->update(['is_active' => false]);
+        $this->pay($domain);
+        $this->runJobs();
+
+        ModuleAction::query()->sole()->markResolved(null);
+        $domain->refresh();
+        $this->assertSame([DomainStatus::Active, '2027-10-20'], [$domain->status, $domain->expires_at?->toDateString()]);
+        $this->assertSame(Order::STATUS_ACTIVE, Order::query()->sole()->status);
+    }
+
+    public function test_a_transfer_code_is_cleared_30_days_after_the_order_once_not_pending(): void
+    {
+        $this->status = 'REQ';
+        $domain = $this->order('transfer', 'nixpal.com', ['epp.{item}' => 'Code-1']);
+        Carbon::setTestNow('2026-11-25 10:00:00');
+        $this->artisan('app:cron-job')->assertExitCode(0);
+        $this->assertSame('Code-1', $domain->fresh()->epp_code, 'still pending: kept');
+
+        Domain::query()->whereKey($domain->id)->update(['status' => DomainStatus::Active->value]);
+        $this->artisan('app:cron-job')->assertExitCode(0);
+        $this->assertNull($domain->fresh()->epp_code);
     }
 
     public function test_an_unpaid_or_cancelled_order_is_never_sent(): void

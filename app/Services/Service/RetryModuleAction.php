@@ -34,7 +34,7 @@ final class RetryModuleAction
             $outcome = app(DomainOrderFulfilment::class)->fulfil((int) $action->domain_id);
             $action->refresh();
 
-            return $outcome === DomainOrderFulfilment::SENT || $action->attempts > $attempts;
+            return $outcome === DomainOrderFulfilment::SENT || ($outcome === DomainOrderFulfilment::STAFF && $action->attempts > $attempts);
         }
         $service = $action->service;
         $job = match ($action->action) {

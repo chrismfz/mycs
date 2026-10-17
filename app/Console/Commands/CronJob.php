@@ -13,6 +13,7 @@ use App\Jobs\Server\TerminateJob;
 use App\Models\CronStat;
 use App\Models\DebugLog;
 use App\Models\Domain;
+use App\Models\DomainRegistrarLog;
 use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
@@ -21,6 +22,7 @@ use App\Models\McpOauthClient;
 use App\Models\McpOauthCode;
 use App\Models\McpOauthGrant;
 use App\Models\McpProposal;
+use App\Models\ModuleAction;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Models\Setting;
@@ -207,6 +209,12 @@ class CronJob extends Command
 
                 return $number;
             }, transaction: false);
+
+            // A transfer's EPP code (owner 2026-10-17): kept for staff while it may matter, cleared once the transfer is no
+            // longer pending (completed, refused, cancelled) and it was ordered 30 days ago or more.
+            $this->runCronJob('domain_epp_codes_cleared', fn () => Domain::query()->whereNotNull('epp_code')
+                ->where('status', '!=', DomainStatus::PendingTransfer->value)->where('created_at', '<', now()->subDays(30))
+                ->update(['epp_code' => null, 'updated_at' => now()]));
 
             // Credit pays what is open, oldest due first, before new renewals take it and before anything is suspended
             // (decision 5, MT-1e): a customer with credit is not suspended while it sits unused. Each invoice in its own
@@ -595,7 +603,12 @@ class CronJob extends Command
             ->where(fn ($q) => $q->whereHas('invoiceItems', fn ($line) => $own($line)->whereHas('invoice', fn ($i) => $i->whereIn('status', [...Invoice::OPEN_STATUSES, Invoice::STATUS_CANCELLED])))
                 ->orWhereDoesntHave('invoiceItems', $own))
             ->whereDoesntHave('invoiceItems', fn ($line) => $own($line)->whereHas('invoice', fn ($i) => $i->where('status', Invoice::STATUS_PAID)))
-            ->whereDoesntHave('invoiceItems', fn ($line) => $own($line)->whereHas('invoice', fn ($i) => $this->withRealMoney($i)));
+            ->whereDoesntHave('invoiceItems', fn ($line) => $own($line)->whereHas('invoice', fn ($i) => $this->withRealMoney($i)))
+            // Not one with staff, nor with a charge at its registrar not confirmed (it may be done there): code review 4.
+            ->whereDoesntHave('registrarLogs', fn ($log) => $log->whereIn('action', ['register', 'transfer'])->where('status', DomainRegistrarLog::STATUS_PENDING))
+            ->whereNotExists(fn ($q) => $q->from('module_actions')->whereColumn('module_actions.domain_id', 'domains.id')
+                ->where('module_actions.status', ModuleAction::STATUS_OPEN)
+                ->whereIn('module_actions.action', [ModuleAction::DOMAIN_REGISTER, ModuleAction::DOMAIN_TRANSFER]));
     }
 
     /**

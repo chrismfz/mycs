@@ -2,11 +2,13 @@
 
 namespace App\Models;
 
+use App\Enums\DomainStatus;
 use App\Helpers\ExtensionHelper;
 use App\Services\Domains\DomainRenewalService;
 use App\Support\Redact;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Throwable;
@@ -121,6 +123,11 @@ class ModuleAction extends Model
         }
         // Its own charges: a renewal's (renew, restore), an order's (register, transfer: D8b-2).
         $actions = $this->action === self::DOMAIN_RENEW ? ['renew', 'restore'] : ['register', 'transfer'];
+        // An order closed is not sent again on its own (code review 3): on hold until staff cancel or refund its order,
+        // or mark it «Not done there» first to retry.
+        if ($this->action !== self::DOMAIN_RENEW && ($domain = Domain::query()->find($this->domain_id)) !== null) {
+            $domain->forceFill(['meta' => ['on_hold' => now()->toIso8601String()] + ($domain->meta ?? [])])->save();
+        }
         DomainRegistrarLog::query()->where('domain_id', $this->domain_id)->where('status', DomainRegistrarLog::STATUS_PENDING)
             ->whereIn('action', $actions)->update(['status' => DomainRegistrarLog::STATUS_FAILED,
                 'error' => 'Checked by staff at the registrar: not done.', 'staff_id' => $staff?->id, 'updated_at' => now()]);
@@ -189,6 +196,21 @@ class ModuleAction extends Model
     }
 
     /**
+     * A domain ordered, checked at its registrar and not done there (D8b-2): its unconfirmed charges settled as failed,
+     * the row left open so staff can Retry (code review 3: Close ends it instead).
+     */
+    public function markNotDone(?Staff $staff): void
+    {
+        if (!in_array($this->action, [self::DOMAIN_REGISTER, self::DOMAIN_TRANSFER], true) || $this->status !== self::STATUS_OPEN) {
+            return;
+        }
+        DomainRegistrarLog::query()->where('domain_id', $this->domain_id)->where('status', DomainRegistrarLog::STATUS_PENDING)
+            ->whereIn('action', ['register', 'transfer'])->update(['status' => DomainRegistrarLog::STATUS_FAILED,
+                'error' => 'Checked by staff: not done at the registrar.', 'staff_id' => $staff?->id, 'updated_at' => now()]);
+        $this->forceFill(['last_error' => 'Checked: not done at the registrar. Retry to send it.'])->save();
+    }
+
+    /**
      * Staff close it: the account was fixed by hand, or it no longer matters. A create resolved means the account
      * exists: a pending service starts, or it would stay pending, listed nowhere and never billed (review R3).
      */
@@ -209,14 +231,27 @@ class ModuleAction extends Model
             return;
         }
         // A domain ordered (D8b-2): «done by hand» (registered or its transfer started at the registrar by staff): it is
-        // sent (the sync takes it on from here) and its line applied; its unconfirmed charges count as done.
+        // sent and its line applied; its unconfirmed charges count as done. With a registrar API the sync takes it on;
+        // without one nothing would (code review 5): a registration is Active for its years, a transfer Active (its
+        // expiry for staff to set, listed under «Records to check»). Under the domain's registrar lock (code review 10).
         if (in_array($this->action, [self::DOMAIN_REGISTER, self::DOMAIN_TRANSFER], true)) {
-            DB::transaction(function () use ($staff) {
+            Cache::lock("domain-registrar:{$this->domain_id}", 600)->block(15, fn () => DB::transaction(function () use ($staff) {
                 $domain = Domain::query()->lockForUpdate()->find($this->domain_id);
                 if ($domain !== null) {
                     $meta = $domain->meta ?? [];
                     $meta['sent_at'] ??= now()->toIso8601String();
-                    $domain->forceFill(['meta' => $meta])->save();
+                    unset($meta['on_hold']);
+                    $updates = ['meta' => $meta];
+                    $connection = $domain->effectiveRegistrarConnection();
+                    $api = $connection instanceof DomainRegistrarConnection && $connection->isUsable();
+                    if (!$api && $domain->status === DomainStatus::PendingRegister) {
+                        $updates += ['status' => DomainStatus::Active, 'registered_at' => now()->toDateString(),
+                            'expires_at' => now()->addYears(max(1, (int) $domain->years))->toDateString()];
+                    } elseif (!$api && $domain->status === DomainStatus::PendingTransfer) {
+                        $updates += ['status' => DomainStatus::Active, 'transferred_at' => now()->toDateString()];
+                    }
+                    $domain->forceFill($updates)->save();
+                    DB::afterCommit(fn () => $domain->order?->refreshStatus());
                 }
                 $this->invoiceItem?->forceFill(['applied_at' => $this->invoiceItem->applied_at ?? now()])->saveQuietly();
                 DomainRegistrarLog::query()->where('domain_id', $this->domain_id)->where('status', DomainRegistrarLog::STATUS_PENDING)
@@ -224,7 +259,7 @@ class ModuleAction extends Model
                         'error' => 'Done by staff at the registrar.', 'staff_id' => $staff?->id, 'updated_at' => now()]);
                 $this->forceFill(['status' => self::STATUS_RESOLVED, 'resolved_at' => now(), 'resolution' => 'done by hand',
                     'resolved_by_staff_id' => $staff?->id])->save();
-            });
+            }));
 
             return;
         }

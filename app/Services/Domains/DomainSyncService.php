@@ -276,6 +276,11 @@ class DomainSyncService
             }
             $this->bookkeep($domain, $warning);
         });
+        // An ordered domain out of pending (a transfer completed, a registration synced late): its order follows (code
+        // review 6 of #180).
+        if (isset($changes['status']) && $domain->order_id !== null && in_array(DomainStatus::tryFrom((string) $changes['status'][0]), self::PENDING, true)) {
+            $domain->order?->refreshStatus();
+        }
     }
 
     /** When it was read and what went wrong: bookkeeping, not a change of the domain (no audit, no updated_at). */

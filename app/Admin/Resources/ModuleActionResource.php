@@ -124,10 +124,22 @@ class ModuleActionResource extends Resource
                     ->action(function (ModuleAction $record) {
                         $outcome = app(DomainOrderFulfilment::class)->fulfil((int) $record->domain_id);
                         $record->refresh();
-                        $outcome === DomainOrderFulfilment::SENT
-                            ? Notification::make()->success()->title('Sent to the registrar')->send()
-                            : Notification::make()->warning()->title('Not sent')->body((string) $record->last_error)->send();
+                        // Each outcome said as it is (code review 8).
+                        match ($outcome) {
+                            DomainOrderFulfilment::SENT => Notification::make()->success()->title('Sent to the registrar')->send(),
+                            DomainOrderFulfilment::WAITING => Notification::make()->warning()->title('Not paid')->body('Its invoice is not paid (or its line is gone): nothing sent.')->send(),
+                            DomainOrderFulfilment::DONE => Notification::make()->warning()->title('Nothing to send')->body('Already sent, on hold, or no longer pending (cancelled): close this action.')->send(),
+                            DomainOrderFulfilment::BUSY => Notification::make()->warning()->title('Busy')->body('Another change to this domain is under way: try again in a minute.')->send(),
+                            default => Notification::make()->danger()->title('Not sent')->body((string) $record->last_error)->send(),
+                        };
                     }),
+                Action::make('notDone')->label('Not done there')->icon('ri-arrow-go-back-line')->color('gray')
+                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN
+                        && in_array($record->action, [ModuleAction::DOMAIN_REGISTER, ModuleAction::DOMAIN_TRANSFER], true))
+                    ->authorize('update')
+                    ->requiresConfirmation()
+                    ->modalDescription('Checked at the registrar: it was not registered (or its transfer not started). Its unconfirmed request is settled as failed, so Retry can send it.')
+                    ->action(fn (ModuleAction $record) => $record->markNotDone(self::staff())),
                 Action::make('retryDomain')->label('Retry')->icon('ri-loop-right-line')
                     ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && $record->action === ModuleAction::DOMAIN_RENEW)
                     ->authorize('update')
@@ -165,12 +177,14 @@ class ModuleActionResource extends Resource
                             Notification::make()->danger()->title('Not applied')->body($e->getMessage())->send();
                         }
                     }),
-                Action::make('close')->label(fn (ModuleAction $record) => $record->action === ModuleAction::DOMAIN_RENEW ? 'Close (not renewed)' : 'Close (not done)')
+                Action::make('close')->label(fn (ModuleAction $record) => $record->action === ModuleAction::DOMAIN_RENEW ? 'Close (not renewed)' : 'Close (stop it)')
                     ->icon('ri-close-line')->color('gray')
                     ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && in_array($record->action, ModuleAction::DOMAIN_ACTIONS, true))
                     ->authorize('update')
                     ->requiresConfirmation()
-                    ->modalDescription('Closes it without renewing (refunded, the domain ended, or checked at the registrar: an unconfirmed charge was not done, so a later Retry may charge).')
+                    ->modalDescription(fn (ModuleAction $record) => $record->action === ModuleAction::DOMAIN_RENEW
+                        ? 'Closes it without renewing (refunded, the domain ended, or checked at the registrar: an unconfirmed charge was not done, so a later Retry may charge).'
+                        : 'Stops it: never sent to the registrar on its own again (on hold). Cancel or refund its order separately. To send it again instead, use «Not done there», then Retry.')
                     ->action(fn (ModuleAction $record) => $record->closeUnrenewed(self::staff())),
             ])
             ->toolbarActions([

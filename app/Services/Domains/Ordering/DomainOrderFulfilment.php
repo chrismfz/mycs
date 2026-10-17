@@ -14,6 +14,7 @@ use App\Services\Domains\DomainManagementService;
 use App\Services\Domains\DomainRegistrarFactory;
 use App\Services\Domains\DomainSyncService;
 use App\Services\Domains\Lookup\DomainLookup;
+use App\Services\Domains\RegistrarNotAsked;
 use App\Services\Domains\RegistrarRefused;
 use App\Support\Redact;
 use Illuminate\Database\Eloquent\Builder;
@@ -67,12 +68,37 @@ class DomainOrderFulfilment
 
         return Domain::query()->whereIn('status', [DomainStatus::PendingRegister->value, DomainStatus::PendingTransfer->value])
             ->whereNotNull('order_id')->where(fn ($q) => $q->whereNull('meta')->orWhereNull('meta->sent_at'))
+            ->where(fn ($q) => $q->whereNull('meta')->orWhereNull('meta->on_hold'))
             ->where(fn ($q) => $q->whereHas('invoiceItems', fn ($line) => $own($line)->whereNull('applied_at')
                 ->whereHas('invoice', fn ($i) => $i->where('status', Invoice::STATUS_PAID)))
-                ->orWhereDoesntHave('invoiceItems', $own))
+                // Free only as recorded when it was ordered (a free transfer, D-6), never from a line gone (code review 1).
+                ->orWhere(fn ($free) => $free->where('status', DomainStatus::PendingTransfer->value)->where('meta->free_order', true)
+                    ->whereDoesntHave('invoiceItems', $own)))
             ->whereNotExists(fn ($q) => $q->from('module_actions')->whereColumn('module_actions.domain_id', 'domains.id')
                 ->where('module_actions.status', ModuleAction::STATUS_OPEN)
                 ->whereIn('module_actions.action', [ModuleAction::DOMAIN_REGISTER, ModuleAction::DOMAIN_TRANSFER]));
+    }
+
+    /**
+     * Paid: its own line on a paid invoice, or a free transfer as recorded when ordered (meta.free_order) with no line.
+     * A line removed, or only on a cancelled invoice, is not «free» (code review 1).
+     */
+    public static function paid(Domain $domain, ?InvoiceItem $line): bool
+    {
+        if ($line !== null) {
+            return $line->invoice?->status === Invoice::STATUS_PAID;
+        }
+
+        return $domain->status === DomainStatus::PendingTransfer && ($domain->meta['free_order'] ?? false) === true
+            && !$domain->invoiceItems()->whereIn('kind', [InvoiceItem::KIND_REGISTER, InvoiceItem::KIND_TRANSFER])->exists();
+    }
+
+    /** Still to send: ordered, pending, never sent, not put on hold by staff (Close). */
+    private static function open(?Domain $domain): bool
+    {
+        return $domain !== null && $domain->order_id !== null
+            && in_array($domain->status, [DomainStatus::PendingRegister, DomainStatus::PendingTransfer], true)
+            && empty($domain->meta['sent_at']) && empty($domain->meta['on_hold']);
     }
 
     public function fulfil(int $domainId): string
@@ -91,12 +117,11 @@ class DomainOrderFulfilment
     private function fulfilLocked(int $domainId): string
     {
         $domain = Domain::query()->with(['nameservers', 'domainTld.registrarConnection', 'registrarConnection', 'order'])->find($domainId);
-        if ($domain === null || !in_array($domain->status, [DomainStatus::PendingRegister, DomainStatus::PendingTransfer], true)
-            || !empty($domain->meta['sent_at']) || $domain->order_id === null) {
+        if (!self::open($domain)) {
             return self::DONE;
         }
         $line = self::lineOf($domain);
-        if ($line !== null && $line->invoice?->status !== Invoice::STATUS_PAID) {
+        if (!self::paid($domain, $line)) {
             return self::WAITING;
         }
         $register = $domain->status === DomainStatus::PendingRegister;
@@ -114,44 +139,78 @@ class DomainOrderFulfilment
 
             return self::STAFF;
         }
-        // At least two nameservers (D-16), else staff set them first (no defaults configured, the registry's unknown).
-        if (!$this->nameservers($domain, $register)) {
-            ModuleAction::domainFailed($domain, $line, $connection->registrar, new RuntimeException(__('domains.order.no_nameservers', ['domain' => $domain->fqdn])), $action);
+        // Its nameservers (D-16), else staff set them first: no defaults configured, or a transfer's not readable.
+        if (($problem = $this->nameservers($domain, $register)) !== null) {
+            ModuleAction::domainFailed($domain, $line, $connection->registrar, new RuntimeException(__("domains.order.{$problem}", ['domain' => $domain->fqdn])), $action);
 
             return self::STAFF;
+        }
+
+        // The registrar's client before the log (code review 7): a local failure here charged nothing, so no pending log.
+        try {
+            $registrar = $this->registrars->for($connection);
+            $credentials = $this->registrars->credentialsFor($connection);
+        } catch (Throwable $e) {
+            report($e);
+            ModuleAction::domainFailed($domain, $line, $connection->registrar, $e, $action);
+
+            return self::STAFF;
+        }
+        // Again after the slow lookups (RDAP): cancelled, refunded or sent meanwhile is not sent (code review 2).
+        $domain->refresh();
+        $line = self::lineOf($domain);
+        if (!self::open($domain)) {
+            return self::DONE;
+        }
+        if (!self::paid($domain, $line)) {
+            return self::WAITING;
         }
 
         $log = DomainRegistrarLog::query()->create(['domain_id' => $domain->id, 'registrar_connection_id' => $connection->id,
             'action' => $register ? 'register' : 'transfer', 'status' => DomainRegistrarLog::STATUS_PENDING, 'invoice_id' => $line?->invoice_id,
             'request' => ['years' => $domain->years, 'nameservers' => $domain->nameservers->pluck('host')->all(), 'line' => $line?->id]]);
         try {
-            $registrar = $this->registrars->for($connection);
-            $credentials = $this->registrars->credentialsFor($connection);
             $result = $register ? $registrar->register($domain, max(1, (int) $domain->years), $credentials)
                 : $registrar->transferIn($domain, (string) $domain->epp_code, $credentials);
-        } catch (RegistrarRefused $e) {
-            // Refused (4xx): nothing done at the registrar. Staff decide (a wrong EPP code, a contact refused).
-            $log->update(['status' => DomainRegistrarLog::STATUS_FAILED, 'error' => mb_substr(Redact::text($e->getMessage()), 0, 2000)]);
-            ModuleAction::domainFailed($domain, $line, $connection->registrar, $e, $action);
+        } catch (RegistrarRefused|RegistrarNotAsked $e) {
+            // Refused (4xx), or failed before it was asked (nameservers, glue, contacts: ADV-6): nothing done at the
+            // registrar. Staff decide (a wrong EPP code, a contact refused, a nameserver to fix).
+            $clean = $this->clean($domain, $e);
+            $log->update(['status' => DomainRegistrarLog::STATUS_FAILED, 'error' => mb_substr($clean->getMessage(), 0, 2000)]);
+            ModuleAction::domainFailed($domain, $line, $connection->registrar, $clean, $action);
 
             return self::STAFF;
         } catch (Throwable $e) {
             // No answer (5xx, timeout): it may have been done. Pending, never sent again until staff check (D-17).
-            $log->update(['error' => mb_substr(Redact::text($e->getMessage()), 0, 2000)]);
-            report($e);
-            ModuleAction::domainFailed($domain, $line, $connection->registrar, $e, $action);
+            $clean = $this->clean($domain, $e);
+            $log->update(['error' => mb_substr($clean->getMessage(), 0, 2000)]);
+            report($clean);
+            ModuleAction::domainFailed($domain, $line, $connection->registrar, $clean, $action);
 
             return self::STAFF;
         }
 
-        DB::transaction(function () use ($domain, $line, $log, $result, $action) {
+        $ordered = DB::transaction(function () use ($domain, $line, $log, $result, $action, $connection) {
             $log->update(['status' => DomainRegistrarLog::STATUS_OK, 'response' => ['status' => $result->rawStatus, 'id' => $result->registrarDomainId]]);
-            $meta = $domain->meta ?? [];
+            $fresh = Domain::query()->lockForUpdate()->findOrFail($domain->id);
+            $meta = $fresh->meta ?? [];
             $meta['sent_at'] = now()->toIso8601String();
-            $domain->forceFill(['meta' => $meta, 'registrar_domain_id' => $result->registrarDomainId ?? $domain->registrar_domain_id])->save();
-            $line?->forceFill(['applied_at' => now()])->saveQuietly();
-            ModuleAction::domainSucceeded($domain, $line, $action);
+            // Cancelled or refunded while the registrar was asked (code review 2): done there all the same; staff decide.
+            $line = $line?->fresh(['invoice']);
+            $ordered = in_array($fresh->status, [DomainStatus::PendingRegister, DomainStatus::PendingTransfer], true) && self::paid($fresh, $line);
+            $fresh->forceFill(['meta' => $meta, 'registrar_domain_id' => $result->registrarDomainId ?? $fresh->registrar_domain_id])->save();
+            if ($ordered) {
+                $line?->forceFill(['applied_at' => now()])->saveQuietly();
+                ModuleAction::domainSucceeded($fresh, $line, $action);
+            } else {
+                ModuleAction::domainFailed($fresh, $line, $connection->registrar, new RuntimeException(__('domains.order.sent_after_cancel', ['domain' => $fresh->fqdn])), $action);
+            }
+
+            return $ordered;
         });
+        if (!$ordered) {
+            return self::STAFF;
+        }
         // Its registrar's truth now (a registration: Active with its expiry); a sync that fails is retried every 4 hours.
         try {
             $this->sync->sync($domain->refresh(), lock: false); // under our lock already
@@ -179,27 +238,52 @@ class DomainOrderFulfilment
         }
     }
 
-    /**
-     * Its nameservers before the call (D-16: always sent): a registration the company's (domain_default_nameservers); a
-     * transfer those the registry has now (owner 2026-10-17: it keeps working while it moves), else the company's.
-     */
-    private function nameservers(Domain $domain, bool $register): bool
+    /** Its message without secrets, the domain's EPP code included (adversarial ADV-7: a refusal may repeat it). */
+    private function clean(Domain $domain, Throwable $e): RuntimeException
     {
-        if ($domain->nameservers->count() >= 2) {
-            return true;
+        $code = trim((string) $domain->epp_code);
+        $message = Redact::text($e->getMessage());
+        if ($code !== '') {
+            $message = str_replace($code, Redact::MASK, $message);
         }
-        $hosts = [];
-        if (!$register) {
-            $record = $this->lookup->whois($domain->fqdn)['record'] ?? null;
-            $hosts = array_values(array_filter((array) ($record->nameservers ?? []), 'is_string'));
+
+        return new RuntimeException($message);
+    }
+
+    /**
+     * Its nameservers before the call (D-16: always sent), or the problem (a domains.order key) for staff:
+     * - a registration: the company's (domain_default_nameservers, at least two), else «no_nameservers»;
+     * - a transfer: those the registry has now (owner 2026-10-17: it keeps working while it moves), even one; never the
+     *   company's in their place when the registry could not be read (adversarial ADV-4: its DNS would move to us), only
+     *   when the registry shows none at all.
+     */
+    private function nameservers(Domain $domain, bool $register): ?string
+    {
+        if ($domain->nameservers->count() >= ($register ? 2 : 1)) {
+            return null;
         }
-        $hosts = array_values(array_filter(array_unique(array_map('mb_strtolower', $hosts)),
-            fn ($h) => preg_match(DomainManagementService::HOST, $h) === 1));
-        if (count($hosts) < 2) {
+        if ($register) {
             $hosts = self::defaultNameservers();
-        }
-        if (count($hosts) < 2) {
-            return false;
+            if (count($hosts) < 2) {
+                return 'no_nameservers';
+            }
+        } else {
+            $answer = $this->lookup->whois($domain->fqdn);
+            $record = $answer['status'] === 'found' ? $answer['record'] : null;
+            if ($record === null) {
+                return 'ns_unknown'; // not readable (RDAP down, port 43 text only, a TLD without either)
+            }
+            $hosts = array_values(array_filter(array_unique(array_map('mb_strtolower', array_filter((array) $record->nameservers, 'is_string'))),
+                fn ($h) => preg_match(DomainManagementService::HOST, $h) === 1));
+            if ($hosts === [] && (array) $record->nameservers !== []) {
+                return 'ns_unknown'; // listed, none usable
+            }
+            if ($hosts === []) {
+                $hosts = self::defaultNameservers(); // no delegation to keep
+                if (count($hosts) < 2) {
+                    return 'no_nameservers';
+                }
+            }
         }
         $domain->nameservers()->delete();
         foreach (array_slice($hosts, 0, 13) as $i => $host) {
@@ -207,7 +291,7 @@ class DomainOrderFulfilment
         }
         $domain->load('nameservers');
 
-        return true;
+        return null;
     }
 
     /** @return list<string> the company's nameservers for new domains (domain_default_nameservers, one per line) */
@@ -216,12 +300,5 @@ class DomainOrderFulfilment
         $hosts = preg_split('/[\s,]+/', trim((string) config('settings.domain_default_nameservers', ''))) ?: [];
 
         return array_values(array_unique(array_filter(array_map('mb_strtolower', $hosts), fn ($h) => preg_match(DomainManagementService::HOST, $h) === 1)));
-    }
-
-    /** The domains a paid invoice orders (ProcessPaidInvoiceService): sent after commit, one job each. */
-    public static function forInvoice(Invoice $invoice): array
-    {
-        return $invoice->items()->where('reference_type', Domain::class)->whereIn('kind', [InvoiceItem::KIND_REGISTER, InvoiceItem::KIND_TRANSFER])
-            ->whereNull('applied_at')->pluck('reference_id')->map(fn ($id) => (int) $id)->all();
     }
 }

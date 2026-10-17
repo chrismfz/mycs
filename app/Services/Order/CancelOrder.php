@@ -8,12 +8,14 @@ use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Jobs\Server\TerminateJob;
 use App\Models\Domain;
+use App\Models\DomainRegistrarLog;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\Order;
 use App\Models\Service;
 use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -45,11 +47,66 @@ final class CancelOrder
         }
         $reason = __('invoices.cancellation_reasons.order_cancelled');
 
-        [$services, $domains] = DB::transaction(function () use ($order, $terminate, $fraud) {
+        // Its pending domains under their registrar locks (adversarial ADV-2/2b of #180): one being sent now, or sent
+        // already (a transfer stays pending for days), or with a charge not confirmed, is done (or may be) at the
+        // registrar at our cost: kept for staff, never cancelled and refunded here.
+        $locks = [];
+        $kept = [];
+        foreach (Domain::query()->where('order_id', $order->id)->whereIn('status', [DomainStatus::PendingRegister->value, DomainStatus::PendingTransfer->value])->get() as $domain) {
+            $lock = Cache::lock("domain-registrar:{$domain->id}", 60);
+            $sent = !empty($domain->meta['sent_at']) || $domain->registrarLogs()->whereIn('action', ['register', 'transfer'])
+                ->whereIn('status', [DomainRegistrarLog::STATUS_PENDING, DomainRegistrarLog::STATUS_OK])->exists();
+            if ($sent || !$lock->get()) {
+                $kept[$domain->id] = $domain->fqdn;
+
+                continue;
+            }
+            $locks[] = $lock;
+        }
+        try {
+            [$services, $domains] = self::cancel($order, $terminate, $fraud, array_keys($kept));
+        } finally {
+            foreach ($locks as $lock) {
+                $lock->release();
+            }
+        }
+        $left = [];
+        foreach ($kept as $id => $fqdn) {
+            $left["domain #{$id}"] = new DisplayException("{$fqdn} was sent to its registrar (or is being sent): not cancelled. Decide by hand (keep it, or delete it at the registrar).");
+        }
+
+        // The refund first: an open invoice paid in part holds money CancelOpenInvoices would leave open. Not with a
+        // domain kept: what it paid is spent at the registrar (refund its part by hand).
+        if ($refund !== null && $kept !== []) {
+            $left['refund'] = new DisplayException('Not refunded: a domain of this order was sent to its registrar. Refund by hand what is due.');
+        } elseif ($refund !== null) {
+            $left += self::refund($order, $refund);
+        }
+        foreach ($services as $service) {
+            $left += CancelOpenInvoices::handle($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), $reason, $service);
+            $left += CancelPendingUpgrades::forService($service, $reason);
+        }
+        foreach ($domains as $domain) {
+            $open = Invoice::query()->whereIn('status', Invoice::OPEN_STATUSES)
+                ->whereHas('items', fn ($line) => $line->where('reference_type', Domain::class)->where('reference_id', $domain->id))->get();
+            $left += CancelOpenInvoices::handle($open, $reason, $domain);
+        }
+
+        return $left;
+    }
+
+    /**
+     * @param  list<int>  $kept  its domains not to cancel (sent to their registrar)
+     * @return array{0: list<Service>, 1: list<Domain>}
+     */
+    private static function cancel(Order $order, bool $terminate, bool $fraud, array $kept): array
+    {
+        return DB::transaction(function () use ($order, $terminate, $fraud, $kept) {
             $live = Service::query()->where('order_id', $order->id)->orderBy('id')->lockForUpdate()->get();
             // Its domains not registered or transferred yet (D8b, code review H2): cancelled with it, the name free again.
-            $pending = Domain::query()->where('order_id', $order->id)->orderBy('id')
-                ->whereIn('status', [DomainStatus::PendingRegister->value, DomainStatus::PendingTransfer->value])->lockForUpdate()->get();
+            $pending = Domain::query()->where('order_id', $order->id)->orderBy('id')->whereNotIn('id', $kept ?: [0])
+                ->whereIn('status', [DomainStatus::PendingRegister->value, DomainStatus::PendingTransfer->value])->lockForUpdate()->get()
+                ->reject(fn (Domain $domain) => !empty($domain->meta['sent_at'])); // sent meanwhile
             $locked = Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
             $locked->forceFill(['status' => $fraud ? Order::STATUS_FRAUD : Order::STATUS_CANCELLED])->save();
             $order->setRawAttributes($locked->getAttributes(), true);
@@ -73,22 +130,8 @@ final class CancelOrder
                 $domain->update(['status' => DomainStatus::Cancelled]);
             }
 
-            return [$ended, $pending->all()];
+            return [$ended, $pending->values()->all()];
         });
-
-        // The refund first: an open invoice paid in part holds money CancelOpenInvoices would leave open.
-        $left = $refund === null ? [] : self::refund($order, $refund);
-        foreach ($services as $service) {
-            $left += CancelOpenInvoices::handle($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), $reason, $service);
-            $left += CancelPendingUpgrades::forService($service, $reason);
-        }
-        foreach ($domains as $domain) {
-            $open = Invoice::query()->whereIn('status', Invoice::OPEN_STATUSES)
-                ->whereHas('items', fn ($line) => $line->where('reference_type', Domain::class)->where('reference_id', $domain->id))->get();
-            $left += CancelOpenInvoices::handle($open, $reason, $domain);
-        }
-
-        return $left;
     }
 
     /** @return array<string, Throwable> */

@@ -8,6 +8,7 @@ use App\Models\Domain;
 use App\Services\Domains\DomainNotFoundAtRegistrar;
 use App\Services\Domains\DomainRegistrarNotConfigured;
 use App\Services\Domains\Pricing\TldPriceMath;
+use App\Services\Domains\RegistrarNotAsked;
 use App\Services\Domains\RegistrarRefused;
 use App\Support\Domains\AvailabilityResult;
 use App\Support\Domains\DomainChanges;
@@ -25,6 +26,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
+use Throwable;
 
 /**
  * Openprovider REST adapter (docs/domains.md D2), from Ekdosi through the spike, with the three fixes of the live
@@ -91,7 +93,7 @@ class OpenproviderRegistrar implements DomainRegistrar
     {
         try {
             return $this->freshToken($credentials) !== null;
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return false;
         }
     }
@@ -220,7 +222,7 @@ class OpenproviderRegistrar implements DomainRegistrar
     public function register(Domain $domain, int $years, DomainRegistrarCredentials $credentials): DomainSyncResult
     {
         if ($years < 1) {
-            throw new RuntimeException('Μη έγκυρη διάρκεια καταχώρησης: ' . $years);
+            throw new RegistrarNotAsked('Μη έγκυρη διάρκεια καταχώρησης: ' . $years);
         }
 
         return $this->createDomainObject($domain, $credentials, '/v1beta/domains', ['period' => $years]);
@@ -236,7 +238,7 @@ class OpenproviderRegistrar implements DomainRegistrar
     public function transferIn(Domain $domain, string $authCode, DomainRegistrarCredentials $credentials): DomainSyncResult
     {
         if (trim($authCode) === '') {
-            throw new RuntimeException('Ο κωδικός EPP/auth είναι κενός — απαιτείται για τη μεταφορά.');
+            throw new RegistrarNotAsked('Ο κωδικός EPP/auth είναι κενός — απαιτείται για τη μεταφορά.');
         }
 
         return $this->createDomainObject($domain, $credentials, '/v1beta/domains/transfer', [
@@ -373,7 +375,7 @@ class OpenproviderRegistrar implements DomainRegistrar
     {
         try {
             $fresh = $this->request($credentials, 'GET', '/v1beta/domains/' . rawurlencode($id))->json('data');
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return new DomainSyncResult(registrarDomainId: $id);
         }
         if (!is_array($fresh)) {
@@ -393,34 +395,41 @@ class OpenproviderRegistrar implements DomainRegistrar
      */
     private function createDomainObject(Domain $domain, DomainRegistrarCredentials $credentials, string $path, array $extra): DomainSyncResult
     {
-        [$name, $extension] = $this->splitFqdn($domain->fqdn);
+        // All before the request itself: a failure here asked nothing of the registrar (adversarial ADV-6 of #180).
+        try {
+            [$name, $extension] = $this->splitFqdn($domain->fqdn);
 
-        // Nameservers are always sent, and checked before anything is created at the registrar: without them
-        // Openprovider puts its own and the sites go down (live finding; WHMCS hit it too).
-        $nameservers = $domain->nameservers->pluck('host')
-            ->map(fn ($h) => mb_strtolower(trim((string) $h)))
-            ->filter(fn ($h) => $h !== '')
-            ->map(fn ($h) => $this->nameserverEntry($h, $domain->fqdn))
-            ->values()
-            ->all();
-        if ($nameservers === []) {
-            throw new RuntimeException("{$domain->fqdn} has no nameservers: they are always sent explicitly, else Openprovider sets its own.");
+            // Nameservers are always sent, and checked before anything is created at the registrar: without them
+            // Openprovider puts its own and the sites go down (live finding; WHMCS hit it too).
+            $nameservers = $domain->nameservers->pluck('host')
+                ->map(fn ($h) => mb_strtolower(trim((string) $h)))
+                ->filter(fn ($h) => $h !== '')
+                ->map(fn ($h) => $this->nameserverEntry($h, $domain->fqdn))
+                ->values()
+                ->all();
+            if ($nameservers === []) {
+                throw new RuntimeException("{$domain->fqdn} has no nameservers: they are always sent explicitly, else Openprovider sets its own.");
+            }
+
+            $handles = $this->ensureHandles($domain, $credentials);
+            if (!isset($handles['registrant'])) {
+                throw new RuntimeException("{$domain->fqdn} has no registrant contact: the registrar needs one.");
+            }
+
+            $payload = array_merge([
+                'domain' => ['name' => $name, 'extension' => $extension],
+                'owner_handle' => $handles['registrant'],
+                'admin_handle' => $handles['admin'] ?? $handles['registrant'],
+                'tech_handle' => $handles['tech'] ?? $handles['registrant'],
+                'billing_handle' => $handles['billing'] ?? $handles['registrant'],
+                'autorenew' => 'off',
+                'name_servers' => $nameservers,
+            ], $extra);
+        } catch (RegistrarRefused|RegistrarNotAsked $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            throw new RegistrarNotAsked($e->getMessage(), 0, $e);
         }
-
-        $handles = $this->ensureHandles($domain, $credentials);
-        if (!isset($handles['registrant'])) {
-            throw new RuntimeException("{$domain->fqdn} has no registrant contact: the registrar needs one.");
-        }
-
-        $payload = array_merge([
-            'domain' => ['name' => $name, 'extension' => $extension],
-            'owner_handle' => $handles['registrant'],
-            'admin_handle' => $handles['admin'] ?? $handles['registrant'],
-            'tech_handle' => $handles['tech'] ?? $handles['registrant'],
-            'billing_handle' => $handles['billing'] ?? $handles['registrant'],
-            'autorenew' => 'off',
-            'name_servers' => $nameservers,
-        ], $extra);
 
         $data = $this->request($credentials, 'POST', $path, $payload)->json('data');
         $base = is_array($data) ? $this->syncResultFrom($data) : new DomainSyncResult;
