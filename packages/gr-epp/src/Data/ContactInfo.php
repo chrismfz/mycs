@@ -23,6 +23,9 @@ final readonly class ContactInfo
         public ?string $clientId,
         public ?DateTimeImmutable $created,
         public ?DateTimeImmutable $updated,
+        /** The disclose element's flag (1: these fields shown, 0: hidden); null: none given (the registry's policy). */
         public ?bool $disclosed,
+        /** @var list<string> the fields it names: name:loc, org:int, addr:loc, voice, fax, email (review 5 of #185) */
+        public array $disclosedFields = [],
     ) {}
 }

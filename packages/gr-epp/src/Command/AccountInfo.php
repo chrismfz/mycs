@@ -29,15 +29,17 @@ final class AccountInfo
         $data = Read::required($response, '//account:infData');
         $balance = $xpath->query('account:balance', $data)->item(0);
         $amount = $balance !== null ? trim($balance->textContent) : '';
-        if (preg_match('/^-?\d+(\.\d+)?$/', $amount) !== 1) {
+        // xs:decimal (+25, .5, 25.): normalised to «-?digits[.digits]» (review 9 of #185).
+        if (preg_match('/^([+-]?)(\d*)(?:\.(\d*))?$/', $amount, $m) !== 1 || ($m[2] === '' && ($m[3] ?? '') === '')) {
             throw new OutcomeUnknown("The registry gave a balance that is not an amount: {$amount}");
         }
+        $amount = ($m[1] === '-' ? '-' : '') . ($m[2] === '' ? '0' : $m[2]) . (($m[3] ?? '') !== '' ? '.' . $m[3] : '');
 
         return new Info(
             roid: (string) Read::text($xpath, 'account:roid', $data),
             balance: $amount,
             currency: $balance instanceof DOMElement ? $balance->getAttribute('currency') : '',
-            chargeableActionsAllowed: Read::text($xpath, 'account:caAllowed', $data) === 'true',
+            chargeableActionsAllowed: Read::bool(Read::text($xpath, 'account:caAllowed', $data)),
             paymentCode: Read::text($xpath, 'account:ddPaymentCode', $data),
             toBeSuspendedOn: Read::date($xpath, 'account:tbSuspendedOn', $data),
             suspendedOn: Read::date($xpath, 'account:suspendedOn', $data),

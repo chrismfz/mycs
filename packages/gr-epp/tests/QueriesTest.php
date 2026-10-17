@@ -166,6 +166,57 @@ final class QueriesTest extends TestCase
             $account->toBeSuspendedOn?->format('Y-m-d'), $account->suspendedOn]);
     }
 
+    public function test_review_fixes(): void
+    {
+        // 1: the registry's day, not shifted by a zone (Europe/Athens would make 23:59:59.9Z the next day).
+        $info = DomainInfo::parse(self::fixture('36-domain-info-response.xml'), 'FORTH.gr');
+        $this->assertSame(['2013-03-20', '2011-03-21'], [$info->expiresOn, $info->createdOn]);
+        $this->assertSame('2013-03-21', $info->expires?->setTimezone(new \DateTimeZone('Europe/Athens'))->format('Y-m-d'), 'why expiresOn exists');
+
+        // 2: available under restrictions (geographic terms, .gov.gr) is not «taken».
+        $gov = DomainCheck::parse(self::fixture('34-domain-check-gov.gr-response.xml'));
+        $this->assertSame([false, true], [$gov['forth.gr']->available, $gov['forth.gr']->restricted]);
+        $this->assertFalse($gov['forth.gov.gr']->restricted);
+
+        // 3: the registry's limits per check, before sending.
+        foreach ([fn () => DomainCheck::request(array_fill(0, 8, 'a.gr'), 'c'), fn () => ContactCheck::request(['a', 'b', 'c', 'd'], 'c'), fn () => HostCheck::request([], 'c')] as $tooMany) {
+            try {
+                $tooMany();
+                $this->fail('limit');
+            } catch (\InvalidArgumentException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+
+        // 4: xs:boolean «1»; 9: xs:decimal forms.
+        $account = AccountInfo::parse(Response::parse(str_replace(['<account:caAllowed>true', '>-25<'], ['<account:caAllowed>1', '>+.5<'],
+            (string) file_get_contents(__DIR__ . '/fixtures/v4.3/66-account-info-response.xml'))));
+        $this->assertSame([true, '0.5'], [$account->chargeableActionsAllowed, $account->balance]);
+
+        // 5: which fields are disclosed.
+        $contact = ContactInfo::parse(self::fixture('12-contact-info-response.xml'));
+        $this->assertSame(['name:int', 'name:loc', 'org:int', 'org:loc', 'addr:int', 'addr:loc', 'voice', 'fax', 'email'], $contact->disclosedFields);
+
+        // 6: an answer about another name is not this domain's.
+        try {
+            DomainInfo::parse(self::fixture('36-domain-info-response.xml'), 'other.gr');
+            $this->fail('another name');
+        } catch (OutcomeUnknown) {
+            $this->addToAssertionCount(1);
+        }
+        $this->assertSame('ιτε.gr', DomainInfo::parse(self::fixture('39-domain-info-homographs-response.xml'), 'xn--mxareauy.gr')->name, 'by its punycode too');
+
+        // 8: another registrar's contact needs both.
+        $this->expectException(\InvalidArgumentException::class);
+        ContactInfo::request('reg_contact002', 'c', 'roid-only');
+    }
+
+    public function test_dates_must_be_dates(): void
+    {
+        $this->expectException(OutcomeUnknown::class);
+        DomainInfo::parse(Response::parse(str_replace('2013-03-20T23:59:59.9Z', 'tomorrow', (string) file_get_contents(__DIR__ . '/fixtures/v4.3/36-domain-info-response.xml'))));
+    }
+
     public function test_a_success_without_the_data_asked_for_is_not_an_answer(): void
     {
         $this->expectException(OutcomeUnknown::class);

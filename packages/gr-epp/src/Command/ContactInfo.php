@@ -16,6 +16,9 @@ final class ContactInfo
 {
     public static function request(string $id, string $clTRID, ?string $domainRoid = null, #[SensitiveParameter] ?string $domainAuthCode = null): string
     {
+        if (($domainRoid === null) !== ($domainAuthCode === null)) {
+            throw new \InvalidArgumentException('Another registrar\'s contact needs both its domain\'s ROID and authorisation code.');
+        }
         $command = Builder::start('info', 'contact');
         $command->add($command->object, 'contact', 'id', $id);
         if ($domainRoid !== null && $domainAuthCode !== null) {
@@ -41,6 +44,14 @@ final class ContactInfo
         }
         $voice = $xpath->query('contact:voice', $data)->item(0);
         $disclose = $xpath->query('contact:disclose', $data)->item(0);
+        $fields = [];
+        if ($disclose instanceof DOMElement) {
+            foreach ($disclose->childNodes as $field) {
+                if ($field instanceof DOMElement) {
+                    $fields[] = $field->localName . ($field->getAttribute('type') !== '' ? ':' . $field->getAttribute('type') : '');
+                }
+            }
+        }
 
         return new Info(
             id: (string) Read::text($xpath, 'contact:id', $data),
@@ -54,7 +65,8 @@ final class ContactInfo
             clientId: Read::text($xpath, 'contact:clID', $data),
             created: Read::date($xpath, 'contact:crDate', $data),
             updated: Read::date($xpath, 'contact:upDate', $data),
-            disclosed: $disclose instanceof DOMElement ? in_array($disclose->getAttribute('flag'), ['1', 'true'], true) : null,
+            disclosed: $disclose instanceof DOMElement ? Read::bool($disclose->getAttribute('flag')) : null,
+            disclosedFields: $fields,
         );
     }
 }

@@ -6,6 +6,7 @@ use DOMElement;
 use MyCS\GrEpp\Data\BundleName;
 use MyCS\GrEpp\Data\DomainInfo as Info;
 use MyCS\GrEpp\Data\DsValidation;
+use MyCS\GrEpp\OutcomeUnknown;
 use MyCS\GrEpp\Response;
 use SensitiveParameter;
 
@@ -27,10 +28,25 @@ final class DomainInfo
         return $command->finish($clTRID);
     }
 
-    public static function parse(Response $response): Info
+    /**
+     * @param  string|null  $expected  the name asked: an answer about another (a bundle's other form, a variant) is not
+     *                                 this domain's (review 6 of #185)
+     */
+    public static function parse(Response $response, ?string $expected = null): Info
     {
         $xpath = $response->xpath();
         $data = Read::required($response, '//domain:infData');
+        $name = (string) Read::text($xpath, 'domain:name', $data);
+        $punycode = Read::text($xpath, '//extdomain:resData/extdomain:punycode');
+        if ($expected !== null && !in_array(mb_strtolower($expected), array_filter([mb_strtolower($name), $punycode !== null ? mb_strtolower($punycode) : null]), true)) {
+            throw new OutcomeUnknown("The registry answered about {$name}, not {$expected}.", $response->code);
+        }
+        $reasons = [];
+        foreach ($xpath->query('domain:status | //extdomain:resData/extdomain:status', $data) as $status) {
+            if ($status instanceof DOMElement && trim($status->textContent) !== '') {
+                $reasons[$status->getAttribute('s')] = trim((string) preg_replace('/\s+/u', ' ', $status->textContent));
+            }
+        }
         $contacts = [];
         foreach ($xpath->query('domain:contact', $data) as $contact) {
             if ($contact instanceof DOMElement) {
@@ -46,7 +62,7 @@ final class DomainInfo
         $ds = $xpath->query('//extSecDNS:lastValidationResult')->item(0);
 
         return new Info(
-            name: (string) Read::text($xpath, 'domain:name', $data),
+            name: $name,
             roid: (string) Read::text($xpath, 'domain:roid', $data),
             statuses: Read::statuses($xpath, 'domain:status', $data),
             regulatorStatuses: Read::statuses($xpath, '//extdomain:resData/extdomain:status'),
@@ -60,13 +76,17 @@ final class DomainInfo
             expires: Read::date($xpath, 'domain:exDate', $data),
             transferred: Read::date($xpath, 'domain:trDate', $data),
             protocol: Read::text($xpath, '//extdomain:resData/extdomain:protocol'),
-            punycode: Read::text($xpath, '//extdomain:resData/extdomain:punycode'),
+            punycode: $punycode,
             bundle: $bundle,
             dsValidation: $ds === null ? null : new DsValidation(
-                Read::text($xpath, 'extSecDNS:wasSuccessful', $ds) === 'true',
+                Read::bool(Read::text($xpath, 'extSecDNS:wasSuccessful', $ds)),
                 ($outcome = Read::text($xpath, 'extSecDNS:validationOutcome', $ds)) !== null ? trim((string) preg_replace('/\s+/u', ' ', $outcome)) : null,
                 Read::date($xpath, 'extSecDNS:validationDate', $ds),
             ),
+            expiresOn: Read::day($xpath, 'domain:exDate', $data),
+            createdOn: Read::day($xpath, 'domain:crDate', $data),
+            statusReasons: $reasons,
+            comments: array_map(fn (string $c) => trim((string) preg_replace('/\s+/u', ' ', $c)), Read::texts($xpath, '//extdomain:resData/extdomain:comment')),
         );
     }
 }

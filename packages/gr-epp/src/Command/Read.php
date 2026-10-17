@@ -45,18 +45,44 @@ final class Read
         return $statuses;
     }
 
-    /** An EPP dateTime as UTC (the registry's expiry is 23:59:59.9Z of its day); null when absent. */
+    /** xs:dateTime with a zone (Z or ±hh:mm): never a relative string, never read in PHP's default zone (review 9 of #185). */
+    private const DATE_TIME = '/^(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/';
+
+    /** An EPP dateTime as UTC; null when absent. */
     public static function date(DOMXPath $xpath, string $query, ?DOMNode $context = null): ?DateTimeImmutable
     {
         $text = self::text($xpath, $query, $context);
         if ($text === null || $text === '') {
             return null;
         }
+        if (preg_match(self::DATE_TIME, $text) !== 1) {
+            throw new OutcomeUnknown("The registry gave a date that is not one: {$text}");
+        }
         try {
             return (new DateTimeImmutable($text))->setTimezone(new DateTimeZone('UTC'));
         } catch (Exception) {
             throw new OutcomeUnknown("The registry gave a date that is not one: {$text}");
         }
+    }
+
+    /**
+     * The calendar date as the registry wrote it (Y-m-d, before any zone conversion: its expiry 2013-03-20T23:59:59.9Z is
+     * the 20th; never shifted into the app's Europe/Athens, review 1 of #185).
+     */
+    public static function day(DOMXPath $xpath, string $query, ?DOMNode $context = null): ?string
+    {
+        $text = self::text($xpath, $query, $context);
+        if ($text === null || $text === '') {
+            return null;
+        }
+
+        return preg_match(self::DATE_TIME, $text, $m) === 1 ? $m[1] : throw new OutcomeUnknown("The registry gave a date that is not one: {$text}");
+    }
+
+    /** xs:boolean: «true» or «1» (review 4 of #185). */
+    public static function bool(?string $value): bool
+    {
+        return in_array(trim((string) $value), ['1', 'true'], true);
     }
 
     /** @return array<string, string> the registry's comments by their «ref» (a name or id) */

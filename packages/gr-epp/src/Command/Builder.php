@@ -44,7 +44,7 @@ final class Builder
         return $element;
     }
 
-    /** The registry's extension element for this command (<extension><prefix:name>), made once per prefix and name. */
+    /** A new element of the registry's extension in this command (<extension> itself made once). */
     public function extension(string $prefix, string $name): DOMElement
     {
         if ($this->extension === null) {

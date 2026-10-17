@@ -13,9 +13,13 @@ use MyCS\GrEpp\Response;
  */
 final class DomainCheck
 {
+    /** The registry's limit per check (the guide): more refuses the whole batch (2306). */
+    public const MAX = 7;
+
     /** @param  list<string>  $names */
     public static function request(array $names, string $clTRID, ?string $registrantId = null): string
     {
+        Limits::check($names, self::MAX, 'domain names');
         $command = Builder::start('check', 'domain');
         foreach ($names as $name) {
             $command->add($command->object, 'domain', 'name', $name);
@@ -27,21 +31,20 @@ final class DomainCheck
         return $command->finish($clTRID);
     }
 
-    /** @return array<string, CheckResult> by name, as the registry wrote it */
+    /** @return array<string, CheckResult> by name, lower case (review 6 of #185) */
     public static function parse(Response $response): array
     {
         $xpath = $response->xpath();
         $data = Read::required($response, '//domain:chkData');
-        $comments = Read::comments($xpath, '//extdomain:resData/extdomain:comment');
+        $comments = array_change_key_case(Read::comments($xpath, '//extdomain:resData/extdomain:comment'), CASE_LOWER);
         $results = [];
         foreach ($xpath->query('domain:cd', $data) as $cd) {
             $name = $xpath->query('domain:name', $cd)->item(0);
             if (!$name instanceof DOMElement) {
                 continue;
             }
-            $text = trim($name->textContent);
-            $results[$text] = new CheckResult($text, in_array($name->getAttribute('avail'), ['1', 'true'], true),
-                Read::text($xpath, 'domain:reason', $cd), $comments[$text] ?? null);
+            $text = mb_strtolower(trim($name->textContent));
+            $results[$text] = new CheckResult($text, Read::bool($name->getAttribute('avail')), Read::text($xpath, 'domain:reason', $cd), $comments[$text] ?? null);
         }
 
         return $results;
