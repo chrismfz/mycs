@@ -181,6 +181,25 @@ class LicensingImportTest extends TestCase
         Carbon::setTestNow();
     }
 
+    /** ...and a rerun still writes what did change on WHMCS: a license's fields, an option turned off, a new PSK. */
+    public function test_a_rerun_still_writes_what_changed(): void
+    {
+        Carbon::setTestNow('2026-10-20 10:00:00');
+        $this->import();
+        $this->whmcs->exec("UPDATE mod_licensing SET reissues = reissues + 1, validip = '' WHERE id = 1");
+        $this->whmcs->exec("UPDATE tblproducts SET configoption3 = '', configoption8 = 'another-psk' WHERE id = 5");
+
+        Carbon::setTestNow('2026-10-20 10:01:00');
+        $this->import();
+
+        $license = License::query()->where('whmcs_id', 1)->sole();
+        $this->assertSame([null, '2026-10-20 10:01:00'], [$license->valid_ip, $license->updated_at->format('Y-m-d H:i:s')]);
+        $this->assertSame((int) $this->whmcs->query('SELECT reissues FROM mod_licensing WHERE id = 1')->fetchColumn(), $license->reissues);
+        $settings = ExtensionHelper::settingsToArray(Product::query()->find(5)->settings);
+        $this->assertSame([false, 'another-psk'], [(bool) $settings['allow_reissue'], $settings['secret_key']]);
+        Carbon::setTestNow();
+    }
+
     public function test_a_license_without_an_imported_service_is_skipped_and_an_empty_domain_takes_the_key(): void
     {
         $this->whmcs->exec("INSERT INTO mod_licensing VALUES (4, 9999, 'ZCAgent-00000000000000dd', '', '', '', 0, 'Active', '2026-01-01 00:00:00')");
