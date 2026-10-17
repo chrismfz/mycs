@@ -369,7 +369,10 @@ importer):
       nameservers, lock, privacy, επαφές, EPP code, registrar log (#164)· **D4c** σύνδεση handles του registrar με
       επαφές, επεξεργασία επαφής από το domain (#165). Δοκιμασμένα live στο nixpal.com (sync, nameservers, «Link here»).
 - [x] Κατάλογος της nixpal από το WHMCS (#162) και οι admins της (#166).
-- [ ] **D5** χρέωση και ανανέωση· **D6** importer domains· **D7** υπενθυμίσεις και portal· **D8a/b** αναζήτηση, whois,
+- [x] **D5** χρέωση και ανανέωση: D5a ημέρες grace/redemption (#168), D5b-1 τιμολόγηση (#169), D5b-2 πληρωμή →
+      registrar (#170).
+- [ ] **D7a** «Invoice selected items» (υπηρεσίες και domains, ένα τιμολόγιο ανά πελάτη και νόμισμα, `domains.md` §6).
+- [ ] **D6** importer domains· **D7** υπενθυμίσεις και portal· **D8a/b** αναζήτηση, whois,
       τιμοκατάλογος, παραγγελίες (`domains.md` §6).
 - [ ] Driver **CNIC** (CentralNic Reseller): myip 226, nixpal 4. Αρχικά σύνδεση `manual`· module μόνο αν προλάβουμε
       πριν μεταφερθούν στο Openprovider (`domains.md` D-10).

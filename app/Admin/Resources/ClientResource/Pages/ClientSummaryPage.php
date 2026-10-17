@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\ClientResource\Pages;
 
+use App\Admin\Actions\InvoiceSelectedItemsAction;
 use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\DomainResource;
 use App\Admin\Resources\EmailLogResource;
@@ -97,6 +98,7 @@ class ClientSummaryPage extends ViewRecord
                 $new('newInvoice', __('Create Invoice'), 'heroicon-o-document-plus', InvoiceResource::canCreate(), InvoiceResource::getUrl('create', ['client_id' => $client->id])),
                 $new('newOrder', __('Add New Order'), 'heroicon-o-shopping-cart', OrderResource::canCreate(), OrderResource::getUrl('create', ['client_id' => $client->id])),
                 $new('newTicket', __('Open New Ticket'), 'heroicon-o-lifebuoy', TicketResource::canCreate(), TicketResource::getUrl('create', ['client_id' => $client->id])),
+                InvoiceSelectedItemsAction::forClient(),
                 $new('credit', __('Manage Credits'), 'heroicon-o-banknotes', (bool) auth()->user()?->hasPermission('admin.credits.viewAny'), ClientResource::getUrl('credits', ['record' => $client])),
             ])->label(__('Actions'))->icon('heroicon-m-chevron-down')->button(),
             Action::make('edit')->label(__('Edit'))->icon('heroicon-o-pencil-square')->color('gray')

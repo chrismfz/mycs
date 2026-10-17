@@ -117,4 +117,30 @@ return [
     'cardlink_unknown' => 'This payment could not be confirmed. If you were charged, please contact us.',
     'cardlink_back' => 'Back to your invoices',
 
+    // «Invoice selected items» (D7a): staff's action, what was not billed and why.
+    'selected' => [
+        'action' => 'Invoice selected items',
+        'next_period' => 'Invoice next period',
+        'help' => 'Each selected item\'s next unbilled period goes on one invoice per customer and currency, now, whatever its due date. It is emailed and paid by credit as a renewal invoice.',
+        'services' => 'Services',
+        'domains' => 'Domains',
+        'none' => 'Nothing selected.',
+        'done' => 'Invoice #:invoices made.|Invoices #:invoices made.',
+        'nothing_billed' => 'Nothing billed.',
+        'skipped' => 'Not billed',
+        'status' => 'it is :status',
+        'subscription' => 'its gateway subscription bills it',
+        'no_plan' => 'it has no plan: set one',
+        'free' => 'it is free',
+        'open_invoice' => 'it has an open invoice #:invoice',
+        'cancellation' => 'a cancellation is requested',
+        'paid_to_apply' => 'a paid invoice of it is not applied yet',
+        'nothing' => 'nothing to bill (a period given up on before it, or it is not billed while suspended)',
+        'domain_billing_off' => 'domain billing is off',
+        'auto_renew_off' => 'auto renew is off: turn it on first',
+        'domain_billed' => 'its next period is billed already',
+        'failed' => 'failed: :error',
+        'finishing' => 'finishing an invoice',
+    ],
+
 ];
