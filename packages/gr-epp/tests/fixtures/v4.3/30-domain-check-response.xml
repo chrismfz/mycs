@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp 
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd" 
+  xmlns="urn:ietf:params:xml:ns:epp-1.0" 
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <response>
+    <result code="1000">
+      <msg>Η εντολή ολοκληρώθηκε επιτυχώς</msg>
+    </result>
+    <resData>
+      <domain:chkData 
+        xsi:schemaLocation="urn:ietf:params:xml:ns:domain-1.0 domain-1.0.xsd" 
+        xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">
+        <domain:cd>
+          <domain:name avail="1">ite.gr</domain:name>
+        </domain:cd>
+      </domain:chkData>
+    </resData>
+    <trID>
+      <clTRID>ABC:ics-forth:1079698712682</clTRID>
+      <svTRID>20110929-170106656-358-gr</svTRID>
+    </trID>
+  </response>
+</epp>

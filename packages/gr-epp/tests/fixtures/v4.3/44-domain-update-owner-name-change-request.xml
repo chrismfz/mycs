@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp 
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd" 
+  xmlns="urn:ietf:params:xml:ns:epp-1.0" 
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <command>
+    <update>
+      <domain:update 
+        xsi:schemaLocation="urn:ietf:params:xml:ns:domain-1.0 domain-1.0.xsd"
+        xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">
+        <domain:name>forth.gr</domain:name>
+        <domain:chg>
+          <domain:registrant>reg_registrantID</domain:registrant>
+        </domain:chg>
+      </domain:update>
+    </update>
+    <extension>
+      <extdomain:update 
+        xsi:schemaLocation="urn:ics-forth:params:xml:ns:extdomain-1.3 extdomain-1.3.xsd" 
+        xmlns:extdomain="urn:ics-forth:params:xml:ns:extdomain-1.3">
+        <!-- Η εντολή εκτελείται άμεσα για ΟΛΑ τα ονόματα χώρου. -->
+        <!-- ΔΕΝ υπάρχει δυνατότητα ανάκλησης. -->
+        <extdomain:op>ownerNameChange</extdomain:op>
+      </extdomain:update>
+    </extension>
+    <clTRID>gsa-dd8d3ef5-bc9b-4f8d-ac62-ebd69e8fd036</clTRID>
+  </command>
+</epp>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp 
+  xmlns="urn:ietf:params:xml:ns:epp-1.0" 
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd">
+  <response>
+    <result code="1000">
+      <msg>Η εντολή ολοκληρώθηκε επιτυχώς</msg>
+    </result>
+    <trID>
+      <clTRID>gsa-dd8d3ef5-bc9b-4f8d-ac62-ebd69e8fd036</clTRID>
+      <svTRID>20110319-103209210-772-gr</svTRID>
+    </trID>
+  </response>
+</epp>

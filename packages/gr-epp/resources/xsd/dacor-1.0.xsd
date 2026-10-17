@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schema 
+	xmlns:dacor="urn:ics-forth:params:xml:ns:dacor-1.0" 
+	xmlns:epp="urn:ietf:params:xml:ns:epp-1.0" 
+	xmlns:eppcom="urn:ietf:params:xml:ns:eppcom-1.0" 
+	xmlns="http://www.w3.org/2001/XMLSchema" 
+	targetNamespace="urn:ics-forth:params:xml:ns:dacor-1.0" 
+	elementFormDefault="qualified" 
+	attributeFormDefault="unqualified">
+	<import namespace="urn:ietf:params:xml:ns:eppcom-1.0" schemaLocation="eppcom-1.0.xsd"/>
+	<annotation>
+		<documentation>Domain Authorization Code Reset (DACoR) for the Extensible Provisioning Protocol (EPP)</documentation>
+	</annotation>
+	<element name="issueToken" type="dacor:issueToken"/>
+	<complexType name="issueToken">
+		<sequence minOccurs="0">
+			<element name="email" type="eppcom:minTokenType" />
+			<element name="ref" type="dacor:refType"/>
+		</sequence>
+	</complexType>
+	<simpleType name="refType" >
+		<restriction base="normalizedString">
+			<minLength value="10" />
+			<maxLength value="256"/>
+		</restriction>
+	</simpleType>
+</schema>

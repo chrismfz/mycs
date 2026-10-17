@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp
+  xmlns="urn:ietf:params:xml:ns:epp-1.0" 
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd">
+  <response>
+    <result code="1000">
+      <msg>Η εντολή ολοκληρώθηκε επιτυχώς</msg>
+    </result>
+    <resData>
+      <contact:creData 
+        xmlns:contact="urn:ietf:params:xml:ns:contact-1.0" 
+        xsi:schemaLocation="urn:ietf:params:xml:ns:contact-1.0 contact-1.0.xsd">
+        <contact:id>reg_contact001</contact:id>
+        <contact:crDate>2011-03-18T07:50:57.6Z</contact:crDate>
+      </contact:creData>
+    </resData>
+    <trID>
+      <clTRID>ABC:ics-forth:1079595109464</clTRID>
+      <svTRID>20110318-075057640-098-gr</svTRID>
+    </trID>
+  </response>
+</epp>

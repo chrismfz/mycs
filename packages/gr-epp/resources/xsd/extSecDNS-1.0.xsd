@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schema 
+  xmlns:extSecDNS="urn:ics-forth:params:xml:ns:extSecDNS-1.0" 
+  xmlns="http://www.w3.org/2001/XMLSchema" 
+  targetNamespace="urn:ics-forth:params:xml:ns:extSecDNS-1.0" 
+  elementFormDefault="qualified">
+  <annotation>
+    <documentation>
+      ICS-FORTH Extensible Provisioning Protocol (EPP) v1.0 secDNS extension</documentation>
+  </annotation>
+  <element name="lastValidationResult" type="extSecDNS:lastValidationResultType"/>
+  <!-- Holds info for the last DS validation -->
+  <complexType name="lastValidationResultType">
+    <sequence minOccurs="0">
+      <element name="wasSuccessful" type="boolean"/>
+      <element name="validationOutcome" type="string"/>
+      <element name="validationDate" type="dateTime"/>
+    </sequence>
+  </complexType>
+</schema>

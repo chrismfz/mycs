@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp 
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd" 
+  xmlns="urn:ietf:params:xml:ns:epp-1.0" 
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <response>
+    <result code="1000">
+      <msg>Η εντολή ολοκληρώθηκε επιτυχώς</msg>
+    </result>
+    <trID>
+      <clTRID>ABC:trasreg:1254737730832</clTRID>
+      <svTRID>ca8fe5ba-f23b-4863-b662-ebd4c5c05d0c-79081</svTRID>
+    </trID>
+  </response>
+</epp>

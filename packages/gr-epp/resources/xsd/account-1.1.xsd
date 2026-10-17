@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schema xmlns:account="urn:ics-forth:params:xml:ns:account-1.1" xmlns:epp="urn:ietf:params:xml:ns:epp-1.0" xmlns:eppcom="urn:ietf:params:xml:ns:eppcom-1.0" xmlns="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:ics-forth:params:xml:ns:account-1.1" elementFormDefault="qualified" attributeFormDefault="unqualified">
+	<!-- Import common element types. -->
+	<import namespace="urn:ietf:params:xml:ns:eppcom-1.0" schemaLocation="eppcom-1.0.xsd"/>
+	<!-- Description -->
+	<annotation>
+		<documentation>ICS-FORTH Extensible Provisioning Protocol v1.0 account 
+    provisioning schema.</documentation>
+	</annotation>
+	<!-- Child elements found in EPP commands. -->
+	<element name="info" type="account:infoType"/>
+	<!-- Child elements of the <info> command. -->
+	<complexType name="infoType">
+		<sequence>
+			<element name="roid" type="eppcom:roidType" minOccurs="0"/>
+		</sequence>
+	</complexType>
+	<!-- Child response elements -->
+	<element name="infData" type="account:infDataType"/>
+	<complexType name="infDataType">
+		<sequence>
+			<element name="roid" type="eppcom:roidType"/>
+			<element name="ddPaymentCode" type="account:ddPaymentCodeType"/>
+			<!-- Are chargeable actions allowed? -->
+			<element name="caAllowed" type="boolean"/>
+			<!-- Account Balance -->
+			<element name="balance" type="account:balanceType"/>
+			<!-- The date the ability to perform chargeable actions will be revoked -->
+			<element name="tbSuspendedOn" type="dateTime" minOccurs="0"/>
+			<!-- The date the account's ability to perform chargeable actions was revoked -->
+			<element name="suspendedOn" type="dateTime" minOccurs="0"/>
+		</sequence>
+	</complexType>
+	<complexType name="balanceType">
+		<simpleContent>
+			<extension base="account:amountType">
+				<attribute name="currency" type="account:currencyType" use="required"/>
+			</extension>
+		</simpleContent>
+	</complexType>
+	<simpleType name="ddPaymentCodeType">
+		<restriction base="string">
+			<pattern value="RF[0-9]{23}"/>
+		</restriction>
+	</simpleType>
+	<simpleType name="amountType">
+		<restriction base="decimal">
+			<fractionDigits value="2"/>
+		</restriction>
+	</simpleType>
+	<simpleType name="currencyType">
+		<restriction base="string">
+			<enumeration value="EUR"/>
+		</restriction>
+	</simpleType>
+</schema>

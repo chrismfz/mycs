@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schema
+  xmlns:exthost="urn:ics-forth:params:xml:ns:exthost-1.0"
+  xmlns:epp="urn:ietf:params:xml:ns:epp-1.0"
+  xmlns:eppcom="urn:ietf:params:xml:ns:eppcom-1.0"
+  xmlns="http://www.w3.org/2001/XMLSchema"
+  targetNamespace="urn:ics-forth:params:xml:ns:exthost-1.0"
+  elementFormDefault="qualified">
+  <import namespace="urn:ietf:params:xml:ns:eppcom-1.0" schemaLocation="eppcom-1.0.xsd"/>
+  <import namespace="urn:ietf:params:xml:ns:epp-1.0" schemaLocation="epp-1.0.xsd"/>
+  <annotation>
+    <documentation>ICS-FORTH Extensible Provisioning Protocol v1.0 extension</documentation>
+  </annotation>
+  <element name="resData" type="exthost:resDataType"/>
+  <complexType name="commentType">
+    <simpleContent>
+      <extension base="string">
+        <attribute name="ref" type="string"/>
+      </extension>
+    </simpleContent>
+  </complexType>
+  <complexType name="resDataType">
+    <sequence>
+      <element name="comment" type="exthost:commentType" minOccurs="0" maxOccurs="unbounded"/>
+    </sequence>
+  </complexType>
+</schema>

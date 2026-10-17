@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp 
+  xmlns="urn:ietf:params:xml:ns:epp-1.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd">
+  <response>
+    <result code="1000">
+      <msg>Η εντολή ολοκληρώθηκε επιτυχώς</msg>
+    </result>
+    <resData>
+      <domain:infData 
+        xmlns:domain="urn:ietf:params:xml:ns:domain-1.0" 
+        xsi:schemaLocation="urn:ietf:params:xml:ns:domain-1.0 domain-1.0.xsd">
+        <domain:name>ιτε.gr</domain:name>
+        <domain:roid>d0ccfe550394c48ff9100dd7420542c24-gr</domain:roid>
+        <domain:status s="inactive"/>
+        <domain:registrant>reg_gsa</domain:registrant>
+        <domain:clID>registry</domain:clID>
+        <domain:crID>registry</domain:crID>
+        <domain:crDate>2011-05-12T12:17:06.0Z</domain:crDate>
+        <domain:exDate>2013-05-11T23:59:59.9Z</domain:exDate>        
+      </domain:infData>
+    </resData>
+    <extension>
+      <extdomain:resData 
+        xmlns:extdomain="urn:ics-forth:params:xml:ns:extdomain-1.3" 
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+        xsi:schemaLocation="urn:ics-forth:params:xml:ns:extdomain-1.3 extdomain-1.3.xsd">
+        <extdomain:protocol>66158</extdomain:protocol>
+        <extdomain:punycode>xn--mxareauy.gr</extdomain:punycode>
+        <extdomain:bundle>
+          <extdomain:bundleName 
+            chargeable="1" 
+            recordType="dname">ίτε.gr</extdomain:bundleName>
+          <extdomain:bundleName 
+            chargeable="0" 
+            recordType="domain">ιτε.gr</extdomain:bundleName>
+        </extdomain:bundle>
+      </extdomain:resData>
+    </extension>
+    <trID>
+      <clTRID>izafir-8688e699-9913-4fe1-8b16-5b408ca8069f</clTRID>
+      <svTRID>924ae844-ebe2-47d2-a5a3-b1699f07f603-94296</svTRID>
+    </trID>
+  </response>
+</epp>

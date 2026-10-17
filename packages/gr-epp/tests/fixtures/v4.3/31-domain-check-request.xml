@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp 
+  xmlns="urn:ietf:params:xml:ns:epp-1.0" 
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd">
+  <command>
+    <check>
+      <domain:check 
+        xmlns:domain="urn:ietf:params:xml:ns:domain-1.0" 
+        xsi:schemaLocation="urn:ietf:params:xml:ns:domain-1.0 domain-1.0.xsd">
+        <domain:name>forth.gr</domain:name>
+        <domain:name>forth.gov.gr</domain:name>
+      </domain:check>
+    </check>
+    <extension>
+      <extdomain:check 
+        xmlns:extdomain="urn:ics-forth:params:xml:ns:extdomain-1.3" 
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+        xsi:schemaLocation="urn:ics-forth:params:xml:ns:extdomain-1.3 extdomain-1.3.xsd">
+        <extdomain:registrantid>reg_cont0343</extdomain:registrantid>
+      </extdomain:check>
+    </extension>
+    <clTRID>ABC:ics-forth:1079698712682</clTRID>
+  </command>
+</epp>

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp 
+  xmlns="urn:ietf:params:xml:ns:epp-1.0" 
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd">
+  <response>
+    <result code="1000">
+      <msg>Η εντολή ολοκληρώθηκε επιτυχώς</msg>
+    </result>
+    <resData>
+      <account:infData 
+        xmlns:account="urn:ics-forth:params:xml:ns:account-1.1" 
+        xsi:schemaLocation="urn:ics-forth:params:xml:ns:account-1.1 account-1.1.xsd">
+        <account:roid>ca0009f06a9e8746638a38d8c9039ca123-gr</account:roid>
+        <account:ddPaymentCode>RF00000000000000000000000</account:ddPaymentCode>
+        <account:caAllowed>true</account:caAllowed>
+        <account:balance currency="EUR">-25</account:balance>
+        <account:tbSuspendedOn>2012-01-16T10:00:00Z</account:tbSuspendedOn>
+      </account:infData>
+    </resData>
+    <trID>
+      <clTRID>ABC:ics-forth:1079597962952</clTRID>
+      <svTRID>20040322-114425036-744-gr</svTRID>
+    </trID>
+  </response>
+</epp>
