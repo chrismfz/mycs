@@ -194,7 +194,7 @@ class CronJob extends Command
                 // due the same day; and the fee of a grace or redemption onto the open renewal invoice (D-8).
                 $domainsUntil = now()->addDays(self::domainInvoiceDays());
                 // Off until its registrar renewal is live (D5b-2, review 2): never an invoice nothing would act on.
-                $domains = !config('settings.domain_billing_enabled') ? collect() : Domain::query()->whereIn('status', array_map(fn (DomainStatus $s) => $s->value, self::BILLED_DOMAINS))
+                $domains = !config('settings.domain_billing_enabled', true) ? collect() : Domain::query()->whereIn('status', array_map(fn (DomainStatus $s) => $s->value, self::BILLED_DOMAINS))
                     ->where('auto_renew', true)->whereNotNull('expires_at')->where('expires_at', '<', $domainsUntil)->pluck('id');
                 foreach ($domains as $id) {
                     try {

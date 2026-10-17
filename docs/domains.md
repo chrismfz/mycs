@@ -298,7 +298,9 @@
    - **«Ανανέωση τώρα»** (`admin.domains.renew`, D-1): τιμολογεί αν δεν έχει τιμολογηθεί η περίοδος, ανανεώνει στον
      registrar με log στο τιμολόγιο· η μεταγενέστερη πληρωμή βρίσκει την περίοδο καλυμμένη και την υιοθετεί.
    - Η γραμμή εφαρμόζεται (`applied_at`) όταν ο registrar καλύπτει την περίοδο ή χρέωσε για αυτήν.
-   - Ανοίγει μαζί η ρύθμιση **«Bill domain renewals»**. Code + adversarial.
+   - Η ρύθμιση **«Bill domain renewals»** είναι πλέον **ανοιχτή by default** (ιδιοκτήτης 2026-10-17): κλείνει μόνο
+     όσο άλλο σύστημα χρεώνει ακόμα τα domains (cut-over του myip, D-12) ή σε έκτακτη ανάγκη στον registrar.
+     Code + adversarial.
 5. **D5 Χρέωση:** γραμμή `Domain` στο τιμολόγιο, βήμα τιμολόγησης με ομαδοποίηση, κλάδος στην πληρωμή, renew on-paid, «Ανανέωση τώρα», adopt, fee grace/
    redemption στο υπάρχον τιμολόγιο, Pending Module Actions. Code + adversarial.
 6. **D6 Importer WHMCS:** domains, τιμές, TLDs, ρόλοι επαφών, additional fields· parity και σύγκριση με τον

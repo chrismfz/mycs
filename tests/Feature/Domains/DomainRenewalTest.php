@@ -253,4 +253,17 @@ class DomainRenewalTest extends TestCase
         $this->assertSame(DomainRenewalService::ADOPTED, $this->renew($line));
         $this->assertCount(1, $this->charges, 'the payment renewed nothing again (D-1)');
     }
+
+    /** The owner (2026-10-17): billing is on by default; off only by choice (a migration, an emergency). */
+    public function test_domain_billing_is_on_unless_turned_off(): void
+    {
+        $settings = config('settings');
+        unset($settings['domain_billing_enabled']);
+        config(['settings' => $settings]);
+        $domain = $this->domain();
+
+        $this->artisan('app:cron-job')->assertExitCode(0);
+
+        $this->assertTrue(InvoiceItem::query()->where('reference_type', Domain::class)->where('reference_id', $domain->id)->exists());
+    }
 }

@@ -571,15 +571,16 @@ class Settings
                     'min_value' => 0,
                     'description' => 'The number of days before the due date to generate the renewal invoice.',
                 ],
-                // Domains billed at all (D5b): off until their registrar renewal is live (D5b-2).
+                // Domains billed at all (D5b): on; off only while another system still bills them (a migration, D-12) or in
+                // an emergency at a registrar.
                 [
                     'name' => 'domain_billing_enabled',
                     'section' => 'Billing Settings',
                     'label' => 'Bill domain renewals',
                     'type' => 'checkbox',
                     'database_type' => 'boolean',
-                    'default' => false,
-                    'description' => 'Make the renewal invoices of domains with auto renew; on payment they are renewed at their registrar (a manual one: a Pending Module Action for staff).',
+                    'default' => true,
+                    'description' => 'Make the renewal invoices of domains with auto renew; on payment they are renewed at their registrar (a manual one: a Pending Module Action for staff). Turn off only while another system still bills the domains (a migration) or in an emergency.',
                 ],
                 // Domains (docs/domains.md D-14; WHMCS CreateDomainInvoiceDaysBefore): their own, empty = as the services.
                 [
