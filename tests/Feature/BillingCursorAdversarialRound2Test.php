@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Plan;
@@ -259,7 +260,9 @@ class BillingCursorAdversarialRound2Test extends TestCase
         DB::listen(function ($query) use (&$selects) {
             // Reads of the period history (from invoice_items); not the run-wide termination query, whose subquery
             // looks at paid periods ahead (Δ3a).
-            if (preg_match('/^select\s[^()]*?\sfrom\s["`]?invoice_items["`]?/is', $query->sql) && str_contains($query->sql, 'period_start')) {
+            // Nor a domain's (D5b-2: the run-wide query of paid domain renewals waiting).
+            if (preg_match('/^select\s[^()]*?\sfrom\s["`]?invoice_items["`]?/is', $query->sql) && str_contains($query->sql, 'period_start')
+                && !in_array(Domain::class, $query->bindings, true)) {
                 $selects++;
             }
         });

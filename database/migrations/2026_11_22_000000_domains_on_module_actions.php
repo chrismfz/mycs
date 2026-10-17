@@ -22,10 +22,14 @@ return new class extends Migration
 
     public function down(): void
     {
+        // The keys first (an index a foreign key uses is not dropped before it, MariaDB 1553), then the index and columns.
+        Schema::table('module_actions', function (Blueprint $table) {
+            $table->dropForeign(['invoice_item_id']);
+            $table->dropForeign(['domain_id']);
+        });
         Schema::table('module_actions', function (Blueprint $table) {
             $table->dropIndex(['domain_id', 'action', 'status']);
-            $table->dropConstrainedForeignId('invoice_item_id');
-            $table->dropConstrainedForeignId('domain_id');
+            $table->dropColumn(['invoice_item_id', 'domain_id']);
         });
     }
 };
