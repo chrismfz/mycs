@@ -28,6 +28,19 @@ class Index extends Component
     #[Url('q', except: '')]
     public string $search = '';
 
+    /** An unknown filter (an old or crafted link, review R10) shows them all. */
+    public function mount(): void
+    {
+        if (!isset(self::FILTERS[$this->status])) {
+            $this->status = '';
+        }
+    }
+
+    public function updatedStatus(): void
+    {
+        $this->mount();
+    }
+
     public function updatingSearch(): void
     {
         $this->resetPage();

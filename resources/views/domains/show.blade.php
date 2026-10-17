@@ -18,9 +18,11 @@
                     @else text-warning bg-warning/20 @endif">{{ $domain->status->getLabel() }}</span>
             </div>
             @if ($renewable)
-            <x-button.primary class="!w-fit" wire:click="renew" wire:loading.attr="disabled">
-                {{ $openInvoice ? __('domains.portal.pay_renewal') : __('domains.portal.renew') }}
-            </x-button.primary>
+            @if ($openInvoice)
+            <x-button.primary class="!w-fit" wire:click="renew" wire:loading.attr="disabled">{{ __('domains.portal.pay_renewal') }}</x-button.primary>
+            @else
+            <x-button.primary class="!w-fit" wire:click="renew" wire:loading.attr="disabled" wire:confirm="{{ __('domains.portal.renew_confirm') }}">{{ __('domains.portal.renew') }}</x-button.primary>
+            @endif
             @endif
         </div>
 
@@ -51,22 +53,25 @@
                 <div class="flex items-center gap-2">
                     <span>{{ __('domains.portal.transfer_lock') }}:</span>
                     <span class="text-base/50">{{ $domain->transfer_lock ? __('domains.portal.on') : __('domains.portal.off') }}</span>
-                    @if ($manageable)
-                    <button type="button" class="text-sm underline" wire:click="toggleTransferLock">{{ $domain->transfer_lock ? __('domains.portal.turn_off') : __('domains.portal.turn_on') }}</button>
+                    @if ($lockable)
+                    <button type="button" class="text-sm underline" wire:click="toggleTransferLock"
+                        @if ($domain->transfer_lock) wire:confirm="{{ __('domains.portal.unlock_confirm') }}" @endif>{{ $domain->transfer_lock ? __('domains.portal.turn_off') : __('domains.portal.turn_on') }}</button>
                     @endif
                 </div>
+                @if ($privacyOffered || $domain->id_protection)
                 <div class="flex items-center gap-2">
                     <span>{{ __('domains.portal.id_protection') }}:</span>
                     <span class="text-base/50">{{ $domain->id_protection ? __('domains.portal.on') : __('domains.portal.off') }}</span>
-                    @if ($manageable)
+                    @if ($privacyOffered)
                     <button type="button" class="text-sm underline" wire:click="toggleIdProtection">{{ $domain->id_protection ? __('domains.portal.turn_off') : __('domains.portal.turn_on') }}</button>
                     @endif
                 </div>
-                @if ($manageable)
+                @endif
+                @if ($showEpp)
                 {{-- Not in the page: «Show» asks the registrar for it (revealEppCode); wire:ignore keeps it across re-renders. --}}
                 <div class="flex items-center gap-2" x-data="{ shown: false, code: null }" wire:ignore>
                     <span>{{ __('domains.portal.epp_code') }}:</span>
-                    <span class="text-base/50 select-all font-mono" x-show="shown" x-cloak x-text="code"></span>
+                    <span class="text-base/50 select-all font-mono break-all" x-show="shown" x-cloak x-text="code"></span>
                     <span class="text-base/50" x-show="!shown">••••••••</span>
                     <button type="button" class="text-sm underline"
                         x-on:click="if (!shown && code === null) { code = await $wire.revealEppCode(); } shown = !shown && code !== null"

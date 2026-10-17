@@ -193,4 +193,20 @@ class DomainPortalTest extends TestCase
             ->call('toggleTransferLock');
         Http::assertNothingSent();
     }
+
+    public function test_renew_needs_the_invoices_too_and_a_refusal_keeps_do_not_renew(): void
+    {
+        // Review R3 of #176: «Renew» makes an invoice (and applies credit): only for who sees the invoices it leads to.
+        $domain = $this->domain(['auto_renew' => false]);
+        $manager = $this->member(['domains', 'managedomains']);
+        $this->workOn($manager)->get(route('domains.show', $domain))->assertOk()->assertDontSeeHtml('wire:click="renew"');
+        Livewire::actingAs($manager)->test(Show::class, ['domain' => $domain])->call('renew')->assertStatus(404);
+        $this->assertSame(0, InvoiceItem::query()->count());
+
+        // R9: nothing billed (domain billing off), its «do not renew» stays.
+        config(['settings.domain_billing_enabled' => false]);
+        Livewire::actingAs($this->user)->test(Show::class, ['domain' => $domain])->call('renew')
+            ->assertNoRedirect();
+        $this->assertFalse($domain->fresh()->auto_renew);
+    }
 }

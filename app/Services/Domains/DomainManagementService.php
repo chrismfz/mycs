@@ -35,7 +35,7 @@ class DomainManagementService
     /** RFC 1035 host name, lowercase ASCII (IDN as punycode). */
     private const LOCK_SECONDS = 600;
 
-    private const HOST = '/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/';
+    public const HOST = '/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/';
 
     public function __construct(
         private readonly DomainRegistrarFactory $factory,

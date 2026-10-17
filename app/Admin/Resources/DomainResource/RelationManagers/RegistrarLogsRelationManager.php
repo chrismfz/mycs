@@ -33,6 +33,7 @@ class RegistrarLogsRelationManager extends RelationManager
     {
         return $table
             ->defaultSort('id', 'desc')
+            ->modifyQueryUsing(fn ($query) => $query->with(['staff', 'user'])) // who asked, per row (review R13)
             ->columns([
                 TextColumn::make('created_at')->label(__('Date'))->dateTime(),
                 TextColumn::make('action')->label(__('Action')),
