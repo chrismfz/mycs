@@ -249,6 +249,8 @@ return [
                 'overview' => 'View Overview Widget',
                 'support' => 'View Tickets Widget',
                 'active_users' => 'View Active Users Widget',
+                // Renewals due soon and records to check (owner 2026-10-17).
+                'renewals' => 'View Renewals and Records to Check Widgets',
             ],
         ],
     ],
