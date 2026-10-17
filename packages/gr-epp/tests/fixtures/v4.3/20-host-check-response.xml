@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp 
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd" 
+  xmlns="urn:ietf:params:xml:ns:epp-1.0" 
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <response>
+    <result code="1000">
+      <msg>Η εντολή ολοκληρώθηκε επιτυχώς</msg>
+    </result>
+    <resData>
+      <host:chkData 
+        xsi:schemaLocation="urn:ietf:params:xml:ns:host-1.0 host-1.0.xsd" 
+        xmlns:host="urn:ietf:params:xml:ns:host-1.0">
+        <host:cd>
+          <host:name avail="0">nameserver1.ics.forth.gr</host:name>
+          <host:reason>Σε Χρήση.</host:reason>
+        </host:cd>
+        <host:cd>
+          <host:name avail="1">nameserver2.ics.forth.gr</host:name>
+        </host:cd>
+        <host:cd>
+          <host:name avail="0">nameserrver.unknowndomain.g</host:name>
+          <host:reason>Γονικό όνομα χώρου μη ορισμένο.</host:reason>
+        </host:cd>
+      </host:chkData>
+    </resData>
+    <extension>
+      <exthost:resData 
+        xsi:schemaLocation="urn:ics-forth:params:xml:ns:exthost-1.0 exthost-1.0.xsd" 
+        xmlns:exthost="urn:ics-forth:params:xml:ns:exthost-1.0">
+        <exthost:comment 
+          ref="nameserver1.ics.forth.gr">Σε Χρήση.</exthost:comment>
+        <exthost:comment 
+          ref="nameserver2.ics.forth.gr">Ο εξυπηρετητής είναι διαθέσιμος για υλοποίηση.</exthost:comment>
+        <exthost:comment 
+          ref="nameserrver.unknowndomain.gr">Το γονικό όνομα χώρου του εξυπηρετητή δεν είναι ορισμένο
+           στο σύστημα ή είναι περιορισμένη η χρήση του.</exthost:comment>
+      </exthost:resData>
+    </extension>
+    <trID>
+      <clTRID>ABC:ics-forth:1079595109464</clTRID>
+      <svTRID>20110510-105137373-927-gr</svTRID>
+    </trID>
+  </response>
+</epp>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp
+  xmlns="urn:ietf:params:xml:ns:epp-1.0" 
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd">
+  <command>
+    <info>
+      <domain:info 
+        xmlns:domain="urn:ietf:params:xml:ns:domain-1.0" 
+        xsi:schemaLocation="urn:ietf:params:xml:ns:domain-1.0 domain-1.0.xsd">
+        <domain:name hosts="all">forth.gr</domain:name>
+        <!-- 
+        Ο κωδικός εξουσιοδότησης του ονόματος χώρου συμπληρώνεται εάν απαιτείται 
+        πρόσβαση στα  στοιχεία του ονόματος χώρου και το όνομα ΔΕΝ βρίσκεται 
+        υπό την διαχείριση του καταχωρητή που εκτελεί την εντολή domain:info. 
+        -->
+        <domain:authInfo>
+          <domain:pw>domain-auth-code</domain:pw>
+        </domain:authInfo>
+      </domain:info>
+    </info>
+    <clTRID>ABC:ics-forth:1079691187887</clTRID>
+  </command>
+</epp>

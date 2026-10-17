@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp 
+  xmlns="urn:ietf:params:xml:ns:epp-1.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd">
+  <command>
+    <info>
+      <contact:info 
+        xmlns:contact="urn:ietf:params:xml:ns:contact-1.0"
+        xsi:schemaLocation="urn:ietf:params:xml:ns:contact-1.0 contact-1.0.xsd">
+        <contact:id>reg_contact002</contact:id>
+        <!--
+        Για την ανάκτηση των πλήρη στοιχείων επαφής τρίτου καταχωρητή είναι απαραίτητη η
+        συμπλήρωση του ROID και του κωδικού εξουσιοδότησης του ονόματος χώρου στο οποίο η
+        συγκεκριμένη επαφή έχει δηλωθεί ως φορέας.
+        -->
+        <contact:authInfo>
+          <contact:pw roid="domain-roid">domain-auth-code</contact:pw>
+        </contact:authInfo>
+      </contact:info>
+    </info>
+    <clTRID>ABC:ics-forth:1079597962952</clTRID>
+  </command>
+</epp>

@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp 
+  xmlns="urn:ietf:params:xml:ns:epp-1.0" 
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd">
+  <response>
+    <result code="1000">
+      <msg>Η εντολή ολοκληρώθηκε επιτυχώς</msg>
+    </result>
+    <resData>
+      <domain:infData 
+        xmlns:domain="urn:ietf:params:xml:ns:domain-1.0" 
+        xsi:schemaLocation="urn:ietf:params:xml:ns:domain-1.0 domain-1.0.xsd">
+        <domain:name>forth.gr</domain:name>
+        <domain:roid>dcaa15928758c4a15afcedd7420542c24-gr</domain:roid>
+        <domain:registrant>reg_gsa</domain:registrant>
+        <domain:contact type="admin">reg_gsa</domain:contact>
+        <domain:contact type="admin">reg_izaf</domain:contact>
+        <domain:contact type="billing">reg_gsa</domain:contact>
+        <domain:contact type="tech">reg_gsa</domain:contact>
+        <domain:ns>
+          <domain:hostObj>ns14.forth.gr</domain:hostObj>
+          <domain:hostObj>ns15.forth.gr</domain:hostObj>
+          <domain:hostObj>ns.example.com</domain:hostObj>
+        </domain:ns>
+        <domain:host>ns1.forth.gr</domain:host>
+        <domain:host>ns14.forth.gr</domain:host>
+        <domain:host>ns15.forth.gr</domain:host>
+        <domain:clID>registry</domain:clID>
+        <domain:crID>registry</domain:crID>
+        <domain:crDate>2011-03-21T11:12:51.2Z</domain:crDate>
+        <domain:upID>registry</domain:upID>
+        <domain:upDate>2011-05-05T16:28:11.2Z</domain:upDate>
+        <domain:exDate>2013-03-20T23:59:59.9Z</domain:exDate>
+      </domain:infData>
+    </resData>
+    <extension>
+      <extdomain:resData 
+        xmlns:extdomain="urn:ics-forth:params:xml:ns:extdomain-1.3" 
+        xsi:schemaLocation="urn:ics-forth:params:xml:ns:extdomain-1.3 extdomain-1.3.xsd">
+        <!-- Regulator (EETT) prohibitions -->
+        <extdomain:status s="regulatorDelegationChangeProhibited"/>
+        <extdomain:status s="regulatorOwnerChangeProhibited"/>
+        <extdomain:status s="regulatorHold"/>
+        <extdomain:protocol>63161</extdomain:protocol>
+        <extdomain:bundle>
+          <extdomain:bundleName 
+            chargeable="1" 
+            recordType="domain">forth.gr</extdomain:bundleName>
+        </extdomain:bundle>
+      </extdomain:resData>
+      <extSecDNS:lastValidationResult 
+        xmlns:extSecDNS="urn:ics-forth:params:xml:ns:extSecDNS-1.0" 
+        xsi:schemaLocation="urn:ics-forth:params:xml:ns:extSecDNS-1.0 extSecDNS-1.0.xsd">
+        <extSecDNS:wasSuccessful>false</extSecDNS:wasSuccessful>
+        <extSecDNS:validationOutcome>Όλες οι εγγραφές DS εν αναμονή της επαλήθευσης απορρίφθηκαν. 
+        Δεν ήταν δυνατό να επιλυθεί (resolve) το όνομα του εξυπηρετητή ονομάτων ns15.forth.gr.
+        </extSecDNS:validationOutcome>
+        <extSecDNS:validationDate>2011-05-05T16:21:24.867+03:00</extSecDNS:validationDate>
+      </extSecDNS:lastValidationResult>
+    </extension>
+    <trID>
+      <clTRID>xyz-cdfb022a-3287-4afb-b1b8-830ce803b8a9</clTRID>
+      <svTRID>4fe8372f-0cd5-41b6-be91-5bfccc221b76-79030</svTRID>
+    </trID>
+  </response>
+</epp>

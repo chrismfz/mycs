@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp 
+  xmlns="urn:ietf:params:xml:ns:epp-1.0" 
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd">
+  <response>
+    <result code="1000">
+      <msg>Η εντολή ολοκληρώθηκε επιτυχώς</msg>
+    </result>
+    <resData>
+      <domain:renData 
+        xmlns:domain="urn:ietf:params:xml:ns:domain-1.0" 
+        xsi:schemaLocation="urn:ietf:params:xml:ns:domain-1.0 domain-1.0.xsd">
+        <domain:name>forth.gr</domain:name>
+        <domain:exDate>2013-10-22T23:59:59.9Z</domain:exDate>
+      </domain:renData>
+    </resData>
+    <trID>
+      <clTRID>ABC:ics-forth:1079952249913</clTRID>
+      <svTRID>20040322-104330230-611-gr</svTRID>
+    </trID>
+  </response>
+</epp>

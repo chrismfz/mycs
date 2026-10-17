@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp 
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd" 
+  xmlns="urn:ietf:params:xml:ns:epp-1.0" 
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <response>
+    <result code="1000">
+      <msg>Η εντολή ολοκληρώθηκε επιτυχώς</msg>
+    </result>
+    <resData>
+      <domain:chkData 
+        xsi:schemaLocation="urn:ietf:params:xml:ns:domain-1.0 domain-1.0.xsd" 
+        xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">
+        <domain:cd>
+          <domain:name avail="1">forth.gr</domain:name>
+          <domain:reason>Είναι διαθέσιμο</domain:reason>
+        </domain:cd>
+        <domain:cd>
+          <domain:name avail="0">forth.gov.gr</domain:name>
+          <domain:reason>Σε Χρήση.</domain:reason>
+        </domain:cd>
+      </domain:chkData>
+    </resData>
+    <extension>
+      <extdomain:resData 
+        xsi:schemaLocation="urn:ics-forth:params:xml:ns:extdomain-1.3 extdomain-1.3.xsd" 
+        xmlns:extdomain="urn:ics-forth:params:xml:ns:extdomain-1.3">
+        <extdomain:comment ref="forth.gr">Το Όνομα Χώρου είναι διαθέσιμο για υλοποίηση.</extdomain:comment>
+      </extdomain:resData>
+    </extension>
+    <trID>
+      <clTRID>ABC:ics-forth:1079698712682</clTRID>
+      <svTRID>20110929-170106656-358-gr</svTRID>
+    </trID>
+  </response>
+</epp>

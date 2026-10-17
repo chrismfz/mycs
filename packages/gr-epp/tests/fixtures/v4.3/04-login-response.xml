@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp 
+  xmlns="urn:ietf:params:xml:ns:epp-1.0" 
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd">
+  <response>
+    <result code="1000">
+      <msg>Η εντολή ολοκληρώθηκε επιτυχώς</msg>
+    </result>
+    <extension>
+      <extcommon:resData 
+        xmlns:extcommon="urn:ics-forth:params:xml:ns:extcommon-1.0" 
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+        xsi:schemaLocation="urn:ics-forth:params:xml:ns:extcommon-1.0 extcommon-1.0.xsd">
+        <extcommon:comment>Καλώς ήλθατε στο Μητρώο.</extcommon:comment>
+      </extcommon:resData>
+    </extension>
+    <trID>
+      <clTRID>ABC:ics-forth:1079595109464</clTRID>
+      <svTRID>20110523-101636996-783-gr</svTRID>
+    </trID>
+  </response>
+</epp>

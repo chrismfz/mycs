@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp 
+  xmlns="urn:ietf:params:xml:ns:epp-1.0" 
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd">
+  <command>
+    <update>
+      <domain:update 
+      xmlns:domain="urn:ietf:params:xml:ns:domain-1.0" 
+      xsi:schemaLocation="urn:ietf:params:xml:ns:domain-1.0 domain-1.0.xsd">
+        <domain:name>forth.gr</domain:name>
+        <domain:add>
+          <domain:ns>
+            <domain:hostObj>ns2.forth.gr</domain:hostObj>
+          </domain:ns>
+          <domain:contact type="tech">reg_contact003</domain:contact>
+          <domain:contact type="billing">reg_contact005</domain:contact>
+        </domain:add>
+        <domain:rem>
+          <domain:ns>
+            <domain:hostObj>ns1.forth.gr</domain:hostObj>
+          </domain:ns>
+          <domain:contact type="tech">reg_contact001</domain:contact>
+        </domain:rem>        
+      </domain:update>
+    </update>
+    <clTRID>ABC:ics-forth:1079691187887</clTRID>
+  </command>
+</epp>

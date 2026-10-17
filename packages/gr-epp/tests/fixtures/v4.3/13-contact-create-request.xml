@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp
+  xmlns="urn:ietf:params:xml:ns:epp-1.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd">
+  <command>
+    <create>
+      <contact:create
+        xmlns:contact="urn:ietf:params:xml:ns:contact-1.0"
+        xsi:schemaLocation="urn:ietf:params:xml:ns:contact-1.0 contact-1.0.xsd">
+        <contact:id>reg_contact001</contact:id>
+        <contact:postalInfo type="loc">
+          <contact:name>Μητρώο Ονομάτων Internet με κατάληξη .gr</contact:name>
+          <contact:org>ICS/FORTH</contact:org>
+          <contact:addr>
+            <contact:street>Ν.Πλαστήρα 100</contact:street>
+            <contact:street>Βασιλικά Βουτών</contact:street>
+            <contact:city>Ηράκλειο</contact:city>
+            <contact:sp>Κρήτη</contact:sp>
+            <contact:pc>70013</contact:pc>
+            <contact:cc>gr</contact:cc>
+          </contact:addr>
+        </contact:postalInfo>
+        <contact:postalInfo type="int">
+          <contact:name>Registry of .gr Domain Names</contact:name>
+          <contact:org>ICS/FORTH</contact:org>
+          <contact:addr>
+            <contact:street>N. Plastira 100</contact:street>
+            <contact:street>Vassilika Vouton</contact:street>
+            <contact:city>Heraklion</contact:city>
+            <contact:sp>Crete</contact:sp>
+            <contact:pc>70013</contact:pc>
+            <contact:cc>gr</contact:cc>
+          </contact:addr>
+        </contact:postalInfo>
+        <contact:voice x="1450">+30.2810391400</contact:voice>
+        <contact:fax x="">+30.2810391451</contact:fax>
+        <contact:email>gr-tech@ics.forth.gr</contact:email>
+        <contact:authInfo>
+          <contact:pw/>
+        </contact:authInfo>
+        <contact:disclose flag="0">
+          <contact:name type="int"/>
+          <contact:name type="loc"/>
+          <contact:org type="int"/>
+          <contact:org type="loc"/>
+          <contact:addr type="int"/>
+          <contact:addr type="loc"/>
+          <contact:voice/>
+          <contact:fax/>
+          <contact:email/>
+        </contact:disclose>
+      </contact:create>
+    </create>
+    <clTRID>ABC:ics-forth:1079595109464</clTRID>
+  </command>
+</epp>
