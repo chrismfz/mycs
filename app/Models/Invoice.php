@@ -123,7 +123,7 @@ class Invoice extends Model implements Auditable
     /** It records a service period given up on (Δ3a): kept, else the cron would bill that period again. */
     public function recordsForgonePeriod(): bool
     {
-        return $this->items()->where('reference_type', Service::class)->whereNotNull('forgone_at')->exists();
+        return $this->items()->whereIn('reference_type', [Service::class, Domain::class])->whereNotNull('forgone_at')->exists();
     }
 
     /** Not settled yet: what a cancellation gives up on (a draft too: finalised later, it would bill it). */
@@ -158,8 +158,9 @@ class Invoice extends Model implements Auditable
     public ?bool $keep_periods_billable = null;
 
     /**
-     * The first day of a period the cron would not bill yet: today plus its days before (services: Invoice Generation
-     * days; domains: their own, RenewalBilling::domainInvoiceDays), as a date string.
+     * The first day of a period the cron would not bill yet, as a date string: it bills a period starting before now plus
+     * its days before (services: Invoice Generation days; domains: their own, RenewalBilling::domainInvoiceDays), so up to
+     * that day itself (review A4-1).
      *
      * @param  class-string  $type
      */
@@ -167,7 +168,7 @@ class Invoice extends Model implements Auditable
     {
         $days = $type === Domain::class ? RenewalBilling::domainInvoiceDays() : (int) config('settings.cronjob_invoice', 7);
 
-        return today()->addDays($days)->toDateString();
+        return today()->addDays($days + 1)->toDateString();
     }
 
     /** Its renewal lines all bill periods the cron would not bill yet: cancelled, kept billable (Δ3, ADV-4). */

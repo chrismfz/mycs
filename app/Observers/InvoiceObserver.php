@@ -190,6 +190,10 @@ class InvoiceObserver
             [, $billed] = $service->billedPeriodLines();
             $start = $service->nextPeriodStart($billed);
             $end = $service->periodEnd($start, $billed);
+            // A period the cron has not reached yet stays billable (ADV-4, review A4-5): nothing to mark.
+            if ($onlyDue && $start->toDateString() >= Invoice::billedFrom(Service::class)) {
+                continue;
+            }
             if ($end !== null) {
                 // Not a money field: allowed on any invoice (InvoiceItemObserver).
                 InvoiceItem::query()->whereKey($line->id)->update(['period_start' => $start->toDateString(), 'period_end' => $end->toDateString(), 'forgone_at' => now()]);
@@ -206,8 +210,9 @@ class InvoiceObserver
     /** Another live invoice billing one of its periods (the same service, overlapping), if any: its id. */
     private static function billedElsewhere(Invoice $invoice): ?int
     {
-        foreach (self::renewalLines($invoice)->get() as $line) {
-            $other = InvoiceItem::query()->where('reference_type', Service::class)->where('reference_id', $line->reference_id)
+        // A domain's too (review A4-2): a period kept billable and billed again by the cron is not billed twice.
+        foreach (self::renewalLines($invoice, domains: true)->whereNull('kind')->get() as $line) {
+            $other = InvoiceItem::query()->where('reference_type', $line->reference_type)->where('reference_id', $line->reference_id)->whereNull('kind')
                 ->where('invoice_id', '!=', $invoice->id)
                 ->where('period_start', '<', $line->period_end)->where('period_end', '>', $line->period_start)
                 ->whereHas('invoice', fn ($q) => $q->whereNotIn('status', [Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED]))
