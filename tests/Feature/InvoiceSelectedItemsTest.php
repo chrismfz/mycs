@@ -291,4 +291,27 @@ class InvoiceSelectedItemsTest extends TestCase
             ->mountAction('invoiceSelected')->assertSchemaComponentHidden('domains', 'mountedActionSchema0');
         $this->assertSame([], $this->lines($domain));
     }
+
+    public function test_cancelled_early_the_period_is_billed_at_its_time_unless_staff_give_it_up(): void
+    {
+        // ADV-4 (owner 2026-10-17): invoiced early and taken back, the cron bills it at its time; within the cron's days
+        // before, a cancelled renewal is given up (Δ3a). Staff may still say «not this period» on a far one.
+        $kept = $this->service();
+        $givenUp = $this->service(['expires_at' => '2027-03-02']);
+        $first = Invoice::query()->find($this->invoice([$kept])['invoices'][0]);
+        $second = Invoice::query()->find($this->invoice([$givenUp])['invoices'][0]);
+        $this->assertTrue($first->billsOnlyPeriodsToCome(), 'the Cancel toggle «Bill its period again» starts on');
+
+        $first->update(['status' => Invoice::STATUS_CANCELLED]);
+        $second->keep_periods_billable = false;
+        $second->update(['status' => Invoice::STATUS_CANCELLED]);
+        $this->assertSame([null], array_map(fn ($l) => $l->forgone_at, $this->lines($kept)));
+        $this->assertNotNull($this->lines($givenUp)[0]->forgone_at);
+
+        Carbon::setTestNow('2027-02-25 10:00:00');
+        $this->assertFalse(Invoice::query()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID,
+            'due_at' => now(), 'currency_code' => 'EUR'])->billsOnlyPeriodsToCome(), 'no renewal lines: nothing to keep');
+        $this->artisan('app:cron-job')->assertExitCode(0);
+        $this->assertSame([2, 1], [count($this->lines($kept)), count($this->lines($givenUp))]);
+    }
 }

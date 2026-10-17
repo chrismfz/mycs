@@ -8,6 +8,7 @@ use App\Events\Invoice as InvoiceEvent;
 use App\Exceptions\DisplayException;
 use App\Models\AdjustmentNote;
 use App\Models\Credit;
+use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
@@ -177,7 +178,7 @@ class InvoiceObserver
      * no period (an invoice the WHMCS importer brought, one staff made by hand; adversarial D3A-7) takes the period it
      * would have paid, as a payment gives it one (RenewServiceService), and is marked too.
      */
-    private static function givePeriodsUp(Invoice $invoice): void
+    private static function givePeriodsUp(Invoice $invoice, bool $onlyDue = false): void
     {
         $loose = InvoiceItem::query()->where('invoice_id', $invoice->id)->where('reference_type', Service::class)
             ->where(fn ($line) => $line->whereNull('period_start')->orWhereNull('period_end'))->orderBy('id')->get();
@@ -194,7 +195,12 @@ class InvoiceObserver
                 InvoiceItem::query()->whereKey($line->id)->update(['period_start' => $start->toDateString(), 'period_end' => $end->toDateString(), 'forgone_at' => now()]);
             }
         }
-        self::renewalLines($invoice)->whereNull('forgone_at')->update(['forgone_at' => now()]);
+        // A domain's too (D5b): its next period is billed again unless given up (DomainRenewalService::billedLine).
+        self::renewalLines($invoice, domains: true)->whereNull('forgone_at')
+            ->when($onlyDue, fn ($lines) => $lines->where(fn ($due) => $due
+                ->where(fn ($q) => $q->where('reference_type', Service::class)->whereDate('period_start', '<', Invoice::billedFrom(Service::class)))
+                ->orWhere(fn ($q) => $q->where('reference_type', Domain::class)->whereDate('period_start', '<', Invoice::billedFrom(Domain::class)))))
+            ->update(['forgone_at' => now()]);
     }
 
     /** Another live invoice billing one of its periods (the same service, overlapping), if any: its id. */
@@ -215,13 +221,14 @@ class InvoiceObserver
     }
 
     /**
-     * Its lines that bill a period of a service (Δ3).
+     * Its lines that bill a period of a service (Δ3), and with $domains of a domain (D7a ADV-4).
      *
      * @return Builder<InvoiceItem>
      */
-    private static function renewalLines(Invoice $invoice): Builder
+    private static function renewalLines(Invoice $invoice, bool $domains = false): Builder
     {
-        return InvoiceItem::query()->where('invoice_id', $invoice->id)->where('reference_type', Service::class)
+        return InvoiceItem::query()->where('invoice_id', $invoice->id)
+            ->whereIn('reference_type', $domains ? [Service::class, Domain::class] : [Service::class])
             ->whereNotNull('period_start')->whereNotNull('period_end');
     }
 
@@ -240,13 +247,16 @@ class InvoiceObserver
         // are marked, and the cron does not bill that period again (the service falls to the suspension and termination
         // rules). Reopened, the period is billed again by this invoice. Cancelled as a consequence of its service ending
         // or changing cycle (CancelOpenInvoices), nothing is marked: a service that goes on is billed again.
+        // Nobody chose (null): a cancelled renewal of a period the cron would not bill yet (beyond its days before) is kept
+        // billable, the cron bills it at its time; one within them is given up, as Δ3a (owner, 2026-10-17, D7a ADV-4:
+        // invoiced or paid early then taken back must not end in a suspension).
         if ($invoice->isDirty('status') && in_array($invoice->status, [Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED], true)
-            && !$invoice->keep_periods_billable) {
-            self::givePeriodsUp($invoice);
+            && $invoice->keep_periods_billable !== true) {
+            self::givePeriodsUp($invoice, onlyDue: $invoice->keep_periods_billable === null && $invoice->status === Invoice::STATUS_CANCELLED);
         }
         if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_CANCELLED
             && in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_DRAFT], true)) {
-            self::renewalLines($invoice)->update(['forgone_at' => null]);
+            self::renewalLines($invoice, domains: true)->update(['forgone_at' => null]);
         }
 
         // Reopened: the cancellation's credit note no longer applies, the invoice is payable again

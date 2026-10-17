@@ -213,7 +213,6 @@ class InvoiceSelectedItemsAdversarialTest extends TestCase
      */
     public function test_a_premature_selection_invoice_cancelled_by_staff_does_not_stop_the_service_being_billed_at_its_time(): void
     {
-        $this->markTestIncomplete('ADV-4: owner decision (a period invoiced early and cancelled before it starts: given up, as today, or billed again at its time). Open in PR #171.');
         $service = $this->service(['expires_at' => '2027-03-01']);
         $result = $this->invoice([$service]);
         Invoice::query()->find($result['invoices'][0])->update(['status' => Invoice::STATUS_CANCELLED]);
@@ -229,7 +228,6 @@ class InvoiceSelectedItemsAdversarialTest extends TestCase
     /** ADV-4b: the same for a domain: a cancelled premature renewal is «billed once, whatever became of it» (D5b). */
     public function test_a_premature_selection_invoice_of_a_domain_cancelled_by_staff_does_not_stop_its_renewal_billing(): void
     {
-        $this->markTestIncomplete('ADV-4: owner decision (a period invoiced early and cancelled before it starts: given up, as today, or billed again at its time). Open in PR #171.');
         $domain = $this->domain(['expires_at' => '2027-03-01']);
         $result = $this->invoice([], [$domain]);
         Invoice::query()->find($result['invoices'][0])->update(['status' => Invoice::STATUS_CANCELLED]);
