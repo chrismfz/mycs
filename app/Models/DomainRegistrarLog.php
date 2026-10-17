@@ -24,6 +24,9 @@ class DomainRegistrarLog extends Model
 {
     public const STATUS_OK = 'ok';
 
+    /** Asked, its outcome not known yet (a charge whose answer never came: D-17, never asked again blindly). */
+    public const STATUS_PENDING = 'pending';
+
     public const STATUS_ADOPTED = 'adopted';
 
     public const STATUS_FAILED = 'failed';

@@ -96,6 +96,8 @@ return [
                 // the domain over.
                 'manage' => 'Manage Domains at the Registrar',
                 'epp' => 'Get EPP Codes',
+                // D5b-2: a renewal at the registrar before the payment (D-1, trusted customers): real money.
+                'renew' => 'Renew Domains Now (before payment)',
             ],
             // The TLDs sold and their prices (docs/domains.md D-6, D-7).
             'domain_tlds' => [

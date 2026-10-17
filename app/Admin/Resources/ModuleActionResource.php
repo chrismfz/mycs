@@ -53,11 +53,14 @@ class ModuleActionResource extends Resource
         return $table
             ->defaultSort('id', 'desc')
             ->columns([
-                TextColumn::make('service_id')->label('Service')
-                    ->formatStateUsing(fn (ModuleAction $record) => '#' . $record->service_id . ' ' . ($record->service->product->name ?? '')
-                        . ($record->service?->domain ? ' (' . $record->service->domain . ')' : ''))
-                    ->url(fn (ModuleAction $record) => ServiceResource::getUrl('edit', ['record' => $record->service_id])),
-                TextColumn::make('service.client.name')->label('Client'),
+                // A service's action, or a domain's (D5b-2: its renewal at the registrar).
+                TextColumn::make('for')->label('For')
+                    ->state(fn (ModuleAction $record) => $record->domain_id !== null
+                        ? ($record->domain->fqdn ?? '#' . $record->domain_id) . ($record->invoiceItem ? ' · invoice #' . $record->invoiceItem->invoice_id : '')
+                        : '#' . $record->service_id . ' ' . ($record->service->product->name ?? '') . ($record->service?->domain ? ' (' . $record->service->domain . ')' : ''))
+                    ->url(fn (ModuleAction $record) => $record->domain_id !== null ? DomainResource::getUrl('view', ['record' => $record->domain_id])
+                        : ServiceResource::getUrl('edit', ['record' => $record->service_id])),
+                TextColumn::make('client')->label('Client')->state(fn (ModuleAction $record) => $record->service !== null ? $record->service->client?->name : $record->domain?->client?->name),
                 // «upgrade» is WHMCS's ChangePackage: an upgrade or a downgrade sends the new product's package.
                 TextColumn::make('action')->badge()->formatStateUsing(fn (string $state) => self::label($state)),
                 TextColumn::make('module')->toggleable(),
@@ -84,12 +87,15 @@ class ModuleActionResource extends Resource
                     ModuleAction::STATUS_COMPLETED => 'Completed',
                     ModuleAction::STATUS_RESOLVED => 'Resolved',
                 ])->default(ModuleAction::STATUS_OPEN),
-                SelectFilter::make('action')->options(array_combine(ModuleAction::ACTIONS, array_map(fn (string $action) => self::label($action), ModuleAction::ACTIONS))),
+                SelectFilter::make('action')->options(array_combine([...ModuleAction::ACTIONS, ModuleAction::DOMAIN_RENEW],
+                    array_map(fn (string $action) => self::label($action), [...ModuleAction::ACTIONS, ModuleAction::DOMAIN_RENEW]))),
             ])
             ->recordActions([
                 // Once the automatic retries are over: while one is still queued, a click would race it (two creates).
                 Action::make('retry')->label('Retry')->icon('ri-loop-right-line')
-                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && $record->given_up_at !== null)
+                    // A domain's renewal has no automatic retry queued (the cron's daily run is its retry): any time.
+                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN
+                        && ($record->given_up_at !== null || $record->action === ModuleAction::DOMAIN_RENEW))
                     ->authorize('update')
                     ->requiresConfirmation()
                     ->modalDescription('Runs the action on the server now (and sends its email, as the automatic run would).')
@@ -111,7 +117,9 @@ class ModuleActionResource extends Resource
                     ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN)
                     ->authorize('update')
                     ->requiresConfirmation()
-                    ->modalDescription('For an account fixed by hand on the server: closes it without running anything (a create: the service turns active).')
+                    ->modalDescription(fn (ModuleAction $record) => $record->action === ModuleAction::DOMAIN_RENEW
+                        ? 'The domain was renewed by hand at its registrar: its paid renewal is applied and its expiry moved to the end of the paid period.'
+                        : 'For an account fixed by hand on the server: closes it without running anything (a create: the service turns active).')
                     ->action(fn (ModuleAction $record) => $record->markResolved(self::staff())),
             ])
             ->toolbarActions([
@@ -124,7 +132,11 @@ class ModuleActionResource extends Resource
 
     public static function label(string $action): string
     {
-        return $action === 'upgrade' ? 'Change Package' : ucfirst($action);
+        return match ($action) {
+            'upgrade' => 'Change Package',
+            ModuleAction::DOMAIN_RENEW => 'Domain Renewal',
+            default => ucfirst($action),
+        };
     }
 
     private static function staff(): ?Staff

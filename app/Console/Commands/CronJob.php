@@ -26,6 +26,7 @@ use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Models\Setting;
 use App\Models\Ticket;
+use App\Services\Domains\DomainRenewalService;
 use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\Invoice\ChangeOpenLine;
 use App\Services\Invoice\PaymentReminders;
@@ -156,6 +157,22 @@ class CronJob extends Command
             // Credit pays what is open, oldest due first, before new renewals take it and before anything is suspended
             // (decision 5, MT-1e): a customer with credit is not suspended while it sits unused. Each invoice in its own
             // transaction, under the payment locks.
+            // Paid domain renewals not done at their registrar yet (D5b-2): a job lost, a registrar down, an unknown
+            // outcome waiting. The service's guards (lock, once per invoice, Pending Module Actions) make this harmless.
+            $this->runCronJob('domains_renewed', function ($number = 0) {
+                foreach (DomainRenewalService::waitingLines()->where('created_at', '<', now()->subMinutes(10))->pluck('id') as $lineId) {
+                    try {
+                        $outcome = app(DomainRenewalService::class)->renewLine((int) $lineId);
+                        $number += in_array($outcome, [DomainRenewalService::APPLIED, DomainRenewalService::ADOPTED], true) ? 1 : 0;
+                    } catch (Throwable $e) {
+                        report($e);
+                        $this->failures["domains_renewed line #{$lineId}"] = $e;
+                    }
+                }
+
+                return $number;
+            }, transaction: false);
+
             $this->runCronJob('credit_applied', fn () => (new CreditAutoApply)->sweep(function (int $userId, Throwable $e) {
                 $this->failures["credit_applied user #{$userId}"] = $e;
             }), transaction: false);

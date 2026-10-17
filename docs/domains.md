@@ -283,9 +283,22 @@
      μετρά ως χρεωμένη· ανανέωση ήδη πληρωμένη που πέφτει σε στάδιο με τέλος → σημείωση στο staff (μία φορά).
    - **Για το D5b-2:** μια πληρωμένη ανανέωση N ετών σε redemption δίνει τα N έτη: restore (1 έτος) και μετά renew τα
      υπόλοιπα (adversarial ADV-11).
-5b-2. **D5b-2 Πληρωμή → registrar:** sync πρώτα (adopt αν ο registrar καλύπτει ήδη την περίοδο, D-2), renew ή restore
-   (D-13, 1 έτος), lock, log με το τιμολόγιο, Pending Module Actions σε αποτυχία (D-15), «Ανανέωση τώρα» (D-1).
-   Code + adversarial.
+5b-2. **D5b-2 Πληρωμή → registrar** (`DomainRenewalService`): η πληρωμή παραδίδει τη γραμμή σε job μετά το commit
+   (η πληρωμή δεν περιμένει ποτέ τον registrar, D-15)· το cron (`domains_renewed`) ξαναπιάνει όσες πληρωμένες γραμμές
+   δεν εφαρμόστηκαν (χαμένο job, registrar κάτω). Με lock ανά domain:
+   - **Πρώτα ο registrar** (D-2): sync· αν η λήξη του καλύπτει το τέλος της πληρωμένης περιόδου (±3 μέρες) → **adopt**,
+     καμία χρέωση (ανανέωση αλλού, «Ανανέωση τώρα», προηγούμενη προσπάθεια).
+   - **Μία φορά ανά τιμολόγιο** (D-17): κάθε χρέωση γράφεται «pending» στο log **πριν** ζητηθεί· χωρίς απάντηση
+     (timeout) μένει pending και δεν ξαναζητείται για 7 μέρες (το επόμενο run κοιτά αν φάνηκε)· μετά, staff.
+   - ACT → renew για τα πληρωμένα έτη· σε grace/redemption στον registrar (`DEL` μέσα σε quarantine) → **restore** (1
+     έτος) και renew τα υπόλοιπα (ADV-11)· οτιδήποτε άλλο → staff.
+   - Manual registrar, τελειωμένο domain, άρνηση, άγνωστη έκβαση → **Pending Module Action** (`domain_renew`, με το
+     domain και τη γραμμή)· «Retry» ξανατρέχει, «Mark resolved» = ανανεώθηκε με το χέρι: εφαρμόζει τη γραμμή και πάει
+     τη λήξη στο τέλος της περιόδου.
+   - **«Ανανέωση τώρα»** (`admin.domains.renew`, D-1): τιμολογεί αν δεν έχει τιμολογηθεί η περίοδος, ανανεώνει στον
+     registrar με log στο τιμολόγιο· η μεταγενέστερη πληρωμή βρίσκει την περίοδο καλυμμένη και την υιοθετεί.
+   - Η γραμμή εφαρμόζεται (`applied_at`) όταν ο registrar καλύπτει την περίοδο ή χρέωσε για αυτήν.
+   - Ανοίγει μαζί η ρύθμιση **«Bill domain renewals»**. Code + adversarial.
 5. **D5 Χρέωση:** γραμμή `Domain` στο τιμολόγιο, βήμα τιμολόγησης με ομαδοποίηση, κλάδος στην πληρωμή, renew on-paid, «Ανανέωση τώρα», adopt, fee grace/
    redemption στο υπάρχον τιμολόγιο, Pending Module Actions. Code + adversarial.
 6. **D6 Importer WHMCS:** domains, τιμές, TLDs, ρόλοι επαφών, additional fields· parity και σύγκριση με τον

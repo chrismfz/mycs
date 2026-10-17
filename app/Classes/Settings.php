@@ -579,7 +579,7 @@ class Settings
                     'type' => 'checkbox',
                     'database_type' => 'boolean',
                     'default' => false,
-                    'description' => 'Make the renewal invoices of domains with auto renew. Their registrar renewal on payment comes with the next release: keep this off until then.',
+                    'description' => 'Make the renewal invoices of domains with auto renew; on payment they are renewed at their registrar (a manual one: a Pending Module Action for staff).',
                 ],
                 // Domains (docs/domains.md D-14; WHMCS CreateDomainInvoiceDaysBefore): their own, empty = as the services.
                 [

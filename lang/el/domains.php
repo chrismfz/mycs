@@ -45,4 +45,9 @@ return [
         'grace_fee' => 'Τέλος καθυστερημένης ανανέωσης :domain (περίοδος grace)',
         'redemption_fee' => 'Τέλος επαναφοράς :domain (περίοδος redemption)',
     ],
+    'renew' => [
+        'not_renewable' => 'Το :domain δεν ανανεώνεται τώρα: δεν έχει λήξη ή έχει τελειώσει.',
+        'no_price' => 'Το :domain δεν έχει τιμή ανανέωσης για :years έτη: ορίστε μία στο TLD ή στο domain.',
+        'not_active_at_registrar' => 'Ο registrar έχει το :domain ως :status: ανανεώστε το εκεί με το χέρι.',
+    ],
 ];

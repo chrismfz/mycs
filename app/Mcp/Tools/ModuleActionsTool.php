@@ -36,7 +36,7 @@ class ModuleActionsTool extends McpTool
             ->when($request->get('given_up_only'), fn ($query) => $query->whereNotNull('given_up_at'));
 
         return ['actions' => $query->limit(self::limit($request, 50, 200))->get()->map(fn (ModuleAction $action) => [
-            'id' => $action->id, 'service_id' => $action->service_id, 'action' => $action->action, 'attempts' => $action->attempts,
+            'id' => $action->id, 'service_id' => $action->service_id, 'domain_id' => $action->domain_id, 'action' => $action->action, 'attempts' => $action->attempts,
             'given_up' => $action->given_up_at ? (string) $action->given_up_at : null, 'error' => Scrub::text($action->last_error),
             'updated' => $action->updated_at?->toDateTimeString(),
         ])->all()];
