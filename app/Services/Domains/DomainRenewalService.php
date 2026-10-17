@@ -107,8 +107,8 @@ class DomainRenewalService
         for ($i = 0; $i < 20 && ($billed = self::billedLine($domain, $start, payable: true)) !== null && $billed->period_end !== null; $i++) {
             $start = Carbon::instance($billed->period_end)->startOfDay();
         }
-        $line->period_start = $start;
-        $line->period_end = $start->copy()->addYearsNoOverflow(max(1, (int) $domain->years));
+        $line->period_start = $start->toImmutable();
+        $line->period_end = $start->toImmutable()->addYearsNoOverflow(max(1, (int) $domain->years));
     }
 
     /**
