@@ -8,6 +8,7 @@ use App\Livewire\Cart;
 use App\Livewire\Client;
 use App\Livewire\Dashboard;
 use App\Livewire\Domains;
+use App\Livewire\DomainShop;
 use App\Livewire\Home;
 use App\Livewire\Invoices;
 use App\Livewire\Products;
@@ -17,6 +18,10 @@ use Illuminate\Foundation\Auth\EmailVerificationRequest;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', Home::class)->name('home');
+// The shop's domains (D8a): search, whois and price list, public.
+Route::get('/domain-search', DomainShop\Search::class)->name('domain.search');
+Route::get('/whois', DomainShop\Whois::class)->name('domain.whois');
+Route::get('/domain-pricing', DomainShop\Pricing::class)->name('domain.pricing');
 
 // Destroy the session and log out the user.
 // auth()->logout();

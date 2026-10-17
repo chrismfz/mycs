@@ -16,6 +16,7 @@ use App\Models\Extension;
 use App\Models\OauthClient;
 use App\Models\Staff;
 use App\Models\User;
+use App\Services\Domains\Lookup\VisitorKey;
 use App\Services\Money\GatewayLog;
 use App\Support\BootFailure;
 use App\Support\CurrentClient;
@@ -48,6 +49,8 @@ use League\CommonMark\Extension\Table\TableExtension;
 use Livewire\Livewire;
 use MyCS\Vies\CurlTransport;
 use MyCS\Vies\Vies;
+use Nixpal\DomainTools\Whois\SocketConnector;
+use Nixpal\DomainTools\Whois\StreamSocketConnector;
 use SocialiteProviders\Discord\Provider;
 use SocialiteProviders\Manager\SocialiteWasCalled;
 
@@ -58,6 +61,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        // Port 43 whois (D8a): the real socket; tests bind their own.
+        $this->app->bind(SocketConnector::class, StreamSocketConnector::class);
+
         // Service provider for settings
         $this->app->register(SettingsProvider::class);
 
@@ -158,6 +164,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // The public price list API (D8a): 60 a minute per caller's own address (review R2, App\Support\CallerIp).
+        RateLimiter::for('domain-pricing', fn ($request) => Limit::perMinute(60)->by(VisitorKey::of($request)));
+
         // The admin API (AUTH-17): 120 calls a minute per key that exists and is enabled; anything else (no token, a
         // junk one) shares 60 a minute per address, so a new junk token on every call gets no fresh bucket (R1 of #90).
         RateLimiter::for('admin-api', function (Request $request) {

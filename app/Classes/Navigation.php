@@ -4,6 +4,7 @@ namespace App\Classes;
 
 use App\Helpers\EventHelper;
 use App\Models\Category;
+use App\Models\DomainTld;
 use App\Models\User;
 use App\Support\Actor;
 use App\Support\CurrentClient;
@@ -38,6 +39,13 @@ class Navigation
                     'condition' => count($categories) > 0,
                     'separator' => true,
                     'icon' => 'ri-shopping-bag',
+                ],
+                [
+                    // D8a: find a domain; the price list and whois from its page.
+                    'name' => __('navigation.domain_search'),
+                    'url' => route('domain.search'),
+                    'icon' => 'ri-search',
+                    'condition' => DomainTld::query()->where('is_active', true)->exists(),
                 ],
             ];
 

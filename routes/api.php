@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\Admin\ServiceController;
 use App\Http\Controllers\Api\Admin\TicketController;
 use App\Http\Controllers\Api\Admin\TicketMessageController;
 use App\Http\Controllers\Api\Admin\UserController;
+use App\Http\Controllers\Api\DomainPricingController;
 use App\Http\Controllers\Api\ProfileController;
 use Illuminate\Support\Facades\Route;
 
@@ -21,6 +22,9 @@ Route::post('/oauth/token', [
 ]);
 
 Route::get('/me', [ProfileController::class, 'me'])->middleware(['auth:api', 'scope:profile']);
+
+// The domain price list for the company's site (D8a): public, cached, 60 a minute per address.
+Route::get('/v1/domain-pricing', DomainPricingController::class)->middleware('throttle:domain-pricing')->name('api.v1.domain-pricing');
 
 // Rate limited per key (AUTH-17): a leaked or looping key cannot hammer the admin API.
 Route::group(['middleware' => ['throttle:admin-api', 'api.admin'], 'prefix' => 'v1/admin', 'as' => 'api.v1.admin.'], function () {

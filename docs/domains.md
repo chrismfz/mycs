@@ -430,6 +430,15 @@
      rate limit, χωρίς προσωπικά όπου το μητρώο τα κρύβει), **δημόσια σελίδα τιμοκαταλόγου** TLDs (register/renew/transfer
      ανά έτη και νόμισμα) και **JSON API τιμοκαταλόγου** (cached, rate-limited) για το site. `packages/domain-tools`
      έχει ήδη RDAP/port43/suggestions/rate limiter. Code + adversarial (κατάχρηση, enumeration).
+   - **D8a έγινε** (`App\Livewire\DomainShop`, `DomainSearch`, `Lookup\DomainLookup`): **ένα κουτί** (ιδιοκτήτης
+     2026-10-17, πιο απλό από το Blesta: χωρίς checkboxes TLDs) → πρώτα το ακριβές όνομα, μετά τα TLDs με τη σειρά του
+     Domain Pricing (6), το καθένα «Διαθέσιμο / Κατειλημμένο» με τιμή ανά έτος όπως στον κατάλογο και «μετά Χ/έτος» όπου
+     η ανανέωση διαφέρει· premium → «επικοινωνήστε». Διαθεσιμότητα από τον registrar του TLD, αλλιώς RDAP (cache 5′).
+     Δημόσιο **whois** (`/whois`): RDAP → port 43 με μάσκα· .gr «όχι ακόμα» (grepp). **Τιμοκατάλογος** `/domain-pricing`
+     και **JSON** `GET /api/v1/domain-pricing?currency=EUR` (cache 10′, 60/λεπτό). Όρια ανά IP: 30 αναζητήσεις και 10 whois
+     ανά 10′. Μενού «Αναζήτηση domain» όταν υπάρχουν ενεργά TLDs. Οι τιμές σε νόμισμα του επισκέπτη· χωρίς τιμές σε αυτό,
+     μήνυμα. Επόμενα: **προτάσεις ονομάτων** (Openprovider `suggest-name`, `history/blesta-modules/domain-tools.md`) και το
+     κουμπί «Προσθήκη» (D8b).
    - **D8b (χρήματα):** register/transfer στο καλάθι (έτη του TLD, EPP code στη μεταφορά), τιμολόγιο, εγγραφή/μεταφορά
      μετά την πληρωμή. Code + adversarial.
    - **Whois ανά TLD (μητρώο), όχι ανά registrar** (ιδιοκτήτης 2026-10-17): «είναι διαθέσιμο;» → η σύνδεση registrar

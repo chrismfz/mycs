@@ -96,6 +96,49 @@ class OpenproviderRegistrar implements DomainRegistrar
         }
     }
 
+    /** Seconds a request may take: 30, shorter for the shop's search (checkAvailabilityMany). */
+    private int $timeout = 30;
+
+    /**
+     * Several names in one request (D8a review R1: one call per search, not one per name), within $timeout seconds.
+     * Names Openprovider does not answer for are left out.
+     *
+     * @param  list<string>  $fqdns
+     * @return array<string, AvailabilityResult> by name
+     */
+    public function checkAvailabilityMany(array $fqdns, DomainRegistrarCredentials $credentials, int $timeout = 5): array
+    {
+        $domains = [];
+        foreach ($fqdns as $fqdn) {
+            [$name, $extension] = $this->splitFqdn($fqdn);
+            $domains[$name . '.' . $extension] = ['name' => $name, 'extension' => $extension];
+        }
+        $previous = $this->timeout;
+        $this->timeout = $timeout;
+        try {
+            $response = $this->request($credentials, 'POST', '/v1beta/domains/check', ['domains' => array_values($domains)]);
+        } finally {
+            $this->timeout = $previous;
+        }
+        $results = [];
+        foreach ((array) $response->json('data.results') as $i => $result) {
+            if (!is_array($result)) {
+                continue;
+            }
+            // By its own name, else by position (the order asked).
+            $fqdn = is_string($result['domain'] ?? null) ? mb_strtolower($result['domain']) : (array_keys($domains)[$i] ?? null);
+            if ($fqdn === null || !isset($domains[$fqdn])) {
+                continue;
+            }
+            $status = (string) ($result['status'] ?? '');
+            $results[$fqdn] = new AvailabilityResult(fqdn: $fqdn, available: $status === 'free',
+                reason: $status === 'free' ? null : (is_scalar($result['reason'] ?? null) ? (string) $result['reason'] : ($status !== '' ? $status : null)),
+                premium: !empty($result['premium']) || !empty($result['is_premium']));
+        }
+
+        return $results;
+    }
+
     public function checkAvailability(string $fqdn, DomainRegistrarCredentials $credentials): AvailabilityResult
     {
         [$name, $extension] = $this->splitFqdn($fqdn);
@@ -1030,7 +1073,7 @@ class OpenproviderRegistrar implements DomainRegistrar
     {
         return Http::withToken($token)
             ->acceptJson()
-            ->timeout(30)
+            ->timeout($this->timeout)->connectTimeout(min(10, $this->timeout))
             ->send($method, $this->baseUrl($credentials) . $path, $payload === [] ? [] : ['json' => $payload]);
     }
 
