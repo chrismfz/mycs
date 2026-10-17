@@ -116,15 +116,15 @@ class DomainReminders
             }
             // The very invoice its notice names (adversarial ADV-4/4b): its current expiry's renewal, unpaid; a stage fee
             // billed apart, or a line staff added, keeps its own reminders.
-            // A line with a period only (review R6: billedLine also takes a hand-made line without one).
-            $renewal = $domain->expires_at !== null ? DomainRenewalService::billedLine($domain, $domain->expires_at->copy()->startOfDay(), payable: true) : null;
-            $named = $renewal?->period_start !== null ? $renewal->invoice_id : null;
+            $named = $domain->expires_at !== null
+                ? DomainRenewalService::billedLine($domain, $domain->expires_at->copy()->startOfDay(), payable: true)?->invoice_id : null;
             // After the due date: the domain past its expiry gets the expired notice; one still Active (synced late)
             // gets it within the catch-up days.
             // Due when its notices come (the cron bills it due on the expiry, or today past it): one due months before (staff,
             // early) keeps its own reminders, none would come until near the expiry.
+            // Within the days an expiry moves by a sync (F7 of #174, SAME_EXPIRY_DAYS).
             $dueAligned = $invoice->due_at !== null && $domain->expires_at !== null
-                && $invoice->due_at->toDateString() >= $domain->expires_at->toDateString();
+                && $invoice->due_at->toDateString() >= $domain->expires_at->copy()->subDays(self::SAME_EXPIRY_DAYS)->toDateString();
             if ((int) $named !== (int) $invoice->id || !$dueAligned || !(self::notifiable($domain, false) || self::notifiable($domain, true))) {
                 return false;
             }

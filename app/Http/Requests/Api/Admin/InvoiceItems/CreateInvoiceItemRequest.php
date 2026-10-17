@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Api\Admin\InvoiceItems;
 
 use App\Http\Requests\Api\Admin\AdminApiRequest;
+use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Services\Invoice\InvoiceItemReference;
@@ -22,8 +23,9 @@ class CreateInvoiceItemRequest extends AdminApiRequest
             'taxed' => 'sometimes|boolean',
             'reference_type' => 'nullable',
             'reference_id' => 'nullable',
-            // A domain line that is not its renewal (an owner change, a fee): never taken for one (review R6 of #172).
-            'kind' => 'sometimes|nullable|in:' . InvoiceItem::KIND_CHARGE,
+            // A domain line (review R6 of #172, F1/F3 of #174): «renewal» gives it the domain's next period (paid, it renews
+            // at the registrar); without, it is a «charge» (an owner change, a fee). Domain lines only.
+            'kind' => 'sometimes|nullable|in:' . InvoiceItem::KIND_CHARGE . ',' . InvoiceItem::KIND_RENEWAL,
         ];
     }
 
@@ -34,6 +36,9 @@ class CreateInvoiceItemRequest extends AdminApiRequest
             $problem = InvoiceItemReference::problem(Invoice::query()->find($this->input('invoice_id')), $this->input('reference_type'), $this->input('reference_id'));
             if ($problem !== null) {
                 $validator->errors()->add(...$problem);
+            }
+            if (filled($this->input('kind')) && $this->input('reference_type') !== Domain::class) {
+                $validator->errors()->add('kind', __('Only a domain line takes a kind.'));
             }
         }];
     }

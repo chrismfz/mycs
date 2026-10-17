@@ -10,11 +10,13 @@ use App\Http\Requests\Api\Admin\InvoiceItems\GetInvoiceItemRequest;
 use App\Http\Requests\Api\Admin\InvoiceItems\GetInvoiceItemsRequest;
 use App\Http\Requests\Api\Admin\InvoiceItems\UpdateInvoiceItemRequest;
 use App\Http\Resources\InvoiceItemResource;
+use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Services\Invoice\StaffLineEdit;
 use Dedoc\Scramble\Attributes\Group;
 use Dedoc\Scramble\Attributes\QueryParameter;
+use Illuminate\Support\Facades\DB;
 use Spatie\QueryBuilder\QueryBuilder;
 
 #[Group(name: 'InvoiceItems', weight: 5)]
@@ -51,8 +53,16 @@ class InvoiceItemController extends ApiController
     {
         // Validate and create the invoice item
         // Under the payment locks; an invoice with payments keeps its amounts (StaffLineEdit).
-        $invoiceItem = $this->guarded(fn () => StaffLineEdit::run($request->validated('invoice_id'), true,
-            fn () => InvoiceItem::create($request->validated())));
+        $create = fn () => StaffLineEdit::run($request->validated('invoice_id'), true, fn () => InvoiceItem::create($request->validated()));
+        // A domain's renewal: the domain first (its lock order: domain, customer, invoice), so that the cron billing it
+        // at the same moment does not bill the same year (F5 of #174).
+        $invoiceItem = $this->guarded(fn () => $request->validated('kind') === InvoiceItem::KIND_RENEWAL
+            ? DB::transaction(function () use ($create, $request) {
+                Domain::query()->whereKey($request->validated('reference_id'))->lockForUpdate()->first();
+
+                return $create();
+            })
+            : $create());
 
         // Return the created invoice as a JSON response
         return new InvoiceItemResource($this->loadAllowedIncludes($invoiceItem, self::INCLUDES));

@@ -281,7 +281,9 @@ class DomainsD5b1AdversarialTest extends TestCase
     {
         $domain = $this->domain();
         $invoice = Invoice::query()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'EUR', 'due_at' => '2026-10-20']);
-        $invoice->items()->create(['description' => 'nixpal.com renewal', 'price' => '23.33', 'quantity' => 1, 'reference_type' => Domain::class, 'reference_id' => $domain->id]);
+        // Asked to be the renewal (since #174: without, a line without a period is a charge and renews nothing).
+        $invoice->items()->create(['description' => 'nixpal.com renewal', 'price' => '23.33', 'quantity' => 1, 'reference_type' => Domain::class,
+            'reference_id' => $domain->id, 'kind' => InvoiceItem::KIND_RENEWAL]);
         $this->cron();
         $this->assertCount(1, $this->domainLines($domain), 'precondition: open, it counts as billed');
         (new RecordPaymentService)->handle($invoice->fresh(), null, 23.33, transactionId: 'tx-hand');

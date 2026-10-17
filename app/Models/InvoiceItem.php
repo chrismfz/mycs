@@ -23,6 +23,12 @@ class InvoiceItem extends Model implements Auditable
     /** A charge on a domain that is not its renewal (an owner change, a fee billed apart): kind, not a period. */
     public const KIND_CHARGE = 'charge';
 
+    /** Asked for when made (the Admin API): «this is the domain's renewal, give it its period». Never stored. */
+    public const KIND_RENEWAL = 'renewal';
+
+    /** The fees of a domain's stage (D5b-1): the only kinds that change into each other (grace's into redemption's). */
+    public const STAGE_FEES = ['grace_fee', 'redemption_fee'];
+
     use HasFactory, Traits\Auditable;
 
     protected $fillable = [

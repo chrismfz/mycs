@@ -3,6 +3,7 @@
 namespace Tests\Feature\Domains;
 
 use App\Enums\DomainStatus;
+use App\Exceptions\DisplayException;
 use App\Models\ApiKey;
 use App\Models\Currency;
 use App\Models\Domain;
@@ -24,9 +25,10 @@ use Tests\TestCase;
 
 /**
  * Review R6 of #172: a domain line was taken for this year's renewal by its date when it had no period, so an owner
- * change (or last year's late renewal) stopped the cron billing the renewal. Now a domain line is its renewal unless its
- * kind says otherwise (a stage fee, «charge»), and a renewal always has a period: one made without gets the domain's
- * first period not on a live invoice. billedLine reads periods only.
+ * change (or last year's late renewal) stopped the cron billing the renewal. Now (code review F1 of #174, the safe side)
+ * a domain line is a renewal only with its period, or when its maker asks (kind «renewal»: the next period not on a live
+ * invoice); anything else without a period is a «charge». What a line is, and its domain, are set when it is made.
+ * billedLine reads periods only.
  */
 class DomainLinePeriodTest extends TestCase
 {
@@ -91,11 +93,16 @@ class DomainLinePeriodTest extends TestCase
         $this->assertSame(['2026-11-01', '2027-11-01'], [$renewal->period_start->toDateString(), $renewal->period_end->toDateString()]);
     }
 
-    public function test_a_renewal_made_without_a_period_gets_the_domains_next_one_and_paid_it_renews_at_its_registrar(): void
+    public function test_a_line_without_a_period_is_a_charge_unless_asked_to_be_the_renewal(): void
     {
         $domain = $this->domain(['years' => 2]);
-        $line = $this->invoice()->items()->create(['description' => 'nixpal.com renewal', 'price' => '46.66', 'quantity' => 1,
+        $charge = $this->invoice()->items()->create(['description' => 'Owner change', 'price' => '30.00', 'quantity' => 1,
             'reference_type' => Domain::class, 'reference_id' => $domain->id]);
+        $this->assertSame([InvoiceItem::KIND_CHARGE, null], [$charge->kind, $charge->period_start], 'forgetting to say it is a charge renews nothing');
+
+        $line = $this->invoice()->items()->create(['description' => 'nixpal.com renewal', 'price' => '46.66', 'quantity' => 1,
+            'reference_type' => Domain::class, 'reference_id' => $domain->id, 'kind' => InvoiceItem::KIND_RENEWAL]);
+        $this->assertNull($line->kind);
 
         $this->assertSame(['2026-11-01', '2028-11-01'], [$line->period_start->toDateString(), $line->period_end->toDateString()]);
         $this->artisan('app:cron-job')->assertExitCode(0);
@@ -111,7 +118,7 @@ class DomainLinePeriodTest extends TestCase
         $this->artisan('app:cron-job')->assertExitCode(0); // bills 2026-11-01 → 2027-11-01
 
         $line = $this->invoice()->items()->create(['description' => 'Another year', 'price' => '23.33', 'quantity' => 1,
-            'reference_type' => Domain::class, 'reference_id' => $domain->id]);
+            'reference_type' => Domain::class, 'reference_id' => $domain->id, 'kind' => InvoiceItem::KIND_RENEWAL]);
 
         $this->assertSame('2027-11-01', $line->period_start->toDateString(), 'never the same year twice');
     }
@@ -139,9 +146,41 @@ class DomainLinePeriodTest extends TestCase
             'reference_type' => Domain::class, 'reference_id' => $domain->id];
 
         $this->withToken($token)->postJson(route('api.v1.admin.invoice-items.store'), $body + ['kind' => 'grace_fee'])->assertUnprocessable();
+        $this->withToken($token)->postJson(route('api.v1.admin.invoice-items.store'), ['invoice_id' => $invoice->id, 'description' => 'Hosting',
+            'price' => 10, 'quantity' => 1, 'kind' => InvoiceItem::KIND_CHARGE])->assertUnprocessable(); // domain lines only
         $this->withToken($token)->postJson(route('api.v1.admin.invoice-items.store'), $body + ['kind' => InvoiceItem::KIND_CHARGE])->assertSuccessful();
+        $this->withToken($token)->postJson(route('api.v1.admin.invoice-items.store'), $body + ['description' => 'Renewal', 'kind' => InvoiceItem::KIND_RENEWAL])
+            ->assertSuccessful()->assertJsonPath('data.attributes.period_start', fn ($date) => str_starts_with((string) $date, '2026-11-01'));
 
-        $line = InvoiceItem::query()->where('invoice_id', $invoice->id)->sole();
-        $this->assertSame([InvoiceItem::KIND_CHARGE, null], [$line->kind, $line->period_start]);
+        $lines = InvoiceItem::query()->where('invoice_id', $invoice->id)->orderBy('id')->get();
+        $this->assertSame([[InvoiceItem::KIND_CHARGE, null], [null, '2026-11-01']], $lines->map(fn ($l) => [$l->kind, $l->period_start?->toDateString()])->all());
+
+        // A domain without an expiry has no period to renew (F6).
+        $pending = $this->domain(['sld' => 'new', 'fqdn' => 'new.com', 'expires_at' => null, 'status' => DomainStatus::PendingRegister]);
+        $this->withToken($token)->postJson(route('api.v1.admin.invoice-items.store'), ['reference_id' => $pending->id, 'kind' => InvoiceItem::KIND_RENEWAL] + $body)
+            ->assertUnprocessable();
+    }
+
+    public function test_what_a_line_is_and_its_domain_stay_as_made(): void
+    {
+        // F2/F4 of #174: a charge never becomes a renewal (paid, it would renew at the registrar), a renewal never a charge
+        // (it would leave the paid year unrenewed and billed again), and a domain line keeps its domain; a stage fee still
+        // becomes the next stage's.
+        $domain = $this->domain();
+        $other = $this->domain(['sld' => 'other', 'fqdn' => 'other.com']);
+        $invoice = $this->invoice();
+        $charge = $invoice->items()->create(['description' => 'Owner change', 'price' => '30.00', 'quantity' => 1, 'reference_type' => Domain::class, 'reference_id' => $domain->id]);
+        $fee = $invoice->items()->create(['description' => 'Grace fee', 'price' => '100.30', 'quantity' => 1, 'kind' => 'grace_fee', 'reference_type' => Domain::class, 'reference_id' => $domain->id]);
+
+        foreach ([fn () => $charge->update(['kind' => null]), fn () => $fee->update(['kind' => InvoiceItem::KIND_CHARGE]),
+            fn () => $charge->update(['reference_id' => $other->id])] as $change) {
+            try {
+                $change();
+                $this->fail('changed');
+            } catch (DisplayException) {
+            }
+        }
+        $fee->update(['kind' => 'redemption_fee']);
+        $this->assertSame([InvoiceItem::KIND_CHARGE, $domain->id, 'redemption_fee'], [$charge->fresh()->kind, (int) $charge->fresh()->reference_id, $fee->fresh()->kind]);
     }
 }
