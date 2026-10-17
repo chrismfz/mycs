@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Helpers\ExtensionHelper;
 use App\Services\Domains\DomainRenewalService;
+use App\Support\Redact;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
@@ -85,7 +86,7 @@ class ModuleAction extends Model
         $row = self::query()->open()->where('domain_id', $domain->id)->where('invoice_item_id', $line->id)->where('action', self::DOMAIN_RENEW)->latest('id')->first()
             ?? new self(['domain_id' => $domain->id, 'invoice_item_id' => $line->id, 'action' => self::DOMAIN_RENEW, 'status' => self::STATUS_OPEN]);
         $row->fill(['module' => $module, 'attempts' => $row->attempts + 1, 'last_attempt_at' => now(),
-            'last_error' => Str::limit($error->getMessage(), 2000)])->save();
+            'last_error' => Str::limit(Redact::text($error->getMessage()), 2000)])->save();
 
         return $row;
     }
@@ -96,6 +97,22 @@ class ModuleAction extends Model
         $now = now();
         self::query()->open()->where('domain_id', $domain->id)->where('invoice_item_id', $line->id)->where('action', self::DOMAIN_RENEW)
             ->update(['status' => self::STATUS_COMPLETED, 'resolved_at' => $now, 'resolution' => 'succeeded', 'updated_at' => $now]);
+    }
+
+    /**
+     * Staff close a domain's renewal without it (refunded, ended, or checked at the registrar: the unconfirmed charge was
+     * not done). Its unconfirmed charges are settled as not done, so a later Retry may charge (D5b-2 review 6).
+     */
+    public function closeUnrenewed(?Staff $staff): void
+    {
+        if ($this->action !== self::DOMAIN_RENEW || $this->status !== self::STATUS_OPEN) {
+            return;
+        }
+        DomainRegistrarLog::query()->where('domain_id', $this->domain_id)->where('status', DomainRegistrarLog::STATUS_PENDING)
+            ->whereIn('action', ['renew', 'restore'])->update(['status' => DomainRegistrarLog::STATUS_FAILED,
+                'error' => 'Checked by staff at the registrar: not done.', 'staff_id' => $staff?->id, 'updated_at' => now()]);
+        $this->forceFill(['status' => self::STATUS_RESOLVED, 'resolved_at' => now(), 'resolution' => 'closed without renewing',
+            'resolved_by_staff_id' => $staff?->id])->save();
     }
 
     /** @return BelongsTo<Staff, $this> */
@@ -164,14 +181,25 @@ class ModuleAction extends Model
      */
     public function markResolved(?Staff $staff): void
     {
+        // A domain's renewal: «renewed by hand» applies its paid line only as the registrar shows it (D5b-2 review 6);
+        // throws why not, and the row stays open.
+        if ($this->action === self::DOMAIN_RENEW) {
+            if ($this->invoiceItem !== null && $this->invoiceItem->applied_at === null) {
+                app(DomainRenewalService::class)->markRenewedByHand($this->invoiceItem, $staff);
+            }
+            $this->refresh();
+            if ($this->status === self::STATUS_OPEN) {
+                $this->forceFill(['status' => self::STATUS_RESOLVED, 'resolved_at' => now(), 'resolution' => 'renewed by hand',
+                    'resolved_by_staff_id' => $staff?->id])->save();
+            }
+
+            return;
+        }
         $this->forceFill(['status' => self::STATUS_RESOLVED, 'resolved_at' => now(), 'resolution' => 'marked resolved by staff',
             'resolved_by_staff_id' => $staff?->id])->save();
         if ($this->action === 'create' && $this->service !== null) {
             ExtensionHelper::startCreated($this->service);
         }
-        // A domain's renewal resolved: staff renewed it by hand (D5b-2), its paid line applied.
-        if ($this->action === self::DOMAIN_RENEW && $this->invoiceItem !== null) {
-            app(DomainRenewalService::class)->markRenewedByHand($this->invoiceItem, $staff);
-        }
+
     }
 }

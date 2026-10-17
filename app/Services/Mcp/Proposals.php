@@ -166,6 +166,14 @@ final class Proposals
         if ($action->status !== ModuleAction::STATUS_OPEN) {
             throw new InvalidArgumentException("Module action #{$action->id} is {$action->status}, not open.");
         }
+        // A domain's renewal (D5b-2, adversarial ADV-10): no queue retries it, so any time; said as what it does.
+        if ($action->action === ModuleAction::DOMAIN_RENEW) {
+            $what = 'the paid renewal of ' . ($action->domain->fqdn ?? "domain #{$action->domain_id}") . ' (invoice #' . ($action->invoiceItem->invoice_id ?? '?') . ')';
+
+            return [['module_action_id' => $action->id], $type === self::RETRY_MODULE_ACTION
+                ? "Retry {$what} at its registrar now: it reads the registrar and charges the years it lacks, unless a charge is unconfirmed."
+                : "Mark {$what} renewed by hand: applied only if the registrar shows it (a manual registrar: its expiry moves to the end of the paid period)."];
+        }
         // A retry only once the automatic ones are over, as the admin's Retry: before that it would race the queue.
         if ($type === self::RETRY_MODULE_ACTION && $action->given_up_at === null) {
             throw new InvalidArgumentException("Module action #{$action->id} is still being retried by the queue.");

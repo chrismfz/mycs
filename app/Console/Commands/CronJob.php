@@ -154,9 +154,6 @@ class CronJob extends Command
                 return $number;
             }, transaction: false);
 
-            // Credit pays what is open, oldest due first, before new renewals take it and before anything is suspended
-            // (decision 5, MT-1e): a customer with credit is not suspended while it sits unused. Each invoice in its own
-            // transaction, under the payment locks.
             // Paid domain renewals not done at their registrar yet (D5b-2): a job lost, a registrar down, an unknown
             // outcome waiting. The service's guards (lock, once per invoice, Pending Module Actions) make this harmless.
             $this->runCronJob('domains_renewed', function ($number = 0) {
@@ -173,6 +170,9 @@ class CronJob extends Command
                 return $number;
             }, transaction: false);
 
+            // Credit pays what is open, oldest due first, before new renewals take it and before anything is suspended
+            // (decision 5, MT-1e): a customer with credit is not suspended while it sits unused. Each invoice in its own
+            // transaction, under the payment locks.
             $this->runCronJob('credit_applied', fn () => (new CreditAutoApply)->sweep(function (int $userId, Throwable $e) {
                 $this->failures["credit_applied user #{$userId}"] = $e;
             }), transaction: false);
@@ -861,12 +861,8 @@ class CronJob extends Command
         if ($periodStart->greaterThanOrEqualTo($billUntil)) {
             return 0;
         }
-        // Billed: any renewal line whose period reaches past this expiry (review 3: an expiry moved a day is still the same
-        // period), or one without a period on an open invoice (staff's own).
-        if ($domain->invoiceItems()->whereNull('kind')->where(fn ($line) => $line->whereDate('period_end', '>', $periodStart->toDateString())
-            // A line staff billed by hand (no period) for this year: open, or paid and still to renew (adversarial ADV-10).
-            ->orWhere(fn ($own) => $own->whereNull('period_start')->where('created_at', '>', $periodStart->copy()->subYear())
-                ->whereHas('invoice', fn ($invoice) => $invoice->where('status', '!=', Invoice::STATUS_CANCELLED))))->exists()) {
+        // Billed (D5b-1 review 3, ADV-10): one rule with «Renew now» (DomainRenewalService::billedLine).
+        if (DomainRenewalService::billedLine($domain, $periodStart) !== null) {
             return 0;
         }
         // Past its last recoverable day (review 4): nothing to renew any more; staff decide.

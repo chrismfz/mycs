@@ -20,7 +20,7 @@ class RenewDomainJob implements ShouldQueue
 
     public int $tries = 1;
 
-    public int $timeout = 600;
+    public int $timeout = 240; // under the queue's retry_after (300): never run twice at once (code review 12)
 
     public function __construct(public int $lineId) {}
 

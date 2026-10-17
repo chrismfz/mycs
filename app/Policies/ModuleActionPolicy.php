@@ -26,6 +26,11 @@ class ModuleActionPolicy
 
     public function update(User|Staff $user, ModuleAction $action): bool
     {
+        // A domain's renewal: Retry charges its registrar, «renewed by hand» applies a paid renewal (D5b-2 review 8).
+        if ($action->domain_id !== null) {
+            return $user->hasPermission('admin.domains.renew');
+        }
+
         return $user->hasPermission('admin.services.update');
     }
 

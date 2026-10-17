@@ -14,7 +14,6 @@ use App\Services\Order\OrderPricing;
 use App\Support\Domains\DomainSyncResult;
 use App\Support\Redact;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -24,22 +23,22 @@ use Throwable;
 /**
  * A paid domain renewal done at its registrar (docs/domains.md D-1, D-2, D-13, D-15, D-17, D5b-2). Real money at the
  * registrar, so:
- * - one at a time per domain (the registrar lock), and once per invoice: a charge is logged as «pending» before it is
- *   asked, so an answer that never came (a timeout) is never asked again blindly;
- * - the registrar first (D-2): a period it already covers (renewed elsewhere, by «Renew now», by an earlier attempt) is
- *   adopted, never charged twice;
- * - a live domain is renewed for the paid years; one in its grace or redemption at the registrar is restored (one year,
- *   D-13) and the other paid years renewed;
- * - a manual registrar, a domain past recovery, a refusal or an unknown outcome become a Pending Module Action for staff,
- *   never a failed payment (D-15).
- * The line is applied (applied_at) once the registrar covers its period or has charged for it.
+ * - one at a time per domain (the registrar lock);
+ * - never on an unconfirmed charge: a charge is logged «pending» before it is asked, and stays so unless the registrar
+ *   answered (done) or refused it (4xx: nothing done). While one is pending for the domain, from any line, invoice or
+ *   «Renew now», nothing is charged; after PENDING_HOLD_DAYS, staff check the registrar (code review 1, 2, 4);
+ * - the registrar first (D-2): the years charged are those its expiry lacks to reach the end of the paid period, so a
+ *   period it covers is adopted and two paid periods, in any order, get exactly the years paid (code review 3);
+ * - a live domain is renewed; one in its grace at the registrar (soft quarantine) is restored, its grace fee paid, and
+ *   the rest renewed; its redemption (hard quarantine) and anything else go to staff (D-13; code review 5);
+ * - a manual registrar, a refusal or an unknown outcome become a Pending Module Action, never a failed payment (D-15).
  */
 class DomainRenewalService
 {
     /** Slack when comparing the registrar's expiry with the period paid (29 February, registry rounding). */
     private const TOLERANCE_DAYS = 3;
 
-    /** An unknown outcome blocks a new charge this long (as the Blesta module's RenewalPlan). */
+    /** An unconfirmed charge blocks any new one this long, then staff check (as the Blesta module's RenewalPlan). */
     private const PENDING_HOLD_DAYS = 7;
 
     public const APPLIED = 'applied';
@@ -65,8 +64,43 @@ class DomainRenewalService
      */
     public static function waitingLines(): Builder
     {
-        return InvoiceItem::query()->where('reference_type', Domain::class)->whereNull('kind')->whereNotNull('period_end')
+        return InvoiceItem::query()->where('reference_type', Domain::class)->whereNull('kind')->whereNotNull('period_start')->whereNotNull('period_end')
             ->whereNull('applied_at')->whereHas('invoice', fn ($invoice) => $invoice->where('status', Invoice::STATUS_PAID));
+    }
+
+    /**
+     * Its renewal line for the period from $start. Billed (D5b-1, the cron): a line whose period reaches past it on any
+     * invoice (a period staff cancelled is given up, not billed again), or one staff billed by hand this year on an invoice
+     * not cancelled. Payable («Renew now»): only on an invoice still to be paid or paid, never a cancelled or refunded one
+     * (adversarial ADV-3).
+     */
+    public static function billedLine(Domain $domain, Carbon $start, bool $payable = false): ?InvoiceItem
+    {
+        $dead = $payable ? [Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED] : [Invoice::STATUS_CANCELLED];
+
+        return $domain->invoiceItems()->whereNull('kind')
+            ->where(fn ($line) => $line->where(fn ($period) => $period->whereDate('period_end', '>', $start->toDateString())
+                ->when($payable, fn ($q) => $q->whereHas('invoice', fn ($invoice) => $invoice->whereNotIn('status', $dead))))
+                ->orWhere(fn ($own) => $own->whereNull('period_start')->where('created_at', '>', $start->copy()->subYear())
+                    ->whereHas('invoice', fn ($invoice) => $invoice->whereNotIn('status', $dead))))
+            ->orderByDesc('id')->first();
+    }
+
+    /**
+     * Still a paid renewal waiting, read now (its invoice may be refunded meanwhile).
+     *
+     * @phpstan-impure
+     */
+    private function stillWaiting(InvoiceItem $line): bool
+    {
+        return self::waitingLines()->whereKey($line->id)->exists();
+    }
+
+    /** The domain's charge whose outcome is not known (any line, invoice or «Renew now»), or null. */
+    private function unconfirmed(Domain $domain): ?DomainRegistrarLog
+    {
+        return DomainRegistrarLog::query()->where('domain_id', $domain->id)->whereIn('action', ['renew', 'restore'])
+            ->where('status', DomainRegistrarLog::STATUS_PENDING)->latest('id')->first();
     }
 
     /** Renew at the registrar what this paid line paid for; returns what happened (one of the constants). */
@@ -78,7 +112,7 @@ class DomainRenewalService
             return self::NOTHING; // applied meanwhile, or not a paid renewal
         }
         if (in_array($domain->status->value, DomainStatus::terminalValues(), true)) {
-            $this->staffDecides($domain, $line, null, "The domain has ended ({$domain->status->value}): renew or restore it by hand, or refund the payment.");
+            $this->staffDecides($domain, $line, null, "The domain has ended ({$domain->status->value}): renew or restore it by hand, or refund the payment and close this.");
 
             return self::WAITING;
         }
@@ -104,74 +138,110 @@ class DomainRenewalService
 
     private function renewLocked(Domain $domain, InvoiceItem $line, DomainRegistrarConnection $connection, ?Staff $staff): string
     {
-        if ($line->applied_at !== null) {
+        // Still a paid renewal waiting, under the lock (adversarial ADV-5: refunded meanwhile).
+        if ($line->applied_at !== null || !$this->stillWaiting($line)) {
             return self::NOTHING;
         }
-        $registrar = $this->factory->for($connection);
-        $credentials = $this->factory->credentialsFor($connection);
         $target = Carbon::parse($line->period_end)->startOfDay();
-        $years = max(1, (int) round(Carbon::parse($line->period_start)->diffInYears($target)));
 
-        // The registrar first (D-2): its truth applied, and a period it already covers adopted.
         try {
-            $now = $registrar->syncDomain($domain, $credentials);
+            $now = $this->factory->for($connection)->syncDomain($domain, $this->factory->credentialsFor($connection));
         } catch (Throwable $e) {
             $this->staffDecides($domain, $line, $connection->registrar, 'The registrar could not be read: ' . $e->getMessage());
 
             return self::FAILED;
         }
         $this->sync->applyResult($domain, $now);
+        // The registrar first (D-2): a period it covers is adopted, whatever charge made it so.
         if ($this->covers($now, $target)) {
-            return $this->apply($domain, $line, $connection, $staff, DomainRegistrarLog::STATUS_ADOPTED, $now, 'adopted');
+            return $this->apply($domain, $line, $connection, $staff, $now, true);
         }
-
-        // Once per invoice (D-17): a charge already asked for this invoice whose outcome is unknown is not asked again
-        // for a while; after that, staff decide.
-        $earlier = DomainRegistrarLog::query()->where('domain_id', $domain->id)->where('invoice_id', $line->invoice_id)
-            ->whereIn('action', ['renew', 'restore'])->whereIn('status', [DomainRegistrarLog::STATUS_PENDING, DomainRegistrarLog::STATUS_OK])->latest('id')->first();
-        if ($earlier !== null) {
-            if ($earlier->created_at->greaterThan(now()->subDays(self::PENDING_HOLD_DAYS))) {
-                return self::WAITING; // its outcome may still show up at the registrar: the next run looks again
+        $pending = $this->unconfirmed($domain);
+        if ($pending !== null) {
+            if ($pending->created_at->greaterThan(now()->subDays(self::PENDING_HOLD_DAYS))) {
+                return self::WAITING; // it may still show up at the registrar: the next run looks again
             }
-            $this->staffDecides($domain, $line, $connection->registrar, "A {$earlier->action} for this invoice was asked on {$earlier->created_at->toDateString()} and the registrar does not show it: check the registrar before anything else.");
+            $this->staffDecides($domain, $line, $connection->registrar, "A {$pending->action} asked on {$pending->created_at->toDateString()} had no clear answer and the registrar does not show it: check the registrar before anything else.");
 
             return self::FAILED;
         }
 
-        // What the registrar can do with it now.
-        $restore = in_array($now->status, [DomainStatus::Grace, DomainStatus::Redemption], true) && $now->rawStatus !== 'ACT';
+        $restore = $now->status === DomainStatus::Grace && $now->rawStatus === 'DEL';
         if (!$restore && $now->rawStatus !== 'ACT') {
-            $this->staffDecides($domain, $line, $connection->registrar, "The registrar has it as {$now->rawStatus}: it cannot be renewed automatically.");
+            $stage = $now->status === DomainStatus::Redemption ? 'its redemption (a restore with a fee)' : "status {$now->rawStatus}";
+            $this->staffDecides($domain, $line, $connection->registrar, "The registrar has it in {$stage}: staff decide (D-13).");
+
+            return self::FAILED;
+        }
+        if ($restore && !$this->stageFeePaid($domain, $line, DomainStatus::Grace)) {
+            $this->staffDecides($domain, $line, $connection->registrar, 'A restore is needed but its grace fee is not paid: bill it, or restore it by hand.');
 
             return self::FAILED;
         }
 
+        if (!$this->stillWaiting($line)) {
+            return self::NOTHING; // refunded while the registrar was read (ADV-5)
+        }
+        // Years already charged for this line (a «Renew now», a restore whose renew was refused): never again, whatever
+        // the registrar shows yet (adversarial: a lagging registrar after «Renew now» was charged twice).
+        $paid = $this->periodYears($line);
+        $done = $this->chargedYears($line);
+        if ($done >= $paid) {
+            return $this->apply($domain, $line, $connection, $staff, $now, false); // charged: the registrar lags
+        }
+        $years = min($this->lacking($now, $target), $paid - $done);
         $steps = $restore ? array_filter(['restore' => 1, 'renew' => $years - 1]) : ['renew' => $years];
         $result = $now;
         foreach ($steps as $action => $stepYears) {
-            $log = DomainRegistrarLog::query()->create(['domain_id' => $domain->id, 'registrar_connection_id' => $connection->id,
-                'staff_id' => $staff?->id, 'invoice_id' => $line->invoice_id, 'action' => $action, 'status' => DomainRegistrarLog::STATUS_PENDING,
-                'request' => ['years' => $stepYears, 'target_expiry' => $target->toDateString(), 'line' => $line->id]]);
-            try {
-                $result = $action === 'restore' ? $registrar->restore($domain, $credentials) : $registrar->renew($domain->refresh(), $stepYears, $credentials);
-            } catch (ConnectionException $e) {
-                // No answer: it may have been charged. Left «pending»: never asked again blindly (above).
-                $log->update(['error' => mb_substr(Redact::text($e->getMessage()), 0, 2000)]);
-                $this->staffDecides($domain, $line, $connection->registrar, "No answer from the registrar to the {$action}: its outcome is checked on the next run.");
-
-                return self::FAILED;
-            } catch (Throwable $e) {
-                $log->update(['status' => DomainRegistrarLog::STATUS_FAILED, 'error' => mb_substr(Redact::text($e->getMessage()), 0, 2000)]);
-                $this->staffDecides($domain, $line, $connection->registrar, "The registrar refused the {$action}: " . $e->getMessage());
-
+            $result = $this->charge($domain, $line, $connection, $staff, $action, $stepYears, $target);
+            if ($result === null) {
                 return self::FAILED;
             }
-            $log->update(['status' => DomainRegistrarLog::STATUS_OK, 'response' => Redact::array(['status' => $result->rawStatus, 'expires_at' => $result->expiresAt])]);
-            $this->sync->applyResult($domain->refresh(), $result);
         }
 
-        // Charged: applied, whatever the registrar shows yet (its new expiry reaches us with the sync).
-        return $this->apply($domain->refresh(), $line, $connection, $staff, DomainRegistrarLog::STATUS_OK, $result, 'renewed');
+        return $this->apply($domain->refresh(), $line, $connection, $staff, $result, false);
+    }
+
+    /** One charge, logged pending before it is asked; null when it failed (refused, or its outcome unknown). */
+    private function charge(Domain $domain, InvoiceItem $line, DomainRegistrarConnection $connection, ?Staff $staff, string $action, int $years, Carbon $target): ?DomainSyncResult
+    {
+        $registrar = $this->factory->for($connection);
+        $credentials = $this->factory->credentialsFor($connection);
+        $log = DomainRegistrarLog::query()->create(['domain_id' => $domain->id, 'registrar_connection_id' => $connection->id,
+            'staff_id' => $staff?->id, 'invoice_id' => $line->invoice_id, 'action' => $action, 'status' => DomainRegistrarLog::STATUS_PENDING,
+            'request' => ['years' => $years, 'target_expiry' => $target->toDateString(), 'line' => $line->id]]);
+        try {
+            $result = $action === 'restore' ? $registrar->restore($domain->refresh(), $credentials) : $registrar->renew($domain->refresh(), $years, $credentials);
+        } catch (RegistrarRefused $e) {
+            $log->update(['status' => DomainRegistrarLog::STATUS_FAILED, 'error' => mb_substr(Redact::text($e->getMessage()), 0, 2000)]);
+            $this->staffDecides($domain, $line, $connection->registrar, "The registrar refused the {$action}: " . $e->getMessage());
+
+            return null;
+        } catch (Throwable $e) {
+            // Its outcome is unknown (no answer, a 5xx): left pending, never asked again blindly.
+            $log->update(['error' => mb_substr(Redact::text($e->getMessage()), 0, 2000)]);
+            $this->staffDecides($domain, $line, $connection->registrar, "The {$action} got no clear answer ({$e->getMessage()}): its outcome is checked on the next run; do not renew it by hand before checking the registrar.");
+
+            return null;
+        }
+        $log->update(['status' => DomainRegistrarLog::STATUS_OK, 'response' => Redact::array(['status' => $result->rawStatus, 'expires_at' => $result->expiresAt])]);
+        $this->sync->applyResult($domain->refresh(), $result);
+
+        return $result;
+    }
+
+    /** The whole years of a line's period. */
+    private function periodYears(InvoiceItem $line): int
+    {
+        return max(1, (int) round(Carbon::parse($line->period_start)->diffInYears(Carbon::parse($line->period_end))));
+    }
+
+    /** The years the registrar was charged, and answered, for this line. */
+    private function chargedYears(InvoiceItem $line): int
+    {
+        return (int) DomainRegistrarLog::query()->where('domain_id', $line->reference_id)->whereIn('action', ['renew', 'restore'])
+            ->where('status', DomainRegistrarLog::STATUS_OK)->where('request->line', $line->id)->get()
+            ->sum(fn (DomainRegistrarLog $log) => (int) ($log->request['years'] ?? 0));
     }
 
     /** The registrar's expiry reaches the end of the paid period. */
@@ -181,20 +251,50 @@ class DomainRenewalService
             && Carbon::parse($result->expiresAt)->greaterThanOrEqualTo($target->copy()->subDays(self::TOLERANCE_DAYS));
     }
 
-    private function apply(Domain $domain, InvoiceItem $line, DomainRegistrarConnection $connection, ?Staff $staff, string $status, DomainSyncResult $result, string $how): string
+    /** The whole years its registrar expiry lacks to reach the end of the paid period (1 to 10). */
+    private function lacking(DomainSyncResult $result, Carbon $target): int
     {
-        DB::transaction(function () use ($domain, $line, $connection, $staff, $status, $result, $how) {
+        $from = $result->expiresAt !== null ? Carbon::parse($result->expiresAt)->startOfDay() : null;
+        $years = 1;
+        while ($from !== null && $years < 10 && $from->copy()->addYearsNoOverflow($years)->lessThan($target->copy()->subDays(self::TOLERANCE_DAYS))) {
+            $years++;
+        }
+
+        return $years;
+    }
+
+    /** Its stage's fee, when there is one, is paid (on a paid invoice, billed with or after this renewal). */
+    private function stageFeePaid(Domain $domain, InvoiceItem $line, DomainStatus $stage): bool
+    {
+        $fee = $domain->stageFee($stage);
+        if ($fee === null || bccomp($fee, '0', 2) <= 0) {
+            return true;
+        }
+
+        return $domain->invoiceItems()->whereIn('kind', ['grace_fee', 'redemption_fee'])->where('created_at', '>=', $line->created_at)
+            ->whereHas('invoice', fn ($invoice) => $invoice->where('status', Invoice::STATUS_PAID))->exists();
+    }
+
+    private function apply(Domain $domain, InvoiceItem $line, DomainRegistrarConnection $connection, ?Staff $staff, DomainSyncResult $result, bool $adopted): string
+    {
+        $short = !$this->covers($result, Carbon::parse($line->period_end)->startOfDay());
+        DB::transaction(function () use ($domain, $line, $connection, $staff, $result, $adopted) {
             $line->forceFill(['applied_at' => now()])->save();
-            if ($how === 'adopted') {
+            if ($adopted) {
                 DomainRegistrarLog::query()->create(['domain_id' => $domain->id, 'registrar_connection_id' => $connection->id,
-                    'staff_id' => $staff?->id, 'invoice_id' => $line->invoice_id, 'action' => 'renew', 'status' => $status,
-                    'response' => ['status' => $result->rawStatus, 'expires_at' => $result->expiresAt]]);
+                    'staff_id' => $staff?->id, 'invoice_id' => $line->invoice_id, 'action' => 'renew', 'status' => DomainRegistrarLog::STATUS_ADOPTED,
+                    'response' => ['status' => $result->rawStatus, 'expires_at' => $result->expiresAt, 'line' => $line->id]]);
             }
             ModuleAction::domainSucceeded($domain, $line);
         });
+        // Charged, but the registrar does not show the new expiry yet: applied (it was charged), and staff told.
+        if ($short) {
+            ModuleAction::domainFailed($domain, $line, $connection->registrar, new RuntimeException(
+                "Renewed, but the registrar shows {$result->expiresAt} for a period paid to {$line->period_end->toDateString()}: check it on its next sync, then close this."));
+        }
         $this->lifecycle->advance($domain->refresh());
 
-        return $how === 'adopted' ? self::ADOPTED : self::APPLIED;
+        return $adopted ? self::ADOPTED : self::APPLIED;
     }
 
     private function staffDecides(Domain $domain, InvoiceItem $line, ?string $module, string $why): void
@@ -203,9 +303,10 @@ class DomainRenewalService
     }
 
     /**
-     * «Renew now» (D-1): staff renew a trusted customer's domain before the payment. Its renewal is billed first if it is
-     * not (an invoice of its own), then renewed at the registrar for its years, logged against that invoice; the later
-     * payment finds the period covered and adopts it, never charging the registrar again.
+     * «Renew now» (D-1): staff renew a trusted customer's domain before the payment. The registrar first: its period
+     * billed if it is not (an invoice of its own; one already billed is used), then renewed at the registrar for the
+     * years its expiry lacks, logged against that invoice; the later payment finds the period covered and adopts it.
+     * Never over an unconfirmed charge, nor over a paid renewal already on its way (code review 2).
      *
      * @return InvoiceItem the renewal line, to be paid
      */
@@ -224,11 +325,21 @@ class DomainRenewalService
         }
         set_time_limit(600);
         try {
-            $line = $this->billedOrBill($domain->refresh());
-            $registrar = $this->factory->for($connection);
-            $credentials = $this->factory->credentialsFor($connection);
-            $now = $registrar->syncDomain($domain, $credentials);
+            if ($this->unconfirmed($domain) !== null) {
+                throw new RuntimeException(__('domains.renew.unconfirmed', ['domain' => $domain->fqdn]));
+            }
+            if (self::waitingLines()->where('reference_id', $domain->id)->exists()) {
+                throw new RuntimeException(__('domains.renew.paid_on_its_way', ['domain' => $domain->fqdn]));
+            }
+            // Renewed now already, its invoice not paid yet (adversarial ADV-6): not a second year on credit.
+            $renewedUnpaid = DomainRegistrarLog::query()->where('domain_id', $domain->id)->whereIn('action', ['renew', 'restore'])
+                ->where('status', DomainRegistrarLog::STATUS_OK)->whereHas('invoice', fn ($invoice) => $invoice->where('status', Invoice::STATUS_UNPAID))->value('invoice_id');
+            if ($renewedUnpaid !== null) {
+                throw new RuntimeException(__('domains.renew.renewed_unpaid', ['domain' => $domain->fqdn, 'invoice' => $renewedUnpaid]));
+            }
+            $now = $this->factory->for($connection)->syncDomain($domain, $this->factory->credentialsFor($connection));
             $this->sync->applyResult($domain, $now);
+            $line = $this->billedOrBill($domain->refresh());
             $target = Carbon::parse($line->period_end)->startOfDay();
             if ($this->covers($now, $target)) {
                 return $line; // already renewed: its payment adopts it
@@ -236,23 +347,10 @@ class DomainRenewalService
             if ($now->rawStatus !== 'ACT') {
                 throw new RuntimeException(__('domains.renew.not_active_at_registrar', ['domain' => $domain->fqdn, 'status' => (string) $now->rawStatus]));
             }
-            $years = max(1, (int) round(Carbon::parse($line->period_start)->diffInYears($target)));
-            $log = DomainRegistrarLog::query()->create(['domain_id' => $domain->id, 'registrar_connection_id' => $connection->id,
-                'staff_id' => $staff->id, 'invoice_id' => $line->invoice_id, 'action' => 'renew', 'status' => DomainRegistrarLog::STATUS_PENDING,
-                'request' => ['years' => $years, 'target_expiry' => $target->toDateString(), 'line' => $line->id, 'renew_now' => true]]);
-            try {
-                $result = $registrar->renew($domain->refresh(), $years, $credentials);
-            } catch (ConnectionException $e) {
-                $log->update(['error' => mb_substr(Redact::text($e->getMessage()), 0, 2000)]);
-
-                throw $e; // unknown: left pending, its payment looks at the registrar first
-            } catch (Throwable $e) {
-                $log->update(['status' => DomainRegistrarLog::STATUS_FAILED, 'error' => mb_substr(Redact::text($e->getMessage()), 0, 2000)]);
-
-                throw $e;
+            if ($this->charge($domain, $line, $connection, $staff, 'renew', $this->lacking($now, $target), $target) === null) {
+                throw new RuntimeException((string) (ModuleAction::query()->open()->where('domain_id', $domain->id)->where('invoice_item_id', $line->id)->value('last_error')
+                    ?? __('domains.renew.unconfirmed', ['domain' => $domain->fqdn])));
             }
-            $log->update(['status' => DomainRegistrarLog::STATUS_OK, 'response' => Redact::array(['status' => $result->rawStatus, 'expires_at' => $result->expiresAt])]);
-            $this->sync->applyResult($domain->refresh(), $result);
             $this->lifecycle->advance($domain->refresh());
 
             return $line;
@@ -261,13 +359,13 @@ class DomainRenewalService
         }
     }
 
-    /** Its renewal line for the period from its expiry: the one billed (open or paid), else one on an invoice of its own. */
+    /** Its renewal line for the period from its expiry: the one billed, else one on an invoice of its own (the domain locked). */
     private function billedOrBill(Domain $domain): InvoiceItem
     {
         return DB::transaction(function () use ($domain) {
+            $domain = Domain::query()->whereKey($domain->id)->lockForUpdate()->firstOrFail();
             $start = $domain->expires_at->copy()->startOfDay();
-            $billed = $domain->invoiceItems()->whereNull('kind')->whereDate('period_end', '>', $start->toDateString())
-                ->whereHas('invoice', fn ($invoice) => $invoice->where('status', '!=', Invoice::STATUS_CANCELLED))->orderByDesc('id')->first();
+            $billed = self::billedLine($domain, $start, payable: true);
             if ($billed !== null) {
                 return $billed;
             }
@@ -285,15 +383,44 @@ class DomainRenewalService
     }
 
     /**
-     * Staff renewed it by hand (a manual registrar, or after checking the registrar): the line applied, the domain's
-     * expiry moved to the end of the paid period (a registrar with an API corrects it on its next sync).
+     * Staff say it was renewed by hand (code review 6). A paid line of a live domain only. With a registrar API the
+     * registrar must show it (read now, under the lock): the line is adopted, its expiry the registrar's, never ours;
+     * with a manual registrar the expiry moves to the end of the paid period.
+     *
+     * @throws RuntimeException why it was not applied
      */
     public function markRenewedByHand(InvoiceItem $line, ?Staff $staff): void
     {
-        DB::transaction(function () use ($line, $staff) {
-            $line = InvoiceItem::query()->whereKey($line->id)->lockForUpdate()->first();
-            $domain = $line !== null ? Domain::query()->whereKey($line->reference_id)->lockForUpdate()->first() : null;
-            if ($line === null || $domain === null || $line->applied_at !== null || $line->period_end === null) {
+        $domain = Domain::query()->find($line->reference_id);
+        if ($domain === null || !self::waitingLines()->whereKey($line->id)->exists()) {
+            throw new RuntimeException(__('domains.renew.not_a_paid_renewal'));
+        }
+        if (in_array($domain->status->value, DomainStatus::terminalValues(), true)) {
+            throw new RuntimeException(__('domains.renew.not_renewable', ['domain' => $domain->fqdn]));
+        }
+        $connection = $domain->effectiveRegistrarConnection();
+        if ($connection instanceof DomainRegistrarConnection && $connection->isUsable()) {
+            $lock = Cache::lock("domain-registrar:{$domain->id}", 600);
+            if (!$lock->get()) {
+                throw new RuntimeException(__('domains.manage.busy', ['domain' => $domain->fqdn]));
+            }
+            try {
+                $now = $this->factory->for($connection)->syncDomain($domain, $this->factory->credentialsFor($connection));
+                $this->sync->applyResult($domain, $now);
+                if (!$this->covers($now, Carbon::parse($line->period_end)->startOfDay())) {
+                    throw new RuntimeException(__('domains.renew.registrar_does_not_show', ['domain' => $domain->fqdn, 'expires' => (string) $now->expiresAt]));
+                }
+                $this->apply($domain->refresh(), $line->refresh(), $connection, $staff, $now, true);
+            } finally {
+                $lock->release();
+            }
+
+            return;
+        }
+        DB::transaction(function () use ($domain, $line, $staff) {
+            $domain = Domain::query()->whereKey($domain->id)->lockForUpdate()->firstOrFail(); // the domain first (D5b-1 lock order)
+            $line = InvoiceItem::query()->whereKey($line->id)->lockForUpdate()->firstOrFail();
+            if ($line->applied_at !== null) {
                 return;
             }
             $line->forceFill(['applied_at' => now()])->save();
@@ -303,11 +430,9 @@ class DomainRenewalService
             }
             DomainRegistrarLog::query()->create(['domain_id' => $domain->id, 'registrar_connection_id' => $domain->effectiveRegistrarConnection()?->id,
                 'staff_id' => $staff?->id, 'invoice_id' => $line->invoice_id, 'action' => 'renew', 'status' => DomainRegistrarLog::STATUS_OK,
-                'response' => ['by_hand' => true, 'expires_at' => $end->toDateString()]]);
+                'response' => ['by_hand' => true, 'expires_at' => $end->toDateString(), 'line' => $line->id]]);
+            ModuleAction::domainSucceeded($domain, $line);
         });
-        $domain = Domain::query()->find($line->reference_id);
-        if ($domain !== null) {
-            $this->lifecycle->advance($domain);
-        }
+        $this->lifecycle->advance($domain->refresh());
     }
 }

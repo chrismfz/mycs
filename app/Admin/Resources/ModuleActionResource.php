@@ -6,6 +6,7 @@ use App\Admin\Clusters\Services;
 use App\Admin\Resources\ModuleActionResource\Pages\ListModuleActions;
 use App\Models\ModuleAction;
 use App\Models\Staff;
+use App\Services\Domains\DomainRenewalService;
 use App\Services\Service\RetryModuleAction;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -93,9 +94,7 @@ class ModuleActionResource extends Resource
             ->recordActions([
                 // Once the automatic retries are over: while one is still queued, a click would race it (two creates).
                 Action::make('retry')->label('Retry')->icon('ri-loop-right-line')
-                    // A domain's renewal has no automatic retry queued (the cron's daily run is its retry): any time.
-                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN
-                        && ($record->given_up_at !== null || $record->action === ModuleAction::DOMAIN_RENEW))
+                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && $record->given_up_at !== null && $record->domain_id === null)
                     ->authorize('update')
                     ->requiresConfirmation()
                     ->modalDescription('Runs the action on the server now (and sends its email, as the automatic run would).')
@@ -113,19 +112,50 @@ class ModuleActionResource extends Resource
                             : Notification::make()->warning()->title('Nothing to do')
                                 ->body("The service is {$record->service?->status} now: mark the action resolved if the account is as it should be.")->send();
                     }),
-                Action::make('resolve')->label('Mark resolved')->icon('ri-check-line')->color('gray')
+                // A domain's renewal (D5b-2): its outcome said as it is (review 7).
+                Action::make('retryDomain')->label('Retry')->icon('ri-loop-right-line')
+                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && $record->action === ModuleAction::DOMAIN_RENEW)
+                    ->authorize('update')
+                    ->requiresConfirmation()
+                    ->modalDescription('Reads the registrar and renews the paid period it lacks (charged to our account there), unless a charge is still unconfirmed.')
+                    ->action(function (ModuleAction $record) {
+                        $outcome = $record->invoice_item_id !== null ? app(DomainRenewalService::class)->renewLine($record->invoice_item_id, self::staff()) : DomainRenewalService::NOTHING;
+                        $record->refresh();
+                        match ($outcome) {
+                            DomainRenewalService::APPLIED, DomainRenewalService::ADOPTED => Notification::make()->success()->title('Renewed')->send(),
+                            DomainRenewalService::WAITING => Notification::make()->warning()->title('Not now')
+                                ->body('Busy, or a charge is still unconfirmed: check the registrar. Do not mark it renewed unless the registrar shows it.')->send(),
+                            DomainRenewalService::NOTHING => Notification::make()->warning()->title('Nothing to do')->body('The renewal is no longer a paid one waiting.')->send(),
+                            default => Notification::make()->danger()->title('Not renewed')->body((string) $record->last_error)->send(),
+                        };
+                    }),
+                Action::make('resolve')->label(fn (ModuleAction $record) => $record->action === ModuleAction::DOMAIN_RENEW ? 'Renewed by hand' : 'Mark resolved')
+                    ->icon('ri-check-line')->color('gray')
                     ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN)
                     ->authorize('update')
                     ->requiresConfirmation()
                     ->modalDescription(fn (ModuleAction $record) => $record->action === ModuleAction::DOMAIN_RENEW
-                        ? 'The domain was renewed by hand at its registrar: its paid renewal is applied and its expiry moved to the end of the paid period.'
+                        ? 'Applies its paid renewal: with a registrar API only if the registrar shows it renewed (its expiry is the registrar\'s); with a manual registrar the expiry moves to the end of the paid period.'
                         : 'For an account fixed by hand on the server: closes it without running anything (a create: the service turns active).')
-                    ->action(fn (ModuleAction $record) => $record->markResolved(self::staff())),
+                    ->action(function (ModuleAction $record) {
+                        try {
+                            $record->markResolved(self::staff());
+                        } catch (Throwable $e) {
+                            Notification::make()->danger()->title('Not applied')->body($e->getMessage())->send();
+                        }
+                    }),
+                Action::make('close')->label('Close (not renewed)')->icon('ri-close-line')->color('gray')
+                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && $record->action === ModuleAction::DOMAIN_RENEW)
+                    ->authorize('update')
+                    ->requiresConfirmation()
+                    ->modalDescription('Closes it without renewing (refunded, the domain ended, or checked at the registrar: an unconfirmed charge was not done, so a later Retry may charge).')
+                    ->action(fn (ModuleAction $record) => $record->closeUnrenewed(self::staff())),
             ])
             ->toolbarActions([
                 BulkAction::make('resolve')->label('Mark resolved')->requiresConfirmation()
                     ->authorize(fn () => (bool) self::staff()?->hasPermission('admin.services.update'))
-                    ->action(fn (Collection $records) => $records->where('status', ModuleAction::STATUS_OPEN)
+                    // Never a domain's renewal (review 6e): each is decided on its own.
+                    ->action(fn (Collection $records) => $records->where('status', ModuleAction::STATUS_OPEN)->whereNull('domain_id')
                         ->each(fn (ModuleAction $record) => $record->markResolved(self::staff()))),
             ]);
     }
