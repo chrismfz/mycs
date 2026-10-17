@@ -7,6 +7,7 @@ return [
     'login' => 'Σύνδεση',
     'register' => 'Εγγραφή',
     'services' => 'Υπηρεσίες',
+    'domain_search' => 'Αναζήτηση domain',
     'domains' => 'Domains',
     'invoices' => 'Τιμολόγια',
     'account' => 'Λογαριασμός',

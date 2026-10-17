@@ -48,6 +48,8 @@ use League\CommonMark\Extension\Table\TableExtension;
 use Livewire\Livewire;
 use MyCS\Vies\CurlTransport;
 use MyCS\Vies\Vies;
+use Nixpal\DomainTools\Whois\SocketConnector;
+use Nixpal\DomainTools\Whois\StreamSocketConnector;
 use SocialiteProviders\Discord\Provider;
 use SocialiteProviders\Manager\SocialiteWasCalled;
 
@@ -58,6 +60,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        // Port 43 whois (D8a): the real socket; tests bind their own.
+        $this->app->bind(SocketConnector::class, StreamSocketConnector::class);
+
         // Service provider for settings
         $this->app->register(SettingsProvider::class);
 
