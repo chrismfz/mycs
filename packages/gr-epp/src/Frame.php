@@ -34,6 +34,7 @@ final class Frame
         $login->appendChild(self::element($document, 'clID', $config->clientId));
         $login->appendChild(self::secret($document, 'pw', $config->password()));
         if ($newPassword !== null) {
+            Config::checkPassword($newPassword);
             $login->appendChild(self::secret($document, 'newPW', $newPassword));
         }
         $options = $login->appendChild($document->createElementNS(Response::NS['epp'], 'options'));

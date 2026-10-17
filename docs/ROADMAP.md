@@ -405,6 +405,11 @@ importer):
       · G6 whois .gr και import · G7 UAT με τον ιδιοκτήτη. Απαντήσεις ιδιοκτήτη 2026-10-18 στο `docs/domains/grepp.md` §0
       (χωρίς UAT: παραγωγή με δικά μας domains και recall· πρόθεμα c60· IPs δηλωμένες· NS από το WHOIS API). Τα 1.388
       στο migration από το WHMCS (importer D6). Ζυγά έτη 2–10 (FAQ του Μητρώου, `docs/domains/grepp/faq.md`).
+      **Sync σε παρτίδες, για όλους τους registrars** (ιδιοκτήτης 2026-10-18, για ασφάλεια: Openprovider και όποιος έρθει,
+      όχι μόνο .gr· στο G3 ή αμέσως πριν): σήμερα το `domains:sync` περνά όλα κάθε 4 ώρες, σειριακά· γίνεται N ανά εκτέλεση (τα παλιότερα `last_synced_at` πρώτα), συχνότερη εκτέλεση, παύση ανάμεσα στις
+      κλήσεις, ρυθμίσεις στο Settings → Domains (ανά εκτέλεση, ελάχιστες ώρες ανά domain), με όριο ανά σύνδεση registrar
+      (`DomainRegistrarConnection`)· τα pending πιο συχνά· «Sync now»
+      και ο έλεγχος πριν τη χρέωση πάντα άμεσα.
 - [ ] **Gateways της nixpal από το WHMCS** (ιδιοκτήτης 2026-10-17, στο τέλος, μαζί με τη δοκιμή πληρωμής ως πελάτης):
       PayPal, Stripe, Cardlink από το `tblpaymentgateways` της `clnixpal_nixcldb` (orion, μόνο ανάγνωση)· οι τιμές
       κατευθείαν κρυπτογραφημένες στη βάση, ποτέ σε αρχείο, log ή οθόνη. Πριν το go-live: αρίθμηση `{YEAR}-{NUMBER}` με

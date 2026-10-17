@@ -46,7 +46,8 @@ final class Response
         $document = new DOMDocument;
         $previous = libxml_use_internal_errors(true);
         try {
-            $loaded = trim($xml) !== '' && $document->loadXML($xml, LIBXML_NONET | LIBXML_NOCDATA);
+            $xml = ltrim($xml, " \t\r\n"); // a stray newline before <?xml (adversarial ADV-10)
+            $loaded = $xml !== '' && $document->loadXML($xml, LIBXML_NONET | LIBXML_NOCDATA);
         } finally {
             libxml_clear_errors();
             libxml_use_internal_errors($previous);

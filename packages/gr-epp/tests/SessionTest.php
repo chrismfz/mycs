@@ -48,10 +48,10 @@ final class SessionTest extends TestCase
         $this->assertSame([1000, 's-1000'], [$response->code, $response->svTRID]);
         $this->assertSame(['hello', 'login', 'check'], $transport->kinds());
         $this->assertSame(Config::PRODUCTION, $transport->sent[0]['url']);
-        $this->assertSame('text/xml;charset=UTF-8', $transport->sent[0]['headers']['Content-Type']);
+        $this->assertSame('application/epp+xml;charset=UTF-8', $transport->sent[0]['headers']['Content-Type'], 'the guide v4.3, changes item 8');
         $this->assertArrayNotHasKey('Cookie', $transport->sent[0]['headers']);
-        $this->assertSame('JSESSIONID=ABC123', $transport->sent[1]['headers']['Cookie'], 'the part before the first «;»');
-        $this->assertSame('JSESSIONID=ABC123', $transport->sent[2]['headers']['Cookie']);
+        $this->assertSame('JSESSIONID=ABC123; other=x', $transport->sent[1]['headers']['Cookie'], 'each cookie by name, the part before the first «;»');
+        $this->assertSame('JSESSIONID=ABC123; other=x', $transport->sent[2]['headers']['Cookie']);
     }
 
     public function test_the_login_is_the_registrys_valid_to_its_schema_without_svc_extensions(): void
@@ -171,13 +171,16 @@ final class SessionTest extends TestCase
 
     public function test_a_session_gone_is_logged_in_again_once(): void
     {
-        // 2002: the guide's «invalid session»; nothing done, so once more after a new login.
-        $transport = $this->loggedIn()->result(2002, 'Λάθος χρήση εντολής')->fixture('04-login-response.xml')->result(1000);
+        // 2002: the guide's «invalid session»; nothing done, so once more in a new session (logout, hello, login).
+        $transport = $this->loggedIn()->result(2002, 'Λάθος χρήση εντολής')->fixture('08-logout-response.xml')
+            ->fixture('02-hello-response.xml', ['JSESSIONID=NEW'])->fixture('04-login-response.xml')->result(1000);
         $this->assertSame(1000, $this->session($transport)->command(self::CHECK)->code);
-        $this->assertSame(['hello', 'login', 'check', 'login', 'check'], $transport->kinds());
+        $this->assertSame(['hello', 'login', 'check', 'logout', 'hello', 'login', 'check'], $transport->kinds());
+        $this->assertSame('JSESSIONID=NEW', $transport->sent[6]['headers']['Cookie']);
 
         // A 2002 again is the command's own (an empty update): refused, not a third try.
-        $transport = $this->loggedIn()->result(2002)->fixture('04-login-response.xml')->result(2002);
+        $transport = $this->loggedIn()->result(2002)->fixture('08-logout-response.xml')
+            ->fixture('02-hello-response.xml', ['JSESSIONID=NEW'])->fixture('04-login-response.xml')->result(2002);
         $this->expectException(Refused::class);
         $this->session($transport)->command(self::CHECK);
     }
@@ -219,6 +222,67 @@ final class SessionTest extends TestCase
         }
         $this->expectException(\LogicException::class);
         serialize(new Config('myip1', self::PASSWORD));
+    }
+
+    public function test_login_failures_mean_what_they_are(): void
+    {
+        // The registry busy (2502) is not a refusal of the account (review 3 of #184).
+        $transport = (new FakeTransport)->fixture('02-hello-response.xml', ['JSESSIONID=A'])->result(2502, 'busy');
+        try {
+            $this->session($transport)->login();
+            $this->fail('not sent');
+        } catch (NotSent $e) {
+            $this->assertStringContainsString('2502', $e->getMessage());
+        }
+
+        // A password change whose answer is lost may have changed it (review 2 of #184).
+        $transport = (new FakeTransport)->fixture('02-hello-response.xml', ['JSESSIONID=A'])->queue(new HttpResponse(0, '', [], 'timeout'));
+        try {
+            $this->session($transport)->login('NewPass99');
+            $this->fail('unknown');
+        } catch (OutcomeUnknown) {
+            $this->addToAssertionCount(1);
+        }
+        $this->expectException(InvalidArgumentException::class);
+        Frame::login(new Config('myip1', self::PASSWORD), 'mycs-test-1', 'short');
+    }
+
+    public function test_cookies_are_kept_by_name(): void
+    {
+        // A balancer's cookie never replaces the session's; Max-Age=0 deletes one (review 4 of #184).
+        $transport = (new FakeTransport)->fixture('02-hello-response.xml', ['JSESSIONID=ABC; Path=/', 'LB=node1'])
+            ->queue(new HttpResponse(200, (string) file_get_contents(__DIR__ . '/fixtures/v4.3/04-login-response.xml'), ['LB=node2', 'gone=; Max-Age=0']))
+            ->queue(new HttpResponse(200, (string) file_get_contents(__DIR__ . '/fixtures/v4.3/04-login-response.xml'), ['LB=x; Max-Age=0']))
+            ->result(1000);
+        $session = $this->session($transport);
+        $session->login();
+        $session->command(self::CHECK);
+
+        $this->assertSame('JSESSIONID=ABC; LB=node2', $transport->sent[2]['headers']['Cookie']);
+    }
+
+    public function test_a_closed_session_or_another_answer_is_not_taken_for_the_commands(): void
+    {
+        // 25xx: the registry closed the session; the next command logs in again (review 7 of #184).
+        $transport = $this->loggedIn()->result(2500)->fixture('02-hello-response.xml', ['JSESSIONID=NEW'])->fixture('04-login-response.xml')->result(1000);
+        $session = $this->session($transport);
+        try {
+            $session->command(self::CHECK);
+        } catch (OutcomeUnknown) {
+            $this->assertFalse($session->loggedIn());
+        }
+        $session->command(self::CHECK);
+        $this->assertSame(['hello', 'login', 'check', 'hello', 'login', 'check'], $transport->kinds());
+
+        // An answer carrying another clTRID is not this command's (review 11 of #184).
+        $this->expectException(OutcomeUnknown::class);
+        $this->session($this->loggedIn()->result(1000))->command(self::CHECK, 't-1');
+    }
+
+    public function test_the_user_follows_the_schema(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        new Config('ab', self::PASSWORD); // eppcom clIDType: 3 to 16
     }
 
     public function test_only_https_endpoints(): void

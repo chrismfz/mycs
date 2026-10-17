@@ -6,5 +6,6 @@ namespace MyCS\GrEpp\Http;
 interface Transport
 {
     /** @param  array<string, string>  $headers  name => value */
-    public function post(string $url, string $body, array $headers): HttpResponse;
+    /** $body may hold the account's password (login): never in a trace. */
+    public function post(string $url, #[\SensitiveParameter] string $body, array $headers): HttpResponse;
 }

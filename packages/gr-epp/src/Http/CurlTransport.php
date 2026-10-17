@@ -19,9 +19,12 @@ final class CurlTransport implements Transport
         private readonly ?string $caFile = null,
     ) {}
 
-    public function post(string $url, string $body, array $headers): HttpResponse
+    /** The largest answer read (the registry's are a few KB; a domain list is not an EPP command here). */
+    public const MAX_BYTES = 5 * 1024 * 1024;
+
+    public function post(string $url, #[\SensitiveParameter] string $body, array $headers): HttpResponse
     {
-        $lines = [];
+        $lines = ['Expect:']; // no «100-continue» wait on a body over 1 KB
         foreach ($headers as $name => $value) {
             $lines[] = $name . ': ' . $value;
         }
@@ -38,6 +41,10 @@ final class CurlTransport implements Transport
             CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_PROXY => '', // never an https_proxy from the environment: straight to the registry (its IP whitelist)
+            CURLOPT_MAXFILESIZE => self::MAX_BYTES,
+            CURLOPT_NOPROGRESS => false,
+            CURLOPT_XFERINFOFUNCTION => fn ($ch, int $downloadTotal, int $downloaded): int => $downloaded > self::MAX_BYTES ? 1 : 0,
             CURLOPT_HEADERFUNCTION => function ($ch, string $line) use (&$cookies): int {
                 if (stripos($line, 'set-cookie:') === 0) {
                     $cookies[] = trim(substr($line, 11));
@@ -54,12 +61,13 @@ final class CurlTransport implements Transport
         if ($response === false) {
             $error = curl_error($ch);
             $errno = curl_errno($ch);
-            curl_close($ch);
 
-            return new HttpResponse(0, '', [], $error !== '' ? $error : 'transport error', in_array($errno, self::NEVER_SENT, true));
+            // Nothing of the request written (a connect timeout, adversarial ADV-4): never sent.
+            $nothingSent = (int) curl_getinfo($ch, CURLINFO_REQUEST_SIZE) === 0;
+
+            return new HttpResponse(0, '', [], $error !== '' ? $error : 'transport error', $nothingSent || in_array($errno, self::NEVER_SENT, true));
         }
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
 
         return new HttpResponse($status, (string) $response, $cookies);
     }

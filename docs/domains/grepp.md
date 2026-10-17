@@ -23,6 +23,9 @@
 - **Τα 1.388 .gr στο migration:** από το WHMCS, όπως όλα τα υπόλοιπα (importer D6)· όχι από το CSV του grweb. Μέχρι τότε
   ετοιμάζουμε και δοκιμάζουμε το grepp με τα δικά μας domains.
 - **Ρυθμός:** baby steps, ένα PR τη φορά.
+- **Το τωρινό module (ionCube, κλειστό):** μάλλον δεν αποθηκεύει τίποτα και ρωτά το μητρώο συνέχεια (εξηγεί και την
+  αργή σελίδα με πολλά domains). Εμείς κρατάμε κατάσταση, λήξη, NS και κωδικούς επαφών στη βάση· το μητρώο μόνο στο sync,
+  σε ενέργεια και πριν από χρέωση. Από το module παίρνουμε μόνο δεδομένα και μορφή (βάση του WHMCS, `contact:info`).
 
 # .gr / .ελ Registry (ICS-FORTH) — Οδηγός Υλοποίησης EPP
 
@@ -74,8 +77,10 @@ https://uat-grwhois.ics.forth.gr:800/plainDomainCheck?domainName=
 Χαρακτηριστικά (από το `EppClient.java` του Μητρώου):
 
 - `POST` του EPP XML στο `/epp/proxy`
-- `Content-Type: text/xml;charset=UTF-8`
-  ⚠️ Το reference client στέλνει `text/xml`, **όχι** `application/epp+xml`.
+- `Content-Type`: ο **Οδηγός v4.3** (αλλαγές, σημ. 8) ορίζει ότι η μόνη επιτρεπτή τιμή, αν δοθεί, είναι
+  `application/epp+xml;charset=UTF-8`· το δείγμα client (`EppClient.java`) στέλνει `text/xml;charset=UTF-8`. Το G1
+  στέλνει του Οδηγού (ρυθμίζεται στο `Config`)· **[ΕΠΙΒΕΒΑΙΩΣΗ]** στην πρώτη ζωντανή κλήση.
+- Μόνο χαρακτήρες GREEK_AND_COPTIC, GREEK_EXTENDED, BASIC_LATIN (Οδηγός, σημ. 9): ό,τι άλλο απορρίπτεται (G2).
 - Session state με **cookie `JSESSIONID`**
 - Το cookie έρχεται στο `Set-Cookie` και μπορεί να έχει πολλαπλές τιμές χωρισμένες
   με `;` — κρατάμε **μόνο το πρώτο κομμάτι** (`servCook.split(";")[0]`)
