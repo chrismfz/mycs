@@ -13,6 +13,7 @@
         </testsuite>
         <testsuite name="Packages">
             <directory>packages/billing-period/tests</directory>
+            <directory>packages/gr-epp/tests</directory>
             <directory>packages/pricing/tests</directory>
             <directory>packages/mail-template/tests</directory>
             <directory>packages/cardlink-eurobank/tests</directory>
