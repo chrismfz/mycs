@@ -159,6 +159,27 @@ class CronJob extends Command
                 return $number;
             }, transaction: false);
 
+            // A domain lost for good (D7, owner 2026-10-17: deleted at its registry, moved away, or ended by staff): the open
+            // invoices of its renewal are cancelled, as myip's hook did after 30 days, now when it is known to be lost.
+            // Before the credit step, so credit paid on them goes back and pays what is still owed.
+            $this->runCronJob('domain_invoices_cancelled', function ($number = 0) {
+                $lost = Domain::query()->whereIn('status', DomainStatus::terminalValues())
+                    ->whereHas('invoiceItems', fn ($line) => $line->where(fn ($q) => $q->whereNull('kind')->orWhere('kind', '!=', InvoiceItem::KIND_CHARGE))
+                        ->whereHas('invoice', fn ($invoice) => $invoice->whereIn('status', Invoice::OPEN_STATUSES)))
+                    ->get();
+                foreach ($lost as $domain) {
+                    $invoices = Invoice::query()->whereIn('status', Invoice::OPEN_STATUSES)
+                        ->whereHas('items', fn ($line) => $line->where('reference_type', Domain::class)->where('reference_id', $domain->id))->get();
+                    $left = CancelOpenInvoices::handle($invoices, __('invoices.cancellation_reasons.domain_lost'), $domain);
+                    // One kept open for staff (it holds money): told once a month, not every night.
+                    $this->leftOpen(array_filter($left, fn ($reason, $key) => !$reason instanceof DisplayException
+                        || Cache::add("domain-lost-left-open:{$key}", true, now()->addDays(30)), ARRAY_FILTER_USE_BOTH));
+                    $number += $invoices->count() - count($left);
+                }
+
+                return $number;
+            }, transaction: false);
+
             // Credit pays what is open, oldest due first, before new renewals take it and before anything is suspended
             // (decision 5, MT-1e): a customer with credit is not suspended while it sits unused. Each invoice in its own
             // transaction, under the payment locks.

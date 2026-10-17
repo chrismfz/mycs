@@ -104,6 +104,7 @@ return [
         'unpaid_order' => 'Cancelled: the order was not paid in time.',
         'service_terminated' => 'Cancelled: the service was terminated.',
         'service_deleted' => 'Cancelled: the service was deleted.',
+        'domain_lost' => 'Cancelled: the domain was deleted by its registry or moved away, and can no longer be renewed with us.',
         'cancellation_request' => 'Cancelled: the service was cancelled at your request.',
         'upgrade_expired' => 'Cancelled: the upgrade was not paid before the end of the billing period.',
         'cycle_changed' => 'Cancelled: the billing cycle of the service changed.',

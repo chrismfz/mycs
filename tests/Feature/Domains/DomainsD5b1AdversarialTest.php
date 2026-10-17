@@ -197,7 +197,8 @@ class DomainsD5b1AdversarialTest extends TestCase
 
         $this->cron();
 
-        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status, 'credit paid the renewal of a domain that is no longer ours');
+        // Since D7 (owner 2026-10-17) the renewal of a lost domain is cancelled by the cron, before the credit step.
+        $this->assertSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status, 'credit paid the renewal of a domain that is no longer ours');
     }
 
     /**

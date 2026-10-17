@@ -12,6 +12,7 @@ return [
         'cancellations_processed' => 'Αιτήματα ακύρωσης που εκτελέστηκαν',
         'paid_applied' => 'Πληρωμένα τιμολόγια που εφαρμόστηκαν ξανά',
         'reminders_sent' => 'Υπενθυμίσεις πληρωμής',
+        'domain_invoices_cancelled' => 'Ακυρωμένα τιμολόγια χαμένων domains',
         'domain_reminders' => 'Ειδοποιήσεις λήξης domains',
         'license_logs_pruned' => 'Καθαρισμός log αδειών',
         'mcp_calls_pruned' => 'Καθαρισμός κλήσεων MCP',
