@@ -7,6 +7,7 @@ use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\DisplayException;
 use App\Models\AdjustmentNote;
 use App\Models\Domain;
+use App\Models\DomainRegistrarLog;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Service;
@@ -138,6 +139,12 @@ final class CancelOpenInvoices
                 $own = $items; // nothing else on it: the whole invoice goes
             }
         }
+        // A domain renewed (or restored) at its registrar on this invoice before it was paid («Renew now», D-1; review F1 /
+        // adversarial ADV-1 of #175), or whose charge has no answer yet: we paid the registry for it, it is owed.
+        if ($onlyFor instanceof Domain && DomainRegistrarLog::query()->where('domain_id', $onlyFor->id)->where('invoice_id', $invoice->id)
+            ->whereIn('action', ['renew', 'restore'])->whereIn('status', [DomainRegistrarLog::STATUS_OK, DomainRegistrarLog::STATUS_PENDING])->exists()) {
+            return "{$what} was renewed at its registrar on it (or the charge has no answer yet): it is owed, staff decide.";
+        }
         // A period already delivered (its payment was taken off after it renewed the service) is a debt, not an
         // open offer: cancelling it would give that period away without anyone deciding so.
         if ($own->contains(fn (InvoiceItem $line) => $line->applied_at !== null)) {
@@ -189,12 +196,13 @@ final class CancelOpenInvoices
     {
         // A domain's own (D7): its renewals and the fees of its grace or redemption; a «charge» on it (an owner change)
         // is not given up with it: staff decide.
+        // A line with no reference is not a domain's (adversarial ADV-2 of #175: a domain has no setup fee or promotion):
+        // it stays with the rest.
         if ($onlyFor instanceof Domain) {
             $own = $items->filter(fn (InvoiceItem $line) => $line->reference_type === Domain::class && (int) $line->reference_id === (int) $onlyFor->id
                 && $line->kind !== InvoiceItem::KIND_CHARGE);
-            $loose = $items->filter(fn (InvoiceItem $line) => blank($line->reference_type) && (int) $line->reference_id <= 0);
 
-            return [$own->values(), $items->diffKeys($own)->diffKeys($loose)->values(), $loose->values()];
+            return [$own->values(), $items->diffKeys($own)->values(), collect()];
         }
         $upgrades = $onlyFor instanceof Service
             ? ServiceUpgrade::query()->where('service_id', $onlyFor->id)->pluck('id')->map(fn ($id) => (int) $id)
