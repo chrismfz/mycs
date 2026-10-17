@@ -177,7 +177,8 @@ final class PlaceOrderService
                 'registrar_connection_id' => $tld->registrar_connection_id,
                 'sld' => $sld, 'tld' => $tld->tld, 'fqdn' => $fqdn,
                 'status' => $line->operation === DomainOrderLine::REGISTER ? DomainStatus::PendingRegister : DomainStatus::PendingTransfer,
-                'years' => $line->years, 'currency_code' => $currency, 'auto_renew' => true,
+                'years' => $line->years, 'currency_code' => $currency,
+                'auto_renew' => (bool) config('settings.domain_default_auto_renew', true), // Settings → Domains
                 // The owner as chosen; the account's own details for the other roles (D-20, code review L6).
                 'registrant_contact_id' => $line->registrant->id, 'admin_contact_id' => $client->ensurePrimaryContact()->id,
                 'tech_contact_id' => $client->ensurePrimaryContact()->id, 'billing_contact_id' => $client->ensurePrimaryContact()->id,

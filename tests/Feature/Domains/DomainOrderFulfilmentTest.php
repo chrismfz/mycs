@@ -160,7 +160,7 @@ class DomainOrderFulfilmentTest extends TestCase
     private function pay(Domain $domain, string $nameservers = "NS1.nixpal.com\nns2.nixpal.com\nnot_a_host"): void
     {
         // Set here: a checkout reloads the settings from the database.
-        config(['settings.domain_default_nameservers' => $nameservers]);
+        config(self::ns($nameservers));
         $invoice = InvoiceItem::query()->where('reference_type', Domain::class)->where('reference_id', $domain->id)->sole()->invoice;
         (new RecordPaymentService)->handle($invoice, null, (string) $invoice->total, transactionId: 'tx-' . $domain->id);
     }
@@ -334,7 +334,7 @@ class DomainOrderFulfilmentTest extends TestCase
     {
         DomainTldPrice::query()->where('operation', 'transfer')->update(['price' => '0.00']);
         $this->status = 'REQ';
-        config(['settings.domain_default_nameservers' => "ns1.nixpal.com\nns2.nixpal.com"]);
+        config(self::ns("ns1.nixpal.com\nns2.nixpal.com"));
         $domain = $this->order('transfer', 'nixpal.com', ['epp.{item}' => 'Code-1']);
 
         $this->assertTrue($domain->meta['free_order'] ?? false);
@@ -384,7 +384,7 @@ class DomainOrderFulfilmentTest extends TestCase
     {
         // Code review 4: a free transfer whose call had no answer may be done at the registrar.
         DomainTldPrice::query()->where('operation', 'transfer')->update(['price' => '0.00']);
-        config(['settings.domain_default_nameservers' => "ns1.nixpal.com\nns2.nixpal.com", 'settings.cronjob_order_cancel' => 7]);
+        config(self::ns("ns1.nixpal.com\nns2.nixpal.com") + ['settings.cronjob_order_cancel' => 7]);
         $this->mode = 'down';
         $domain = $this->order('transfer', 'nixpal.com', ['epp.{item}' => 'Code-1']);
         $this->runJobs();
@@ -430,5 +430,13 @@ class DomainOrderFulfilmentTest extends TestCase
 
         $this->assertSame(DomainOrderFulfilment::DONE, app(DomainOrderFulfilment::class)->fulfil($domain->id));
         $this->assertSame([], $this->created);
+    }
+
+    /** The default nameservers as Settings → Domains holds them (NS1 to NS5), from one per line. */
+    private static function ns(string $hosts): array
+    {
+        $list = preg_split('/\s+/', trim($hosts)) ?: [];
+
+        return collect(range(1, 5))->mapWithKeys(fn (int $n) => ["settings.domain_nameserver_{$n}" => $list[$n - 1] ?? ''])->all();
     }
 }

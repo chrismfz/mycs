@@ -106,6 +106,8 @@ class AutomationSettingsReviewTest extends TestCase
             $key = (string) $tab->getKey(isAbsolute: false);
             if (str_starts_with($key, 'automation') || str_starts_with($key, 'cronjob') || str_starts_with($key, 'theme')) {
                 $this->assertCount(5, $sections, $key); // Appearance: layout, colors light/dark, custom code, files
+            } elseif (str_starts_with($key, 'domains')) {
+                $this->assertCount(3, $sections, $key); // Domains: ordering, renewals, housekeeping
             } else {
                 $this->assertCount(0, $sections, (string) $tab->getKey(isAbsolute: false));
             }

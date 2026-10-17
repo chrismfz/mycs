@@ -589,5 +589,10 @@
     "Registration pending for more than :days days": "Καταχώρηση σε εκκρεμότητα πάνω από :days ημέρες",
     "Active but past its expiry: the domain sync has not run": "Ενεργό αλλά ληγμένο: το sync των domains δεν έτρεξε",
     "This order has domains: cancel it instead.": "Αυτή η παραγγελία έχει domains: ακυρώστε την αντί να τη διαγράψετε.",
-    "EPP code": "Κωδικός EPP"
+    "EPP code": "Κωδικός EPP",
+    "Renewal period (years)": "Περίοδος ανανέωσης (έτη)",
+    "It renews at a recurring amount set by hand (:amount): change that too if the period changes.": "Ανανεώνεται με ποσό που ορίστηκε χειροκίνητα (:amount): αλλάξτε το κι αυτό αν αλλάξει η περίοδος.",
+    "From its next renewal; its open, unpaid renewal invoice changes with it.": "Από την επόμενη ανανέωση· το ανοιχτό, απλήρωτο προτιμολόγιο ανανέωσης αλλάζει μαζί.",
+    "Its open renewal invoice changed with the period.": "Το ανοιχτό προτιμολόγιο ανανέωσης άλλαξε μαζί με την περίοδο.",
+    "The period counts from its next renewal invoice: the open one, if any, keeps its period (paid or with money on it, a price set by hand, in grace or redemption, or a later period billed already).": "Η περίοδος μετράει από το επόμενο προτιμολόγιο ανανέωσης: το ανοιχτό, αν υπάρχει, κρατά την περίοδό του (πληρωμένο ή με πληρωμή, τιμή ορισμένη χειροκίνητα, σε grace ή redemption, ή ήδη τιμολογημένη επόμενη περίοδος)."
 }

@@ -252,7 +252,7 @@ class DomainOrderFulfilment
 
     /**
      * Its nameservers before the call (D-16: always sent), or the problem (a domains.order key) for staff:
-     * - a registration: the company's (domain_default_nameservers, at least two), else «no_nameservers»;
+     * - a registration: the company's (Default Nameserver 1 to 5, at least two), else «no_nameservers»;
      * - a transfer: those the registry has now (owner 2026-10-17: it keeps working while it moves), even one; never the
      *   company's in their place when the registry could not be read (adversarial ADV-4: its DNS would move to us), only
      *   when the registry shows none at all.
@@ -294,10 +294,10 @@ class DomainOrderFulfilment
         return null;
     }
 
-    /** @return list<string> the company's nameservers for new domains (domain_default_nameservers, one per line) */
+    /** @return list<string> the company's nameservers for new domains (Settings → Domains: Default Nameserver 1 to 5) */
     public static function defaultNameservers(): array
     {
-        $hosts = preg_split('/[\s,]+/', trim((string) config('settings.domain_default_nameservers', ''))) ?: [];
+        $hosts = array_map(fn (int $n) => rtrim(trim((string) config("settings.domain_nameserver_{$n}", '')), '.'), range(1, 5));
 
         return array_values(array_unique(array_filter(array_map('mb_strtolower', $hosts), fn ($h) => preg_match(DomainManagementService::HOST, $h) === 1)));
     }

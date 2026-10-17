@@ -117,6 +117,18 @@ class DomainOrderTest extends TestCase
         $this->assertSame(Order::STATUS_PENDING, Order::query()->sole()->status);
     }
 
+    public function test_new_domains_take_the_auto_renew_setting(): void
+    {
+        // Settings → Domains: «Auto renew new domains» (WHMCS's Default Auto Renewal Setting).
+        Livewire::test(Search::class)->call('add', 'mybusiness.com');
+        config(['settings.domain_default_auto_renew' => false]);
+        $cart = Livewire::withCookie('cart', (string) \App\Models\Cart::query()->latest('id')->value('ulid'))->actingAs($this->user);
+        session([CurrentClient::SESSION_KEY => $this->user->client()->id]);
+        $cart->test(Cart::class)->call('checkout')->assertRedirect();
+
+        $this->assertFalse(Domain::query()->sole()->auto_renew);
+    }
+
     public function test_a_transfer_keeps_its_epp_code_for_staff_encrypted_at_rest(): void
     {
         Livewire::test(Search::class)->call('transfer', 'nixpal.com')->assertRedirect(route('cart'));

@@ -13,6 +13,7 @@ use App\Services\Billing\InvoiceSelectedItems;
 use App\Services\Billing\RenewalBilling;
 use App\Services\Domains\DomainManagementService;
 use App\Services\Domains\DomainRenewalService;
+use App\Services\Domains\DomainRenewalYears;
 use App\Services\Domains\RegistrarRefused;
 use App\Support\Actor;
 use Illuminate\Support\Facades\Auth;
@@ -144,6 +145,30 @@ class Show extends Component
         abort_unless($this->staffMay('admin.domains.update'), 404);
         $this->domain->update(['auto_renew' => !$this->domain->auto_renew]);
         $this->notify($this->domain->auto_renew ? __('domains.portal.auto_renew_turned_on') : __('domains.portal.auto_renew_turned_off'), 'success');
+    }
+
+    /**
+     * Its renewal period (owner 2026-10-17): among the years its TLD prices, from its next renewal; its open, unpaid
+     * renewal invoice changes with it (DomainRenewalYears). Staff in «Login as client» need the admin permission (R2).
+     */
+    public function setRenewalYears(int $years): void
+    {
+        $this->authorize('update', $this->domain);
+        abort_unless($this->staffMay('admin.domains.update'), 404);
+        if ($this->limited('domain-years')) {
+            return;
+        }
+        try {
+            $outcome = app(DomainRenewalYears::class)->change($this->domain, $years, byStaff: false);
+        } catch (DisplayException $e) {
+            $this->notify($e->getMessage(), 'error');
+
+            return;
+        }
+        if ($outcome !== DomainRenewalYears::UNCHANGED) {
+            $this->notify(trans_choice($outcome === DomainRenewalYears::INVOICE ? 'domains.portal.years_changed_invoice' : 'domains.portal.years_changed_next',
+                $years, ['years' => $years]), 'success');
+        }
     }
 
     public function addNameserver(): void
@@ -293,6 +318,8 @@ class Show extends Component
 
         return view('domains.show', [
             'canManage' => $canManage && $this->staffMay('admin.domains.update'),
+            'yearOptions' => $canManage && $this->staffMay('admin.domains.update') && DomainRenewalYears::clientMay($this->domain)
+                ? DomainRenewalYears::choices($this->domain) : [],
             'manageable' => $manageable,
             'lockable' => $manageable && $this->lockable(),
             'privacyOffered' => $manageable && $this->privacyOffered(),

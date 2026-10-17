@@ -21,6 +21,12 @@ class SyncDomains extends Command
 {
     public const STALE_TRANSFER_DAYS = 14;
 
+    /** Days a transfer (or registration) may stay pending before staff are told (Settings → Domains, default 14). */
+    public static function staleTransferDays(): int
+    {
+        return max(1, (int) config('settings.domain_stale_transfer_days', self::STALE_TRANSFER_DAYS));
+    }
+
     protected $signature = 'domains:sync {--domain= : one domain (its name)} {--dry-run : report what would change, write nothing}';
 
     protected $description = 'Sync domains with their registrars, then move them by their dates (grace, redemption)';
@@ -79,8 +85,8 @@ class SyncDomains extends Command
                 $failed++;
                 $this->error("{$domain->fqdn}: " . $e->getMessage());
             }
-            if ($domain->status === DomainStatus::PendingTransfer && $domain->created_at?->lt(now()->subDays(self::STALE_TRANSFER_DAYS))) {
-                $this->warn("{$domain->fqdn}: pending transfer for more than " . self::STALE_TRANSFER_DAYS . ' days');
+            if ($domain->status === DomainStatus::PendingTransfer && $domain->created_at?->lt(now()->subDays(self::staleTransferDays()))) {
+                $this->warn("{$domain->fqdn}: pending transfer for more than " . self::staleTransferDays() . ' days');
             }
         }
 
