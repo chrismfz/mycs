@@ -847,7 +847,9 @@ class CronJob extends Command
         // Billed: any renewal line whose period reaches past this expiry (review 3: an expiry moved a day is still the same
         // period), or one without a period on an open invoice (staff's own).
         if ($domain->invoiceItems()->whereNull('kind')->where(fn ($line) => $line->whereDate('period_end', '>', $periodStart->toDateString())
-            ->orWhere(fn ($own) => $own->whereNull('period_start')->whereHas('invoice', fn ($invoice) => $invoice->whereIn('status', Invoice::OPEN_STATUSES))))->exists()) {
+            // A line staff billed by hand (no period) for this year: open, or paid and still to renew (adversarial ADV-10).
+            ->orWhere(fn ($own) => $own->whereNull('period_start')->where('created_at', '>', $periodStart->copy()->subYear())
+                ->whereHas('invoice', fn ($invoice) => $invoice->where('status', '!=', Invoice::STATUS_CANCELLED))))->exists()) {
             return 0;
         }
         // Past its last recoverable day (review 4): nothing to renew any more; staff decide.
@@ -922,12 +924,27 @@ class CronJob extends Command
             return;
         }
         $renewal = $domain->invoiceItems()->whereNull('kind')->whereDate('period_start', '>=', $domain->expires_at->toDateString())
-            ->whereHas('invoice', fn ($invoice) => $invoice->where('status', Invoice::STATUS_UNPAID))->orderByDesc('id')->first();
+            ->whereHas('invoice', fn ($invoice) => $invoice->where('status', '!=', Invoice::STATUS_CANCELLED))->orderByDesc('id')->first();
         if ($renewal === null) {
             return;
         }
-        $invoice = (new RecordPaymentService)->lockInvoice($renewal->invoice_id);
         $kind = $domain->status === DomainStatus::Grace ? 'grace_fee' : 'redemption_fee';
+        // Paid already (waiting for its registrar renewal) and now in a stage with a fee: staff decide (adversarial
+        // ADV-6), told once.
+        if ($renewal->invoice?->status !== Invoice::STATUS_UNPAID) {
+            if (!$domain->invoiceItems()->where('kind', $kind)->where('created_at', '>=', $renewal->created_at)->exists()
+                && Cache::add("domain-fee-paid-notice:{$renewal->id}:{$kind}", true, now()->addDays(60))) {
+                $this->notices["invoices_created domain fee #{$id}"] = new DisplayException("Domain {$domain->fqdn}: its renewal (invoice #{$renewal->invoice_id}) is paid and it is now in {$domain->status->value}: the {$kind} ({$fee}) was not billed, bill it by hand if due.");
+            }
+
+            return;
+        }
+        $invoice = (new RecordPaymentService)->lockInvoice($renewal->invoice_id);
+        // This stage's fee of this renewal waived by staff (its invoice cancelled: adversarial ADV-9): never billed again.
+        if ($domain->invoiceItems()->where('kind', $kind)->where('created_at', '>=', $renewal->created_at)
+            ->whereHas('invoice', fn ($q) => $q->where('status', Invoice::STATUS_CANCELLED))->exists()) {
+            return;
+        }
         // This renewal's stage fee, wherever staff moved it (review 5: a split took it to another invoice): one only.
         $existing = $domain->invoiceItems()->whereIn('kind', ['grace_fee', 'redemption_fee'])->where('created_at', '>=', $renewal->created_at)
             ->whereHas('invoice', fn ($q) => $q->where('status', '!=', Invoice::STATUS_CANCELLED))->orderByDesc('id')->first();

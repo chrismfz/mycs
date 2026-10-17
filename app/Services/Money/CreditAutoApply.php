@@ -2,11 +2,13 @@
 
 namespace App\Services\Money;
 
+use App\Enums\DomainStatus;
 use App\Enums\InvoiceTransactionStatus;
 use App\Enums\MoneyEventKind;
 use App\Helpers\NotificationHelper;
 use App\Models\Client;
 use App\Models\Credit;
+use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\MoneyEvent;
@@ -165,6 +167,12 @@ class CreditAutoApply
         // Staff refunded money of this invoice to credit (PR 2c): paid straight back into it, the refund would be undone
         // and the invoice could never be cancelled (code review and adversarial review of 2c).
         if (MoneyEvent::query()->where('invoice_id', $invoice->id)->where('cause', MoneyTrail::CAUSE_REFUND_TO_CREDIT)->exists()) {
+            return false;
+        }
+        // A domain's renewal the customer no longer renews, or of a domain gone (D5b, adversarial ADV-5): not credit's.
+        $domains = $items->where('reference_type', Domain::class)->pluck('reference_id')->filter();
+        if ($domains->isNotEmpty() && Domain::query()->whereIn('id', $domains)
+            ->where(fn ($domain) => $domain->whereIn('status', DomainStatus::terminalValues())->orWhere('auto_renew', false))->exists()) {
             return false;
         }
         $services = $items->where('reference_type', Service::class)->pluck('reference_id')->filter();
