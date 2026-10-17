@@ -4,8 +4,10 @@ namespace App\Observers;
 
 use App\Events\InvoiceItem as InvoiceItemEvent;
 use App\Exceptions\DisplayException;
+use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Services\Domains\DomainRenewalService;
 use App\Services\Invoice\LineTax;
 
 /**
@@ -30,6 +32,8 @@ class InvoiceItemObserver
     public function creating(InvoiceItem $invoice): void
     {
         self::refuseOnPaidInvoice($invoice->invoice_id);
+        // A domain line: a renewal with its period, or a charge (review R6 of #172, F1 of #174).
+        DomainRenewalService::prepareLine($invoice);
         // Its tax (Δ1): the rate in force now, unless given (an import keeps the one it was issued with).
         if (!$invoice->isDirty('tax_rate')) {
             $invoice->forceFill(LineTax::decide($invoice));
@@ -52,6 +56,16 @@ class InvoiceItemObserver
     public function updating(InvoiceItem $invoice): void
     {
         // Taxed or not changed: the rate is decided again; else the line keeps its rate and only its amounts follow.
+        // What a line is decides what its payment does (a renewal at the registrar, F2 of #174): set when made. Only a
+        // stage fee becomes the next stage's; a domain line keeps its domain (F4: its period is that domain's).
+        if ($invoice->isDirty('kind') && !(in_array($invoice->getOriginal('kind'), InvoiceItem::STAGE_FEES, true)
+            && in_array($invoice->kind, InvoiceItem::STAGE_FEES, true))) {
+            throw new DisplayException(__('A line keeps what it is (a renewal, a fee, a charge): make a new line.'));
+        }
+        if ($invoice->isDirty(['reference_type', 'reference_id'])
+            && ($invoice->getOriginal('reference_type') === Domain::class || $invoice->reference_type === Domain::class)) {
+            throw new DisplayException(__('A domain line keeps its domain: make a new line.'));
+        }
         if ($invoice->isDirty('taxed') && !$invoice->isDirty('tax_rate')) {
             $invoice->forceFill(LineTax::decide($invoice));
         }

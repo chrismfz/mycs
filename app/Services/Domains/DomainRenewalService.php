@@ -3,6 +3,7 @@
 namespace App\Services\Domains;
 
 use App\Enums\DomainStatus;
+use App\Exceptions\DisplayException;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainRegistrarLog;
@@ -70,23 +71,67 @@ class DomainRenewalService
 
     /**
      * Its renewal line for the period from $start. Billed (D5b-1, the cron): a line whose period reaches past it on any
-     * invoice but a cancelled one whose period was kept billable (Δ3, ADV-4: cancelled before it started), or one staff billed by hand this year on an invoice
-     * not cancelled. Payable («Renew now»): only on an invoice still to be paid or paid, never a cancelled or refunded one
-     * (adversarial ADV-3).
+     * invoice but a cancelled one whose period was kept billable (Δ3, ADV-4: cancelled before it started). Payable («Renew
+     * now»): only on an invoice still to be paid or paid, never a cancelled or refunded one (adversarial ADV-3). By its
+     * period only: a renewal line always has one (prepareLine), and a line without one is never taken for this year's
+     * renewal (it used to be, by its date: an owner change or a late renewal of last year counted, review R6 of #172).
      */
     public static function billedLine(Domain $domain, Carbon $start, bool $payable = false): ?InvoiceItem
     {
         $dead = $payable ? [Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED] : [Invoice::STATUS_CANCELLED];
 
-        return $domain->invoiceItems()->whereNull('kind')
-            ->where(fn ($line) => $line->where(fn ($period) => $period->whereDate('period_end', '>', $start->toDateString())
-                ->when($payable, fn ($q) => $q->whereHas('invoice', fn ($invoice) => $invoice->whereNotIn('status', $dead)))
-                // Cancelled: billed only if given up (Δ3); one cancelled before its period started is billed again (ADV-4).
-                ->when(!$payable, fn ($q) => $q->where(fn ($kept) => $kept->whereNotNull('forgone_at')
-                    ->orWhereHas('invoice', fn ($invoice) => $invoice->where('status', '!=', Invoice::STATUS_CANCELLED)))))
-                ->orWhere(fn ($own) => $own->whereNull('period_start')->where('created_at', '>', $start->copy()->subYear())
-                    ->whereHas('invoice', fn ($invoice) => $invoice->whereNotIn('status', $dead))))
+        // Its period covers $start (adversarial ADV-7 of #174: not a later year past a hole), within the days an expiry moves
+        // by a sync (D5b-1 review: a period a day off is the same one).
+        return $domain->invoiceItems()->whereNull('kind')->whereDate('period_end', '>', $start->toDateString())
+            ->whereDate('period_start', '<=', $start->copy()->addDays(self::SAME_PERIOD_DAYS)->toDateString())
+            ->when($payable, fn ($q) => $q->whereHas('invoice', fn ($invoice) => $invoice->whereNotIn('status', $dead)))
+            // Cancelled: billed only if given up (Δ3); one cancelled before its period started is billed again (ADV-4).
+            ->when(!$payable, fn ($q) => $q->where(fn ($kept) => $kept->whereNotNull('forgone_at')
+                ->orWhereHas('invoice', fn ($invoice) => $invoice->where('status', '!=', Invoice::STATUS_CANCELLED))))
             ->orderByDesc('id')->first();
+    }
+
+    /**
+     * What a new domain line is (review R6 of #172, code review F1 of #174): a renewal only with its period (the cron's,
+     * «Renew now», «Invoice next period»), or when its maker asks for one (kind «renewal», the Admin API): then it gets the
+     * domain's first period not on a live invoice, from its expiry, and paid it renews at the registrar (D5b-2). Anything
+     * else on the domain without a period (an owner change, a fee) is a «charge»: it never renews nor counts as billed.
+     * The safe side by default: a renewal is never made by forgetting to say it is not one.
+     */
+    /** An expiry a sync moved by this many days still starts the same period. */
+    public const SAME_PERIOD_DAYS = 31;
+
+    public static function prepareLine(InvoiceItem $line): void
+    {
+        if ($line->reference_type !== Domain::class) {
+            return;
+        }
+        $asked = $line->kind === InvoiceItem::KIND_RENEWAL;
+        if ($asked) {
+            $line->kind = null;
+        }
+        if ($line->kind !== null || $line->period_start !== null || $line->period_end !== null) {
+            return; // a stage fee, a charge, or a renewal with its period
+        }
+        if (!$asked) {
+            $line->kind = InvoiceItem::KIND_CHARGE;
+
+            return;
+        }
+        $domain = Domain::query()->find($line->reference_id);
+        if ($domain?->expires_at === null) {
+            // F6: no expiry, no period to renew; a renewal paid now would renew nothing and be billed again later.
+            throw new DisplayException(__('domains.renew.not_renewable', ['domain' => (string) $domain?->fqdn]));
+        }
+        $start = $domain->expires_at->copy()->startOfDay();
+        // Past the periods live invoices bill already (never the same year twice); bounded, as a period is at least a year.
+        for ($i = 0; $i < 20 && ($billed = self::billedLine($domain, $start, payable: true)) !== null && $billed->period_end !== null; $i++) {
+            $start = Carbon::instance($billed->period_end)->startOfDay();
+        }
+        // As the cron bills it (F8, D-13): one year in grace or redemption (a restore brings back one), else its years.
+        $years = in_array($domain->status, [DomainStatus::Grace, DomainStatus::Redemption], true) ? 1 : max(1, (int) $domain->years);
+        $line->period_start = $start->toImmutable();
+        $line->period_end = $start->toImmutable()->addYearsNoOverflow($years);
     }
 
     /**

@@ -17,6 +17,10 @@ class InvoiceItemResource extends JsonApiResource
         'line_total',
         'reference_type',
         'reference_id',
+        // What it is and the period it bills (F12 of #174): a domain line made with kind «renewal» says which year.
+        'kind',
+        'period_start',
+        'period_end',
         'updated_at',
         'created_at',
     ];
@@ -29,6 +33,8 @@ class InvoiceItemResource extends JsonApiResource
                     return new CreditResource($this->reference);
                 } elseif ($this->reference_type === 'App\Models\ServiceUpgrade') {
                     return new ServiceUpgradeResource($this->reference);
+                } elseif ($this->reference_type === 'App\Models\Domain') {
+                    return null; // no domain resource in the API yet: its id is in reference_id
                 }
 
                 return new ServiceResource($this->reference);
