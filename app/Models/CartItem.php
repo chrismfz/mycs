@@ -32,12 +32,36 @@ class CartItem extends Model
         'config_options',
         'checkout_config',
         'quantity',
+        'domain',
+        'epp_code',
     ];
 
     protected $casts = [
         'config_options' => 'array',
         'checkout_config' => 'array',
+        // A domain to register or transfer (D8b): {fqdn, tld_id, operation, years}; its EPP code apart, encrypted.
+        'domain' => 'array',
+        'epp_code' => 'encrypted',
     ];
+
+    protected $hidden = ['epp_code'];
+
+    /** A domain to register or transfer (D8b), not a product. */
+    public function isDomain(): bool
+    {
+        return is_array($this->domain) && isset($this->domain['fqdn']);
+    }
+
+    /** What the cart shows for it: the product, or «nixpal.com: registration, 1 year». */
+    public function title(): string
+    {
+        if ($this->isDomain()) {
+            return trans_choice('domains.order.cart_' . $this->domain['operation'], (int) $this->domain['years'],
+                ['domain' => $this->domain['fqdn'], 'years' => (int) $this->domain['years']]);
+        }
+
+        return (string) $this->product?->name;
+    }
 
     // Set default loads
 
@@ -71,6 +95,9 @@ class CartItem extends Model
         return Attribute::make(
             get: function () {
                 $currency = $this->cart->currency_code ?? session('currency', config('settings.default_currency'));
+                if ($this->isDomain()) {
+                    return $this->domainPrice($currency);
+                }
                 $catalog = OrderPricing::catalog($this->product, $this->plan, $this->config_options ?? [], $currency);
                 // A plan or paid option without a price row makes the whole item unavailable, not free.
                 if ($catalog === null) {
@@ -94,6 +121,23 @@ class CartItem extends Model
                 return Price::fromLine($line, $currencyModel, $full);
             }
         )->shouldCache();
+    }
+
+    /** A domain's: its TLD's price for the operation and years, as the catalog shows it, taxed as any domain line (D-19). */
+    private function domainPrice(string $currency): Price
+    {
+        $tld = DomainTld::query()->with('prices')->find($this->domain['tld_id'] ?? null);
+        $amount = $tld?->priceFor((string) ($this->domain['operation'] ?? ''), (int) ($this->domain['years'] ?? 0), $currency);
+        if ($amount === null) {
+            return new Price((object) ['price' => null, 'setup_fee' => null, 'currency' => null]);
+        }
+        $client = Auth::guard('web')->check() ? CurrentClient::model() : null;
+        $line = OrderPricing::line(['price' => $amount, 'setup_fee' => '0.00'], null, $client);
+        $invoiceLine = LinePricer::invoiceLine($line->netPrice, 1, OrderPricing::taxRate($client));
+        $this->lineTotalCents = (int) round((float) $invoiceLine['total'] * 100);
+        $this->lineTaxCents = (int) round((float) $invoiceLine['tax'] * 100);
+
+        return Price::fromLine($line, Currency::query()->find($currency));
     }
 
     /** What this item adds to the first invoice, with tax (as its invoice line): 0 when it has no price. */

@@ -64,7 +64,7 @@ class Domain extends Model implements Auditable
     public const ROLES = ['registrant', 'admin', 'tech', 'billing'];
 
     protected $fillable = [
-        'client_id', 'domain_tld_id', 'registrar_connection_id', 'sld', 'tld', 'fqdn', 'status',
+        'client_id', 'order_id', 'epp_code', 'domain_tld_id', 'registrar_connection_id', 'sld', 'tld', 'fqdn', 'status',
         'registered_at', 'transferred_at', 'expires_at', 'years', 'currency_code', 'recurring_amount',
         'auto_renew', 'transfer_lock', 'id_protection', 'dns_management', 'email_forwarding', 'dnssec_enabled',
         'registrant_contact_id', 'admin_contact_id', 'tech_contact_id', 'billing_contact_id',
@@ -77,12 +77,12 @@ class Domain extends Model implements Auditable
      * Staff's notes, the registrar's raw data and handles never reach a template, the client area or a JSON of it
      * (`{{ domain }}` prints the model: review M1); nor its connection, whose settings are the credentials.
      */
-    protected $hidden = ['notes', 'meta', 'registrant_handle', 'admin_handle', 'tech_handle', 'billing_handle', 'registrarConnection', 'registrarLogs'];
+    protected $hidden = ['notes', 'meta', 'epp_code', 'registrant_handle', 'admin_handle', 'tech_handle', 'billing_handle', 'registrarConnection', 'registrarLogs'];
 
     /** Bookkeeping of the sync, not a change of the domain (docs/domains.md D-9). */
-    protected $auditExclude = ['last_synced_at', 'sync_error'];
+    protected $auditExclude = ['last_synced_at', 'sync_error', 'epp_code']; // a transfer's code: never in an audit (D8b)
 
-    public const TEMPLATE_HIDDEN = ['notes', 'meta', 'registrant_handle', 'admin_handle', 'tech_handle', 'billing_handle', 'registrarConnection', 'registrarLogs'];
+    public const TEMPLATE_HIDDEN = ['notes', 'meta', 'epp_code', 'registrant_handle', 'admin_handle', 'tech_handle', 'billing_handle', 'registrarConnection', 'registrarLogs'];
 
     protected static function booted(): void
     {
@@ -148,7 +148,16 @@ class Domain extends Model implements Auditable
             'grace_fee_override' => 'decimal:2',
             'redemption_fee_override' => 'decimal:2',
             'meta' => 'array',
+            // A transfer's EPP code as the customer gave it (D8b, owner 2026-10-17: staff see it, to tell a wrong one),
+            // encrypted at rest.
+            'epp_code' => 'encrypted',
         ];
+    }
+
+    /** @return BelongsTo<Order, $this> the order it came from (D8b) */
+    public function order(): BelongsTo
+    {
+        return $this->belongsTo(Order::class);
     }
 
     /** @return BelongsTo<Client, $this> */

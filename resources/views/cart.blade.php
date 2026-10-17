@@ -10,13 +10,37 @@
             <div class="flex flex-row justify-between w-full bg-background-secondary p-3 rounded-md border border-neutral">
                 <div class="flex flex-col gap-1">
                     <h2 class="text-2xl font-semibold">
-                        {{ $item->product->name }}
+                        {{ $item->title() }}
                     </h2>
+                    @if ($item->isDomain())
+                    {{-- A domain (D8b): its years, and a transfer's EPP code. --}}
+                    @php($tld = \App\Models\DomainTld::query()->with('prices')->find($item->domain['tld_id']))
+                    @php($terms = $tld ? app(\App\Services\Domains\Ordering\DomainOffer::class)->years($tld, $item->domain['operation'], Cart::get()->currency_code) : collect())
+                    <div class="flex flex-wrap items-center gap-3 text-sm">
+                        @if ($terms->count() > 1)
+                        <label>{{ __('domains.order.years') }}
+                            <select class="bg-background border border-neutral rounded px-2 py-1 ml-1" wire:change="updateDomainYears({{ $item->id }}, $event.target.value)">
+                                @foreach ($terms as $y)
+                                <option value="{{ $y }}" @selected($y === (int) $item->domain['years'])>{{ trans_choice(':count year|:count years', $y, ['count' => $y]) }}</option>
+                                @endforeach
+                            </select>
+                        </label>
+                        @endif
+                        @if ($item->domain['operation'] === 'transfer')
+                        <label class="flex items-center gap-1">{{ __('domains.order.epp_code') }}
+                            <input type="text" wire:model.blur="epp.{{ $item->id }}" autocomplete="off" maxlength="255"
+                                value="{{ $item->epp_code }}" class="bg-background border border-neutral rounded px-2 py-1 font-mono" />
+                        </label>
+                        <p class="text-xs text-base/60 w-full">{{ __('domains.order.epp_help') }}</p>
+                        @endif
+                    </div>
+                    @else
                     <p class="text-sm">
                         @foreach ($item->config_options as $option)
                         {{ $option['option_name'] }}: {{ $option['value_name'] }}<br>
                         @endforeach
                     </p>
+                    @endif
                 </div>
                 <div class="flex flex-col justify-between items-end gap-4">
                     <h3 class="text-xl font-semibold p-1">
@@ -25,7 +49,7 @@
                         @endif
                     </h3>
                     <div class="flex flex-row gap-2">
-                        @if ($item->product->allow_quantity == 'combined')
+                        @if (!$item->isDomain() && $item->product->allow_quantity == 'combined')
                         <div class="flex flex-row gap-1 items-center mr-4">
                             <x-button.secondary
                                 wire:click="updateQuantity({{ $item->id }}, {{ $item->quantity - 1 }})"
@@ -40,7 +64,7 @@
                             </x-button.secondary>
                         </div>
                         @endif
-                        @if ($item->product->plans->count() > 1 || $item->product->configOptions->isNotEmpty() || !empty($item->checkout_config))
+                        @if (!$item->isDomain() && ($item->product->plans->count() > 1 || $item->product->configOptions->isNotEmpty() || !empty($item->checkout_config)))
                         <a href="{{ route('products.checkout', [$item->product->category, $item->product, 'edit' => $item->id]) }}"
                             wire:navigate>
                             <x-button.primary class="h-fit w-fit">
@@ -65,6 +89,17 @@
                 <h2 class="text-2xl font-semibold mb-3">
                     {{ __('product.order_summary') }}
                 </h2>
+                @if (Cart::items()->contains(fn ($item) => $item->isDomain()) && auth()->check())
+                {{-- Who owns the domains (D8b): the primary contact unless another is chosen. --}}
+                <label class="text-sm flex flex-col gap-1">{{ __('domains.order.registrant') }}
+                    <select wire:model="registrant" class="bg-background border border-neutral rounded px-2 py-1">
+                        @foreach ($this->registrantOptions() as $contact)
+                        <option value="{{ $contact->id }}">{{ $contact->displayName() }}@if (!$contact->isCompleteFor('domain')) ({{ __('domains.order.incomplete') }})@endif</option>
+                        @endforeach
+                    </select>
+                    <a href="{{ route('account.contacts') }}" class="text-xs underline" wire:navigate>{{ __('domains.order.manage_contacts') }}</a>
+                </label>
+                @endif
                 <div class="font-semibold flex items-end gap-2">
                     @if(!$coupon)
                     <x-form.input wire:model="coupon" name="coupon" label="Coupon" />

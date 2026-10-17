@@ -3,9 +3,13 @@
 namespace App\Classes;
 
 use App\Exceptions\DisplayException;
+use App\Models\CartItem;
 use App\Models\Coupon;
+use App\Models\DomainTld;
 use App\Models\Plan;
 use App\Models\Product;
+use App\Services\Domains\Ordering\DomainOffer;
+use App\Services\Domains\Ordering\DomainOrderLine;
 use App\Support\CurrentClient;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cookie;
@@ -100,6 +104,54 @@ class Cart
         return $item->id;
     }
 
+    /**
+     * A domain to register or transfer (D8b), checked as the shop sells it (DomainOffer: its TLD, its price for the
+     * years, free or taken as the operation needs); once per name in the cart. Returns its item id.
+     */
+    public static function addDomain(string $fqdn, string $operation, ?int $years = null): int
+    {
+        self::checkRateLimit();
+        // Checked before a cart is made: a name refused leaves no empty cart behind.
+        $currency = self::getOnce()->currency_code ?? session('currency', config('settings.default_currency'));
+        $offer = app(DomainOffer::class);
+        // Its shortest priced term unless chosen (D-5: years per TLD and operation).
+        $years ??= ($tld = $offer->tldFor($fqdn, $currency)) === null ? 1 : ($offer->years($tld, $operation, $currency)->first() ?? 1);
+        [$fqdn, $tld] = $offer->check($fqdn, $operation, $years, $currency);
+        $cart = self::createCart();
+        $existing = $cart->items->first(fn (CartItem $item) => $item->isDomain() && $item->domain['fqdn'] === $fqdn);
+        self::ensureCartItemLimit($cart, $existing?->id);
+        $item = $cart->items()->updateOrCreate(['id' => $existing?->id], [
+            'product_id' => null, 'plan_id' => null, 'config_options' => null, 'checkout_config' => null, 'quantity' => 1,
+            'domain' => ['fqdn' => $fqdn, 'tld_id' => $tld->id, 'operation' => $operation, 'years' => $years],
+        ]);
+        $cart->load('items');
+
+        return $item->id;
+    }
+
+    /** A domain item's years (priced for its operation) and, for a transfer, its EPP code (D8b). */
+    public static function updateDomain(int $id, ?int $years, ?string $eppCode): void
+    {
+        $cart = self::get();
+        $item = $cart->items()->whereKey($id)->first();
+        if ($item === null || !$item->isDomain()) {
+            return;
+        }
+        $domain = $item->domain;
+        if ($years !== null) {
+            $tld = DomainTld::query()->with('prices')->find($domain['tld_id']);
+            if ($tld === null || !app(DomainOffer::class)->years($tld, $domain['operation'], $cart->currency_code)->contains($years)) {
+                throw new DisplayException(__('domains.order.years_not_offered', ['years' => $years]));
+            }
+            $domain['years'] = $years;
+        }
+        $item->domain = $domain;
+        if ($eppCode !== null && $domain['operation'] === DomainOrderLine::TRANSFER) {
+            $item->epp_code = mb_substr(trim($eppCode), 0, 255);
+        }
+        $item->save();
+    }
+
     protected static function ensureCartItemLimit($cart, $key = null)
     {
         $existingItem = $key ? $cart->items()->where('id', $key)->exists() : false;
@@ -145,8 +197,8 @@ class Cart
     {
         $cart = self::get();
         if ($item = $cart->items()->where('id', $index)->first()) {
-            if ($item->product->allow_quantity !== 'combined') {
-                return;
+            if ($item->isDomain() || $item->product?->allow_quantity !== 'combined') {
+                return; // a domain is one (its years are chosen instead)
             }
         } else {
             return;

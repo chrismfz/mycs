@@ -2,6 +2,8 @@
 
 namespace App\Livewire\DomainShop;
 
+use App\Classes\Cart;
+use App\Exceptions\DisplayException;
 use App\Livewire\Component;
 use App\Models\Currency;
 use App\Services\Domains\DomainSearch;
@@ -73,6 +75,31 @@ class Search extends Component
             $this->results = null;
             $this->error = __('domains.shop.not_in_currency');
         }
+    }
+
+    /** «Add»: a free name to register, to the cart (D8b), checked again there (DomainOffer). */
+    public function add(string $fqdn)
+    {
+        return $this->toCart($fqdn, 'register');
+    }
+
+    /** «Transfer it to us»: a taken name to transfer (its EPP code asked in the cart). */
+    public function transfer(string $fqdn)
+    {
+        return $this->toCart($fqdn, 'transfer');
+    }
+
+    private function toCart(string $fqdn, string $operation)
+    {
+        try {
+            Cart::addDomain(mb_substr($fqdn, 0, 255), $operation);
+        } catch (DisplayException $e) {
+            $this->notify($e->getMessage(), 'error');
+
+            return null;
+        }
+
+        return $this->redirectRoute('cart', navigate: true);
     }
 
     public static function currency(): string

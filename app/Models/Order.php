@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Classes\Price;
+use App\Enums\DomainStatus;
 use App\Exceptions\DisplayException;
 use App\Observers\OrderObserver;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
@@ -72,12 +73,16 @@ class Order extends Model implements Auditable
             return;
         }
         $statuses = Service::query()->where('order_id', $this->id)->pluck('status');
-        if ($statuses->isEmpty()) {
+        // Its domains too (D8b): pending until registered or transferred, ended when cancelled.
+        $domains = Domain::query()->where('order_id', $this->id)->pluck('status');
+        if ($statuses->isEmpty() && $domains->isEmpty()) {
             return;
         }
+        $pendingDomain = $domains->contains(fn (DomainStatus $s) => in_array($s, [DomainStatus::PendingRegister, DomainStatus::PendingTransfer], true));
         $status = match (true) {
-            $statuses->every(fn (string $status) => in_array($status, Service::ENDED_STATUSES, true)) => self::STATUS_CANCELLED,
-            !$statuses->contains(Service::STATUS_PENDING) => self::STATUS_ACTIVE,
+            $statuses->every(fn (string $status) => in_array($status, Service::ENDED_STATUSES, true))
+                && $domains->every(fn (DomainStatus $s) => $s->isTerminal()) => self::STATUS_CANCELLED,
+            !$statuses->contains(Service::STATUS_PENDING) && !$pendingDomain => self::STATUS_ACTIVE,
             default => null,
         };
         if ($status !== null) {
@@ -90,6 +95,12 @@ class Order extends Model implements Auditable
     public function services(): HasMany
     {
         return $this->hasMany(Service::class);
+    }
+
+    /** @return HasMany<Domain, $this> the domains it registers or transfers (D8b) */
+    public function domains(): HasMany
+    {
+        return $this->hasMany(Domain::class);
     }
 
     /**
@@ -136,7 +147,9 @@ class Order extends Model implements Auditable
     public function invoices(): Attribute
     {
         // Each service has invoices (it is a hasManyThrough relationship order -> service -> invoiceItem -> invoice)
-        $invoicesId = $this->services->map(fn ($service) => $service->invoiceItems->map(fn ($invoiceItem) => $invoiceItem->invoice_id))->flatten();
+        $invoicesId = $this->services->map(fn ($service) => $service->invoiceItems->map(fn ($invoiceItem) => $invoiceItem->invoice_id))->flatten()
+            ->concat($this->domains->map(fn (Domain $domain) => $domain->invoiceItems->pluck('invoice_id'))->flatten())
+            ->push($this->invoice_id)->filter()->unique();
 
         return new Attribute(
             get: fn () => Invoice::whereIn('id', $invoicesId)

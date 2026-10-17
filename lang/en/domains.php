@@ -148,4 +148,27 @@ return [
         'not_in_currency' => 'Domains are not sold in this currency: choose another one.',
         'unknown_currency' => 'Unknown currency.',
     ],
+
+    // Ordering (D8b).
+    'order' => [
+        'add' => 'Add',
+        'transfer_it' => 'Is it yours? Transfer it to us',
+        'cart_register' => ':domain: registration, :years year|:domain: registration, :years years',
+        'cart_transfer' => ':domain: transfer, :years year|:domain: transfer, :years years',
+        'line_register' => ':domain: domain registration, :years year|:domain: domain registration, :years years',
+        'line_transfer' => ':domain: domain transfer, :years year|:domain: domain transfer, :years years',
+        'years' => 'Years',
+        'epp_code' => 'EPP (transfer) code',
+        'epp_help' => 'Ask your current provider for it (also called authorisation code); the transfer starts once paid.',
+        'registrant' => 'Domain owner (registrant)',
+        'incomplete' => 'details missing',
+        'manage_contacts' => 'Add or complete a contact',
+        'not_offered' => 'We do not offer this domain.',
+        'years_not_offered' => 'This domain is not offered for :years year(s).',
+        'already_here' => ':domain is already with us or being ordered.',
+        'taken' => ':domain is not available any more.',
+        'not_registered' => ':domain is not registered: register it instead of transferring it.',
+        'epp_required' => 'Enter the EPP code of :domain to transfer it.',
+        'contact_incomplete' => 'The domain owner needs a complete address, phone and country: complete it under Contacts.',
+    ],
 ];

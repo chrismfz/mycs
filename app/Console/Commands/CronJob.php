@@ -289,6 +289,33 @@ class CronJob extends Command
                         $this->failures["orders_cancelled #{$id}"] = $e;
                     }
                 }
+                // Domains ordered and not paid in as many days (D8b): cancelled, their lines off their invoice, the name
+                // free again (live_fqdn). One with money from a gateway or a transfer on it is left to staff.
+                foreach ($days <= 0 ? [] : $this->unpaidDomainOrders($days)->pluck('id') as $id) {
+                    try {
+                        $number += DB::transaction(function () use ($id, $days) {
+                            $domain = $this->unpaidDomainOrders($days)->whereKey($id)->lockForUpdate()->first();
+                            if ($domain === null) {
+                                return 0;
+                            }
+                            $invoices = Invoice::query()->whereIn('status', Invoice::OPEN_STATUSES)
+                                ->whereHas('items', fn ($line) => $line->where('reference_type', Domain::class)->where('reference_id', $domain->id))->get();
+                            $left = CancelOpenInvoices::handle($invoices, __('invoices.cancellation_reasons.unpaid_order'), $domain);
+                            if ($left !== []) {
+                                $this->leftOpen($left);
+
+                                return 0;
+                            }
+                            $domain->update(['status' => DomainStatus::Cancelled]);
+                            $domain->order?->refreshStatus();
+
+                            return 1;
+                        });
+                    } catch (Throwable $e) {
+                        report($e);
+                        $this->failures["orders_cancelled domain #{$id}"] = $e;
+                    }
+                }
 
                 return $number;
             }, transaction: false);
@@ -530,6 +557,24 @@ class CronJob extends Command
     }
 
     /** Open invoices with a payment that is not credit (succeeded), or one on its way. */
+    /**
+     * Domains of an order (D8b), pending since $days ago, their registration or transfer not paid nor on its way: never
+     * paid, no money from a gateway or a transfer, not an order staff accepted.
+     *
+     * @return Builder<Domain>
+     */
+    private function unpaidDomainOrders(int $days): Builder
+    {
+        $own = fn ($line) => $line->whereIn('kind', [InvoiceItem::KIND_REGISTER, InvoiceItem::KIND_TRANSFER]);
+
+        return Domain::query()->whereIn('status', [DomainStatus::PendingRegister->value, DomainStatus::PendingTransfer->value])
+            ->whereNotNull('order_id')->where('created_at', '<', now()->subDays($days))
+            ->whereDoesntHave('order', fn ($order) => $order->whereNotNull('accepted_at'))
+            ->whereHas('invoiceItems', fn ($line) => $own($line)->whereHas('invoice', fn ($i) => $i->whereIn('status', Invoice::OPEN_STATUSES)))
+            ->whereDoesntHave('invoiceItems', fn ($line) => $own($line)->whereHas('invoice', fn ($i) => $i->where('status', Invoice::STATUS_PAID)))
+            ->whereDoesntHave('invoiceItems', fn ($line) => $own($line)->whereHas('invoice', fn ($i) => $this->withRealMoney($i)));
+    }
+
     private function withRealMoney($invoices)
     {
         return $invoices->whereIn('invoices.status', Invoice::OPEN_STATUSES)->whereHas('transactions', fn ($payments) => $payments
