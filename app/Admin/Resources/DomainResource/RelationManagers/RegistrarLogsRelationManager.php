@@ -42,7 +42,13 @@ class RegistrarLogsRelationManager extends RelationManager
                         DomainRegistrarLog::STATUS_OK => 'success',
                         default => 'gray',
                     }),
-                TextColumn::make('staff.name')->label(__('By'))->placeholder(__('System')),
+                // Staff, or the customer in the client area (D7-2), else the system.
+                TextColumn::make('by')->label(__('By'))->placeholder(__('System'))
+                    ->state(fn ($record) => match (true) {
+                        $record->staff_id !== null => $record->staff->name,
+                        $record->user_id !== null => $record->user->name . ' (' . __('customer') . ')',
+                        default => null,
+                    }),
                 TextColumn::make('error')->label(__('Error'))->limit(80)->placeholder('—'),
             ])
             ->recordActions([

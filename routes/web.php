@@ -7,6 +7,7 @@ use App\Livewire\Auth;
 use App\Livewire\Cart;
 use App\Livewire\Client;
 use App\Livewire\Dashboard;
+use App\Livewire\Domains;
 use App\Livewire\Home;
 use App\Livewire\Invoices;
 use App\Livewire\Products;
@@ -48,6 +49,9 @@ Route::group(['middleware' => ['web', 'auth', MustVerfiyEmail::class]], function
 
     Route::get('/services', Services\Index::class)->name('services')->middleware('client.can:products');
     Route::get('/services/{service}', Services\Show::class)->name('services.show')->middleware('can:view,service');
+    // The customer's domains (D7-2).
+    Route::get('/domains', Domains\Index::class)->name('domains')->middleware('client.can:domains');
+    Route::get('/domains/{domain}', Domains\Show::class)->name('domains.show')->middleware('can:view,domain');
     // The account's users (docs/accounts.md, PR 2b): it mails invitations, so only a verified login.
     Route::get('/account/users', Client\Users::class)->name('account.users');
 

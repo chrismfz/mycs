@@ -31,7 +31,7 @@ class DomainRegistrarLog extends Model
 
     public const STATUS_FAILED = 'failed';
 
-    protected $fillable = ['domain_id', 'registrar_connection_id', 'staff_id', 'action', 'status', 'request', 'response', 'error', 'invoice_id'];
+    protected $fillable = ['domain_id', 'registrar_connection_id', 'staff_id', 'user_id', 'action', 'status', 'request', 'response', 'error', 'invoice_id'];
 
     protected function casts(): array
     {
@@ -51,6 +51,12 @@ class DomainRegistrarLog extends Model
     }
 
     /** @return BelongsTo<Staff, $this> */
+    /** @return BelongsTo<User, $this> the customer's login that asked, in the client area (D7-2) */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
     public function staff(): BelongsTo
     {
         return $this->belongsTo(Staff::class);
