@@ -1,11 +1,11 @@
 <div class="container mt-14">
     @if($invoice = $service->invoices()->where('status', 'unpaid')->first())
     <div class="w-full mb-4">
-        <div class="bg-yellow-600/20 border-l-4 border-yellow-500 text-yellow-300 p-4 rounded-lg">
+        <div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-900 dark:bg-yellow-600/20 dark:text-yellow-200 p-4 rounded-lg">
             <p class="font-medium">
                 ⚠️ {{ __('services.outstanding_invoice') }}
                 <a href="{{ route('invoices.show', $invoice)}}"
-                    class="underline hover:text-yellow-100 underline-offset-2">{{ __('services.view_and_pay') }}</a>.
+                    class="underline underline-offset-2 hover:text-yellow-700 dark:hover:text-yellow-100">{{ __('services.view_and_pay') }}</a>.
             </p>
         </div>
     </div>

@@ -2,7 +2,7 @@
     <x-navigation.breadcrumb />
 
     @if ($openInvoice)
-    <div class="bg-yellow-600/20 border-l-4 border-yellow-500 text-yellow-300 p-4 rounded-lg">
+    <div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-900 dark:bg-yellow-600/20 dark:text-yellow-200 p-4 rounded-lg">
         ⚠️ {{ __('domains.portal.open_invoice') }}
         <a href="{{ route('invoices.show', $openInvoice) }}" wire:navigate class="underline underline-offset-2">{{ __('services.view_and_pay') }}</a>.
     </div>
