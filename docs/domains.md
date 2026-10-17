@@ -473,9 +473,19 @@
      cron (`domain_epp_codes_cleared`) όταν η μεταφορά δεν είναι πια pending και η παραγγελία έχει ≥30 μέρες.
      **Δωρεάν μεταφορά** (ιδιοκτήτης 2026-10-18): ξεκινά αμέσως με την παραγγελία, χωρίς να περιμένει αποδοχή από το
      staff (fraud review).
-   - **Έτη ανανέωσης ανά domain** (ιδιοκτήτης 2026-10-17, επόμενο PR, χρήματα): ξεκινά με τα έτη της παραγγελίας· ο
-     πελάτης (portal) και το staff τα αλλάζουν ανάμεσα στα έτη με τιμή ανανέωσης του TLD· ισχύει από το επόμενο
-     τιμολόγιο, ή αλλάζει το ανοιχτό απλήρωτο (`ChangeOpenLine`)· ήδη πληρωμένο → από την επόμενη φορά.
+   - **Tab «Domains» στα Settings και έτη ανανέωσης** (ιδιοκτήτης 2026-10-17, όπως το tab Domains του WHMCS):
+     - *Ordering:* `domain_allow_register`, `domain_allow_transfer` (το shop δεν δείχνει/δεν δέχεται την πράξη·
+       `DomainOffer::allowed`), `domain_default_auto_renew` (νέα domains), **Default Nameserver 1–5**
+       (`domain_nameserver_1..5`· το παλιό textarea `domain_default_nameservers` μεταφέρεται με migration).
+     - *Renewals:* `domain_billing_enabled`, `domain_invoice_days`, `domain_reminder_days` (μετακόμισαν από το Automation,
+       ίδια keys), `domain_client_years`.
+     - *Housekeeping:* `domain_epp_code_days` (30), `domain_stale_transfer_days` (14: widget, Health, sync).
+     - **Περίοδος ανανέωσης** (`DomainRenewalYears`): ξεκινά με τα έτη της παραγγελίας· ο πελάτης (portal, με
+       `managedomains`, αν το επιτρέπει το `domain_client_years` και δεν υπάρχει `recurring_amount` χειροκίνητο) ή το
+       staff (Edit του domain) διαλέγουν ανάμεσα στα έτη με τιμή ανανέωσης του TLD (1–10). Όχι σε pending ή τελειωμένο.
+       Ισχύει από την επόμενη ανανέωση· το ανοιχτό τιμολόγιο ανανέωσης (απλήρωτο ή draft, χωρίς πληρωμή) αλλάζει μαζί
+       (περίοδος, τιμή, περιγραφή: `ChangeOpenLine`)· με πληρωμή → από το επόμενο. Σε grace/redemption η ανοιχτή
+       ανανέωση μένει 1 έτος (D-13).
    - **D8b (χρήματα):** register/transfer στο καλάθι (έτη του TLD, EPP code στη μεταφορά), τιμολόγιο, εγγραφή/μεταφορά
      μετά την πληρωμή. Code + adversarial.
    - **Whois ανά TLD (μητρώο), όχι ανά registrar** (ιδιοκτήτης 2026-10-17): «είναι διαθέσιμο;» → η σύνδεση registrar

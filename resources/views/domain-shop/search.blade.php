@@ -28,7 +28,7 @@
                 <p class="{{ $i === 0 ? 'text-xl font-semibold' : 'font-medium' }}">{{ $row['fqdn'] }}</p>
                 @if ($row['status'] === \App\Services\Domains\DomainSearch::FREE)
                 <p class="text-success text-sm">✓ {{ __('domains.shop.free') }}</p>
-                @elseif ($row['status'] === \App\Services\Domains\DomainSearch::TAKEN)
+                @elseif ($row['status'] === \App\Services\Domains\DomainSearch::TAKEN && \App\Services\Domains\Ordering\DomainOffer::allowed('transfer'))
                 <p class="text-base/60 text-sm">{{ __('domains.shop.taken') }}
                     · <a href="{{ route('domain.whois', ['domain' => $row['fqdn']]) }}" wire:navigate class="underline">{{ __('domains.shop.who_has_it') }}</a></p>
                 @elseif ($row['status'] === \App\Services\Domains\DomainSearch::PREMIUM)
@@ -45,9 +45,11 @@
                     <p class="text-xs text-base/60">{{ __('domains.shop.then', ['price' => $money($row['renew'])]) }}</p>
                     @endif
                 </div>
+                @if (\App\Services\Domains\Ordering\DomainOffer::allowed('register'))
                 <x-button.primary class="!w-fit" wire:click="add('{{ $row['fqdn'] }}')" wire:loading.attr="disabled">{{ __('domains.order.add') }}</x-button.primary>
+                @endif
             </div>
-            @elseif ($row['status'] === \App\Services\Domains\DomainSearch::TAKEN)
+            @elseif ($row['status'] === \App\Services\Domains\DomainSearch::TAKEN && \App\Services\Domains\Ordering\DomainOffer::allowed('transfer'))
             <button type="button" class="text-sm underline" wire:click="transfer('{{ $row['fqdn'] }}')">{{ __('domains.order.transfer_it') }}</button>
             @endif
         </div>

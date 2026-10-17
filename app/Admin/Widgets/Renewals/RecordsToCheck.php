@@ -14,7 +14,7 @@ use Illuminate\Database\Eloquent\Builder;
 /**
  * Domains to look at (owner 2026-10-17, as myip's «Expiry Date Zeros» and «Pending Transfer Domains»), each with why:
  * alive without an expiry; a transfer or a registration pending since their order longer than the sync's own warning
- * (SyncDomains::STALE_TRANSFER_DAYS, by their start, not their last edit: review R2); still Active days past its expiry,
+ * (SyncDomains::staleTransferDays(), by their start, not their last edit: review R2); still Active days past its expiry,
  * which means the 4-hourly sync or its lifecycle has not run (review R12).
  */
 class RecordsToCheck extends TableWidget
@@ -52,7 +52,7 @@ class RecordsToCheck extends TableWidget
 
         return Domain::query()->with(['client.primaryContact', 'client.ownerGrant.user'])->where(fn ($q) => $q
             ->where(fn ($none) => $none->whereIn('status', $alive)->whereNull('expires_at'))
-            ->orWhere(fn ($stuck) => $stuck->whereIn('status', $pending)->where('created_at', '<', now()->subDays(SyncDomains::STALE_TRANSFER_DAYS)))
+            ->orWhere(fn ($stuck) => $stuck->whereIn('status', $pending)->where('created_at', '<', now()->subDays(SyncDomains::staleTransferDays())))
             ->orWhere(fn ($lag) => $lag->where('status', DomainStatus::Active->value)->whereDate('expires_at', '<', today()->subDays(self::LAG_DAYS))));
     }
 
@@ -60,8 +60,8 @@ class RecordsToCheck extends TableWidget
     {
         // The stuck order first (review R1: a pending one has no expiry yet).
         return match (true) {
-            $domain->status === DomainStatus::PendingTransfer => __('Transfer pending for more than :days days', ['days' => SyncDomains::STALE_TRANSFER_DAYS]),
-            $domain->status === DomainStatus::PendingRegister => __('Registration pending for more than :days days', ['days' => SyncDomains::STALE_TRANSFER_DAYS]),
+            $domain->status === DomainStatus::PendingTransfer => __('Transfer pending for more than :days days', ['days' => SyncDomains::staleTransferDays()]),
+            $domain->status === DomainStatus::PendingRegister => __('Registration pending for more than :days days', ['days' => SyncDomains::staleTransferDays()]),
             $domain->expires_at === null => __('No expiry date'),
             default => __('Active but past its expiry: the domain sync has not run'),
         };

@@ -4,6 +4,7 @@ namespace App\Admin\Resources\DomainResource\Pages;
 
 use App\Admin\Actions\InvoiceSelectedItemsAction;
 use App\Admin\Resources\DomainResource;
+use App\Exceptions\DisplayException;
 use App\Models\Contact;
 use App\Models\Domain;
 use App\Models\Staff;
@@ -11,6 +12,7 @@ use App\Services\Billing\RenewalBilling;
 use App\Services\Domains\DomainLifecycle;
 use App\Services\Domains\DomainManagementService;
 use App\Services\Domains\DomainRenewalService;
+use App\Services\Domains\DomainRenewalYears;
 use App\Services\Domains\DomainSyncService;
 use Closure;
 use Filament\Actions\Action;
@@ -176,15 +178,38 @@ class ViewDomain extends ViewRecord
             // Here only, not at the registrar.
             Action::make('edit')->label(__('Edit'))->icon('heroicon-o-pencil-square')
                 ->visible(fn () => self::can('admin.domains.update'))
-                ->fillForm(fn (Domain $record) => ['auto_renew' => $record->auto_renew, 'notes' => $record->notes])
+                ->fillForm(fn (Domain $record) => ['auto_renew' => $record->auto_renew, 'notes' => $record->notes, 'years' => max(1, (int) $record->years)])
                 ->schema([
                     Toggle::make('auto_renew')->label(__('Auto renew'))
                         ->helperText(__('Off: no renewal invoice is made for it (do not renew).')),
+                    // Its renewal period (owner 2026-10-17): among the years its TLD prices; its open, unpaid renewal
+                    // invoice changes with it (DomainRenewalYears).
+                    Select::make('years')->label(__('Renewal period (years)'))
+                        ->options(fn (Domain $record) => collect(DomainRenewalYears::options($record))->mapWithKeys(fn (int $y) => [$y => trans_choice('domains.portal.years_option', $y, ['years' => $y])])->all())
+                        ->visible(fn (Domain $record) => DomainRenewalYears::changeable($record))
+                        ->selectablePlaceholder(false)
+                        ->helperText(fn (Domain $record) => $record->recurring_amount !== null
+                            ? __('It renews at a recurring amount set by hand (:amount): change that too if the period changes.', ['amount' => $record->recurring_amount])
+                            : __('From its next renewal; its open, unpaid renewal invoice changes with it.')),
                     Textarea::make('notes')->label(__('Admin notes'))->helperText(__('Staff only.'))->rows(4)->maxLength(5000),
                 ])
                 ->action(function (Domain $record, array $data) {
                     $record->forceFill(['auto_renew' => (bool) $data['auto_renew'], 'notes' => ($data['notes'] ?? '') !== '' ? $data['notes'] : null])->save(); // audited
-                    Notification::make()->success()->title(__('Saved.'))->send();
+                    $outcome = DomainRenewalYears::UNCHANGED;
+                    if (isset($data['years']) && (int) $data['years'] !== max(1, (int) $record->years)) {
+                        try {
+                            $outcome = app(DomainRenewalYears::class)->change($record, (int) $data['years'], byStaff: true);
+                        } catch (DisplayException $e) {
+                            Notification::make()->danger()->title($e->getMessage())->send();
+
+                            return;
+                        }
+                    }
+                    Notification::make()->success()->title(__('Saved.'))->body(match ($outcome) {
+                        DomainRenewalYears::INVOICE => __('Its open renewal invoice changed with the period.'),
+                        DomainRenewalYears::NEXT => __('The period counts from its next renewal invoice (the open one is paid, or has money on it).'),
+                        default => null,
+                    })->send();
                     $this->refreshFormData([]);
                 }),
         ];

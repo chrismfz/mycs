@@ -21,7 +21,7 @@ class DomainOffer
     /** @return array{0: string, 1: DomainTld} the normalised name and its TLD */
     public function check(string $fqdn, string $operation, int $years, string $currency, bool $availability = true): array
     {
-        if (!in_array($operation, [DomainOrderLine::REGISTER, DomainOrderLine::TRANSFER], true)) {
+        if (!in_array($operation, [DomainOrderLine::REGISTER, DomainOrderLine::TRANSFER], true) || !self::allowed($operation)) {
             throw new DisplayException(__('domains.order.not_offered'));
         }
         $sold = $this->search->sold($currency)->keyBy('tld');
@@ -68,6 +68,12 @@ class DomainOffer
         $name = DomainName::parse($fqdn, $sold->keys()->all());
 
         return $name?->tld === null ? null : $sold[$name->tld];
+    }
+
+    /** Whether the shop takes this operation at all (Settings → Domains: allow registrations, allow transfers). */
+    public static function allowed(string $operation): bool
+    {
+        return (bool) config($operation === DomainOrderLine::TRANSFER ? 'settings.domain_allow_transfer' : 'settings.domain_allow_register', true);
     }
 
     /** @return Collection<int, int> the years $operation is priced for in $currency, ascending (D-5) */
