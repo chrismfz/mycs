@@ -9,6 +9,7 @@ use App\Models\DomainRegistrarConnection;
 use App\Models\DomainTld;
 use App\Models\DomainTldPrice;
 use App\Services\Domains\DomainSearch;
+use App\Services\Domains\Lookup\LaravelTransport;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
@@ -29,11 +30,19 @@ class DomainShopTest extends TestCase
 
     private DomainRegistrarConnection $op;
 
+    protected function tearDown(): void
+    {
+        LaravelTransport::$resolve = null;
+        parent::tearDown();
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
         Cache::flush();
         Http::preventStrayRequests();
+        // Hosts resolve without DNS here: the fake registries are public, «internal» ones are not.
+        LaravelTransport::$resolve = fn (string $host) => str_contains($host, 'internal') ? ['10.0.0.5'] : ['93.184.216.34'];
         // Never a real port 43 query from a test.
         $this->app->bind(SocketConnector::class, fn () => new class implements SocketConnector
         {
@@ -63,9 +72,11 @@ class DomainShopTest extends TestCase
 
             return match (true) {
                 str_contains($url, '/auth/login') => Http::response(['data' => ['token' => 'tok']]),
-                str_contains($url, '/domains/check') => Http::response(['data' => ['results' => [[
-                    'status' => ($request->data()['domains'][0]['name'] ?? '') . '.' . ($request->data()['domains'][0]['extension'] ?? '') === 'nixpal.com' ? 'active' : 'free',
-                ]]]]),
+                // All of a search's names in one request (review R1 of #178).
+                str_contains($url, '/domains/check') => Http::response(['data' => ['results' => array_map(fn ($d) => [
+                    'domain' => $d['name'] . '.' . $d['extension'],
+                    'status' => $d['name'] . '.' . $d['extension'] === 'nixpal.com' ? 'active' : 'free',
+                ], $request->data()['domains'])]]),
                 str_contains($url, 'data.iana.org') => Http::response(self::BOOTSTRAP),
                 str_contains($url, 'rdap.eu.example/domain/nixpal.eu') => Http::response([], 404),
                 str_contains($url, 'rdap.example/domain/nixpal.com') => Http::response(['objectClassName' => 'domain', 'ldhName' => 'nixpal.com', 'status' => ['client transfer prohibited'],

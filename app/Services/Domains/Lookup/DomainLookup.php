@@ -12,13 +12,19 @@ use Nixpal\DomainTools\Whois\SocketConnector;
 /**
  * «Who has it?» per TLD (docs/domains.md D8, owner 2026-10-17: by registry, not registrar): RDAP (IANA's bootstrap) →
  * port 43 (the TLD's whois server, personal data masked) → a registry adapter where neither exists (.gr: ICS-FORTH, with
- * grepp; until then «not supported»). Answers cached an hour; the bootstrap a day. Also «is it free?» when the
- * registrar cannot say: RDAP's «not found».
+ * grepp; until then «not supported»). Also «is it free?» when the registrar cannot say: RDAP's «not found».
+ *
+ * After review (#178): only definite answers are cached (an hour), never a registry's failure; the bootstrap is cached a
+ * day only once it parses; the TLD's port 43 server a day; one RDAP client per request.
  */
 class DomainLookup
 {
-    /** TLDs whose registry answers neither RDAP nor port 43 here: their adapter comes with their module. */
-    public const UNSUPPORTED = ['gr', 'ελ'];
+    /** TLDs whose registry answers neither RDAP nor port 43 here (punycode): their adapter comes with their module. */
+    public const UNSUPPORTED = ['gr', 'xn--qxam'];
+
+    private ?RdapClient $rdap = null;
+
+    private bool $rdapTried = false;
 
     public function __construct(private readonly ?SocketConnector $socket = null) {}
 
@@ -32,17 +38,23 @@ class DomainLookup
         if (in_array($tld, self::UNSUPPORTED, true)) {
             return ['status' => 'unsupported', 'record' => null, 'text' => null];
         }
+        $key = 'domain-whois-answer:' . sha1($fqdn);
+        if (($cached = Cache::get($key)) !== null) {
+            return $cached;
+        }
+        [$status, $record] = $this->rdap()?->lookup($fqdn) ?? ['unsupported', null];
+        $answer = ['status' => $status, 'record' => $record, 'text' => null];
+        if ($status !== 'found' && $status !== 'not_found') {
+            $socket = $this->socket ?? app(SocketConnector::class);
+            $server = Cache::remember('domain-whois-server:' . $tld, 86400, fn () => (new Port43($socket))->serverFor($tld) ?? '');
+            [$status, $text] = $server === '' ? ['unsupported', null] : (new Port43($socket))->lookup($fqdn, $server);
+            $answer = ['status' => $status, 'record' => null, 'text' => $text];
+        }
+        if ($answer['status'] === 'found' || $answer['status'] === 'not_found') {
+            Cache::put($key, $answer, 3600);
+        }
 
-        return Cache::remember('domain-whois:' . sha1($fqdn), 3600, function () use ($fqdn) {
-            [$status, $record] = $this->rdap()?->lookup($fqdn) ?? ['unsupported', null];
-            if ($status === 'found' || $status === 'not_found') {
-                return ['status' => $status, 'record' => $record, 'text' => null];
-            }
-            // The socket from the container (tests replace it: never the network from a test).
-            [$status, $text] = (new Port43($this->socket ?? app(SocketConnector::class)))->lookup($fqdn);
-
-            return ['status' => $status, 'record' => null, 'text' => $text];
-        });
+        return $answer;
     }
 
     /** Free (true), taken (false), or not known (null), by RDAP alone: the registrar's fallback. */
@@ -59,19 +71,24 @@ class DomainLookup
 
     private function rdap(): ?RdapClient
     {
-        $transport = new LaravelTransport;
-        $json = Cache::remember('domain-rdap-bootstrap', 86400, function () use ($transport) {
-            [$status, $body] = $transport->get(RdapBootstrap::URL);
-
-            return $status === 200 ? $body : null;
-        });
-        if ($json === null) {
-            Cache::forget('domain-rdap-bootstrap');
-
-            return null;
+        if ($this->rdapTried) {
+            return $this->rdap;
         }
-        $bootstrap = RdapBootstrap::fromJson($json);
+        $this->rdapTried = true;
+        $transport = new LaravelTransport;
+        $json = Cache::get('domain-rdap-bootstrap');
+        // IANA failed a moment ago: not asked again for a minute (no one makes us hammer it).
+        if ($json === null && !Cache::has('domain-rdap-bootstrap-failed')) {
+            [$status, $body] = $transport->get(RdapBootstrap::URL);
+            // Kept only once it parses (a captive or broken answer would turn RDAP off for a day).
+            if ($status === 200 && RdapBootstrap::fromJson($body) !== null) {
+                Cache::put('domain-rdap-bootstrap', $json = $body, 86400);
+            } else {
+                Cache::put('domain-rdap-bootstrap-failed', true, 60);
+            }
+        }
+        $bootstrap = $json === null ? null : RdapBootstrap::fromJson($json);
 
-        return $bootstrap === null ? null : new RdapClient($transport, $bootstrap);
+        return $this->rdap = $bootstrap === null ? null : new RdapClient($transport, $bootstrap);
     }
 }

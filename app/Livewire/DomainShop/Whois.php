@@ -3,8 +3,11 @@
 namespace App\Livewire\DomainShop;
 
 use App\Livewire\Component;
+use App\Models\DomainTld;
 use App\Services\Domains\Lookup\DomainLookup;
+use App\Services\Domains\Lookup\VisitorKey;
 use Illuminate\Support\Facades\RateLimiter;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
 use Nixpal\DomainTools\DomainName;
 
@@ -21,10 +24,13 @@ class Whois extends Component
     public string $query = '';
 
     /** @var array<string, mixed>|null */
+    #[Locked]
     public ?array $answer = null;
 
+    #[Locked]
     public ?string $error = null;
 
+    #[Locked]
     public ?string $fqdn = null;
 
     public function mount(): void
@@ -47,7 +53,8 @@ class Whois extends Component
 
             return;
         }
-        $key = 'domain-whois:' . request()->ip();
+        $fqdn = self::registrable($fqdn);
+        $key = 'domain-whois-hits:' . VisitorKey::of(request());
         if (RateLimiter::tooManyAttempts($key, self::LIMIT)) {
             $this->error = __('domains.shop.too_many');
 
@@ -61,6 +68,22 @@ class Whois extends Component
             'record' => $result['record'] === null ? null : (array) $result['record'],
             'text' => $result['text'],
         ];
+    }
+
+    /**
+     * The registered name of what was typed (review R5): «mail.google.com» → google.com; a known suffix of more labels
+     * (a TLD we list, such as co.uk) keeps one label more.
+     */
+    public static function registrable(string $fqdn): string
+    {
+        $labels = explode('.', $fqdn);
+        if (count($labels) <= 2) {
+            return $fqdn;
+        }
+        $suffixes = DomainTld::query()->where('tld', 'like', '%.%')->pluck('tld')->map(fn ($t) => (string) DomainName::toAscii($t))->all();
+        $lastTwo = implode('.', array_slice($labels, -2));
+
+        return in_array($lastTwo, $suffixes, true) ? implode('.', array_slice($labels, -3)) : $lastTwo;
     }
 
     public function render()

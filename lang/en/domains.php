@@ -144,6 +144,7 @@ return [
         'renew' => 'Renew',
         'transfer' => 'Transfer',
         'no_prices' => 'No prices yet.',
+        'unsold' => 'We do not offer :tld domains: here are the endings we offer.',
         'not_in_currency' => 'Domains are not sold in this currency: choose another one.',
         'unknown_currency' => 'Unknown currency.',
     ],

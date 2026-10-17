@@ -16,6 +16,7 @@ use App\Models\Extension;
 use App\Models\OauthClient;
 use App\Models\Staff;
 use App\Models\User;
+use App\Services\Domains\Lookup\VisitorKey;
 use App\Services\Money\GatewayLog;
 use App\Support\BootFailure;
 use App\Support\CurrentClient;
@@ -163,6 +164,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // The public price list API (D8a): 60 a minute per caller's own address (review R2, App\Support\CallerIp).
+        RateLimiter::for('domain-pricing', fn ($request) => Limit::perMinute(60)->by(VisitorKey::of($request)));
+
         // The admin API (AUTH-17): 120 calls a minute per key that exists and is enabled; anything else (no token, a
         // junk one) shares 60 a minute per address, so a new junk token on every call gets no fresh bucket (R1 of #90).
         RateLimiter::for('admin-api', function (Request $request) {

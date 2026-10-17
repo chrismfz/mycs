@@ -5,7 +5,9 @@ namespace App\Livewire\DomainShop;
 use App\Livewire\Component;
 use App\Models\Currency;
 use App\Services\Domains\DomainSearch;
+use App\Services\Domains\Lookup\VisitorKey;
 use Illuminate\Support\Facades\RateLimiter;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
 
 /**
@@ -22,9 +24,15 @@ class Search extends Component
     public string $query = '';
 
     /** @var list<array<string, mixed>>|null */
+    #[Locked]
     public ?array $results = null;
 
+    #[Locked]
     public ?string $error = null;
+
+    /** A TLD typed that we do not sell (review R13): said, not silently replaced. */
+    #[Locked]
+    public ?string $unsold = null;
 
     public function mount(): void
     {
@@ -37,18 +45,28 @@ class Search extends Component
     {
         $this->results = null;
         $this->error = null;
+        $this->unsold = null;
         $this->query = mb_substr(trim($this->query), 0, 100);
         if ($this->query === '') {
             return;
         }
-        $key = 'domain-search:' . request()->ip();
+        // The caller's own address (review R2: not one an X-Forwarded-For header names, App\Support\CallerIp).
+        $key = 'domain-search-hits:' . VisitorKey::of(request());
         if (RateLimiter::tooManyAttempts($key, self::LIMIT)) {
             $this->error = __('domains.shop.too_many');
 
             return;
         }
         RateLimiter::hit($key, 600);
-        $this->results = app(DomainSearch::class)->search($this->query, self::currency());
+        $search = app(DomainSearch::class);
+        $this->results = $search->search($this->query, self::currency());
+        if ($this->results) {
+            $typed = mb_strtolower((string) preg_replace('#^[a-z][a-z0-9+.-]*://(www\.)?#i', '', $this->query));
+            $typed = (string) preg_replace('#[/?\#:].*$#', '', $typed);
+            if (str_contains($typed, '.') && !str_ends_with($typed, '.' . $this->results[0]['tld'])) {
+                $this->unsold = '.' . substr($typed, (int) strpos($typed, '.') + 1);
+            }
+        }
         if ($this->results === null) {
             $this->error = __('domains.shop.not_a_name');
         } elseif ($this->results === []) {

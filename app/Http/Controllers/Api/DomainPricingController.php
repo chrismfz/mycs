@@ -17,7 +17,8 @@ class DomainPricingController extends Controller
 {
     public function __invoke(Request $request): JsonResponse
     {
-        $code = strtoupper((string) $request->query('currency', config('settings.default_currency')));
+        $currency = $request->query('currency', config('settings.default_currency'));
+        $code = is_string($currency) ? strtoupper($currency) : ''; // ?currency[]= is a 422, not a 500 (ADV-9)
         if (!preg_match('/^[A-Z]{3}$/', $code) || !Currency::query()->whereKey($code)->exists()) {
             return response()->json(['message' => __('domains.shop.unknown_currency')], 422);
         }

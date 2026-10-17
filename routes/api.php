@@ -24,7 +24,7 @@ Route::post('/oauth/token', [
 Route::get('/me', [ProfileController::class, 'me'])->middleware(['auth:api', 'scope:profile']);
 
 // The domain price list for the company's site (D8a): public, cached, 60 a minute per address.
-Route::get('/v1/domain-pricing', DomainPricingController::class)->middleware('throttle:60,1')->name('api.v1.domain-pricing');
+Route::get('/v1/domain-pricing', DomainPricingController::class)->middleware('throttle:domain-pricing')->name('api.v1.domain-pricing');
 
 // Rate limited per key (AUTH-17): a leaked or looping key cannot hammer the admin API.
 Route::group(['middleware' => ['throttle:admin-api', 'api.admin'], 'prefix' => 'v1/admin', 'as' => 'api.v1.admin.'], function () {

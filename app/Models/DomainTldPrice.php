@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Domains\DomainSearch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use OwenIt\Auditing\Contracts\Auditable;
@@ -22,6 +23,13 @@ use OwenIt\Auditing\Contracts\Auditable;
  */
 class DomainTldPrice extends Model implements Auditable
 {
+    protected static function booted(): void
+    {
+        // The public price lists are cached (D8a review R12): a price changed shows at once.
+        static::saved(fn () => DomainSearch::forgetPriceLists());
+        static::deleted(fn () => DomainSearch::forgetPriceLists());
+    }
+
     use Traits\Auditable;
 
     protected $fillable = ['domain_tld_id', 'operation', 'years', 'currency_code', 'price', 'cost', 'cost_currency'];

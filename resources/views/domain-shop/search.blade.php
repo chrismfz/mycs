@@ -19,6 +19,9 @@
 
     @if ($results)
     <div wire:loading.remove wire:target="search" class="space-y-3">
+        @if ($unsold)
+        <p class="text-sm text-base/60">{{ __('domains.shop.unsold', ['tld' => $unsold]) }}</p>
+        @endif
         @foreach ($results as $i => $row)
         <div class="bg-background-secondary border border-neutral rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2 {{ $i === 0 ? 'p-6' : 'p-4' }}">
             <div>
