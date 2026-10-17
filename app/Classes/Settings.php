@@ -601,7 +601,8 @@ class Settings
                     'type' => 'text',
                     'default' => '30,7,1,-3',
                     'required' => false,
-                    'validation' => 'nullable|regex:/^\s*-?\d{1,3}(\s*,\s*-?\d{1,3})*\s*$/',
+                    // At most a year either side (DomainReminders::MAX_DAYS, review R9).
+                    'validation' => 'nullable|regex:/^\s*-?(36[0-5]|3[0-5]\d|[12]?\d{1,2})(\s*,\s*-?(36[0-5]|3[0-5]\d|[12]?\d{1,2}))*\s*$/',
                     'description' => 'Days before a domain expires to send its expiry notice, comma separated; negative days are after it (while it can still be renewed). Empty to disable. Domains set not to renew get none; one whose next year is paid gets none.',
                 ],
                 // Saved payment methods (PR H, decision 5; WHMCS CCProcessDaysBefore, CCAttemptOnlyOnce, CCRetryEveryWeekFor).

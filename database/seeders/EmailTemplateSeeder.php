@@ -783,7 +783,7 @@ class EmailTemplateSeeder extends Seeder
 
                 Your domain **{{ fqdn }}** expired on **{{ expires }}** and has stopped working: your website and email on it are down.
 
-                It can still be renewed until **{{ last_day }}**{% if late_fee %}, now with a late renewal fee of **{{ late_fee }}** charged by the registry{% endif %}. After that it may be lost, and anyone can register it.
+                It can still be renewed until **{{ stage_end }}**{% if late_fee %}, now with a late renewal fee of **{{ late_fee }}** charged by the registry{% endif %}.{% if next_fee %} From then until **{{ last_day }}** it can only be restored, with a restore fee of **{{ next_fee }}**.{% endif %} After **{{ last_day }}** it may be lost, and anyone can register it.
 
                 {% if invoice %}
                 Its renewal is on invoice **#{{ invoice_number }}** ({{ invoice.formattedTotal }}). Once paid, it is renewed right away.
@@ -1520,7 +1520,7 @@ class EmailTemplateSeeder extends Seeder
 
                     Το domain σας **{{ fqdn }}** έληξε στις **{{ expires }}** και δεν λειτουργεί: η ιστοσελίδα και το email σας σε αυτό είναι εκτός.
 
-                    Μπορεί ακόμα να ανανεωθεί έως τις **{{ last_day }}**{% if late_fee %}, πλέον με επιπλέον χρέωση καθυστερημένης ανανέωσης **{{ late_fee }}** από το μητρώο{% endif %}. Μετά ίσως χαθεί και να μπορεί να το καταχωρίσει οποιοσδήποτε.
+                    Μπορεί ακόμα να ανανεωθεί έως τις **{{ stage_end }}**{% if late_fee %}, πλέον με επιπλέον χρέωση καθυστερημένης ανανέωσης **{{ late_fee }}** από το μητρώο{% endif %}.{% if next_fee %} Από τότε και έως τις **{{ last_day }}** μπορεί μόνο να επαναφερθεί, με χρέωση επαναφοράς **{{ next_fee }}**.{% endif %} Μετά τις **{{ last_day }}** ίσως χαθεί και να μπορεί να το καταχωρίσει οποιοσδήποτε.
 
                     {% if invoice %}
                     Η ανανέωσή του είναι στο προτιμολόγιο **#{{ invoice_number }}** ({{ invoice.formattedTotal }}). Μόλις εξοφληθεί, ανανεώνεται αμέσως.

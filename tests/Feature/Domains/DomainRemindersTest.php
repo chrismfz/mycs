@@ -183,4 +183,57 @@ class DomainRemindersTest extends TestCase
 
         $this->assertSame(0, $this->notify());
     }
+
+    private function invoiceFor(Domain $domain, string $due, string $status = Invoice::STATUS_UNPAID): Invoice
+    {
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'EUR', 'due_at' => $due]);
+        $invoice->items()->create(['reference_type' => Domain::class, 'reference_id' => $domain->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => '23.33',
+            'period_start' => $domain->expires_at->toDateString(), 'period_end' => $domain->expires_at->copy()->addYear()->toDateString()]);
+        DB::table('invoices')->where('id', $invoice->id)->update(['status' => $status, 'created_at' => '2026-10-01']);
+
+        return $invoice->fresh();
+    }
+
+    public function test_the_invoice_keeps_its_own_reminders_where_the_notices_do_not_cover_it(): void
+    {
+        // Review R1: myip's days (none after the expiry): an overdue domain invoice still gets its overdue reminder.
+        config(['settings.domain_reminder_days' => '60,30,15,10,5']);
+        $domain = $this->domain(['expires_at' => '2026-10-19', 'status' => DomainStatus::Grace]);
+        $invoice = $this->invoiceFor($domain, '2026-10-19');
+        $this->assertFalse(DomainReminders::covers($invoice, 'overdue'));
+        $this->assertTrue(DomainReminders::covers($invoice, 'due'));
+
+        // With a day after it the notices cover it; not with that template off, nor for a domain set not to renew.
+        config(['settings.domain_reminder_days' => '30,7,1,-3']);
+        $this->assertTrue(DomainReminders::covers($invoice, 'overdue'));
+        DB::table('notification_templates')->where('key', 'domain_expired_notice')->update(['enabled' => false]);
+        $this->assertFalse(DomainReminders::covers($invoice, 'overdue'));
+        DB::table('notification_templates')->where('key', 'domain_expired_notice')->update(['enabled' => true]);
+        $domain->update(['auto_renew' => false]);
+        $this->assertFalse(DomainReminders::covers($invoice->fresh(), 'overdue'));
+    }
+
+    public function test_a_draft_is_not_named_and_a_day_before_is_never_sent_after_the_expiry(): void
+    {
+        // Review R3: a draft is not the customer's to see.
+        $domain = $this->domain(['expires_at' => '2026-10-27']);
+        $this->invoiceFor($domain, '2026-10-27', Invoice::STATUS_DRAFT);
+        $this->notify();
+        $this->assertStringNotContainsString('View & pay invoice', MailFacade::queued(Mail::class)->first()->renderedHtml);
+
+        // Review R4: the 1st missed, caught up the day after the expiry while still Active: nothing «expires on yesterday».
+        $this->domain(['sld' => 'late', 'fqdn' => 'late.com', 'expires_at' => '2026-10-19']);
+        config(['settings.domain_reminder_days' => '30,7,1']);
+        $this->assertSame(0, $this->notify());
+    }
+
+    public function test_an_expiry_the_registrar_corrected_by_a_day_does_not_send_its_notice_again(): void
+    {
+        // Review R5.
+        $domain = $this->domain(['expires_at' => '2026-10-27']);
+        $this->assertSame(1, $this->notify());
+        $domain->update(['expires_at' => '2026-10-26']);
+
+        $this->assertSame(0, $this->notify());
+    }
 }

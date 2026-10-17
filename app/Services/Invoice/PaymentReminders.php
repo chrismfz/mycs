@@ -148,7 +148,7 @@ class PaymentReminders
             return 0;
         }
         // Only renewals of domains that get their own expiry notices (D7): those name this invoice, one mail not two.
-        if (self::coveredByDomainNotices($invoice)) {
+        if (DomainReminders::covers($invoice, $kind)) {
             return 0;
         }
         $row = ['invoice_id' => $invoice->id, 'kind' => $kind, 'days' => $days, 'due_on' => $dueOn];
@@ -183,20 +183,6 @@ class PaymentReminders
         }
 
         return 1;
-    }
-
-    /** Every line a renewal (or stage fee) of a domain that gets expiry notices (DomainReminders, D7). */
-    public static function coveredByDomainNotices(Invoice $invoice): bool
-    {
-        if (DomainReminders::days() === [] || $invoice->items->isEmpty()) {
-            return false;
-        }
-        if ($invoice->items->contains(fn ($line) => $line->reference_type !== Domain::class)) {
-            return false;
-        }
-
-        return Domain::query()->whereIn('id', $invoice->items->pluck('reference_id'))->where('auto_renew', true)->count()
-            === $invoice->items->pluck('reference_id')->unique()->count();
     }
 
     /**

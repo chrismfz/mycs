@@ -4,11 +4,13 @@ namespace App\Services\Domains;
 
 use App\Classes\Price;
 use App\Enums\DomainStatus;
+use App\Enums\InvoiceTransactionStatus;
 use App\Helpers\NotificationHelper;
 use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
-use App\Services\Payment\AutoCharge;
+use App\Models\NotificationTemplate;
+use App\Services\Invoice\PaymentReminders;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -34,6 +36,9 @@ class DomainReminders
 
     /** The farthest day the setting takes, either side of the expiry. */
     public const MAX_DAYS = 365;
+
+    /** An expiry moved by this many days or fewer is the same one: its notices are not sent again (review R5). */
+    private const SAME_EXPIRY_DAYS = 7;
 
     /** Before the expiry (status Active) and after it (still the customer's). */
     private const AFTER = [DomainStatus::Expired, DomainStatus::Grace, DomainStatus::Redemption];
@@ -71,6 +76,59 @@ class DomainReminders
         return $days;
     }
 
+    /** Its last recoverable day: the end of its redemption, else of its grace, else its expiry. */
+    public static function lastDay(Domain $domain): CarbonInterface
+    {
+        return $domain->redemptionEndsOn() ?? $domain->graceEndsOn() ?? $domain->expires_at;
+    }
+
+    /** Gets notices: renewing, the customer's, before the expiry Active, after it still recoverable. */
+    public static function notifiable(Domain $domain, bool $after): bool
+    {
+        if (!$domain->auto_renew || $domain->expires_at === null) {
+            return false;
+        }
+        if (!$after) {
+            return $domain->status === DomainStatus::Active;
+        }
+
+        return in_array($domain->status, self::AFTER, true) && !self::lastDay($domain)->copy()->startOfDay()->lessThan(Carbon::today());
+    }
+
+    /**
+     * Its expiry notices stand in for the invoice's own reminders (review R1): every line the renewal of the current
+     * expiry of a domain that gets them (or its stage fee), with a notice day on that side of the expiry («due»: before,
+     * «overdue»: after) and the template on. Else the invoice keeps its reminders.
+     */
+    public static function covers(Invoice $invoice, string $kind): bool
+    {
+        $days = self::days();
+        $after = $kind !== 'due';
+        $template = $after ? 'domain_expired_notice' : 'domain_renewal_notice';
+        if ($invoice->items->isEmpty() || ($after ? min($days ?: [0]) >= 0 : max($days ?: [-1]) < 0)
+            || !NotificationTemplate::query()->where('key', $template)->where('enabled', true)->exists()) {
+            return false;
+        }
+        foreach ($invoice->items as $line) {
+            $domain = $line->reference_type === Domain::class ? Domain::query()->find($line->reference_id) : null;
+            if ($domain === null || $domain->client_id !== $invoice->client_id) {
+                return false;
+            }
+            // The very invoice its notice names (adversarial ADV-4/4b): its current expiry's renewal, unpaid; a stage fee
+            // billed apart, or a line staff added, keeps its own reminders.
+            // A line with a period only (review R6: billedLine also takes a hand-made line without one).
+            $renewal = $domain->expires_at !== null ? DomainRenewalService::billedLine($domain, $domain->expires_at->copy()->startOfDay(), payable: true) : null;
+            $named = $renewal?->period_start !== null ? $renewal->invoice_id : null;
+            // After the due date: the domain past its expiry gets the expired notice; one still Active (synced late)
+            // gets it within the catch-up days.
+            if ((int) $named !== (int) $invoice->id || !(self::notifiable($domain, false) || self::notifiable($domain, true))) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /** @param  list<int>  $days */
     private function remind(int $id, array $days, ?callable $failed): int
     {
@@ -88,19 +146,24 @@ class DomainReminders
             return 0;
         }
         $after = $day < 0;
-        if ($after ? !in_array($domain->status, self::AFTER, true) : $domain->status !== DomainStatus::Active) {
+        // A day before the expiry never once it is past (review R4: a missed run caught up the day after).
+        if (!$after && $left < 0) {
             return 0;
         }
-        $lastDay = $domain->redemptionEndsOn() ?? $domain->graceEndsOn() ?? $domain->expires_at;
-        if ($after && $lastDay->copy()->startOfDay()->lessThan($today)) {
-            return 0; // nothing left to recover
+        if (!self::notifiable($domain, $after)) {
+            return 0;
         }
+        $lastDay = self::lastDay($domain);
         // Its next period paid already: it renews (D5b-2), nothing to remind of.
         $line = DomainRenewalService::billedLine($domain, $expires, payable: true);
         if ($line?->invoice?->status === Invoice::STATUS_PAID) {
             return 0;
         }
 
+        // A payment on its way (adversarial ADV-5): nothing to ask for, as the invoice reminders.
+        if ($line?->invoice !== null && $line->invoice->transactions()->where('status', InvoiceTransactionStatus::Processing)->exists()) {
+            return 0;
+        }
         $data = $this->data($domain, $left, $lastDay, $line);
         // The last call (a day or less before) only for what the customer still has to do: not one charged on its own.
         if (!$after && $day <= 1 && $data['invoice'] !== null && $data['auto_charged']) {
@@ -112,6 +175,12 @@ class DomainReminders
             default => 'domain_renewal_notice',
         };
         $row = ['domain_id' => $domain->id, 'days' => $day, 'expires_on' => $expires->toDateString()];
+        // Sent for an expiry a few days off (review R5: the registrar's sync corrected it): not again.
+        if (DB::table('domain_reminders')->where('domain_id', $domain->id)->where('days', $day)
+            ->whereBetween('expires_on', [$expires->copy()->subDays(self::SAME_EXPIRY_DAYS)->toDateString(), $expires->copy()->addDays(self::SAME_EXPIRY_DAYS)->toDateString()])
+            ->exists()) {
+            return 0;
+        }
         // Taken first (unique): a second run, or one running at the same time, sends nothing again.
         if (DB::table('domain_reminders')->insertOrIgnore($row + ['sent_at' => now(), 'created_at' => now(), 'updated_at' => now()]) === 0) {
             return 0;
@@ -138,14 +207,22 @@ class DomainReminders
     /** @return array<string, mixed> what the templates read, besides {{ domain }} */
     private function data(Domain $domain, int $left, Carbon|CarbonInterface $lastDay, ?InvoiceItem $line): array
     {
-        $invoice = $line?->invoice !== null && in_array($line->invoice->status, Invoice::OPEN_STATUSES, true) ? $line->invoice : null;
+        // Unpaid only: a draft is not the customer's to see (review R3).
+        $invoice = $line?->invoice !== null && $line->invoice->status === Invoice::STATUS_UNPAID ? $line->invoice : null;
         $price = $domain->renewalPrice();
-        $free = $price !== null && bccomp($price, '0', 2) === 0;
+        // Free by its open invoice when it has one (adversarial ADV-9: billed at a price since), else by its price.
+        $free = $invoice !== null ? $invoice->remaining <= 0 : $price !== null && bccomp($price, '0', 2) === 0;
         // What renewing late costs on top (owner 2026-10-17: the point is paying before it): before the expiry the fee of
         // the first stage after it that has one; after it, the fee of the stage it is in.
         $stage = in_array($domain->status, [DomainStatus::Grace, DomainStatus::Redemption], true) ? $domain->status : null;
-        $fee = $stage !== null ? $domain->stageFee($stage)
-            : ($domain->graceDays() > 0 ? $domain->stageFee(DomainStatus::Grace) : null) ?? ($domain->redemptionDays() > 0 ? $domain->stageFee(DomainStatus::Redemption) : null);
+        // The stage right after the expiry: grace if it has one, else redemption (review R7: never redemption's fee for a
+        // grace that is not priced).
+        $fee = match (true) {
+            $stage !== null => $domain->stageFee($stage),
+            $domain->graceDays() > 0 || $domain->graceEndsOn() !== null => $domain->stageFee(DomainStatus::Grace),
+            $domain->redemptionDays() > 0 || $domain->redemptionEndsOn() !== null => $domain->stageFee(DomainStatus::Redemption),
+            default => null,
+        };
         $money = fn (?string $amount) => $amount === null || bccomp($amount, '0', 2) <= 0 || $domain->currency === null ? ''
             : (new Price(['price' => $amount, 'currency' => $domain->currency]))->formatted->price;
 
@@ -155,13 +232,16 @@ class DomainReminders
             'days_left' => max(0, $left),
             'days_past' => max(0, -$left),
             'last_day' => $lastDay->format('d/m/Y'),
+            // In grace with a redemption after it (adversarial ADV-8): the grace fee until its end, then the restore fee.
+            'stage_end' => ($stage === DomainStatus::Grace ? $domain->graceEndsOn() : null)?->format('d/m/Y') ?? $lastDay->format('d/m/Y'),
+            'next_fee' => $stage === DomainStatus::Grace && $domain->redemptionEndsOn() !== null ? $money($domain->stageFee(DomainStatus::Redemption)) : '',
             'free' => $free,
             'price' => $free ? '' : $money($price),
             'late_fee' => $free ? '' : $money($fee),
             'years' => max(1, (int) $domain->years),
             'invoice' => $invoice,
-            // Its renewal invoice paid by the saved method on its own (D5b, PaymentReminders::chargedOnItsOwn).
-            'auto_charged' => $invoice !== null ? AutoCharge::agreementFor($invoice) !== null : $domain->client->autoChargeAgreement() !== null,
+            // Charged without the customer, by AutoCharge's own rules (review R2: not a mixed invoice it leaves alone).
+            'auto_charged' => $invoice !== null ? PaymentReminders::chargedOnItsOwn($invoice) : $domain->client->autoChargeAgreement() !== null,
         ];
     }
 }
