@@ -371,7 +371,12 @@ importer):
 - [x] Κατάλογος της nixpal από το WHMCS (#162) και οι admins της (#166).
 - [x] **D5** χρέωση και ανανέωση: D5a ημέρες grace/redemption (#168), D5b-1 τιμολόγηση (#169), D5b-2 πληρωμή →
       registrar (#170).
-- [ ] **D7a** «Invoice selected items» (υπηρεσίες και domains, ένα τιμολόγιο ανά πελάτη και νόμισμα, `domains.md` §6).
+- [x] **D7a** «Invoice selected items» (υπηρεσίες και domains, ένα τιμολόγιο ανά πελάτη και νόμισμα, `domains.md` §6)
+      και ακύρωση πριν τη χρεώσει το cron = η περίοδος χρεώνεται στην ώρα της (ADV-4) (#171).
+- [ ] **Gateways της nixpal από το WHMCS** (ιδιοκτήτης 2026-10-17, στο τέλος, μαζί με τη δοκιμή πληρωμής ως πελάτης):
+      PayPal, Stripe, Cardlink από το `tblpaymentgateways` της `clnixpal_nixcldb` (orion, μόνο ανάγνωση)· οι τιμές
+      κατευθείαν κρυπτογραφημένες στη βάση, ποτέ σε αρχείο, log ή οθόνη. Πριν το go-live: αρίθμηση `{YEAR}-{NUMBER}` με
+      proforma στις ρυθμίσεις (το πρώτο τιμολόγιο βγήκε `INV-1`).
 - [ ] **D6** importer domains· **D7** υπενθυμίσεις και portal· **D8a/b** αναζήτηση, whois,
       τιμοκατάλογος, παραγγελίες (`domains.md` §6).
 - [ ] Driver **CNIC** (CentralNic Reseller): myip 226, nixpal 4. Αρχικά σύνδεση `manual`· module μόνο αν προλάβουμε

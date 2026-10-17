@@ -103,7 +103,8 @@ nixpal (pilot). Τιμές από το `tblconfiguration` των δύο WHMCS, 2
 | — ελάχιστες ημέρες σε αναστολή | (όχι στο WHMCS) | | **P:** `cronjob_terminate_min_suspended_days`, default 1· 0 = ακριβώς WHMCS (BIL-4) |
 | — ανοιχτά τιμολόγια στον τερματισμό/ακύρωση (`CancelInvoiceOnCancellation`) | on | on | **P:** `cronjob_end_keeps_overdue`, default off = ακυρώνονται όλα (όπως σήμερα)· on: τα ληξιπρόθεσμα πάνω από `cronjob_end_keeps_overdue_days` (default 0) μένουν απλήρωτα, χρέος (Δ3a, απόφαση 4 της 2026-10-15) |
 | Invoice Generation (`CreateInvoiceDaysBefore`) | 14· ανά κύκλο: μήνας 10, τρίμηνο 15, εξάμηνο/έτος 20· domains 15 | 7 | P~ `cronjob_invoice` (default 7, μία τιμή) → **Ν: ανά κύκλο** |
-| Domain Invoice Generation (`CreateDomainInvoiceDaysBefore`) | 15 | κενό (→ 7) | ✓ `domain_invoice_days` (D5b-1· κενό = `cronjob_invoice`) |
+| Domain Invoice Generation (`CreateDomainInvoiceDaysBefore`) | 15 | κενό (→ 7) | ✓ `domain_invoice_days` (D5b-1· **default 15** και για τις δύο, ιδιοκτήτης 2026-10-17· κενό = `cronjob_invoice`) |
+| Domain Renewal Notices (`DomainRenewalNotices`) | 60,30,15,10,5 | 30,7,-3 | ✓ `domain_reminder_days` (D7-1· **default `30,7,1,-3`** και για τις δύο, ICANN ERRP· αρνητικές = μετά τη λήξη· κενό = καμία· `domains.md` §2b) |
 | Order Days Grace (`OrderDaysGrace`) | 8 | 0 | **Ν** (προθεσμία πληρωμής του πρώτου τιμολογίου)· το `cronjob_order_cancel` (default 7, 0 = ποτέ) ακυρώνει παραγγελίες με απλήρωτο τιμολόγιο χωρίς καμία πληρωμή (BIL-12) |
 | Payment Reminder Emails, Invoice Unpaid Reminder | on, 1 | on, 6 | **P:** `cronjob_payment_reminder` (default 6, 0 = off)· με αποθηκευμένο τρόπο πληρωμής ή συνδρομή φεύγει το «payment due» (WHMCS «Credit Card Payment Due») |
 | First/Second/Third Overdue Reminder | 1/3/5 | 1/2/— | **P:** `cronjob_overdue_reminders` (λίστα ημερών, default «1,2», κενό = off): ένα template, η τελευταία λέει πότε αναστέλλεται· μία φορά η καθεμία (`invoice_reminders`) |

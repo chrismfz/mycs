@@ -7,6 +7,7 @@ use App\Helpers\NotificationHelper;
 use App\Helpers\TemplateRenderer;
 use App\Jobs\Server\UnsuspendJob;
 use App\Mail\Mail;
+use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\NotificationTemplate;
 use App\Models\Order;
@@ -60,6 +61,13 @@ class NotificationTemplateTextsTest extends TestCase
             'new_ticket_message' => ['ticketMessage' => $ticket->messages()->create(['user_id' => $user->id, 'message' => 'Hello **there**'])],
             'email_verification', 'password_reset' => ['url' => 'https://example.test/link'],
             'client_invite' => ['account' => ['name' => 'Acme'], 'invite' => ['url' => 'https://example.test/invite/x', 'by' => 'Maria', 'expires_at' => now()->addWeek()]],
+            // D7-1: the domain expiry notices, as DomainReminders sends them.
+            'domain_renewal_notice', 'domain_free_renewal_notice', 'domain_expired_notice' => [
+                'domain' => Domain::query()->where('fqdn', 'example.com')->first() ?? Domain::factory()->create(['client_id' => $user->client()->id, 'sld' => 'example', 'tld' => 'com', 'fqdn' => 'example.com', 'expires_at' => '2026-11-15']),
+                'fqdn' => 'example.com', 'expires' => '15/11/2026', 'days_left' => 7, 'days_past' => 0, 'last_day' => '25/12/2026',
+                'stage_end' => '25/11/2026', 'free' => $key === 'domain_free_renewal_notice', 'price' => '€23.33', 'late_fee' => '€100.30',
+                'next_fee' => '€80.00', 'years' => 1, 'invoice' => $invoice, 'auto_charged' => false,
+            ],
             'service_cancellation_received' => ['service' => $service, 'cancellation' => ServiceCancellation::withoutEvents(fn () => ServiceCancellation::query()->create(['service_id' => $service->id, 'type' => 'end_of_period', 'reason' => 'Moving']))],
         };
     }

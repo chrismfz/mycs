@@ -26,6 +26,7 @@ use App\Models\ServiceUpgrade;
 use App\Models\Setting;
 use App\Models\Ticket;
 use App\Services\Billing\RenewalBilling;
+use App\Services\Domains\DomainReminders;
 use App\Services\Domains\DomainRenewalService;
 use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\Invoice\ChangeOpenLine;
@@ -300,6 +301,11 @@ class CronJob extends Command
             // goes out before its service is suspended. Each invoice on its own.
             $this->runCronJob('reminders_sent', fn () => (new PaymentReminders)->send(function (int $id, Throwable $e) {
                 $this->notices["reminders_sent #{$id}"] = new DisplayException("Invoice #{$id}: its payment reminder could not be sent: {$e->getMessage()}. Tried again on the next run.");
+            }), transaction: false);
+
+            // Domain expiry notices (D7, docs/domains.md §2b): before the expiry and after it, on domain_reminder_days.
+            $this->runCronJob('domain_reminders', fn () => (new DomainReminders)->send(function (int $id, Throwable $e) {
+                $this->notices["domain_reminders #{$id}"] = new DisplayException("Domain #{$id}: its expiry notice could not be sent: {$e->getMessage()}. Tried again on the next run.");
             }), transaction: false);
 
             $this->runCronJob('services_suspended', function ($number = 0) {

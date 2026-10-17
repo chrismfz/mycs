@@ -9,6 +9,7 @@ use App\Models\Credit;
 use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\Service;
+use App\Services\Domains\DomainReminders;
 use App\Services\Payment\AutoCharge;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
@@ -24,6 +25,8 @@ use Throwable;
  *   a saved payment method or a gateway subscription) gets «card_payment_due» instead: what will be charged and when.
  * - After it: invoice_overdue on each day of cronjob_overdue_reminders («1,2»; empty = off), saying how late it is and,
  *   on the last one, when the service is suspended.
+ *
+ * An invoice that only renews domains with expiry notices gets none of these: their notices name it (D7).
  *
  * Each reminder goes once (invoice_reminders), whatever runs the cron misses (a run missed is caught up within
  * CATCH_UP_DAYS, not later: an old invoice is not reminded of a day long past) or repeats. Only open invoices with
@@ -142,6 +145,10 @@ class PaymentReminders
         // started, meanwhile.
         $invoice = $this->open()->whereKey($invoice->id)->first();
         if ($invoice === null || $invoice->due_at->toDateString() !== $dueOn || $invoice->remaining <= 0 || $invoice->client === null) {
+            return 0;
+        }
+        // Only renewals of domains that get their own expiry notices (D7): those name this invoice, one mail not two.
+        if (DomainReminders::covers($invoice, $kind)) {
             return 0;
         }
         $row = ['invoice_id' => $invoice->id, 'kind' => $kind, 'days' => $days, 'due_on' => $dueOn];
