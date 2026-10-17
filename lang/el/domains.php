@@ -39,4 +39,10 @@ return [
         'role_not_linked' => 'Ο ρόλος :role εδώ δεν είναι συνδεδεμένος με του registrar: συνδέστε τον πρώτα («Link here»).',
         'busy' => 'Γίνεται ήδη άλλη αλλαγή στο :domain: δοκιμάστε ξανά σε λίγο.',
     ],
+    // Invoice lines (D5b): what the customer reads.
+    'invoice' => [
+        'renewal' => 'Ανανέωση domain :domain, :years έτος (:start - :end)|Ανανέωση domain :domain, :years έτη (:start - :end)',
+        'grace_fee' => 'Τέλος καθυστερημένης ανανέωσης :domain (περίοδος grace)',
+        'redemption_fee' => 'Τέλος επαναφοράς :domain (περίοδος redemption)',
+    ],
 ];

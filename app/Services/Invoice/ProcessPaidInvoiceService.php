@@ -2,6 +2,7 @@
 
 namespace App\Services\Invoice;
 
+use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
@@ -22,6 +23,12 @@ class ProcessPaidInvoiceService
         $failures = [];
         $invoice->items->each(function ($item) use (&$failures) {
             try {
+                // A domain's renewal line (D5b) is left as it is: its applied_at stays null until its registrar renews it
+                // (D5b-2 looks for paid domain lines not applied). Not this invoice's marker (review 1: that one would be
+                // retried, and its Paid event sent again, every day).
+                if ($item->reference_type == Domain::class) {
+                    return;
+                }
                 if ($item->reference_type == Service::class) {
                     $service = $item->reference;
                     if (!$service || !($service instanceof Service)) {

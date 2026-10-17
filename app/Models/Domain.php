@@ -3,11 +3,13 @@
 namespace App\Models;
 
 use App\Enums\DomainStatus;
+use Carbon\CarbonInterface;
 use Database\Factories\DomainFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Carbon;
 use InvalidArgumentException;
 use Nixpal\DomainTools\DomainName;
@@ -273,5 +275,53 @@ class Domain extends Model implements Auditable
         $from = $this->graceEndsOn() ?? $this->expires_at;
 
         return $from?->copy()->addDays($days);
+    }
+
+    /** @return MorphMany<InvoiceItem, $this> its invoice lines: renewals (with their period) and stage fees (D5b) */
+    public function invoiceItems(): MorphMany
+    {
+        return $this->morphMany(InvoiceItem::class, 'reference');
+    }
+
+    /**
+     * What its next period costs (D-4): its own recurring amount, else its TLD's renew price for its years, in its
+     * currency; null when not offered (staff set one).
+     */
+    public function renewalPrice(): ?string
+    {
+        if ($this->recurring_amount !== null) {
+            return (string) $this->recurring_amount;
+        }
+
+        return $this->domainTld?->loadMissing('prices')->priceFor('renew', max(1, (int) $this->years), $this->currency_code);
+    }
+
+    /**
+     * The fee of its grace or redemption (D-8, D5a): its own override, else its TLD's, in its currency; null when there
+     * is none (not offered, or not this stage).
+     */
+    public function stageFee(DomainStatus $stage): ?string
+    {
+        $operation = match ($stage) {
+            DomainStatus::Grace => 'grace',
+            DomainStatus::Redemption => 'redemption',
+            default => null,
+        };
+        if ($operation === null) {
+            return null;
+        }
+        $override = $operation === 'grace' ? $this->grace_fee_override : $this->redemption_fee_override;
+
+        return $override !== null ? (string) $override : $this->domainTld?->loadMissing('prices')->priceFor($operation, 1, $this->currency_code);
+    }
+
+    /** Its renewal line's text, as the customer reads it (lang/). */
+    public function describeRenewal(CarbonInterface $start, CarbonInterface $end, ?int $years = null): string
+    {
+        $format = __('services.invoice_period_date_format');
+        $years ??= max(1, (int) $this->years);
+
+        return trans_choice('domains.invoice.renewal', $years, ['domain' => $this->fqdn, 'years' => $years,
+            'start' => $start->translatedFormat($format), 'end' => $end->translatedFormat($format)]);
     }
 }

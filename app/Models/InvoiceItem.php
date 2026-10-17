@@ -30,6 +30,7 @@ class InvoiceItem extends Model implements Auditable
         'gateway_id',
         'reference_id',
         'reference_type',
+        'kind',
         'period_start',
         'period_end',
         'taxed',

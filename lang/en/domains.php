@@ -39,4 +39,10 @@ return [
         'role_not_linked' => 'The :role here is not linked to the registrar\'s: link it first (Link here).',
         'busy' => 'Another change to :domain is under way: try again in a moment.',
     ],
+    // Invoice lines (D5b): what the customer reads.
+    'invoice' => [
+        'renewal' => ':domain: domain renewal, :years year (:start - :end)|:domain: domain renewal, :years years (:start - :end)',
+        'grace_fee' => ':domain: late renewal fee (grace period)',
+        'redemption_fee' => ':domain: restore fee (redemption period)',
+    ],
 ];

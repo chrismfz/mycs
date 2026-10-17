@@ -2,9 +2,11 @@
 
 namespace App\Services\Invoice;
 
+use App\Enums\DomainStatus;
 use App\Enums\InvoiceTransactionStatus;
 use App\Helpers\NotificationHelper;
 use App\Models\Credit;
+use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\Service;
 use App\Services\Payment\AutoCharge;
@@ -188,8 +190,12 @@ class PaymentReminders
             return true;
         }
 
-        return $services->isNotEmpty() && AutoCharge::agreementFor($invoice) !== null
-            && $services->every(fn (Service $service) => $service->status === Service::STATUS_ACTIVE);
+        // A domain renewal is charged too (D5b, review 9): alive, renewing.
+        $domains = Domain::query()->whereIn('id', $invoice->items()->where('reference_type', Domain::class)->select('reference_id'))->get();
+
+        return ($services->isNotEmpty() || $domains->isNotEmpty()) && AutoCharge::agreementFor($invoice) !== null
+            && $services->every(fn (Service $service) => $service->status === Service::STATUS_ACTIVE)
+            && $domains->every(fn (Domain $domain) => $domain->auto_renew && !in_array($domain->status->value, DomainStatus::terminalValues(), true));
     }
 
     /**

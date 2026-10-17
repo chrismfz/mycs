@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Enums\AdjustmentNoteStatus;
+use App\Enums\DomainStatus;
 use App\Enums\InvoiceTransactionStatus;
 use App\Events\Invoice as InvoiceEvent;
 use App\Exceptions\DisplayException;
@@ -11,6 +12,7 @@ use App\Jobs\Server\SuspendJob;
 use App\Jobs\Server\TerminateJob;
 use App\Models\CronStat;
 use App\Models\DebugLog;
+use App\Models\Domain;
 use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
@@ -32,6 +34,7 @@ use App\Services\Invoice\RecordPaymentService;
 use App\Services\Licensing\Licenses;
 use App\Services\Mcp\Proposals;
 use App\Services\Money\CreditAutoApply;
+use App\Services\Order\OrderPricing;
 use App\Services\Payment\AutoCharge;
 use App\Services\Payment\CardExpiryNotices;
 use App\Services\Service\RenewServiceService;
@@ -168,6 +171,21 @@ class CronJob extends Command
                     } catch (Throwable $e) {
                         report($e);
                         $this->failures["invoices_created #{$id}"] = $e;
+                    }
+                }
+                // Domains (docs/domains.md D-4, D-14, D5b): their own step, N days before expiry, grouped with the services
+                // due the same day; and the fee of a grace or redemption onto the open renewal invoice (D-8).
+                $domainsUntil = now()->addDays(self::domainInvoiceDays());
+                // Off until its registrar renewal is live (D5b-2, review 2): never an invoice nothing would act on.
+                $domains = !config('settings.domain_billing_enabled') ? collect() : Domain::query()->whereIn('status', array_map(fn (DomainStatus $s) => $s->value, self::BILLED_DOMAINS))
+                    ->where('auto_renew', true)->whereNotNull('expires_at')->where('expires_at', '<', $domainsUntil)->pluck('id');
+                foreach ($domains as $id) {
+                    try {
+                        $number += DB::transaction(fn () => $this->billDomainRenewal($id, $domainsUntil));
+                        DB::transaction(fn () => $this->addStageFee($id));
+                    } catch (Throwable $e) {
+                        report($e);
+                        $this->failures["invoices_created domain #{$id}"] = $e;
                     }
                 }
                 // Grouped renewals (PR C): emailed and paid by credit once all their lines are on them.
@@ -798,6 +816,160 @@ class CronJob extends Command
         ]);
 
         return 1;
+    }
+
+    /** The domains billed for their next period (D5b): alive, the customer's still (expired, grace, redemption). */
+    private const BILLED_DOMAINS = [DomainStatus::Active, DomainStatus::Expired, DomainStatus::Grace, DomainStatus::Redemption];
+
+    /** Days before expiry a domain's renewal is invoiced (D-14): its own setting, else the services'. */
+    public static function domainInvoiceDays(): int
+    {
+        $days = config('settings.domain_invoice_days');
+
+        return $days === null || $days === '' ? (int) config('settings.cronjob_invoice', 7) : max(0, (int) $days);
+    }
+
+    /**
+     * Bill a domain's next period (docs/domains.md D-4, D5b): from its expiry, for its years, at its renewal price, due
+     * on its expiry (today, past it). A period is billed once, whatever became of its invoice: paid, open, or cancelled by
+     * staff (who reopen it, or turn auto renew off: do not renew). Grouped as the services' renewals (PR C).
+     */
+    private function billDomainRenewal(int $id, CarbonInterface $billUntil): int
+    {
+        $domain = Domain::query()->whereKey($id)->lockForUpdate()->first();
+        if ($domain === null || !in_array($domain->status, self::BILLED_DOMAINS, true) || !$domain->auto_renew || $domain->expires_at === null) {
+            return 0;
+        }
+        $periodStart = $domain->expires_at->copy()->startOfDay();
+        if ($periodStart->greaterThanOrEqualTo($billUntil)) {
+            return 0;
+        }
+        // Billed: any renewal line whose period reaches past this expiry (review 3: an expiry moved a day is still the same
+        // period), or one without a period on an open invoice (staff's own).
+        if ($domain->invoiceItems()->whereNull('kind')->where(fn ($line) => $line->whereDate('period_end', '>', $periodStart->toDateString())
+            // A line staff billed by hand (no period) for this year: open, or paid and still to renew (adversarial ADV-10).
+            ->orWhere(fn ($own) => $own->whereNull('period_start')->where('created_at', '>', $periodStart->copy()->subYear())
+                ->whereHas('invoice', fn ($invoice) => $invoice->where('status', '!=', Invoice::STATUS_CANCELLED))))->exists()) {
+            return 0;
+        }
+        // Past its last recoverable day (review 4): nothing to renew any more; staff decide.
+        $lastDay = $domain->redemptionEndsOn() ?? $domain->graceEndsOn() ?? $domain->expires_at;
+        if ($domain->status !== DomainStatus::Active && $lastDay->copy()->startOfDay()->lessThan(today())) {
+            $this->notices["invoices_created domain #{$id}"] = new DisplayException("Domain {$domain->fqdn}: past its last recoverable day ({$lastDay->toDateString()}): not billed.");
+
+            return 0;
+        }
+        // In grace or redemption one year (D-13: a restore brings back one year; review 8), at that year's price.
+        $years = in_array($domain->status, [DomainStatus::Grace, DomainStatus::Redemption], true) ? 1 : max(1, (int) $domain->years);
+        $price = $years === max(1, (int) $domain->years) ? $domain->renewalPrice()
+            : $domain->domainTld?->loadMissing('prices')->priceFor('renew', 1, $domain->currency_code);
+        if ($price === null) {
+            $this->notices["invoices_created domain #{$id}"] = new DisplayException("Domain {$domain->fqdn}: no renew price for "
+                . max(1, (int) $domain->years) . " year(s) in {$domain->currency_code}: not billed (set one on its TLD or the domain).");
+
+            return 0;
+        }
+        // Catalog prices are as the customer sees them: net on the line (Δ1; review 7, with prices incl. VAT).
+        $price = OrderPricing::toNet($price, $domain->client);
+        $periodEnd = $periodStart->copy()->addYearsNoOverflow($years);
+        $due = $periodStart->greaterThan(today()) ? $periodStart : today();
+
+        $key = bccomp($price, '0', 2) > 0 && !$domain->client->separate_invoices
+            ? implode('|', [$domain->client_id, $due->toDateString(), $domain->currency_code]) : null;
+        $invoice = $key !== null && isset($this->renewalGroups[$key]) ? (new RecordPaymentService)->lockInvoice($this->renewalGroups[$key]) : null;
+        if ($invoice !== null && ($invoice->status !== Invoice::STATUS_UNPAID || $invoice->finish_pending_at === null
+            || (int) $invoice->client_id !== (int) $domain->client_id || $invoice->currency_code !== $domain->currency_code
+            || $invoice->hasPayments(lock: true))) {
+            $invoice = null;
+        }
+        if ($invoice === null) {
+            $invoice = new Invoice(['client_id' => $domain->client_id, 'status' => Invoice::STATUS_UNPAID, 'due_at' => $due,
+                'currency_code' => $domain->currency_code]);
+            $invoice->finalize_later = true;
+            $invoice->forceFill(['finish_pending_at' => now()]);
+            $invoice->save();
+            if ($key !== null) {
+                $invoiceId = (int) $invoice->id;
+                DB::afterCommit(function () use ($key, $invoiceId) {
+                    $this->renewalGroups[$key] = $invoiceId;
+                });
+            }
+        }
+        $invoice->items()->create([
+            'reference_type' => Domain::class,
+            'reference_id' => $domain->id,
+            'price' => $price,
+            'quantity' => 1,
+            'description' => $domain->describeRenewal($periodStart, $periodEnd, $years),
+            'period_start' => $periodStart,
+            'period_end' => $periodEnd,
+        ]);
+
+        return 1;
+    }
+
+    /**
+     * The fee of the stage a domain is in (grace or redemption, D-8: «existing invoice»), on its open renewal invoice: one
+     * stage fee per invoice, the current stage's (grace's becomes redemption's). Never on an invoice with money on it
+     * (staff are told); a stage without a fee (none, or 0.00) adds nothing.
+     */
+    private function addStageFee(int $id): void
+    {
+        $domain = Domain::query()->whereKey($id)->lockForUpdate()->first();
+        if ($domain === null || !in_array($domain->status, [DomainStatus::Grace, DomainStatus::Redemption], true) || $domain->expires_at === null) {
+            return;
+        }
+        $fee = $domain->stageFee($domain->status);
+        if ($fee === null || bccomp($fee, '0', 2) <= 0) {
+            return;
+        }
+        $renewal = $domain->invoiceItems()->whereNull('kind')->whereDate('period_start', '>=', $domain->expires_at->toDateString())
+            ->whereHas('invoice', fn ($invoice) => $invoice->where('status', '!=', Invoice::STATUS_CANCELLED))->orderByDesc('id')->first();
+        if ($renewal === null) {
+            return;
+        }
+        $kind = $domain->status === DomainStatus::Grace ? 'grace_fee' : 'redemption_fee';
+        // Paid already (waiting for its registrar renewal) and now in a stage with a fee: staff decide (adversarial
+        // ADV-6), told once.
+        if ($renewal->invoice?->status !== Invoice::STATUS_UNPAID) {
+            if (!$domain->invoiceItems()->where('kind', $kind)->where('created_at', '>=', $renewal->created_at)->exists()
+                && Cache::add("domain-fee-paid-notice:{$renewal->id}:{$kind}", true, now()->addDays(60))) {
+                $this->notices["invoices_created domain fee #{$id}"] = new DisplayException("Domain {$domain->fqdn}: its renewal (invoice #{$renewal->invoice_id}) is paid and it is now in {$domain->status->value}: the {$kind} ({$fee}) was not billed, bill it by hand if due.");
+            }
+
+            return;
+        }
+        $invoice = (new RecordPaymentService)->lockInvoice($renewal->invoice_id);
+        // This stage's fee of this renewal waived by staff (its invoice cancelled: adversarial ADV-9): never billed again.
+        if ($domain->invoiceItems()->where('kind', $kind)->where('created_at', '>=', $renewal->created_at)
+            ->whereHas('invoice', fn ($q) => $q->where('status', Invoice::STATUS_CANCELLED))->exists()) {
+            return;
+        }
+        // This renewal's stage fee, wherever staff moved it (review 5: a split took it to another invoice): one only.
+        $existing = $domain->invoiceItems()->whereIn('kind', ['grace_fee', 'redemption_fee'])->where('created_at', '>=', $renewal->created_at)
+            ->whereHas('invoice', fn ($q) => $q->where('status', '!=', Invoice::STATUS_CANCELLED))->orderByDesc('id')->first();
+        if ($invoice->status !== Invoice::STATUS_UNPAID || $existing?->kind === $kind) {
+            return;
+        }
+        if ($existing !== null && (int) $existing->invoice_id !== (int) $invoice->id) {
+            return; // moved by staff: theirs to change
+        }
+        if ($invoice->hasPayments(lock: true)) {
+            // Once per invoice and stage (review 11), not every night of the stage.
+            if (Cache::add("domain-fee-notice:{$invoice->id}:{$kind}", true, now()->addDays(60))) {
+                $this->notices["invoices_created domain fee #{$id}"] = new DisplayException("Domain {$domain->fqdn}: its renewal invoice #{$invoice->id} has payments: the {$kind} ({$fee}) was not added, bill it by hand.");
+            }
+
+            return;
+        }
+        $line = ['price' => OrderPricing::toNet($fee, $domain->client), 'quantity' => 1, 'kind' => $kind,
+            'description' => __('domains.invoice.' . $kind, ['domain' => $domain->fqdn])];
+        $existing !== null ? $existing->update($line) // grace's fee becomes redemption's
+            : $invoice->items()->create($line + ['reference_type' => Domain::class, 'reference_id' => $domain->id]);
+        // Its new total is sent again (review 6) before any charge of it; one still being made is sent once finished.
+        if ($invoice->finish_pending_at === null) {
+            AfterCommit::event(new InvoiceEvent\Finalized($invoice->refresh(), true), $invoice);
+        }
     }
 
     /**
