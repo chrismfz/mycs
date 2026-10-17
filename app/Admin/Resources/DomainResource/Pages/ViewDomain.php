@@ -185,7 +185,7 @@ class ViewDomain extends ViewRecord
                     // Its renewal period (owner 2026-10-17): among the years its TLD prices; its open, unpaid renewal
                     // invoice changes with it (DomainRenewalYears).
                     Select::make('years')->label(__('Renewal period (years)'))
-                        ->options(fn (Domain $record) => collect(DomainRenewalYears::options($record))->mapWithKeys(fn (int $y) => [$y => trans_choice('domains.portal.years_option', $y, ['years' => $y])])->all())
+                        ->options(fn (Domain $record) => DomainRenewalYears::choices($record))
                         ->visible(fn (Domain $record) => DomainRenewalYears::changeable($record))
                         ->selectablePlaceholder(false)
                         ->helperText(fn (Domain $record) => $record->recurring_amount !== null
@@ -194,7 +194,7 @@ class ViewDomain extends ViewRecord
                     Textarea::make('notes')->label(__('Admin notes'))->helperText(__('Staff only.'))->rows(4)->maxLength(5000),
                 ])
                 ->action(function (Domain $record, array $data) {
-                    $record->forceFill(['auto_renew' => (bool) $data['auto_renew'], 'notes' => ($data['notes'] ?? '') !== '' ? $data['notes'] : null])->save(); // audited
+                    // The period first: refused, nothing of the form is saved (code review 6 of #182).
                     $outcome = DomainRenewalYears::UNCHANGED;
                     if (isset($data['years']) && (int) $data['years'] !== max(1, (int) $record->years)) {
                         try {
@@ -205,9 +205,10 @@ class ViewDomain extends ViewRecord
                             return;
                         }
                     }
+                    $record->forceFill(['auto_renew' => (bool) $data['auto_renew'], 'notes' => ($data['notes'] ?? '') !== '' ? $data['notes'] : null])->save(); // audited
                     Notification::make()->success()->title(__('Saved.'))->body(match ($outcome) {
                         DomainRenewalYears::INVOICE => __('Its open renewal invoice changed with the period.'),
-                        DomainRenewalYears::NEXT => __('The period counts from its next renewal invoice (the open one is paid, or has money on it).'),
+                        DomainRenewalYears::NEXT => __('The period counts from its next renewal invoice: the open one, if any, keeps its period (paid or with money on it, a price set by hand, in grace or redemption, or a later period billed already).'),
                         default => null,
                     })->send();
                     $this->refreshFormData([]);

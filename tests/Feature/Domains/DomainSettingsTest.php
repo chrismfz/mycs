@@ -210,6 +210,67 @@ class DomainSettingsTest extends TestCase
         $this->assertSame([3, '2029-11-01', '66.00'], [$domain->fresh()->years, $line->fresh()->period_end->toDateString(), (string) $line->fresh()->price]);
     }
 
+    public function test_a_period_no_longer_priced_is_shown_as_current_and_the_edit_form_still_saves(): void
+    {
+        // Code review 1: ordered or imported for 5 years, the TLD prices 1, 2 and 3.
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $domain = $this->domain(['years' => 5]);
+        $this->assertSame([1, 2, 3, 5], array_keys(DomainRenewalYears::choices($domain)));
+        $staff = Staff::factory()->withPermissions(['admin.domains.viewAny', 'admin.domains.view', 'admin.domains.update'])->create();
+
+        $this->livewireAs($staff)->test(ViewDomain::class, ['record' => $domain->id])
+            ->callAction('edit', data: ['auto_renew' => false, 'notes' => 'checked', 'years' => 5])->assertHasNoActionErrors();
+        $this->assertSame([5, false, 'checked'], [$domain->fresh()->years, $domain->fresh()->auto_renew, $domain->fresh()->notes]);
+        Livewire::actingAs($this->user)->test(Show::class, ['domain' => $domain->fresh()])->assertSee(__('domains.portal.years_current_unpriced'));
+    }
+
+    public function test_an_expired_domains_open_renewal_follows_the_period(): void
+    {
+        // Code review 2: Expired is billed for its period (only grace and redemption are one year).
+        $domain = $this->domain(['status' => DomainStatus::Expired]);
+        $line = $this->openRenewal($domain);
+
+        $this->assertSame(DomainRenewalYears::INVOICE, app(DomainRenewalYears::class)->change($domain, 2, byStaff: false));
+        $this->assertSame('2028-11-01', $line->fresh()->period_end->toDateString());
+    }
+
+    public function test_a_price_set_by_hand_keeps_the_open_line(): void
+    {
+        // Code review 3: a recurring amount is for its period.
+        $custom = $this->domain(['recurring_amount' => '10.00']);
+        $line = $this->openRenewal($custom);
+        $line->update(['price' => '10.00']);
+        $this->assertSame(DomainRenewalYears::NEXT, app(DomainRenewalYears::class)->change($custom, 2, byStaff: true));
+        $this->assertSame(['2027-11-01', '10.00'], [$line->fresh()->period_end->toDateString(), number_format((float) $line->fresh()->price, 2, '.', '')]);
+
+        // Code review 4: a line at another price than the catalog's (Renew now at a deal, edited by staff).
+        $deal = $this->domain(['sld' => 'deal', 'fqdn' => 'deal.com']);
+        $dealLine = $this->openRenewal($deal);
+        $dealLine->update(['price' => '15.00']);
+        $this->assertSame(DomainRenewalYears::NEXT, app(DomainRenewalYears::class)->change($deal, 2, byStaff: false));
+        $this->assertSame('2027-11-01', $dealLine->fresh()->period_end->toDateString());
+    }
+
+    public function test_a_later_period_billed_already_is_never_overlapped(): void
+    {
+        // Code review 6: «Invoice next period» made the following year's line while this one is open.
+        $domain = $this->domain();
+        $line = $this->openRenewal($domain);
+        $next = Invoice::factory()->create(['client_id' => $domain->client_id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'EUR', 'due_at' => '2027-11-01']);
+        $next->items()->create(['description' => 'Renewal', 'price' => '23.33', 'quantity' => 1, 'reference_type' => Domain::class,
+            'reference_id' => $domain->id, 'period_start' => '2027-11-01', 'period_end' => '2028-11-01']);
+
+        $this->assertSame(DomainRenewalYears::NEXT, app(DomainRenewalYears::class)->change($domain, 2, byStaff: false));
+        $this->assertSame('2027-11-01', $line->fresh()->period_end->toDateString());
+    }
+
+    public function test_a_taken_name_still_says_taken_with_transfers_off(): void
+    {
+        // Code review 5: only the button goes.
+        config(['settings.domain_allow_transfer' => false]);
+        Livewire::test(Search::class)->set('query', 'nixpal')->call('search')->assertSee(__('domains.shop.taken'));
+    }
+
     public function test_epp_code_days_and_stale_transfer_days_are_settings(): void
     {
         config(['settings.domain_epp_code_days' => 5, 'settings.domain_stale_transfer_days' => 3]);

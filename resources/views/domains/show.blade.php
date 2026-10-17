@@ -50,8 +50,8 @@
                     @if (count($yearOptions) > 1)
                     <select class="bg-background-secondary border border-neutral rounded-md px-2 py-1 text-sm"
                         wire:change="setRenewalYears($event.target.value)" wire:loading.attr="disabled" aria-label="{{ __('domains.portal.renewal_period') }}">
-                        @foreach ($yearOptions as $option)
-                        <option value="{{ $option }}" @selected($option === max(1, (int) $domain->years))>{{ trans_choice('domains.portal.years_option', $option, ['years' => $option]) }}</option>
+                        @foreach ($yearOptions as $option => $label)
+                        <option value="{{ $option }}" @selected($option === max(1, (int) $domain->years))>{{ $label }}</option>
                         @endforeach
                     </select>
                     @else

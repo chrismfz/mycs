@@ -28,7 +28,7 @@
                 <p class="{{ $i === 0 ? 'text-xl font-semibold' : 'font-medium' }}">{{ $row['fqdn'] }}</p>
                 @if ($row['status'] === \App\Services\Domains\DomainSearch::FREE)
                 <p class="text-success text-sm">✓ {{ __('domains.shop.free') }}</p>
-                @elseif ($row['status'] === \App\Services\Domains\DomainSearch::TAKEN && \App\Services\Domains\Ordering\DomainOffer::allowed('transfer'))
+                @elseif ($row['status'] === \App\Services\Domains\DomainSearch::TAKEN)
                 <p class="text-base/60 text-sm">{{ __('domains.shop.taken') }}
                     · <a href="{{ route('domain.whois', ['domain' => $row['fqdn']]) }}" wire:navigate class="underline">{{ __('domains.shop.who_has_it') }}</a></p>
                 @elseif ($row['status'] === \App\Services\Domains\DomainSearch::PREMIUM)

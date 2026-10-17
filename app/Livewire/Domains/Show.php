@@ -319,7 +319,7 @@ class Show extends Component
         return view('domains.show', [
             'canManage' => $canManage && $this->staffMay('admin.domains.update'),
             'yearOptions' => $canManage && $this->staffMay('admin.domains.update') && DomainRenewalYears::clientMay($this->domain)
-                ? DomainRenewalYears::options($this->domain) : [],
+                ? DomainRenewalYears::choices($this->domain) : [],
             'manageable' => $manageable,
             'lockable' => $manageable && $this->lockable(),
             'privacyOffered' => $manageable && $this->privacyOffered(),
