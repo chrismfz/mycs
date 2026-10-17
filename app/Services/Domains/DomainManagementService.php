@@ -8,6 +8,7 @@ use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainRegistrarLog;
 use App\Models\Staff;
+use App\Models\User;
 use App\Support\Domains\DomainChanges;
 use App\Support\Domains\DomainRegistrarCredentials;
 use App\Support\Domains\DomainSyncResult;
@@ -34,7 +35,7 @@ class DomainManagementService
     /** RFC 1035 host name, lowercase ASCII (IDN as punycode). */
     private const LOCK_SECONDS = 600;
 
-    private const HOST = '/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/';
+    public const HOST = '/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/';
 
     public function __construct(
         private readonly DomainRegistrarFactory $factory,
@@ -51,7 +52,7 @@ class DomainManagementService
     /**
      * @param  list<string>  $hosts  2 to 13, in order
      */
-    public function setNameservers(Domain $domain, array $hosts, ?Staff $staff): void
+    public function setNameservers(Domain $domain, array $hosts, Staff|User|null $staff): void
     {
         $hosts = array_values(array_unique(array_map(fn ($host) => Domain::normalise(trim((string) $host)), array_filter($hosts, fn ($host) => trim((string) $host) !== ''))));
         if (count($hosts) < 2 || count($hosts) > 13) {
@@ -67,13 +68,13 @@ class DomainManagementService
             fn (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) => $registrar->updateDomain($domain, new DomainChanges(nameservers: $hosts), $credentials));
     }
 
-    public function setTransferLock(Domain $domain, bool $locked, ?Staff $staff): void
+    public function setTransferLock(Domain $domain, bool $locked, Staff|User|null $staff): void
     {
         $this->write($domain, $locked ? 'lock' : 'unlock', ['transfer_lock' => $locked], $staff,
             fn (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) => $registrar->updateDomain($domain, new DomainChanges(transferLock: $locked), $credentials));
     }
 
-    public function setWhoisPrivacy(Domain $domain, bool $enabled, ?Staff $staff): void
+    public function setWhoisPrivacy(Domain $domain, bool $enabled, Staff|User|null $staff): void
     {
         $this->write($domain, $enabled ? 'privacy_on' : 'privacy_off', ['whois_privacy' => $enabled], $staff,
             fn (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) => $registrar->updateDomain($domain, new DomainChanges(whoisPrivacy: $enabled), $credentials));
@@ -85,7 +86,7 @@ class DomainManagementService
      *
      * @param  array<string, int|null>  $contacts  role => contact id (null: none; a missing role is unchanged)
      */
-    public function setContacts(Domain $domain, array $contacts, ?Staff $staff): void
+    public function setContacts(Domain $domain, array $contacts, Staff|User|null $staff): void
     {
         $changed = [];
         foreach (Domain::ROLES as $role) {
@@ -143,7 +144,7 @@ class DomainManagementService
     }
 
     /** The EPP code, for staff to give the customer: read from the registrar each time, never stored or logged. */
-    public function eppCode(Domain $domain, ?Staff $staff): string
+    public function eppCode(Domain $domain, Staff|User|null $staff): string
     {
         $code = null;
         $this->call($domain, 'epp_code', [], $staff, function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, &$code) {
@@ -177,7 +178,7 @@ class DomainManagementService
     }
 
     /** What the registrar holds for a role's handle (name, email, address…), read when staff ask; linked or not. */
-    public function registrarContact(Domain $domain, string $role, ?Staff $staff): ?RegistrarContact
+    public function registrarContact(Domain $domain, string $role, Staff|User|null $staff): ?RegistrarContact
     {
         $handle = $this->handleFor($domain, $role);
         if ($handle === null) {
@@ -199,7 +200,7 @@ class DomainManagementService
      * existing contact of the account (staff say it is the same person, whatever its email), or to a new contact made
      * from the registrar's record (an end customer registered by an agency account). Audited and logged.
      */
-    public function linkContact(Domain $domain, string $role, ?int $contactId, ?Staff $staff): Contact
+    public function linkContact(Domain $domain, string $role, ?int $contactId, Staff|User|null $staff): Contact
     {
         if (!$this->isUnlinked($domain, $role)) {
             throw new InvalidArgumentException(__('domains.manage.nothing_to_link'));
@@ -302,7 +303,7 @@ class DomainManagementService
      * @param  Closure(DomainRegistrar, DomainRegistrarCredentials): DomainSyncResult  $send
      * @param  (Closure(): void)|null  $undo  what to put back if the registrar refused
      */
-    private function write(Domain $domain, string $action, array $request, ?Staff $staff, Closure $send, ?Closure $undo = null): void
+    private function write(Domain $domain, string $action, array $request, Staff|User|null $staff, Closure $send, ?Closure $undo = null): void
     {
         $this->call($domain, $action, $request, $staff, function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $send, $undo) {
             try {
@@ -336,7 +337,7 @@ class DomainManagementService
      * @param  array<string, mixed>  $request
      * @param  Closure(DomainRegistrar, DomainRegistrarCredentials): array<string, mixed>  $call  the response to log
      */
-    private function call(Domain $domain, string $action, array $request, ?Staff $staff, Closure $call): void
+    private function call(Domain $domain, string $action, array $request, Staff|User|null $staff, Closure $call): void
     {
         $connection = $domain->effectiveRegistrarConnection();
         if (!$this->isManageable($domain) || !$connection instanceof DomainRegistrarConnection) {
@@ -350,7 +351,9 @@ class DomainManagementService
         if (!$lock->get()) {
             throw new RuntimeException(__('domains.manage.busy', ['domain' => $domain->fqdn]));
         }
-        $log = ['domain_id' => $domain->id, 'registrar_connection_id' => $connection->id, 'staff_id' => $staff?->id,
+        $log = ['domain_id' => $domain->id, 'registrar_connection_id' => $connection->id, 'staff_id' => $staff instanceof Staff ? $staff->id : null,
+            // Who asked (D-22): staff, or the customer's login in the client area (D7-2).
+            'user_id' => $staff instanceof User ? $staff->id : null,
             'action' => $action, 'request' => Redact::array($request)];
         try {
             $response = $call($this->factory->for($connection), $this->factory->credentialsFor($connection));
