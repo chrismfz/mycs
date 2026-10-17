@@ -211,9 +211,9 @@ class CronJob extends Command
             }, transaction: false);
 
             // A transfer's EPP code (owner 2026-10-17): kept for staff while it may matter, cleared once the transfer is no
-            // longer pending (completed, refused, cancelled) and it was ordered 30 days ago or more.
+            // longer pending (completed, refused, cancelled) and it was ordered domain_epp_code_days (30) ago or more.
             $this->runCronJob('domain_epp_codes_cleared', fn () => Domain::query()->whereNotNull('epp_code')
-                ->where('status', '!=', DomainStatus::PendingTransfer->value)->where('created_at', '<', now()->subDays(30))
+                ->where('status', '!=', DomainStatus::PendingTransfer->value)->where('created_at', '<', now()->subDays(max(1, (int) config('settings.domain_epp_code_days', 30))))
                 ->update(['epp_code' => null, 'updated_at' => now()]));
 
             // Credit pays what is open, oldest due first, before new renewals take it and before anything is suspended

@@ -396,9 +396,9 @@ importer):
       registrar (χρειάζεται κλήση του Openprovider που δεν έχουμε ακόμα).
 - [x] D8a (αναζήτηση, whois, τιμοκατάλογος), D8b-1 (παραγγελία), D8b-2 (εγγραφή/μεταφορά μετά την πληρωμή,
       `docs/domains.md` §6). EPP code μεταφοράς: 30 μέρες (ιδιοκτήτης 2026-10-17). Πριν το πρώτο order: Settings →
-      Billing → «Default Nameservers» ανά instance (το συμπληρώνει ο ιδιοκτήτης).
-- [ ] **Έτη ανανέωσης domain** που αλλάζει ο πελάτης/staff (ιδιοκτήτης 2026-10-17, `docs/domains.md` §6), μετά το D8b,
-      πριν το grepp. Code + adversarial.
+      Domains → «Default Nameserver 1–5» ανά instance (το συμπληρώνει ο ιδιοκτήτης).
+- [x] **Tab «Domains» στα Settings + έτη ανανέωσης** που αλλάζει ο πελάτης/staff (ιδιοκτήτης 2026-10-17,
+      `docs/domains.md` §6). Μετά: **grepp** μόνο του.
 - [ ] **grepp** (.gr EPP, myip). Πλάνο (2026-10-18): G0 υλικό του μητρώου από το Ekdosi (έγινε) · G1 `packages/gr-epp`
       transport/session · G2 εντολές και parsers (XSD) · G3 driver ανάγνωσης · G4 οι 5 αλλαγές των υπηρεσιών για .gr
       (ζυγά έτη στη grace, NS μεταφοράς χωρίς RDAP, DACoR με email, χωρίς restore, μεταφορά άμεση) · G5 εγγραφές (χρήματα)

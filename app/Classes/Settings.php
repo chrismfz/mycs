@@ -571,51 +571,6 @@ class Settings
                     'min_value' => 0,
                     'description' => 'The number of days before the due date to generate the renewal invoice.',
                 ],
-                // Domains billed at all (D5b): on; off only while another system still bills them (a migration, D-12) or in
-                // an emergency at a registrar.
-                [
-                    'name' => 'domain_billing_enabled',
-                    'section' => 'Billing Settings',
-                    'label' => 'Bill domain renewals',
-                    'type' => 'checkbox',
-                    'database_type' => 'boolean',
-                    'default' => true,
-                    'description' => 'Make the renewal invoices of domains with auto renew; on payment they are renewed at their registrar (a manual one: a Pending Module Action for staff). Turn off only while another system still bills the domains (a migration) or in an emergency.',
-                ],
-                // Domains (docs/domains.md D-14; WHMCS CreateDomainInvoiceDaysBefore): their own, empty = as the services.
-                [
-                    'name' => 'domain_invoice_days',
-                    'section' => 'Billing Settings',
-                    'label' => 'Domain Invoice Generation',
-                    'type' => 'number',
-                    'default' => 15,
-                    'required' => false,
-                    'min_value' => 0,
-                    'description' => 'The number of days before a domain expires to generate its renewal invoice (default 15). Empty: as Invoice Generation.',
-                ],
-                // Expiry notices (D7, docs/domains.md §2b; WHMCS DomainRenewalNotices; ICANN ERRP ~1 month, ~1 week, after).
-                [
-                    'name' => 'domain_reminder_days',
-                    'section' => 'Billing Settings',
-                    'label' => 'Domain Expiry Notices',
-                    'type' => 'text',
-                    'default' => '30,7,1,-3',
-                    'required' => false,
-                    // At most a year either side (DomainReminders::MAX_DAYS, review R9).
-                    // An array: a string rule is split on «|», and the pattern has alternatives.
-                    'validation' => ['nullable', 'regex:/^\s*-?(36[0-5]|3[0-5]\d|[12]?\d{1,2})(\s*,\s*-?(36[0-5]|3[0-5]\d|[12]?\d{1,2}))*\s*$/'],
-                    'description' => 'Days before a domain expires to send its expiry notice, comma separated; negative days are after it (while it can still be renewed). Empty to disable. Domains set not to renew get none; one whose next year is paid gets none.',
-                ],
-                // Nameservers of a domain registered from an order (D8b-2, owner 2026-10-17); a transfer keeps the registry's.
-                [
-                    'name' => 'domain_default_nameservers',
-                    'section' => 'Billing Settings',
-                    'label' => 'Default Nameservers',
-                    'type' => 'textarea',
-                    'default' => '',
-                    'required' => false,
-                    'description' => 'One per line, at least two: the nameservers of domains registered from an order (a transfer keeps those it has, else these). Empty: new registrations wait for staff.',
-                ],
                 // Saved payment methods (PR H, decision 5; WHMCS CCProcessDaysBefore, CCAttemptOnlyOnce, CCRetryEveryWeekFor).
                 [
                     'name' => 'autocharge_days_before',
@@ -985,6 +940,151 @@ class Settings
                     'default' => [],
                     'description' => 'Images and fonts for the custom CSS and HTML, served as /storage/brand/<file name>.',
                     'section' => 'Files',
+                ],
+            ],
+            // Domains (owner 2026-10-17, as WHMCS's Domains tab): what the shop sells, how they renew, what is kept.
+            'domains' => [
+                // The shop (D8b; WHMCS AllowRegister, AllowTransfer).
+                [
+                    'name' => 'domain_allow_register',
+                    'section' => 'Ordering',
+                    'label' => 'Allow clients to register domains',
+                    'type' => 'checkbox',
+                    'database_type' => 'boolean',
+                    'default' => true,
+                    'description' => 'Off: the search shows prices and availability, without «Add».',
+                ],
+                [
+                    'name' => 'domain_allow_transfer',
+                    'section' => 'Ordering',
+                    'label' => 'Allow clients to transfer domains to us',
+                    'type' => 'checkbox',
+                    'database_type' => 'boolean',
+                    'default' => true,
+                    'description' => 'Off: no «Transfer it to us» in the search.',
+                ],
+                // WHMCS «Default Auto Renewal Setting».
+                [
+                    'name' => 'domain_default_auto_renew',
+                    'section' => 'Ordering',
+                    'label' => 'Auto renew new domains',
+                    'type' => 'checkbox',
+                    'database_type' => 'boolean',
+                    'default' => true,
+                    'description' => 'A domain ordered starts with auto renew on (its renewal invoices are made); it can be changed per domain.',
+                ],
+                // D8b-2 (owner 2026-10-17): a registration's nameservers; a transfer keeps the registry's.
+                [
+                    'name' => 'domain_nameserver_1',
+                    'section' => 'Ordering',
+                    'label' => 'Default Nameserver 1',
+                    'type' => 'text',
+                    'default' => '',
+                    'required' => false,
+                    'validation' => ['nullable', 'regex:/^\s*([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]\.?\s*$/'],
+                    'description' => 'The nameservers of a domain registered from an order (at least two; none: new registrations wait for staff). A transfer keeps the nameservers it has.',
+                ],
+                [
+                    'name' => 'domain_nameserver_2',
+                    'section' => 'Ordering',
+                    'label' => 'Default Nameserver 2',
+                    'type' => 'text',
+                    'default' => '',
+                    'required' => false,
+                    'validation' => ['nullable', 'regex:/^\s*([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]\.?\s*$/'],
+                ],
+                [
+                    'name' => 'domain_nameserver_3',
+                    'section' => 'Ordering',
+                    'label' => 'Default Nameserver 3',
+                    'type' => 'text',
+                    'default' => '',
+                    'required' => false,
+                    'validation' => ['nullable', 'regex:/^\s*([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]\.?\s*$/'],
+                ],
+                [
+                    'name' => 'domain_nameserver_4',
+                    'section' => 'Ordering',
+                    'label' => 'Default Nameserver 4',
+                    'type' => 'text',
+                    'default' => '',
+                    'required' => false,
+                    'validation' => ['nullable', 'regex:/^\s*([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]\.?\s*$/'],
+                ],
+                [
+                    'name' => 'domain_nameserver_5',
+                    'section' => 'Ordering',
+                    'label' => 'Default Nameserver 5',
+                    'type' => 'text',
+                    'default' => '',
+                    'required' => false,
+                    'validation' => ['nullable', 'regex:/^\s*([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]\.?\s*$/'],
+                ],
+                // Domains billed at all (D5b): on; off only while another system still bills them (a migration, D-12) or in
+                // an emergency at a registrar.
+                [
+                    'name' => 'domain_billing_enabled',
+                    'section' => 'Renewals',
+                    'label' => 'Bill domain renewals',
+                    'type' => 'checkbox',
+                    'database_type' => 'boolean',
+                    'default' => true,
+                    'description' => 'Make the renewal invoices of domains with auto renew; on payment they are renewed at their registrar (a manual one: a Pending Module Action for staff). Turn off only while another system still bills the domains (a migration) or in an emergency.',
+                ],
+                // Domains (docs/domains.md D-14; WHMCS CreateDomainInvoiceDaysBefore): their own, empty = as the services.
+                [
+                    'name' => 'domain_invoice_days',
+                    'section' => 'Renewals',
+                    'label' => 'Domain Invoice Generation',
+                    'type' => 'number',
+                    'default' => 15,
+                    'required' => false,
+                    'min_value' => 0,
+                    'description' => 'The number of days before a domain expires to generate its renewal invoice (default 15). Empty: as Invoice Generation.',
+                ],
+                // Expiry notices (D7, docs/domains.md §2b; WHMCS DomainRenewalNotices; ICANN ERRP ~1 month, ~1 week, after).
+                [
+                    'name' => 'domain_reminder_days',
+                    'section' => 'Renewals',
+                    'label' => 'Domain Expiry Notices',
+                    'type' => 'text',
+                    'default' => '30,7,1,-3',
+                    'required' => false,
+                    // At most a year either side (DomainReminders::MAX_DAYS, review R9).
+                    // An array: a string rule is split on «|», and the pattern has alternatives.
+                    'validation' => ['nullable', 'regex:/^\s*-?(36[0-5]|3[0-5]\d|[12]?\d{1,2})(\s*,\s*-?(36[0-5]|3[0-5]\d|[12]?\d{1,2}))*\s*$/'],
+                    'description' => 'Days before a domain expires to send its expiry notice, comma separated; negative days are after it (while it can still be renewed). Empty to disable. Domains set not to renew get none; one whose next year is paid gets none.',
+                ],
+                // Renewal years (owner 2026-10-17): those ordered, changed by the customer or staff among those priced.
+                [
+                    'name' => 'domain_client_years',
+                    'section' => 'Renewals',
+                    'label' => 'Clients may change the renewal period',
+                    'type' => 'checkbox',
+                    'database_type' => 'boolean',
+                    'default' => true,
+                    'description' => 'A domain renews for the years it was ordered for. On: its owner may choose another period among those its TLD has a renew price for, from its next renewal (its open, unpaid renewal invoice changes with it). Staff always may.',
+                ],
+                // Kept and watched (D8b-2; owner 2026-10-17: the EPP code 30 days).
+                [
+                    'name' => 'domain_epp_code_days',
+                    'section' => 'Housekeeping',
+                    'label' => 'Keep transfer EPP codes (days)',
+                    'type' => 'number',
+                    'default' => 30,
+                    'required' => true,
+                    'min_value' => 1,
+                    'description' => 'The EPP code a client gave for a transfer is kept (encrypted, shown to staff) until the transfer is no longer pending and this many days have passed since the order.',
+                ],
+                [
+                    'name' => 'domain_stale_transfer_days',
+                    'section' => 'Housekeeping',
+                    'label' => 'Pending transfer alert (days)',
+                    'type' => 'number',
+                    'default' => 14,
+                    'required' => true,
+                    'min_value' => 1,
+                    'description' => 'A transfer or registration still pending after this many days is listed under «Records to check» and in Health.',
                 ],
             ],
             'invoices' => [
