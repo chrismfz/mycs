@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Domains;
 
+use App\Classes\Settings;
 use App\Enums\DomainStatus;
 use App\Mail\Mail;
 use App\Models\BillingAgreement;
@@ -20,6 +21,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail as MailFacade;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Validator;
 use Tests\TestCase;
 
 /**
@@ -235,5 +237,17 @@ class DomainRemindersTest extends TestCase
         $domain->update(['expires_at' => '2026-10-26']);
 
         $this->assertSame(0, $this->notify());
+    }
+
+    public function test_the_days_setting_takes_a_year_either_side_and_its_rule_is_valid(): void
+    {
+        // Review R9 (a string rule was split on «|»: the CI broke on the pattern's alternatives).
+        $rules = collect(Settings::settings())->flatten(1)->firstWhere('name', 'domain_reminder_days')['validation'];
+        $valid = fn (string $value) => Validator::make(['v' => $value], ['v' => $rules])->passes();
+
+        $this->assertTrue($valid('30,7,1,-3'));
+        $this->assertTrue($valid('365, -365, 0'));
+        $this->assertFalse($valid('400'));
+        $this->assertFalse($valid('30,x'));
     }
 }
