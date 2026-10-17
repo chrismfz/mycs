@@ -71,6 +71,10 @@ class Cart
 
         // Match on key
         $cart = self::createCart();
+        // Never a domain's item made a product's (adversarial ADV-4).
+        if ($key !== null && $cart->items()->whereKey($key)->whereNotNull('domain')->exists()) {
+            $key = null;
+        }
         self::ensureCartItemLimit($cart, $key);
 
         $item = $cart->items()->updateOrCreate([

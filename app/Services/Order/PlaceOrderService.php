@@ -146,7 +146,7 @@ final class PlaceOrderService
     /**
      * A domain of the order (D8b): checked again as when it was added (the TLD sold, its price for the years, the name
      * not ours already: a register free, a transfer taken), then pending (pending_register / pending_transfer) with its
-     * registrant (and the other roles: the same contact, D-20), its years, its TLD's registrar and, for a transfer, the EPP
+     * registrant (the other roles: the account's primary contact, D-20), its years, its TLD's registrar and, for a transfer, the EPP
      * code the customer gave. Its line (kind register / transfer, never a renewal) bills it at the catalog price, net of
      * VAT (D-19); one at no price (a free transfer, D-6) has none and waits for its registrar like the others (D8b-2).
      */
@@ -155,7 +155,10 @@ final class PlaceOrderService
         if ((int) $line->registrant->client_id !== (int) $client->id || !$line->registrant->isCompleteFor('domain')) {
             throw new DisplayException(__('domains.order.contact_incomplete'));
         }
-        [$fqdn, $tld] = app(DomainOffer::class)->check($line->fqdn, $line->operation, $line->years, $currency);
+        // Under the account's lock: only what the database says (the TLD, its price, the name not ours). Whether the name
+        // is free or taken was asked of its registrar before the lock (code review M2): never a registrar call while
+        // every payment of the account waits.
+        [$fqdn, $tld] = app(DomainOffer::class)->check($line->fqdn, $line->operation, $line->years, $currency, availability: false);
         if ($line->operation === DomainOrderLine::TRANSFER && $tld->epp_code_required && trim((string) $line->eppCode) === '') {
             throw new DisplayException(__('domains.order.epp_required', ['domain' => $fqdn]));
         }
@@ -168,8 +171,9 @@ final class PlaceOrderService
                 'sld' => $sld, 'tld' => $tld->tld, 'fqdn' => $fqdn,
                 'status' => $line->operation === DomainOrderLine::REGISTER ? DomainStatus::PendingRegister : DomainStatus::PendingTransfer,
                 'years' => $line->years, 'currency_code' => $currency, 'auto_renew' => true,
-                'registrant_contact_id' => $line->registrant->id, 'admin_contact_id' => $line->registrant->id,
-                'tech_contact_id' => $line->registrant->id, 'billing_contact_id' => $line->registrant->id,
+                // The owner as chosen; the account's own details for the other roles (D-20, code review L6).
+                'registrant_contact_id' => $line->registrant->id, 'admin_contact_id' => $client->ensurePrimaryContact()->id,
+                'tech_contact_id' => $client->ensurePrimaryContact()->id, 'billing_contact_id' => $client->ensurePrimaryContact()->id,
                 'epp_code' => $line->operation === DomainOrderLine::TRANSFER ? trim((string) $line->eppCode) : null,
             ]);
         } catch (UniqueConstraintViolationException) {

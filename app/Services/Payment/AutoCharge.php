@@ -9,6 +9,7 @@ use App\Models\BillingAgreement;
 use App\Models\ChargeAttempt;
 use App\Models\Domain;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\Service;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -98,6 +99,10 @@ final class AutoCharge
             ->whereDoesntHave('items', fn ($items) => $items->where('reference_type', Domain::class)
                 ->whereIn('reference_id', Domain::query()->select('id')->where(fn ($domain) => $domain->whereIn('status', DomainStatus::terminalValues())
                     ->orWhere('auto_renew', false))))
+            // Not a new domain's registration or transfer (D8b, code review M1): an order is paid by its customer, as a
+            // service's (pending services are not charged either); unpaid it is cancelled.
+            ->whereDoesntHave('items', fn ($items) => $items->where('reference_type', Domain::class)
+                ->whereIn('kind', [InvoiceItem::KIND_REGISTER, InvoiceItem::KIND_TRANSFER]))
             ->orderBy('due_at')->orderBy('id');
     }
 

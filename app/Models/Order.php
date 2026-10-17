@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use OwenIt\Auditing\Contracts\Auditable;
 
@@ -97,6 +98,13 @@ class Order extends Model implements Auditable
         return $this->hasMany(Service::class);
     }
 
+    /** @return Collection<int, InvoiceItem> its domains' registration and transfer lines */
+    private function domainLines(): Collection
+    {
+        return InvoiceItem::query()->where('reference_type', Domain::class)->whereIn('reference_id', $this->domains->pluck('id'))
+            ->whereIn('kind', [InvoiceItem::KIND_REGISTER, InvoiceItem::KIND_TRANSFER])->get();
+    }
+
     /** @return HasMany<Domain, $this> the domains it registers or transfers (D8b) */
     public function domains(): HasMany
     {
@@ -121,8 +129,10 @@ class Order extends Model implements Auditable
     public function total(): Attribute
     {
         return Attribute::make(
-            // What its services renew at, with tax (Δ1: their prices are net).
-            get: fn () => $this->services->sum(fn (Service $service) => $service->recurringGrossCents()) / 100
+            // What its services renew at, with tax (Δ1: their prices are net); and what its domains are billed (D8b,
+            // adversarial ADV-6), their registration or transfer lines with tax.
+            get: fn () => ($this->services->sum(fn (Service $service) => $service->recurringGrossCents())
+                + $this->domainLines()->sum(fn (InvoiceItem $line) => $line->totalCents())) / 100
         );
     }
 
@@ -135,7 +145,8 @@ class Order extends Model implements Auditable
     {
         return Attribute::make(
             // With the tax its services' renewals carry (Δ1), for the order e-mail.
-            get: fn () => Price::ofTotal($this->total, $this->services->sum(fn (Service $service) => (int) round((float) $service->recurringLine()['tax'] * 100)) / 100, $this->currency)
+            get: fn () => Price::ofTotal($this->total, ($this->services->sum(fn (Service $service) => (int) round((float) $service->recurringLine()['tax'] * 100))
+                + $this->domainLines()->sum(fn (InvoiceItem $line) => (int) round((float) $line->tax_amount * 100))) / 100, $this->currency)
         );
     }
 
@@ -162,6 +173,10 @@ class Order extends Model implements Auditable
         static::deleting(function (self $order) {
             if ($order->services()->exists()) {
                 throw new DisplayException(__('This order has services: delete them first.'));
+            }
+            // Nor one with domains (D8b, code review L1): cancel it, and its pending domains with it.
+            if ($order->domains()->exists()) {
+                throw new DisplayException(__('This order has domains: cancel it instead.'));
             }
         });
     }

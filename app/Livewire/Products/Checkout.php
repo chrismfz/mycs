@@ -58,7 +58,7 @@ class Checkout extends Component
         }
 
         // Is there a existing item in the cart?
-        if (Cart::get()->items->where('id', $this->cartProductKey)->isNotEmpty() && Cart::get()->items->where('id', $this->cartProductKey)->first()->product->id === $this->product->id) {
+        if (Cart::get()->items->where('id', $this->cartProductKey)->isNotEmpty() && Cart::get()->items->where('id', $this->cartProductKey)->first()?->product?->id === $this->product->id) {
             $item = Cart::get()->items->where('id', $this->cartProductKey)->first();
             // Get the item from the cart
             $this->plan = $item->plan;

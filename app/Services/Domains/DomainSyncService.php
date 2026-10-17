@@ -31,12 +31,18 @@ class DomainSyncService
 
     public function __construct(private readonly DomainRegistrarFactory $factory) {}
 
-    /** It is synced: routed to an active connection with an API, not ended by staff, not deleted. */
+    /**
+     * It is synced: routed to an active connection with an API, not ended by staff, not deleted; and not an order we
+     * have not sent to its registrar yet (D8b, adversarial ADV-2: a transfer ordered, unpaid, of a name already in our
+     * registrar account would otherwise turn Active for whoever ordered it). We send it after its payment (D8b-2), and
+     * mark it then.
+     */
     public function isSyncable(Domain $domain): bool
     {
         $connection = $domain->effectiveRegistrarConnection();
+        $unsent = $domain->order_id !== null && in_array($domain->status, self::PENDING, true) && empty($domain->meta['sent_at']);
 
-        return $connection instanceof DomainRegistrarConnection && $connection->isUsable()
+        return $connection instanceof DomainRegistrarConnection && $connection->isUsable() && !$unsent
             && !$domain->status->blocksSync() && $domain->status !== DomainStatus::Deleted;
     }
 

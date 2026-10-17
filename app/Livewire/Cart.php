@@ -11,6 +11,7 @@ use App\Models\Cart as CartModel;
 use App\Models\Client;
 use App\Models\Contact;
 use App\Models\DomainTld;
+use App\Services\Domains\Ordering\DomainOffer;
 use App\Services\Domains\Ordering\DomainOrderLine;
 use App\Services\Order\OrderLine;
 use App\Services\Order\PlaceOrderService;
@@ -123,7 +124,13 @@ class Cart extends Component
     /** A transfer's EPP code, kept on its cart item (encrypted) as typed. */
     public function updatedEpp($value, $id): void
     {
-        ClassesCart::updateDomain((int) $id, null, (string) $value);
+        // One code for one item, or the whole map at once (adversarial ADV-5: never a 500).
+        $codes = $id === null ? (is_array($value) ? $value : []) : [$id => $value];
+        foreach ($codes as $item => $code) {
+            if (is_string($code) || is_int($code)) {
+                ClassesCart::updateDomain((int) $item, null, (string) $code);
+            }
+        }
     }
 
     /** @return Collection<int, Contact> the account's contacts a domain may belong to */
@@ -155,6 +162,12 @@ class Cart extends Component
         }
 
         try {
+            // Each domain free (to register) or taken (to transfer), asked of its registrar before the account is locked
+            // (code review M2 of #179); the rest is checked again under the lock.
+            foreach (ClassesCart::items()->filter(fn ($item) => $item->isDomain()) as $item) {
+                app(DomainOffer::class)->check($item->domain['fqdn'], $item->domain['operation'],
+                    (int) $item->domain['years'], (string) ClassesCart::get()->currency_code);
+            }
             $placed = DB::transaction(function () {
                 // The order is the current account's; a login without any account gets its own here (WHMCS opens the
                 // client account at checkout). Its row first, as every payment path locks it (no lock-order deadlock).

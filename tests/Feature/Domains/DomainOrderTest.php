@@ -3,6 +3,7 @@
 namespace Tests\Feature\Domains;
 
 use App\Enums\DomainStatus;
+use App\Exceptions\DisplayException;
 use App\Jobs\Domains\RenewDomainJob;
 use App\Livewire\Cart;
 use App\Livewire\DomainShop\Search;
@@ -19,6 +20,7 @@ use App\Models\User;
 use App\Services\Domains\DomainRenewalService;
 use App\Services\Domains\Lookup\LaravelTransport;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Order\CancelOrder;
 use App\Support\CurrentClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -185,5 +187,21 @@ class DomainOrderTest extends TestCase
         $this->assertSame([DomainStatus::Cancelled, Invoice::STATUS_CANCELLED, Order::STATUS_CANCELLED],
             [$domain->status, Invoice::query()->sole()->status, Order::query()->sole()->status]);
         Livewire::test(Search::class)->call('add', 'mybusiness.com')->assertRedirect(route('cart')); // free to order again
+    }
+
+    public function test_staff_cancelling_the_order_cancel_its_domain_and_its_line(): void
+    {
+        // Code review H2: Cancel, Cancel & Refund and Fraud end the order's pending domains too.
+        Livewire::test(Search::class)->call('add', 'mybusiness.com');
+        $this->checkout();
+        $order = Order::query()->sole();
+
+        $left = CancelOrder::handle($order, fraud: true);
+
+        $this->assertSame([], $left);
+        $this->assertSame([DomainStatus::Cancelled, Invoice::STATUS_CANCELLED, Order::STATUS_FRAUD],
+            [Domain::query()->sole()->status, Invoice::query()->sole()->status, $order->fresh()->status]);
+        $this->expectException(DisplayException::class);
+        $order->fresh()->delete(); // an order with domains is cancelled, not deleted (review L1)
     }
 }

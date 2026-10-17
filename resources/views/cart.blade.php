@@ -29,7 +29,7 @@
                         @if ($item->domain['operation'] === 'transfer')
                         <label class="flex items-center gap-1">{{ __('domains.order.epp_code') }}
                             <input type="text" wire:model.blur="epp.{{ $item->id }}" autocomplete="off" maxlength="255"
-                                value="{{ $item->epp_code }}" class="bg-background border border-neutral rounded px-2 py-1 font-mono" />
+                                placeholder="{{ filled($item->epp_code) ? __('domains.order.epp_saved') : '' }}" class="bg-background border border-neutral rounded px-2 py-1 font-mono" />
                         </label>
                         <p class="text-xs text-base/60 w-full">{{ __('domains.order.epp_help') }}</p>
                         @endif

@@ -587,5 +587,7 @@
     "Draft": "Πρόχειρο",
     ":count year|:count years": ":count έτος|:count έτη",
     "Registration pending for more than :days days": "Καταχώρηση σε εκκρεμότητα πάνω από :days ημέρες",
-    "Active but past its expiry: the domain sync has not run": "Ενεργό αλλά ληγμένο: το sync των domains δεν έτρεξε"
+    "Active but past its expiry: the domain sync has not run": "Ενεργό αλλά ληγμένο: το sync των domains δεν έτρεξε",
+    "This order has domains: cancel it instead.": "Αυτή η παραγγελία έχει domains: ακυρώστε την αντί να τη διαγράψετε.",
+    "EPP code": "Κωδικός EPP"
 }

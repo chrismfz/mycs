@@ -35,6 +35,9 @@ class DomainOffer
         if (str_starts_with($name->sld, 'xn--') && !$tld->allow_idn) {
             throw new DisplayException(__('domains.order.not_offered'));
         }
+        if ($this->years($tld, $operation, $currency)->isEmpty()) {
+            throw new DisplayException(__('domains.order.not_offered_op', ['operation' => __('domains.shop.' . $operation)])); // review L9
+        }
         if (!in_array($years, $this->years($tld, $operation, $currency)->all(), true)) {
             throw new DisplayException(__('domains.order.years_not_offered', ['years' => $years]));
         }
