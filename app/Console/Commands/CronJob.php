@@ -167,37 +167,41 @@ class CronJob extends Command
 
             $this->runCronJob('invoices_created', function ($number = 0) {
                 $billing = new RenewalBilling;
-                $billUntil = now()->addDays((int) config('settings.cronjob_invoice', 7));
-                $ids = Service::whereIn('status', ['active', 'suspended'])->where('expires_at', '<', $billUntil)->pluck('id');
-                foreach ($ids as $id) {
-                    try {
-                        // One short transaction per service, on a fresh locked row: a payment committed
-                        // while the cron runs is seen, and nothing stays locked for the whole run.
-                        $number += DB::transaction(fn () => $billing->billRenewal($id, $billUntil));
-                    } catch (Throwable $e) {
-                        report($e);
-                        $this->failures["invoices_created #{$id}"] = $e;
+                // What it tells staff is mailed also when a step of it fails (review F7).
+                try {
+                    $billUntil = now()->addDays((int) config('settings.cronjob_invoice', 7));
+                    $ids = Service::whereIn('status', ['active', 'suspended'])->where('expires_at', '<', $billUntil)->pluck('id');
+                    foreach ($ids as $id) {
+                        try {
+                            // One short transaction per service, on a fresh locked row: a payment committed
+                            // while the cron runs is seen, and nothing stays locked for the whole run.
+                            $number += DB::transaction(fn () => $billing->billRenewal($id, $billUntil));
+                        } catch (Throwable $e) {
+                            report($e);
+                            $this->failures["invoices_created #{$id}"] = $e;
+                        }
                     }
-                }
-                // Domains (docs/domains.md D-4, D-14, D5b): their own step, N days before expiry, grouped with the services
-                // due the same day; and the fee of a grace or redemption onto the open renewal invoice (D-8).
-                $domainsUntil = now()->addDays(RenewalBilling::domainInvoiceDays());
-                // Off until its registrar renewal is live (D5b-2, review 2): never an invoice nothing would act on.
-                $domains = !config('settings.domain_billing_enabled', true) ? collect() : Domain::query()->whereIn('status', array_map(fn (DomainStatus $s) => $s->value, RenewalBilling::BILLED_DOMAINS))
-                    ->where('auto_renew', true)->whereNotNull('expires_at')->where('expires_at', '<', $domainsUntil)->pluck('id');
-                foreach ($domains as $id) {
-                    try {
-                        $number += DB::transaction(fn () => $billing->billDomainRenewal($id, $domainsUntil));
-                        DB::transaction(fn () => $billing->addStageFee($id));
-                    } catch (Throwable $e) {
-                        report($e);
-                        $this->failures["invoices_created domain #{$id}"] = $e;
+                    // Domains (docs/domains.md D-4, D-14, D5b): their own step, N days before expiry, grouped with the services
+                    // due the same day; and the fee of a grace or redemption onto the open renewal invoice (D-8).
+                    $domainsUntil = now()->addDays(RenewalBilling::domainInvoiceDays());
+                    // Off until its registrar renewal is live (D5b-2, review 2): never an invoice nothing would act on.
+                    $domains = !config('settings.domain_billing_enabled', true) ? collect() : Domain::query()->whereIn('status', array_map(fn (DomainStatus $s) => $s->value, RenewalBilling::BILLED_DOMAINS))
+                        ->where('auto_renew', true)->whereNotNull('expires_at')->where('expires_at', '<', $domainsUntil)->pluck('id');
+                    foreach ($domains as $id) {
+                        try {
+                            $number += DB::transaction(fn () => $billing->billDomainRenewal($id, $domainsUntil));
+                            DB::transaction(fn () => $billing->addStageFee($id));
+                        } catch (Throwable $e) {
+                            report($e);
+                            $this->failures["invoices_created domain #{$id}"] = $e;
+                        }
                     }
+                    // Grouped renewals (PR C): emailed and paid by credit once all their lines are on them.
+                    $billing->finishRenewalInvoices();
+                } finally {
+                    $this->notices += $billing->notices;
+                    $this->failures += $billing->failures;
                 }
-                // Grouped renewals (PR C): emailed and paid by credit once all their lines are on them.
-                $billing->finishRenewalInvoices();
-                $this->notices += $billing->notices;
-                $this->failures += $billing->failures;
 
                 return $number;
             }, transaction: false);

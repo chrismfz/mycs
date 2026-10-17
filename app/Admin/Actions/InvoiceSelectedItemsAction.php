@@ -2,6 +2,9 @@
 
 namespace App\Admin\Actions;
 
+use App\Admin\Resources\DomainResource;
+use App\Admin\Resources\ServiceResource;
+use App\Exceptions\DisplayException;
 use App\Models\Client;
 use App\Models\Domain;
 use App\Models\Invoice;
@@ -28,19 +31,21 @@ class InvoiceSelectedItemsAction
             ->icon('heroicon-o-document-duplicate')
             ->authorize(fn (): bool => self::allowed())
             ->modalDescription(__('invoices.selected.help'))
+            // Only what staff may see (review F4): services and domains each with their own permission.
             ->schema(fn (Client $record): array => [
-                CheckboxList::make('services')->label(__('invoices.selected.services'))
-                    ->options($record->services()->whereIn('status', ['active', 'suspended'])->with('product')->orderBy('expires_at')->get()
+                CheckboxList::make('services')->label(__('invoices.selected.services'))->visible(self::may('admin.services.viewAny'))
+                    ->options($record->services()->whereIn('status', ['active', 'suspended'])
+                        ->whereDoesntHave('plan', fn ($plan) => $plan->whereIn('type', ['free', 'one-time']))->with('product')->orderBy('expires_at')->get()
                         ->mapWithKeys(fn (Service $s) => [$s->id => self::serviceLabel($s)])->all()),
-                CheckboxList::make('domains')->label(__('invoices.selected.domains'))
+                CheckboxList::make('domains')->label(__('invoices.selected.domains'))->visible(self::may('admin.domains.viewAny'))
                     ->options($record->domains()->whereIn('status', array_map(fn ($s) => $s->value, RenewalBilling::BILLED_DOMAINS))->orderBy('expires_at')->get()
                         ->mapWithKeys(fn (Domain $d) => [$d->id => self::domainLabel($d)])->all()),
             ])
             ->action(function (Client $record, array $data): void {
                 // Only this client's: ids from the form are checked against it.
                 self::run(
-                    $record->services()->whereKey(array_map('intval', $data['services'] ?? []))->get(),
-                    $record->domains()->whereKey(array_map('intval', $data['domains'] ?? []))->get(),
+                    self::may('admin.services.viewAny') ? $record->services()->whereKey(array_map('intval', $data['services'] ?? []))->get() : [],
+                    self::may('admin.domains.viewAny') ? $record->domains()->whereKey(array_map('intval', $data['domains'] ?? []))->get() : [],
                 );
             });
     }
@@ -70,15 +75,23 @@ class InvoiceSelectedItemsAction
             ->authorize(fn (): bool => self::allowed())
             ->requiresConfirmation()
             ->modalDescription(__('invoices.selected.help'))
-            ->action(fn (Service|Domain $record) => self::run(
-                $record instanceof Service ? [$record] : [],
-                $record instanceof Domain ? [$record] : [],
-            ));
+            ->action(function (Service|Domain $record, $livewire): void {
+                self::run($record instanceof Service ? [$record] : [], $record instanceof Domain ? [$record] : []);
+                // Billing may change the service (its next plan, a coupon's end, its billing day): the page shows it now,
+                // and a later Save does not put the old values back (review F1).
+                $livewire->redirect($record instanceof Service ? ServiceResource::getUrl('edit', ['record' => $record])
+                    : DomainResource::getUrl('view', ['record' => $record]));
+            });
     }
 
     private static function allowed(): bool
     {
         return (bool) auth()->user()?->can('create', Invoice::class);
+    }
+
+    private static function may(string $permission): bool
+    {
+        return (bool) auth()->user()?->hasPermission($permission);
     }
 
     /**
@@ -92,13 +105,22 @@ class InvoiceSelectedItemsAction
 
             return;
         }
-        $result = (new InvoiceSelectedItems)->handle($services, $domains);
-        $skipped = collect($result['skipped'])->map(fn (string $why, string $item) => e($item) . ': ' . e($why))->implode('<br>');
+        try {
+            $result = (new InvoiceSelectedItems)->handle($services, $domains);
+        } catch (DisplayException $e) {
+            Notification::make()->danger()->title(__('invoices.selected.nothing_billed'))->body(e($e->getMessage()))->send();
+
+            return;
+        }
         $notification = $result['invoices'] === []
             ? Notification::make()->warning()->title(__('invoices.selected.nothing_billed'))
             : Notification::make()->success()->title(trans_choice('invoices.selected.done', count($result['invoices']), ['invoices' => implode(', #', $result['invoices'])]));
-        if ($skipped !== '') {
-            $notification->body('<strong>' . e(__('invoices.selected.skipped')) . '</strong><br>' . $skipped)->persistent();
+        $body = collect(['skipped' => $result['skipped'], 'problems' => $result['problems']])->filter()
+            ->map(fn (array $rows, string $section) => '<strong>' . e(__('invoices.selected.' . $section)) . '</strong><br>'
+                . collect($rows)->map(fn (string $why, string $item) => e($item) . ': ' . e($why))->implode('<br>'))
+            ->implode('<br>');
+        if ($body !== '') {
+            $notification->body($body)->persistent();
         }
         $notification->send();
     }

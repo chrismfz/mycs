@@ -6,6 +6,7 @@ use App\Admin\Resources\ClientResource\Pages\ClientSummaryPage;
 use App\Admin\Resources\ClientResource\Pages\ShowDomains;
 use App\Admin\Resources\ClientResource\Pages\ShowServices;
 use App\Admin\Resources\DomainResource\Pages\ViewDomain;
+use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Enums\DomainStatus;
 use App\Events\Invoice\Finalized;
@@ -20,6 +21,7 @@ use App\Models\Setting;
 use App\Models\Staff;
 use App\Models\User;
 use App\Services\Billing\InvoiceSelectedItems;
+use App\Services\Billing\RenewalBilling;
 use App\Services\Invoice\RecordPaymentService;
 use Filament\Actions\Testing\TestAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -140,7 +142,7 @@ class InvoiceSelectedItemsTest extends TestCase
         $this->assertSame([], $again['invoices']);
         $invoiceId = $this->lines($service)[0]->invoice_id;
         $this->assertSame(['#' . $service->id . ' ' . $service->product->name => __('invoices.selected.open_invoice', ['invoice' => $invoiceId]),
-            'nixpal.com' => __('invoices.selected.domain_billed')], $again['skipped']);
+            'nixpal.com' => __('invoices.selected.domain_billed', ['invoice' => $invoiceId, 'status' => Invoice::STATUS_UNPAID])], $again['skipped']);
 
         // Its due days come: the cron bills nothing more.
         Carbon::setTestNow('2027-07-25 10:00:00');
@@ -186,10 +188,11 @@ class InvoiceSelectedItemsTest extends TestCase
         $result = $this->invoice([$subscription, $free, $ended], [$off, $deleted]);
 
         $this->assertSame([], $result['invoices']);
-        $this->assertSame([__('invoices.selected.subscription'), __('invoices.selected.free'),
+        $this->assertSame([__('invoices.selected.subscription'), __('invoices.selected.renewed_free'),
             __('invoices.selected.status', ['status' => Service::statusLabel(Service::STATUS_CANCELLED)]),
-            __('invoices.selected.auto_renew_off'), __('invoices.selected.status', ['status' => 'deleted'])], array_values($result['skipped']));
-        $this->assertSame('2027-03-01', $free->refresh()->expires_at->toDateString(), 'a free one is not renewed by it either');
+            __('invoices.selected.auto_renew_off'), __('invoices.selected.status', ['status' => DomainStatus::Deleted->getLabel()])], array_values($result['skipped']));
+        // At no price for its next period it is renewed at once (review F3), as the cron does at its time: nothing to invoice.
+        $this->assertSame('2027-04-01', $free->refresh()->expires_at->toDateString());
         $this->assertSame(0, InvoiceItem::query()->count());
 
         config(['settings.domain_billing_enabled' => false]);
@@ -254,5 +257,38 @@ class InvoiceSelectedItemsTest extends TestCase
             'admin.services.update', 'admin.domains.viewAny', 'admin.domains.view', 'admin.invoices.viewAny'])->create();
         $this->livewireAs($viewer)->test(ClientSummaryPage::class, ['record' => $client->getRouteKey()])->assertActionHidden('invoiceSelected');
         $this->livewireAs($viewer)->test(EditService::class, ['record' => $other->getRouteKey()])->assertActionHidden('invoiceNextPeriod');
+    }
+
+    public function test_a_cron_run_does_not_finish_an_invoice_staff_are_still_filling(): void
+    {
+        // Review F2: while a selection holds its customer's lock, the cron's finish pass leaves its invoice to it.
+        $invoice = Invoice::query()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'due_at' => now(), 'currency_code' => 'EUR']);
+        $invoice->forceFill(['finish_pending_at' => now()])->save();
+        $lock = RenewalBilling::selectingLock($this->user->client()->id);
+        $this->assertTrue($lock->get());
+
+        (new RenewalBilling)->finishRenewalInvoices();
+        $this->assertNotNull($invoice->refresh()->finish_pending_at, 'left to the selection that is filling it');
+
+        $lock->release();
+        (new RenewalBilling)->finishRenewalInvoices();
+        $this->assertNull($invoice->refresh()->finish_pending_at, 'a leftover once no one fills it');
+    }
+
+    public function test_the_single_action_reloads_the_page_and_the_lists_follow_staffs_permissions(): void
+    {
+        $service = $this->service();
+        $admin = Staff::factory()->admin()->create();
+        // Review F1: billing may change the service; the page is reloaded so that a later Save does not undo it.
+        $this->livewireAs($admin)->test(EditService::class, ['record' => $service->getRouteKey()])->callAction('invoiceNextPeriod')
+            ->assertRedirect(ServiceResource::getUrl('edit', ['record' => $service]));
+
+        // Review F4: without the right to see domains, no domain is listed nor billed.
+        $domain = $this->domain();
+        $billing = Staff::factory()->withPermissions(['admin.clients.viewAny', 'admin.clients.view', 'admin.invoices.viewAny', 'admin.invoices.create',
+            'admin.services.viewAny'])->create();
+        $this->livewireAs($billing)->test(ClientSummaryPage::class, ['record' => $this->user->client()->getRouteKey()])
+            ->mountAction('invoiceSelected')->assertSchemaComponentHidden('domains', 'mountedActionSchema0');
+        $this->assertSame([], $this->lines($domain));
     }
 }

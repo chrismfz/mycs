@@ -18,6 +18,7 @@ use App\Services\Service\RenewServiceService;
 use App\Support\AfterCommit;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -46,8 +47,23 @@ final class RenewalBilling
      */
     public bool $oneInvoicePerCustomer = false;
 
+    /**
+     * Credit pays each invoice as it is finished (the cron: its credit step ran before, so only new invoices are left).
+     * Off for «Invoice selected items» (adversarial ADV-2): it then pays the customer's oldest due first.
+     */
+    public bool $creditOnFinish = true;
+
     /** @var list<int> the invoices made here, committed: «Invoice selected items» finishes these only (D7a). */
     public array $made = [];
+
+    /**
+     * Held by an «Invoice selected items» run for each of its customers while it fills their invoices (D7a review F2):
+     * the cron does not finish them meanwhile (one email with all the lines); the run finishes them itself.
+     */
+    public static function selectingLock(int $clientId): Lock
+    {
+        return Cache::lock("invoice-selected:{$clientId}", 600);
+    }
 
     /** Protected this long by a paid line that is not applied (then the usual rules, after a notice every day). */
     public const PAID_NOT_APPLIED_DAYS = 30;
@@ -82,6 +98,10 @@ final class RenewalBilling
         if ($service->plan === null) {
             $this->notices["invoices_created #{$id}"] = new DisplayException("Service #{$id} has no plan: not billed (set its plan).");
 
+            return 0;
+        }
+        // One-time or free (D7a adversarial ADV-1): no next period to bill, even with an expiry (imported, or set by staff).
+        if (in_array($service->plan->type, ['one-time', 'free'], true)) {
             return 0;
         }
 
@@ -180,7 +200,8 @@ final class RenewalBilling
         // at once, not when the rest of a group is paid.
         $key = RecordPaymentService::toCents($price) * (int) $service->quantity > 0 ? $this->renewalGroupKey($service, $periodStart) : null;
         // Lock order: the service (above), then its group's invoice, as for every line of the group; the services of a
-        // group are billed one after another, never two at once (one cron run at a time).
+        // group are billed one after another, never two at once (one cron run at a time; a group is this instance's own,
+        // the cron's or one «Invoice selected items» run's).
         $invoice = $key !== null && isset($this->renewalGroups[$key])
             ? (new RecordPaymentService)->lockInvoice($this->renewalGroups[$key]) : null;
         if ($invoice !== null && ($invoice->status !== Invoice::STATUS_UNPAID || $invoice->finish_pending_at === null
@@ -418,6 +439,14 @@ final class RenewalBilling
                     if ($invoice->finish_pending_at === null) {
                         return;
                     }
+                    // Still being filled by staff (D7a review F2): theirs to finish, now; else a leftover, finished here.
+                    if (!in_array($id, $this->made, true)) {
+                        $guard = self::selectingLock((int) $invoice->client_id);
+                        if (!$guard->get()) {
+                            return;
+                        }
+                        $guard->release();
+                    }
                     $invoice->forceFill(['finish_pending_at' => null])->saveQuietly();
                     if ($invoice->status !== Invoice::STATUS_UNPAID) {
                         return; // staff cancelled or settled it meanwhile
@@ -434,6 +463,9 @@ final class RenewalBilling
                         ->orderBy('id')->first();
                     $subscription = (string) $service?->subscription_id !== '';
                     $agreement = $subscription ? null : $invoice->client?->autoChargeAgreement();
+                    if (!$this->creditOnFinish) {
+                        return;
+                    }
                     try {
                         DB::transaction(fn () => $this->payInvoiceWithCredits($invoice, $subscription, notify: $agreement === null));
                     } catch (Throwable $e) {
