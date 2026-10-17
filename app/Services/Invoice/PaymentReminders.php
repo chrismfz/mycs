@@ -8,6 +8,7 @@ use App\Helpers\NotificationHelper;
 use App\Models\Credit;
 use App\Models\Domain;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Services\Domains\DomainReminders;
 use App\Services\Payment\AutoCharge;
@@ -197,7 +198,10 @@ class PaymentReminders
             return true;
         }
 
-        // A domain renewal is charged too (D5b, review 9): alive, renewing.
+        // A domain renewal is charged too (D5b, review 9): alive, renewing. Not a new domain's order (D8b, code review M1).
+        if ($invoice->items()->where('reference_type', Domain::class)->whereIn('kind', [InvoiceItem::KIND_REGISTER, InvoiceItem::KIND_TRANSFER])->exists()) {
+            return false;
+        }
         $domains = Domain::query()->whereIn('id', $invoice->items()->where('reference_type', Domain::class)->select('reference_id'))->get();
 
         return ($services->isNotEmpty() || $domains->isNotEmpty()) && AutoCharge::agreementFor($invoice) !== null

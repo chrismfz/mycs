@@ -26,6 +26,11 @@ class InvoiceItem extends Model implements Auditable
     /** Asked for when made (the Admin API): «this is the domain's renewal, give it its period». Never stored. */
     public const KIND_RENEWAL = 'renewal';
 
+    /** A domain's registration and transfer (D8b): what its payment starts at the registrar, never a renewal. */
+    public const KIND_REGISTER = 'register';
+
+    public const KIND_TRANSFER = 'transfer';
+
     /** The fees of a domain's stage (D5b-1): the only kinds that change into each other (grace's into redemption's). */
     public const STAGE_FEES = ['grace_fee', 'redemption_fee'];
 

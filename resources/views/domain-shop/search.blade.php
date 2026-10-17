@@ -38,12 +38,17 @@
                 @endif
             </div>
             @if ($row['status'] === \App\Services\Domains\DomainSearch::FREE)
-            <div class="sm:text-right">
-                <p class="font-semibold">{{ __('domains.shop.per_year', ['price' => $money($row['price'])]) }}</p>
-                @if ($row['renew'])
-                <p class="text-xs text-base/60">{{ __('domains.shop.then', ['price' => $money($row['renew'])]) }}</p>
-                @endif
+            <div class="flex items-center gap-4 sm:text-right">
+                <div>
+                    <p class="font-semibold">{{ __('domains.shop.per_year', ['price' => $money($row['price'])]) }}</p>
+                    @if ($row['renew'])
+                    <p class="text-xs text-base/60">{{ __('domains.shop.then', ['price' => $money($row['renew'])]) }}</p>
+                    @endif
+                </div>
+                <x-button.primary class="!w-fit" wire:click="add('{{ $row['fqdn'] }}')" wire:loading.attr="disabled">{{ __('domains.order.add') }}</x-button.primary>
             </div>
+            @elseif ($row['status'] === \App\Services\Domains\DomainSearch::TAKEN)
+            <button type="button" class="text-sm underline" wire:click="transfer('{{ $row['fqdn'] }}')">{{ __('domains.order.transfer_it') }}</button>
             @endif
         </div>
         @endforeach

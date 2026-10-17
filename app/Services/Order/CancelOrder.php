@@ -2,10 +2,12 @@
 
 namespace App\Services\Order;
 
+use App\Enums\DomainStatus;
 use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Jobs\Server\TerminateJob;
+use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\Order;
@@ -43,8 +45,11 @@ final class CancelOrder
         }
         $reason = __('invoices.cancellation_reasons.order_cancelled');
 
-        $services = DB::transaction(function () use ($order, $terminate, $fraud) {
+        [$services, $domains] = DB::transaction(function () use ($order, $terminate, $fraud) {
             $live = Service::query()->where('order_id', $order->id)->orderBy('id')->lockForUpdate()->get();
+            // Its domains not registered or transferred yet (D8b, code review H2): cancelled with it, the name free again.
+            $pending = Domain::query()->where('order_id', $order->id)->orderBy('id')
+                ->whereIn('status', [DomainStatus::PendingRegister->value, DomainStatus::PendingTransfer->value])->lockForUpdate()->get();
             $locked = Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
             $locked->forceFill(['status' => $fraud ? Order::STATUS_FRAUD : Order::STATUS_CANCELLED])->save();
             $order->setRawAttributes($locked->getAttributes(), true);
@@ -64,8 +69,11 @@ final class CancelOrder
                 }
                 $ended[] = $service;
             }
+            foreach ($pending as $domain) {
+                $domain->update(['status' => DomainStatus::Cancelled]);
+            }
 
-            return $ended;
+            return [$ended, $pending->all()];
         });
 
         // The refund first: an open invoice paid in part holds money CancelOpenInvoices would leave open.
@@ -73,6 +81,11 @@ final class CancelOrder
         foreach ($services as $service) {
             $left += CancelOpenInvoices::handle($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), $reason, $service);
             $left += CancelPendingUpgrades::forService($service, $reason);
+        }
+        foreach ($domains as $domain) {
+            $open = Invoice::query()->whereIn('status', Invoice::OPEN_STATUSES)
+                ->whereHas('items', fn ($line) => $line->where('reference_type', Domain::class)->where('reference_id', $domain->id))->get();
+            $left += CancelOpenInvoices::handle($open, $reason, $domain);
         }
 
         return $left;
@@ -85,9 +98,13 @@ final class CancelOrder
         if ($invoice === null) {
             return []; // nothing was billed with it (a free order)
         }
+        // Its own lines: its services' and its domains' (D8b, code review H2).
         $ours = Service::query()->where('order_id', $order->id)->pluck('id')->all();
-        $others = $invoice->items()->where(fn ($items) => $items->where('reference_type', '!=', Service::class)
-            ->orWhereNull('reference_type')->orWhereNotIn('reference_id', $ours))->exists();
+        $ourDomains = Domain::query()->where('order_id', $order->id)->pluck('id')->all();
+        $others = $invoice->items()->where(fn ($items) => $items->whereNull('reference_type')
+            ->orWhere(fn ($q) => $q->whereNotIn('reference_type', [Service::class, Domain::class]))
+            ->orWhere(fn ($q) => $q->where('reference_type', Service::class)->whereNotIn('reference_id', $ours ?: [0]))
+            ->orWhere(fn ($q) => $q->where('reference_type', Domain::class)->whereNotIn('reference_id', $ourDomains ?: [0])))->exists();
         if ($others) {
             return ["refund #{$invoice->id}" => new DisplayException("Invoice #{$invoice->id} also bills something else: refund its part by hand.")];
         }

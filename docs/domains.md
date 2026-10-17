@@ -50,7 +50,7 @@
 | D-19 | **ΦΠΑ στα domains** (`TaxDomains=on` και στα δύο). | έλεγχος WHMCS· `sweeps/billing.md` |
 | D-20 | **Staff:** to-do για ό,τι θέλει χειροκίνητη ενέργεια (`DomainToDoListEntries`), admin emails «Renewal Successful/Failed», ημερήσια λίστα domains που λήγουν σύντομα (σήμερα μόνο .eu, 10 μέρες· γενικά ανά TLD). Registrar admin contact = τα στοιχεία του πελάτη. | έλεγχος WHMCS |
 | D-21 | **Συνδέσεις registrar:** δικό τους μοντέλο και πίνακας (ο registrar **δεν** είναι extension). Τα credentials αποθηκεύονται ως κρυπτογραφημένα `Setting` της σύνδεσης (`settingable`), όπως των extensions: κρυπτογράφηση, καθαρισμός από τα logs (`Redact`), απόκρυψη στο audit, ποτέ πίσω στη φόρμα. Mode off/sandbox/production, «Test Connection», σύνδεση `manual` χωρίς API. Δεν σβήνεται όσο τη χρησιμοποιεί TLD ή domain. | ιδιοκτήτης· sweep |
-| D-22 | **Ό,τι ξέρει ο registrar φαίνεται και διορθώνεται από το MyCS** (2026-10-16), ώστε να μη χρειάζεται το panel του: στο view όλα όσα φέρνει το API (status και id εκεί, ημερομηνίες, lock/lockable, privacy, DNSSEC, auto-renew εκεί, glue, handles), και ενέργειες για nameservers, lock, privacy, επαφές ανά ρόλο, EPP code (ποτέ αποθηκευμένο), επαφές όπως τις έχει ο registrar· admin notes και auto-renew εδώ. Κάθε κλήση με lock ανά domain και log με ποιος τη ζήτησε. | ιδιοκτήτης |
+| D-22 | **Ό,τι ξέρει ο registrar φαίνεται και διορθώνεται από το MyCS** (2026-10-16), ώστε να μη χρειάζεται το panel του: στο view όλα όσα φέρνει το API (status και id εκεί, ημερομηνίες, lock/lockable, privacy, DNSSEC, auto-renew εκεί, glue, handles), και ενέργειες για nameservers, lock, privacy, επαφές ανά ρόλο, EPP code (ποτέ αποθηκευμένο ο κωδικός που διαβάζεται από τον registrar· ο κωδικός **μεταφοράς** που δίνει ο πελάτης αποθηκεύεται κρυπτογραφημένος και το staff τον βλέπει στην παραγγελία, όπως στο WHMCS, για debugging: ιδιοκτήτης 2026-10-17, D8b), επαφές όπως τις έχει ο registrar· admin notes και auto-renew εδώ. Κάθε κλήση με lock ανά domain και log με ποιος τη ζήτησε. | ιδιοκτήτης |
 
 ## 2a. Πώς δουλεύουν σήμερα τα δύο WHMCS (έλεγχος μόνο ανάγνωσης, 2026-10-16)
 Μόνο ρυθμίσεις και αθροιστικά· κανένα στοιχείο πελάτη. Ό,τι αλλάζει απόφαση είναι ήδη στο §2.
@@ -439,6 +439,19 @@
      ανά 10′. Μενού «Αναζήτηση domain» όταν υπάρχουν ενεργά TLDs. Οι τιμές σε νόμισμα του επισκέπτη· χωρίς τιμές σε αυτό,
      μήνυμα. Επόμενα: **προτάσεις ονομάτων** (Openprovider `suggest-name`, `history/blesta-modules/domain-tools.md`) και το
      κουμπί «Προσθήκη» (D8b).
+   - **D8b-1 έγινε** (η παραγγελία): «Προσθήκη» (ελεύθερο) και «Είναι δικό σας; Μεταφέρετέ το» (κατειλημμένο) από την
+     αναζήτηση → γραμμή domain στο καλάθι (`cart_items.domain`: όνομα, TLD, πράξη, έτη· τα έτη όσα τιμολογεί το TLD για
+     την πράξη, D-5· ο κωδικός EPP χωριστά, κρυπτογραφημένος) → στο checkout ο **registrant** (η κύρια επαφή, ή άλλη του
+     λογαριασμού με πλήρη στοιχεία· η ίδια και στους άλλους ρόλους, D-20) → `PlaceOrderService` ξαναελέγχει (`DomainOffer`:
+     TLD, τιμή, ελεύθερο για εγγραφή / κατειλημμένο για μεταφορά, όχι δικό μας ήδη, IDN μόνο όπου επιτρέπεται, EPP όπου
+     απαιτείται) και φτιάχνει domain `pending_register`/`pending_transfer` της παραγγελίας (`order_id`) με γραμμή
+     τιμολογίου **`kind` register / transfer** (ποτέ ανανέωση: εκτός `waitingLines`/`billedLine`), καθαρή τιμή (ΦΠΑ D-19)·
+     σε μηδενική τιμή (δωρεάν μεταφορά, D-6) χωρίς γραμμή. Απλήρωτη παραγγελία μετά από `cronjob_order_cancel` μέρες:
+     domain cancelled, οι γραμμές του από το τιμολόγιο, το όνομα ελεύθερο ξανά. **Ο registrant** και **οι NS** (ιδιοκτήτης
+     2026-10-17): η μεταφορά κρατά τους NS που έχει (από το μητρώο, RDAP)· η εγγραφή παίρνει τους default της εταιρείας
+     (ρύθμιση, D8b-2)· ο πελάτης τους αλλάζει από το portal.
+   - **D8b-2 (επόμενο):** μετά την πληρωμή εγγραφή/μεταφορά στον registrar (lock, log, ποτέ δύο φορές, Pending Module
+     Actions `domain_register`/`domain_transfer`), default nameservers, emails.
    - **D8b (χρήματα):** register/transfer στο καλάθι (έτη του TLD, EPP code στη μεταφορά), τιμολόγιο, εγγραφή/μεταφορά
      μετά την πληρωμή. Code + adversarial.
    - **Whois ανά TLD (μητρώο), όχι ανά registrar** (ιδιοκτήτης 2026-10-17): «είναι διαθέσιμο;» → η σύνδεση registrar

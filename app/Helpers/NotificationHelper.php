@@ -403,7 +403,9 @@ class NotificationHelper
         $data = [
             'order' => $order,
             'items' => $order->services,
+            // What the order costs: its invoice's total when it has one (its domains too, D8b code review M3).
             'total' => $order->formattedTotal,
+            'domains' => $order->domains->pluck('fqdn')->implode(', '),
         ];
         self::toAccount($client, 'new_order_created', $data);
     }

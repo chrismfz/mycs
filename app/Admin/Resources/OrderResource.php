@@ -7,6 +7,7 @@ use App\Admin\Components\ClientComponent;
 use App\Admin\Resources\OrderResource\Pages\CreateOrder;
 use App\Admin\Resources\OrderResource\Pages\EditOrder;
 use App\Admin\Resources\OrderResource\Pages\ListOrders;
+use App\Admin\Resources\OrderResource\RelationManagers\DomainRelationManager;
 use App\Admin\Resources\OrderResource\RelationManagers\ServiceRelationManager;
 use App\Models\Client;
 use App\Models\Currency;
@@ -277,6 +278,7 @@ class OrderResource extends Resource
     {
         return [
             ServiceRelationManager::class,
+            DomainRelationManager::class,
         ];
     }
 

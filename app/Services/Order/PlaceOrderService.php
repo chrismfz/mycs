@@ -2,20 +2,26 @@
 
 namespace App\Services\Order;
 
+use App\Enums\DomainStatus;
 use App\Events\Service\Ordered;
 use App\Exceptions\CouponUnusableException;
 use App\Exceptions\DisplayException;
 use App\Models\Client;
 use App\Models\ConfigOption;
 use App\Models\Coupon;
+use App\Models\Domain;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Service;
+use App\Services\Domains\Ordering\DomainOffer;
+use App\Services\Domains\Ordering\DomainOrderLine;
 use App\Services\Service\RenewServiceService;
 use Brick\Math\BigDecimal;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use MyCS\Pricing\LinePrice;
 
@@ -31,13 +37,14 @@ final class PlaceOrderService
      * @param  list<OrderLine>  $lines
      * @param  string  $invoiceStatus  unpaid, or draft for staff when invoices are immutable once issued
      * @param  string|null  $notes  the order's notes (the customer's at checkout, or staff's): WHMCS «Order Notes»
+     * @param  list<DomainOrderLine>  $domains  domains to register or transfer (D8b)
      *
      * @throws DisplayException when a product cannot be ordered (no price in the currency, out of stock, over its
      *                          per-account limit) or the coupon cannot be used ({@see CouponUnusableException})
      */
-    public function place(Client $client, string $currency, array $lines, ?Coupon $coupon = null, ?CarbonInterface $dueAt = null, string $invoiceStatus = Invoice::STATUS_UNPAID, ?string $notes = null): PlacedOrder
+    public function place(Client $client, string $currency, array $lines, ?Coupon $coupon = null, ?CarbonInterface $dueAt = null, string $invoiceStatus = Invoice::STATUS_UNPAID, ?string $notes = null, array $domains = []): PlacedOrder
     {
-        if ($lines === []) {
+        if ($lines === [] && $domains === []) {
             throw new DisplayException(__('Your cart is empty'));
         }
         foreach ($lines as $line) {
@@ -55,7 +62,7 @@ final class PlaceOrderService
 
         $notes = $notes === null ? null : (trim($notes) === '' ? null : trim($notes));
 
-        return DB::transaction(function () use ($client, $currency, $lines, $coupon, $dueAt, $invoiceStatus, $notes) {
+        return DB::transaction(function () use ($client, $currency, $lines, $coupon, $dueAt, $invoiceStatus, $notes, $domains) {
             // The account's row first, as every payment path locks it (no lock-order deadlock).
             Client::lock($client->id);
             $couponGiven = $coupon !== null;
@@ -124,12 +131,74 @@ final class PlaceOrderService
                 }
             }
 
+            foreach ($domains as $line) {
+                $invoice = $this->placeDomain($order, $client, $currency, $line, $invoice, $dueAt, $invoiceStatus);
+            }
+
             if ($invoice !== null) {
                 $order->forceFill(['invoice_id' => $invoice->id])->save(); // its own invoice (Σ1-b2: Cancel & Refund)
             }
 
             return new PlacedOrder($order, $invoice);
         });
+    }
+
+    /**
+     * A domain of the order (D8b): checked again as when it was added (the TLD sold, its price for the years, the name
+     * not ours already: a register free, a transfer taken), then pending (pending_register / pending_transfer) with its
+     * registrant (the other roles: the account's primary contact, D-20), its years, its TLD's registrar and, for a transfer, the EPP
+     * code the customer gave. Its line (kind register / transfer, never a renewal) bills it at the catalog price, net of
+     * VAT (D-19); one at no price (a free transfer, D-6) has none and waits for its registrar like the others (D8b-2).
+     */
+    private function placeDomain(Order $order, Client $client, string $currency, DomainOrderLine $line, ?Invoice $invoice, ?CarbonInterface $dueAt, string $invoiceStatus): ?Invoice
+    {
+        if ((int) $line->registrant->client_id !== (int) $client->id || !$line->registrant->isCompleteFor('domain')) {
+            throw new DisplayException(__('domains.order.contact_incomplete'));
+        }
+        // Under the account's lock: only what the database says (the TLD, its price, the name not ours). Whether the name
+        // is free or taken was asked of its registrar before the lock (code review M2): never a registrar call while
+        // every payment of the account waits.
+        [$fqdn, $tld] = app(DomainOffer::class)->check($line->fqdn, $line->operation, $line->years, $currency, availability: false);
+        if ($line->operation === DomainOrderLine::TRANSFER && $tld->epp_code_required && trim((string) $line->eppCode) === '') {
+            throw new DisplayException(__('domains.order.epp_required', ['domain' => $fqdn]));
+        }
+        $price = (string) $tld->priceFor($line->operation, $line->years, $currency);
+        [$sld] = explode('.', $fqdn, 2);
+        try {
+            $domain = Domain::query()->create([
+                'client_id' => $client->id, 'order_id' => $order->id, 'domain_tld_id' => $tld->id,
+                'registrar_connection_id' => $tld->registrar_connection_id,
+                'sld' => $sld, 'tld' => $tld->tld, 'fqdn' => $fqdn,
+                'status' => $line->operation === DomainOrderLine::REGISTER ? DomainStatus::PendingRegister : DomainStatus::PendingTransfer,
+                'years' => $line->years, 'currency_code' => $currency, 'auto_renew' => true,
+                // The owner as chosen; the account's own details for the other roles (D-20, code review L6).
+                'registrant_contact_id' => $line->registrant->id, 'admin_contact_id' => $client->ensurePrimaryContact()->id,
+                'tech_contact_id' => $client->ensurePrimaryContact()->id, 'billing_contact_id' => $client->ensurePrimaryContact()->id,
+                'epp_code' => $line->operation === DomainOrderLine::TRANSFER ? trim((string) $line->eppCode) : null,
+            ]);
+        } catch (UniqueConstraintViolationException) {
+            throw new DisplayException(__('domains.order.already_here', ['domain' => $fqdn])); // ordered a moment ago
+        }
+        $net = OrderPricing::toNet($price, $client);
+        if (!BigDecimal::of($net)->isPositive()) {
+            return $invoice;
+        }
+        $invoice ??= Invoice::query()->create([
+            'client_id' => $client->id,
+            'due_at' => $dueAt ?? now()->addDays(7),
+            'currency_code' => $currency,
+            'status' => $invoiceStatus,
+        ]);
+        $invoice->items()->create([
+            'reference_id' => $domain->id,
+            'reference_type' => Domain::class,
+            'kind' => $line->operation === DomainOrderLine::REGISTER ? InvoiceItem::KIND_REGISTER : InvoiceItem::KIND_TRANSFER,
+            'price' => $net,
+            'quantity' => 1,
+            'description' => trans_choice('domains.order.line_' . $line->operation, $line->years, ['domain' => $fqdn, 'years' => $line->years]),
+        ]);
+
+        return $invoice;
     }
 
     /** @param  list<OrderLine>  $lines */

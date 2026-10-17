@@ -9,9 +9,14 @@ use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\Cart as CartModel;
 use App\Models\Client;
+use App\Models\Contact;
+use App\Models\DomainTld;
+use App\Services\Domains\Ordering\DomainOffer;
+use App\Services\Domains\Ordering\DomainOrderLine;
 use App\Services\Order\OrderLine;
 use App\Services\Order\PlaceOrderService;
 use App\Support\CurrentClient;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Locked;
@@ -33,8 +38,15 @@ class Cart extends Component
     /** The order's notes (WHMCS «Order Notes»): for staff, on the order. */
     public $notes = '';
 
+    /** Who owns the domains ordered (D8b, owner 2026-10-17): the account's primary contact unless another is chosen. */
+    public ?int $registrant = null;
+
+    /** @var array<int, string> a transfer's EPP code by cart item, as typed (saved on checkout and when it changes) */
+    public array $epp = [];
+
     public function mount()
     {
+        $this->registrant = Auth::check() ? CurrentClient::model()?->primaryContact?->id : null;
         if (ClassesCart::get()->coupon_id) {
             $this->coupon = ClassesCart::get()->coupon;
         }
@@ -98,6 +110,35 @@ class Cart extends Component
         $this->updateTotal();
     }
 
+    /** A domain's years (D8b): one of those its TLD prices for the operation. */
+    public function updateDomainYears(int $id, int $years): void
+    {
+        try {
+            ClassesCart::updateDomain($id, $years, null);
+        } catch (DisplayException $e) {
+            $this->notify($e->getMessage(), 'error');
+        }
+        $this->updateTotal();
+    }
+
+    /** A transfer's EPP code, kept on its cart item (encrypted) as typed. */
+    public function updatedEpp($value, $id): void
+    {
+        // One code for one item, or the whole map at once (adversarial ADV-5: never a 500).
+        $codes = $id === null ? (is_array($value) ? $value : []) : [$id => $value];
+        foreach ($codes as $item => $code) {
+            if (is_string($code) || is_int($code)) {
+                ClassesCart::updateDomain((int) $item, null, (string) $code);
+            }
+        }
+    }
+
+    /** @return Collection<int, Contact> the account's contacts a domain may belong to */
+    public function registrantOptions(): Collection
+    {
+        return Auth::check() ? (CurrentClient::model()?->contacts()->active()->orderBy('id')->get() ?? collect()) : collect();
+    }
+
     // Checkout
     public function checkout()
     {
@@ -121,6 +162,12 @@ class Cart extends Component
         }
 
         try {
+            // Each domain free (to register) or taken (to transfer), asked of its registrar before the account is locked
+            // (code review M2 of #179); the rest is checked again under the lock.
+            foreach (ClassesCart::items()->filter(fn ($item) => $item->isDomain()) as $item) {
+                app(DomainOffer::class)->check($item->domain['fqdn'], $item->domain['operation'],
+                    (int) $item->domain['years'], (string) ClassesCart::get()->currency_code);
+            }
             $placed = DB::transaction(function () {
                 // The order is the current account's; a login without any account gets its own here (WHMCS opens the
                 // client account at checkout). Its row first, as every payment path locks it (no lock-order deadlock).
@@ -134,11 +181,29 @@ class Cart extends Component
                     throw new DisplayException(__('Your cart is empty'));
                 }
 
-                $lines = $cart->items->map(fn ($item) => new OrderLine(
+                $lines = $cart->items->reject(fn ($item) => $item->isDomain())->map(fn ($item) => new OrderLine(
                     $item->product, $item->plan, (int) $item->quantity, $item->config_options ?? [], $item->checkout_config ?? [],
-                ))->all();
+                ))->values()->all();
+                // Domains (D8b): owned by the contact chosen, one of the account's, with its details complete.
+                $domainItems = $cart->items->filter(fn ($item) => $item->isDomain());
+                $domains = [];
+                if ($domainItems->isNotEmpty()) {
+                    $registrant = $this->registrant === null ? $client->ensurePrimaryContact()
+                        : $client->contacts()->active()->whereKey($this->registrant)->first();
+                    if ($registrant === null) {
+                        throw new DisplayException(__('domains.order.contact_incomplete'));
+                    }
+                    foreach ($domainItems as $item) {
+                        $tld = DomainTld::query()->with('prices')->find($item->domain['tld_id']);
+                        if ($tld === null) {
+                            throw new DisplayException(__('domains.order.not_offered'));
+                        }
+                        $domains[] = new DomainOrderLine($item->domain['fqdn'], $tld, $item->domain['operation'], (int) $item->domain['years'],
+                            $registrant, $this->epp[$item->id] ?? $item->epp_code);
+                    }
+                }
                 // Priced and invoiced here, from the lines as they are now (CART-7), not from the total on the page.
-                $placed = (new PlaceOrderService)->place($client, $cart->currency_code, $lines, $cart->coupon, notes: $this->notes);
+                $placed = (new PlaceOrderService)->place($client, $cart->currency_code, $lines, $cart->coupon, notes: $this->notes, domains: $domains);
                 $cart->delete();
 
                 return $placed;
@@ -161,6 +226,9 @@ class Cart extends Component
         // The cart row is gone; this drops its cookie.
         ClassesCart::clear();
 
+        if ($placed->invoice === null && $placed->order->services()->doesntExist()) {
+            return $this->redirect(route('domains'), true); // only domains, nothing to pay (a free transfer)
+        }
         if ($placed->invoice === null) {
             // Nothing to pay: one service goes to its page, more to the list.
             if ($placed->order->services()->count() === 1) {
