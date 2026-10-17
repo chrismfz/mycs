@@ -6,6 +6,8 @@ use App\Enums\AdjustmentNoteStatus;
 use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\DisplayException;
 use App\Models\AdjustmentNote;
+use App\Models\Domain;
+use App\Models\DomainRegistrarLog;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Service;
@@ -21,7 +23,7 @@ use Throwable;
  * payment locks (MT-2b): it gets its cancellation credit note and an audit row, and a payment landing at the same
  * moment is seen. Account credit paid on it goes back to the customer first (MT-1e: credit is also applied in part).
  *
- * With $onlyFor (a service, or one upgrade), line by line (audit sweep SVC-4): an invoice that also bills other services
+ * With $onlyFor (a service, one upgrade, or a domain that is lost: D7, its renewal and stage fee lines), line by line (audit sweep SVC-4): an invoice that also bills other services
  * or upgrades loses only its lines and stays open for the rest. Their removal is in the audit (InvoiceItem, deleted).
  * Credit on it keeps paying the rest; only what is more than the rest goes back.
  *
@@ -38,13 +40,13 @@ final class CancelOpenInvoices
     /**
      * @param  iterable<Invoice>  $invoices
      * @param  string  $reason  the cancellation note's description (lang/*\/invoices.php, cancellation_reasons)
-     * @param  Service|ServiceUpgrade|null  $onlyFor  cancel only its part of each invoice (a service: its renewals and upgrades)
+     * @param  Service|ServiceUpgrade|Domain|null  $onlyFor  cancel only its part of each invoice (a service: its renewals and upgrades; a domain: its renewals and stage fees)
      * @return array<string, Throwable> what was left open or failed, by invoice («invoice_cancelled #id»)
      *
      * @throws Throwable inside a caller's transaction: a failure (a deadlock rolled the caller's work back already)
      *                   is the caller's, never swallowed here
      */
-    public static function handle(iterable $invoices, string $reason, Service|ServiceUpgrade|null $onlyFor = null): array
+    public static function handle(iterable $invoices, string $reason, Service|ServiceUpgrade|Domain|null $onlyFor = null): array
     {
         $nested = DB::transactionLevel() > 0;
         $failures = [];
@@ -93,7 +95,7 @@ final class CancelOpenInvoices
     }
 
     /** Cancel the invoice, or the lines of $onlyFor on it. Returns why it stays open for staff, or null. */
-    private static function cancel(int $id, string $reason, Service|ServiceUpgrade|null $onlyFor): ?string
+    private static function cancel(int $id, string $reason, Service|ServiceUpgrade|Domain|null $onlyFor): ?string
     {
         // Customer, then invoice: the payment paths' order. A payment that got here first is seen below.
         $invoice = (new RecordPaymentService)->lockInvoice($id);
@@ -120,7 +122,11 @@ final class CancelOpenInvoices
             return 'it has imported lines (a domain, an addon) whose item is not known: cancel it, or its lines, by hand.';
         }
         [$own, $others] = [$items, collect()];
-        $what = $onlyFor instanceof Service ? "service #{$onlyFor->id}" : "upgrade #{$onlyFor?->id}";
+        $what = match (true) {
+            $onlyFor instanceof Service => "service #{$onlyFor->id}",
+            $onlyFor instanceof Domain => "domain {$onlyFor->fqdn}",
+            default => "upgrade #{$onlyFor?->id}",
+        };
         if ($onlyFor !== null) {
             [$own, $others, $loose] = self::split($items, $onlyFor);
             if ($own->isEmpty()) {
@@ -132,6 +138,12 @@ final class CancelOpenInvoices
             if ($others->isEmpty()) {
                 $own = $items; // nothing else on it: the whole invoice goes
             }
+        }
+        // A domain renewed (or restored) at its registrar on this invoice before it was paid («Renew now», D-1; review F1 /
+        // adversarial ADV-1 of #175), or whose charge has no answer yet: we paid the registry for it, it is owed.
+        if ($onlyFor instanceof Domain && DomainRegistrarLog::query()->where('domain_id', $onlyFor->id)->where('invoice_id', $invoice->id)
+            ->whereIn('action', ['renew', 'restore'])->whereIn('status', [DomainRegistrarLog::STATUS_OK, DomainRegistrarLog::STATUS_PENDING])->exists()) {
+            return "{$what} was renewed at its registrar on it (or the charge has no answer yet): it is owed, staff decide.";
         }
         // A period already delivered (its payment was taken off after it renewed the service) is a debt, not an
         // open offer: cancelling it would give that period away without anyone deciding so.
@@ -180,8 +192,18 @@ final class CancelOpenInvoices
      * @param  Collection<int, InvoiceItem>  $items
      * @return array{0: Collection<int, InvoiceItem>, 1: Collection<int, InvoiceItem>, 2: Collection<int, InvoiceItem>}
      */
-    private static function split(Collection $items, Service|ServiceUpgrade $onlyFor): array
+    private static function split(Collection $items, Service|ServiceUpgrade|Domain $onlyFor): array
     {
+        // A domain's own (D7): its renewals and the fees of its grace or redemption; a «charge» on it (an owner change)
+        // is not given up with it: staff decide.
+        // A line with no reference is not a domain's (adversarial ADV-2 of #175: a domain has no setup fee or promotion):
+        // it stays with the rest.
+        if ($onlyFor instanceof Domain) {
+            $own = $items->filter(fn (InvoiceItem $line) => $line->reference_type === Domain::class && (int) $line->reference_id === (int) $onlyFor->id
+                && $line->kind !== InvoiceItem::KIND_CHARGE);
+
+            return [$own->values(), $items->diffKeys($own)->values(), collect()];
+        }
         $upgrades = $onlyFor instanceof Service
             ? ServiceUpgrade::query()->where('service_id', $onlyFor->id)->pluck('id')->map(fn ($id) => (int) $id)
             : collect([(int) $onlyFor->id]);

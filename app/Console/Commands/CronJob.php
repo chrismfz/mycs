@@ -159,6 +159,39 @@ class CronJob extends Command
                 return $number;
             }, transaction: false);
 
+            // A domain lost for good (D7, owner 2026-10-17: deleted at its registry, moved away, or ended by staff): the open
+            // invoices of its renewal are cancelled, as myip's hook did after 30 days, now when it is known to be lost.
+            // Before the credit step, so credit paid on them goes back and pays what is still owed.
+            $this->runCronJob('domain_invoices_cancelled', function ($number = 0) {
+                $own = fn ($line) => $line->where(fn ($q) => $q->whereNull('kind')->orWhere('kind', '!=', InvoiceItem::KIND_CHARGE));
+                $reasons = collect(['en', 'el'])->map(fn (string $locale) => (string) trans('invoices.cancellation_reasons.domain_lost', [], $locale))->all();
+                $lost = Domain::query()->whereIn('status', DomainStatus::terminalValues())
+                    ->whereHas('invoiceItems', fn ($line) => $own($line)->whereHas('invoice', fn ($invoice) => $invoice->whereIn('status', Invoice::OPEN_STATUSES)))
+                    ->get();
+                foreach ($lost as $domain) {
+                    // Read again (adversarial ADV-3): one restored meanwhile keeps its invoice. Deleted counts as lost only
+                    // past its last recoverable day (review F2: the registrar may still restore it by hand until then).
+                    $domain = $domain->fresh();
+                    if ($domain === null || !$domain->status->isTerminal() || ($domain->status === DomainStatus::Deleted && !self::pastRecovery($domain))) {
+                        continue;
+                    }
+                    // Not one staff reopened after this cancelled it (ADV-6): theirs to decide, not cancelled every night.
+                    $invoices = Invoice::query()->whereIn('status', Invoice::OPEN_STATUSES)
+                        ->where(fn ($q) => $q->whereNull('cancellation_reason')->orWhereNotIn('cancellation_reason', $reasons))
+                        ->whereHas('items', fn ($line) => $own($line->where('reference_type', Domain::class)->where('reference_id', $domain->id)))->get();
+                    $left = CancelOpenInvoices::handle($invoices, __('invoices.cancellation_reasons.domain_lost'), $domain);
+                    // One kept open for staff (it holds money, it was renewed at the registrar): told once a month per
+                    // reason, not every night (review F6).
+                    $this->leftOpen(array_filter($left, fn ($reason, $key) => !$reason instanceof DisplayException
+                        || Cache::add('domain-lost-left-open:' . $key . ':' . sha1($reason->getMessage()), true, now()->addDays(30)), ARRAY_FILTER_USE_BOTH));
+                    // What was done (ADV-4, F5): cancelled, or the domain's lines taken off.
+                    $number += Invoice::query()->whereKey($invoices->pluck('id'))->where(fn ($q) => $q->where('status', Invoice::STATUS_CANCELLED)
+                        ->orWhereDoesntHave('items', fn ($line) => $own($line->where('reference_type', Domain::class)->where('reference_id', $domain->id))))->count();
+                }
+
+                return $number;
+            }, transaction: false);
+
             // Credit pays what is open, oldest due first, before new renewals take it and before anything is suspended
             // (decision 5, MT-1e): a customer with credit is not suspended while it sits unused. Each invoice in its own
             // transaction, under the payment locks.
@@ -673,6 +706,22 @@ class CronJob extends Command
             $running = Service::query()->whereIn('id', $others)->where('status', '!=', Service::STATUS_PENDING)->exists();
             $this->cancelInvoices([$invoice], __('invoices.cancellation_reasons.unpaid_order'), $running ? $service : null);
         }
+    }
+
+    /**
+     * A deleted domain past its last recoverable day (review F2 of #175): the end of its redemption, else of its grace,
+     * else its expiry plus its TLD's (or its own) days, and never sooner than 30 days after its expiry (myip's hook).
+     */
+    private static function pastRecovery(Domain $domain): bool
+    {
+        if ($domain->expires_at === null) {
+            return true;
+        }
+        $last = $domain->redemptionEndsOn() ?? $domain->graceEndsOn()
+            ?? $domain->expires_at->copy()->addDays((int) $domain->graceDays() + (int) $domain->redemptionDays());
+        $floor = $domain->expires_at->copy()->addDays(30);
+
+        return ($last->greaterThan($floor) ? $last : $floor)->copy()->startOfDay()->lessThan(today());
     }
 
     /**
