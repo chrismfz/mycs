@@ -2,12 +2,14 @@
 
 namespace App\Services\Invoice;
 
+use App\Jobs\Domains\RenewDomainJob;
 use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Services\Service\RenewServiceService;
 use App\Services\ServiceUpgrade\ServiceUpgradeService;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 class ProcessPaidInvoiceService
@@ -23,10 +25,14 @@ class ProcessPaidInvoiceService
         $failures = [];
         $invoice->items->each(function ($item) use (&$failures) {
             try {
-                // A domain's renewal line (D5b) is left as it is: its applied_at stays null until its registrar renews it
-                // (D5b-2 looks for paid domain lines not applied). Not this invoice's marker (review 1: that one would be
-                // retried, and its Paid event sent again, every day).
+                // A domain's renewal (D5b-2): renewed at its registrar by a job, after this commit; its line applied there
+                // (applied_at), never here, and never this invoice's marker (D5b-1 review 1). Fees have nothing to do.
                 if ($item->reference_type == Domain::class) {
+                    if ($item->kind === null && $item->period_end !== null && $item->applied_at === null) {
+                        $lineId = (int) $item->id;
+                        DB::afterCommit(fn () => RenewDomainJob::dispatch($lineId));
+                    }
+
                     return;
                 }
                 if ($item->reference_type == Service::class) {

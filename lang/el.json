@@ -553,5 +553,9 @@
     "Redemption until": "Redemption έως",
     "Import the grace and redemption fees": "Εισαγωγή των τελών grace και redemption",
     "The restore fee, with the same margin: on the redemption, or on the grace where the TLD has no redemption.": "Το τέλος restore, με το ίδιο margin: στο redemption, ή στο grace όπου το TLD δεν έχει redemption.",
-    ":date (:days day left)|:date (:days days left)": ":date (απομένει :days μέρα)|:date (απομένουν :days μέρες)"
+    ":date (:days day left)|:date (:days days left)": ":date (απομένει :days μέρα)|:date (απομένουν :days μέρες)",
+    "Renew now": "Ανανέωση τώρα",
+    "Renewed at the registrar.": "Ανανεώθηκε στον registrar.",
+    "Its renewal is on invoice #:invoice, to be paid.": "Η ανανέωσή του είναι στο τιμολόγιο #:invoice, προς πληρωμή.",
+    "Renews :domain at the registrar now for :years year(s), charged to our account there. Its renewal invoice is made if it is not, and its payment later renews nothing again.": "Ανανεώνει το :domain στον registrar τώρα για :years έτη, με χρέωση στον λογαριασμό μας εκεί. Το τιμολόγιο ανανέωσης βγαίνει αν δεν υπάρχει, και η πληρωμή του αργότερα δεν ανανεώνει τίποτα ξανά."
 }

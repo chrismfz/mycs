@@ -6,6 +6,7 @@ use App\Admin\Clusters\Services;
 use App\Admin\Resources\ModuleActionResource\Pages\ListModuleActions;
 use App\Models\ModuleAction;
 use App\Models\Staff;
+use App\Services\Domains\DomainRenewalService;
 use App\Services\Service\RetryModuleAction;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -53,11 +54,14 @@ class ModuleActionResource extends Resource
         return $table
             ->defaultSort('id', 'desc')
             ->columns([
-                TextColumn::make('service_id')->label('Service')
-                    ->formatStateUsing(fn (ModuleAction $record) => '#' . $record->service_id . ' ' . ($record->service->product->name ?? '')
-                        . ($record->service?->domain ? ' (' . $record->service->domain . ')' : ''))
-                    ->url(fn (ModuleAction $record) => ServiceResource::getUrl('edit', ['record' => $record->service_id])),
-                TextColumn::make('service.client.name')->label('Client'),
+                // A service's action, or a domain's (D5b-2: its renewal at the registrar).
+                TextColumn::make('for')->label('For')
+                    ->state(fn (ModuleAction $record) => $record->domain_id !== null
+                        ? ($record->domain->fqdn ?? '#' . $record->domain_id) . ($record->invoiceItem ? ' · invoice #' . $record->invoiceItem->invoice_id : '')
+                        : '#' . $record->service_id . ' ' . ($record->service->product->name ?? '') . ($record->service?->domain ? ' (' . $record->service->domain . ')' : ''))
+                    ->url(fn (ModuleAction $record) => $record->domain_id !== null ? DomainResource::getUrl('view', ['record' => $record->domain_id])
+                        : ServiceResource::getUrl('edit', ['record' => $record->service_id])),
+                TextColumn::make('client')->label('Client')->state(fn (ModuleAction $record) => $record->service !== null ? $record->service->client?->name : $record->domain?->client?->name),
                 // «upgrade» is WHMCS's ChangePackage: an upgrade or a downgrade sends the new product's package.
                 TextColumn::make('action')->badge()->formatStateUsing(fn (string $state) => self::label($state)),
                 TextColumn::make('module')->toggleable(),
@@ -84,12 +88,13 @@ class ModuleActionResource extends Resource
                     ModuleAction::STATUS_COMPLETED => 'Completed',
                     ModuleAction::STATUS_RESOLVED => 'Resolved',
                 ])->default(ModuleAction::STATUS_OPEN),
-                SelectFilter::make('action')->options(array_combine(ModuleAction::ACTIONS, array_map(fn (string $action) => self::label($action), ModuleAction::ACTIONS))),
+                SelectFilter::make('action')->options(array_combine([...ModuleAction::ACTIONS, ModuleAction::DOMAIN_RENEW],
+                    array_map(fn (string $action) => self::label($action), [...ModuleAction::ACTIONS, ModuleAction::DOMAIN_RENEW]))),
             ])
             ->recordActions([
                 // Once the automatic retries are over: while one is still queued, a click would race it (two creates).
                 Action::make('retry')->label('Retry')->icon('ri-loop-right-line')
-                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && $record->given_up_at !== null)
+                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && $record->given_up_at !== null && $record->domain_id === null)
                     ->authorize('update')
                     ->requiresConfirmation()
                     ->modalDescription('Runs the action on the server now (and sends its email, as the automatic run would).')
@@ -107,24 +112,61 @@ class ModuleActionResource extends Resource
                             : Notification::make()->warning()->title('Nothing to do')
                                 ->body("The service is {$record->service?->status} now: mark the action resolved if the account is as it should be.")->send();
                     }),
-                Action::make('resolve')->label('Mark resolved')->icon('ri-check-line')->color('gray')
+                // A domain's renewal (D5b-2): its outcome said as it is (review 7).
+                Action::make('retryDomain')->label('Retry')->icon('ri-loop-right-line')
+                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && $record->action === ModuleAction::DOMAIN_RENEW)
+                    ->authorize('update')
+                    ->requiresConfirmation()
+                    ->modalDescription('Reads the registrar and renews the paid period it lacks (charged to our account there), unless a charge is still unconfirmed.')
+                    ->action(function (ModuleAction $record) {
+                        $outcome = $record->invoice_item_id !== null ? app(DomainRenewalService::class)->renewLine($record->invoice_item_id, self::staff()) : DomainRenewalService::NOTHING;
+                        $record->refresh();
+                        match ($outcome) {
+                            DomainRenewalService::APPLIED, DomainRenewalService::ADOPTED => Notification::make()->success()->title('Renewed')->send(),
+                            DomainRenewalService::WAITING => Notification::make()->warning()->title('Not now')
+                                ->body('Busy, or a charge is still unconfirmed: check the registrar. Do not mark it renewed unless the registrar shows it.')->send(),
+                            DomainRenewalService::NOTHING => Notification::make()->warning()->title('Nothing to do')->body('The renewal is no longer a paid one waiting.')->send(),
+                            default => Notification::make()->danger()->title('Not renewed')->body((string) $record->last_error)->send(),
+                        };
+                    }),
+                Action::make('resolve')->label(fn (ModuleAction $record) => $record->action === ModuleAction::DOMAIN_RENEW ? 'Renewed by hand' : 'Mark resolved')
+                    ->icon('ri-check-line')->color('gray')
                     ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN)
                     ->authorize('update')
                     ->requiresConfirmation()
-                    ->modalDescription('For an account fixed by hand on the server: closes it without running anything (a create: the service turns active).')
-                    ->action(fn (ModuleAction $record) => $record->markResolved(self::staff())),
+                    ->modalDescription(fn (ModuleAction $record) => $record->action === ModuleAction::DOMAIN_RENEW
+                        ? 'Applies its paid renewal: with a registrar API only if the registrar shows it renewed (its expiry is the registrar\'s); with a manual registrar the expiry moves to the end of the paid period.'
+                        : 'For an account fixed by hand on the server: closes it without running anything (a create: the service turns active).')
+                    ->action(function (ModuleAction $record) {
+                        try {
+                            $record->markResolved(self::staff());
+                        } catch (Throwable $e) {
+                            Notification::make()->danger()->title('Not applied')->body($e->getMessage())->send();
+                        }
+                    }),
+                Action::make('close')->label('Close (not renewed)')->icon('ri-close-line')->color('gray')
+                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && $record->action === ModuleAction::DOMAIN_RENEW)
+                    ->authorize('update')
+                    ->requiresConfirmation()
+                    ->modalDescription('Closes it without renewing (refunded, the domain ended, or checked at the registrar: an unconfirmed charge was not done, so a later Retry may charge).')
+                    ->action(fn (ModuleAction $record) => $record->closeUnrenewed(self::staff())),
             ])
             ->toolbarActions([
                 BulkAction::make('resolve')->label('Mark resolved')->requiresConfirmation()
                     ->authorize(fn () => (bool) self::staff()?->hasPermission('admin.services.update'))
-                    ->action(fn (Collection $records) => $records->where('status', ModuleAction::STATUS_OPEN)
+                    // Never a domain's renewal (review 6e): each is decided on its own.
+                    ->action(fn (Collection $records) => $records->where('status', ModuleAction::STATUS_OPEN)->whereNull('domain_id')
                         ->each(fn (ModuleAction $record) => $record->markResolved(self::staff()))),
             ]);
     }
 
     public static function label(string $action): string
     {
-        return $action === 'upgrade' ? 'Change Package' : ucfirst($action);
+        return match ($action) {
+            'upgrade' => 'Change Package',
+            ModuleAction::DOMAIN_RENEW => 'Domain Renewal',
+            default => ucfirst($action),
+        };
     }
 
     private static function staff(): ?Staff

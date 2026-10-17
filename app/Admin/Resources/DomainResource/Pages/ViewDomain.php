@@ -8,6 +8,7 @@ use App\Models\Domain;
 use App\Models\Staff;
 use App\Services\Domains\DomainLifecycle;
 use App\Services\Domains\DomainManagementService;
+use App\Services\Domains\DomainRenewalService;
 use App\Services\Domains\DomainSyncService;
 use Closure;
 use Filament\Actions\Action;
@@ -82,6 +83,28 @@ class ViewDomain extends ViewRecord
                 }),
 
             ActionGroup::make([
+                // D-1: a trusted customer's domain renewed now, paid later (the payment adopts it, never a second charge).
+                Action::make('renewNow')->label(__('Renew now'))->icon('heroicon-o-arrow-path-rounded-square')->color('warning')
+                    ->visible(fn (Domain $record) => self::can('admin.domains.renew') && self::manageable($record))
+                    ->requiresConfirmation()
+                    ->modalDescription(fn (Domain $record) => __('Renews :domain at the registrar now for :years year(s), charged to our account there. Its renewal invoice is made if it is not, and its payment later renews nothing again.',
+                        ['domain' => $record->fqdn, 'years' => max(1, (int) $record->years)]))
+                    ->action(function (Domain $record) {
+                        $staff = self::staff();
+                        if ($staff === null) {
+                            return;
+                        }
+                        try {
+                            $line = app(DomainRenewalService::class)->renewNow($record, $staff);
+                            Notification::make()->success()->title(__('Renewed at the registrar.'))
+                                ->body(__('Its renewal is on invoice #:invoice, to be paid.', ['invoice' => $line->invoice_id]))->send();
+                        } catch (Throwable $e) {
+                            Notification::make()->danger()->title(__('The registrar did not accept it.'))->body(e($e->getMessage()))->send();
+                        }
+                        $this->record->refresh();
+                        $this->refreshFormData([]);
+                    }),
+
                 Action::make('nameservers')->label(__('Nameservers'))->icon('heroicon-o-server-stack')
                     ->visible(fn (Domain $record) => self::can('admin.domains.manage') && self::manageable($record))
                     ->fillForm(fn (Domain $record) => ['nameservers' => $record->nameservers->pluck('host')->all()])

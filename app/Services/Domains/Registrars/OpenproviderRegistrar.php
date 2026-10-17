@@ -8,6 +8,7 @@ use App\Models\Domain;
 use App\Services\Domains\DomainNotFoundAtRegistrar;
 use App\Services\Domains\DomainRegistrarNotConfigured;
 use App\Services\Domains\Pricing\TldPriceMath;
+use App\Services\Domains\RegistrarRefused;
 use App\Support\Domains\AvailabilityResult;
 use App\Support\Domains\DomainChanges;
 use App\Support\Domains\DomainRegistrarCapabilities;
@@ -1015,10 +1016,11 @@ class OpenproviderRegistrar implements DomainRegistrar
         if ($response->failed()) {
             $desc = $response->json('desc');
 
-            throw new RuntimeException(
-                // Its own description only: a raw body may echo contact data (review 11).
-                'Openprovider error ' . $response->status() . ': ' . (is_scalar($desc) && $desc !== '' ? mb_substr((string) $desc, 0, 300) : 'no description')
-            );
+            // Its own description only: a raw body may echo contact data (review 11).
+            $message = 'Openprovider error ' . $response->status() . ': ' . (is_scalar($desc) && $desc !== '' ? mb_substr((string) $desc, 0, 300) : 'no description');
+
+            // A 4xx is a refusal: nothing done. A 5xx may have been done (D5b-2 code review 1).
+            throw $response->clientError() ? new RegistrarRefused($message) : new RuntimeException($message);
         }
 
         return $response;

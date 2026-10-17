@@ -45,4 +45,14 @@ return [
         'grace_fee' => 'Τέλος καθυστερημένης ανανέωσης :domain (περίοδος grace)',
         'redemption_fee' => 'Τέλος επαναφοράς :domain (περίοδος redemption)',
     ],
+    'renew' => [
+        'renewed_unpaid' => 'Το :domain ανανεώθηκε ήδη και το τιμολόγιό του #:invoice δεν έχει πληρωθεί: δεν ανανεώνεται ξανά πριν από αυτό.',
+        'unconfirmed' => 'Μια χρέωση του :domain στον registrar δεν έχει σαφή απάντηση ακόμα: ελέγξτε τον registrar· δεν ξαναζητείται ως τότε.',
+        'paid_on_its_way' => 'Μια πληρωμένη ανανέωση του :domain γίνεται ήδη στον registrar: δεν χρειάζεται ανανέωση τώρα.',
+        'not_a_paid_renewal' => 'Δεν είναι πληρωμένη ανανέωση σε αναμονή.',
+        'registrar_does_not_show' => 'Ο registrar δεν δείχνει το :domain ανανεωμένο (λήγει :expires): τίποτα δεν εφαρμόστηκε.',
+        'not_renewable' => 'Το :domain δεν ανανεώνεται τώρα: δεν έχει λήξη ή έχει τελειώσει.',
+        'no_price' => 'Το :domain δεν έχει τιμή ανανέωσης για :years έτη: ορίστε μία στο TLD ή στο domain.',
+        'not_active_at_registrar' => 'Ο registrar έχει το :domain ως :status: ανανεώστε το εκεί με το χέρι.',
+    ],
 ];

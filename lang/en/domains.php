@@ -45,4 +45,14 @@ return [
         'grace_fee' => ':domain: late renewal fee (grace period)',
         'redemption_fee' => ':domain: restore fee (redemption period)',
     ],
+    'renew' => [
+        'renewed_unpaid' => ':domain was renewed now and its invoice #:invoice is not paid yet: not renewed again before that.',
+        'unconfirmed' => 'A charge for :domain at its registrar has no clear answer yet: check the registrar; it is not asked again until that is settled.',
+        'paid_on_its_way' => 'A paid renewal of :domain is being done at its registrar: nothing to renew now.',
+        'not_a_paid_renewal' => 'This is not a paid renewal waiting to be done.',
+        'registrar_does_not_show' => 'The registrar does not show :domain renewed (it expires :expires): nothing applied.',
+        'not_renewable' => ':domain cannot be renewed now: it has no expiry or has ended.',
+        'no_price' => ':domain has no renew price for :years year(s): set one on its TLD or the domain.',
+        'not_active_at_registrar' => 'The registrar has :domain as :status: renew it there by hand.',
+    ],
 ];
