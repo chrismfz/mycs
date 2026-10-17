@@ -402,8 +402,9 @@ importer):
 - [ ] **grepp** (.gr EPP, myip). Πλάνο (2026-10-18): G0 υλικό του μητρώου από το Ekdosi (έγινε) · G1 `packages/gr-epp`
       transport/session · G2 εντολές και parsers (XSD) · G3 driver ανάγνωσης · G4 οι 5 αλλαγές των υπηρεσιών για .gr
       (ζυγά έτη στη grace, NS μεταφοράς χωρίς RDAP, DACoR με email, χωρίς restore, μεταφορά άμεση) · G5 εγγραφές (χρήματα)
-      · G6 whois .gr και import · G7 UAT με τον ιδιοκτήτη. Ερωτήσεις στον ιδιοκτήτη: UAT credentials, IP του MyCS,
-      πρόθεμα επαφών, λατινικά επαφών, read-only μέχρι το cut-over, πηγή των 1.388, 10 έτη.
+      · G6 whois .gr και import · G7 UAT με τον ιδιοκτήτη. Απαντήσεις ιδιοκτήτη 2026-10-18 στο `docs/domains/grepp.md` §0
+      (χωρίς UAT: παραγωγή με δικά μας domains και recall· πρόθεμα c60· IPs δηλωμένες· NS από το WHOIS API). Ανοιχτά:
+      πηγή των 1.388 (CSV grweb ή WHMCS), 10 έτη στην εγγραφή.
 - [ ] **Gateways της nixpal από το WHMCS** (ιδιοκτήτης 2026-10-17, στο τέλος, μαζί με τη δοκιμή πληρωμής ως πελάτης):
       PayPal, Stripe, Cardlink από το `tblpaymentgateways` της `clnixpal_nixcldb` (orion, μόνο ανάγνωση)· οι τιμές
       κατευθείαν κρυπτογραφημένες στη βάση, ποτέ σε αρχείο, log ή οθόνη. Πριν το go-live: αρίθμηση `{YEAR}-{NUMBER}` με
