@@ -8,6 +8,7 @@ parameters:
         - app/
         - extensions/
         - packages/billing-period/src/
+        - packages/gr-epp/src/
         - packages/pricing/src/
         - packages/mail-template/src/
         - packages/cardlink-eurobank/src/

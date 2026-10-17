@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "20595d2b22e13948237ff57ee29cb3e6",
+    "content-hash": "0e7e910140ee3c7b0b040f9a39bd5668",
     "packages": [
         {
             "name": "andreiio/blade-remix-icon",
@@ -5023,6 +5023,43 @@
                 "MIT"
             ],
             "description": "Billing-period arithmetic that keeps the billing day (31st -> 28th/30th -> 31st). Framework-free.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "mycs/gr-epp",
+            "version": "1.0.0",
+            "dist": {
+                "type": "path",
+                "url": "packages/gr-epp",
+                "reference": "d9e99ee46abb696923cac0631ea8496349f47d23"
+            },
+            "require": {
+                "ext-curl": "*",
+                "ext-dom": "*",
+                "ext-libxml": "*",
+                "php": "^8.3"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^11.5|^12.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "MyCS\\GrEpp\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "MyCS\\GrEpp\\Tests\\": "tests/"
+                }
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "The .gr / .ελ registry (ICS-FORTH) over EPP-over-HTTPS: transport, session, commands. Framework-free.",
             "transport-options": {
                 "symlink": true,
                 "relative": true
@@ -15421,5 +15458,5 @@
     "platform-overrides": {
         "php": "8.3.0"
     },
-    "plugin-api-version": "2.6.0"
+    "plugin-api-version": "2.9.0"
 }
