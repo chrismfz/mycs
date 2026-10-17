@@ -5,7 +5,7 @@
             <p class="font-medium">
                 ⚠️ {{ __('services.outstanding_invoice') }}
                 <a href="{{ route('invoices.show', $invoice)}}"
-                    class="underline hover:text-yellow-100 underline-offset-2">{{ __('services.view_and_pay') }}</a>.
+                    class="underline underline-offset-2 hover:text-yellow-700 dark:hover:text-yellow-100">{{ __('services.view_and_pay') }}</a>.
             </p>
         </div>
     </div>
