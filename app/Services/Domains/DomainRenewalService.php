@@ -279,9 +279,11 @@ class DomainRenewalService
             'request' => ['years' => $years, 'target_expiry' => $target->toDateString(), 'line' => $line->id]]);
         try {
             $result = $action === 'restore' ? $registrar->restore($domain->refresh(), $credentials) : $registrar->renew($domain->refresh(), $years, $credentials);
-        } catch (RegistrarRefused $e) {
+        } catch (RegistrarRefused|RegistrarNotAsked|DomainRegistrarNotConfigured $e) {
+            // Refused, or never asked (the rules, a read before it, not configured: review 4 of #192): nothing done.
             $log->update(['status' => DomainRegistrarLog::STATUS_FAILED, 'error' => mb_substr(Redact::text($e->getMessage()), 0, 2000)]);
-            $this->staffDecides($domain, $line, $connection->registrar, "The registrar refused the {$action}: " . $e->getMessage());
+            $this->staffDecides($domain, $line, $connection->registrar, ($e instanceof RegistrarRefused
+                ? "The registrar refused the {$action}: " : "The {$action} was not asked of the registrar: ") . $e->getMessage());
 
             return null;
         } catch (Throwable $e) {

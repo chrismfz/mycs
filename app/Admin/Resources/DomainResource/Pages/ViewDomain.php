@@ -171,7 +171,7 @@ class ViewDomain extends ViewRecord
                 Action::make('recall')->label(__('Recall the registration'))->icon('heroicon-o-arrow-uturn-left')->color('danger')
                     ->visible(fn (Domain $record) => self::can('admin.domains.manage') && app(DomainManagementService::class)->recallable($record))
                     ->requiresConfirmation()
-                    ->modalDescription(__('The registry cancels the registration (only within 5 days of it); the domain is cancelled here. Refund its payment from its order (Cancel & Refund). Logged.'))
+                    ->modalDescription(__('The registry cancels the registration (only within 5 days of it); the domain is cancelled here. Refund its invoice line by hand; the Cancel & Refund of its order only if the domain is the whole order (it cancels all of it). Logged.'))
                     ->action(function (Domain $record) {
                         try {
                             $said = app(DomainManagementService::class)->recall($record, self::staff());

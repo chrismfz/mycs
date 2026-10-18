@@ -395,8 +395,10 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
             }
             $id = $made[$contact->id] ??= (function () use ($session, $contact, $prefix): string {
                 $id = Rules::contactId("{$prefix}_mcs" . base_convert((string) $contact->id, 10, 36), $prefix);
-                $check = ContactCheck::parse(self::send($session, fn (string $clTRID) => ContactCheck::request([$id], $clTRID)));
-                if ($check[$id]->available ?? false) {
+                $check = array_change_key_case(ContactCheck::parse(self::send($session, fn (string $clTRID) => ContactCheck::request([$id], $clTRID))));
+                // Its own case or another (review 5 of #192); none at all: not «exists», never asked.
+                $found = $check[strtolower($id)] ?? throw new InvalidArgumentException("The registry's check did not answer for contact {$id}.");
+                if ($found->available) {
                     ContactCreate::parse(self::send($session, fn (string $clTRID) => ContactCreate::request(self::draft($id, $contact), $clTRID)));
                 }
 
@@ -473,7 +475,7 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
     {
         try {
             return $steps();
-        } catch (InvalidArgumentException|GrEppException $e) {
+        } catch (InvalidArgumentException|GrEppException|DomainRegistrarNotConfigured $e) {
             throw new RegistrarNotAsked($e->getMessage(), 0, $e);
         }
     }
@@ -585,7 +587,8 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
             return Cache::lock('grepp-epp:' . sha1($config->endpoint . '|' . $config->clientId), 600)
                 ->block($shop ? 5 : 60, fn () => $call(self::session($config, $credentials, $shop)));
         } catch (LockTimeoutException) {
-            throw new RuntimeException('The .gr registry account is busy with another command: try again in a minute.');
+            // Nothing sent (review 2 of #192): never «maybe done».
+            throw new RegistrarNotAsked('The .gr registry account is busy with another command: try again in a minute.');
         } catch (NotSent $e) {
             throw new RegistrarNotAsked($e->getMessage(), 0, $e);
         } catch (GrEppException $e) {

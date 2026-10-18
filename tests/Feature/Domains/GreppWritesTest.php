@@ -182,6 +182,58 @@ class GreppWritesTest extends TestCase
         $this->assertSame(1, collect($this->transport->kinds())->filter(fn ($k) => $k === 'create')->count(), 'registered once');
     }
 
+    public function test_review_fixes_of_192(): void
+    {
+        // 1: no contact prefix on the connection: never asked, the order's log failed (not «maybe done»).
+        Mail::fake();
+        $this->gr->storeCredentials(['username' => 'myip1', 'password' => 'Secret-pw1', 'contact_prefix' => ''], ['password']);
+        $order = Order::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'EUR']);
+        $domain = $this->domain(['ns1.myip.gr', 'ns2.myip.gr'], ['order_id' => $order->id]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'EUR']);
+        InvoiceItem::query()->create(['invoice_id' => $invoice->id, 'quantity' => 1, 'price' => '19.00', 'description' => 'example.gr',
+            'reference_type' => Domain::class, 'reference_id' => $domain->id, 'kind' => InvoiceItem::KIND_REGISTER]);
+        Invoice::query()->whereKey($invoice->id)->update(['status' => Invoice::STATUS_PAID]);
+        $this->loggedIn();
+
+        $this->assertSame(DomainOrderFulfilment::STAFF, app(DomainOrderFulfilment::class)->fulfil($domain->id));
+        $this->assertSame(DomainRegistrarLog::STATUS_FAILED, DomainRegistrarLog::query()->where('domain_id', $domain->id)->value('status'));
+        $this->assertNotContains('create', $this->transport->kinds());
+
+        // 5: the registry's check in another case is the same contact; no answer for it is never «exists».
+        $this->gr->storeCredentials(['username' => 'myip1', 'password' => 'Secret-pw1', 'contact_prefix' => 'C60'], ['password']);
+        $other = $this->domain(['ns1.myip.gr'], ['sld' => 'other', 'fqdn' => 'other.gr']);
+        $id = 'C60_mcs' . base_convert((string) $other->registrant_contact_id, 10, 36);
+        GrEppRegistrar::reset();
+        $this->transport = new FakeTransport;
+        $this->loggedIn();
+        $this->contactCheck(strtolower($id), true);
+        $this->fixture('v4.3/14-contact-create-response.xml');
+        $this->hostCheck(['ns1.myip.gr' => false]);
+        $this->fixture('v4.3/38-domain-create-response.xml');
+        $creds = new DomainRegistrarCredentials(['username' => 'myip1', 'password' => 'Secret-pw1', 'contact_prefix' => 'C60'], sandbox: false);
+        (new GrEppRegistrar)->register($other, 2, $creds);
+        $this->assertSame(['hello', 'login', 'check', 'create', 'check', 'create'], $this->transport->kinds(), 'free in any case: made');
+
+        $third = $this->domain(['ns1.myip.gr'], ['sld' => 'third', 'fqdn' => 'third.gr']);
+        GrEppRegistrar::reset();
+        $this->transport = new FakeTransport;
+        $this->loggedIn();
+        $this->contactCheck('c60_somebodyelse', true);
+        $notAsked = null;
+        try {
+            (new GrEppRegistrar)->register($third, 2, $creds);
+        } catch (RegistrarNotAsked $e) {
+            $notAsked = $e;
+        }
+        $this->assertNotNull($notAsked);
+        $this->assertNotContains('create', $this->transport->kinds());
+
+        // 3: recallable from when it was sent, not from the order made days before.
+        $late = $this->domain(['ns1.myip.gr'], ['sld' => 'paidlate', 'fqdn' => 'paidlate.gr', 'registered_at' => null,
+            'created_at' => '2026-10-10 10:00:00', 'meta' => ['sent_at' => '2026-10-19T10:00:00+00:00']]);
+        $this->assertTrue(app(DomainManagementService::class)->recallable($late));
+    }
+
     public function test_an_existing_contact_of_ours_is_used_not_made_again(): void
     {
         $domain = $this->domain(['ns1.myip.gr', 'ns2.myip.gr']);

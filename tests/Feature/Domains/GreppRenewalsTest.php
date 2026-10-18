@@ -6,6 +6,7 @@ use App\Enums\DomainStatus;
 use App\Models\Currency;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
+use App\Models\DomainRegistrarLog;
 use App\Models\DomainTld;
 use App\Models\DomainTldPrice;
 use App\Models\Invoice;
@@ -15,6 +16,7 @@ use App\Models\Staff;
 use App\Models\User;
 use App\Services\Billing\RenewalBilling;
 use App\Services\Domains\DomainRenewalService;
+use App\Services\Domains\RegistrarNotAsked;
 use App\Services\Domains\RegistrarRefused;
 use App\Services\Domains\Registrars\GrEppRegistrar;
 use App\Services\Invoice\RecordPaymentService;
@@ -51,6 +53,7 @@ class GreppRenewalsTest extends TestCase
             'settings.domain_invoice_days' => 15, 'settings.credits_auto_use' => false]);
         FakeGrRegistrar::$record = null;
         FakeGrRegistrar::$charges = [];
+        FakeGrRegistrar::$notAsked = false;
         Currency::query()->firstOrCreate(['code' => 'EUR'], ['name' => 'Euro', 'suffix' => 'EUR', 'format' => '1.000,00']);
         $this->gr = DomainRegistrarConnection::query()->create(['registrar' => 'fakegr', 'label' => 'GR', 'is_active' => true, 'mode' => 'production']);
         $this->user = User::factory()->create();
@@ -154,6 +157,20 @@ class GreppRenewalsTest extends TestCase
         $this->assertSame(0, InvoiceItem::query()->where('reference_id', $grace->id)->where('kind', 'grace_fee')->count());
     }
 
+    public function test_a_renewal_never_asked_is_failed_not_maybe_done(): void
+    {
+        // Review 4 of #192: the driver's «not asked» (the rules, the fresh read) is nothing done, as a refusal.
+        $domain = $this->domain(['status' => DomainStatus::Active, 'expires_at' => '2026-11-20']);
+        $line = $this->billAndPay($domain);
+        FakeGrRegistrar::$notAsked = true;
+
+        $this->assertSame(DomainRenewalService::FAILED, app(DomainRenewalService::class)->renewLine($line->id));
+
+        $log = DomainRegistrarLog::query()->where('domain_id', $domain->id)->where('action', 'renew')->sole();
+        $this->assertSame(DomainRegistrarLog::STATUS_FAILED, $log->status);
+        $this->assertStringContainsString('was not asked', (string) ModuleAction::query()->sole()->last_error);
+    }
+
     public function test_a_registrar_that_restores_never_restores_a_two_year_tld(): void
     {
         // 1: a .gr name at a registrar that restores (Openprovider-like): staff decide before anything is charged.
@@ -184,6 +201,8 @@ class FakeGrRegistrar extends GrEppRegistrar
     /** @var list<array{0: string, 1: int}> */
     public static array $charges = [];
 
+    public static bool $notAsked = false;
+
     public function key(): string
     {
         return 'fakegr';
@@ -201,6 +220,9 @@ class FakeGrRegistrar extends GrEppRegistrar
 
     public function renew(Domain $domain, int $years, DomainRegistrarCredentials $credentials): DomainSyncResult
     {
+        if (self::$notAsked) {
+            throw new RegistrarNotAsked('the fresh read failed');
+        }
         self::$charges[] = ['renew', $years];
         $expires = Carbon::parse((string) self::$record?->expiresAt)->addYears($years)->toDateString();
 

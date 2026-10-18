@@ -20,6 +20,7 @@ use App\Support\Domains\RegistrarContact;
 use App\Support\Redact;
 use Closure;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -187,7 +188,7 @@ class DomainManagementService
 
     /**
      * Staff recall a registration (within RECALL_DAYS of it, at a registrar that can: the .gr registry): the registry
-     * cancels it; here the domain is cancelled. Its payment is staff's to refund (the order's Cancel & Refund). Logged.
+     * cancels it; here the domain is cancelled. Its payment is staff's to refund. Logged.
      */
     public function recall(Domain $domain, Staff $staff): string
     {
@@ -203,7 +204,7 @@ class DomainManagementService
 
             return ['recalled' => $said];
         });
-        $meta = $domain->meta ?? [];
+        $meta = $domain->refresh()->meta ?? [];
         $meta['recalled_at'] = now()->toIso8601String();
         $domain->forceFill(['status' => DomainStatus::Cancelled, 'meta' => $meta])->save(); // audited
 
@@ -213,8 +214,12 @@ class DomainManagementService
     /** A registration recallable now: at a registrar that recalls, pending or active, registered within RECALL_DAYS. */
     public function recallable(Domain $domain): bool
     {
-        $since = $domain->registered_at ?? $domain->created_at;
+        // From its registration: the registrar's date, else when it was sent (review 3 of #192: an order paid days after
+        // it was made), else the order's.
+        $sent = is_string($domain->meta['sent_at'] ?? null) ? Carbon::parse($domain->meta['sent_at']) : null;
+        $since = $domain->registered_at ?? $sent ?? $domain->created_at;
         if (!in_array($domain->status, [DomainStatus::PendingRegister, DomainStatus::Active], true) || $since === null
+            || !$this->isManageable($domain)
             || $since->copy()->startOfDay()->lt(today()->subDays(self::RECALL_DAYS))) {
             return false;
         }

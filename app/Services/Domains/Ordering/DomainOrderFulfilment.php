@@ -12,6 +12,7 @@ use App\Models\InvoiceItem;
 use App\Models\ModuleAction;
 use App\Services\Domains\DomainManagementService;
 use App\Services\Domains\DomainRegistrarFactory;
+use App\Services\Domains\DomainRegistrarNotConfigured;
 use App\Services\Domains\DomainSyncService;
 use App\Services\Domains\Lookup\DomainLookup;
 use App\Services\Domains\RegistrarNotAsked;
@@ -181,7 +182,7 @@ class DomainOrderFulfilment
         try {
             $result = $register ? $registrar->register($domain, max(1, (int) $domain->years), $credentials)
                 : $registrar->transferIn($domain, (string) $domain->epp_code, $credentials);
-        } catch (RegistrarRefused|RegistrarNotAsked $e) {
+        } catch (RegistrarRefused|RegistrarNotAsked|DomainRegistrarNotConfigured $e) {
             // Refused (4xx), or failed before it was asked (nameservers, glue, contacts: ADV-6): nothing done at the
             // registrar. Staff decide (a wrong EPP code, a contact refused, a nameserver to fix).
             $clean = $this->clean($domain, $e);
