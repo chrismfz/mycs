@@ -24,8 +24,8 @@ final class TraceTest extends TestCase
         $fake = (new FakeTransport)->fixture('02-hello-response.xml', ['JSESSIONID=SECRETCOOKIE'])->fixture('04-login-response.xml')
             ->fixture('38-domain-create-response.xml');
         $told = [];
-        $transport = new TracingTransport($fake, function (array $summary, string $request, string $response, float $ms) use (&$told) {
-            $told[] = [$summary, $request, $response];
+        $transport = new TracingTransport($fake, function (array $summary, \Closure $frames, float $ms) use (&$told) {
+            $told[] = [$summary, ...$frames()];
         });
         $session = new Session(new Config('myip1', self::PASSWORD), $transport);
 
@@ -67,8 +67,8 @@ final class TraceTest extends TestCase
     {
         $fake = (new FakeTransport)->queue(new HttpResponse(0, '', [], 'timeout'));
         $told = [];
-        $transport = new TracingTransport($fake, function (array $summary, string $request, string $response) use (&$told) {
-            $told[] = [$summary, $response];
+        $transport = new TracingTransport($fake, function (array $summary, \Closure $frames) use (&$told) {
+            $told[] = [$summary, $frames()[1]];
         });
         $this->assertSame(0, $transport->post('https://x', '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><hello/></epp>', [])->status);
         $this->assertSame(['hello', null, 0], [$told[0][0]['command'], $told[0][0]['code'], $told[0][0]['http']]);

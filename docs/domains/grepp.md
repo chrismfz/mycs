@@ -75,7 +75,7 @@
 - **Debug και ids (ιδιοκτήτης 2026-10-18, πριν το G7):** κάθε κλήση γράφει στο log της (`domain_registrar_logs.transactions`)
   κάθε εντολή με `clTRID`, `svTRID` του μητρώου και κωδικό (αυτά ζητά το helpdesk), πάντα· φαίνονται στο «View» του log.
   Με τον διακόπτη **«Debug log»** της σύνδεσης (κλειστός by default) και τα frames, request και response, στο
-  `storage/logs/registrar-debug-*.log` (14 μέρες, 0660): passwords, `pw`/`newPW` και κωδικοί EPP κρυμμένοι
+  `storage/logs/registrar-debug-*.log` (0660· τα αρχεία σβήνονται μετά από 14 μέρες από το `mycs:registrar-debug-log-prune`, κάθε μέρα, και με τον διακόπτη κλειστό· «Debug log: On» στη λίστα των συνδέσεων): passwords, `pw`/`newPW` και κωδικοί EPP κρυμμένοι
   (`MyCS\GrEpp\Trace::redact`, με DOM· frame που δεν διαβάζεται δεν γράφεται), ποτέ το cookie. Περιέχει στοιχεία επαφών:
   κλείνει μετά τη δοκιμή.
 - **Ζωντανή δοκιμή (2026-10-18, G3, μόνο αναγνώσεις, από mycs.myip.gr):** login με `application/epp+xml` ✓·

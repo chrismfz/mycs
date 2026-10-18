@@ -244,6 +244,42 @@ class GreppWritesTest extends TestCase
         }
     }
 
+    public function test_review_fixes_of_193(): void
+    {
+        // 4: the debug switch turned on mid-process is read at the next exchange, in the same session (no new login).
+        $file = storage_path('logs/test-registrar-debug-' . bin2hex(random_bytes(4)) . '.log');
+        config(['logging.channels.registrar-debug' => ['driver' => 'single', 'path' => $file, 'level' => 'debug']]);
+        $domain = $this->domain(['ns1.myip.gr'], ['status' => DomainStatus::Active, 'expires_at' => '2029-03-01', 'fqdn' => 'example1.gr', 'sld' => 'example1']);
+        $this->loggedIn();
+        $this->fixture('live/domain-info-response.xml');
+        $this->fixture('live/domain-info-response.xml');
+        try {
+            (new GrEppRegistrar)->syncDomain($domain, $this->credentials());
+            $this->assertFileDoesNotExist($file);
+            $on = new DomainRegistrarCredentials(['username' => 'myip1', 'password' => 'Secret-pw1', 'contact_prefix' => 'c60'], sandbox: false, debug: true);
+            (new GrEppRegistrar)->syncDomain($domain, $on);
+            $this->assertSame(['hello', 'login', 'info', 'info'], $this->transport->kinds(), 'one session');
+            $this->assertSame(1, substr_count((string) file_get_contents($file), 'grepp domain:info 1000'));
+        } finally {
+            @unlink($file);
+        }
+
+        // 1: its files go after 14 days, the switch on or off.
+        $old = storage_path('logs/registrar-debug-2026-09-01.log');
+        $new = storage_path('logs/registrar-debug-2026-10-19.log');
+        file_put_contents($old, 'x');
+        file_put_contents($new, 'x');
+        touch($old, now()->subDays(15)->getTimestamp());
+        try {
+            $this->artisan('mycs:registrar-debug-log-prune')->assertExitCode(0);
+            $this->assertFileDoesNotExist($old);
+            $this->assertFileExists($new);
+        } finally {
+            @unlink($old);
+            @unlink($new);
+        }
+    }
+
     public function test_review_fixes_of_192(): void
     {
         // 1: no contact prefix on the connection: never asked, the order's log failed (not «maybe done»).

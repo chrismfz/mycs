@@ -604,5 +604,7 @@
     "Not recalled": "Δεν ανακλήθηκε",
     "Debug log": "Debug log",
     "Every request and answer to storage/logs/registrar-debug-*.log, passwords and EPP codes hidden; contacts' names and addresses are in it: kept 14 days. Turn it off after testing.": "Κάθε αίτημα και απάντηση στο storage/logs/registrar-debug-*.log, χωρίς passwords και κωδικούς EPP· περιέχει ονόματα και διευθύνσεις επαφών: κρατιέται 14 μέρες. Κλείστε το μετά τη δοκιμή.",
-    "Registry transactions": "Συναλλαγές με το μητρώο"
+    "Registry transactions": "Συναλλαγές με το μητρώο",
+    "no answer": "χωρίς απάντηση",
+    "On": "Ενεργό"
 }

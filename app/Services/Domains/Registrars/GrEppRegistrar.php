@@ -76,6 +76,9 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
     /** @var array<string, Session> by account (endpoint, user, a hash of the password: a changed one is a new session) */
     private static array $sessions = [];
 
+    /** @var array<string, bool> by session: its connection's debug log switch, as the last call read it */
+    private static array $debug = [];
+
     public function key(): string
     {
         return 'grepp';
@@ -96,7 +99,7 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
         // Its own session, ended after (a login on a live session is refused itself: review 5 of #187).
         $session = null;
         try {
-            $session = new Session(self::config($credentials), self::transport(false, $credentials->debug));
+            $session = new Session(self::config($credentials), self::transport(false, fn (): bool => $credentials->debug));
 
             return $session->login()->code === 1000;
         } catch (Throwable) {
@@ -630,7 +633,8 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
     }
 
     /** A transport: the seam's, else curl (the shop's: 5 seconds, 3 to connect). */
-    private static function transport(bool $shop = false, bool $debug = false): Transport
+    /** @param  (Closure(): bool)|null  $debug  whether its frames go to the debug log now */
+    private static function transport(bool $shop = false, ?Closure $debug = null): Transport
     {
         $transport = self::$transport !== null ? (self::$transport)() : new CurlTransport($shop ? 5 : 60, $shop ? 3 : 10);
         if (!$transport instanceof Transport) {
@@ -638,19 +642,25 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
         }
 
         // Each exchange's ids on the call's log, always; its frames (secrets hidden) only with the connection's debug log.
-        return new TracingTransport($transport, function (array $summary, string $request, string $response, float $ms) use ($debug): void {
+        $debug ??= fn (): bool => false;
+
+        // The switch read at each exchange (review 4 of #193: turning it on or off never opens another session).
+        return new TracingTransport($transport, function (array $summary, Closure $frames, float $ms) use ($debug): void {
             app(RegistrarTransactions::class)->record($summary);
-            if ($debug) {
-                Log::channel('registrar-debug')->debug("grepp {$summary['command']} {$summary['code']} ({$ms} ms)", $summary + ['request' => $request, 'response' => $response]);
+            if ($debug()) {
+                [$request, $response] = $frames();
+                $outcome = $summary['code'] ?? ($summary['http'] === 0 ? 'no answer' : "HTTP {$summary['http']}");
+                Log::channel('registrar-debug')->debug("grepp {$summary['command']} {$outcome} ({$ms} ms)", $summary + ['request' => $request, 'response' => $response]);
             }
         });
     }
 
     private static function session(Config $config, DomainRegistrarCredentials $credentials, bool $shop = false): Session
     {
-        $key = sha1($config->endpoint . '|' . $config->clientId . '|' . hash('sha256', (string) $credentials->get('password')) . ($shop ? '|shop' : '') . ($credentials->debug ? '|debug' : ''));
+        $key = sha1($config->endpoint . '|' . $config->clientId . '|' . hash('sha256', (string) $credentials->get('password')) . ($shop ? '|shop' : ''));
+        self::$debug[$key] = $credentials->debug;
 
-        return self::$sessions[$key] ??= new Session($config, self::transport($shop, $credentials->debug));
+        return self::$sessions[$key] ??= new Session($config, self::transport($shop, fn (): bool => self::$debug[$key] ?? false));
     }
 
     /** End and forget the sessions: at the end of each request or command (AppServiceProvider), in tests (review 6). */
@@ -660,5 +670,6 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
             $session->logout();
         }
         self::$sessions = [];
+        self::$debug = [];
     }
 }

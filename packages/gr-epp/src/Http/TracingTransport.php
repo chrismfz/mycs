@@ -7,15 +7,15 @@ use MyCS\GrEpp\Trace;
 use Throwable;
 
 /**
- * A transport that tells each exchange to $tap, after it: the summary (command, clTRID, svTRID, code) and both frames
- * with their secrets hidden (Trace::redact). The headers (the session cookie) are never told. A tap that fails never
- * fails the command: its answer is the registry's either way.
+ * A transport that tells each exchange to $tap, after it: the summary (command, clTRID, svTRID, code), and its frames
+ * with their secrets hidden (Trace::redact) when the tap asks for them (redacted only then: review 3 of #193). The
+ * headers (the session cookie) are never told. A tap that fails never fails the command: its answer is the registry's.
  */
 final class TracingTransport implements Transport
 {
     /**
-     * @param  Closure(array{command: string, clTRID: ?string, svTRID: ?string, code: ?int, http: int}, string, string, float): void  $tap
-     *                                                                                                                                      (summary, request, response, milliseconds)
+     * @param  Closure(array{command: string, clTRID: ?string, svTRID: ?string, code: ?int, http: int}, Closure(): array{0: string, 1: string}, float): void  $tap
+     *                                                                                                                                                              (summary, the frames [request, response] redacted, milliseconds)
      */
     public function __construct(private readonly Transport $inner, private readonly Closure $tap) {}
 
@@ -24,9 +24,9 @@ final class TracingTransport implements Transport
         $started = microtime(true);
         $response = $this->inner->post($url, $body, $headers);
         try {
-            ($this->tap)(Trace::summary($body, $response->status, $response->body), Trace::redact($body),
-                $response->status === 0 ? '(no answer: ' . ($response->error ?? 'transport error') . ')' : Trace::redact($response->body),
-                round((microtime(true) - $started) * 1000, 1));
+            $frames = fn (): array => [Trace::redact($body),
+                $response->status === 0 ? '(no answer: ' . ($response->error ?? 'transport error') . ')' : Trace::redact($response->body)];
+            ($this->tap)(Trace::summary($body, $response->status, $response->body), $frames, round((microtime(true) - $started) * 1000, 1));
         } catch (Throwable) {
             // A log is never worth a lost answer.
         }

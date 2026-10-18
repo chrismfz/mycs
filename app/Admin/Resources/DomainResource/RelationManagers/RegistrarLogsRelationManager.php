@@ -62,7 +62,8 @@ class RegistrarLogsRelationManager extends RelationManager
                         ->fontFamily('mono')->columnSpanFull(),
                     TextEntry::make('transactions')->label(__('Registry transactions'))->placeholder('—')
                         ->state(fn (DomainRegistrarLog $record) => $record->transactions === null ? null : collect($record->transactions)
-                            ->map(fn (array $t) => trim(($t['command'] ?? '?') . ' ' . ($t['code'] ?? 'HTTP ' . ($t['http'] ?? '?')) . '  clTRID ' . ($t['clTRID'] ?? '—') . '  svTRID ' . ($t['svTRID'] ?? '—')))
+                            ->map(fn (array $t) => ($t['command'] ?? '?') . ' ' . ($t['code'] ?? (($t['http'] ?? 0) === 0 ? __('no answer') : 'HTTP ' . $t['http']))
+                                . '  clTRID ' . ($t['clTRID'] ?? '—') . '  svTRID ' . ($t['svTRID'] ?? '—'))
                             ->all())
                         ->listWithLineBreaks()->fontFamily('mono')->columnSpanFull(),
                     TextEntry::make('error')->label(__('Error'))->placeholder('—')->columnSpanFull(),

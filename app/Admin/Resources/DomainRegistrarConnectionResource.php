@@ -93,6 +93,9 @@ class DomainRegistrarConnectionResource extends Resource
                         default => 'gray',
                     }),
                 IconColumn::make('is_active')->label(__('Active'))->boolean(),
+                // On, contacts' details are being written to a file: seen at a glance (review 2 of #193).
+                TextColumn::make('debug_log')->label(__('Debug log'))->badge()->color('danger')
+                    ->formatStateUsing(fn (bool $state) => $state ? __('On') : null)->placeholder('—'),
                 TextColumn::make('tlds_count')->label('TLDs')->counts('tlds'),
                 TextColumn::make('domains_count')->label(__('domains.domains'))->counts('domains'),
             ])
