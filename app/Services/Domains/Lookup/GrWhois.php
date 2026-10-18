@@ -75,7 +75,8 @@ final class GrWhois
         if ($connection === null) {
             return ['unsupported', null, null];
         }
-        $name = idn_to_utf8(mb_strtolower($fqdn), IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46);
+        // Non-transitional, as DomainName and Rules::name: a Unicode «καλός» stays καλός, not καλόσ.
+        $name = idn_to_utf8(mb_strtolower($fqdn), IDNA_NONTRANSITIONAL_TO_UNICODE, INTL_IDNA_VARIANT_UTS46);
         if ($name === false || $name === '') {
             return ['error', null, null];
         }
