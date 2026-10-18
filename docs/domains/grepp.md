@@ -23,6 +23,11 @@
 - **Τα 1.388 .gr στο migration:** από το WHMCS, όπως όλα τα υπόλοιπα (importer D6)· όχι από το CSV του grweb. Μέχρι τότε
   ετοιμάζουμε και δοκιμάζουμε το grepp με τα δικά μας domains.
 - **Ρυθμός:** baby steps, ένα PR τη φορά.
+- **Για το G5** (από το review του G3, #187): το `DomainRenewalService` διαβάζει τα `rawStatus` του Openprovider (`ACT`/`DEL`)·
+  για .gr θέλει τα δικά του (`ok`, statuses). Η ανανέωση σε grace τιμολογείται 1 έτος (D-13): για .gr **2 έτη** (ζυγά).
+  Το TLD .gr χωρίς redemption days (δεν υπάρχει στάδιο redemption· grace 15). Στο shop το «υπό περιορισμούς»
+  (`restricted:` στο reason) να φαίνεται ως τέτοιο, όχι «κατειλημμένο». Το `clID` του `domain:info` συγκρίνεται με το
+  EPP username (`myip1`): **[ΕΠΙΒΕΒΑΙΩΣΗ]** στη ζωντανή δοκιμή ότι είναι αυτό (και όχι κωδικός καταχωρητή).
 - **Μία σύνδεση «grepp»** στο MyCS (όχι δύο plugins όπως στο WHMCS): EPP username (`myip1`) και password, πρόθεμα επαφών
   (`c60`), WHOIS API username (`myip4`) και password (ξεχωριστός λογαριασμός του μητρώου), περιβάλλον. Τα passwords
   κρυπτογραφημένα. Τα license keys των modules του WHMCS δεν χρειάζονται.

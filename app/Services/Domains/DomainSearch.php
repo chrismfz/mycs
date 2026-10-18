@@ -6,6 +6,7 @@ use App\Models\Currency;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainTld;
 use App\Services\Domains\Lookup\DomainLookup;
+use App\Services\Domains\Registrars\GrEppRegistrar;
 use App\Services\Domains\Registrars\OpenproviderRegistrar;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -158,7 +159,8 @@ class DomainSearch
         try {
             $registrar = $this->registrars->for($connection);
             $credentials = $this->registrars->credentialsFor($connection);
-            $results = $registrar instanceof OpenproviderRegistrar
+            // All of a search's names in one request where the registrar can (Openprovider, the .gr registry).
+            $results = $registrar instanceof OpenproviderRegistrar || $registrar instanceof GrEppRegistrar
                 ? $registrar->checkAvailabilityMany($fqdns, $credentials)
                 : collect($fqdns)->mapWithKeys(fn ($fqdn) => [$fqdn => $registrar->checkAvailability($fqdn, $credentials)])->all();
         } catch (Throwable $e) {

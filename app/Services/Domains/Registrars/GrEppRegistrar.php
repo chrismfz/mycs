@@ -23,6 +23,7 @@ use Illuminate\Support\Facades\Cache;
 use MyCS\GrEpp\Command\ContactInfo;
 use MyCS\GrEpp\Command\DomainCheck;
 use MyCS\GrEpp\Command\DomainInfo;
+use MyCS\GrEpp\Command\Rules;
 use MyCS\GrEpp\Config;
 use MyCS\GrEpp\Data\DomainInfo as Info;
 use MyCS\GrEpp\GrEppException;
@@ -68,10 +69,16 @@ class GrEppRegistrar implements DomainRegistrar
     /** Contract: never throws. A login (and nothing else): the credentials and our IP at the registry. */
     public function ping(DomainRegistrarCredentials $credentials): bool
     {
+        // Its own session, ended after (a login on a live session is refused itself: review 5 of #187).
+        $session = null;
         try {
-            return $this->locked($credentials, fn (Session $session) => $session->login()->code === 1000);
+            $session = new Session(self::config($credentials), self::transport());
+
+            return $session->login()->code === 1000;
         } catch (Throwable) {
             return false;
+        } finally {
+            $session?->logout();
         }
     }
 
@@ -81,12 +88,38 @@ class GrEppRegistrar implements DomainRegistrar
      */
     public function checkAvailability(string $fqdn, DomainRegistrarCredentials $credentials): AvailabilityResult
     {
-        $name = mb_strtolower($fqdn);
-        $results = $this->command($credentials, fn (string $clTRID) => DomainCheck::request([$name], $clTRID), DomainCheck::parse(...));
-        $result = $results[$name] ?? throw new RuntimeException("The registry did not answer for {$fqdn}.");
-        $reason = $result->restricted ? 'restricted: ' . ($result->comment ?? $result->reason) : ($result->comment ?? $result->reason);
+        return $this->checkAvailabilityMany([$fqdn], $credentials)[$fqdn]
+            ?? throw new RuntimeException("The registry did not answer for {$fqdn}.");
+    }
 
-        return new AvailabilityResult($fqdn, $result->available, $reason);
+    /**
+     * The shop's search: up to 7 names in one domain:check (the registry's limit), on its own short session (5 seconds,
+     * a 5-second wait for the account: review 3 of #187), by the names asked whatever their form (the registry answers
+     * in Unicode; the search may ask in punycode).
+     *
+     * @param  list<string>  $fqdns
+     * @return array<string, AvailabilityResult> by the name asked
+     */
+    public function checkAvailabilityMany(array $fqdns, DomainRegistrarCredentials $credentials): array
+    {
+        $asked = [];
+        foreach ($fqdns as $fqdn) {
+            $asked[$fqdn] = Rules::name($fqdn); // Unicode, lower case, as the registry answers
+        }
+        $results = [];
+        foreach (array_chunk(array_keys($asked), DomainCheck::MAX) as $batch) {
+            $names = array_values(array_unique(array_map(fn ($fqdn) => $asked[$fqdn], $batch)));
+            $answers = $this->command($credentials, fn (string $clTRID) => DomainCheck::request($names, $clTRID), DomainCheck::parse(...), shop: true);
+            foreach ($batch as $fqdn) {
+                $result = $answers[$asked[$fqdn]] ?? null;
+                if ($result !== null) {
+                    $reason = $result->restricted ? 'restricted: ' . ($result->comment ?? $result->reason) : ($result->comment ?? $result->reason);
+                    $results[$fqdn] = new AvailabilityResult($fqdn, $result->available, $reason);
+                }
+            }
+        }
+
+        return $results;
     }
 
     /** The registry's truth for one of our domains (domain:info): status, expiry day, nameservers, contacts, details. */
@@ -96,6 +129,14 @@ class GrEppRegistrar implements DomainRegistrar
             $info = $this->command($credentials, fn (string $clTRID) => DomainInfo::request($domain->fqdn, $clTRID),
                 fn (Response $response) => DomainInfo::parse($response, $domain->fqdn));
         } catch (Refused $e) {
+            // Past its 15 days the registry deletes the name: «no such name» then is its end (review 1 of #187), not
+            // «not ours». Only so for one whose expiry + 15 days is past (UTC).
+            $expires = $domain->expires_at?->toDateString();
+            if ($e->resultCode === 2303 && $expires !== null
+                && Carbon::parse($expires, 'UTC')->addDays(self::GRACE_DAYS)->toDateString() < Carbon::now('UTC')->toDateString()) {
+                return new DomainSyncResult(status: DomainStatus::Deleted, rawStatus: 'deleted', deadRecord: true,
+                    details: ['registry' => "No such name at the registry ({$e->registryMessage}): deleted after its 15 days."]);
+            }
             // 2303: no such name; 2201: not ours to read (another registrar's, no code given).
             if (in_array($e->resultCode, [2303, 2201], true)) {
                 throw new DomainNotFoundAtRegistrar("{$domain->fqdn} is not ours at the registry ({$e->resultCode}: {$e->registryMessage}).");
@@ -106,7 +147,15 @@ class GrEppRegistrar implements DomainRegistrar
             throw new DomainNotFoundAtRegistrar("{$domain->fqdn} is managed by another registrar at the registry ({$info->clientId}).");
         }
 
-        return self::syncResultFrom($info);
+        $result = self::syncResultFrom($info);
+        // A registration pending at the registry moves only a domain pending here (an imported active one stays: review
+        // 10 of #187; the registry's statuses are in its details).
+        if ($result->status === DomainStatus::PendingRegister && !in_array($domain->status, [DomainStatus::PendingRegister, null], true)) {
+            return new DomainSyncResult($result->expiresAt, $result->nameservers, $result->registrarDomainId, null, $result->rawStatus,
+                $result->contactHandles, false, null, null, $result->registeredAt, $result->details, $result->graceEndsOn, $result->redemptionEndsOn);
+        }
+
+        return $result;
     }
 
     public static function syncResultFrom(Info $info): DomainSyncResult
@@ -152,7 +201,8 @@ class GrEppRegistrar implements DomainRegistrar
      */
     private static function status(Info $info): array
     {
-        if (in_array('pendingCreate', $info->statuses, true)) {
+        // Not assigned yet: pendingCreate, or awaiting the regulator (.gov.gr, geographic terms; EETT may refuse: review 2).
+        if (in_array('pendingCreate', $info->statuses, true) || in_array('pendingRegulatorApproval', $info->regulatorStatuses, true)) {
             return [DomainStatus::PendingRegister, null];
         }
         if ($info->expiresOn === null) {
@@ -254,13 +304,13 @@ class GrEppRegistrar implements DomainRegistrar
      * @param  Closure(Response): T  $parse
      * @return T
      */
-    private function command(DomainRegistrarCredentials $credentials, Closure $request, Closure $parse): mixed
+    private function command(DomainRegistrarCredentials $credentials, Closure $request, Closure $parse, bool $shop = false): mixed
     {
         return $this->locked($credentials, function (Session $session) use ($request, $parse) {
             $clTRID = $session->newTransactionId();
 
             return $parse($session->command($request($clTRID), $clTRID));
-        });
+        }, $shop);
     }
 
     /**
@@ -269,12 +319,15 @@ class GrEppRegistrar implements DomainRegistrar
      * @param  Closure(Session): T  $call
      * @return T
      */
-    private function locked(DomainRegistrarCredentials $credentials, Closure $call): mixed
+    private function locked(DomainRegistrarCredentials $credentials, Closure $call, bool $shop = false): mixed
     {
         $config = self::config($credentials);
+        // One command at a time per account across processes: the registry's limit on sessions per account is not
+        // documented, so the app never opens more than one at a time. Its TTL above the worst case (hello, login, a
+        // command, and the 2002 retry's logout, hello, login, command: review 7 of #187). The shop waits 5 seconds.
         try {
-            return Cache::lock('grepp-epp:' . sha1($config->endpoint . '|' . $config->clientId), 120)
-                ->block(60, fn () => $call(self::session($config, $credentials)));
+            return Cache::lock('grepp-epp:' . sha1($config->endpoint . '|' . $config->clientId), 600)
+                ->block($shop ? 5 : 60, fn () => $call(self::session($config, $credentials, $shop)));
         } catch (LockTimeoutException) {
             throw new RuntimeException('The .gr registry account is busy with another command: try again in a minute.');
         } catch (GrEppException $e) {
@@ -287,23 +340,33 @@ class GrEppRegistrar implements DomainRegistrar
         if (!$credentials->has('username') || !$credentials->has('password')) {
             throw new DomainRegistrarNotConfigured('The .gr registry connection has no username or password: fill them in under Domain Registrars.');
         }
-
-        return new Config((string) $credentials->get('username'), (string) $credentials->get('password'),
-            endpoint: $credentials->sandbox ? Config::UAT : Config::PRODUCTION);
+        try {
+            return new Config((string) $credentials->get('username'), (string) $credentials->get('password'),
+                endpoint: $credentials->sandbox ? Config::UAT : Config::PRODUCTION);
+        } catch (\InvalidArgumentException $e) {
+            throw new DomainRegistrarNotConfigured('The .gr registry connection: ' . $e->getMessage()); // never the password (review 8)
+        }
     }
 
-    private static function session(Config $config, DomainRegistrarCredentials $credentials): Session
+    /** A transport: the seam's, else curl (the shop's: 5 seconds, 3 to connect). */
+    private static function transport(bool $shop = false): Transport
     {
-        $key = sha1($config->endpoint . '|' . $config->clientId . '|' . hash('sha256', (string) $credentials->get('password')));
-        $transport = self::$transport !== null ? (self::$transport)() : new CurlTransport;
+        $transport = self::$transport !== null ? (self::$transport)() : new CurlTransport($shop ? 5 : 60, $shop ? 3 : 10);
         if (!$transport instanceof Transport) {
             throw new RuntimeException('The .gr transport seam must give a Transport.');
         }
 
-        return self::$sessions[$key] ??= new Session($config, $transport);
+        return $transport;
     }
 
-    /** Forget the sessions (tests; a changed transport). */
+    private static function session(Config $config, DomainRegistrarCredentials $credentials, bool $shop = false): Session
+    {
+        $key = sha1($config->endpoint . '|' . $config->clientId . '|' . hash('sha256', (string) $credentials->get('password')) . ($shop ? '|shop' : ''));
+
+        return self::$sessions[$key] ??= new Session($config, self::transport($shop));
+    }
+
+    /** End and forget the sessions: at the end of each request or command (AppServiceProvider), in tests (review 6). */
     public static function reset(): void
     {
         foreach (self::$sessions as $session) {

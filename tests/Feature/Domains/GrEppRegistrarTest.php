@@ -5,6 +5,7 @@ namespace Tests\Feature\Domains;
 use App\Enums\DomainStatus;
 use App\Models\Domain;
 use App\Services\Domains\DomainNotFoundAtRegistrar;
+use App\Services\Domains\DomainRegistrarNotConfigured;
 use App\Services\Domains\DomainRegistrarRegistry;
 use App\Services\Domains\RegistrarRefused;
 use App\Services\Domains\Registrars\GrEppRegistrar;
@@ -160,6 +161,42 @@ class GrEppRegistrarTest extends TestCase
         GrEppRegistrar::reset();
         $this->transport = $this->transportWith(fn () => $this->transport->result(2303));
         $this->assertNull((new GrEppRegistrar)->getContact('c60_nosuch', $this->credentials()));
+    }
+
+    public function test_review_fixes(): void
+    {
+        // 1: past its 15 days the registry deletes the name: «no such name» is its end, not «not ours».
+        Carbon::setTestNow('2026-12-01 10:00:00');
+        $this->transport = $this->transportWith(fn () => $this->transport->result(2303, 'Το αντικείμενο δεν υπάρχει'));
+        $gone = (new GrEppRegistrar)->syncDomain(new Domain(['fqdn' => 'old.gr', 'expires_at' => '2026-11-01', 'status' => DomainStatus::Grace]), $this->credentials());
+        $this->assertSame([DomainStatus::Deleted, true], [$gone->status, $gone->deadRecord]);
+
+        // 2: awaiting the regulator is a registration not assigned yet; 10: only a domain pending here moves.
+        GrEppRegistrar::reset();
+        Carbon::setTestNow('2013-01-10 10:00:00');
+        $regulator = ['<extdomain:status s="regulatorHold"/>' => '<extdomain:status s="pendingRegulatorApproval"/>'];
+        $this->transport = $this->transportWith(fn () => $this->answer('36-domain-info-response', $regulator));
+        $this->assertSame(DomainStatus::PendingRegister,
+            (new GrEppRegistrar)->syncDomain(new Domain(['fqdn' => 'forth.gr', 'status' => DomainStatus::PendingRegister]), $this->credentials())->status);
+        GrEppRegistrar::reset();
+        $this->transport = $this->transportWith(fn () => $this->answer('36-domain-info-response', $regulator));
+        $this->assertNull((new GrEppRegistrar)->syncDomain(new Domain(['fqdn' => 'forth.gr', 'status' => DomainStatus::Active]), $this->credentials())->status,
+            'an imported active one keeps its status');
+
+        // 3: the shop's names in one check, by the names asked (punycode asked, Unicode answered).
+        GrEppRegistrar::reset();
+        $this->transport = $this->transportWith(fn () => $this->answer('32-domain-check-response'));
+        $results = (new GrEppRegistrar)->checkAvailabilityMany(['FORTH.gr', 'forth.gov.gr'], $this->credentials());
+        $this->assertSame([true, false], [$results['FORTH.gr']->available, $results['forth.gov.gr']->available]);
+        $this->assertSame(['hello', 'login', 'check'], $this->transport->kinds(), 'one check for both');
+
+        // 5: ping on its own session, ended after; 8: bad credentials are «not configured».
+        GrEppRegistrar::reset();
+        $this->transport = $this->transportWith(fn () => $this->transport->fixture('08-logout-response.xml'));
+        $this->assertTrue((new GrEppRegistrar)->ping($this->credentials()));
+        $this->assertSame(['hello', 'login', 'logout'], $this->transport->kinds());
+        $this->expectException(DomainRegistrarNotConfigured::class);
+        (new GrEppRegistrar)->syncDomain(new Domain(['fqdn' => 'a.gr']), $this->credentials('ab'));
     }
 
     public function test_writes_are_refused_before_anything_is_sent(): void

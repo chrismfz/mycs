@@ -17,6 +17,7 @@ use App\Models\OauthClient;
 use App\Models\Staff;
 use App\Models\User;
 use App\Services\Domains\Lookup\VisitorKey;
+use App\Services\Domains\Registrars\GrEppRegistrar;
 use App\Services\Money\GatewayLog;
 use App\Support\BootFailure;
 use App\Support\CurrentClient;
@@ -164,6 +165,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // .gr registry sessions end with the request or command (a worker keeps its own: it runs on): review 6 of #187.
+        $this->app->terminating(fn () => GrEppRegistrar::reset());
         // The public price list API (D8a): 60 a minute per caller's own address (review R2, App\Support\CallerIp).
         RateLimiter::for('domain-pricing', fn ($request) => Limit::perMinute(60)->by(VisitorKey::of($request)));
 
