@@ -276,7 +276,9 @@ final class SessionTest extends TestCase
 
         // An answer carrying another clTRID is not this command's (review 11 of #184).
         $this->expectException(OutcomeUnknown::class);
-        $this->session($this->loggedIn()->result(1000))->command(self::CHECK, 't-1');
+        $other = '<?xml version="1.0" encoding="UTF-8"?><epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><response><result code="1000"><msg>ok</msg></result>'
+            . '<trID><clTRID>another-command</clTRID><svTRID>s</svTRID></trID></response></epp>';
+        $this->session($this->loggedIn()->queue(new HttpResponse(200, $other)))->command(self::CHECK, 't-1');
     }
 
     public function test_the_user_follows_the_schema(): void

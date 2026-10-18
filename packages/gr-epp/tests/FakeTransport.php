@@ -31,14 +31,19 @@ final class FakeTransport implements Transport
     public function result(int $code, string $msg = 'msg', string $extra = ''): self
     {
         return $this->queue(new HttpResponse(200, '<?xml version="1.0" encoding="UTF-8"?><epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><response>'
-            . "<result code=\"{$code}\"><msg>{$msg}</msg></result>{$extra}<trID><clTRID>c</clTRID><svTRID>s-{$code}</svTRID></trID></response></epp>"));
+            . "<result code=\"{$code}\"><msg>{$msg}</msg></result>{$extra}<trID><clTRID>ECHO</clTRID><svTRID>s-{$code}</svTRID></trID></response></epp>"));
     }
 
     public function post(string $url, string $body, array $headers): HttpResponse
     {
         $this->sent[] = ['url' => $url, 'body' => $body, 'headers' => $headers];
+        $answer = array_shift($this->queue) ?? throw new \LogicException('No answer queued for: ' . substr($body, 0, 200));
+        // «ECHO» in an answer is the request's clTRID, as the registry echoes it.
+        if (str_contains($answer->body, '<clTRID>ECHO</clTRID>') && preg_match('#<clTRID>([^<]*)</clTRID>#', $body, $m) === 1) {
+            return new HttpResponse($answer->status, str_replace('<clTRID>ECHO</clTRID>', "<clTRID>{$m[1]}</clTRID>", $answer->body), $answer->setCookies, $answer->error, $answer->neverSent);
+        }
 
-        return array_shift($this->queue) ?? throw new \LogicException('No answer queued for: ' . substr($body, 0, 200));
+        return $answer;
     }
 
     /** @return list<string> the EPP element each request carried (hello, login, logout, or the command's) */
