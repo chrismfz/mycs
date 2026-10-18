@@ -7,6 +7,7 @@ use App\Models\Domain;
 use App\Services\Domains\DomainLifecycle;
 use App\Services\Domains\DomainSyncService;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -16,23 +17,28 @@ use Throwable;
 
 /**
  * The domains against their registrars (docs/domains.md D-9), in batches (owner 2026-10-18: one cron, never all at once:
- * 1,400 .gr at myip, the registry's account one command at a time): called every 10 minutes, it reads a batch every
- * «domain_sync_hours» (Settings → Domains, default 2; 0 = paused), «domain_sync_batch» domains of each registrar
- * connection (default 200), the most needed first: pending orders, ones a registrar said are not ours, names expiring
- * within 30 days, then the longest unsynced; a short pause between them leaves the account free for the shop. Then
- * every live domain's life by its dates (D-8), synced or not. `--domain` one now; by hand (no `--scheduled`) a batch
- * now; `--dry-run` the
- * diff report: what would change, nothing written. Ended domains are left alone. A pending transfer older than its
- * days is reported. One domain's failure never stops the rest.
+ * 1,400 .gr at myip, the registry's account one command at a time). Called every 10 minutes (`--scheduled`):
+ * - a batch every «domain_sync_hours» (Settings → Domains, default 2; 0 = paused): «domain_sync_batch» domains of each
+ *   registrar connection (default 200), up to half of it the most needed (pending orders, names about to be invoiced or
+ *   reminded, a «not ours» waiting for its second sighting: each not read just now), the rest the longest unsynced; only
+ *   ones that can be read; a short pause between them; one batch at a time (a lock);
+ * - every live domain's life by its dates (D-8) at least every 2 hours, whatever the batch hours, read fresh.
+ * By hand a batch and the dates now (paused: the dates only, unless --force); `--domain` one now; `--dry-run` the diff
+ * report: what would change, nothing written. Ended domains are left alone. One domain's failure never stops the rest.
  */
 class SyncDomains extends Command
 {
     public const STALE_TRANSFER_DAYS = 14;
 
-    /** When the last batch ran (its hours are counted from it). */
+    /** When the last batch, and the last move by dates, ran. */
     public const LAST_BATCH = 'domains-sync-last-batch';
 
-    /** Milliseconds between two domains of a batch (tests: 0). */
+    public const LAST_DATES = 'domains-sync-last-dates';
+
+    /** One batch at a time, by hand or scheduled (review ADV-6 of #204). */
+    public const BATCH_LOCK = 'domains-sync-batch';
+
+    /** Milliseconds between two domains of a batch (unit tests: none). */
     public static int $pauseMs = 500;
 
     /** Days a transfer (or registration) may stay pending before staff are told (Settings → Domains, default 14). */
@@ -41,123 +47,204 @@ class SyncDomains extends Command
         return max(1, (int) config('settings.domain_stale_transfer_days', self::STALE_TRANSFER_DAYS));
     }
 
-    protected $signature = 'domains:sync {--domain= : one domain (its name)} {--scheduled : the scheduler\'s call: a batch only when its hours have passed}
-        {--dry-run : report what would change, write nothing}';
+    protected $signature = 'domains:sync {--domain= : one domain (its name)} {--scheduled : the scheduler\'s call: a batch when its hours have passed}
+        {--force : a batch by hand even while paused} {--dry-run : report what would change, write nothing}';
 
-    protected $description = 'Sync a batch of domains with their registrars, then move every live domain by its dates (grace, redemption)';
+    protected $description = 'Sync a batch of domains with their registrars, and move every live domain by its dates (grace, redemption)';
+
+    /** @var array<int, array<string, mixed>> a dry run's planned registrar truth, by domain (review F10) */
+    private array $planned = [];
 
     public function handle(DomainSyncService $sync, DomainLifecycle $lifecycle): int
     {
         Config::set('audit.console', true); // its changes are audited, as CronJob's (D-9)
         $write = !$this->option('dry-run');
-        $live = fn () => Domain::query()->whereNotIn('status', DomainStatus::terminalValues())
-            ->with(['domainTld.registrarConnection', 'registrarConnection', 'nameservers']);
         if ($this->option('domain')) {
             try {
-                $one = $live()->where('fqdn', Domain::normalise((string) $this->option('domain')))->get();
+                $fqdn = Domain::normalise((string) $this->option('domain'));
             } catch (InvalidArgumentException $e) {
                 $this->error($e->getMessage());
 
                 return self::FAILURE;
             }
-            if ($one->isEmpty()) {
+            $one = self::live()->where('fqdn', $fqdn)->pluck('id')->all();
+            if ($one === []) {
                 $this->error('No such live domain.');
 
                 return self::FAILURE;
             }
+            $failed = $this->syncIds($one, $sync, $write);
 
-            return $this->syncThenMove($one, $one->pluck('id')->all(), $sync, $lifecycle, $write);
+            return $failed + $this->moveByDates($lifecycle, $write, $one) === 0 ? self::SUCCESS : self::FAILURE;
         }
 
-        // Its hours (0 = paused: the dates still move the domains, every 2 hours); 5 minutes' slack for the 10-minute calls.
-        $hours = (float) config('settings.domain_sync_hours', 2);
+        $hours = max(0.0, (float) config('settings.domain_sync_hours', 2));
         $paused = $hours <= 0;
-        $last = Cache::get(self::LAST_BATCH);
-        $due = !is_string($last) || Carbon::parse($last)->addMinutes((int) round(($paused ? 2 : $hours) * 60) - 5)->lessThanOrEqualTo(now());
-        if ($this->option('scheduled') && !$due) {
-            return self::SUCCESS; // not its time yet
+        $batchDue = !$paused && self::due(Cache::get(self::LAST_BATCH), $hours * 60);
+        $datesDue = self::due(Cache::get(self::LAST_DATES), 120);
+        if ($this->option('scheduled')) {
+            [$batch, $dates] = [$batchDue, $datesDue];
+        } else {
+            [$batch, $dates] = [!$paused || $this->option('force'), true];
+            if ($paused && !$this->option('force')) {
+                $this->warn('The sync is paused (Settings → Domains): only the dates move the domains (--force reads a batch anyway).');
+            }
         }
-        if ($write) {
-            Cache::forever(self::LAST_BATCH, now()->toIso8601String());
+        $failed = 0;
+        if ($batch) {
+            $lock = Cache::lock(self::BATCH_LOCK, 3600);
+            if (!$lock->get()) {
+                $this->warn('A batch is running already: not another beside it.');
+            } else {
+                try {
+                    if ($write) {
+                        Cache::forever(self::LAST_BATCH, now()->toIso8601String());
+                    }
+                    $ids = self::batch(self::live()->get(), max(1, (int) config('settings.domain_sync_batch', 200)),
+                        fn (Domain $d) => $sync->isSyncable($d));
+                    $failed += $this->syncIds($ids, $sync, $write);
+                } finally {
+                    $lock->release();
+                }
+            }
         }
-        $all = $live()->get();
-        if ($paused && $this->option('scheduled')) {
-            $this->warn('The sync is paused (Settings → Domains): only the dates move the domains.');
+        if ($dates) {
+            if ($write) {
+                Cache::forever(self::LAST_DATES, now()->toIso8601String());
+            }
+            $failed += $this->moveByDates($lifecycle, $write);
+        }
 
-            return $this->syncThenMove($all, [], $sync, $lifecycle, $write);
-        }
+        return $failed === 0 ? self::SUCCESS : self::FAILURE;
+    }
 
-        return $this->syncThenMove($all, self::batch($all, max(1, (int) config('settings.domain_sync_batch', 200))), $sync, $lifecycle, $write);
+    /** @return Builder<Domain> */
+    private static function live(): Builder
+    {
+        return Domain::query()->whereNotIn('status', DomainStatus::terminalValues())
+            ->with(['domainTld.registrarConnection', 'registrarConnection', 'nameservers']);
+    }
+
+    /** Never ran, its minutes passed (5 minutes' slack for the 10-minute calls), or a time in the future (a clock moved). */
+    private static function due(mixed $last, float $minutes): bool
+    {
+        if (!is_string($last)) {
+            return true;
+        }
+        $at = Carbon::parse($last);
+
+        return $at->greaterThan(now()) || $at->addMinutes((int) round($minutes) - 5)->lessThanOrEqualTo(now());
     }
 
     /**
-     * Its batch: per registrar connection, the most needed first (pending, «not ours», expiring within 30 days and not read
-     * within 12 hours), then the longest unsynced (never synced first).
+     * Its batch, per registrar connection, among those $syncable (an unsent order, an ended registrar: never a slot):
+     * up to half of it the most needed, each not read just now (pending: an hour; «not ours» waiting for its second
+     * sighting: an hour; about to be invoiced or reminded: 12 hours), then the longest unsynced (never synced first).
      *
      * @param  Collection<int, Domain>  $domains
+     * @param  (callable(Domain): bool)|null  $syncable
      * @return list<int> their ids
      */
-    public static function batch(Collection $domains, int $size): array
+    public static function batch(Collection $domains, int $size, ?callable $syncable = null): array
     {
-        $soon = now()->addDays(30)->toDateString();
-        $recent = now()->subHours(12);
+        $hour = now()->subHour();
+        $halfDay = now()->subHours(12);
+        $day = now()->subDay();
+        // Its invoice or its first reminder (review ADV-7): the window the sync must be fresh for.
+        $reminders = array_map('intval', array_filter(array_map('trim', explode(',', (string) config('settings.domain_reminder_days', '30,7,1,-3'))), 'is_numeric'));
+        $window = max(30, (int) config('settings.domain_invoice_days', 15), ...($reminders !== [] ? $reminders : [0]));
+        $from = now()->subDays(60)->toDateString(); // its grace and redemption, not names long lapsed (review 2)
+        $to = now()->addDays($window)->toDateString();
+        $synced = fn (Domain $d) => $d->last_synced_at !== null ? Carbon::parse($d->last_synced_at) : null;
+        $need = function (Domain $d) use ($synced, $hour, $halfDay, $day, $from, $to): ?int {
+            $at = $synced($d);
+            if (in_array($d->status, [DomainStatus::PendingRegister, DomainStatus::PendingTransfer], true) && ($at === null || $at->lt($hour))) {
+                return 0;
+            }
+            $note = $d->meta['not_ours'] ?? null;
+            if (is_array($note) && $d->status === DomainStatus::Active && is_string($note['since'] ?? null)
+                && Carbon::parse($note['since'])->greaterThanOrEqualTo($day) && ($at === null || $at->lt($hour))) {
+                return 1;
+            }
+            $expires = $d->expires_at?->toDateString();
+            if ($expires !== null && $expires >= $from && $expires <= $to && ($at === null || $at->lt($halfDay))) {
+                return 2;
+            }
 
-        return $domains->toBase()->groupBy(fn (Domain $d) => (string) ($d->effectiveRegistrarConnection()->id ?? 'none'))
-            ->except('none')
-            ->flatMap(fn (Collection $group) => $group->sortBy(fn (Domain $d) => self::priority($d, $soon, $recent))->take($size)->pluck('id'))
+            return null;
+        };
+
+        return $domains->toBase()
+            ->filter(fn (Domain $d) => $d->effectiveRegistrarConnection() !== null && ($syncable === null || $syncable($d)))
+            ->groupBy(fn (Domain $d) => (string) $d->effectiveRegistrarConnection()?->id)
+            ->flatMap(function (Collection $group) use ($size, $need, $synced) {
+                $oldest = fn (Domain $d) => [$synced($d)?->getTimestamp() ?? 0, $d->id];
+                [$needed, $rest] = $group->partition(fn (Domain $d) => $need($d) !== null);
+                $needed = $needed->sortBy(fn (Domain $d) => [$need($d), ...$oldest($d)])->values();
+                // Half for the most needed (review ADV-2: many pending never take it all).
+                $first = $needed->take((int) ceil($size / 2));
+                // The rest by age alone, the needed left over among them (never the same tier taking every slot).
+                $then = $rest->concat($needed->slice($first->count()))->sortBy($oldest)->take($size - $first->count());
+
+                return $first->concat($then)->pluck('id');
+            })
             ->values()->all();
     }
 
-    /** @return list<int|string> its place in its connection's batch (lower first) */
-    private static function priority(Domain $d, string $soon, Carbon $recent): array
-    {
-        $synced = $d->last_synced_at !== null ? Carbon::parse($d->last_synced_at) : null;
-
-        return [
-            in_array($d->status, [DomainStatus::PendingRegister, DomainStatus::PendingTransfer], true) ? 0 : 1,
-            is_array($d->meta['not_ours'] ?? null) ? 0 : 1,
-            // Expiring soon, unless read within 12 hours (never every batch: many would take it all).
-            $d->expires_at !== null && $d->expires_at->toDateString() <= $soon && ($synced === null || $synced->lt($recent)) ? 0 : 1,
-            $synced?->getTimestamp() ?? 0,
-            $d->id,
-        ];
-    }
-
     /**
-     * Those of $sync read from their registrars (a pause between them), then every one moved by its dates.
+     * These read from their registrars, a pause between them.
      *
-     * @param  Collection<int, Domain>  $domains
-     * @param  list<int>  $sync
+     * @param  list<int>  $ids
      */
-    private function syncThenMove(Collection $domains, array $sync, DomainSyncService $syncer, DomainLifecycle $lifecycle, bool $write): int
+    private function syncIds(array $ids, DomainSyncService $syncer, bool $write): int
     {
         $failed = 0;
         $read = 0;
-        foreach ($domains as $domain) {
+        foreach (self::live()->whereKey($ids)->lazyById(100) as $domain) {
+            if (!$syncer->isSyncable($domain)) {
+                continue;
+            }
+            if ($read++ > 0 && self::$pauseMs > 0 && !app()->runningUnitTests()) {
+                usleep(self::$pauseMs * 1000); // the registrar's account left free for the shop between two
+            }
             try {
-                if (in_array($domain->id, $sync, true) && $syncer->isSyncable($domain)) {
-                    if ($read++ > 0 && self::$pauseMs > 0 && !app()->runningUnitTests()) {
-                        usleep(self::$pauseMs * 1000); // the registrar's account left free for the shop between two
-                    }
-                    try {
-                        $changes = $syncer->sync($domain, $write);
-                    } catch (Throwable $e) {
-                        $failed++;
-                        $this->error("{$domain->fqdn}: " . $e->getMessage());
-                        $changes = [];
-                    }
-                    foreach ($changes as $field => [$now, $then]) {
-                        $this->line("{$domain->fqdn}: " . ($field === '_warning' ? "warning: {$then}" : "{$field} " . self::show($now) . ' → ' . self::show($then)));
-                    }
-                    if ($write) {
-                        $domain->refresh();
-                    } else {
-                        // What the real run would see: the planned registrar truth, in memory only (review F10).
-                        $planned = array_intersect_key(array_map(fn (array $c) => $c[1], $changes), array_flip(['expires_at', 'status', 'grace_ends_on', 'redemption_ends_on']));
-                        $domain->forceFill($planned);
-                    }
+                $changes = $syncer->sync($domain, $write);
+            } catch (Throwable $e) {
+                $failed++;
+                $this->error("{$domain->fqdn}: " . $e->getMessage());
+                $changes = [];
+            }
+            foreach ($changes as $field => [$now, $then]) {
+                $this->line("{$domain->fqdn}: " . ($field === '_warning' ? "warning: {$then}" : "{$field} " . self::show($now) . ' → ' . self::show($then)));
+            }
+            if (!$write) {
+                // What the real run would see: the planned registrar truth, in memory only (review F10).
+                $this->planned[$domain->id] = array_intersect_key(array_map(fn (array $c) => $c[1], $changes), array_flip(['expires_at', 'status', 'grace_ends_on', 'redemption_ends_on']));
+            }
+        }
+        $this->info("Read {$read} domain(s) from their registrars.");
+
+        return $failed;
+    }
+
+    /**
+     * Every live domain (or these) moved by its dates, read fresh (review 4 of #204: never a model loaded before a batch
+     * of minutes), even when its registrar could not be read or was not read this batch (review F9).
+     *
+     * @param  list<int>|null  $only
+     */
+    private function moveByDates(DomainLifecycle $lifecycle, bool $write, ?array $only = null): int
+    {
+        $failed = 0;
+        $query = self::live();
+        if ($only !== null) {
+            $query->whereKey($only);
+        }
+        foreach ($query->lazyById(200) as $domain) {
+            try {
+                if (isset($this->planned[$domain->id])) {
+                    $domain->forceFill($this->planned[$domain->id]);
                 }
-                // The dates move it even when its registrar could not be read, or was not read this batch (review F9).
                 $next = $lifecycle->next($domain);
                 if ($next !== null) {
                     $this->line("{$domain->fqdn}: status {$domain->status->value} → {$next->value} (dates)");
@@ -173,9 +260,8 @@ class SyncDomains extends Command
                 $this->warn("{$domain->fqdn}: pending transfer for more than " . self::staleTransferDays() . ' days');
             }
         }
-        $this->info("Read {$read} of " . $domains->count() . ' live domain(s) from their registrars.');
 
-        return $failed === 0 ? self::SUCCESS : self::FAILURE;
+        return $failed;
     }
 
     private static function show(mixed $value): string

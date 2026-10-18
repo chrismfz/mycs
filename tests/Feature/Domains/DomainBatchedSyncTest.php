@@ -8,6 +8,7 @@ use App\Models\Currency;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
 use App\Models\User;
+use App\Services\Domains\DomainNotFoundAtRegistrar;
 use App\Services\Domains\Registrars\OpenproviderRegistrar;
 use App\Support\Domains\DomainRegistrarCredentials;
 use App\Support\Domains\DomainSyncResult;
@@ -58,7 +59,7 @@ class DomainBatchedSyncTest extends TestCase
 
     public function test_a_batch_per_connection_the_most_needed_first(): void
     {
-        config(['settings.domain_sync_batch' => 3]);
+        config(['settings.domain_sync_batch' => 6]);
         $a = $this->connection('A');
         $b = $this->connection('B');
         foreach (range(1, 6) as $i) {
@@ -72,18 +73,19 @@ class DomainBatchedSyncTest extends TestCase
 
         $this->artisan('domains:sync')->assertExitCode(0);
 
-        $readA = array_values(array_filter(CountingRegistrar::$read, fn ($f) => str_starts_with($f, 'a') || in_array($f, ['pending.com', 'expiring.com', 'notours.com', 'never.com'], true)));
-        $this->assertSame(['pending.com', 'expiring.com', 'notours.com'], array_values(array_intersect(['pending.com', 'expiring.com', 'notours.com', 'never.com', 'a1.com'], $readA)),
-            'pending, «not ours» and expiring first');
-        $this->assertCount(3, $readA, 'its batch for connection A');
-        $this->assertCount(3, array_filter(CountingRegistrar::$read, fn ($f) => str_starts_with($f, 'b')), 'and B its own');
+        $readA = array_values(array_filter(CountingRegistrar::$read, fn ($f) => !str_starts_with($f, 'b')));
+        sort($readA);
+        // Half (3) the most needed: pending, «not ours» waiting, expiring; half the longest unsynced: never, a1, a2.
+        $this->assertSame(['a1.com', 'a2.com', 'expiring.com', 'never.com', 'notours.com', 'pending.com'], $readA);
+        $this->assertCount(6, array_filter(CountingRegistrar::$read, fn ($f) => str_starts_with($f, 'b')), 'and B its own');
 
-        // The next batch: the longest unsynced next (never synced, then a1, a2 …).
+        // The next batch: the longest unsynced next; the ones read just now wait (pending an hour, expiring 12 hours).
         CountingRegistrar::$read = [];
         $this->artisan('domains:sync')->assertExitCode(0);
         $next = array_values(array_filter(CountingRegistrar::$read, fn ($f) => !str_starts_with($f, 'b')));
         sort($next);
-        $this->assertSame(['a1.com', 'a2.com', 'never.com'], $next, 'expiring.com read an hour ago: not again');
+        // a3–a6 the oldest; then, all read at 10:00, by id (a1, a2); pending and expiring read just now are not needed again.
+        $this->assertSame(['a1.com', 'a2.com', 'a3.com', 'a4.com', 'a5.com', 'a6.com'], $next, 'by age once read');
     }
 
     public function test_the_schedule_keeps_its_hours_and_paused_only_the_dates_move(): void
@@ -114,8 +116,10 @@ class DomainBatchedSyncTest extends TestCase
         $this->assertSame([], CountingRegistrar::$read);
         $this->assertNotSame(DomainStatus::Active, $lapsed->fresh()->status, 'moved by its dates');
 
-        // By hand, a batch whatever its hours.
+        // By hand while paused: the dates only, unless --force (review 7 of #204).
         $this->artisan('domains:sync')->assertExitCode(0);
+        $this->assertSame([], CountingRegistrar::$read);
+        $this->artisan('domains:sync', ['--force' => true])->assertExitCode(0);
         $this->assertNotSame([], CountingRegistrar::$read);
     }
 
@@ -128,6 +132,32 @@ class DomainBatchedSyncTest extends TestCase
         $this->assertSame(['two.com'], CountingRegistrar::$read);
 
         $this->assertCount(1, SyncDomains::batch(Domain::query()->get(), 1));
+    }
+
+    public function test_a_wrong_setting_read_in_batches_never_marks_domains_away(): void
+    {
+        // Review 1 of #204: 30 domains, batches of 10, a registrar saying «not ours» for all: the breaker counts among those
+        // read, so no batch of them is ever marked transferred away.
+        config(['settings.domain_sync_batch' => 10, 'domains.registrars.allgone' => AllGoneRegistrar::class]);
+        $gone = DomainRegistrarConnection::query()->create(['registrar' => 'allgone', 'label' => 'Wrong', 'is_active' => true, 'mode' => 'production']);
+        foreach (range(1, 30) as $i) {
+            $this->domain($gone, "x{$i}", ['meta' => ['read_by' => $gone->id]]);
+        }
+        foreach (['10:00', '12:00', '14:00', '16:00'] as $at) {
+            Carbon::setTestNow("2026-10-20 {$at}:00");
+            $this->artisan('domains:sync', ['--scheduled' => true]);
+        }
+
+        $this->assertSame(0, Domain::query()->where('status', DomainStatus::TransferredAway->value)->count());
+    }
+}
+
+/** A registrar that says «not ours» for every domain (a wrong account, say). */
+class AllGoneRegistrar extends OpenproviderRegistrar
+{
+    public function syncDomain(Domain $domain, DomainRegistrarCredentials $credentials): DomainSyncResult
+    {
+        throw new DomainNotFoundAtRegistrar("{$domain->fqdn} is not in the Openprovider account.");
     }
 }
 

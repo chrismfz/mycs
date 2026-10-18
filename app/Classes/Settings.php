@@ -1086,7 +1086,8 @@ class Settings
                     'default' => 2,
                     'required' => true,
                     'min_value' => 0,
-                    'description' => 'How often a batch of domains is read from their registrars (default 2). 0: the sync is paused (an emergency, a registry asking us to slow down); «Sync now» on a domain still works.',
+                    'max_value' => 24,
+                    'description' => 'How often a batch of domains is read from their registrars (default 2, at most 24). 0: the sync is paused (an emergency, a registry asking us to slow down): no batch, not even by hand without --force; «Sync now» on a domain still works, and the dates still move the domains every 2 hours.',
                 ],
                 [
                     'name' => 'domain_sync_batch',
@@ -1096,7 +1097,8 @@ class Settings
                     'default' => 200,
                     'required' => true,
                     'min_value' => 1,
-                    'description' => 'How many domains of each registrar connection a batch reads (default 200): the longest unsynced first, pending orders, names expiring within 30 days and ones a registrar said are not ours before them.',
+                    'max_value' => 1000,
+                    'description' => 'How many domains of each registrar connection a batch reads (default 200, at most 1000): up to half of it the most needed (pending orders, names about to be invoiced or reminded, ones a registrar said are not ours), the rest the longest unsynced.',
                 ],
                 [
                     'name' => 'domain_stale_transfer_days',

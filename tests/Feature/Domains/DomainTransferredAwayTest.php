@@ -143,7 +143,8 @@ class DomainTransferredAwayTest extends TestCase
         // A reseller leaving with 12 of 50 (under half): each marked by itself (owner 2026-10-18).
         Domain::query()->delete();
         Carbon::setTestNow('2026-10-22 10:00:00');
-        $all = collect(range(1, 50))->map(fn ($i) => $this->domain(['sld' => "shop{$i}", 'fqdn' => "shop{$i}.gr"]));
+        // All read within the day (a batch reads them): the breaker counts among those read (review 1 of #204).
+        $all = collect(range(1, 50))->map(fn ($i) => $this->domain(['sld' => "shop{$i}", 'fqdn' => "shop{$i}.gr", 'last_synced_at' => '2026-10-22 09:00:00']));
         $leaving = $all->take(12);
         $leaving->each(fn (Domain $d) => $this->sync($d, 2201));
         Carbon::setTestNow('2026-10-22 11:05:00');
