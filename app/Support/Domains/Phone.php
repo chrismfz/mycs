@@ -18,8 +18,16 @@ final class Phone
         'PL' => '48', 'HU' => '36', 'DK' => '45', 'SE' => '46', 'NO' => '47', 'FI' => '358', 'IS' => '354', 'IE' => '353', 'GB' => '44',
         'EE' => '372', 'LV' => '371', 'LT' => '370', 'UA' => '380', 'MD' => '373', 'RU' => '7', 'GE' => '995', 'AM' => '374', 'IL' => '972',
         'EG' => '20', 'LB' => '961', 'AE' => '971', 'SA' => '966', 'US' => '1', 'CA' => '1', 'AU' => '61', 'NZ' => '64', 'ZA' => '27',
-        'BR' => '55', 'AR' => '54', 'MX' => '52', 'IN' => '91', 'CN' => '86', 'JP' => '81',
+        'BR' => '55', 'AR' => '54', 'MX' => '52', 'IN' => '91', 'CN' => '86', 'JP' => '81', 'KZ' => '7', 'BY' => '375', 'XK' => '383',
+        'SG' => '65', 'SM' => '378', 'VA' => '39',
     ];
+
+    /**
+     * National trunk prefixes other than a single 0, by calling code (code review 5 of #205): Russia's and Kazakhstan's
+     * «8 916…», Belarus's «80 17…», Hungary's «06 1…», «1 212…» in North America; with the length a whole national
+     * number has then, so a number that only starts so keeps its digits.
+     */
+    private const TRUNKS = ['7' => ['8', 11], '375' => ['80', 11], '36' => ['06', 10], '1' => ['1', 11]];
 
     /** @return array{0: string, 1: string}|null [«+CC», subscriber], null without digits; a local number under $country's code */
     public static function split(?string $raw, ?string $country = null): ?array
@@ -37,6 +45,10 @@ final class Phone
         if (!str_starts_with($digits, '+') && $code !== null) {
             // A national trunk 0 dropped (020 … in London is +44 20 …), except where it is part of the number (Italy, San
             // Marino) or there is none (Greece).
+            [$trunk, $length] = self::TRUNKS[$code] ?? ['0', 0];
+            if ($length > 0) {
+                return ['+' . $code, strlen($digits) === $length && str_starts_with($digits, $trunk) ? substr($digits, strlen($trunk)) : $digits];
+            }
             $keep = in_array($code, ['30', '39', '378'], true) || ltrim($digits, '0') === '';
 
             return ['+' . $code, $keep ? $digits : ltrim($digits, '0')];

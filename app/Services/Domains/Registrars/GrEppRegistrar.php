@@ -209,7 +209,7 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
             // 2303: no such name; 2201: not ours to read (another registrar's, no code given).
             if (in_array($e->resultCode, [2303, 2201], true)) {
                 throw new DomainNotFoundAtRegistrar("{$domain->fqdn} is not ours at the registry ({$e->resultCode}: {$e->registryMessage}).",
-                    elsewhere: $e->resultCode === 2201); // 2201: another registrar's; 2303: no such name
+                    elsewhere: $e->resultCode === 2201, resultCode: $e->resultCode); // 2201: another registrar's; 2303: no such name
             }
             throw new RuntimeException("The registry refused to read {$domain->fqdn}: {$e->getMessage()}");
         }

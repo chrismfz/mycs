@@ -154,7 +154,10 @@ class Pr205AdversarialTest extends TestCase
         $this->assertNull($this->openRegister($domain), 'closed by staff: not opened again every 10 minutes');
     }
 
-    /** ADV-2 (high), the «Done by hand» path: staff registered it again by hand; the sync must not reopen the old refusal. */
+    /**
+     * ADV-2 (high), the «Done by hand» path: staff registered it again by hand. Author's answer: a registry that still has
+     * no such name after it is news (done by hand but not there), told once more; then no longer sent, not again.
+     */
     public function test_adv2b_an_action_resolved_by_hand_is_not_opened_again_by_the_next_sync(): void
     {
         $domain = $this->sentRegistration();
@@ -164,9 +167,11 @@ class Pr205AdversarialTest extends TestCase
 
         Carbon::setTestNow('2026-10-20 10:10:00');
         $this->syncAnswering($domain, $this->noSuchName());
+        Carbon::setTestNow('2026-10-20 10:20:00');
+        $this->syncAnswering($domain, $this->noSuchName());
 
-        $this->assertSame(1, ModuleAction::query()->where('domain_id', $domain->id)->where('action', ModuleAction::DOMAIN_REGISTER)->count(),
-            'one action for one refusal, not one more per sync');
+        $this->assertSame(2, ModuleAction::query()->where('domain_id', $domain->id)->where('action', ModuleAction::DOMAIN_REGISTER)->count(),
+            'told once more (done by hand, yet not there), not one more per sync');
     }
 
     /**

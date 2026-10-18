@@ -367,15 +367,23 @@ class DomainSyncService
     /**
      * A registration sent and still pending whose name the registry no longer has (2303): refused (the .gr registry's
      * «Προς Έγκριση», the EETT saying no) or withdrawn. Told to staff as its order's Pending Module Action, to refund or
-     * register again (G5b-3 of grepp); never one recalled here (it is cancelled already).
+     * register again (G5b-3 of grepp); never one recalled here (it is cancelled already), never a wrong «Registrar id»
+     * (code review 3 of #205: the registry gave its record). No longer sent (meta.registration_gone keeps when and why):
+     * not read again, so neither opened again each sync nor after staff Close it (review 1, 4); Retry registers it again
+     * (review 2).
      */
     private function registrationGone(Domain $domain, DomainNotFoundAtRegistrar $e): void
     {
         $domain->refresh();
-        if ($e->elsewhere !== false || $domain->status !== DomainStatus::PendingRegister || empty($domain->meta['sent_at'])
-            || !empty($domain->meta['recalled_at'])) {
+        $meta = $domain->meta ?? [];
+        // A sandbox's «no such name» says nothing of a real registration (ADV-5 of #205).
+        if ($e->resultCode !== 2303 || $domain->status !== DomainStatus::PendingRegister || empty($meta['sent_at'])
+            || !empty($meta['recalled_at']) || $domain->effectiveRegistrarConnection()?->mode !== 'production') {
             return;
         }
+        $meta['registration_gone'] = ['at' => now()->toIso8601String(), 'sent_at' => $meta['sent_at'], 'said' => mb_substr($e->getMessage(), 0, 300)];
+        unset($meta['sent_at'], $meta['not_ours']);
+        $domain->forceFill(['meta' => $meta])->save();
         ModuleAction::domainFailed($domain, DomainOrderFulfilment::lineOf($domain), $domain->effectiveRegistrarConnection()?->registrar,
             new RuntimeException(__('domains.order.registration_gone', ['domain' => $domain->fqdn, 'said' => $e->getMessage()])), ModuleAction::DOMAIN_REGISTER);
     }

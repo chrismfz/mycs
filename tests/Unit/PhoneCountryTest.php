@@ -23,4 +23,15 @@ class PhoneCountryTest extends TestCase
         $this->assertSame('+357.22123456', Phone::epp('+357 22 123456', 'GR'), 'its own + wins over the contact\'s country');
         $this->assertSame('+44.2079460000', Phone::epp('0044 20 7946 0000', 'GR'));
     }
+
+    public function test_other_trunk_prefixes(): void
+    {
+        // Code review 5 of #205.
+        $this->assertSame('+7.9161234567', Phone::epp('8 916 123-45-67', 'RU'));
+        $this->assertSame('+36.12345678', Phone::epp('06 1 234 5678', 'HU'));
+        $this->assertSame('+1.2125550100', Phone::epp('1 212 555 0100', 'US'));
+        $this->assertSame('+1.2125550100', Phone::epp('(212) 555-0100', 'us'), 'without its trunk');
+        $this->assertSame('+375.171234567', Phone::epp('8 017 123 45 67', 'BY'));
+        $this->assertNull(Phone::epp('  ', 'CY'));
+    }
 }

@@ -144,12 +144,17 @@ class GrEppRegistrarTest extends TestCase
             // A full record answered with another clID: its registrar id setting, never a transfer away (ADV-1 of #203).
             $this->assertStringContainsString('Registrar id', $e->getMessage());
             $this->assertFalse($e->elsewhere);
+            $this->assertNull($e->resultCode, 'the registry gave its record: no «no such name» (code review 3 of #205)');
         }
 
         GrEppRegistrar::reset();
         $this->transport = $this->transportWith(fn () => $this->transport->result(2303, 'Το αντικείμενο δεν υπάρχει'));
-        $this->expectException(DomainNotFoundAtRegistrar::class);
-        (new GrEppRegistrar)->syncDomain(new Domain(['fqdn' => 'nosuch.gr']), $this->credentials());
+        try {
+            (new GrEppRegistrar)->syncDomain(new Domain(['fqdn' => 'nosuch.gr']), $this->credentials());
+            $this->fail('no such name');
+        } catch (DomainNotFoundAtRegistrar $e) {
+            $this->assertSame(2303, $e->resultCode);
+        }
     }
 
     public function test_contacts_are_read_and_unknown_ones_are_null(): void

@@ -12,11 +12,11 @@ use RuntimeException;
  *
  * $elsewhere: the name exists, held by another registrar (true: the .gr registry's 2201); never to be taken as moved
  * (false: 2303, no such name; or our own setting contradicts the registry, a wrong registrar id); or not known (null:
- * the account simply does not list it).
+ * the account simply does not list it). $resultCode: the registry's answer, when it gave one (2303: no such name).
  */
 class DomainNotFoundAtRegistrar extends RuntimeException
 {
-    public function __construct(string $message = '', public readonly ?bool $elsewhere = null)
+    public function __construct(string $message = '', public readonly ?bool $elsewhere = null, public readonly ?int $resultCode = null)
     {
         parent::__construct($message);
     }
