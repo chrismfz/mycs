@@ -15,6 +15,7 @@ use App\Services\Order\OrderPricing;
 use App\Support\Domains\DomainSyncResult;
 use App\Support\Domains\RegistrarTransactions;
 use App\Support\Redact;
+use App\Support\TimeLimit;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -177,7 +178,7 @@ class DomainRenewalService
         if (!$lock->get()) {
             return self::WAITING; // a change is under way: the next run
         }
-        set_time_limit(600);
+        TimeLimit::atLeast(600);
         try {
             return $this->renewLocked($domain->refresh(), $line->refresh(), $connection, $staff);
         } finally {
@@ -396,7 +397,7 @@ class DomainRenewalService
         if (!$lock->get()) {
             throw new RuntimeException(__('domains.manage.busy', ['domain' => $domain->fqdn]));
         }
-        set_time_limit(600);
+        TimeLimit::atLeast(600);
         try {
             if ($this->unconfirmed($domain) !== null) {
                 throw new RuntimeException(__('domains.renew.unconfirmed', ['domain' => $domain->fqdn]));
