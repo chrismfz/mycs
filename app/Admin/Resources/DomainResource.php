@@ -193,6 +193,16 @@ class DomainResource extends Resource
                     Section::make(__('Nameservers'))->schema([
                         TextEntry::make('nameservers.host')->hiddenLabel()->listWithLineBreaks()->placeholder('—'),
                     ]),
+                    // As last read from the registrar (its «Read child nameservers»): the forgotten ones too.
+                    Section::make(__('Child nameservers'))->collapsible()
+                        ->visible(fn (Domain $record) => isset($record->meta['child_hosts']))
+                        ->description(fn (Domain $record) => __('Read :when', ['when' => (string) ($record->meta['child_hosts']['read_at'] ?? '—')]))
+                        ->schema([
+                            TextEntry::make('child_hosts')->hiddenLabel()->placeholder(__('None at the registrar.'))->listWithLineBreaks()->fontFamily('mono')
+                                ->state(fn (Domain $record) => collect($record->meta['child_hosts']['hosts'] ?? [])->filter(fn ($h) => is_array($h))
+                                    ->map(fn (array $h) => ($h['name'] ?? '?') . '  ' . implode(', ', (array) ($h['addresses'] ?? []))
+                                        . (($h['linked'] ?? false) ? '  (' . __('in use') . ')' : ''))->values()->all()),
+                        ]),
                     $registrar,
                 ]),
             ]),

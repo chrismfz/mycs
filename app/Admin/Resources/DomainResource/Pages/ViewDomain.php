@@ -24,6 +24,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
+use Filament\Schemas\Components\Utilities\Set;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\HtmlString;
 use Throwable;
@@ -53,6 +54,20 @@ class ViewDomain extends ViewRecord
     private static function manageable(Domain $record): bool
     {
         return app(DomainManagementService::class)->isManageable($record);
+    }
+
+    /** @return list<array{name: string, addresses: list<string>, linked: bool}> as last read (meta.child_hosts) */
+    private static function childHosts(Domain $record): array
+    {
+        $hosts = $record->meta['child_hosts']['hosts'] ?? [];
+
+        return is_array($hosts) ? array_values(array_filter($hosts, 'is_array')) : [];
+    }
+
+    /** @return list<string> */
+    private static function lines(mixed $text): array
+    {
+        return array_values(array_filter(array_map('trim', preg_split('/[\s,]+/', (string) $text) ?: []), fn (string $l) => $l !== ''));
     }
 
     /** A registrar call: done and synced, or why not, never an exception on the page. */
@@ -117,12 +132,65 @@ class ViewDomain extends ViewRecord
                     ->schema([
                         Repeater::make('nameservers')->hiddenLabel()->simple(TextInput::make('host')->required()->maxLength(253))
                             ->minItems(2)->maxItems(13)->reorderable()->defaultItems(2)
-                            ->helperText(__('2 to 13. A nameserver inside this domain gets its glue IP from its current DNS.')),
+                            ->helperText(fn (Domain $record) => app(DomainManagementService::class)->managesChildHosts($record)
+                                ? __('2 to 13. A nameserver inside this domain must exist as a child nameserver first (with its IPs).')
+                                : __('2 to 13. A nameserver inside this domain gets its glue IP from its current DNS.')),
                     ])
                     ->action(fn (Domain $record, array $data) => $this->attempt(
                         fn () => app(DomainManagementService::class)->setNameservers($record, array_values(array_map(
                             fn ($row) => is_array($row) ? (string) ($row['host'] ?? '') : (string) $row, $data['nameservers'] ?? [])), self::staff()),
                         __('Nameservers changed at the registrar.'),
+                    )),
+
+                // Child nameservers (glue): the .gr registry keeps them as objects of their own; read on request.
+                Action::make('readChildHosts')->label(__('Read child nameservers'))->icon('heroicon-o-arrow-path')
+                    ->visible(fn (Domain $record) => self::can('admin.domains.manage') && app(DomainManagementService::class)->managesChildHosts($record))
+                    ->action(fn (Domain $record) => $this->attempt(
+                        fn () => app(DomainManagementService::class)->readChildHosts($record, self::staff()),
+                        __('Child nameservers read from the registrar.'),
+                    )),
+
+                Action::make('createChildHost')->label(__('Add child nameserver'))->icon('heroicon-o-plus')
+                    ->visible(fn (Domain $record) => self::can('admin.domains.manage') && app(DomainManagementService::class)->managesChildHosts($record))
+                    ->schema([
+                        TextInput::make('host')->label(__('Name'))->required()->maxLength(253)
+                            ->helperText(fn (Domain $record) => __('ns1, or ns1.:domain', ['domain' => $record->fqdn])),
+                        Textarea::make('addresses')->label(__('IP addresses'))->required()->rows(3)->helperText(__('One per line, IPv4 or IPv6.')),
+                    ])
+                    ->action(fn (Domain $record, array $data) => $this->attempt(
+                        fn () => app(DomainManagementService::class)->createChildHost($record, (string) $data['host'], self::lines($data['addresses'] ?? ''), self::staff()),
+                        __('Child nameserver created at the registrar.'),
+                    )),
+
+                Action::make('updateChildHost')->label(__('Change child nameserver IPs'))->icon('heroicon-o-pencil')
+                    ->visible(fn (Domain $record) => self::can('admin.domains.manage') && app(DomainManagementService::class)->managesChildHosts($record)
+                        && self::childHosts($record) !== [])
+                    ->schema([
+                        Select::make('host')->label(__('Name'))->required()->live()
+                            ->options(fn (Domain $record) => collect(self::childHosts($record))->mapWithKeys(fn (array $h) => [$h['name'] => $h['name']])->all())
+                            ->afterStateUpdated(fn ($state, Set $set, Domain $record) => $set('addresses',
+                                implode("\n", collect(self::childHosts($record))->firstWhere('name', $state)['addresses'] ?? []))),
+                        Textarea::make('addresses')->label(__('IP addresses'))->required()->rows(3)
+                            ->helperText(__('The full set, one per line: what is missing is added, what is not here is removed.')),
+                    ])
+                    ->action(fn (Domain $record, array $data) => $this->attempt(
+                        fn () => app(DomainManagementService::class)->updateChildHost($record, (string) $data['host'], self::lines($data['addresses'] ?? ''), self::staff()),
+                        __('Child nameserver changed at the registrar.'),
+                    )),
+
+                Action::make('deleteChildHost')->label(__('Delete child nameserver'))->icon('heroicon-o-trash')->color('danger')
+                    ->visible(fn (Domain $record) => self::can('admin.domains.manage') && app(DomainManagementService::class)->managesChildHosts($record)
+                        && collect(self::childHosts($record))->contains(fn (array $h) => !$h['linked']))
+                    ->requiresConfirmation()
+                    ->modalDescription(__('Only one no domain uses as a nameserver. Logged.'))
+                    ->schema([
+                        Select::make('host')->label(__('Name'))->required()
+                            ->options(fn (Domain $record) => collect(self::childHosts($record))->reject(fn (array $h) => $h['linked'])
+                                ->mapWithKeys(fn (array $h) => [$h['name'] => $h['name']])->all()),
+                    ])
+                    ->action(fn (Domain $record, array $data) => $this->attempt(
+                        fn () => app(DomainManagementService::class)->deleteChildHost($record, (string) $data['host'], self::staff()),
+                        __('Child nameserver deleted at the registrar.'),
                     )),
 
                 Action::make('lock')->label(fn (Domain $record) => $record->transfer_lock ? __('Unlock (allow transfer)') : __('Lock (block transfer)'))

@@ -4,6 +4,7 @@ namespace App\Services\Domains\Registrars;
 
 use App\Contracts\DomainRegistrar;
 use App\Contracts\EmailsAuthCode;
+use App\Contracts\ManagesChildHosts;
 use App\Contracts\RecallsRegistration;
 use App\Enums\DomainStatus;
 use App\Models\Contact;
@@ -14,6 +15,7 @@ use App\Services\Domains\RegistrarNotAsked;
 use App\Services\Domains\RegistrarOutcomeUnknown;
 use App\Services\Domains\RegistrarRefused;
 use App\Support\Domains\AvailabilityResult;
+use App\Support\Domains\ChildHost;
 use App\Support\Domains\DomainChanges;
 use App\Support\Domains\DomainRegistrarCapabilities;
 use App\Support\Domains\DomainRegistrarCredentials;
@@ -41,6 +43,9 @@ use MyCS\GrEpp\Command\DomainRenew;
 use MyCS\GrEpp\Command\DomainUpdate;
 use MyCS\GrEpp\Command\HostCheck;
 use MyCS\GrEpp\Command\HostCreate;
+use MyCS\GrEpp\Command\HostDelete;
+use MyCS\GrEpp\Command\HostInfo;
+use MyCS\GrEpp\Command\HostUpdate;
 use MyCS\GrEpp\Command\Rules;
 use MyCS\GrEpp\Config;
 use MyCS\GrEpp\Data\ContactDraft;
@@ -67,7 +72,7 @@ use Throwable;
  * One session per account and process, kept for the process (a worker reuses it; the registry ends one idle for 15
  * minutes and Session logs in again); commands one at a time per account, across processes (a cache lock).
  */
-class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistration
+class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHosts, RecallsRegistration
 {
     /** The registry's grace after expiry (pendingDelete: renewable only, D-8; its FAQ). */
     public const GRACE_DAYS = 15;
@@ -92,7 +97,7 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
         // name in its 15 days after expiry is renewed (no restore), in even years (its FAQ).
         // G5a: registrations and renewals; transfers from G5b (not sold before: review 1 of #191).
         return new DomainRegistrarCapabilities(renewsInGrace: true, renewYearStep: 2, authCodeByEmail: true, transferKeepsNameservers: true,
-            supportsRegistration: true, supportsRecall: true);
+            supportsRegistration: true, supportsRecall: true, supportsGlueHosts: true);
     }
 
     /** Contract: never throws. A login (and nothing else): the credentials and our IP at the registry. */
@@ -655,6 +660,128 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
                     $before->contactHandles, false, null, null, $before->registeredAt, $before->details, $before->graceEndsOn, $before->redemptionEndsOn);
             }
         });
+    }
+
+    /** At most this many child hosts read (one host:info each). */
+    private const CHILD_HOSTS_READ = 30;
+
+    /**
+     * The domain's child nameservers as the registry has them (domain:info's hosts, then host:info each): the forgotten
+     * ones too. Reads only.
+     */
+    public function childHosts(Domain $domain, DomainRegistrarCredentials $credentials): array
+    {
+        return $this->locked($credentials, function (Session $session) use ($domain, $credentials) {
+            $info = self::ours($session, $domain, $credentials);
+            $hosts = [];
+            foreach (array_slice($info->hosts, 0, self::CHILD_HOSTS_READ) as $name) {
+                $host = HostInfo::parse(self::send($session, fn (string $clTRID) => HostInfo::request($name, $clTRID)));
+                $hosts[] = new ChildHost($host->name, array_column($host->addresses, 'ip'), in_array('linked', $host->statuses, true));
+            }
+
+            return $hosts;
+        });
+    }
+
+    /** WRITE (child hosts): a nameserver under the domain, with its glue. Not charged. */
+    public function createChildHost(Domain $domain, string $host, array $addresses, DomainRegistrarCredentials $credentials): void
+    {
+        $this->locked($credentials, function (Session $session) use ($domain, $host, $addresses, $credentials) {
+            [$host, $addresses] = self::prepare(function () use ($session, $domain, $host, $addresses, $credentials) {
+                $host = self::childOf($domain, $host);
+                $addresses = self::glue($host, $addresses);
+                self::ours($session, $domain, $credentials);
+
+                return [$host, $addresses];
+            });
+            self::charge(fn () => HostCreate::parse(self::send($session, fn (string $clTRID) => HostCreate::request($host, $addresses, $clTRID))));
+        });
+    }
+
+    /** WRITE (child hosts): its glue set to these addresses (what is missing added, what is extra removed). */
+    public function updateChildHost(Domain $domain, string $host, array $addresses, DomainRegistrarCredentials $credentials): void
+    {
+        $this->locked($credentials, function (Session $session) use ($domain, $host, $addresses, $credentials) {
+            [$host, $add, $remove] = self::prepare(function () use ($session, $domain, $host, $addresses, $credentials) {
+                $host = self::childOf($domain, $host);
+                $wanted = self::glue($host, $addresses);
+                self::ours($session, $domain, $credentials);
+                $current = array_column(HostInfo::parse(self::send($session, fn (string $clTRID) => HostInfo::request($host, $clTRID)))->addresses, 'ip');
+                $key = fn (string $ip): string => (string) inet_pton($ip);
+                $have = array_combine(array_map($key, $current), $current) ?: [];
+                $want = array_combine(array_map($key, $wanted), $wanted) ?: [];
+
+                return [$host, array_values(array_diff_key($want, $have)), array_values(array_diff_key($have, $want))];
+            });
+            if ($add === [] && $remove === []) {
+                return; // as asked already: nothing sent
+            }
+            self::charge(fn () => HostUpdate::parse(self::send($session, fn (string $clTRID) => HostUpdate::request($host, $add, $remove, $clTRID))));
+        });
+    }
+
+    /** WRITE (child hosts): one no domain uses; a linked one is refused before anything is sent. */
+    public function deleteChildHost(Domain $domain, string $host, DomainRegistrarCredentials $credentials): void
+    {
+        $this->locked($credentials, function (Session $session) use ($domain, $host, $credentials) {
+            $host = self::prepare(function () use ($session, $domain, $host, $credentials) {
+                $host = self::childOf($domain, $host);
+                self::ours($session, $domain, $credentials);
+                $info = HostInfo::parse(self::send($session, fn (string $clTRID) => HostInfo::request($host, $clTRID)));
+                if (in_array('linked', $info->statuses, true)) {
+                    throw new InvalidArgumentException("{$host} is a nameserver of a domain: change that domain's nameservers first.");
+                }
+
+                return $host;
+            });
+            self::charge(fn () => HostDelete::parse(self::send($session, fn (string $clTRID) => HostDelete::request($host, $clTRID))));
+        });
+    }
+
+    /** The domain read fresh, ours at the registry (its clID): another registrar's hosts are never touched. */
+    private static function ours(Session $session, Domain $domain, DomainRegistrarCredentials $credentials): Info
+    {
+        $info = self::read($session, $domain);
+        if ($info->clientId !== null && strcasecmp($info->clientId, self::registrarId($credentials)) !== 0) {
+            throw new InvalidArgumentException("{$domain->fqdn} is managed by another registrar at the registry ({$info->clientId}).");
+        }
+
+        return $info;
+    }
+
+    /** A host under this domain (ns1, or ns1.example.gr), as the registry spells it. */
+    private static function childOf(Domain $domain, string $host): string
+    {
+        $host = trim($host);
+        $fqdn = Rules::name($domain->fqdn);
+        $name = Rules::name(str_contains($host, '.') ? $host : "{$host}.{$fqdn}");
+        if (!str_ends_with($name, ".{$fqdn}")) {
+            throw new InvalidArgumentException("{$name} is not under {$fqdn}.");
+        }
+
+        return $name;
+    }
+
+    /**
+     * Its glue: one address at least, public ones only (a private or reserved address is never a nameserver's).
+     *
+     * @param  list<string>  $addresses
+     * @return list<string>
+     */
+    private static function glue(string $host, array $addresses): array
+    {
+        $addresses = array_values(array_unique(array_filter(array_map('trim', $addresses), fn (string $ip) => $ip !== '')));
+        if ($addresses === []) {
+            throw new InvalidArgumentException("{$host} needs one IP address at least.");
+        }
+        foreach ($addresses as $ip) {
+            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+                throw new InvalidArgumentException("Not a public IP address: {$ip}");
+            }
+        }
+        HostCreate::addresses($host, $addresses); // the registry's own rules (v4/v6, at most 16)
+
+        return $addresses;
     }
 
     public function restore(Domain $domain, DomainRegistrarCredentials $credentials): DomainSyncResult
