@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\DomainStatus;
+use App\Services\Domains\DomainRegistrarFactory;
 use Carbon\CarbonInterface;
 use Database\Factories\DomainFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -254,22 +255,68 @@ class Domain extends Model implements Auditable
     }
 
     /**
-     * The last day of its grace (D5a): the registrar's date, else its expiry plus the grace days; null when it has no
-     * grace (0 days or unknown) or no expiry.
-     */
-    /**
-     * The years a renewal in grace or redemption is for (D-13): its TLD's shortest renewal period (one year; two for
-     * .gr, whose periods are even: G4a of grepp), else one.
+     * The years a renewal in grace or redemption is for (D-13): its TLD's shortest renewal period in its currency (one
+     * year; two for .gr, whose periods are even: G4a of grepp). A domain at a price set by hand, or a TLD with no renew
+     * price in its currency, keeps its own period (review 3 of #189).
      */
     public function stageRenewalYears(): int
     {
+        if ($this->recurring_amount !== null) {
+            return max(1, (int) $this->years);
+        }
         $years = $this->domainTld?->loadMissing('prices')->prices
             ->where('operation', 'renew')->where('currency_code', $this->currency_code)->whereNotNull('price')
             ->pluck('years')->map(fn ($y) => (int) $y)->filter(fn (int $y) => $y >= 1)->min();
 
-        return max(1, (int) ($years ?? 1));
+        return max(1, (int) ($years ?? $this->years ?? 1));
     }
 
+    /** The years its next renewal is for: the stage's in grace or redemption, else its own (the cron, Renew now, reminders). */
+    public function nextRenewalYears(): int
+    {
+        return in_array($this->status, [DomainStatus::Grace, DomainStatus::Redemption], true) ? $this->stageRenewalYears() : max(1, (int) $this->years);
+    }
+
+    /** The price of renewing it for $years: its own (recurring amount, or its TLD's for its period), else its TLD's for $years. */
+    public function renewalPriceFor(int $years): ?string
+    {
+        return $years === max(1, (int) $this->years) ? $this->renewalPrice()
+            : $this->domainTld?->loadMissing('prices')->priceFor('renew', $years, $this->currency_code);
+    }
+
+    /**
+     * Its registrar's renewal step (the .gr registry: 2), 1 when it has none or no API: a period not in its steps is
+     * never billed (review 2 of #189), only told to staff.
+     */
+    public function renewYearStep(): int
+    {
+        try {
+            $connection = $this->effectiveRegistrarConnection();
+
+            return $connection !== null && $connection->isUsable()
+                ? max(1, app(DomainRegistrarFactory::class)->for($connection)->capabilities()->renewYearStep) : 1;
+        } catch (\Throwable) {
+            return 1;
+        }
+    }
+
+    /** Whether its registrar renews it in its grace (no restore, no grace fee: the .gr registry). */
+    public function renewsInGrace(): bool
+    {
+        try {
+            $connection = $this->effectiveRegistrarConnection();
+
+            return $connection !== null && $connection->isUsable()
+                && app(DomainRegistrarFactory::class)->for($connection)->capabilities()->renewsInGrace;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * The last day of its grace (D5a): the registrar's date, else its expiry plus the grace days; null when it has no
+     * grace (0 days or unknown) or no expiry.
+     */
     public function graceEndsOn(): ?Carbon
     {
         if ($this->grace_ends_on !== null && $this->hasRegistrarStageDates()) {

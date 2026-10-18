@@ -280,12 +280,18 @@ final class RenewalBilling
         }
         // In grace or redemption its TLD's shortest period (D-13: a restore brings back one year; review 8; .gr: two, its
         // periods are even, G4a of grepp), at that period's price.
-        $years = in_array($domain->status, [DomainStatus::Grace, DomainStatus::Redemption], true) ? $domain->stageRenewalYears() : max(1, (int) $domain->years);
-        $price = $years === max(1, (int) $domain->years) ? $domain->renewalPrice()
-            : $domain->domainTld?->loadMissing('prices')->priceFor('renew', $years, $domain->currency_code);
+        $years = $domain->nextRenewalYears();
+        // A period its registrar does not renew (.gr: odd years) is never billed: staff decide (review 2 of #189).
+        $step = $domain->renewYearStep();
+        if ($years % $step !== 0) {
+            $this->notices["invoices_created domain #{$id}"] = new DisplayException("Domain {$domain->fqdn}: its registrar renews in steps of {$step} years, not {$years}: not billed (set its renewal period).");
+
+            return 0;
+        }
+        $price = $domain->renewalPriceFor($years);
         if ($price === null) {
             $this->notices["invoices_created domain #{$id}"] = new DisplayException("Domain {$domain->fqdn}: no renew price for "
-                . max(1, (int) $domain->years) . " year(s) in {$domain->currency_code}: not billed (set one on its TLD or the domain).");
+                . $years . " year(s) in {$domain->currency_code}: not billed (set one on its TLD or the domain).");
 
             return 0;
         }
@@ -336,6 +342,10 @@ final class RenewalBilling
     {
         $domain = Domain::query()->whereKey($id)->lockForUpdate()->first();
         if ($domain === null || !in_array($domain->status, [DomainStatus::Grace, DomainStatus::Redemption], true) || $domain->expires_at === null) {
+            return;
+        }
+        // A registrar that renews in grace charges no grace fee (the .gr registry: review 6 of #189).
+        if ($domain->status === DomainStatus::Grace && $domain->renewsInGrace()) {
             return;
         }
         $fee = $domain->stageFee($domain->status);

@@ -217,7 +217,8 @@ class GrEppRegistrar implements DomainRegistrar
         if (in_array('pendingCreate', $info->statuses, true) || in_array('pendingRegulatorApproval', $info->regulatorStatuses, true)) {
             return [DomainStatus::PendingRegister, null];
         }
-        if ($info->expiresOn === null) {
+        // On its way to another registrar (or in): not a state the app keeps; never «active» for the adopter (review 5).
+        if ($info->expiresOn === null || in_array('pendingTransfer', $info->statuses, true)) {
             return [null, null];
         }
         $expires = Carbon::parse($info->expiresOn, 'UTC');

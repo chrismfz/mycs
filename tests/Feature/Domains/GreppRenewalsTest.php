@@ -11,6 +11,7 @@ use App\Models\DomainTldPrice;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\ModuleAction;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Billing\RenewalBilling;
 use App\Services\Domains\DomainRenewalService;
@@ -125,6 +126,49 @@ class GreppRenewalsTest extends TestCase
         $this->assertStringContainsString('steps of 2 years', (string) ModuleAction::query()->sole()->last_error);
     }
 
+    public function test_review_fixes(): void
+    {
+        // 2: an active .gr domain on an odd period is never billed (staff are told), nor by «Renew now».
+        $odd = $this->domain(['sld' => 'odd', 'fqdn' => 'odd.gr', 'status' => DomainStatus::Active, 'expires_at' => '2026-11-20', 'years' => 1]);
+        $this->assertSame(0, DB::transaction(fn () => app(RenewalBilling::class)->billDomainRenewal($odd->id, Carbon::parse('2027-01-01'))));
+        $this->assertSame(0, InvoiceItem::query()->where('reference_id', $odd->id)->count());
+        // (Not a fail() in the try: PHPUnit's own failure is a RuntimeException too.)
+        $refused = null;
+        try {
+            app(DomainRenewalService::class)->renewNow($odd, Staff::factory()->create());
+        } catch (\RuntimeException $e) {
+            $refused = $e->getMessage();
+        }
+        $this->assertStringContainsString('steps of 2 years', (string) $refused);
+        $this->assertSame(0, Invoice::query()->count(), 'no invoice left behind');
+
+        // 3: a domain at a price set by hand keeps its own period.
+        $custom = $this->domain(['sld' => 'custom', 'fqdn' => 'custom.gr', 'recurring_amount' => '25.00', 'years' => 4]);
+        $this->assertSame(4, $custom->stageRenewalYears());
+
+        // 6: no grace fee where the registrar renews in grace.
+        DomainTldPrice::query()->create(['domain_tld_id' => $odd->domain_tld_id, 'operation' => 'grace', 'years' => 1, 'currency_code' => 'EUR', 'price' => '10.00']);
+        $grace = $this->domain(['sld' => 'grace', 'fqdn' => 'grace.gr']);
+        DB::transaction(fn () => app(RenewalBilling::class)->billDomainRenewal($grace->id, Carbon::parse('2027-01-01')));
+        DB::transaction(fn () => app(RenewalBilling::class)->addStageFee($grace->id));
+        $this->assertSame(0, InvoiceItem::query()->where('reference_id', $grace->id)->where('kind', 'grace_fee')->count());
+    }
+
+    public function test_a_registrar_that_restores_never_restores_a_two_year_tld(): void
+    {
+        // 1: a .gr name at a registrar that restores (Openprovider-like): staff decide before anything is charged.
+        FakeRestoringRegistrar::$charges = [];
+        config(['domains.registrars.fakerestore' => FakeRestoringRegistrar::class]);
+        $this->gr->update(['registrar' => 'fakerestore']);
+        $domain = $this->domain();
+        $line = $this->billAndPay($domain);
+        FakeRestoringRegistrar::$record = new DomainSyncResult(expiresAt: '2026-11-01', status: DomainStatus::Grace, rawStatus: 'DEL', graceEndsOn: '2026-11-16');
+
+        $this->assertSame(DomainRenewalService::FAILED, app(DomainRenewalService::class)->renewLine($line->id));
+        $this->assertSame([], FakeRestoringRegistrar::$charges);
+        $this->assertStringContainsString('restores', (string) ModuleAction::query()->sole()->last_error);
+    }
+
     public function test_the_gr_registry_declares_it(): void
     {
         $capabilities = (new GrEppRegistrar)->capabilities();
@@ -168,5 +212,19 @@ class FakeGrRegistrar extends GrEppRegistrar
         self::$charges[] = ['restore', 1];
 
         throw new RegistrarRefused('no restore here');
+    }
+}
+
+/** A registrar that restores in grace (Openprovider-like), renewing in single years. */
+class FakeRestoringRegistrar extends FakeGrRegistrar
+{
+    public function key(): string
+    {
+        return 'fakerestore';
+    }
+
+    public function capabilities(): DomainRegistrarCapabilities
+    {
+        return new DomainRegistrarCapabilities;
     }
 }

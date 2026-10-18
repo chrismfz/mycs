@@ -54,6 +54,7 @@ return [
         'not_renewable' => 'Το :domain δεν ανανεώνεται τώρα: δεν έχει λήξη ή έχει τελειώσει.',
         'no_price' => 'Το :domain δεν έχει τιμή ανανέωσης για :years έτη: ορίστε μία στο TLD ή στο domain.',
         'not_active_at_registrar' => 'Ο registrar έχει το :domain ως :status: ανανεώστε το εκεί με το χέρι.',
+        'not_in_steps' => 'Ο registrar ανανεώνει το :domain ανά :step έτη, όχι :years: ορίστε την περίοδο ανανέωσης, ή ανανεώστε το εκεί με το χέρι.',
     ],
 
     // Περιοχή πελάτη (D7-2).

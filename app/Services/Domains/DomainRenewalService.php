@@ -129,7 +129,7 @@ class DomainRenewalService
             $start = Carbon::instance($billed->period_end)->startOfDay();
         }
         // As the cron bills it (F8, D-13): its TLD's shortest period in grace or redemption (one; two for .gr), else its years.
-        $years = in_array($domain->status, [DomainStatus::Grace, DomainStatus::Redemption], true) ? $domain->stageRenewalYears() : max(1, (int) $domain->years);
+        $years = $domain->nextRenewalYears();
         $line->period_start = $start->toImmutable();
         $line->period_end = $start->toImmutable()->addYearsNoOverflow($years);
     }
@@ -219,6 +219,15 @@ class DomainRenewalService
         $capabilities = $this->factory->for($connection)->capabilities();
         $restore = $now->status === DomainStatus::Grace && !$capabilities->renewsInGrace;
         $renewable = $now->status === DomainStatus::Active || ($now->status === DomainStatus::Grace && $capabilities->renewsInGrace);
+        // A restore brings back one year; where the TLD's shortest period is more (a .gr name through a registrar that
+        // restores), what a restore and renewal would do there is not known: staff decide before anything is charged
+        // (review 1 of #189).
+        if ($restore && $domain->stageRenewalYears() > 1) {
+            $this->staffDecides($domain, $line, $connection->registrar, 'In its grace at a registrar that restores, and its TLD renews in periods of '
+                . $domain->stageRenewalYears() . ' years: restore and renew it by hand.');
+
+            return self::FAILED;
+        }
         if (!$restore && !$renewable) {
             $stage = $now->status === DomainStatus::Redemption ? 'its redemption (a restore with a fee)' : "status {$now->rawStatus}";
             $this->staffDecides($domain, $line, $connection->registrar, "The registrar has it in {$stage}: staff decide (D-13).");
@@ -395,6 +404,11 @@ class DomainRenewalService
             if ($renewedUnpaid !== null) {
                 throw new RuntimeException(__('domains.renew.renewed_unpaid', ['domain' => $domain->fqdn, 'invoice' => $renewedUnpaid]));
             }
+            // Never billed for a period its registrar does not renew (review 2 of #189): checked before the invoice.
+            $step = max(1, $this->factory->for($connection)->capabilities()->renewYearStep);
+            if ($domain->nextRenewalYears() % $step !== 0) {
+                throw new RuntimeException(__('domains.renew.not_in_steps', ['domain' => $domain->fqdn, 'step' => $step, 'years' => $domain->nextRenewalYears()]));
+            }
             $now = $this->factory->for($connection)->syncDomain($domain, $this->factory->credentialsFor($connection));
             $this->sync->applyResult($domain, $now);
             $line = $this->billedOrBill($domain->refresh());
@@ -407,7 +421,7 @@ class DomainRenewalService
                 throw new RuntimeException(__('domains.renew.not_active_at_registrar', ['domain' => $domain->fqdn, 'status' => (string) $now->rawStatus]));
             }
             if ($this->lacking($now, $target) % max(1, $capabilities->renewYearStep) !== 0) {
-                throw new RuntimeException("The registrar renews {$domain->fqdn} in steps of {$capabilities->renewYearStep} years: renew it by hand.");
+                throw new RuntimeException(__('domains.renew.not_in_steps', ['domain' => $domain->fqdn, 'step' => $capabilities->renewYearStep, 'years' => $this->lacking($now, $target)]));
             }
             if ($this->charge($domain, $line, $connection, $staff, 'renew', $this->lacking($now, $target), $target) === null) {
                 throw new RuntimeException((string) (ModuleAction::query()->open()->where('domain_id', $domain->id)->where('invoice_item_id', $line->id)->value('last_error')
@@ -431,8 +445,9 @@ class DomainRenewalService
             if ($billed !== null) {
                 return $billed;
             }
-            $years = max(1, (int) $domain->years);
-            $price = $domain->renewalPrice()
+            // The period the cron would bill (its stage's in grace: two years for .gr; adversarial O3 of #189).
+            $years = $domain->nextRenewalYears();
+            $price = $domain->renewalPriceFor($years)
                 ?? throw new RuntimeException(__('domains.renew.no_price', ['domain' => $domain->fqdn, 'years' => $years]));
             $invoice = Invoice::query()->create(['client_id' => $domain->client_id, 'status' => Invoice::STATUS_UNPAID,
                 'due_at' => $start->greaterThan(today()) ? $start : today(), 'currency_code' => $domain->currency_code]);
