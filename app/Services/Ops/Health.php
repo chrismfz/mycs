@@ -147,9 +147,15 @@ final class Health
         $stale = (clone $live)->where('status', DomainStatus::PendingTransfer->value)
             ->where('created_at', '<', now()->subDays(SyncDomains::staleTransferDays()))->count();
         $oldest = (clone $live)->whereNotNull('last_synced_at')->min('last_synced_at');
-        $status = $errors > 0 || $stale > 0 ? self::WARN : self::OK;
+        // The batched sync (#204): a pause forgotten, or a schedule stopped, is seen (review ADV-5).
+        $paused = (float) config('settings.domain_sync_hours', 2) <= 0;
+        $unsynced = (clone $live)->whereNotNull('last_synced_at')->where('last_synced_at', '<', now()->subDays(3))->count();
+        $status = $errors > 0 || $stale > 0 || $paused || $unsynced > 0 ? self::WARN : self::OK;
+        $detail = "{$errors} with a sync error, {$stale} transfers pending 14+ days" . ($paused ? ', the sync is paused' : '')
+            . ($unsynced > 0 ? ", {$unsynced} not synced for 3+ days" : '');
 
-        return ['status' => $status, 'detail' => "{$errors} with a sync error, {$stale} transfers pending 14+ days",
-            'data' => ['live' => (clone $live)->count(), 'sync_errors' => $errors, 'stale_transfers' => $stale, 'oldest_sync' => $oldest]];
+        return ['status' => $status, 'detail' => $detail,
+            'data' => ['live' => (clone $live)->count(), 'sync_errors' => $errors, 'stale_transfers' => $stale, 'oldest_sync' => $oldest,
+                'sync_paused' => $paused, 'not_synced_3_days' => $unsynced]];
     }
 }

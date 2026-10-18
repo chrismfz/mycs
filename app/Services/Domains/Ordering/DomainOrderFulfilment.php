@@ -235,7 +235,7 @@ class DomainOrderFulfilment
         if (!$ordered) {
             return self::STAFF;
         }
-        // Its registrar's truth now (a registration: Active with its expiry); a sync that fails is retried every 4 hours.
+        // Its registrar's truth now (a registration: Active with its expiry); a sync that fails is retried by the next batch (pending ones first).
         try {
             $this->sync->sync($domain->refresh(), lock: false); // under our lock already
         } catch (Throwable $e) {

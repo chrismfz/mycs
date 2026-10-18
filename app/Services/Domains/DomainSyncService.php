@@ -295,7 +295,7 @@ class DomainSyncService
 
     /**
      * A whole connection saying «not ours» within a day is a setting, not transfers: none is marked when more than
-     * AWAY_BREAKER_SHARE of its domains said so (owner 2026-10-18: half; a reseller leaving with 20 or 600 of 1,400 is
+     * AWAY_BREAKER_SHARE of its domains read within that day said so (owner 2026-10-18: half; a reseller leaving with 20 or 600 of 1,400 is
      * marked by itself, 200 of 200 is a wrong setting), and at least AWAY_BREAKER (a small connection's few never stop).
      */
     public const AWAY_BREAKER = 10;
@@ -342,8 +342,11 @@ class DomainSyncService
             return;
         }
         $live = Domain::query()->whereNotIn('status', DomainStatus::terminalValues());
+        // Among those of the connection read within the day (review 1 of #204: a batch reads 200 of 1,400; half of all
+        // would never be reached by a wrong setting, half of those read is).
         $all = (clone $live)->where(fn ($q) => $q->where('registrar_connection_id', $connection->id)
-            ->orWhere(fn ($t) => $t->whereNull('registrar_connection_id')->whereHas('domainTld', fn ($tld) => $tld->where('registrar_connection_id', $connection->id))))->count();
+            ->orWhere(fn ($t) => $t->whereNull('registrar_connection_id')->whereHas('domainTld', fn ($tld) => $tld->where('registrar_connection_id', $connection->id))))
+            ->where('last_synced_at', '>=', now()->subDay())->count();
         $saying = (clone $live)->where('meta->not_ours->connection_id', $connection->id)
             ->where('meta->not_ours->last', '>=', now()->subDay()->toIso8601String())->count();
         if ($saying >= self::AWAY_BREAKER && $saying > $all * self::AWAY_BREAKER_SHARE) {
