@@ -876,7 +876,7 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
             throw new InvalidArgumentException("{$name} is not under {$fqdn}.");
         }
         // A host name: letters, digits and inner hyphens per label, 1 to 63 (ADV-2 of #196: refused here, nothing sent).
-        $ascii = idn_to_ascii($name, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46);
+        $ascii = idn_to_ascii($name, IDNA_NONTRANSITIONAL_TO_ASCII | IDNA_CHECK_CONTEXTJ | IDNA_CHECK_BIDI, INTL_IDNA_VARIANT_UTS46);
         foreach (explode('.', $ascii === false ? $name : $ascii) as $label) {
             if (preg_match('/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\z/i', $label) !== 1) {
                 throw new InvalidArgumentException("Not a host name: {$name}");

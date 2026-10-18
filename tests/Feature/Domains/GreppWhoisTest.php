@@ -73,11 +73,16 @@ class GreppWhoisTest extends TestCase
         $this->assertSame(GrWhois::PRODUCTION . '/api/v1/domain/παράδειγμα.gr', $urls[0]);
         $this->assertSame('not_listed', app(DomainLookup::class)->whois('xn--hxajbheg2az3al.xn--qxam')['status'], '.ελ too');
         $this->assertStringEndsWith('/παράδειγμα.ελ', $urls[1]);
+        // Final sigma kept whether it comes as punycode or as Unicode (non-transitional IDNA).
+        app(DomainLookup::class)->whois('xn--mxare2a1c.gr');
+        app(GrWhois::class)->lookup('καλός.gr');
+        $this->assertStringEndsWith('/καλός.gr', $urls[2]);
+        $this->assertStringEndsWith('/καλός.gr', $urls[3]);
 
         $this->assertSame('error', app(DomainLookup::class)->whois('limited.gr')['status']);
         app(DomainLookup::class)->whois('limited.gr');
         app(DomainLookup::class)->whois('other.gr');
-        $this->assertCount(3, $urls, 'a 429 is never cached, and pauses it a minute (review 4 of #197)');
+        $this->assertCount(5, $urls, 'a 429 is never cached, and pauses it a minute (review 4 of #197)');
     }
 
     public function test_without_its_account_gr_is_not_supported_and_the_page_shows_a_gr_name(): void
