@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Domains;
 
+use App\Admin\Resources\DomainResource\Pages\ViewDomain;
 use App\Enums\DomainStatus;
 use App\Models\Contact;
 use App\Models\Currency;
@@ -13,10 +14,12 @@ use App\Models\Staff;
 use App\Models\User;
 use App\Services\Domains\DomainManagementService;
 use App\Services\Domains\RegistrarNotAsked;
+use App\Services\Domains\RegistrarOutcomeUnknown;
 use App\Services\Domains\RegistrarRefused;
 use App\Services\Domains\Registrars\GrEppRegistrar;
 use App\Support\Domains\DomainChanges;
 use App\Support\Domains\DomainRegistrarCredentials;
+use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use MyCS\GrEpp\Http\HttpResponse;
@@ -224,5 +227,75 @@ class GreppUpdatesTest extends TestCase
         $this->assertSame(DomainRegistrarLog::STATUS_OK, $log->status);
         $this->assertSame(1000, collect($log->transactions)->firstWhere('command', 'domain:update')['code'] ?? null);
         $this->assertStringContainsString('<domain:rem><domain:ns><domain:hostObj>ns3.myip.gr</domain:hostObj>', $this->update());
+    }
+
+    public function test_review_fixes_of_195(): void
+    {
+        $staff = Staff::factory()->create();
+
+        // 1: an update whose answer is lost may have landed: nothing undone here, the registry read again.
+        $domain = $this->domain('example2');
+        $other = Contact::factory()->create(['client_id' => $this->user->client()->id, 'first_name' => 'Νίκος', 'last_name' => 'Ν', 'email' => 'n@example.test',
+            'phone' => '+30 210 1111111', 'address1' => 'Οδός 2', 'city' => 'Αθήνα', 'postcode' => '10001', 'country' => 'GR']);
+        $id = 'c60_mcs' . base_convert((string) $other->id, 10, 36);
+        $this->loggedIn();
+        $this->fixture('live/domain-info-other-registrar-contacts-response.xml');
+        $this->contactCheck($id, true);
+        $this->fixture('v4.3/14-contact-create-response.xml');
+        $this->transport->queue(new HttpResponse(200, 'not xml')); // domain:update: no usable answer
+        $this->fixture('live/domain-info-other-registrar-contacts-response.xml'); // the sync after
+        $thrown = null;
+        try {
+            app(DomainManagementService::class)->setContacts($domain, ['admin' => $other->id, 'tech' => $other->id, 'billing' => $other->id], $staff);
+        } catch (\RuntimeException $e) {
+            $thrown = $e;
+        }
+        $this->assertInstanceOf(RegistrarOutcomeUnknown::class, $thrown);
+        $this->assertSame($other->id, $domain->fresh()->admin_contact_id, 'not undone: it may be done there');
+        $this->assertSame('info', $this->transport->kinds()[count($this->transport->kinds()) - 1], 'read again');
+
+        // 3: a role cleared here, while the registry has one: not asked, nothing sent.
+        GrEppRegistrar::reset();
+        $this->transport = new FakeTransport;
+        $cleared = $domain->fresh();
+        $cleared->forceFill(['billing_contact_id' => null])->save();
+        $this->loggedIn();
+        $this->fixture('live/domain-info-other-registrar-contacts-response.xml');
+        $thrown = null;
+        try {
+            (new GrEppRegistrar)->updateDomain($cleared->fresh(['adminContact', 'techContact', 'billingContact']), new DomainChanges(applyContacts: true), $this->credentials());
+        } catch (RegistrarNotAsked $e) {
+            $thrown = $e;
+        }
+        $this->assertStringContainsString('billing', (string) $thrown?->getMessage());
+        $this->assertSame('', $this->update());
+
+        // 2 and 5: the registry's hosts with a trailing dot and in capitals are the same hosts; done but not read back,
+        // the nameservers sent are kept, its status as it was.
+        GrEppRegistrar::reset();
+        $this->transport = new FakeTransport;
+        $plain = $this->domain();
+        $this->loggedIn();
+        $info = (string) file_get_contents(base_path('packages/gr-epp/tests/fixtures/live/domain-info-response.xml'));
+        $info = str_replace(['<domain:hostObj>ns1.myip.gr</domain:hostObj>', '<domain:hostObj>ns2.myip.gr</domain:hostObj>'],
+            ['<domain:hostObj>NS1.MYIP.GR.</domain:hostObj>', '<domain:hostObj>ns2.myip.gr.</domain:hostObj>'], $info);
+        $this->transport->queue(new HttpResponse(200, (string) preg_replace('#<clTRID>[^<]*</clTRID>#', '<clTRID>ECHO</clTRID>', $info)));
+        $this->hostCheck(['ns1.myip.gr' => false, 'ns2.myip.gr' => false]);
+        $this->answer(1000); // domain:update
+        $this->transport->queue(new HttpResponse(200, 'not xml')); // the read back
+        app(DomainManagementService::class)->setNameservers($plain, ['ns1.myip.gr', 'ns2.myip.gr'], $staff);
+        $update = $this->update();
+        $this->assertStringContainsString('<domain:rem><domain:ns><domain:hostObj>ns3.myip.gr</domain:hostObj></domain:ns></domain:rem>', $update);
+        $this->assertStringNotContainsString('<domain:add>', $update, 'NS1.MYIP.GR. is ns1.myip.gr');
+        $this->assertSame(['ns1.myip.gr', 'ns2.myip.gr'], $plain->fresh()->nameservers()->orderBy('sort')->pluck('host')->all());
+        $this->assertSame(DomainStatus::Active, $plain->fresh()->status);
+
+        // 4: no transfer lock or privacy offered for .gr.
+        $this->assertFalse(app(DomainManagementService::class)->registrarSupports($plain, 'supportsTransferLock'));
+        $this->assertFalse(app(DomainManagementService::class)->registrarSupports($plain, 'supportsPrivacy'));
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $admin = Staff::factory()->withPermissions(['admin.domains.viewAny', 'admin.domains.view', 'admin.domains.manage'])->create();
+        $this->livewireAs($admin)->test(ViewDomain::class, ['record' => $plain->id])
+            ->assertActionHidden('lock')->assertActionHidden('privacy')->assertActionVisible('nameservers');
     }
 }

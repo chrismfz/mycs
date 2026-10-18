@@ -233,6 +233,20 @@ class DomainManagementService
         }
     }
 
+    /**
+     * Whether its registrar can do this at all (a capability: supportsTransferLock, supportsPrivacy …): the .gr registry
+     * has no transfer lock or WHOIS privacy, so neither is offered (review 4 of #195).
+     */
+    public function registrarSupports(Domain $domain, string $capability): bool
+    {
+        $connection = $domain->effectiveRegistrarConnection();
+        try {
+            return $connection instanceof DomainRegistrarConnection && (bool) ($this->factory->for($connection)->capabilities()->{$capability} ?? false);
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
     /** Whether its registrar emails the code instead of giving it (DACoR). */
     public function emailsAuthCode(Domain $domain): bool
     {
@@ -394,8 +408,9 @@ class DomainManagementService
         $this->call($domain, $action, $request, $staff, function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $send, $undo) {
             try {
                 $result = $send($registrar, $credentials);
-            } catch (ConnectionException $e) {
-                // No answer: it may have landed (review 6b). Nothing undone; the registrar is read again instead.
+            } catch (ConnectionException|RegistrarOutcomeUnknown $e) {
+                // No answer: it may have landed (review 6b; the .gr registry's too: review 1 of #195). Nothing undone; the
+                // registrar is read again instead.
                 try {
                     $this->sync->sync($domain->refresh(), true, false); // this call holds the lock
                 } catch (Throwable) {
