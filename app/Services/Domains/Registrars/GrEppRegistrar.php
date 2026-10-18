@@ -149,12 +149,37 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
                 $result = $answers[$asked[$fqdn]] ?? null;
                 if ($result !== null) {
                     $reason = $result->restricted ? 'restricted: ' . ($result->comment ?? $result->reason) : ($result->comment ?? $result->reason);
-                    $results[$fqdn] = new AvailabilityResult($fqdn, $result->available, $reason);
+                    // A free name of 2 characters is premium: never sold here (the EETT's 300 € a deed, owner 2026-10-18).
+                    $premium = $result->available && self::twoCharacters($fqdn);
+                    $results[$fqdn] = new AvailabilityResult($fqdn, $result->available, $premium ? 'two characters: by staff' : $reason, premium: $premium);
                 }
             }
         }
 
         return $results;
+    }
+
+    /**
+     * A name of 2 characters (ab.gr, ab.com.gr, αβ.ελ, its punycode too): the EETT charges 300 € for each deed (registration,
+     * renewal, transfer) and the registry's ceiling to the customer is 550 € + VAT (docs/domains/grepp/faq.md). Never sold
+     * or charged from here at a TLD's price: staff do it by hand (owner 2026-10-18; none at myip so far).
+     */
+    public static function twoCharacters(string $fqdn): bool
+    {
+        try {
+            $name = Rules::name($fqdn); // Unicode, lower case
+        } catch (InvalidArgumentException) {
+            return false;
+        }
+
+        return mb_strlen(explode('.', $name)[0]) <= 2;
+    }
+
+    private static function notTwoCharacters(string $fqdn): void
+    {
+        if (self::twoCharacters($fqdn)) {
+            throw new RegistrarNotAsked("{$fqdn} has 2 characters: the EETT charges 300 € for each deed, so staff do it by hand (not at the TLD's price).");
+        }
     }
 
     /** The registry's truth for one of our domains (domain:info): status, expiry day, nameservers, contacts, details. */
@@ -312,6 +337,8 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
      */
     public function renew(Domain $domain, int $years, DomainRegistrarCredentials $credentials): DomainSyncResult
     {
+        self::notTwoCharacters($domain->fqdn);
+
         return $this->locked($credentials, function (Session $session) use ($domain, $years): DomainSyncResult {
             // Before the charge: anything failing here asked nothing that costs (RegistrarNotAsked).
             $current = self::prepare(function () use ($session, $domain, $years) {
@@ -335,6 +362,8 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
      */
     public function register(Domain $domain, int $years, DomainRegistrarCredentials $credentials): DomainSyncResult
     {
+        self::notTwoCharacters($domain->fqdn);
+
         return $this->locked($credentials, function (Session $session) use ($domain, $years, $credentials): DomainSyncResult {
             [$handles, $hosts] = self::prepare(function () use ($session, $domain, $years, $credentials) {
                 Rules::years($years);
@@ -560,6 +589,8 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
      */
     public function transferIn(Domain $domain, string $authCode, DomainRegistrarCredentials $credentials): DomainSyncResult
     {
+        self::notTwoCharacters($domain->fqdn);
+
         return $this->locked($credentials, function (Session $session) use ($domain, $authCode, $credentials) {
             $registrant = self::prepare(function () use ($session, $domain, $authCode, $credentials) {
                 if (trim($authCode) === '') {
