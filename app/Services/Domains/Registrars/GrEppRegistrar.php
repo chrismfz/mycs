@@ -37,6 +37,7 @@ use MyCS\GrEpp\Command\DomainCreate;
 use MyCS\GrEpp\Command\DomainDelete;
 use MyCS\GrEpp\Command\DomainInfo;
 use MyCS\GrEpp\Command\DomainRenew;
+use MyCS\GrEpp\Command\DomainUpdate;
 use MyCS\GrEpp\Command\HostCheck;
 use MyCS\GrEpp\Command\HostCreate;
 use MyCS\GrEpp\Command\Rules;
@@ -331,7 +332,7 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
             [$handles, $hosts] = self::prepare(function () use ($session, $domain, $years, $credentials) {
                 Rules::years($years);
 
-                return [self::ensureContacts($session, $domain, self::prefix($credentials)), self::ensureHosts($session, $domain)];
+                return [self::ensureContacts($session, $domain, self::prefix($credentials)), self::ensureHosts($session, $domain->nameservers->pluck('host')->all())];
             });
             if (!isset($handles['registrant'])) {
                 throw new RegistrarNotAsked("{$domain->fqdn} has no registrant contact: the registry needs one.");
@@ -381,11 +382,12 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
      *
      * @return array<string, string> role => contact id
      */
-    private static function ensureContacts(Session $session, Domain $domain, string $prefix): array
+    /** @param  list<string>  $roles  its roles to ensure (an update: never the registrant, an owner change) */
+    private static function ensureContacts(Session $session, Domain $domain, string $prefix, array $roles = Domain::ROLES): array
     {
         $handles = [];
         $made = []; // contact id => registry id: one contact in several roles is checked once
-        foreach (Domain::ROLES as $role) {
+        foreach ($roles as $role) {
             $existing = trim((string) $domain->{"{$role}_handle"});
             if ($existing !== '' && stripos($existing, "{$prefix}_") === 0) {
                 $handles[$role] = $existing;
@@ -451,11 +453,12 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
      * Its nameservers, existing at the registry (a domain's must): an external one missing is created (no address); one
      * under .gr/.ελ missing needs its glue (IPs), made by staff first.
      *
+     * @param  list<string>  $hosts
      * @return list<string>
      */
-    private static function ensureHosts(Session $session, Domain $domain): array
+    private static function ensureHosts(Session $session, array $hosts): array
     {
-        $hosts = Rules::nameservers($domain->nameservers->pluck('host')->all());
+        $hosts = Rules::nameservers($hosts);
         foreach (array_chunk($hosts, HostCheck::MAX) as $batch) {
             $check = HostCheck::parse(self::send($session, fn (string $clTRID) => HostCheck::request($batch, $clTRID)));
             foreach ($batch as $host) {
@@ -560,9 +563,52 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
         throw self::notYet('give an EPP code (the registry emails the registrant instead: DACoR)');
     }
 
+    /**
+     * WRITE (G5b-1): its nameservers (a full set: what is missing added, what is extra removed; external hosts made, an
+     * internal one needs its glue first) and the contacts of its admin, tech and billing roles (ours made from the
+     * domain's contacts; the registry's others on those roles removed: another registrar's `533_`, the old module's).
+     * Never the registrant: changing it is an owner change, charged (G8). Read fresh first: the change is what differs
+     * from the registry, never an empty update. No transfer lock or WHOIS privacy at the .gr registry.
+     */
     public function updateDomain(Domain $domain, DomainChanges $changes, DomainRegistrarCredentials $credentials): DomainSyncResult
     {
-        throw self::notYet('update');
+        if ($changes->transferLock !== null || $changes->whoisPrivacy !== null) {
+            throw new RegistrarNotAsked('The .gr registry has no transfer lock or WHOIS privacy.');
+        }
+        if ($changes->isEmpty()) {
+            throw new RegistrarNotAsked('Nothing to change.');
+        }
+
+        return $this->locked($credentials, function (Session $session) use ($domain, $changes, $credentials) {
+            [$info, $addHosts, $removeHosts, $addContacts, $removeContacts] = self::prepare(function () use ($session, $domain, $changes, $credentials) {
+                $info = self::read($session, $domain);
+                $addHosts = $removeHosts = [];
+                if ($changes->nameservers !== null) {
+                    $wanted = self::ensureHosts($session, $changes->nameservers);
+                    $current = array_map('strtolower', $info->nameservers);
+                    $addHosts = array_values(array_diff($wanted, $current));
+                    $removeHosts = array_values(array_diff($current, $wanted));
+                }
+                $addContacts = $removeContacts = [];
+                if ($changes->applyContacts) {
+                    foreach (self::ensureContacts($session, $domain, self::prefix($credentials), ['admin', 'tech', 'billing']) as $role => $ours) {
+                        $there = $info->contacts[$role] ?? [];
+                        $has = in_array(strtolower($ours), array_map('strtolower', $there), true);
+                        $addContacts[$role] = $has ? [] : [$ours];
+                        $removeContacts[$role] = array_values(array_filter($there, fn (string $id) => strtolower($id) !== strtolower($ours)));
+                    }
+                }
+
+                return [$info, $addHosts, $removeHosts, $addContacts, $removeContacts];
+            });
+            if ($addHosts === [] && $removeHosts === [] && array_filter($addContacts) === [] && array_filter($removeContacts) === []) {
+                return self::syncResultFrom($info); // as asked already: nothing sent
+            }
+            self::charge(fn () => DomainUpdate::parse(self::send($session, fn (string $clTRID) => DomainUpdate::request($domain->fqdn, $clTRID,
+                $addHosts, $removeHosts, $addContacts, $removeContacts))));
+
+            return self::truthAfter($session, $domain, $info->expiresOn);
+        });
     }
 
     public function restore(Domain $domain, DomainRegistrarCredentials $credentials): DomainSyncResult
