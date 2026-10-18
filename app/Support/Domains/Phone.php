@@ -12,7 +12,9 @@ final class Phone
     /** @return array{0: string, 1: string}|null [«+CC», subscriber], null without digits */
     public static function split(?string $raw): ?array
     {
-        $digits = preg_replace('/(?!^\+)[^0-9]/', '', trim((string) $raw)) ?? '';
+        // A + first, even bracketed («(+30) 210…»: ADV-4 of #192), then its digits only.
+        $raw = trim((string) $raw);
+        $digits = (preg_match('/^[\s(]*\+/', $raw) === 1 ? '+' : '') . (preg_replace('/\D/', '', $raw) ?? '');
         if (str_starts_with($digits, '00')) {
             $digits = '+' . substr($digits, 2);
         }

@@ -214,10 +214,10 @@ class DomainManagementService
     /** A registration recallable now: at a registrar that recalls, pending or active, registered within RECALL_DAYS. */
     public function recallable(Domain $domain): bool
     {
-        // From its registration: the registrar's date, else when it was sent (review 3 of #192: an order paid days after
-        // it was made), else the order's.
-        $sent = is_string($domain->meta['sent_at'] ?? null) ? Carbon::parse($domain->meta['sent_at']) : null;
-        $since = $domain->registered_at ?? $sent ?? $domain->created_at;
+        // Only a registration sent from here (ADV-5 of #192: never an imported or adopted one), from the registrar's date,
+        // else when it was sent (review 3: an order paid days after it was made).
+        $sent = is_string($domain->meta['sent_at'] ?? null) && $domain->meta['sent_at'] !== '' ? Carbon::parse($domain->meta['sent_at']) : null;
+        $since = $sent === null ? null : ($domain->registered_at ?? $sent);
         if (!in_array($domain->status, [DomainStatus::PendingRegister, DomainStatus::Active], true) || $since === null
             || !$this->isManageable($domain)
             || $since->copy()->startOfDay()->lt(today()->subDays(self::RECALL_DAYS))) {

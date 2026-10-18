@@ -92,6 +92,14 @@ class GreppWritesTest extends TestCase
         $this->transport->fixture('02-hello-response.xml', ['JSESSIONID=A'])->fixture('04-login-response.xml');
     }
 
+    /** contact:info of one of ours at the registry: this contact's name (as made by an earlier call). */
+    private function contactInfo(string $id, string $name = 'Μαρία Παπαδοπούλου'): void
+    {
+        $this->answer(1000, '<contact:infData xmlns:contact="urn:ietf:params:xml:ns:contact-1.0"><contact:id>' . $id . '</contact:id><contact:roid>r1-gr</contact:roid>'
+            . '<contact:postalInfo type="loc"><contact:name>' . $name . '</contact:name><contact:addr><contact:street>Οδός 1</contact:street><contact:city>Αθήνα</contact:city><contact:cc>GR</contact:cc></contact:addr></contact:postalInfo>'
+            . '<contact:voice>+30.2100000000</contact:voice><contact:email>maria@example.test</contact:email><contact:clID>myip</contact:clID></contact:infData>');
+    }
+
     private function contactCheck(string $id, bool $free): void
     {
         $this->answer(1000, '<contact:chkData xmlns:contact="urn:ietf:params:xml:ns:contact-1.0"><contact:cd><contact:id avail="' . ($free ? '1' : '0') . "\">{$id}</contact:id></contact:cd></contact:chkData>");
@@ -172,6 +180,7 @@ class GreppWritesTest extends TestCase
         $id = 'c60_mcs' . base_convert((string) $domain->registrant_contact_id, 10, 36);
         $this->loggedIn();
         $this->contactCheck($id, false);
+        $this->contactInfo($id);
         $this->hostCheck(['ns1.myip.gr' => false, 'ns2.myip.gr' => false]);
         $this->fixture('v4.3/38-domain-create-response.xml');
         // The sync after it gets no answer: retried later, the order done all the same.
@@ -240,12 +249,13 @@ class GreppWritesTest extends TestCase
         $id = 'c60_mcs' . base_convert((string) $domain->registrant_contact_id, 10, 36);
         $this->loggedIn();
         $this->contactCheck($id, false); // made by a call whose answer was lost
+        $this->contactInfo($id);
         $this->hostCheck(['ns1.myip.gr' => false, 'ns2.myip.gr' => false]);
         $this->fixture('v4.3/38-domain-create-response.xml');
 
         (new GrEppRegistrar)->register($domain, 2, $this->credentials());
 
-        $this->assertSame(['hello', 'login', 'check', 'check', 'create'], $this->transport->kinds());
+        $this->assertSame(['hello', 'login', 'check', 'info', 'check', 'create'], $this->transport->kinds());
     }
 
     public function test_what_fails_before_the_charge_is_not_asked(): void
@@ -265,6 +275,7 @@ class GreppWritesTest extends TestCase
         $id = 'c60_mcs' . base_convert((string) $domain->registrant_contact_id, 10, 36);
         $this->loggedIn();
         $this->contactCheck($id, false);
+        $this->contactInfo($id);
         $this->hostCheck(['ns1.myip.gr' => true, 'ns2.example.com' => false]);
         $thrown = null;
         try {
@@ -284,6 +295,7 @@ class GreppWritesTest extends TestCase
             $this->loggedIn();
             if ($checksContact) {
                 $this->contactCheck($id, false);
+                $this->contactInfo($id);
             }
             $this->hostCheck(['ns1.myip.gr' => false, 'ns2.myip.gr' => false]);
         };
@@ -338,7 +350,7 @@ class GreppWritesTest extends TestCase
 
     public function test_staff_recall_a_registration_within_five_days(): void
     {
-        $domain = $this->domain(['ns1.myip.gr'], ['registered_at' => '2026-10-19', 'meta' => ['registrar' => ['protocol' => '66155']]]);
+        $domain = $this->domain(['ns1.myip.gr'], ['registered_at' => '2026-10-19', 'meta' => ['sent_at' => '2026-10-19T10:00:00+00:00', 'registrar' => ['protocol' => '66155']]]);
         $this->assertTrue(app(DomainManagementService::class)->recallable($domain));
         $this->loggedIn();
         $this->fixture('v4.3/60-domain-delete-recall-domain-creation-response.xml');
@@ -352,6 +364,6 @@ class GreppWritesTest extends TestCase
 
         // After 5 days, not any more.
         Carbon::setTestNow('2026-10-26 10:00:00');
-        $this->assertFalse(app(DomainManagementService::class)->recallable($this->domain(['ns1.myip.gr'], ['sld' => 'late', 'fqdn' => 'late.gr', 'registered_at' => null, 'created_at' => '2026-10-20 09:00:00'])));
+        $this->assertFalse(app(DomainManagementService::class)->recallable($this->domain(['ns1.myip.gr'], ['sld' => 'late', 'fqdn' => 'late.gr', 'registered_at' => null, 'meta' => ['sent_at' => '2026-10-20T09:00:00+00:00']])));
     }
 }

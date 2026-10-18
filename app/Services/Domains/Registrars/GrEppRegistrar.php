@@ -398,8 +398,17 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
                 $check = array_change_key_case(ContactCheck::parse(self::send($session, fn (string $clTRID) => ContactCheck::request([$id], $clTRID))));
                 // Its own case or another (review 5 of #192); none at all: not «exists», never asked.
                 $found = $check[strtolower($id)] ?? throw new InvalidArgumentException("The registry's check did not answer for contact {$id}.");
+                $draft = self::draft($id, $contact);
                 if ($found->available) {
-                    ContactCreate::parse(self::send($session, fn (string $clTRID) => ContactCreate::request(self::draft($id, $contact), $clTRID)));
+                    ContactCreate::parse(self::send($session, fn (string $clTRID) => ContactCreate::request($draft, $clTRID)));
+                } else {
+                    // There already (one whose answer was lost, or another instance's, a reset database's: ADV-1 of
+                    // #192): read, and used only if it is this contact (its name, which the registry never changes).
+                    $info = ContactInfo::parse(self::send($session, fn (string $clTRID) => ContactInfo::request($id, $clTRID)));
+                    $held = $info->postalInfo['loc'] ?? $info->postalInfo['int'] ?? null;
+                    if ($held === null || self::sameName($held->name, $draft->local->name) === false) {
+                        throw new InvalidArgumentException("The registry's contact {$id} holds another name than this contact's: not used. Staff decide (a new contact here, or the registry's corrected).");
+                    }
                 }
 
                 return $id;
@@ -413,6 +422,14 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
     }
 
     /** A contact as the registry takes it: its Greek postal info only (as the current module makes them), no disclose. */
+    /** The same name, whatever its spacing, case or Unicode form. */
+    private static function sameName(string $a, string $b): bool
+    {
+        $norm = fn (string $s) => mb_strtolower((string) preg_replace('/\s+/u', ' ', trim(\Normalizer::normalize($s, \Normalizer::FORM_C) ?: $s)));
+
+        return $norm($a) === $norm($b);
+    }
+
     private static function draft(string $id, Contact $contact): ContactDraft
     {
         $name = trim($contact->first_name . ' ' . $contact->last_name) ?: trim((string) $contact->company_name);
