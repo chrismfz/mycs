@@ -167,8 +167,23 @@ class ViewDomain extends ViewRecord
 
                 // Read when the modal opens and only rendered in it (review 4): not a notification, which Filament keeps in
                 // the cache and the page's state until shown. Each read is logged, the code never.
+                // The .gr registry never gives the code: it emails the registrant a reset link (DACoR, G4b of grepp).
+                Action::make('emailAuthCode')->label(__('Email the EPP code to the registrant'))->icon('heroicon-o-envelope')
+                    ->visible(fn (Domain $record) => self::can('admin.domains.epp') && self::manageable($record)
+                        && app(DomainManagementService::class)->emailsAuthCode($record))
+                    ->requiresConfirmation()
+                    ->modalDescription(__('The registry emails the registrant a link to set a new EPP code; it never shows the code. Free; logged.'))
+                    ->action(function (Domain $record) {
+                        try {
+                            $said = app(DomainManagementService::class)->emailAuthCode($record, self::staff());
+                            Notification::make()->success()->title(__('Sent'))->body($said)->send();
+                        } catch (Throwable $e) {
+                            Notification::make()->danger()->title(__('Not sent'))->body($e->getMessage())->send();
+                        }
+                    }),
                 Action::make('eppCode')->label(__('Get EPP code'))->icon('heroicon-o-key')
-                    ->visible(fn (Domain $record) => self::can('admin.domains.epp') && self::manageable($record))
+                    ->visible(fn (Domain $record) => self::can('admin.domains.epp') && self::manageable($record)
+                        && !app(DomainManagementService::class)->emailsAuthCode($record))
                     ->modalHeading(fn (Domain $record) => __('EPP code of :domain', ['domain' => $record->fqdn]))
                     ->modalDescription(__('The code transfers the domain to whoever has it. Read from the registrar now, never stored; the read is logged.'))
                     ->modalSubmitAction(false)->modalCancelActionLabel(__('Close'))

@@ -255,6 +255,26 @@ class Show extends Component
     }
 
     /**
+     * The registry emails the owner a link to reset the code (DACoR: the .gr registry never gives it; G4b of grepp).
+     * Staff in «Login as client» need the admin permission (R2), as for the code itself.
+     */
+    public function emailAuthCode(): void
+    {
+        if (!$this->mayCallRegistrar('admin.domains.epp') || !$this->management()->emailsAuthCode($this->domain)) {
+            return; // only where the registry emails it (review 3 of #191)
+        }
+        // Each call is a real email to the owner: 3 an hour per domain, whoever asks (review 2 of #191).
+        $key = "domain-auth-code-email:{$this->domain->id}";
+        if (RateLimiter::tooManyAttempts($key, 3)) {
+            $this->notify(__('domains.portal.too_many'), 'error');
+
+            return;
+        }
+        RateLimiter::hit($key, 3600);
+        $this->atRegistrar(fn () => $this->management()->emailAuthCode($this->domain, $this->actor()), __('domains.portal.auth_code_emailed'));
+    }
+
+    /**
      * «Renew»: to its renewal invoice if one is open; else its next period invoiced now (D7a: the cron's rules, once per
      * period), with the account's credit applied as to any renewal (the confirmation says so). Needs the invoices too
      * (R3: where it leads). A domain set not to renew renews again once its invoice is made (R9), not before.
@@ -324,6 +344,7 @@ class Show extends Component
             'lockable' => $manageable && $this->lockable(),
             'privacyOffered' => $manageable && $this->privacyOffered(),
             'showEpp' => $manageable && $this->staffMay('admin.domains.epp'),
+            'emailsAuthCode' => $manageable && $this->management()->emailsAuthCode($this->domain),
             'renewable' => $canManage && $seesInvoices && $this->staffMay('admin.invoices.create')
                 && in_array($this->domain->status, RenewalBilling::BILLED_DOMAINS, true),
             'openInvoice' => $seesInvoices ? $this->openInvoice() : null,

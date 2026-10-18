@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Exceptions\DisplayException;
+use App\Services\Domains\DomainRegistrarFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -86,6 +87,34 @@ class DomainTld extends Model implements Auditable
      * The price of an operation for so many years in a currency: null when it is not offered (no row, or no price), a
      * string amount otherwise, «0.00» being free and offered (D-6).
      */
+    /** The shortest period $operation is priced for in $currency (1 for most; 2 for .gr: even years), null when none. */
+    public function shortestYears(string $operation, string $currency): ?int
+    {
+        $years = $this->loadMissing('prices')->prices->where('operation', $operation)->where('currency_code', $currency)->whereNotNull('price')
+            ->pluck('years')->map(fn ($y) => (int) $y)->filter(fn (int $y) => $y >= 1)->min();
+
+        return $years === null ? null : (int) $years;
+    }
+
+    /**
+     * Whether its registrar can do $operation (register, transfer) through its API now: a TLD at the .gr registry before
+     * G5 cannot, so it is not sold (review 1 of #191). No connection, or one without an API: staff do it, as before.
+     */
+    public function registrarCan(string $operation): bool
+    {
+        $connection = $this->registrarConnection;
+        if ($connection === null || !$connection->isUsable()) {
+            return true;
+        }
+        try {
+            $capabilities = app(DomainRegistrarFactory::class)->for($connection)->capabilities();
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return $operation === 'transfer' ? $capabilities->supportsTransfer : $capabilities->supportsRegistration;
+    }
+
     public function priceFor(string $operation, int $years, string $currency): ?string
     {
         $price = $this->prices->first(fn (DomainTldPrice $row) => $row->operation === $operation && $row->years === $years

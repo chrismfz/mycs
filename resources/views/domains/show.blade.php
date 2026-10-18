@@ -80,7 +80,15 @@
                     @endif
                 </div>
                 @endif
-                @if ($showEpp)
+                @if ($showEpp && $emailsAuthCode)
+                {{-- The .gr registry never gives the code: it emails the owner a link to reset it (DACoR). --}}
+                <div class="flex items-center gap-2">
+                    <span>{{ __('domains.portal.epp_code') }}:</span>
+                    <button type="button" class="text-sm underline" wire:click="emailAuthCode" wire:loading.attr="disabled"
+                        wire:confirm="{{ __('domains.portal.auth_code_email_confirm') }}">{{ __('domains.portal.auth_code_email') }}</button>
+                </div>
+                <p class="text-xs text-base/50">{{ __('domains.portal.auth_code_email_help') }}</p>
+                @elseif ($showEpp)
                 {{-- Not in the page: «Show» asks the registrar for it (revealEppCode); wire:ignore keeps it across re-renders. --}}
                 <div class="flex items-center gap-2" x-data="{ shown: false, code: null }" wire:ignore>
                     <span>{{ __('domains.portal.epp_code') }}:</span>

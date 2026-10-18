@@ -139,8 +139,17 @@ class DomainOrderFulfilment
 
             return self::STAFF;
         }
-        // Its nameservers (D-16), else staff set them first: no defaults configured, or a transfer's not readable.
-        if (($problem = $this->nameservers($domain, $register)) !== null) {
+        // Its nameservers (D-16), else staff set them first: no defaults configured, or a transfer's not readable. A
+        // registrar whose transfer keeps the nameservers the name has (the .gr registry sends none: G4b of grepp) needs
+        // none for a transfer.
+        $keeps = !$register && (function () use ($connection): bool {
+            try {
+                return $this->registrars->for($connection)->capabilities()->transferKeepsNameservers;
+            } catch (Throwable) {
+                return false;
+            }
+        })();
+        if (!$keeps && ($problem = $this->nameservers($domain, $register)) !== null) {
             ModuleAction::domainFailed($domain, $line, $connection->registrar, new RuntimeException(__("domains.order.{$problem}", ['domain' => $domain->fqdn])), $action);
 
             return self::STAFF;
