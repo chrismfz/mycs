@@ -43,7 +43,7 @@ class DomainLookup
             }
             [$status, $record] = app(GrWhois::class)->lookup($fqdn);
             $answer = ['status' => $status, 'record' => $record, 'text' => null];
-            if ($status === 'found' || $status === 'not_listed') {
+            if (in_array($status, ['found', 'not_listed', 'invalid'], true)) {
                 Cache::put($key, $answer, 3600);
             }
 

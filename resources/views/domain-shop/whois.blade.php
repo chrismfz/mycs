@@ -25,7 +25,7 @@
             <a href="{{ route('domain.search', ['domain' => $fqdn]) }}" wire:navigate class="underline">{{ __('domains.shop.search_it') }}</a></p>
         @elseif ($answer['status'] === 'unsupported')
         <p class="text-base/60">{{ __('domains.shop.whois_unsupported') }}</p>
-        @elseif ($answer['status'] === 'error')
+        @elseif ($answer['status'] === 'error' || $answer['status'] === 'invalid')
         <p class="text-base/60">{{ __('domains.shop.whois_error') }}</p>
         @elseif ($answer['record'])
         @php($r = $answer['record'])

@@ -61,7 +61,7 @@ class GreppWhoisTest extends TestCase
 
     public function test_punycode_goes_as_unicode_and_what_it_answers(): void
     {
-        $this->connection('sandbox');
+        $this->connection();
         $urls = [];
         Http::fake(function (Request $request) use (&$urls) {
             $urls[] = rawurldecode($request->url());
@@ -70,7 +70,7 @@ class GreppWhoisTest extends TestCase
         });
 
         $this->assertSame('not_listed', app(DomainLookup::class)->whois('xn--hxajbheg2az3al.gr')['status']);
-        $this->assertSame(GrWhois::SANDBOX . '/api/v1/domain/παράδειγμα.gr', $urls[0]);
+        $this->assertSame(GrWhois::PRODUCTION . '/api/v1/domain/παράδειγμα.gr', $urls[0]);
         $this->assertSame('not_listed', app(DomainLookup::class)->whois('xn--hxajbheg2az3al.xn--qxam')['status'], '.ελ too');
         $this->assertStringEndsWith('/παράδειγμα.ελ', $urls[1]);
 
