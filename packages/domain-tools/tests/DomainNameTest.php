@@ -53,5 +53,9 @@ final class DomainNameTest extends TestCase
         $this->assertSame('strasse.de', DomainName::toAscii('strasse.de'));
         $this->assertSame(['xn--strae-oqa', 'com'], self::parts('https://www.Straße.com/'));
         $this->assertSame(['xn--mxare2a1c', 'eu'], self::parts('καλός.eu'));
+        // Refused by IDNA2008 (CONTEXTJ), not dropped as the transitional mapping did («abc.com») nor kept.
+        $this->assertNull(DomainName::toAscii("ab\u{200D}c.com"));
+        $this->assertNull(DomainName::toAscii("ab\u{200C}c.com"));
+        $this->assertNull(self::parts("ab\u{200D}c.com"));
     }
 }

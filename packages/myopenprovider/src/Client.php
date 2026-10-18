@@ -410,7 +410,7 @@ final class Client
         $fqdn = trim((string) $fqdn, " \t\n\r\0\x0B.");
         if (preg_match('/[^\x20-\x7E]/', $fqdn) && function_exists('idn_to_ascii')) {
             // IDN: Openprovider stores the punycode form (non-transitional: «ς» and «ß» kept, as DomainName).
-            $ascii = idn_to_ascii($fqdn, IDNA_NONTRANSITIONAL_TO_ASCII, INTL_IDNA_VARIANT_UTS46);
+            $ascii = idn_to_ascii($fqdn, IDNA_NONTRANSITIONAL_TO_ASCII | IDNA_CHECK_CONTEXTJ | IDNA_CHECK_BIDI, INTL_IDNA_VARIANT_UTS46);
             $fqdn = $ascii !== false ? $ascii : $fqdn;
         }
         $fqdn = strtolower($fqdn);

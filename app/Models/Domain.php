@@ -117,8 +117,11 @@ class Domain extends Model implements Auditable
     /** A name as it is stored: trimmed, lowercase, ASCII (punycode), without the root's trailing dot. */
     public static function normalise(?string $name): string
     {
-        $name = rtrim(mb_strtolower(trim((string) $name)), '.');
+        // Lowercased by IDNA, not mb_strtolower before it: that one makes a capital Σ «ς» or «σ» by what follows it,
+        // so «ΚΑΛΌΣ» and «ΚΑΛΌΣ.GR» would disagree (review of the non-transitional switch).
+        $name = rtrim(trim((string) $name), '.');
         $ascii = DomainName::toAscii($name);
+        $ascii = $ascii === null ? null : strtolower($ascii);
         if ($ascii === null || $ascii === '' || preg_match('/[^a-z0-9.\-]/', $ascii)) {
             throw new InvalidArgumentException("Not a domain name: «{$name}».");
         }
