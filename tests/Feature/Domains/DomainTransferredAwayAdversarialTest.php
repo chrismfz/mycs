@@ -124,9 +124,10 @@ class DomainTransferredAwayAdversarialTest extends TestCase
      */
     public function test_adv2_credentials_of_another_account_end_the_whole_portfolio(): void
     {
+        // The whole connection (12 domains: the breaker, more than half and at least 10, owner 2026-10-18).
         $domains = [];
-        foreach (['example1', 'example2', 'example3'] as $sld) {
-            $domains[] = $this->domain(['sld' => $sld, 'fqdn' => "{$sld}.gr"]);
+        foreach (range(1, 12) as $i) {
+            $domains[] = $this->domain(['sld' => "example{$i}", 'fqdn' => "example{$i}.gr"]);
         }
         foreach ($domains as $domain) {
             $this->sync($domain, 2201);
@@ -137,7 +138,7 @@ class DomainTransferredAwayAdversarialTest extends TestCase
         }
 
         $ended = collect($domains)->filter(fn (Domain $d) => $d->fresh()->status === DomainStatus::TransferredAway)->count();
-        $this->assertSame(0, $ended, "{$ended} of 3 domains (every domain of the connection) ended by one wrong setting");
+        $this->assertSame(0, $ended, "{$ended} of 12 domains (every domain of the connection) ended by one wrong setting");
     }
 
     /**

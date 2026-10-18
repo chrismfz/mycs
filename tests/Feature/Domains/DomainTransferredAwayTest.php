@@ -128,19 +128,27 @@ class DomainTransferredAwayTest extends TestCase
         $this->assertSame([DomainStatus::Active, true], [$domain->fresh()->status, $domain->fresh()->auto_renew]);
     }
 
-    public function test_many_of_one_connection_at_once_is_a_setting_and_staff_decide(): void
+    public function test_a_whole_connection_at_once_is_a_setting_a_reseller_leaving_is_not(): void
     {
-        $domains = collect(['example1', 'example2', 'example3'])->map(fn ($sld) => $this->domain(['sld' => $sld, 'fqdn' => "{$sld}.gr"]));
+        // A wrong setting: every domain of the connection (12 of 12) says «not ours»: none marked, staff told.
+        $domains = collect(range(1, 12))->map(fn ($i) => $this->domain(['sld' => "example{$i}", 'fqdn' => "example{$i}.gr"]));
         $domains->each(fn (Domain $d) => $this->sync($d, 2201));
         Carbon::setTestNow('2026-10-20 11:05:00');
         $domains->each(fn (Domain $d) => $this->sync($d, 2201));
-
         $this->assertSame(0, $domains->filter(fn (Domain $d) => $d->fresh()->status === DomainStatus::TransferredAway)->count());
-        $this->assertSame('3', DomainResource::getNavigationBadge(), 'staff are told');
-
-        // Staff confirm the one that did move.
+        $this->assertSame('12', DomainResource::getNavigationBadge(), 'staff are told');
         app(DomainManagementService::class)->markTransferredAway($domains[0]->fresh(), Staff::factory()->create());
-        $this->assertSame(['staff', DomainStatus::TransferredAway], [$domains[0]->fresh()->meta['transferred_away']['by'] ?? null, $domains[0]->fresh()->status]);
+        $this->assertSame('staff', $domains[0]->fresh()->meta['transferred_away']['by'] ?? null, 'staff can mark one');
+
+        // A reseller leaving with 12 of 50 (under half): each marked by itself (owner 2026-10-18).
+        Domain::query()->delete();
+        Carbon::setTestNow('2026-10-22 10:00:00');
+        $all = collect(range(1, 50))->map(fn ($i) => $this->domain(['sld' => "shop{$i}", 'fqdn' => "shop{$i}.gr"]));
+        $leaving = $all->take(12);
+        $leaving->each(fn (Domain $d) => $this->sync($d, 2201));
+        Carbon::setTestNow('2026-10-22 11:05:00');
+        $leaving->each(fn (Domain $d) => $this->sync($d, 2201));
+        $this->assertSame(12, $leaving->filter(fn (Domain $d) => $d->fresh()->status === DomainStatus::TransferredAway)->count());
     }
 
     public function test_never_a_name_gone_a_pending_order_or_one_ours_again(): void

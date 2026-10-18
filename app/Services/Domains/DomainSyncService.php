@@ -293,16 +293,22 @@ class DomainSyncService
     /** Seen «not ours» this long apart (twice at least, the same connection and mode) before it is marked transferred away. */
     public const AWAY_AFTER_SECONDS = 3600;
 
-    /** This many other domains of one connection saying «not ours» within a day: a setting, not transfers: none is marked. */
-    public const AWAY_BREAKER = 2;
+    /**
+     * A whole connection saying «not ours» within a day is a setting, not transfers: none is marked when more than
+     * AWAY_BREAKER_SHARE of its domains said so (owner 2026-10-18: half; a reseller leaving with 20 or 600 of 1,400 is
+     * marked by itself, 200 of 200 is a wrong setting), and at least AWAY_BREAKER (a small connection's few never stop).
+     */
+    public const AWAY_BREAKER = 10;
+
+    public const AWAY_BREAKER_SHARE = 0.5;
 
     /**
      * Its registrar says it is not ours (moved to another registrar: the .gr registry's 2201, the account no longer listing
      * it). As WHMCS's sync (owner 2026-10-18), it is marked transferred away by itself, safely (reviews of #203):
      * - seen so twice, an hour apart at least, by the same production connection and mode, the one that last read it as
      *   ours (another connection, sandbox, or a note older than a day: never);
-     * - not when AWAY_BREAKER other domains of that connection said so within a day too: a wrong setting (credentials, a
-     *   registrar id, a TLD routed elsewhere) hits them all, a transfer one: staff decide (the badge, «Transferred away»);
+     * - not when a large share of that connection's domains said so within a day (AWAY_BREAKER, AWAY_BREAKER_SHARE): a
+     *   wrong setting (credentials, a TLD routed elsewhere) hits them all, transfers a few: staff decide (the badge);
      * - an active one only (a lapsed one missing is more likely gone: noted); never a pending order, one ended, or a name
      *   that no longer exists (2303) or a contradicting setting (elsewhere false). Read as ours again, the note goes.
      * Marked: auto-renew off, sync and billing stop; staff can resume it; its open invoices are cancelled a day later.
@@ -335,10 +341,13 @@ class DomainSyncService
         if (isset($meta['read_by']) && $meta['read_by'] !== $connection->id) {
             return;
         }
-        $saying = Domain::query()->whereKeyNot($domain->id)->whereNotIn('status', DomainStatus::terminalValues())
-            ->where('meta->not_ours->connection_id', $connection->id)->where('meta->not_ours->last', '>=', now()->subDay()->toIso8601String())->count();
-        if ($saying >= self::AWAY_BREAKER) {
-            return; // too many of one connection at once: not transfers; staff's to look at
+        $live = Domain::query()->whereNotIn('status', DomainStatus::terminalValues());
+        $all = (clone $live)->where(fn ($q) => $q->where('registrar_connection_id', $connection->id)
+            ->orWhere(fn ($t) => $t->whereNull('registrar_connection_id')->whereHas('domainTld', fn ($tld) => $tld->where('registrar_connection_id', $connection->id))))->count();
+        $saying = (clone $live)->where('meta->not_ours->connection_id', $connection->id)
+            ->where('meta->not_ours->last', '>=', now()->subDay()->toIso8601String())->count();
+        if ($saying >= self::AWAY_BREAKER && $saying > $all * self::AWAY_BREAKER_SHARE) {
+            return; // a large share of one connection at once: a setting, not transfers; staff's to look at
         }
         $audit = Config::get('audit.console');
         Config::set('audit.console', true); // audited from a queue worker too (review 6 of #203)
