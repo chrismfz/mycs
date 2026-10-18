@@ -37,7 +37,7 @@
 | D-6 | **Τιμές TLD με importer/sync όπως το WHMCS** (Utilities → TLD Import & Pricing Sync): επιλογή registrar, margin (%/ποσό), στρογγυλοποίηση, προαιρετικά και grace/redemption fee, «auto-registration» με αυτόν τον registrar. Πίνακας κόστους/τρέχουσας τιμής/margin ανά TLD· εισάγει μόνο όσα επιλέξει το staff. **Τρεις καταστάσεις τιμής:** κλειστό (καμία τιμή), **δωρεάν και επιτρεπτό (0,00**: μεταφορά .gr, .uk, .co.uk, .ch, .es, .at), τιμή. Τιμές **ανά νόμισμα του MyCS**: όσα έχει ο πίνακας `currencies` (όπως οι τιμές των προϊόντων), τίποτα hardcoded· σήμερα και τα δύο WHMCS έχουν EUR και USD. | ιδιοκτήτης (screenshots WHMCS) |
 | D-7 | **Ρυθμίσεις ανά TLD όπως το WHMCS** (Domains/TLDs): registrar αυτόματης εγγραφής, EPP code για μεταφορά, DNS management / email forwarding / ID protection, τιμές, **grace και redemption: μέρες και τέλος**. Μαζική επεξεργασία. | ιδιοκτήτης |
 | D-8 | **Grace/redemption από το API** του registrar όπου τα δίνει (Openprovider: μέρες και τιμή restore), αλλιώς με το χέρι. Το cron περνά το domain σε grace και μετά σε redemption με βάση τη λήξη. Το τέλος μπαίνει **στο υπάρχον τιμολόγιο** ανανέωσης (`DomainExpirationFeeHandling=existing`). Σήμερα: grace fee 0 παντού· redemption 30 μέρες και €96,50 στα gTLD, ειδικά ανά ccTLD (π.χ. .eu 40/25,50 · .es 10/25,50 · .uk 1/10,97)· .gr grace 15· `-1` = «default του TLD». Το nixpal έχει χρεώσει redemption (2 φορές). | ιδιοκτήτης· `settings-map.md` |
-| D-9 | **Sync με cron:** pending transfers, grace/redemption, active/cancelled/expired, και λήξη που άλλαξε έξω από εμάς (π.χ. ανανέωση από την κονσόλα του Openprovider). Συχνότητα όπως σήμερα: **κάθε 4 ώρες** και για τις καταστάσεις και για τις μεταφορές. Λήξη = `expiration_date` του registrar. Κάθε αλλαγή καταγράφεται· ο registrar μόνο προχωρά την κατάσταση. | ιδιοκτήτης· blesta H4· Ekdosi |
+| D-9 | **Sync με cron:** pending transfers, grace/redemption, active/cancelled/expired, και λήξη που άλλαξε έξω από εμάς (π.χ. ανανέωση από την κονσόλα του Openprovider). Συχνότητα (2026-10-18): **σε παρτίδες**, ένα cron· κάθε `domain_sync_hours` (default 2, 0 = σταματημένο) `domain_sync_batch` domains ανά σύνδεση registrar (default 200), ρυθμίσεις στο Settings → Domains → Sync· πρώτα οι εκκρεμότητες, τα «όχι δικό μας», όσα λήγουν σε 30 μέρες (αν δεν διαβάστηκαν τις τελευταίες 12 ώρες), μετά τα παλιότερα `last_synced_at`· παύση 0,5 s ανάμεσα· οι ημερομηνίες (lifecycle) για όλα σε κάθε παρτίδα· «Sync now» για ένα αμέσως. Λήξη = `expiration_date` του registrar. Κάθε αλλαγή καταγράφεται· ο registrar μόνο προχωρά την κατάσταση. | ιδιοκτήτης· blesta H4· Ekdosi |
 | D-10 | **Registrars:** Openprovider σίγουρα. **CNIC = `manual`** (χρέωση κανονικά, χωρίς API/sync, με ρητή σύνδεση ανά domain), εκτός αν προλάβουμε μέσα σε 4–6 μήνες· τότε module/hook όπως σήμερα (μεταφορά στο Openprovider αντί για ανανέωση). Τα CNIC μεταφέρονται σταδιακά στο Openprovider. .gr EPP: Φάση 4 (myip). | ιδιοκτήτης |
 | D-11 | **Importer από το WHMCS** (~450–500 domains εκτός .gr): `tbldomains`, `tbldomainpricing`, ρυθμίσεις ανά TLD, additional fields· parity και σύγκριση με τους registrars. **Ποτέ** οι σημειώσεις (`additionalnotes`), το `mod_domain_migration.epp` ή το additional field `X-ALLOCATION-TOKEN`: έχουν EPP codes και κωδικούς σε απλό κείμενο. Statuses όπως είναι (και Expired/Transferred Away του nixpal)· Pending → pending_register ή pending_transfer κατά τον τύπο της παραγγελίας, Fraud → cancelled· τα ονόματα κανονικοποιούνται (πεζά, punycode **non-transitional**, IDNA2008: «ς» και «ß» κρατιούνται, όπως στους browsers και στο μητρώο .gr· ένα όνομα που το WHMCS έχει ήδη σε punycode μένει όπως είναι) και ο importer γράφει μέσω του μοντέλου· τα domains που φτιάχτηκαν πριν (δοκιμές) δεν πιάνουν id του WHMCS (AUTO_INCREMENT πάνω από το μέγιστο)· έλεγχος για τα πολυετή (το 5ετές του nixpal: `nextinvoicedate` 5 χρόνια πριν). | ιδιοκτήτης· whmcs-baseline §10 |
 | D-12 | Autorenew **κλειστό** στον registrar: το ρολόι της χρέωσης είναι δικό μας. Κάθε domain το ανανεώνει ένα μόνο σύστημα (κλείνει στο cut-over). | blesta `openprovider.md` |
@@ -143,7 +143,7 @@
   «Ανανέωση τώρα» του staff (D-1): ανανεώνει, γράφει την περίοδο, και η μεταγενέστερη πληρωμή την υιοθετεί.
 - **Λήξη:** expired → grace (ανανέωση με το τέλος grace, αν υπάρχει) → redemption (restore με τέλος, D-13) →
   deleted. Οι μέρες από το TLD ή το override του domain.
-- **Sync (D-9):** κάθε 4 ώρες, για όλα και για τα pending transfers (λήξη μεταφοράς στις 14 μέρες). Πρώτα
+- **Sync (D-9):** σε παρτίδες (κάθε 2 ώρες, 200 ανά registrar: ρυθμίσεις), για όλα και για τα pending transfers (λήξη μεταφοράς στις 14 μέρες). Πρώτα
   **αναφορά διαφορών**· η εφαρμογή γράφει audit.
 - **Διαχείριση:** NS, lock, privacy, επαφές, EPP code (ποτέ αποθηκευμένο), restore. Πελάτης στο portal: NS, EPP
   code, auto-renew.
@@ -175,7 +175,7 @@
   ενεργοποιείται. Οι υπενθυμίσεις τιμολογίων **δεν** γράφουν «θα ανασταλεί» για γραμμές domain.
 - **Ρυθμίσεις:** νέα καρτέλα «Domains» στο `Settings.php`: μέρες τιμολογίου, μέρες ειδοποιήσεων (και αρνητικές),
   default NS 1–5, sync, ημερήσια λίστα για το staff.
-- **Schedule:** `domains:sync` κάθε 4 ώρες (`onOneServer`)· βήματα στο CronStat· έλεγχος «domains» στο Health.
+- **Schedule:** `domains:sync --scheduled` κάθε 10 λεπτά (`onOneServer`), παρτίδα όταν περάσουν οι ώρες της ρύθμισης· με το χέρι (`php artisan domains:sync`) μια παρτίδα αμέσως· βήματα στο CronStat· έλεγχος «domains» στο Health.
 - **Portal:** τα υπάρχοντα δικαιώματα χρήστη `domains` / `managedomains` (`ClientUser::PERMISSIONS`).
 - **Packages:** το `myopenprovider` Client δεν έχει register/transfer/check/EPP/NS/handles/τιμές· αυτά από τον driver
   του spike. Το `RenewalPlan` (restore/refuse) ως έχει.
@@ -209,7 +209,7 @@
    - Οι δωρεάν (0,00) και οι «δεν προσφέρεται» τιμές κρατιούνται, εκτός αν το staff πει αλλιώς· όσα δεν ζητήθηκαν
      (άλλα νομίσματα, περισσότερα έτη, grace) μένουν ως έχουν· TLD χωρίς καμία τιμή δεν δημιουργείται.
    - Αρνητικό ή ακατανόητο κόστος από τον registrar αγνοείται.
-4. **D4 Sync** (#161): `domains:sync` κάθε 4 ώρες (και `--dry-run`: η αναφορά διαφορών, τίποτα γραμμένο),
+4. **D4 Sync** (#161): `domains:sync` (από 2026-10-18 σε παρτίδες) (και `--dry-run`: η αναφορά διαφορών, τίποτα γραμμένο),
    «Sync now» στο domain (`admin.domains.update`), ο κύκλος ζωής από τις ημερομηνίες (expired → grace → redemption →
    deleted με τις μέρες του TLD ή του domain· πίσω σε active όταν η λήξη πάει μπροστά· χωρίς γνωστές μέρες μόνο
    expired), `domains:adopt` (ένα domain που είναι ήδη στον registrar, σε λογαριασμό: μόνο ανάγνωση εκεί), έλεγχος

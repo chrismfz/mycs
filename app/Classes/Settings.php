@@ -1076,6 +1076,28 @@ class Settings
                     'min_value' => 1,
                     'description' => 'The EPP code a client gave for a transfer is kept (encrypted, shown to staff) until the transfer is no longer pending and this many days have passed since the order.',
                 ],
+                // The sync in batches (owner 2026-10-18): one cron, every few hours, so many domains per registrar connection,
+                // the longest unsynced first; a registry is never asked for all at once (1,400 .gr at myip).
+                [
+                    'name' => 'domain_sync_hours',
+                    'section' => 'Sync',
+                    'label' => 'Sync a batch every (hours)',
+                    'type' => 'number',
+                    'default' => 2,
+                    'required' => true,
+                    'min_value' => 0,
+                    'description' => 'How often a batch of domains is read from their registrars (default 2). 0: the sync is paused (an emergency, a registry asking us to slow down); «Sync now» on a domain still works.',
+                ],
+                [
+                    'name' => 'domain_sync_batch',
+                    'section' => 'Sync',
+                    'label' => 'Domains per registrar per batch',
+                    'type' => 'number',
+                    'default' => 200,
+                    'required' => true,
+                    'min_value' => 1,
+                    'description' => 'How many domains of each registrar connection a batch reads (default 200): the longest unsynced first, pending orders, names expiring within 30 days and ones a registrar said are not ours before them.',
+                ],
                 [
                     'name' => 'domain_stale_transfer_days',
                     'section' => 'Housekeeping',
