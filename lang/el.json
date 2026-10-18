@@ -601,5 +601,10 @@
     "Recall the registration": "Ανάκληση της καταχώρισης",
     "The registry cancels the registration (only within 5 days of it); the domain is cancelled here. Refund its invoice line by hand; the Cancel & Refund of its order only if the domain is the whole order (it cancels all of it). Logged.": "Το μητρώο ακυρώνει την καταχώριση (μόνο εντός 5 ημερών)· εδώ το domain ακυρώνεται. Επιστρέψτε το ποσό της γραμμής του τιμολογίου χειροκίνητα· το Cancel & Refund της παραγγελίας μόνο αν το domain είναι όλη η παραγγελία (την ακυρώνει ολόκληρη). Καταγράφεται.",
     "Recalled": "Ανακλήθηκε",
-    "Not recalled": "Δεν ανακλήθηκε"
+    "Not recalled": "Δεν ανακλήθηκε",
+    "Debug log": "Debug log",
+    "Every request and answer to storage/logs/registrar-debug-*.log, passwords and EPP codes hidden; contacts' names and addresses are in it: kept 14 days. Turn it off after testing.": "Κάθε αίτημα και απάντηση στο storage/logs/registrar-debug-*.log, χωρίς passwords και κωδικούς EPP· περιέχει ονόματα και διευθύνσεις επαφών: κρατιέται 14 μέρες. Κλείστε το μετά τη δοκιμή.",
+    "Registry transactions": "Συναλλαγές με το μητρώο",
+    "no answer": "χωρίς απάντηση",
+    "On": "Ενεργό"
 }

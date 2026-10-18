@@ -11,6 +11,7 @@ use App\Models\DomainRegistrarLog;
 use App\Models\DomainTld;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\ModuleAction;
 use App\Models\Order;
 use App\Models\Staff;
 use App\Models\User;
@@ -189,6 +190,94 @@ class GreppWritesTest extends TestCase
 
         $this->assertSame('66155', $domain->fresh()->meta['registrar']['protocol'] ?? null);
         $this->assertSame(1, collect($this->transport->kinds())->filter(fn ($k) => $k === 'create')->count(), 'registered once');
+    }
+
+    public function test_its_log_keeps_the_registry_ids_and_the_debug_log_its_frames_without_a_secret(): void
+    {
+        $file = storage_path('logs/test-registrar-debug-' . bin2hex(random_bytes(4)) . '.log');
+        config(['logging.channels.registrar-debug' => ['driver' => 'single', 'path' => $file, 'level' => 'debug']]);
+        Mail::fake();
+        $this->gr->forceFill(['debug_log' => true])->save();
+        $order = Order::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'EUR']);
+        $domain = $this->domain(['ns1.myip.gr', 'ns2.myip.gr'], ['order_id' => $order->id, 'registered_at' => null]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'EUR']);
+        InvoiceItem::query()->create(['invoice_id' => $invoice->id, 'quantity' => 1, 'price' => '19.00', 'description' => 'example.gr',
+            'reference_type' => Domain::class, 'reference_id' => $domain->id, 'kind' => InvoiceItem::KIND_REGISTER]);
+        Invoice::query()->whereKey($invoice->id)->update(['status' => Invoice::STATUS_PAID]);
+        $id = 'c60_mcs' . base_convert((string) $domain->registrant_contact_id, 10, 36);
+        $this->loggedIn();
+        $this->contactCheck($id, true);
+        $this->fixture('v4.3/14-contact-create-response.xml');
+        $this->hostCheck(['ns1.myip.gr' => false, 'ns2.myip.gr' => false]);
+        $this->fixture('v4.3/38-domain-create-response.xml');
+
+        try {
+            $this->assertSame(DomainOrderFulfilment::SENT, app(DomainOrderFulfilment::class)->fulfil($domain->id),
+                (string) ModuleAction::query()->value('last_error'));
+
+            $create = collect(DomainRegistrarLog::query()->where('domain_id', $domain->id)->where('action', 'register')->sole()->transactions)
+                ->firstWhere('command', 'domain:create');
+            $this->assertSame([1001, '20110319-103209210-772-gr'], [$create['code'] ?? null, $create['svTRID'] ?? null]);
+            $this->assertStringStartsWith('mycs-', (string) $create['clTRID'], 'our clTRID, as sent');
+            $this->assertStringContainsString((string) $create['clTRID'], collect($this->transport->sent)->pluck('body')->first(fn ($b) => str_contains($b, '<domain:create')));
+
+            $trace = (string) file_get_contents($file);
+            $this->assertStringContainsString('grepp domain:create 1001', $trace);
+            $this->assertStringContainsString('grepp login 1000', $trace);
+            foreach (['Secret-pw1', 'JSESSIONID'] as $secret) {
+                $this->assertStringNotContainsString($secret, $trace);
+            }
+
+            // Off: the ids still on the log, no frame in the file.
+            $this->gr->forceFill(['debug_log' => false])->save();
+            file_put_contents($file, '');
+            GrEppRegistrar::reset();
+            $this->transport = new FakeTransport;
+            $this->loggedIn();
+            $this->fixture('v4.3/60-domain-delete-recall-domain-creation-response.xml');
+            app(DomainManagementService::class)->recall($domain->fresh(), Staff::factory()->create());
+            $recall = DomainRegistrarLog::query()->where('action', 'recall')->sole();
+            $this->assertSame('20110319-123743986-292-gr', collect($recall->transactions)->firstWhere('command', 'domain:delete')['svTRID'] ?? null);
+            $this->assertSame('', (string) file_get_contents($file));
+        } finally {
+            @unlink($file);
+        }
+    }
+
+    public function test_review_fixes_of_193(): void
+    {
+        // 4: the debug switch turned on mid-process is read at the next exchange, in the same session (no new login).
+        $file = storage_path('logs/test-registrar-debug-' . bin2hex(random_bytes(4)) . '.log');
+        config(['logging.channels.registrar-debug' => ['driver' => 'single', 'path' => $file, 'level' => 'debug']]);
+        $domain = $this->domain(['ns1.myip.gr'], ['status' => DomainStatus::Active, 'expires_at' => '2029-03-01', 'fqdn' => 'example1.gr', 'sld' => 'example1']);
+        $this->loggedIn();
+        $this->fixture('live/domain-info-response.xml');
+        $this->fixture('live/domain-info-response.xml');
+        try {
+            (new GrEppRegistrar)->syncDomain($domain, $this->credentials());
+            $this->assertFileDoesNotExist($file);
+            $on = new DomainRegistrarCredentials(['username' => 'myip1', 'password' => 'Secret-pw1', 'contact_prefix' => 'c60'], sandbox: false, debug: true);
+            (new GrEppRegistrar)->syncDomain($domain, $on);
+            $this->assertSame(['hello', 'login', 'info', 'info'], $this->transport->kinds(), 'one session');
+            $this->assertSame(1, substr_count((string) file_get_contents($file), 'grepp domain:info 1000'));
+        } finally {
+            @unlink($file);
+        }
+
+        // 1: its files go after 14 days, the switch on or off.
+        $old = storage_path('logs/registrar-debug-2026-09-01.log');
+        $new = storage_path('logs/registrar-debug-2026-10-19.log');
+        file_put_contents($old, 'x');
+        file_put_contents($new, 'x');
+        touch($old, now()->subDays(15)->getTimestamp());
+        try {
+            $this->artisan('mycs:registrar-debug-log-prune')->assertExitCode(0);
+            $this->assertFileDoesNotExist($old);
+            $this->assertFileExists($new);
+        } finally {
+            @unlink($old);
+            @unlink($new);
+        }
     }
 
     public function test_review_fixes_of_192(): void

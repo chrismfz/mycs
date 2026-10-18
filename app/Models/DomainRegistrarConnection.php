@@ -19,6 +19,7 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property string $label
  * @property bool $is_active
  * @property string $mode off | sandbox | production
+ * @property bool $debug_log its frames to the registrar debug log (secrets hidden)
  */
 class DomainRegistrarConnection extends Model implements Auditable
 {
@@ -28,7 +29,7 @@ class DomainRegistrarConnection extends Model implements Auditable
 
     public const MANUAL = 'manual';
 
-    protected $fillable = ['registrar', 'label', 'is_active', 'mode'];
+    protected $fillable = ['registrar', 'label', 'is_active', 'mode', 'debug_log'];
 
     /** Its settings are the credentials, its TLDs and domains every account's: never in a JSON or a template. */
     protected $hidden = ['settings', 'tlds', 'domains'];
@@ -37,7 +38,7 @@ class DomainRegistrarConnection extends Model implements Auditable
 
     protected function casts(): array
     {
-        return ['is_active' => 'boolean'];
+        return ['is_active' => 'boolean', 'debug_log' => 'boolean'];
     }
 
     protected static function booted(): void

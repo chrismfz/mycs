@@ -60,6 +60,12 @@ class RegistrarLogsRelationManager extends RelationManager
                     TextEntry::make('response')->label(__('Response'))
                         ->state(fn (DomainRegistrarLog $record) => json_encode($record->response, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE))
                         ->fontFamily('mono')->columnSpanFull(),
+                    TextEntry::make('transactions')->label(__('Registry transactions'))->placeholder('—')
+                        ->state(fn (DomainRegistrarLog $record) => $record->transactions === null ? null : collect($record->transactions)
+                            ->map(fn (array $t) => ($t['command'] ?? '?') . ' ' . ($t['code'] ?? (($t['http'] ?? 0) === 0 ? __('no answer') : 'HTTP ' . $t['http']))
+                                . '  clTRID ' . ($t['clTRID'] ?? '—') . '  svTRID ' . ($t['svTRID'] ?? '—'))
+                            ->all())
+                        ->listWithLineBreaks()->fontFamily('mono')->columnSpanFull(),
                     TextEntry::make('error')->label(__('Error'))->placeholder('—')->columnSpanFull(),
                 ])),
             ]);

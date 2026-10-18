@@ -17,6 +17,7 @@ use App\Services\Domains\DomainSyncService;
 use App\Services\Domains\Lookup\DomainLookup;
 use App\Services\Domains\RegistrarNotAsked;
 use App\Services\Domains\RegistrarRefused;
+use App\Support\Domains\RegistrarTransactions;
 use App\Support\Redact;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Cache;
@@ -179,6 +180,8 @@ class DomainOrderFulfilment
         $log = DomainRegistrarLog::query()->create(['domain_id' => $domain->id, 'registrar_connection_id' => $connection->id,
             'action' => $register ? 'register' : 'transfer', 'status' => DomainRegistrarLog::STATUS_PENDING, 'invoice_id' => $line?->invoice_id,
             'request' => ['years' => $domain->years, 'nameservers' => $domain->nameservers->pluck('host')->all(), 'line' => $line?->id]]);
+        $transactions = app(RegistrarTransactions::class);
+        $mark = $transactions->mark();
         try {
             $result = $register ? $registrar->register($domain, max(1, (int) $domain->years), $credentials)
                 : $registrar->transferIn($domain, (string) $domain->epp_code, $credentials);
@@ -186,22 +189,23 @@ class DomainOrderFulfilment
             // Refused (4xx), or failed before it was asked (nameservers, glue, contacts: ADV-6): nothing done at the
             // registrar. Staff decide (a wrong EPP code, a contact refused, a nameserver to fix).
             $clean = $this->clean($domain, $e);
-            $log->update(['status' => DomainRegistrarLog::STATUS_FAILED, 'error' => mb_substr($clean->getMessage(), 0, 2000)]);
+            $log->update(['status' => DomainRegistrarLog::STATUS_FAILED, 'error' => mb_substr($clean->getMessage(), 0, 2000), 'transactions' => $transactions->since($mark)]);
             ModuleAction::domainFailed($domain, $line, $connection->registrar, $clean, $action);
 
             return self::STAFF;
         } catch (Throwable $e) {
             // No answer (5xx, timeout): it may have been done. Pending, never sent again until staff check (D-17).
             $clean = $this->clean($domain, $e);
-            $log->update(['error' => mb_substr($clean->getMessage(), 0, 2000)]);
+            $log->update(['error' => mb_substr($clean->getMessage(), 0, 2000), 'transactions' => $transactions->since($mark)]);
             report($clean);
             ModuleAction::domainFailed($domain, $line, $connection->registrar, $clean, $action);
 
             return self::STAFF;
         }
 
-        $ordered = DB::transaction(function () use ($domain, $line, $log, $result, $action, $connection) {
-            $log->update(['status' => DomainRegistrarLog::STATUS_OK, 'response' => ['status' => $result->rawStatus, 'id' => $result->registrarDomainId]]);
+        $done = $transactions->since($mark);
+        $ordered = DB::transaction(function () use ($domain, $line, $log, $result, $action, $connection, $done) {
+            $log->update(['status' => DomainRegistrarLog::STATUS_OK, 'response' => ['status' => $result->rawStatus, 'id' => $result->registrarDomainId], 'transactions' => $done]);
             $fresh = Domain::query()->lockForUpdate()->findOrFail($domain->id);
             $meta = $fresh->meta ?? [];
             $meta['sent_at'] = now()->toIso8601String();

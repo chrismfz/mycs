@@ -13,6 +13,7 @@ use App\Models\ModuleAction;
 use App\Models\Staff;
 use App\Services\Order\OrderPricing;
 use App\Support\Domains\DomainSyncResult;
+use App\Support\Domains\RegistrarTransactions;
 use App\Support\Redact;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
@@ -277,23 +278,26 @@ class DomainRenewalService
         $log = DomainRegistrarLog::query()->create(['domain_id' => $domain->id, 'registrar_connection_id' => $connection->id,
             'staff_id' => $staff?->id, 'invoice_id' => $line->invoice_id, 'action' => $action, 'status' => DomainRegistrarLog::STATUS_PENDING,
             'request' => ['years' => $years, 'target_expiry' => $target->toDateString(), 'line' => $line->id]]);
+        $transactions = app(RegistrarTransactions::class);
+        $mark = $transactions->mark();
         try {
             $result = $action === 'restore' ? $registrar->restore($domain->refresh(), $credentials) : $registrar->renew($domain->refresh(), $years, $credentials);
         } catch (RegistrarRefused|RegistrarNotAsked|DomainRegistrarNotConfigured $e) {
             // Refused, or never asked (the rules, a read before it, not configured: review 4 of #192): nothing done.
-            $log->update(['status' => DomainRegistrarLog::STATUS_FAILED, 'error' => mb_substr(Redact::text($e->getMessage()), 0, 2000)]);
+            $log->update(['status' => DomainRegistrarLog::STATUS_FAILED, 'error' => mb_substr(Redact::text($e->getMessage()), 0, 2000), 'transactions' => $transactions->since($mark)]);
             $this->staffDecides($domain, $line, $connection->registrar, ($e instanceof RegistrarRefused
                 ? "The registrar refused the {$action}: " : "The {$action} was not asked of the registrar: ") . $e->getMessage());
 
             return null;
         } catch (Throwable $e) {
             // Its outcome is unknown (no answer, a 5xx): left pending, never asked again blindly.
-            $log->update(['error' => mb_substr(Redact::text($e->getMessage()), 0, 2000)]);
+            $log->update(['error' => mb_substr(Redact::text($e->getMessage()), 0, 2000), 'transactions' => $transactions->since($mark)]);
             $this->staffDecides($domain, $line, $connection->registrar, "The {$action} got no clear answer ({$e->getMessage()}): its outcome is checked on the next run; do not renew it by hand before checking the registrar.");
 
             return null;
         }
-        $log->update(['status' => DomainRegistrarLog::STATUS_OK, 'response' => Redact::array(['status' => $result->rawStatus, 'expires_at' => $result->expiresAt])]);
+        $log->update(['status' => DomainRegistrarLog::STATUS_OK, 'response' => Redact::array(['status' => $result->rawStatus, 'expires_at' => $result->expiresAt]),
+            'transactions' => $transactions->since($mark)]);
         $this->sync->applyResult($domain->refresh(), $result);
 
         return $result;
