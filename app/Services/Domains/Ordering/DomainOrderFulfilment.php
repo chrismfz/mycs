@@ -204,7 +204,7 @@ class DomainOrderFulfilment
         }
 
         $done = $transactions->since($mark);
-        $ordered = DB::transaction(function () use ($domain, $line, $log, $result, $action, $connection, $done) {
+        $ordered = DB::transaction(function () use ($domain, $line, $log, $result, $action, $connection, $done, $register) {
             $log->update(['status' => DomainRegistrarLog::STATUS_OK, 'response' => ['status' => $result->rawStatus, 'id' => $result->registrarDomainId], 'transactions' => $done]);
             $fresh = Domain::query()->lockForUpdate()->findOrFail($domain->id);
             $meta = $fresh->meta ?? [];
@@ -212,6 +212,12 @@ class DomainOrderFulfilment
             // What its answer told (a .gr registration's protocol: its recall needs it), until a sync reads its truth.
             if ($result->details !== []) {
                 $meta['registrar'] = $result->details + (is_array($meta['registrar'] ?? null) ? $meta['registrar'] : []);
+            }
+            // A transfer's notes (its contacts replaced or why not, its owner): kept apart, the sync after replaces
+            // meta.registrar (review 2 of #198).
+            $notes = array_intersect_key($result->details, array_flip(['transfer', 'contacts', 'registrant']));
+            if (!$register && $notes !== []) {
+                $meta['transfer'] = $notes + ['at' => now()->toIso8601String()];
             }
             // Cancelled or refunded while the registrar was asked (code review 2): done there all the same; staff decide.
             $line = $line?->fresh(['invoice']);

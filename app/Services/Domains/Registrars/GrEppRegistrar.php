@@ -574,10 +574,26 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
             $domain->forceFill(['registrant_handle' => $registrant])->syncOriginalAttribute('registrant_handle');
 
             $details = array_filter(['transfer' => $result->transferStatus, 'comments' => implode(' ', $result->comments) ?: null]);
+            // Its roles replaced only once it is ours (approved: review 4 of #198); a pending one keeps them for later.
+            if (!in_array($result->transferStatus, ['serverApproved', 'clientApproved'], true)) {
+                $details['contacts'] = 'to replace once the transfer completes';
+            } else {
+                try {
+                    $details['contacts'] = self::replaceRoles($session, $domain, self::prefix($credentials), $credentials);
+                } catch (OutcomeUnknown|RegistrarOutcomeUnknown $e) {
+                    $details['contacts'] = 'maybe replaced (no answer): ' . mb_substr($e->getMessage(), 0, 300); // review 5
+                } catch (Throwable $e) {
+                    $details['contacts'] = 'not replaced: ' . mb_substr($e->getMessage(), 0, 300); // done all the same
+                }
+            }
+            // The owner as the registry holds it, against this domain's registrant contact (review 6: shown, never changed).
             try {
-                $details['contacts'] = self::replaceRoles($session, $domain, self::prefix($credentials));
-            } catch (Throwable $e) {
-                $details['contacts'] = 'not replaced: ' . mb_substr($e->getMessage(), 0, 300); // done all the same
+                $held = ContactInfo::parse(self::send($session, fn (string $clTRID) => ContactInfo::request($registrant, $clTRID)));
+                $local = $domain->registrantContact;
+                if ($local instanceof Contact && strcasecmp(trim((string) $held->email), trim((string) $local->email)) !== 0) {
+                    $details['registrant'] = 'the registry\'s owner (copied) differs from this domain\'s registrant contact here: check it';
+                }
+            } catch (Throwable) {
             }
             try {
                 $after = self::syncResultFrom(self::read($session, $domain));
@@ -585,23 +601,32 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
                 return new DomainSyncResult($after->expiresAt, $after->nameservers, $after->registrarDomainId, $after->status, $after->rawStatus,
                     $after->contactHandles, false, null, null, $after->registeredAt, $details + $after->details, $after->graceEndsOn, $after->redemptionEndsOn);
             } catch (Throwable) {
-                return new DomainSyncResult(status: DomainStatus::Active, rawStatus: 'ok', details: $details); // read on the next sync
+                // Not read back: as its answer said (ADV-2 of #198: a pending transfer is never Active); the next sync reads it.
+                $approved = in_array($result->transferStatus, ['serverApproved', 'clientApproved'], true);
+
+                return new DomainSyncResult(status: $approved ? DomainStatus::Active : null, rawStatus: $approved ? 'ok' : 'pendingTransfer', details: $details);
             }
         });
     }
 
     /**
-     * A contact id of ours the registry does not have yet, for a transferred name's registrant: «{prefix}_mcst<domain
-     * id, base 36>», a letter added while it is taken (a contact made by an earlier transfer of the same domain).
+     * A contact id of ours the registry does not have yet, for a transferred name's registrant: «{prefix}_mtr<domain
+     * id, base 36>», a letter added while it is taken (a contact made by an earlier transfer of the same domain); checked
+     * three at a time.
      */
     private static function freshContactId(Session $session, Domain $domain, string $prefix): string
     {
-        $base = "{$prefix}_mcst" . base_convert((string) $domain->getKey(), 10, 36);
-        foreach (array_merge([''], range('a', 'z')) as $suffix) {
-            $id = Rules::contactId($base . $suffix, $prefix);
-            $check = array_change_key_case(ContactCheck::parse(self::send($session, fn (string $clTRID) => ContactCheck::request([$id], $clTRID))));
-            if ($check[strtolower($id)]->available ?? false) {
-                return $id;
+        // «mtr», never «mcs…»: a contact's own ids are «mcs<id base 36>» (review 1 of #198: «mcst1» was contact 1045's).
+        $base = "{$prefix}_mtr" . base_convert((string) $domain->getKey(), 10, 36);
+        foreach (array_chunk(array_merge([''], range('a', 'z')), ContactCheck::MAX) as $suffixes) {
+            $ids = array_map(fn (string $s) => Rules::contactId($base . $s, $prefix), $suffixes);
+            $check = array_change_key_case(ContactCheck::parse(self::send($session, fn (string $clTRID) => ContactCheck::request($ids, $clTRID))));
+            foreach ($ids as $id) {
+                // No answer for an id asked is no answer, never «taken» (ADV-4 of #198, as ensureContacts).
+                $found = $check[strtolower($id)] ?? throw new InvalidArgumentException("The registry's check did not answer for contact {$id}.");
+                if ($found->available) {
+                    return $id;
+                }
             }
         }
         throw new InvalidArgumentException("No free contact id for {$domain->fqdn}'s registrant.");
@@ -611,15 +636,20 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
      * After a transfer: its admin, tech and billing set to ours (from the domain's contacts), the registry's others on them
      * (the previous registrar's) removed. A role without a contact here keeps what it has.
      */
-    private static function replaceRoles(Session $session, Domain $domain, string $prefix): string
+    private static function replaceRoles(Session $session, Domain $domain, string $prefix, DomainRegistrarCredentials $credentials): string
     {
-        $info = self::read($session, $domain);
-        $add = $remove = [];
-        foreach (self::ensureContacts($session, $domain, $prefix, ['admin', 'tech', 'billing']) as $role => $ours) {
-            $there = $info->contacts[$role] ?? [];
-            $add[$role] = in_array(strtolower($ours), array_map('strtolower', $there), true) ? [] : [$ours];
-            $remove[$role] = array_values(array_filter($there, fn (string $id) => strtolower($id) !== strtolower($ours)));
-        }
+        // Before the update: whatever fails is «not replaced» (a read, a contact); only the update's lost answer is «maybe».
+        [$add, $remove] = self::prepare(function () use ($session, $domain, $prefix, $credentials) {
+            $info = self::ours($session, $domain, $credentials, writing: true); // ours and updatable first (review 4)
+            $add = $remove = [];
+            foreach (self::ensureContacts($session, $domain, $prefix, ['admin', 'tech', 'billing']) as $role => $ours) {
+                $there = $info->contacts[$role] ?? [];
+                $add[$role] = in_array(strtolower($ours), array_map('strtolower', $there), true) ? [] : [$ours];
+                $remove[$role] = array_values(array_filter($there, fn (string $id) => strtolower($id) !== strtolower($ours)));
+            }
+
+            return [$add, $remove];
+        });
         if (array_filter($add) === [] && array_filter($remove) === []) {
             return 'ours already';
         }

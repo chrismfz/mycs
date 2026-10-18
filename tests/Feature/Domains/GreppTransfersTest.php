@@ -8,7 +8,9 @@ use App\Models\Currency;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainTld;
+use App\Models\Order;
 use App\Models\User;
+use App\Services\Domains\Ordering\DomainOrderFulfilment;
 use App\Services\Domains\RegistrarNotAsked;
 use App\Services\Domains\RegistrarOutcomeUnknown;
 use App\Services\Domains\RegistrarRefused;
@@ -16,6 +18,7 @@ use App\Services\Domains\Registrars\GrEppRegistrar;
 use App\Support\Domains\DomainRegistrarCredentials;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Mail;
 use MyCS\GrEpp\Http\HttpResponse;
 use MyCS\GrEpp\Tests\FakeTransport;
 use Tests\TestCase;
@@ -80,6 +83,17 @@ class GreppTransfersTest extends TestCase
         $this->transport->fixture('02-hello-response.xml', ['JSESSIONID=A'])->fixture('04-login-response.xml');
     }
 
+    /** The check of a transfer's fresh registrant ids («c60_mtr<id>», «…a», «…b»): the first $taken taken. */
+    private function freshIds(Domain $domain, int $taken = 0): void
+    {
+        $base = 'c60_mtr' . base_convert((string) $domain->id, 10, 36);
+        $cds = '';
+        foreach (['', 'a', 'b'] as $i => $suffix) {
+            $cds .= '<contact:cd><contact:id avail="' . ($i < $taken ? '0' : '1') . "\">{$base}{$suffix}</contact:id></contact:cd>";
+        }
+        $this->answer(1000, "<contact:chkData xmlns:contact=\"urn:ietf:params:xml:ns:contact-1.0\">{$cds}</contact:chkData>");
+    }
+
     private function contactCheck(string $id, bool $free): void
     {
         $this->answer(1000, '<contact:chkData xmlns:contact="urn:ietf:params:xml:ns:contact-1.0"><contact:cd><contact:id avail="' . ($free ? '1' : '0') . "\">{$id}</contact:id></contact:cd></contact:chkData>");
@@ -107,15 +121,19 @@ class GreppTransfersTest extends TestCase
     public function test_a_name_moved_to_us_its_registrant_copied_and_its_roles_ours(): void
     {
         $domain = $this->domain();
-        $registrant = 'c60_mcst' . base_convert((string) $domain->id, 10, 36);
+        $registrant = 'c60_mtr' . base_convert((string) $domain->id, 10, 36);
         $ours = 'c60_mcs' . base_convert((string) $domain->admin_contact_id, 10, 36);
         $this->loggedIn();
-        $this->contactCheck($registrant, true);
+        $this->freshIds($domain);
         $this->fixture('v4.3/62-domain-transfer-response.xml', ['forth.gr' => 'example2.gr']);
         $this->fixture('live/domain-info-other-registrar-contacts-response.xml'); // 533_ on the roles
         $this->contactCheck($ours, true);
         $this->fixture('v4.3/14-contact-create-response.xml');
         $this->answer(1000); // domain:update
+        // The owner as the registry copied it: the same email as the registrant contact here (no warning).
+        $this->answer(1000, '<contact:infData xmlns:contact="urn:ietf:params:xml:ns:contact-1.0"><contact:id>' . $registrant . '</contact:id><contact:roid>r</contact:roid>'
+            . '<contact:postalInfo type="loc"><contact:name>Μαρία Παπαδοπούλου</contact:name><contact:addr><contact:city>Αθήνα</contact:city><contact:cc>GR</contact:cc></contact:addr></contact:postalInfo>'
+            . '<contact:voice>+30.2100000000</contact:voice><contact:email>maria@example.test</contact:email><contact:clID>myip</contact:clID></contact:infData>');
         $this->fixture('live/domain-info-other-registrar-contacts-response.xml');
 
         $result = (new GrEppRegistrar)->transferIn($domain, 'Code-1234', $this->credentials());
@@ -132,20 +150,20 @@ class GreppTransfersTest extends TestCase
         $this->assertSame([DomainStatus::Active, '2028-03-01', 'replaced', 'serverApproved'],
             [$result->status, $result->expiresAt, $result->details['contacts'], $result->details['transfer']]);
         $this->assertSame($registrant, $domain->fresh()->registrant_handle);
+        $this->assertArrayNotHasKey('registrant', $result->details, 'the same owner: no warning');
     }
 
     public function test_a_failure_replacing_the_roles_never_undoes_the_transfer(): void
     {
         $domain = $this->domain();
         $this->loggedIn();
-        $this->contactCheck('c60_mcst' . base_convert((string) $domain->id, 10, 36), false); // an earlier transfer's
-        $this->contactCheck('c60_mcst' . base_convert((string) $domain->id, 10, 36) . 'a', true);
+        $this->freshIds($domain, 1); // the first taken: an earlier transfer's
         $this->fixture('v4.3/62-domain-transfer-response.xml', ['forth.gr' => 'example2.gr']);
         $this->answer(2400); // domain:info after it: the registry failing
 
         $result = (new GrEppRegistrar)->transferIn($domain, 'Code-1234', $this->credentials());
 
-        $this->assertStringContainsString('registrantid>c60_mcst' . base_convert((string) $domain->id, 10, 36) . 'a<', $this->bodies('<domain:transfer')[0]);
+        $this->assertStringContainsString('registrantid>c60_mtr' . base_convert((string) $domain->id, 10, 36) . 'a<', $this->bodies('<domain:transfer')[0]);
         $this->assertSame(DomainStatus::Active, $result->status);
         $this->assertStringStartsWith('not replaced', (string) $result->details['contacts']);
     }
@@ -163,7 +181,7 @@ class GreppTransfersTest extends TestCase
         $this->assertSame([], $this->transport->sent);
 
         $this->loggedIn();
-        $this->contactCheck('c60_mcst' . base_convert((string) $domain->id, 10, 36), true);
+        $this->freshIds($domain);
         $this->answer(2201); // a wrong code
         $refused = null;
         try {
@@ -174,9 +192,37 @@ class GreppTransfersTest extends TestCase
         $this->assertNotNull($refused);
         $this->assertNull($domain->fresh()->registrant_handle);
 
-        $this->contactCheck('c60_mcst' . base_convert((string) $domain->id, 10, 36), true);
+        $this->freshIds($domain);
         $this->transport->queue(new HttpResponse(502, 'Bad gateway'));
         $this->expectException(RegistrarOutcomeUnknown::class);
         (new GrEppRegistrar)->transferIn($domain, 'Code-1234', $this->credentials());
+    }
+
+    public function test_an_ordered_transfer_keeps_why_its_roles_were_not_replaced(): void
+    {
+        // Review 2 of #198: the sync after the transfer replaces meta.registrar; the transfer's notes are kept apart.
+        Mail::fake();
+        $order = Order::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'EUR']);
+        $domain = $this->domain();
+        $domain->forceFill(['order_id' => $order->id, 'meta' => ['free_order' => true]])->save();
+        $domain->adminContact->forceFill(['phone' => null])->save(); // the registry needs one: not replaced
+        $this->loggedIn();
+        $this->freshIds($domain);
+        $this->fixture('v4.3/62-domain-transfer-response.xml', ['forth.gr' => 'example2.gr']);
+        $this->fixture('live/domain-info-other-registrar-contacts-response.xml'); // the roles step reads it
+        $this->contactCheck('c60_mcs' . base_convert((string) $domain->admin_contact_id, 10, 36), true);
+        $this->answer(2400); // the owner's read: failing (no warning, nothing else)
+        $this->fixture('live/domain-info-other-registrar-contacts-response.xml'); // the result
+        $this->fixture('live/domain-info-other-registrar-contacts-response.xml'); // the sync after
+        foreach (['admin', 'tech', 'billing'] as $role) {
+            $this->answer(2201); // the previous registrar's 533_: not ours to read (never links it, never fails the sync)
+        }
+
+        $this->assertSame(DomainOrderFulfilment::SENT, app(DomainOrderFulfilment::class)->fulfil($domain->id));
+
+        $transfer = $domain->fresh()->meta['transfer'] ?? [];
+        $this->assertSame('serverApproved', $transfer['transfer'] ?? null);
+        $this->assertStringContainsString('phone', (string) ($transfer['contacts'] ?? ''));
+        $this->assertSame(DomainStatus::Active, $domain->fresh()->status);
     }
 }

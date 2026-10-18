@@ -193,6 +193,13 @@ class DomainResource extends Resource
                     Section::make(__('Nameservers'))->schema([
                         TextEntry::make('nameservers.host')->hiddenLabel()->listWithLineBreaks()->placeholder('—'),
                     ]),
+                    // What its transfer to us did (its roles replaced, or why not; its owner): kept apart from the sync's.
+                    Section::make(__('Transfer to us'))->collapsible()
+                        ->visible(fn (Domain $record) => is_array($record->meta['transfer'] ?? null))
+                        ->schema([
+                            TextEntry::make('transfer_notes')->hiddenLabel()->listWithLineBreaks()
+                                ->state(fn (Domain $record) => collect($record->meta['transfer'] ?? [])->map(fn ($v, $k) => "{$k}: " . (is_scalar($v) ? (string) $v : json_encode($v)))->values()->all()),
+                        ]),
                     // As last read from the registrar (its «Read child nameservers»): the forgotten ones too.
                     Section::make(__('Child nameservers'))->collapsible()
                         ->visible(fn (Domain $record) => isset($record->meta['child_hosts']))
