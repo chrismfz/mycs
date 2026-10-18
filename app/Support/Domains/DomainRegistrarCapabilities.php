@@ -41,6 +41,8 @@ final class DomainRegistrarCapabilities
         public readonly bool $authCodeByEmail = false,
         /** An inbound transfer keeps the nameservers the name has (none are sent: the .gr registry). G4b of grepp. */
         public readonly bool $transferKeepsNameservers = false,
+        /** Registrations through the API (the .gr registry: from G5): the shop sells a TLD only where it can. */
+        public readonly bool $supportsRegistration = true,
     ) {}
 
     /** The API-less baseline: a manually-managed registrar can do none of this. */

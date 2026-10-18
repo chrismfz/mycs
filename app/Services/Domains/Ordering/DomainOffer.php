@@ -41,6 +41,10 @@ class DomainOffer
         if (!in_array($years, $this->years($tld, $operation, $currency)->all(), true)) {
             throw new DisplayException(__('domains.order.years_not_offered', ['years' => $years]));
         }
+        // Its registrar must be able to do it (review 1 of #191: never a paid order that only staff can fulfil).
+        if (!$tld->registrarCan($operation)) {
+            throw new DisplayException(__('domains.order.not_offered_op', ['operation' => __('domains.shop.' . $operation)]));
+        }
         // One live record per name (live_fqdn): a name pending or ours already is not ordered again.
         if (Domain::query()->where('live_fqdn', $fqdn)->exists()) {
             throw new DisplayException(__('domains.order.already_here', ['domain' => $fqdn]));
@@ -51,6 +55,7 @@ class DomainOffer
             if ($status !== $expected) {
                 throw new DisplayException(match (true) {
                     $status === DomainSearch::PREMIUM => __('domains.shop.premium'),
+                    $status === DomainSearch::RESTRICTED => __('domains.shop.restricted'),
                     $status === DomainSearch::UNKNOWN => __('domains.shop.unknown'),
                     $operation === DomainOrderLine::REGISTER => __('domains.order.taken', ['domain' => $fqdn]),
                     default => __('domains.order.not_registered', ['domain' => $fqdn]),

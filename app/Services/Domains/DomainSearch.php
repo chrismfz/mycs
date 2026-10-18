@@ -58,14 +58,14 @@ class DomainSearch
     public function sold(string $currency): Collection
     {
         return DomainTld::query()->where('is_active', true)->with(['prices', 'registrarConnection'])->orderBy('sort')->orderBy('tld')->get()
-            ->filter(fn (DomainTld $tld) => $tld->shortestYears('register', $currency) !== null)->values();
+            ->filter(fn (DomainTld $tld) => $tld->shortestYears('register', $currency) !== null && $tld->registrarCan('register'))->values();
     }
 
     /**
      * The results for what was typed: the exact name first (its TLD, or the first sold), then the others staff put first.
      *
-     * @return list<array{fqdn: string, tld: string, status: string, years: int, price: string, renew: ?string}>|null null: not a name;
-     *                                                                                                                empty: nothing sold in $currency
+     * @return list<array{fqdn: string, tld: string, status: string, years: int, transferable: bool, price: string, renew: ?string}>|null null: not a name;
+     *                                                                                                                                    empty: nothing sold in $currency
      */
     public function search(string $input, string $currency): ?array
     {
@@ -101,6 +101,9 @@ class DomainSearch
                 'tld' => $model->tld,
                 'status' => $statuses[$fqdn] ?? self::UNKNOWN,
                 'years' => $years,
+                // «Transfer it to us» only where a transfer is priced and its registrar can do it (review 6 of #191).
+                // A transfer is sold for one year only (DomainOffer::years: it adds no period; .gr: priced «1 year, 0.00»).
+                'transferable' => $model->priceFor('transfer', 1, $currency) !== null && $model->registrarCan('transfer'),
                 'price' => $register,
                 // «then X a year» only when it differs (a first-year offer).
                 'renew' => $renew !== null && bccomp($renew, $register, 2) !== 0 ? $renew : null,

@@ -138,7 +138,7 @@ return [
         'then_years' => 'then :price every :years year|then :price every :years years',
         'restricted' => 'Needs the regulator\'s approval (a geographic term or .gov.gr): contact us',
         'then' => 'first year; then :price / year',
-        'prices_note' => 'Prices per year, as listed.',
+        'prices_note' => 'Prices for the period shown, as listed.',
         'all_prices' => 'All prices',
         'not_a_name' => 'That is not a domain name we can look up: use letters, digits and hyphens.',
         'not_a_full_name' => 'Type a full domain name, such as example.com.',

@@ -4,6 +4,7 @@ namespace Tests\Feature\Domains;
 
 use App\Admin\Resources\DomainResource\Pages\ViewDomain;
 use App\Enums\DomainStatus;
+use App\Exceptions\DisplayException;
 use App\Livewire\Domains\Show;
 use App\Livewire\DomainShop\Search;
 use App\Models\Currency;
@@ -17,10 +18,13 @@ use App\Models\Order;
 use App\Models\Staff;
 use App\Models\User;
 use App\Services\Domains\DomainManagementService;
+use App\Services\Domains\DomainRegistrarRegistry;
 use App\Services\Domains\DomainSearch;
+use App\Services\Domains\Ordering\DomainOffer;
 use App\Services\Domains\Ordering\DomainOrderFulfilment;
 use App\Services\Domains\Registrars\GrEppRegistrar;
 use App\Support\Domains\AvailabilityResult;
+use App\Support\Domains\DomainRegistrarCapabilities;
 use App\Support\Domains\DomainRegistrarCredentials;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -100,10 +104,31 @@ class GreppG4bTest extends TestCase
         $this->assertSame([DomainSearch::TAKEN, DomainSearch::FREE, DomainSearch::RESTRICTED],
             [$statuses['example1.gr'], $statuses['free-example.gr'], $statuses['athina.gr']]);
 
-        $this->assertSame([2, 'register'], [$this->tld->shortestYears('register', 'EUR'), 'register']);
+        // Before G5 the .gr registry's driver cannot register: .gr is not sold (review 1 of #191).
+        $this->assertNotContains('gr', app(DomainSearch::class)->sold('EUR')->pluck('tld')->all(), 'not sold before G5');
+
+        // Once it can (G5), sold for its shortest period: two years.
+        config(['domains.registrars.grepp' => SellingGrEppRegistrar::class]);
+        app()->forgetInstance(DomainRegistrarRegistry::class);
+        $this->tld->refresh();
+        $this->assertSame(2, $this->tld->shortestYears('register', 'EUR'));
         $this->assertContains('gr', app(DomainSearch::class)->sold('EUR')->pluck('tld')->all(), 'sold for two years');
 
+        // A restricted name never reaches the cart (the offer's check), with its own words.
         GrEppRegistrar::reset();
+        Cache::flush();
+        $this->transport = new FakeTransport;
+        $this->answers('live/domain-check-response.xml');
+        $refused = null;
+        try {
+            app(DomainOffer::class)->check('athina.gr', 'register', 2, 'EUR');
+        } catch (DisplayException $e) {
+            $refused = $e->getMessage();
+        }
+        $this->assertSame(__('domains.shop.restricted'), $refused);
+
+        GrEppRegistrar::reset();
+        Cache::flush();
         $this->transport = new FakeTransport;
         $this->answers('live/domain-check-response.xml');
         Livewire::test(Search::class)->set('query', 'free-example.gr')->call('search')
@@ -164,5 +189,15 @@ class GreppG4bTest extends TestCase
         $this->assertSame([true, true], [$capabilities->authCodeByEmail, $capabilities->transferKeepsNameservers]);
         $this->assertInstanceOf(AvailabilityResult::class, new AvailabilityResult('a.gr', false, 'restricted: x'));
         $this->assertNotNull(new DomainRegistrarCredentials);
+    }
+}
+
+/** The .gr registry's driver as it will be from G5: it registers (the shop sells .gr). */
+class SellingGrEppRegistrar extends GrEppRegistrar
+{
+    public function capabilities(): DomainRegistrarCapabilities
+    {
+        return new DomainRegistrarCapabilities(renewsInGrace: true, renewYearStep: 2, authCodeByEmail: true,
+            transferKeepsNameservers: true, supportsRegistration: true);
     }
 }

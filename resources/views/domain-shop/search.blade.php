@@ -51,7 +51,7 @@
                 <x-button.primary class="!w-fit" wire:click="add('{{ $row['fqdn'] }}')" wire:loading.attr="disabled">{{ __('domains.order.add') }}</x-button.primary>
                 @endif
             </div>
-            @elseif ($row['status'] === \App\Services\Domains\DomainSearch::TAKEN && \App\Services\Domains\Ordering\DomainOffer::allowed('transfer'))
+            @elseif ($row['status'] === \App\Services\Domains\DomainSearch::TAKEN && ($row['transferable'] ?? true) && \App\Services\Domains\Ordering\DomainOffer::allowed('transfer'))
             <button type="button" class="text-sm underline" wire:click="transfer('{{ $row['fqdn'] }}')">{{ __('domains.order.transfer_it') }}</button>
             @endif
         </div>

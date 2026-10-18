@@ -260,16 +260,18 @@ class Show extends Component
      */
     public function emailAuthCode(): void
     {
-        if (!$this->mayCallRegistrar('admin.domains.epp') || $this->limited('domain-auth-code-email')) {
+        if (!$this->mayCallRegistrar('admin.domains.epp') || !$this->management()->emailsAuthCode($this->domain)) {
+            return; // only where the registry emails it (review 3 of #191)
+        }
+        // Each call is a real email to the owner: 3 an hour per domain, whoever asks (review 2 of #191).
+        $key = "domain-auth-code-email:{$this->domain->id}";
+        if (RateLimiter::tooManyAttempts($key, 3)) {
+            $this->notify(__('domains.portal.too_many'), 'error');
+
             return;
         }
-        $said = '';
-        $this->atRegistrar(function () use (&$said) {
-            $said = $this->management()->emailAuthCode($this->domain, $this->actor());
-        }, __('domains.portal.auth_code_emailed'));
-        if ($said !== '') {
-            $this->notify($said, 'success');
-        }
+        RateLimiter::hit($key, 3600);
+        $this->atRegistrar(fn () => $this->management()->emailAuthCode($this->domain, $this->actor()), __('domains.portal.auth_code_emailed'));
     }
 
     /**
