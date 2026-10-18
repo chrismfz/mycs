@@ -118,8 +118,8 @@ class GreppChildHostsTest extends TestCase
         $hosts = app(DomainManagementService::class)->readChildHosts($domain, Staff::factory()->create());
 
         $this->assertSame([
-            ['name' => 'ns1.example1.gr', 'addresses' => ['84.54.49.6', '2a01:4f8::1'], 'linked' => true],
-            ['name' => 'old.example1.gr', 'addresses' => ['192.0.2.10'], 'linked' => false],
+            ['name' => 'ns1.example1.gr', 'addresses' => ['84.54.49.6', '2a01:4f8::1'], 'linked' => true, 'read' => true],
+            ['name' => 'old.example1.gr', 'addresses' => ['192.0.2.10'], 'linked' => false, 'read' => true],
         ], $hosts);
         $this->assertSame($hosts, $domain->fresh()->meta['child_hosts']['hosts']);
         $this->assertSame(DomainRegistrarLog::STATUS_OK, DomainRegistrarLog::query()->where('action', 'child_hosts')->value('status'));
@@ -211,5 +211,40 @@ class GreppChildHostsTest extends TestCase
             ->assertActionVisible('readChildHosts')->assertActionVisible('createChildHost')
             ->assertActionVisible('updateChildHost')->assertActionVisible('deleteChildHost')
             ->assertSee('old.example1.gr');
+    }
+
+    public function test_review_fixes_of_196(): void
+    {
+        $domain = $this->domain();
+        $registrar = new GrEppRegistrar;
+
+        // 1: one IPv6 in two spellings is sent once, in one spelling.
+        $this->loggedIn();
+        $this->domainInfo([]);
+        $this->answer(1000);
+        $registrar->createChildHost($domain, 'ns1', ['2a01:4f8::1', '2A01:04F8:0::1'], $this->credentials());
+        $this->assertSame(1, substr_count($this->bodies('create')[0], '<host:addr'));
+        $this->assertStringContainsString('<host:addr ip="v6">2a01:4f8::1</host:addr>', $this->bodies('create')[0]);
+
+        // 2 and 4: every host listed; past 30, or one whose read is refused, listed unread (never offered for deletion).
+        $names = array_map(fn ($i) => "h{$i}.example1.gr", range(1, 31));
+        $this->domainInfo($names);
+        $this->hostInfo('h1.example1.gr', ['84.54.49.6'], false);
+        $this->answer(2201); // h2: not ours to read
+        foreach (array_slice($names, 2, 28) as $name) {
+            $this->hostInfo($name, ['84.54.49.6'], false);
+        }
+        $hosts = $registrar->childHosts($domain, $this->credentials());
+        $this->assertCount(31, $hosts);
+        $this->assertSame([true, false, false], [$hosts[0]->read, $hosts[1]->read, $hosts[30]->read]);
+        $this->assertTrue($hosts[30]->linked, 'unread: taken as in use');
+
+        // 3: a change whose list cannot be read again: the page says the list is out of date.
+        $domain->forceFill(['meta' => ['child_hosts' => ['read_at' => '2026-10-18T10:00:00+00:00', 'hosts' => []]]])->save();
+        $this->domainInfo([]);
+        $this->answer(1000); // host:create
+        $this->transport->queue(new HttpResponse(200, 'not xml')); // the read again
+        app(DomainManagementService::class)->createChildHost($domain, 'ns2', ['45.76.129.127'], Staff::factory()->create());
+        $this->assertTrue($domain->fresh()->meta['child_hosts']['stale'] ?? false);
     }
 }

@@ -56,7 +56,7 @@ class ViewDomain extends ViewRecord
         return app(DomainManagementService::class)->isManageable($record);
     }
 
-    /** @return list<array{name: string, addresses: list<string>, linked: bool}> as last read (meta.child_hosts) */
+    /** @return list<array<string, mixed>> as last read (meta.child_hosts: stored data, each key checked) */
     private static function childHosts(Domain $record): array
     {
         $hosts = $record->meta['child_hosts']['hosts'] ?? [];
@@ -167,7 +167,8 @@ class ViewDomain extends ViewRecord
                         && self::childHosts($record) !== [])
                     ->schema([
                         Select::make('host')->label(__('Name'))->required()->live()
-                            ->options(fn (Domain $record) => collect(self::childHosts($record))->mapWithKeys(fn (array $h) => [$h['name'] => $h['name']])->all())
+                            ->options(fn (Domain $record) => collect(self::childHosts($record))->reject(fn (array $h) => ($h['read'] ?? true) === false)
+                                ->mapWithKeys(fn (array $h) => [$h['name'] => $h['name']])->all())
                             ->afterStateUpdated(fn ($state, Set $set, Domain $record) => $set('addresses',
                                 implode("\n", collect(self::childHosts($record))->firstWhere('name', $state)['addresses'] ?? []))),
                         Textarea::make('addresses')->label(__('IP addresses'))->required()->rows(3)
@@ -180,12 +181,12 @@ class ViewDomain extends ViewRecord
 
                 Action::make('deleteChildHost')->label(__('Delete child nameserver'))->icon('heroicon-o-trash')->color('danger')
                     ->visible(fn (Domain $record) => self::can('admin.domains.manage') && app(DomainManagementService::class)->managesChildHosts($record)
-                        && collect(self::childHosts($record))->contains(fn (array $h) => !$h['linked']))
+                        && collect(self::childHosts($record))->contains(fn (array $h) => !($h['linked'] ?? true)))
                     ->requiresConfirmation()
                     ->modalDescription(__('Only one no domain uses as a nameserver. Logged.'))
                     ->schema([
                         Select::make('host')->label(__('Name'))->required()
-                            ->options(fn (Domain $record) => collect(self::childHosts($record))->reject(fn (array $h) => $h['linked'])
+                            ->options(fn (Domain $record) => collect(self::childHosts($record))->reject(fn (array $h) => $h['linked'] ?? true)
                                 ->mapWithKeys(fn (array $h) => [$h['name'] => $h['name']])->all()),
                     ])
                     ->action(fn (Domain $record, array $data) => $this->attempt(

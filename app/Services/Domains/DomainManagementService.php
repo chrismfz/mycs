@@ -265,7 +265,7 @@ class DomainManagementService
      * Its child nameservers read from the registrar, kept on the domain (meta.child_hosts, with when) for the page: a read
      * on request, never on each view. Logged.
      *
-     * @return list<array{name: string, addresses: list<string>, linked: bool}>
+     * @return list<array{name: string, addresses: list<string>, linked: bool, read: bool}>
      */
     public function readChildHosts(Domain $domain, Staff|User|null $staff): array
     {
@@ -285,36 +285,48 @@ class DomainManagementService
     /** @param  list<string>  $addresses */
     public function createChildHost(Domain $domain, string $host, array $addresses, Staff|User|null $staff): void
     {
-        $this->call($domain, 'child_host_create', ['host' => $host, 'addresses' => $addresses], $staff,
-            function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $host, $addresses) {
-                self::childHostsOf($registrar)->createChildHost($domain, $host, $addresses, $credentials);
+        try {
+            $this->call($domain, 'child_host_create', ['host' => $host, 'addresses' => $addresses], $staff,
+                function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $host, $addresses) {
+                    self::childHostsOf($registrar)->createChildHost($domain, $host, $addresses, $credentials);
 
-                return ['created' => $host];
-            });
-        $this->rereadChildHosts($domain, $staff);
+                    return ['created' => $host];
+                });
+        } finally {
+            // Read again whatever came of it (a «maybe done» too: review 3 of #196).
+            $this->rereadChildHosts($domain, $staff);
+        }
     }
 
     /** @param  list<string>  $addresses  the full set */
     public function updateChildHost(Domain $domain, string $host, array $addresses, Staff|User|null $staff): void
     {
-        $this->call($domain, 'child_host_update', ['host' => $host, 'addresses' => $addresses], $staff,
-            function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $host, $addresses) {
-                self::childHostsOf($registrar)->updateChildHost($domain, $host, $addresses, $credentials);
+        try {
+            $this->call($domain, 'child_host_update', ['host' => $host, 'addresses' => $addresses], $staff,
+                function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $host, $addresses) {
+                    self::childHostsOf($registrar)->updateChildHost($domain, $host, $addresses, $credentials);
 
-                return ['updated' => $host];
-            });
-        $this->rereadChildHosts($domain, $staff);
+                    return ['updated' => $host];
+                });
+        } finally {
+            // Read again whatever came of it (a «maybe done» too: review 3 of #196).
+            $this->rereadChildHosts($domain, $staff);
+        }
     }
 
     public function deleteChildHost(Domain $domain, string $host, Staff|User|null $staff): void
     {
-        $this->call($domain, 'child_host_delete', ['host' => $host], $staff,
-            function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $host) {
-                self::childHostsOf($registrar)->deleteChildHost($domain, $host, $credentials);
+        try {
+            $this->call($domain, 'child_host_delete', ['host' => $host], $staff,
+                function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $host) {
+                    self::childHostsOf($registrar)->deleteChildHost($domain, $host, $credentials);
 
-                return ['deleted' => $host];
-            });
-        $this->rereadChildHosts($domain, $staff);
+                    return ['deleted' => $host];
+                });
+        } finally {
+            // Read again whatever came of it (a «maybe done» too: review 3 of #196).
+            $this->rereadChildHosts($domain, $staff);
+        }
     }
 
     /** The list read again after a change: a read that fails never makes the change look failed (the page says when). */
@@ -324,6 +336,12 @@ class DomainManagementService
             $this->readChildHosts($domain, $staff);
         } catch (Throwable $e) {
             report($e);
+            // The list kept is older than the change: said so on the page.
+            $meta = $domain->refresh()->meta ?? [];
+            if (isset($meta['child_hosts']) && is_array($meta['child_hosts'])) {
+                $meta['child_hosts']['stale'] = true;
+                $domain->forceFill(['meta' => $meta])->save();
+            }
         }
     }
 

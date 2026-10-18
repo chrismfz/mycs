@@ -50,6 +50,7 @@ use MyCS\GrEpp\Command\Rules;
 use MyCS\GrEpp\Config;
 use MyCS\GrEpp\Data\ContactDraft;
 use MyCS\GrEpp\Data\DomainInfo as Info;
+use MyCS\GrEpp\Data\HostInfo as HostData;
 use MyCS\GrEpp\Data\PostalInfo;
 use MyCS\GrEpp\GrEppException;
 use MyCS\GrEpp\Http\CurlTransport;
@@ -671,16 +672,30 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
      */
     public function childHosts(Domain $domain, DomainRegistrarCredentials $credentials): array
     {
-        return $this->locked($credentials, function (Session $session) use ($domain, $credentials) {
-            $info = self::ours($session, $domain, $credentials);
+        // A read: whatever fails is not «maybe done» (review 4 of #196). Every host listed; past the limit, or one whose read
+        // the registry refuses, listed unread (taken as in use: never offered for deletion: review 2).
+        return $this->locked($credentials, fn (Session $session) => self::prepare(function () use ($session, $domain, $credentials) {
             $hosts = [];
-            foreach (array_slice($info->hosts, 0, self::CHILD_HOSTS_READ) as $name) {
-                $host = HostInfo::parse(self::send($session, fn (string $clTRID) => HostInfo::request($name, $clTRID)));
-                $hosts[] = new ChildHost($host->name, array_column($host->addresses, 'ip'), in_array('linked', $host->statuses, true));
+            $info = self::ours($session, $domain, $credentials);
+            // The domain's own nameservers are in use whatever host:info says (ADV-3b of #196: «linked» not relied on).
+            $own = array_map('strtolower', $info->nameservers);
+            foreach ($info->hosts as $i => $name) {
+                if ($i >= self::CHILD_HOSTS_READ) {
+                    $hosts[] = new ChildHost($name, [], true, read: false);
+
+                    continue;
+                }
+                try {
+                    $host = HostInfo::parse(self::send($session, fn (string $clTRID) => HostInfo::request($name, $clTRID)));
+                    $hosts[] = new ChildHost($host->name, array_column($host->addresses, 'ip'),
+                        in_array('linked', $host->statuses, true) || in_array(strtolower($host->name), $own, true));
+                } catch (Refused) {
+                    $hosts[] = new ChildHost($name, [], true, read: false);
+                }
             }
 
             return $hosts;
-        });
+        }));
     }
 
     /** WRITE (child hosts): a nameserver under the domain, with its glue. Not charged. */
@@ -690,7 +705,7 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
             [$host, $addresses] = self::prepare(function () use ($session, $domain, $host, $addresses, $credentials) {
                 $host = self::childOf($domain, $host);
                 $addresses = self::glue($host, $addresses);
-                self::ours($session, $domain, $credentials);
+                self::ours($session, $domain, $credentials, writing: true);
 
                 return [$host, $addresses];
             });
@@ -705,8 +720,8 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
             [$host, $add, $remove] = self::prepare(function () use ($session, $domain, $host, $addresses, $credentials) {
                 $host = self::childOf($domain, $host);
                 $wanted = self::glue($host, $addresses);
-                self::ours($session, $domain, $credentials);
-                $current = array_column(HostInfo::parse(self::send($session, fn (string $clTRID) => HostInfo::request($host, $clTRID)))->addresses, 'ip');
+                self::ours($session, $domain, $credentials, writing: true);
+                $current = array_column(self::ourHost($session, $host, $credentials)->addresses, 'ip');
                 $key = fn (string $ip): string => (string) inet_pton($ip);
                 $have = array_combine(array_map($key, $current), $current) ?: [];
                 $want = array_combine(array_map($key, $wanted), $wanted) ?: [];
@@ -726,9 +741,10 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
         $this->locked($credentials, function (Session $session) use ($domain, $host, $credentials) {
             $host = self::prepare(function () use ($session, $domain, $host, $credentials) {
                 $host = self::childOf($domain, $host);
-                self::ours($session, $domain, $credentials);
-                $info = HostInfo::parse(self::send($session, fn (string $clTRID) => HostInfo::request($host, $clTRID)));
-                if (in_array('linked', $info->statuses, true)) {
+                $domainInfo = self::ours($session, $domain, $credentials, writing: true);
+                $info = self::ourHost($session, $host, $credentials);
+                // In use: «linked», or the domain's own nameserver (ADV-3 of #196: «linked» not relied on alone).
+                if (in_array('linked', $info->statuses, true) || in_array($host, array_map('strtolower', $domainInfo->nameservers), true)) {
                     throw new InvalidArgumentException("{$host} is a nameserver of a domain: change that domain's nameservers first.");
                 }
 
@@ -739,11 +755,27 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
     }
 
     /** The domain read fresh, ours at the registry (its clID): another registrar's hosts are never touched. */
-    private static function ours(Session $session, Domain $domain, DomainRegistrarCredentials $credentials): Info
+    private static function ours(Session $session, Domain $domain, DomainRegistrarCredentials $credentials, bool $writing = false): Info
     {
         $info = self::read($session, $domain);
         if ($info->clientId !== null && strcasecmp($info->clientId, self::registrarId($credentials)) !== 0) {
             throw new InvalidArgumentException("{$domain->fqdn} is managed by another registrar at the registry ({$info->clientId}).");
+        }
+        // A write under a domain being transferred, deleted or locked: none (ADV-5 of #196, as updateDomain).
+        $blocked = $writing ? array_intersect($info->statuses, ['serverUpdateProhibited', 'clientUpdateProhibited', 'pendingTransfer', 'pendingDelete']) : [];
+        if ($blocked !== []) {
+            throw new InvalidArgumentException("{$domain->fqdn} cannot be changed at the registry now (" . implode(', ', $blocked) . ').');
+        }
+
+        return $info;
+    }
+
+    /** A host read fresh, ours at the registry (its clID: ADV-4 of #196; another registrar's left under our domain is not). */
+    private static function ourHost(Session $session, string $host, DomainRegistrarCredentials $credentials): HostData
+    {
+        $info = HostInfo::parse(self::send($session, fn (string $clTRID) => HostInfo::request($host, $clTRID)));
+        if ($info->clientId !== null && strcasecmp($info->clientId, self::registrarId($credentials)) !== 0) {
+            throw new InvalidArgumentException("{$host} is another registrar's at the registry ({$info->clientId}).");
         }
 
         return $info;
@@ -758,8 +790,39 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
         if (!str_ends_with($name, ".{$fqdn}")) {
             throw new InvalidArgumentException("{$name} is not under {$fqdn}.");
         }
+        // A host name: letters, digits and inner hyphens per label, 1 to 63 (ADV-2 of #196: refused here, nothing sent).
+        $ascii = idn_to_ascii($name, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46);
+        foreach (explode('.', $ascii === false ? $name : $ascii) as $label) {
+            if (preg_match('/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\z/i', $label) !== 1) {
+                throw new InvalidArgumentException("Not a host name: {$name}");
+            }
+        }
 
         return $name;
+    }
+
+    /** Ranges PHP's filter lets through that are never a nameserver's (ADV-1 of #196): multicast, documentation, CGNAT … */
+    private const NOT_GLUE = ['224.0.0.0/4', '100.64.0.0/10', '192.0.2.0/24', '198.51.100.0/24', '203.0.113.0/24', '198.18.0.0/15',
+        'ff00::/8', '2001:db8::/32', 'fec0::/10'];
+
+    private static function notGlue(string $ip): bool
+    {
+        $address = inet_pton($ip);
+        foreach (self::NOT_GLUE as $range) {
+            [$network, $bits] = explode('/', $range);
+            $net = inet_pton($network);
+            if ($address === false || $net === false || strlen($address) !== strlen($net)) {
+                continue;
+            }
+            $bytes = intdiv((int) $bits, 8);
+            $rest = (int) $bits % 8;
+            if (substr($address, 0, $bytes) === substr($net, 0, $bytes)
+                && ($rest === 0 || ((ord($address[$bytes]) ^ ord($net[$bytes])) & (0xFF << (8 - $rest)) & 0xFF) === 0)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -770,15 +833,17 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
      */
     private static function glue(string $host, array $addresses): array
     {
-        $addresses = array_values(array_unique(array_filter(array_map('trim', $addresses), fn (string $ip) => $ip !== '')));
+        $addresses = array_values(array_filter(array_map('trim', $addresses), fn (string $ip) => $ip !== ''));
         if ($addresses === []) {
             throw new InvalidArgumentException("{$host} needs one IP address at least.");
         }
-        foreach ($addresses as $ip) {
-            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+        foreach ($addresses as $i => $ip) {
+            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false || self::notGlue($ip)) {
                 throw new InvalidArgumentException("Not a public IP address: {$ip}");
             }
+            $addresses[$i] = (string) inet_ntop((string) inet_pton($ip)); // one spelling: 2A01:04F8:0::1 is 2a01:4f8::1 (review 1)
         }
+        $addresses = array_values(array_unique($addresses));
         HostCreate::addresses($host, $addresses); // the registry's own rules (v4/v6, at most 16)
 
         return $addresses;
