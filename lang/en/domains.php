@@ -64,6 +64,7 @@ return [
 
     // The client area (D7-2).
     'portal' => [
+        'whois' => 'WHOIS: what the registry publishes',
         'show' => 'Show',
         'filter' => ['active' => 'Active', 'expired' => 'Expired', 'ended' => 'Ended'],
         'search' => 'Search your domains…',

@@ -11,8 +11,8 @@ use Nixpal\DomainTools\Whois\SocketConnector;
 
 /**
  * «Who has it?» per TLD (docs/domains.md D8, owner 2026-10-17: by registry, not registrar): RDAP (IANA's bootstrap) →
- * port 43 (the TLD's whois server, personal data masked) → a registry adapter where neither exists (.gr: ICS-FORTH, with
- * grepp; until then «not supported»). Also «is it free?» when the registrar cannot say: RDAP's «not found».
+ * port 43 (the TLD's whois server, personal data masked) → a registry adapter where neither exists (.gr and .ελ: the
+ * registry's WHOIS API, GrWhois, G6 of grepp; without its account «not supported»). Also «is it free?» when the registrar cannot say: RDAP's «not found».
  *
  * After review (#178): only definite answers are cached (an hour), never a registry's failure; the bootstrap is cached a
  * day only once it parses; the TLD's port 43 server a day; one RDAP client per request.
@@ -35,10 +35,22 @@ class DomainLookup
     {
         $fqdn = mb_strtolower($fqdn);
         $tld = substr($fqdn, (int) strrpos($fqdn, '.') + 1);
+        $key = 'domain-whois-answer:' . sha1($fqdn);
+        if (GrWhois::covers($tld)) {
+            if (($cached = Cache::get($key)) !== null) {
+                return $cached;
+            }
+            [$status, $record] = app(GrWhois::class)->lookup($fqdn);
+            $answer = ['status' => $status, 'record' => $record, 'text' => null];
+            if ($status === 'found' || $status === 'not_found') {
+                Cache::put($key, $answer, 3600);
+            }
+
+            return $answer;
+        }
         if (in_array($tld, self::UNSUPPORTED, true)) {
             return ['status' => 'unsupported', 'record' => null, 'text' => null];
         }
-        $key = 'domain-whois-answer:' . sha1($fqdn);
         if (($cached = Cache::get($key)) !== null) {
             return $cached;
         }

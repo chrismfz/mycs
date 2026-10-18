@@ -12,6 +12,8 @@
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
             <div>
                 <h1 class="text-2xl font-semibold">{{ $domain->fqdn }}</h1>
+                {{-- What the world sees at its registry (the public whois, rate limited and cached): G6 of grepp. --}}
+                <a href="{{ route('domain.whois', ['domain' => $domain->fqdn]) }}" target="_blank" rel="noopener" class="text-sm underline underline-offset-2 text-base/70 mr-2">{{ __('domains.portal.whois') }}</a>
                 <span class="inline-block mt-1 px-2 py-0.5 rounded-md text-xs font-medium
                     @if ($domain->status === \App\Enums\DomainStatus::Active) text-success bg-success/20
                     @elseif ($domain->status->isTerminal()) text-inactive bg-inactive/20
