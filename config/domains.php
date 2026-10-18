@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\Domains\Registrars\GrEppRegistrar;
 use App\Services\Domains\Registrars\OpenproviderRegistrar;
 
 /*
@@ -10,7 +11,7 @@ return [
     'registrars' => [
         'openprovider' => OpenproviderRegistrar::class,
         // 'cnic' => CentralNic Reseller, only if its domains are not moved first (D-10)
-        // 'grepp' => the .gr registry (EPP over HTTPS), myip (Phase 4)
+        'grepp' => GrEppRegistrar::class, // the .gr registry (EPP over HTTPS, docs/domains/grepp.md): reads only until G5
     ],
 
     'registrar_fields' => [
@@ -18,10 +19,19 @@ return [
             'username' => ['label' => 'Username', 'secret' => false],
             'password' => ['label' => 'Password', 'secret' => true],
         ],
+        // One connection, both of the registry's accounts (grepp.md §0): EPP and the WHOIS API.
+        'grepp' => [
+            'username' => ['label' => 'EPP username', 'secret' => false],
+            'password' => ['label' => 'EPP password', 'secret' => true],
+            'contact_prefix' => ['label' => 'Contact prefix (e.g. c60)', 'secret' => false],
+            'whois_username' => ['label' => 'WHOIS API username', 'secret' => false],
+            'whois_password' => ['label' => 'WHOIS API password', 'secret' => true],
+        ],
     ],
 
     'registrar_labels' => [
         'manual' => 'Manual (no API)',
         'openprovider' => 'Openprovider',
+        'grepp' => '.gr registry (ICS-FORTH)',
     ],
 ];
