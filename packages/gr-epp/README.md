@@ -53,5 +53,26 @@ $info = DomainInfo::parse($session->command(DomainInfo::request('nac.gr', $clTRI
 ```
 
 A success without the data asked for is `OutcomeUnknown`. Every request is valid to the registry's schemas
-(`tests/all-schemas.xsd` imports them all: a command's object is a strict wildcard of epp-1.0.xsd). Writes come with
-G2b; the app's driver with G3.
+(`tests/all-schemas.xsd` imports them all: a command's object is a strict wildcard of epp-1.0.xsd). The app's driver comes
+with G3.
+
+## G2b: writes
+
+| Command | What |
+|---|---|
+| `ContactCreate` (`ContactDraft`) | one of our contacts: `c60_…` id, Greek and Latin postal info, phone with extension, hidden from WHOIS by default |
+| `ContactUpdate` (`ContactChanges`) | address, phone, fax, email; **never the name or company** (a registrant's: `OwnerChange`, chargeable) |
+| `HostCreate`, `HostUpdate`, `HostDelete` | nameservers; addresses only under .gr/.ελ (glue), at most 16 |
+| `DomainCreate::request` | a registration: even years 2–10, nameservers and contacts existing at the registry, answered 1001 with its **protocol** (keep it for the recall) |
+| `DomainCreate::activateForm` | a reserved form (.ελ, homographs) of a name we hold, with its code |
+| `DomainUpdate` | nameservers and contacts added and removed |
+| `OwnerChange` | `ownerNameChange` / `ownerChange`: chargeable, never recalled, 1001 when awaiting EETT |
+| `DomainRenew` | even years 2–10 with the current expiry day (`DomainInfo::expiresOn`); another registrar's within 15 days of expiry, with its code |
+| `DomainTransfer` | the code and a registrant id (best a new id of ours: the registry copies the registrant into it); approved at once |
+| `DomainDelete::delete` / `::recall` | delete (immediate, never recalled), a reserved form, or a registration recalled within 5 days by its protocol |
+| `DacorIssueToken` | the registry emails the registrant a link to reset the code; only the masked address comes back |
+
+Each answer is read into a `Data\Result`: code (1001: `pending()`), name, protocol, dates and the expiry day as written,
+transfer status, the registry's comments. The registry's rules are checked before sending (`Command\Rules`): contact
+ids, E.164 phones, Greek and Latin text only (the guide's Appendix A), even years, no empty update, glue only under
+.gr: an `InvalidArgumentException`, nothing sent.

@@ -5034,11 +5034,12 @@
             "dist": {
                 "type": "path",
                 "url": "packages/gr-epp",
-                "reference": "d9e99ee46abb696923cac0631ea8496349f47d23"
+                "reference": "3d82fd1847bdd460be773cb35ad987ede01b01cc"
             },
             "require": {
                 "ext-curl": "*",
                 "ext-dom": "*",
+                "ext-intl": "*",
                 "ext-libxml": "*",
                 "php": "^8.3"
             },

@@ -205,7 +205,7 @@ final class Session
             throw new OutcomeUnknown("The registry answered {$response->code}: {$response->message}", $response->code);
         }
 
-        throw new Refused($response->code, (string) $response->message, $response->svTRID);
+        throw new Refused($response->code, (string) $response->message, $response->svTRID, $response->comments());
     }
 
     /**

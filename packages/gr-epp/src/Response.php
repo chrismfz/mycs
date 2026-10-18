@@ -93,6 +93,17 @@ final class Response
         return self::text($this->xpath(), '//extcommon:comment | //extcontact:comment | //exthost:comment');
     }
 
+    /** @return list<string> all the registry's comments, one line each (extdomain, extcommon, extcontact, exthost) */
+    public function comments(): array
+    {
+        $comments = [];
+        foreach ($this->xpath()->query('//extdomain:resData/extdomain:comment | //extcommon:comment | //extcontact:comment | //exthost:comment') as $node) {
+            $comments[] = trim((string) preg_replace('/\s+/u', ' ', $node->textContent));
+        }
+
+        return $comments;
+    }
+
     private static function xpathOf(DOMDocument $document): DOMXPath
     {
         $xpath = new DOMXPath($document);
