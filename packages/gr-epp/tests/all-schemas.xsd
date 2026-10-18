@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Every schema of the registry together (tests only): an EPP command's object is validated against its namespace's. -->
+<schema xmlns="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:mycs:gr-epp:tests" elementFormDefault="qualified">
+    <import namespace="urn:ietf:params:xml:ns:epp-1.0" schemaLocation="../resources/xsd/epp-1.0.xsd"/>
+    <import namespace="urn:ietf:params:xml:ns:eppcom-1.0" schemaLocation="../resources/xsd/eppcom-1.0.xsd"/>
+    <import namespace="urn:ietf:params:xml:ns:domain-1.0" schemaLocation="../resources/xsd/domain-1.0.xsd"/>
+    <import namespace="urn:ietf:params:xml:ns:contact-1.0" schemaLocation="../resources/xsd/contact-1.0.xsd"/>
+    <import namespace="urn:ietf:params:xml:ns:host-1.0" schemaLocation="../resources/xsd/host-1.0.xsd"/>
+    <import namespace="urn:ietf:params:xml:ns:secDNS-1.1" schemaLocation="../resources/xsd/secDNS-1.1.xsd"/>
+    <import namespace="urn:ics-forth:params:xml:ns:extdomain-1.3" schemaLocation="../resources/xsd/extdomain-1.3.xsd"/>
+    <import namespace="urn:ics-forth:params:xml:ns:account-1.1" schemaLocation="../resources/xsd/account-1.1.xsd"/>
+    <import namespace="urn:ics-forth:params:xml:ns:dacor-1.0" schemaLocation="../resources/xsd/dacor-1.0.xsd"/>
+    <import namespace="urn:ics-forth:params:xml:ns:ext-gr-rls-1.0" schemaLocation="../resources/xsd/ext-gr-rls-1.0.xsd"/>
+    <import namespace="urn:ics-forth:params:xml:ns:extcommon-1.0" schemaLocation="../resources/xsd/extcommon-1.0.xsd"/>
+    <import namespace="urn:ics-forth:params:xml:ns:extcontact-1.0" schemaLocation="../resources/xsd/extcontact-1.0.xsd"/>
+    <import namespace="urn:ics-forth:params:xml:ns:exthost-1.0" schemaLocation="../resources/xsd/exthost-1.0.xsd"/>
+    <import namespace="urn:ics-forth:params:xml:ns:extSecDNS-1.0" schemaLocation="../resources/xsd/extSecDNS-1.0.xsd"/>
+</schema>

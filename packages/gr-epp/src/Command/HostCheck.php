@@ -1,0 +1,45 @@
+<?php
+
+namespace MyCS\GrEpp\Command;
+
+use DOMElement;
+use MyCS\GrEpp\Data\CheckResult;
+use MyCS\GrEpp\Response;
+
+/** host:check (the guide's examples 19, 20): whether a nameserver is registered at the registry. */
+final class HostCheck
+{
+    /** The registry's limit per check (the guide). */
+    public const MAX = 10;
+
+    /** @param  list<string>  $names */
+    public static function request(array $names, string $clTRID): string
+    {
+        Limits::check($names, self::MAX, 'host names');
+        $command = Builder::start('check', 'host');
+        foreach ($names as $name) {
+            $command->add($command->object, 'host', 'name', $name);
+        }
+
+        return $command->finish($clTRID);
+    }
+
+    /** @return array<string, CheckResult> by name */
+    public static function parse(Response $response): array
+    {
+        $xpath = $response->xpath();
+        $data = Read::required($response, '//host:chkData');
+        $comments = array_change_key_case(Read::comments($xpath, '//exthost:resData/exthost:comment'), CASE_LOWER);
+        $results = [];
+        foreach ($xpath->query('host:cd', $data) as $cd) {
+            $name = $xpath->query('host:name', $cd)->item(0);
+            if ($name instanceof DOMElement) {
+                $text = mb_strtolower(trim($name->textContent));
+                $results[$text] = new CheckResult($text, Read::bool($name->getAttribute('avail')),
+                    Read::text($xpath, 'host:reason', $cd), $comments[$text] ?? null);
+            }
+        }
+
+        return $results;
+    }
+}
