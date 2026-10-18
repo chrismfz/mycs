@@ -19,7 +19,10 @@ class RegistrarCredit extends StatsOverviewWidget
 
     protected ?string $pollingInterval = null;
 
-    protected ?string $heading = 'Registrar credit';
+    protected function getHeading(): ?string
+    {
+        return __('Registrar credit');
+    }
 
     protected function getStats(): array
     {
@@ -30,8 +33,8 @@ class RegistrarCredit extends StatsOverviewWidget
                 null => '',
                 default => $balance['currency'],
             } : '—';
-            $problem = RegistrarBalances::problem($connection);
-            $read = is_string($balance['read_at'] ?? null) ? __('Read :when', ['when' => Carbon::parse($balance['read_at'])->diffForHumans()]) : __('Not read yet');
+            $problem = RegistrarBalances::problemText($connection);
+            $read = is_string($balance['read_at'] ?? null) ? __('Last read :when', ['when' => Carbon::parse($balance['read_at'])->diffForHumans()]) : __('Not read yet');
             $reserved = is_string($balance['reserved'] ?? null) && (float) $balance['reserved'] !== 0.0 ? ' · ' . __('reserved :amount', ['amount' => $balance['reserved']]) : '';
 
             return Stat::make($connection->label, trim($amount))

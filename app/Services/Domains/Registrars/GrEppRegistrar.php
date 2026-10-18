@@ -822,7 +822,9 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
      */
     public function accountBalance(DomainRegistrarCredentials $credentials): RegistrarBalance
     {
-        $info = $this->locked($credentials, fn (Session $session) => AccountInfo::parse(self::send($session, fn (string $clTRID) => AccountInfo::request($clTRID))));
+        // The shop's short session (5 seconds to wait for the account, 5 to answer: review 6 of #206): staff's «Read
+        // balance» is a web request, the sync may hold the account; busy, it is read again the next hour.
+        $info = $this->locked($credentials, fn (Session $session) => AccountInfo::parse(self::send($session, fn (string $clTRID) => AccountInfo::request($clTRID))), shop: true);
 
         return new RegistrarBalance(amount: $info->balance, currency: $info->currency !== '' ? $info->currency : null,
             chargesAllowed: $info->chargeableActionsAllowed,

@@ -103,8 +103,8 @@ class DomainRegistrarConnectionResource extends Resource
                 TextColumn::make('debug_log')->label(__('Debug log'))->badge()->color('danger')
                     ->formatStateUsing(fn (bool $state) => $state ? __('On') : null)->placeholder('—'),
                 TextColumn::make('balance.amount')->label(__('Balance'))
-                    ->color(fn (DomainRegistrarConnection $record) => RegistrarBalances::problem($record) !== null ? 'danger' : null)
-                    ->tooltip(fn (DomainRegistrarConnection $record) => RegistrarBalances::problem($record))->placeholder('—'),
+                    ->color(fn (DomainRegistrarConnection $record) => RegistrarBalances::problemText($record) !== null ? 'danger' : null)
+                    ->tooltip(fn (DomainRegistrarConnection $record) => RegistrarBalances::problemText($record))->placeholder('—'),
                 TextColumn::make('tlds_count')->label('TLDs')->counts('tlds'),
                 TextColumn::make('domains_count')->label(__('domains.domains'))->counts('domains'),
             ])
@@ -131,7 +131,7 @@ class DomainRegistrarConnectionResource extends Resource
                 $balance = $record->balance ?? [];
                 $error = $balance['error'] ?? null;
                 Notification::make()->title($error !== null ? __('Could not read the balance') : __('Balance: :amount', ['amount' => trim(($balance['amount'] ?? '—') . ' ' . ($balance['currency'] ?? ''))]))
-                    ->body($error ?? RegistrarBalances::problem($record))->{$error !== null ? 'danger' : 'success'}()->send();
+                    ->body($error ?? RegistrarBalances::problemText($record))->{$error !== null ? 'danger' : 'success'}()->send();
             });
     }
 

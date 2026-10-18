@@ -635,5 +635,22 @@
     "Marked transferred away.": "Σημειώθηκε μεταφερμένο αλλού.",
     "Not transferred away: resume": "Δεν μεταφέρθηκε: συνέχεια",
     "Its status and auto-renew as they were, then synced. Logged.": "Κατάσταση και auto-renew όπως ήταν, και sync. Καταγράφεται.",
-    "Resumed.": "Συνεχίζει."
+    "Resumed.": "Συνεχίζει.",
+    "Registrar credit": "Υπόλοιπο στους registrars",
+    "Last read :when": "Τελευταία ανάγνωση :when",
+    "Not read yet": "Δεν έχει διαβαστεί ακόμα",
+    "reserved :amount": "δεσμευμένα :amount",
+    "Not read for :hours hours: :error": "Δεν διαβάστηκε για :hours ώρες: :error",
+    "Could not be read yet: :error": "Δεν διαβάστηκε ακόμα: :error",
+    "Suspended since :date: no registrations or renewals": "Σε αναστολή από :date: καμία καταχώριση ή ανανέωση",
+    "To be suspended on :date": "Αναστολή στις :date",
+    "Due to be suspended since :date": "Για αναστολή από :date",
+    "Chargeable actions are not allowed": "Οι χρεώσιμες πράξεις δεν επιτρέπονται",
+    "Under :low": "Κάτω από :low",
+    "Registrar credit: :label": "Υπόλοιπο registrar: :label",
+    "Low balance": "Χαμηλό υπόλοιπο",
+    "Staff are mailed when the account's balance falls under it (read hourly; the dashboard's «Registrar credit»). Empty: never for its amount; a suspension is told all the same.": "Το staff παίρνει mail όταν το υπόλοιπο του λογαριασμού πέσει κάτω από αυτό (ανάγνωση κάθε ώρα· «Υπόλοιπο στους registrars» στο dashboard). Κενό: ποτέ για το ποσό· μια αναστολή λέγεται έτσι κι αλλιώς.",
+    "Read balance": "Ανάγνωση υπολοίπου",
+    "Could not read the balance": "Το υπόλοιπο δεν διαβάστηκε",
+    "Balance: :amount": "Υπόλοιπο: :amount"
 }

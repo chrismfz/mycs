@@ -88,7 +88,7 @@ class RegistrarCreditTest extends TestCase
 
     private function mails(): int
     {
-        return EmailLog::query()->where('template_key', 'system')->where('subject', 'like', 'Registrar credit%')->count();
+        return EmailLog::query()->where('template_key', 'system')->count();
     }
 
     public function test_both_registrars_are_read_and_kept(): void
@@ -113,7 +113,7 @@ class RegistrarCreditTest extends TestCase
 
         app(RegistrarBalances::class)->refresh($this->op->fresh());
         $this->assertSame(1, $this->mails());
-        $this->assertSame(__('Under :low', ['low' => '200.00']), RegistrarBalances::problem($this->op->fresh()));
+        $this->assertSame(__('Under :low', ['low' => '200.00']), RegistrarBalances::problemText($this->op->fresh()));
 
         $this->opBalance = '140.00';
         app(RegistrarBalances::class)->refresh($this->op->fresh());
@@ -121,10 +121,43 @@ class RegistrarCreditTest extends TestCase
 
         $this->opBalance = '500.00';
         app(RegistrarBalances::class)->refresh($this->op->fresh());
-        $this->assertNull(RegistrarBalances::problem($this->op->fresh()));
+        $this->assertNull(RegistrarBalances::problemText($this->op->fresh()));
         $this->opBalance = '20.00';
         app(RegistrarBalances::class)->refresh($this->op->fresh());
         $this->assertSame(2, $this->mails(), 'under it again after it was fine: told again');
+    }
+
+    public function test_told_once_whatever_the_language_and_only_when_a_mail_goes(): void
+    {
+        $this->op->update(['low_balance' => '200']);
+        config(['settings.mail_disable' => true]);
+        app(RegistrarBalances::class)->refresh($this->op->fresh());
+        $this->assertNull($this->op->fresh()->balance['told'], 'mail off: not told (review 4 of #206)');
+
+        config(['settings.mail_disable' => false]);
+        app()->setLocale('el'); // staff's «Read balance» in the admin's language
+        app(RegistrarBalances::class)->refresh($this->op->fresh());
+        $this->assertSame('Κάτω από 200.00', RegistrarBalances::problemText($this->op->fresh()));
+        app()->setLocale('en'); // the hourly read (review 1)
+        app(RegistrarBalances::class)->refresh($this->op->fresh());
+        $this->assertSame(1, $this->mails());
+    }
+
+    public function test_one_never_read_is_not_a_day_unread(): void
+    {
+        $this->transport->fixture('02-hello-response.xml', ['JSESSIONID=A'])->result(2200, 'Λάθος ταυτοποίηση χρήστη');
+
+        app(RegistrarBalances::class)->refresh($this->gr->fresh());
+
+        $this->assertStringStartsWith(__('Could not be read yet: :error', ['error' => '']), (string) RegistrarBalances::problemText($this->gr->fresh()), 'review 2 of #206');
+        Carbon::setTestNow(now()->addHours(RegistrarBalances::STALE_HOURS + 1));
+        GrEppRegistrar::reset();
+        $this->transport = new FakeTransport;
+        $this->transport->fixture('02-hello-response.xml', ['JSESSIONID=A'])->result(2200, 'Λάθος ταυτοποίηση χρήστη');
+        app(RegistrarBalances::class)->refresh($this->gr->fresh());
+        $this->assertStringStartsWith(__('Not read for :hours hours: :error', ['hours' => RegistrarBalances::STALE_HOURS, 'error' => '']),
+            (string) RegistrarBalances::problemText($this->gr->fresh()), 'since its errors began');
+        $this->assertSame(2, $this->mails());
     }
 
     public function test_a_suspension_is_told_whatever_the_low_balance(): void
@@ -134,7 +167,7 @@ class RegistrarCreditTest extends TestCase
         app(RegistrarBalances::class)->refresh($this->gr->fresh());
 
         $this->assertSame('-25', $this->gr->fresh()->balance['amount']);
-        $this->assertSame(__('To be suspended on :date', ['date' => '16/01/2012']), RegistrarBalances::problem($this->gr->fresh()));
+        $this->assertSame(__('Due to be suspended since :date', ['date' => '16/01/2012']), RegistrarBalances::problemText($this->gr->fresh()));
         $this->assertSame(1, $this->mails());
 
         // Suspended: the registry's suspendedOn.
@@ -142,7 +175,7 @@ class RegistrarCreditTest extends TestCase
         $this->transport = new FakeTransport;
         $this->registryAnswers(suspended: true);
         app(RegistrarBalances::class)->refresh($this->gr->fresh());
-        $this->assertSame(__('Suspended since :date: no registrations or renewals', ['date' => '20/01/2012']), RegistrarBalances::problem($this->gr->fresh()));
+        $this->assertSame(__('Suspended since :date: no registrations or renewals', ['date' => '20/01/2012']), RegistrarBalances::problemText($this->gr->fresh()));
         $this->assertSame(2, $this->mails(), 'another state: told');
     }
 
@@ -159,10 +192,10 @@ class RegistrarCreditTest extends TestCase
         $this->assertSame('38.50', $balance['amount'], 'the last one read kept');
         $this->assertNotNull($balance['error']);
         $this->assertStringNotContainsString('Secret-pw1', (string) $balance['error']);
-        $this->assertNull(RegistrarBalances::problem($this->gr->fresh()), 'an hour unread is not news');
+        $this->assertNull(RegistrarBalances::problemText($this->gr->fresh()), 'an hour unread is not news');
 
         Carbon::setTestNow(now()->addHours(RegistrarBalances::STALE_HOURS + 1));
-        $this->assertNotNull(RegistrarBalances::problem($this->gr->fresh()), 'a day unread is');
+        $this->assertNotNull(RegistrarBalances::problemText($this->gr->fresh()), 'a day unread is');
     }
 
     public function test_the_dashboard_shows_what_was_read_and_calls_no_registrar(): void
