@@ -31,6 +31,8 @@
                 @elseif ($row['status'] === \App\Services\Domains\DomainSearch::TAKEN)
                 <p class="text-base/60 text-sm">{{ __('domains.shop.taken') }}
                     · <a href="{{ route('domain.whois', ['domain' => $row['fqdn']]) }}" wire:navigate class="underline">{{ __('domains.shop.who_has_it') }}</a></p>
+                @elseif ($row['status'] === \App\Services\Domains\DomainSearch::RESTRICTED)
+                <p class="text-warning text-sm">{{ __('domains.shop.restricted') }}</p>
                 @elseif ($row['status'] === \App\Services\Domains\DomainSearch::PREMIUM)
                 <p class="text-warning text-sm">{{ __('domains.shop.premium') }}</p>
                 @else
@@ -40,9 +42,9 @@
             @if ($row['status'] === \App\Services\Domains\DomainSearch::FREE)
             <div class="flex items-center gap-4 sm:text-right">
                 <div>
-                    <p class="font-semibold">{{ __('domains.shop.per_year', ['price' => $money($row['price'])]) }}</p>
+                    <p class="font-semibold">{{ ($row['years'] ?? 1) > 1 ? trans_choice('domains.shop.per_years', $row['years'], ['price' => $money($row['price']), 'years' => $row['years']]) : __('domains.shop.per_year', ['price' => $money($row['price'])]) }}</p>
                     @if ($row['renew'])
-                    <p class="text-xs text-base/60">{{ __('domains.shop.then', ['price' => $money($row['renew'])]) }}</p>
+                    <p class="text-xs text-base/60">{{ ($row['years'] ?? 1) > 1 ? trans_choice('domains.shop.then_years', $row['years'], ['price' => $money($row['renew']), 'years' => $row['years']]) : __('domains.shop.then', ['price' => $money($row['renew'])]) }}</p>
                     @endif
                 </div>
                 @if (\App\Services\Domains\Ordering\DomainOffer::allowed('register'))

@@ -3,6 +3,7 @@
 namespace App\Services\Domains\Registrars;
 
 use App\Contracts\DomainRegistrar;
+use App\Contracts\EmailsAuthCode;
 use App\Enums\DomainStatus;
 use App\Models\Domain;
 use App\Services\Domains\DomainNotFoundAtRegistrar;
@@ -21,6 +22,7 @@ use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use MyCS\GrEpp\Command\ContactInfo;
+use MyCS\GrEpp\Command\DacorIssueToken;
 use MyCS\GrEpp\Command\DomainCheck;
 use MyCS\GrEpp\Command\DomainInfo;
 use MyCS\GrEpp\Command\Rules;
@@ -44,7 +46,7 @@ use Throwable;
  * One session per account and process, kept for the process (a worker reuses it; the registry ends one idle for 15
  * minutes and Session logs in again); commands one at a time per account, across processes (a cache lock).
  */
-class GrEppRegistrar implements DomainRegistrar
+class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode
 {
     /** The registry's grace after expiry (pendingDelete: renewable only, D-8; its FAQ). */
     public const GRACE_DAYS = 15;
@@ -64,7 +66,7 @@ class GrEppRegistrar implements DomainRegistrar
     {
         // Reads only until G5; the registry has no privacy toggle, no transfer lock, no price feed, no portfolio list. A
         // name in its 15 days after expiry is renewed (no restore), in even years (its FAQ).
-        return new DomainRegistrarCapabilities(renewsInGrace: true, renewYearStep: 2);
+        return new DomainRegistrarCapabilities(renewsInGrace: true, renewYearStep: 2, authCodeByEmail: true, transferKeepsNameservers: true);
     }
 
     /** Contract: never throws. A login (and nothing else): the credentials and our IP at the registry. */
@@ -286,7 +288,21 @@ class GrEppRegistrar implements DomainRegistrar
         throw self::notYet('transfer');
     }
 
-    /** The registry never gives the code: it emails the registrant a reset link (DACoR, G8). */
+    /**
+     * DACoR (G4b): the registry emails the registrant a link to reset the code; only the masked address comes back. Free.
+     */
+    public function emailAuthCode(Domain $domain, DomainRegistrarCredentials $credentials): string
+    {
+        try {
+            $result = $this->command($credentials, fn (string $clTRID) => DacorIssueToken::request($domain->fqdn, $clTRID), DacorIssueToken::parse(...));
+        } catch (Refused $e) {
+            throw new RegistrarRefused($e->getMessage());
+        }
+
+        return $result->comments[0] ?? __('domains.manage.auth_code_emailed');
+    }
+
+    /** The registry never gives the code: it emails the registrant a reset link (DACoR: emailAuthCode). */
     public function getEppCode(Domain $domain, DomainRegistrarCredentials $credentials): ?string
     {
         throw self::notYet('give an EPP code (the registry emails the registrant instead: DACoR)');

@@ -34,6 +34,13 @@ final class DomainRegistrarCapabilities
         public readonly bool $renewsInGrace = false,
         /** Renewals in whole multiples of this many years (the .gr registry: 2, 4 … 10). */
         public readonly int $renewYearStep = 1,
+        /**
+         * The EPP code is never given: the registry emails the registrant a reset link (the .gr registry's DACoR); the
+         * adapter implements EmailsAuthCode. G4b of grepp.
+         */
+        public readonly bool $authCodeByEmail = false,
+        /** An inbound transfer keeps the nameservers the name has (none are sent: the .gr registry). G4b of grepp. */
+        public readonly bool $transferKeepsNameservers = false,
     ) {}
 
     /** The API-less baseline: a manually-managed registrar can do none of this. */

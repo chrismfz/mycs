@@ -255,6 +255,24 @@ class Show extends Component
     }
 
     /**
+     * The registry emails the owner a link to reset the code (DACoR: the .gr registry never gives it; G4b of grepp).
+     * Staff in «Login as client» need the admin permission (R2), as for the code itself.
+     */
+    public function emailAuthCode(): void
+    {
+        if (!$this->mayCallRegistrar('admin.domains.epp') || $this->limited('domain-auth-code-email')) {
+            return;
+        }
+        $said = '';
+        $this->atRegistrar(function () use (&$said) {
+            $said = $this->management()->emailAuthCode($this->domain, $this->actor());
+        }, __('domains.portal.auth_code_emailed'));
+        if ($said !== '') {
+            $this->notify($said, 'success');
+        }
+    }
+
+    /**
      * «Renew»: to its renewal invoice if one is open; else its next period invoiced now (D7a: the cron's rules, once per
      * period), with the account's credit applied as to any renewal (the confirmation says so). Needs the invoices too
      * (R3: where it leads). A domain set not to renew renews again once its invoice is made (R9), not before.
@@ -324,6 +342,7 @@ class Show extends Component
             'lockable' => $manageable && $this->lockable(),
             'privacyOffered' => $manageable && $this->privacyOffered(),
             'showEpp' => $manageable && $this->staffMay('admin.domains.epp'),
+            'emailsAuthCode' => $manageable && $this->management()->emailsAuthCode($this->domain),
             'renewable' => $canManage && $seesInvoices && $this->staffMay('admin.invoices.create')
                 && in_array($this->domain->status, RenewalBilling::BILLED_DOMAINS, true),
             'openInvoice' => $seesInvoices ? $this->openInvoice() : null,

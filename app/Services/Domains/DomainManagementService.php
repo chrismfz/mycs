@@ -3,6 +3,7 @@
 namespace App\Services\Domains;
 
 use App\Contracts\DomainRegistrar;
+use App\Contracts\EmailsAuthCode;
 use App\Models\Contact;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
@@ -157,6 +158,37 @@ class DomainManagementService
         });
 
         return (string) $code;
+    }
+
+    /**
+     * The registry emails the registrant a link to reset the EPP code (DACoR: a registrar with authCodeByEmail, the .gr
+     * registry). Free; logged with who asked; returns the registry's words, the address masked.
+     */
+    public function emailAuthCode(Domain $domain, Staff|User|null $staff): string
+    {
+        $message = '';
+        $this->call($domain, 'auth_code_email', [], $staff, function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, &$message) {
+            if (!$registrar instanceof EmailsAuthCode) {
+                throw new DomainRegistrarNotConfigured(__('domains.manage.no_auth_code_email'));
+            }
+            $message = $registrar->emailAuthCode($domain, $credentials);
+
+            return ['emailed' => $message];
+        });
+
+        return $message;
+    }
+
+    /** Whether its registrar emails the code instead of giving it (DACoR). */
+    public function emailsAuthCode(Domain $domain): bool
+    {
+        $connection = $domain->effectiveRegistrarConnection();
+        try {
+            return $connection instanceof DomainRegistrarConnection && $connection->isUsable()
+                && $this->factory->for($connection)->capabilities()->authCodeByEmail;
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     /** A role's handle: ours (linked), else the one the registrar reported at the last sync (not linked yet). */

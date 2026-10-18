@@ -43,23 +43,29 @@ class DomainSearch
 
     public const PREMIUM = 'premium';
 
+    /** Not free as it is, registrable with the regulator's approval (geographic terms, .gov.gr): never «taken». */
+    public const RESTRICTED = 'restricted';
+
     public function __construct(
         private readonly DomainRegistrarFactory $registrars,
         private readonly DomainLookup $lookup,
     ) {}
 
-    /** @return Collection<int, DomainTld> what we sell in $currency: active, with a register price for a year */
+    /**
+     * @return Collection<int, DomainTld> what we sell in $currency: active, with a register price (for its shortest period:
+     *                                    a year for most, two for .gr, whose periods are even: G4b of grepp)
+     */
     public function sold(string $currency): Collection
     {
         return DomainTld::query()->where('is_active', true)->with(['prices', 'registrarConnection'])->orderBy('sort')->orderBy('tld')->get()
-            ->filter(fn (DomainTld $tld) => $tld->priceFor('register', 1, $currency) !== null)->values();
+            ->filter(fn (DomainTld $tld) => $tld->shortestYears('register', $currency) !== null)->values();
     }
 
     /**
      * The results for what was typed: the exact name first (its TLD, or the first sold), then the others staff put first.
      *
-     * @return list<array{fqdn: string, tld: string, status: string, price: string, renew: ?string}>|null null: not a name;
-     *                                                                                                    empty: nothing sold in $currency
+     * @return list<array{fqdn: string, tld: string, status: string, years: int, price: string, renew: ?string}>|null null: not a name;
+     *                                                                                                                empty: nothing sold in $currency
      */
     public function search(string $input, string $currency): ?array
     {
@@ -85,13 +91,16 @@ class DomainSearch
         $statuses = $this->statuses($names);
 
         return collect($names)->map(function (DomainTld $model, string $fqdn) use ($currency, $statuses) {
-            $register = (string) $model->priceFor('register', 1, $currency);
-            $renew = $model->priceFor('renew', 1, $currency);
+            // Its shortest period (a year for most; two for .gr) and its price, renewed for as long.
+            $years = (int) $model->shortestYears('register', $currency);
+            $register = (string) $model->priceFor('register', $years, $currency);
+            $renew = $model->priceFor('renew', $years, $currency);
 
             return [
                 'fqdn' => $fqdn,
                 'tld' => $model->tld,
                 'status' => $statuses[$fqdn] ?? self::UNKNOWN,
+                'years' => $years,
                 'price' => $register,
                 // «then X a year» only when it differs (a first-year offer).
                 'renew' => $renew !== null && bccomp($renew, $register, 2) !== 0 ? $renew : null,
@@ -176,6 +185,7 @@ class DomainSearch
             $result = $results[$fqdn] ?? null;
             $status = match (true) {
                 $result === null => self::UNKNOWN,
+                !$result->available && str_starts_with((string) $result->reason, 'restricted:') => self::RESTRICTED,
                 !$result->available => self::TAKEN,
                 $result->premium => self::PREMIUM, // a premium name that is free (review R4: a taken one is taken)
                 default => self::FREE,
