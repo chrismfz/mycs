@@ -5,10 +5,12 @@ namespace App\Admin\Resources;
 use App\Admin\Resources\DomainRegistrarConnectionResource\Pages\CreateDomainRegistrarConnection;
 use App\Admin\Resources\DomainRegistrarConnectionResource\Pages\EditDomainRegistrarConnection;
 use App\Admin\Resources\DomainRegistrarConnectionResource\Pages\ListDomainRegistrarConnections;
+use App\Contracts\ReadsAccountBalance;
 use App\Exceptions\DisplayException;
 use App\Models\DomainRegistrarConnection;
 use App\Services\Domains\DomainRegistrarFactory;
 use App\Services\Domains\DomainRegistrarRegistry;
+use App\Services\Domains\RegistrarBalances;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\Select;
@@ -22,6 +24,7 @@ use Filament\Schemas\Schema;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Throwable;
 
 /**
  * WHMCS's «Domain Registrars» (docs/domains.md D2, D-21): the accounts MyCS has at registrars. Its credentials are
@@ -65,6 +68,9 @@ class DomainRegistrarConnectionResource extends Resource
                 Toggle::make('is_active')->label(__('Active'))->default(false),
                 Toggle::make('debug_log')->label(__('Debug log'))->default(false)
                     ->helperText(__('Every request and answer to storage/logs/registrar-debug-*.log, passwords and EPP codes hidden; contacts\' names and addresses are in it: kept 14 days. Turn it off after testing.')),
+                TextInput::make('low_balance')->label(__('Low balance'))->numeric()->minValue(0)->step('0.01')->nullable()
+                    ->visible(fn (Get $get, ?DomainRegistrarConnection $record) => self::readsBalance($get('registrar') ?? $record?->registrar))
+                    ->helperText(__('Staff are mailed when the account\'s balance falls under it (read hourly; the dashboard\'s «Registrar credit»). Empty: never for its amount; a suspension is told all the same.')),
             ]),
             Section::make(__('Credentials'))->columns(2)
                 ->visible(fn (Get $get) => self::credentialFields($get('registrar')) !== [])
@@ -96,10 +102,37 @@ class DomainRegistrarConnectionResource extends Resource
                 // On, contacts' details are being written to a file: seen at a glance (review 2 of #193).
                 TextColumn::make('debug_log')->label(__('Debug log'))->badge()->color('danger')
                     ->formatStateUsing(fn (bool $state) => $state ? __('On') : null)->placeholder('—'),
+                TextColumn::make('balance.amount')->label(__('Balance'))
+                    ->color(fn (DomainRegistrarConnection $record) => RegistrarBalances::problem($record) !== null ? 'danger' : null)
+                    ->tooltip(fn (DomainRegistrarConnection $record) => RegistrarBalances::problem($record))->placeholder('—'),
                 TextColumn::make('tlds_count')->label('TLDs')->counts('tlds'),
                 TextColumn::make('domains_count')->label(__('domains.domains'))->counts('domains'),
             ])
-            ->recordActions([self::testAction(), EditAction::make()]);
+            ->recordActions([self::testAction(), self::balanceAction(), EditAction::make()]);
+    }
+
+    /** Its registrar tells its balance (G8-1). */
+    public static function readsBalance(?string $registrar): bool
+    {
+        try {
+            return $registrar !== null && app(DomainRegistrarRegistry::class)->for($registrar) instanceof ReadsAccountBalance;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    /** «Read balance» (G8-1): what is left with the registrar, now; a read. */
+    public static function balanceAction(): Action
+    {
+        return Action::make('balance')->label(__('Read balance'))->icon('heroicon-o-banknotes')
+            ->visible(fn (DomainRegistrarConnection $record) => static::canEdit($record) && $record->isUsable() && app(RegistrarBalances::class)->reads($record))
+            ->action(function (DomainRegistrarConnection $record) {
+                app(RegistrarBalances::class)->refresh($record);
+                $balance = $record->balance ?? [];
+                $error = $balance['error'] ?? null;
+                Notification::make()->title($error !== null ? __('Could not read the balance') : __('Balance: :amount', ['amount' => trim(($balance['amount'] ?? '—') . ' ' . ($balance['currency'] ?? ''))]))
+                    ->body($error ?? RegistrarBalances::problem($record))->{$error !== null ? 'danger' : 'success'}()->send();
+            });
     }
 
     /** «Test Connection»: logs in with the stored credentials; never changes anything at the registrar. */

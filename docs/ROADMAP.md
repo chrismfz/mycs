@@ -50,8 +50,8 @@ importer):
 
 ## Παράλληλα, από τώρα (ανεξάρτητα από φάση)
 - [x] **.gr EPP:** η IP του devbox (84.54.49.31) δηλώθηκε στο Μητρώο .GR (2026-10-11).
-- [ ] .gr EPP: login/hello/check στο UAT από το devbox, ώστε να κλείσουν τα `[ΕΠΙΒΕΒΑΙΩΣΗ]`
-      (`history/blesta-modules/HANDOFF.md` §6). Είναι το μακρύτερο κομμάτι· χωρίς αυτό το myip δεν μεταφέρεται.
+- [x] .gr EPP: login/hello/check, ώστε να κλείσουν τα `[ΕΠΙΒΕΒΑΙΩΣΗ]` (`history/blesta-modules/HANDOFF.md` §6): **έγινε**
+      στην παραγωγή αντί για UAT (2026-10-18, G3 και G7, `docs/domains/grepp.md`).
 - [x] DNS δοκιμών: `mycs.myip.gr` + `*.mycs.myip.gr` → devbox (2026-10-11).
 - [x] Πρώτη εγκατάσταση στο devbox (`mycs.myip.gr`)· tests (66) και Pint περνάνε εκεί (2026-10-11).
 - [x] Παρακολούθηση του upstream: routine «Upstream triage» κάθε Τρίτη 08:45 (issues, PRs, commits, security
@@ -415,6 +415,16 @@ importer):
       κλήσεις, ρυθμίσεις στο Settings → Domains (ώρες ανά παρτίδα, πόσα ανά παρτίδα), με όριο ανά σύνδεση registrar
       (`DomainRegistrarConnection`)· τα pending πιο συχνά· «Sync now»
       και ο έλεγχος πριν τη χρέωση πάντα άμεσα.
+      **G0–G7 έγιναν** (#183–#205). **Σειρά από εδώ** (ιδιοκτήτης 2026-10-19): **G8** → **D7-2** portal μαζί με polishing
+      του UI/UX στη μεριά του πελάτη → **καθάρισμα του ROADMAP** (ό,τι μείνει ανοιχτό, να μη χαθεί). Το G8 σε κομμάτια:
+      G8-1 «Registrar credit» στο dashboard (.gr και Openprovider, όριο και mail στο staff· **έγινε**) · G8-3 στοιχεία
+      μητρώου στη σελίδα του domain (καταστάσεις ΕΕΤΤ, πρωτόκολλο, μορφές .gr/.ελ) · G8-4 DNSSEC · G8-5 αλλαγή επωνυμίας
+      και μεταβίβαση .gr (χρεώσιμες, με adversarial) · G8-6 διαγραφή, δεσμευμένες μορφές .ελ (grRLS αργότερα). Το DACoR
+      από τον πελάτη πάει στο D7-2.
+      - [ ] **G8-2 (στο cut-over του myip):** καθαρισμός των `533_` (δωρεάν, μόνο ρόλοι) και πιο ήπια προειδοποίηση για
+            κατόχους `c60_`. Δεν χρειάζεται πριν: τα domains του myip έρχονται με τον importer.
+      - [ ] **G8-5b (μελλοντικό):** στον Openprovider η αλλαγή κατόχου γίνεται ήδη δωρεάν (`updateDomain`, ο registrant μαζί
+            με τις επαφές)· μερικά ccTLDs θέλουν «trade» με χρέωση (`modify_owner_allowed` / `trade_allowed` του domain).
 - [ ] **Gateways της nixpal από το WHMCS** (ιδιοκτήτης 2026-10-17, στο τέλος, μαζί με τη δοκιμή πληρωμής ως πελάτης):
       PayPal, Stripe, Cardlink από το `tblpaymentgateways` της `clnixpal_nixcldb` (orion, μόνο ανάγνωση)· οι τιμές
       κατευθείαν κρυπτογραφημένες στη βάση, ποτέ σε αρχείο, log ή οθόνη. Πριν το go-live: αρίθμηση `{YEAR}-{NUMBER}` με
