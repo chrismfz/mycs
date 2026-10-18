@@ -492,7 +492,7 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
     private static function draft(string $id, Contact $contact): ContactDraft
     {
         $name = trim($contact->first_name . ' ' . $contact->last_name) ?: trim((string) $contact->company_name);
-        $voice = Phone::epp($contact->phone) ?? throw new InvalidArgumentException("The contact {$id} has no phone: the registry needs one.");
+        $voice = Phone::epp($contact->phone, $contact->country) ?? throw new InvalidArgumentException("The contact {$id} has no phone: the registry needs one.");
 
         return new ContactDraft($id,
             new PostalInfo('loc', $name, trim((string) $contact->company_name) ?: null, array_values(array_filter([trim((string) $contact->address1), trim((string) $contact->address2)])),

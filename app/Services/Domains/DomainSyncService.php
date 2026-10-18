@@ -6,6 +6,8 @@ use App\Enums\DomainStatus;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainTld;
+use App\Models\ModuleAction;
+use App\Services\Domains\Ordering\DomainOrderFulfilment;
 use App\Support\Domains\DomainSyncResult;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -80,6 +82,7 @@ class DomainSyncService
                     $this->bookkeep($domain, mb_substr($e->getMessage(), 0, 1000));
                     if ($e instanceof DomainNotFoundAtRegistrar) {
                         $this->notOurs($domain, $e);
+                        $this->registrationGone($domain, $e);
                     }
                 }
 
@@ -359,6 +362,22 @@ class DomainSyncService
         } finally {
             Config::set('audit.console', $audit);
         }
+    }
+
+    /**
+     * A registration sent and still pending whose name the registry no longer has (2303): refused (the .gr registry's
+     * «Προς Έγκριση», the EETT saying no) or withdrawn. Told to staff as its order's Pending Module Action, to refund or
+     * register again (G5b-3 of grepp); never one recalled here (it is cancelled already).
+     */
+    private function registrationGone(Domain $domain, DomainNotFoundAtRegistrar $e): void
+    {
+        $domain->refresh();
+        if ($e->elsewhere !== false || $domain->status !== DomainStatus::PendingRegister || empty($domain->meta['sent_at'])
+            || !empty($domain->meta['recalled_at'])) {
+            return;
+        }
+        ModuleAction::domainFailed($domain, DomainOrderFulfilment::lineOf($domain), $domain->effectiveRegistrarConnection()?->registrar,
+            new RuntimeException(__('domains.order.registration_gone', ['domain' => $domain->fqdn, 'said' => $e->getMessage()])), ModuleAction::DOMAIN_REGISTER);
     }
 
     /** When it was read and what went wrong: bookkeeping, not a change of the domain (no audit, no updated_at). */

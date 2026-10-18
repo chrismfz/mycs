@@ -177,6 +177,7 @@ return [
 
     // Ordering (D8b).
     'order' => [
+        'registration_gone' => ':domain was sent for registration but its registry no longer has it (:said): refused (EETT) or withdrawn. Refund its order or register it again.',
         'add' => 'Add',
         'transfer_it' => 'Is it yours? Transfer it to us',
         'cart_register' => ':domain: registration, :years year|:domain: registration, :years years',

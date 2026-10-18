@@ -202,6 +202,8 @@ class GreppTransfersTest extends TestCase
     {
         // Review 2 of #198: the sync after the transfer replaces meta.registrar; the transfer's notes are kept apart.
         Mail::fake();
+        config(['settings.mail_disable' => false]); // mails sent here (off by default in tests)
+        $this->user->client()->ensurePrimaryContact()->update(['email' => 'maria@example.test']); // the mail's recipient
         $order = Order::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'EUR']);
         $domain = $this->domain();
         $domain->forceFill(['order_id' => $order->id, 'meta' => ['free_order' => true]])->save();
@@ -224,5 +226,9 @@ class GreppTransfersTest extends TestCase
         $this->assertSame('serverApproved', $transfer['transfer'] ?? null);
         $this->assertStringContainsString('phone', (string) ($transfer['contacts'] ?? ''));
         $this->assertSame(DomainStatus::Active, $domain->fresh()->status);
+        // Done at once: «transferred», not «started, 5 to 7 days» (G5b-3).
+        $mails = Mail::queued(\App\Mail\Mail::class)->map(fn (\App\Mail\Mail $mail) => $mail->templateKey)->all();
+        $this->assertContains('domain_transferred', $mails);
+        $this->assertNotContains('domain_transfer_started', $mails);
     }
 }

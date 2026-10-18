@@ -4,13 +4,25 @@ namespace App\Support\Domains;
 
 /**
  * A contact's phone as registrars take it: digits only (a leading +), split on real ITU country-code lengths (+1/+7
- * one digit; 35x, 37x, 38x but 384/388, 420/421/423 three; else two), a local number under +30. One rule for every
- * registrar (Openprovider's parts, the .gr registry's «+CC.NUMBER»).
+ * one digit; 35x, 37x, 38x but 384/388, 420/421/423 three; else two), a local number under its contact's country's
+ * code (G5b-3 of grepp: a Cypriot's 22… is +357), +30 when that country is not known. One rule for every registrar
+ * (Openprovider's parts, the .gr registry's «+CC.NUMBER»).
  */
 final class Phone
 {
-    /** @return array{0: string, 1: string}|null [«+CC», subscriber], null without digits */
-    public static function split(?string $raw): ?array
+    /** Calling codes by ISO country (the EU, its neighbours, the usual others); another country: +30, as before. */
+    private const CODES = [
+        'GR' => '30', 'CY' => '357', 'AL' => '355', 'BG' => '359', 'MK' => '389', 'TR' => '90', 'RO' => '40', 'RS' => '381', 'ME' => '382',
+        'BA' => '387', 'HR' => '385', 'SI' => '386', 'IT' => '39', 'MT' => '356', 'ES' => '34', 'PT' => '351', 'FR' => '33', 'MC' => '377',
+        'BE' => '32', 'NL' => '31', 'LU' => '352', 'DE' => '49', 'AT' => '43', 'CH' => '41', 'LI' => '423', 'CZ' => '420', 'SK' => '421',
+        'PL' => '48', 'HU' => '36', 'DK' => '45', 'SE' => '46', 'NO' => '47', 'FI' => '358', 'IS' => '354', 'IE' => '353', 'GB' => '44',
+        'EE' => '372', 'LV' => '371', 'LT' => '370', 'UA' => '380', 'MD' => '373', 'RU' => '7', 'GE' => '995', 'AM' => '374', 'IL' => '972',
+        'EG' => '20', 'LB' => '961', 'AE' => '971', 'SA' => '966', 'US' => '1', 'CA' => '1', 'AU' => '61', 'NZ' => '64', 'ZA' => '27',
+        'BR' => '55', 'AR' => '54', 'MX' => '52', 'IN' => '91', 'CN' => '86', 'JP' => '81',
+    ];
+
+    /** @return array{0: string, 1: string}|null [«+CC», subscriber], null without digits; a local number under $country's code */
+    public static function split(?string $raw, ?string $country = null): ?array
     {
         // A + first, even bracketed («(+30) 210…»: ADV-4 of #192), then its digits only.
         $raw = trim((string) $raw);
@@ -20,6 +32,14 @@ final class Phone
         }
         if (ltrim($digits, '+') === '') {
             return null;
+        }
+        $code = self::CODES[strtoupper(trim((string) $country))] ?? null;
+        if (!str_starts_with($digits, '+') && $code !== null) {
+            // A national trunk 0 dropped (020 … in London is +44 20 …), except where it is part of the number (Italy, San
+            // Marino) or there is none (Greece).
+            $keep = in_array($code, ['30', '39', '378'], true) || ltrim($digits, '0') === '';
+
+            return ['+' . $code, $keep ? $digits : ltrim($digits, '0')];
         }
 
         return self::splitCountryCode($digits);
@@ -43,10 +63,10 @@ final class Phone
         return [substr($digits, 0, 3), substr($digits, 3)];
     }
 
-    /** EPP's «+CC.NUMBER» (RFC 5733, the .gr registry), null without digits. */
-    public static function epp(?string $raw): ?string
+    /** EPP's «+CC.NUMBER» (RFC 5733, the .gr registry), null without digits; a local number under $country's code. */
+    public static function epp(?string $raw, ?string $country = null): ?string
     {
-        $parts = self::split($raw);
+        $parts = self::split($raw, $country);
 
         return $parts === null ? null : $parts[0] . '.' . $parts[1];
     }

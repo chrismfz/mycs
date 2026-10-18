@@ -855,6 +855,31 @@ class EmailTemplateSeeder extends Seeder
             'edit_preference_message' => 'Tell me when the transfer of a domain of mine starts',
             'in_app_url' => '{{ urls.domain }}',
         ],
+        // A transfer done at once (the .gr registry approves it on the spot: G5b-3 of grepp), not «started».
+        'domain_transferred' => [
+            'subject' => '{{ fqdn }} is now with us',
+            'body' => <<<'HTML'
+                # Domain transfer complete
+
+                Dear {{ user.first_name }},
+
+                The transfer of your domain **{{ fqdn }}** to us is complete. It expires on **{{ expires }}**; we will remind you before its renewal.
+
+                Your website and email keep working: its nameservers have not changed ({{ nameservers }}).
+
+                <div class="action">
+                	<a class="button button-blue" href="{{ urls.domain }}">
+                		View domain
+                	</a>
+                </div>
+                HTML,
+            'in_app_title' => '{{ fqdn }} is now with us',
+            'in_app_body' => 'The transfer of your domain {{ fqdn }} is complete.',
+            'mail_enabled' => 'force',
+            'in_app_enabled' => 'choice_on',
+            'edit_preference_message' => 'Tell me when the transfer of a domain of mine is complete',
+            'in_app_url' => '{{ urls.domain }}',
+        ],
     ];
 
     /**
@@ -1633,6 +1658,28 @@ class EmailTemplateSeeder extends Seeder
                     HTML,
                 'in_app_title' => 'Ξεκίνησε η μεταφορά του {{ fqdn }}',
                 'in_app_body' => 'Η μεταφορά του domain σας {{ fqdn }} σε εμάς ξεκίνησε.',
+            ],
+        ],
+        'domain_transferred' => [
+            'el' => [
+                'subject' => 'Το {{ fqdn }} είναι πλέον σε εμάς',
+                'body' => <<<'HTML'
+                    # Η μεταφορά ολοκληρώθηκε
+
+                    Αγαπητέ/ή {{ user.first_name }},
+
+                    Η μεταφορά του domain σας **{{ fqdn }}** σε εμάς ολοκληρώθηκε. Λήγει στις **{{ expires }}**· θα σας υπενθυμίσουμε πριν την ανανέωσή του.
+
+                    Η ιστοσελίδα και το email σας συνεχίζουν να λειτουργούν: οι nameservers του δεν άλλαξαν ({{ nameservers }}).
+
+                    <div class="action">
+                    	<a class="button button-blue" href="{{ urls.domain }}">
+                    		Προβολή domain
+                    	</a>
+                    </div>
+                    HTML,
+                'in_app_title' => 'Το {{ fqdn }} είναι πλέον σε εμάς',
+                'in_app_body' => 'Η μεταφορά του domain σας {{ fqdn }} ολοκληρώθηκε.',
             ],
         ],
     ];
