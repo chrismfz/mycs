@@ -18,13 +18,11 @@ use App\Models\Order;
 use App\Models\Staff;
 use App\Models\User;
 use App\Services\Domains\DomainManagementService;
-use App\Services\Domains\DomainRegistrarRegistry;
 use App\Services\Domains\DomainSearch;
 use App\Services\Domains\Ordering\DomainOffer;
 use App\Services\Domains\Ordering\DomainOrderFulfilment;
 use App\Services\Domains\Registrars\GrEppRegistrar;
 use App\Support\Domains\AvailabilityResult;
-use App\Support\Domains\DomainRegistrarCapabilities;
 use App\Support\Domains\DomainRegistrarCredentials;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -104,13 +102,7 @@ class GreppG4bTest extends TestCase
         $this->assertSame([DomainSearch::TAKEN, DomainSearch::FREE, DomainSearch::RESTRICTED],
             [$statuses['example1.gr'], $statuses['free-example.gr'], $statuses['athina.gr']]);
 
-        // Before G5 the .gr registry's driver cannot register: .gr is not sold (review 1 of #191).
-        $this->assertNotContains('gr', app(DomainSearch::class)->sold('EUR')->pluck('tld')->all(), 'not sold before G5');
-
-        // Once it can (G5), sold for its shortest period: two years.
-        config(['domains.registrars.grepp' => SellingGrEppRegistrar::class]);
-        app()->forgetInstance(DomainRegistrarRegistry::class);
-        $this->tld->refresh();
+        // From G5a the driver registers: sold for its shortest period, two years.
         $this->assertSame(2, $this->tld->shortestYears('register', 'EUR'));
         $this->assertContains('gr', app(DomainSearch::class)->sold('EUR')->pluck('tld')->all(), 'sold for two years');
 
@@ -189,15 +181,5 @@ class GreppG4bTest extends TestCase
         $this->assertSame([true, true], [$capabilities->authCodeByEmail, $capabilities->transferKeepsNameservers]);
         $this->assertInstanceOf(AvailabilityResult::class, new AvailabilityResult('a.gr', false, 'restricted: x'));
         $this->assertNotNull(new DomainRegistrarCredentials);
-    }
-}
-
-/** The .gr registry's driver as it will be from G5: it registers (the shop sells .gr). */
-class SellingGrEppRegistrar extends GrEppRegistrar
-{
-    public function capabilities(): DomainRegistrarCapabilities
-    {
-        return new DomainRegistrarCapabilities(renewsInGrace: true, renewYearStep: 2, authCodeByEmail: true,
-            transferKeepsNameservers: true, supportsRegistration: true);
     }
 }

@@ -43,6 +43,8 @@ final class DomainRegistrarCapabilities
         public readonly bool $transferKeepsNameservers = false,
         /** Registrations through the API (the .gr registry: from G5): the shop sells a TLD only where it can. */
         public readonly bool $supportsRegistration = true,
+        /** A registration recalled within days of it (the .gr registry: 5, by its protocol). G5a of grepp. */
+        public readonly bool $supportsRecall = false,
     ) {}
 
     /** The API-less baseline: a manually-managed registrar can do none of this. */

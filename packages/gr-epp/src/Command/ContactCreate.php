@@ -33,15 +33,17 @@ final class ContactCreate
         }
         $command->add($command->object, 'contact', 'email', Rules::email($contact->email));
         $command->add($command->add($command->object, 'contact', 'authInfo'), 'contact', 'pw');
-        $disclose = $command->add($command->object, 'contact', 'disclose');
-        $disclose->setAttribute('flag', $contact->hidden ? '0' : '1');
-        foreach (['name', 'org', 'addr'] as $field) {
-            foreach (array_filter(['int' => $contact->international, 'loc' => $contact->local]) as $type => $_) {
-                $command->add($disclose, 'contact', $field)->setAttribute('type', $type);
+        if ($contact->hidden !== null) {
+            $disclose = $command->add($command->object, 'contact', 'disclose');
+            $disclose->setAttribute('flag', $contact->hidden ? '0' : '1');
+            foreach (['name', 'org', 'addr'] as $field) {
+                foreach (array_filter(['int' => $contact->international, 'loc' => $contact->local]) as $type => $_) {
+                    $command->add($disclose, 'contact', $field)->setAttribute('type', $type);
+                }
             }
-        }
-        foreach (['voice', 'fax', 'email'] as $field) {
-            $command->add($disclose, 'contact', $field);
+            foreach (['voice', 'fax', 'email'] as $field) {
+                $command->add($disclose, 'contact', $field);
+            }
         }
 
         return $command->finish($clTRID);

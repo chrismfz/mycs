@@ -597,5 +597,9 @@
     "The period counts from its next renewal invoice: the open one, if any, keeps its period (paid or with money on it, a price set by hand, in grace or redemption, or a later period billed already).": "Η περίοδος μετράει από το επόμενο προτιμολόγιο ανανέωσης: το ανοιχτό, αν υπάρχει, κρατά την περίοδό του (πληρωμένο ή με πληρωμή, τιμή ορισμένη χειροκίνητα, σε grace ή redemption, ή ήδη τιμολογημένη επόμενη περίοδος).",
     "Email the EPP code to the registrant": "Αποστολή κωδικού EPP στον δικαιούχο",
     "The registry emails the registrant a link to set a new EPP code; it never shows the code. Free; logged.": "Το μητρώο στέλνει στον δικαιούχο σύνδεσμο για νέο κωδικό EPP· τον κωδικό δεν τον δείχνει ποτέ. Δωρεάν· καταγράφεται.",
-    "Not sent": "Δεν στάλθηκε"
+    "Not sent": "Δεν στάλθηκε",
+    "Recall the registration": "Ανάκληση της καταχώρισης",
+    "The registry cancels the registration (only within 5 days of it); the domain is cancelled here. Refund its invoice line by hand; the Cancel & Refund of its order only if the domain is the whole order (it cancels all of it). Logged.": "Το μητρώο ακυρώνει την καταχώριση (μόνο εντός 5 ημερών)· εδώ το domain ακυρώνεται. Επιστρέψτε το ποσό της γραμμής του τιμολογίου χειροκίνητα· το Cancel & Refund της παραγγελίας μόνο αν το domain είναι όλη η παραγγελία (την ακυρώνει ολόκληρη). Καταγράφεται.",
+    "Recalled": "Ανακλήθηκε",
+    "Not recalled": "Δεν ανακλήθηκε"
 }

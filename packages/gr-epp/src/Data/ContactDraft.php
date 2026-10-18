@@ -16,6 +16,7 @@ final readonly class ContactDraft
         public string $email,
         public ?string $voiceExtension = null,
         public ?string $fax = null,
-        public bool $hidden = true,
+        /** null: no disclose element (the registry's default: how the current module creates them, live 2026-10-18) */
+        public ?bool $hidden = true,
     ) {}
 }

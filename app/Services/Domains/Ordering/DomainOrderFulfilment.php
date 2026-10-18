@@ -12,6 +12,7 @@ use App\Models\InvoiceItem;
 use App\Models\ModuleAction;
 use App\Services\Domains\DomainManagementService;
 use App\Services\Domains\DomainRegistrarFactory;
+use App\Services\Domains\DomainRegistrarNotConfigured;
 use App\Services\Domains\DomainSyncService;
 use App\Services\Domains\Lookup\DomainLookup;
 use App\Services\Domains\RegistrarNotAsked;
@@ -181,7 +182,7 @@ class DomainOrderFulfilment
         try {
             $result = $register ? $registrar->register($domain, max(1, (int) $domain->years), $credentials)
                 : $registrar->transferIn($domain, (string) $domain->epp_code, $credentials);
-        } catch (RegistrarRefused|RegistrarNotAsked $e) {
+        } catch (RegistrarRefused|RegistrarNotAsked|DomainRegistrarNotConfigured $e) {
             // Refused (4xx), or failed before it was asked (nameservers, glue, contacts: ADV-6): nothing done at the
             // registrar. Staff decide (a wrong EPP code, a contact refused, a nameserver to fix).
             $clean = $this->clean($domain, $e);
@@ -204,6 +205,10 @@ class DomainOrderFulfilment
             $fresh = Domain::query()->lockForUpdate()->findOrFail($domain->id);
             $meta = $fresh->meta ?? [];
             $meta['sent_at'] = now()->toIso8601String();
+            // What its answer told (a .gr registration's protocol: its recall needs it), until a sync reads its truth.
+            if ($result->details !== []) {
+                $meta['registrar'] = $result->details + (is_array($meta['registrar'] ?? null) ? $meta['registrar'] : []);
+            }
             // Cancelled or refunded while the registrar was asked (code review 2): done there all the same; staff decide.
             $line = $line?->fresh(['invoice']);
             $ordered = in_array($fresh->status, [DomainStatus::PendingRegister, DomainStatus::PendingTransfer], true) && self::paid($fresh, $line);

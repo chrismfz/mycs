@@ -167,6 +167,19 @@ class ViewDomain extends ViewRecord
 
                 // Read when the modal opens and only rendered in it (review 4): not a notification, which Filament keeps in
                 // the cache and the page's state until shown. Each read is logged, the code never.
+                // A registration recalled within 5 days (the .gr registry, G5a of grepp): its payment refunded separately.
+                Action::make('recall')->label(__('Recall the registration'))->icon('heroicon-o-arrow-uturn-left')->color('danger')
+                    ->visible(fn (Domain $record) => self::can('admin.domains.manage') && app(DomainManagementService::class)->recallable($record))
+                    ->requiresConfirmation()
+                    ->modalDescription(__('The registry cancels the registration (only within 5 days of it); the domain is cancelled here. Refund its invoice line by hand; the Cancel & Refund of its order only if the domain is the whole order (it cancels all of it). Logged.'))
+                    ->action(function (Domain $record) {
+                        try {
+                            $said = app(DomainManagementService::class)->recall($record, self::staff());
+                            Notification::make()->success()->title(__('Recalled'))->body($said)->send();
+                        } catch (Throwable $e) {
+                            Notification::make()->danger()->title(__('Not recalled'))->body($e->getMessage())->send();
+                        }
+                    }),
                 // The .gr registry never gives the code: it emails the registrant a reset link (DACoR, G4b of grepp).
                 Action::make('emailAuthCode')->label(__('Email the EPP code to the registrant'))->icon('heroicon-o-envelope')
                     ->visible(fn (Domain $record) => self::can('admin.domains.epp') && self::manageable($record)
