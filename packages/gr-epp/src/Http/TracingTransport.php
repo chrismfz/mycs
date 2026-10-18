@@ -24,8 +24,12 @@ final class TracingTransport implements Transport
         $started = microtime(true);
         $response = $this->inner->post($url, $body, $headers);
         try {
-            $frames = fn (): array => [Trace::redact($body),
-                $response->status === 0 ? '(no answer: ' . ($response->error ?? 'transport error') . ')' : Trace::redact($response->body)];
+            $frames = function () use ($body, $response): array {
+                $secrets = Trace::secrets($body); // hidden in its answer too, wherever it quotes them (ADV-2 of #193)
+
+                return [Trace::redact($body, $secrets),
+                    $response->status === 0 ? '(no answer: ' . ($response->error ?? 'transport error') . ')' : Trace::redact($response->body, $secrets)];
+            };
             ($this->tap)(Trace::summary($body, $response->status, $response->body), $frames, round((microtime(true) - $started) * 1000, 1));
         } catch (Throwable) {
             // A log is never worth a lost answer.

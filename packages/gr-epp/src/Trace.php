@@ -14,10 +14,14 @@ use DOMXPath;
 final class Trace
 {
     /**
-     * A frame with every pw / newPW element's text replaced, whatever its namespace or form (text, CDATA). A frame that
-     * does not parse is never shown: it might hold a secret where no parser can find it.
+     * A frame with every secret element's text replaced, whatever its namespace or form (text, CDATA): any element whose
+     * name ends in «pw» (pw, newPW, currentPW, extdomain:pw: ADV-1 of #193). With $alsoHide (the secrets of the request
+     * it answers), those values are hidden wherever they appear (a schema error quoting the code sent: ADV-2). A frame
+     * that does not parse is never shown: it might hold a secret where no parser can find it.
+     *
+     * @param  list<string>  $alsoHide
      */
-    public static function redact(#[\SensitiveParameter] string $xml): string
+    public static function redact(#[\SensitiveParameter] string $xml, #[\SensitiveParameter] array $alsoHide = []): string
     {
         if (trim($xml) === '') {
             return '';
@@ -26,13 +30,48 @@ final class Trace
         if ($document === null) {
             return '(not XML: ' . strlen($xml) . ' bytes, not shown)';
         }
-        foreach (iterator_to_array((new DOMXPath($document))->query('//*[local-name()="pw" or local-name()="newPW"]') ?: []) as $secret) {
-            if ($secret instanceof DOMElement && $secret->textContent !== '') {
+        foreach (self::secretElements($document) as $secret) {
+            if ($secret->textContent !== '') {
                 $secret->textContent = '***';
             }
         }
+        $shown = (string) $document->saveXML($document->documentElement);
+        foreach ($alsoHide as $value) {
+            // Short values would hide ordinary words: a code is 6 to 16 characters, a password more.
+            if (mb_strlen($value) >= 4) {
+                $shown = str_replace([$value, htmlspecialchars($value, ENT_XML1 | ENT_QUOTES), htmlspecialchars($value, ENT_XML1 | ENT_NOQUOTES)], '***', $shown);
+            }
+        }
 
-        return (string) $document->saveXML($document->documentElement);
+        return $shown;
+    }
+
+    /**
+     * The secret values a frame carries (its pw elements' texts), to hide them in its answer too.
+     *
+     * @return list<string>
+     */
+    public static function secrets(#[\SensitiveParameter] string $xml): array
+    {
+        $document = self::document($xml);
+        if ($document === null) {
+            return [];
+        }
+
+        return array_values(array_unique(array_filter(array_map(fn (DOMElement $e) => $e->textContent, self::secretElements($document)), fn (string $v) => $v !== '')));
+    }
+
+    /** @return list<DOMElement> */
+    private static function secretElements(DOMDocument $document): array
+    {
+        $found = [];
+        foreach ((new DOMXPath($document))->query('//*') ?: [] as $element) {
+            if ($element instanceof DOMElement && preg_match('/pw\z/i', $element->localName) === 1) {
+                $found[] = $element;
+            }
+        }
+
+        return $found;
     }
 
     /**
