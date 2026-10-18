@@ -11,6 +11,7 @@ use App\Models\DomainRegistrarLog;
 use App\Models\DomainTld;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\ModuleAction;
 use App\Models\Order;
 use App\Models\Staff;
 use App\Models\User;
@@ -189,6 +190,58 @@ class GreppWritesTest extends TestCase
 
         $this->assertSame('66155', $domain->fresh()->meta['registrar']['protocol'] ?? null);
         $this->assertSame(1, collect($this->transport->kinds())->filter(fn ($k) => $k === 'create')->count(), 'registered once');
+    }
+
+    public function test_its_log_keeps_the_registry_ids_and_the_debug_log_its_frames_without_a_secret(): void
+    {
+        $file = storage_path('logs/test-registrar-debug-' . bin2hex(random_bytes(4)) . '.log');
+        config(['logging.channels.registrar-debug' => ['driver' => 'single', 'path' => $file, 'level' => 'debug']]);
+        Mail::fake();
+        $this->gr->forceFill(['debug_log' => true])->save();
+        $order = Order::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'EUR']);
+        $domain = $this->domain(['ns1.myip.gr', 'ns2.myip.gr'], ['order_id' => $order->id, 'registered_at' => null]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'EUR']);
+        InvoiceItem::query()->create(['invoice_id' => $invoice->id, 'quantity' => 1, 'price' => '19.00', 'description' => 'example.gr',
+            'reference_type' => Domain::class, 'reference_id' => $domain->id, 'kind' => InvoiceItem::KIND_REGISTER]);
+        Invoice::query()->whereKey($invoice->id)->update(['status' => Invoice::STATUS_PAID]);
+        $id = 'c60_mcs' . base_convert((string) $domain->registrant_contact_id, 10, 36);
+        $this->loggedIn();
+        $this->contactCheck($id, true);
+        $this->fixture('v4.3/14-contact-create-response.xml');
+        $this->hostCheck(['ns1.myip.gr' => false, 'ns2.myip.gr' => false]);
+        $this->fixture('v4.3/38-domain-create-response.xml');
+
+        try {
+            $this->assertSame(DomainOrderFulfilment::SENT, app(DomainOrderFulfilment::class)->fulfil($domain->id),
+                (string) ModuleAction::query()->value('last_error'));
+
+            $create = collect(DomainRegistrarLog::query()->where('domain_id', $domain->id)->where('action', 'register')->sole()->transactions)
+                ->firstWhere('command', 'domain:create');
+            $this->assertSame([1001, '20110319-103209210-772-gr'], [$create['code'] ?? null, $create['svTRID'] ?? null]);
+            $this->assertStringStartsWith('mycs-', (string) $create['clTRID'], 'our clTRID, as sent');
+            $this->assertStringContainsString((string) $create['clTRID'], collect($this->transport->sent)->pluck('body')->first(fn ($b) => str_contains($b, '<domain:create')));
+
+            $trace = (string) file_get_contents($file);
+            $this->assertStringContainsString('grepp domain:create 1001', $trace);
+            $this->assertStringContainsString('grepp login 1000', $trace);
+            foreach (['Secret-pw1', 'JSESSIONID'] as $secret) {
+                $this->assertStringNotContainsString($secret, $trace);
+            }
+
+            // Off: the ids still on the log, no frame in the file.
+            $this->gr->forceFill(['debug_log' => false])->save();
+            file_put_contents($file, '');
+            GrEppRegistrar::reset();
+            $this->transport = new FakeTransport;
+            $this->loggedIn();
+            $this->fixture('v4.3/60-domain-delete-recall-domain-creation-response.xml');
+            app(DomainManagementService::class)->recall($domain->fresh(), Staff::factory()->create());
+            $recall = DomainRegistrarLog::query()->where('action', 'recall')->sole();
+            $this->assertSame('20110319-123743986-292-gr', collect($recall->transactions)->firstWhere('command', 'domain:delete')['svTRID'] ?? null);
+            $this->assertSame('', (string) file_get_contents($file));
+        } finally {
+            @unlink($file);
+        }
     }
 
     public function test_review_fixes_of_192(): void

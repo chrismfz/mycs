@@ -21,6 +21,7 @@ use App\Services\Domains\Registrars\GrEppRegistrar;
 use App\Services\Money\GatewayLog;
 use App\Support\BootFailure;
 use App\Support\CurrentClient;
+use App\Support\Domains\RegistrarTransactions;
 use App\Support\Passport\ScopeRegistry;
 use Closure;
 use Dedoc\Scramble\Scramble;
@@ -64,6 +65,8 @@ class AppServiceProvider extends ServiceProvider
     {
         // Port 43 whois (D8a): the real socket; tests bind their own.
         $this->app->bind(SocketConnector::class, StreamSocketConnector::class);
+        // The registrar transactions of this process (clTRID, svTRID: kept on each call's log).
+        $this->app->singleton(RegistrarTransactions::class);
 
         // Service provider for settings
         $this->app->register(SettingsProvider::class);

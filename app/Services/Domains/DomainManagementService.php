@@ -17,6 +17,7 @@ use App\Support\Domains\DomainChanges;
 use App\Support\Domains\DomainRegistrarCredentials;
 use App\Support\Domains\DomainSyncResult;
 use App\Support\Domains\RegistrarContact;
+use App\Support\Domains\RegistrarTransactions;
 use App\Support\Redact;
 use Closure;
 use Illuminate\Http\Client\ConnectionException;
@@ -440,11 +441,14 @@ class DomainManagementService
             // Who asked (D-22): staff, or the customer's login in the client area (D7-2).
             'user_id' => $staff instanceof User ? $staff->id : null,
             'action' => $action, 'request' => Redact::array($request)];
+        $transactions = app(RegistrarTransactions::class);
+        $mark = $transactions->mark();
         try {
             $response = $call($this->factory->for($connection), $this->factory->credentialsFor($connection));
-            DomainRegistrarLog::query()->create($log + ['status' => DomainRegistrarLog::STATUS_OK, 'response' => Redact::array($response)]);
+            DomainRegistrarLog::query()->create($log + ['status' => DomainRegistrarLog::STATUS_OK, 'response' => Redact::array($response),
+                'transactions' => $transactions->since($mark)]);
         } catch (Throwable $e) {
-            DomainRegistrarLog::query()->create($log + ['status' => DomainRegistrarLog::STATUS_FAILED,
+            DomainRegistrarLog::query()->create($log + ['status' => DomainRegistrarLog::STATUS_FAILED, 'transactions' => $transactions->since($mark),
                 'error' => mb_substr(Redact::text($e->getMessage()), 0, 2000)]);
 
             throw $e;

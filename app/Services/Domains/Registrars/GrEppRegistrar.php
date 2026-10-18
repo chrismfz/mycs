@@ -20,11 +20,13 @@ use App\Support\Domains\DomainSyncResult;
 use App\Support\Domains\Phone;
 use App\Support\Domains\RegistrarContact;
 use App\Support\Domains\RegistrarDomainPage;
+use App\Support\Domains\RegistrarTransactions;
 use App\Support\Domains\TldPricing;
 use Closure;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use MyCS\GrEpp\Command\ContactCheck;
 use MyCS\GrEpp\Command\ContactCreate;
@@ -44,6 +46,7 @@ use MyCS\GrEpp\Data\DomainInfo as Info;
 use MyCS\GrEpp\Data\PostalInfo;
 use MyCS\GrEpp\GrEppException;
 use MyCS\GrEpp\Http\CurlTransport;
+use MyCS\GrEpp\Http\TracingTransport;
 use MyCS\GrEpp\Http\Transport;
 use MyCS\GrEpp\NotSent;
 use MyCS\GrEpp\OutcomeUnknown;
@@ -93,7 +96,7 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
         // Its own session, ended after (a login on a live session is refused itself: review 5 of #187).
         $session = null;
         try {
-            $session = new Session(self::config($credentials), self::transport());
+            $session = new Session(self::config($credentials), self::transport(false, $credentials->debug));
 
             return $session->login()->code === 1000;
         } catch (Throwable) {
@@ -627,21 +630,27 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
     }
 
     /** A transport: the seam's, else curl (the shop's: 5 seconds, 3 to connect). */
-    private static function transport(bool $shop = false): Transport
+    private static function transport(bool $shop = false, bool $debug = false): Transport
     {
         $transport = self::$transport !== null ? (self::$transport)() : new CurlTransport($shop ? 5 : 60, $shop ? 3 : 10);
         if (!$transport instanceof Transport) {
             throw new RuntimeException('The .gr transport seam must give a Transport.');
         }
 
-        return $transport;
+        // Each exchange's ids on the call's log, always; its frames (secrets hidden) only with the connection's debug log.
+        return new TracingTransport($transport, function (array $summary, string $request, string $response, float $ms) use ($debug): void {
+            app(RegistrarTransactions::class)->record($summary);
+            if ($debug) {
+                Log::channel('registrar-debug')->debug("grepp {$summary['command']} {$summary['code']} ({$ms} ms)", $summary + ['request' => $request, 'response' => $response]);
+            }
+        });
     }
 
     private static function session(Config $config, DomainRegistrarCredentials $credentials, bool $shop = false): Session
     {
-        $key = sha1($config->endpoint . '|' . $config->clientId . '|' . hash('sha256', (string) $credentials->get('password')) . ($shop ? '|shop' : ''));
+        $key = sha1($config->endpoint . '|' . $config->clientId . '|' . hash('sha256', (string) $credentials->get('password')) . ($shop ? '|shop' : '') . ($credentials->debug ? '|debug' : ''));
 
-        return self::$sessions[$key] ??= new Session($config, self::transport($shop));
+        return self::$sessions[$key] ??= new Session($config, self::transport($shop, $credentials->debug));
     }
 
     /** End and forget the sessions: at the end of each request or command (AppServiceProvider), in tests (review 6). */

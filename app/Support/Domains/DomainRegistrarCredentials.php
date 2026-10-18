@@ -23,8 +23,9 @@ final class DomainRegistrarCredentials implements JsonSerializable
     /**
      * @param  array<string, mixed>  $config  the connection's credentials (username, password, …)
      * @param  bool  $sandbox  true for the registrar's test system
+     * @param  bool  $debug  its frames to the registrar debug log (secrets hidden): the connection's switch
      */
-    public function __construct(array $config = [], public readonly bool $sandbox = true)
+    public function __construct(array $config = [], public readonly bool $sandbox = true, public readonly bool $debug = false)
     {
         $this->config = new SensitiveParameterValue($config);
     }
@@ -38,6 +39,7 @@ final class DomainRegistrarCredentials implements JsonSerializable
         return new self(
             config: $connection->credentials(),
             sandbox: $connection->mode !== 'production',
+            debug: (bool) $connection->debug_log,
         );
     }
 
@@ -56,7 +58,7 @@ final class DomainRegistrarCredentials implements JsonSerializable
     /** @return array<string, mixed> the keys only: a dump never carries a secret */
     public function __debugInfo(): array
     {
-        return ['keys' => array_keys($this->config->getValue()), 'sandbox' => $this->sandbox];
+        return ['keys' => array_keys($this->config->getValue()), 'sandbox' => $this->sandbox, 'debug' => $this->debug];
     }
 
     /** @return array<string, mixed> the keys only: JSON (a log's context) never carries a secret */

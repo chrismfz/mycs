@@ -63,6 +63,8 @@ class DomainRegistrarConnectionResource extends Resource
                     ->options(['off' => __('Off'), 'sandbox' => __('Sandbox (test)'), 'production' => __('Production (live)')])
                     ->helperText(__('Only «Production» reaches the live registrar; anything else stays on its test system. Openprovider\'s test system is reached over plain HTTP: give it the test account\'s credentials, never the live ones.')),
                 Toggle::make('is_active')->label(__('Active'))->default(false),
+                Toggle::make('debug_log')->label(__('Debug log'))->default(false)
+                    ->helperText(__('Every request and answer to storage/logs/registrar-debug-*.log, passwords and EPP codes hidden; contacts\' names and addresses are in it: kept 14 days. Turn it off after testing.')),
             ]),
             Section::make(__('Credentials'))->columns(2)
                 ->visible(fn (Get $get) => self::credentialFields($get('registrar')) !== [])

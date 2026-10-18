@@ -85,6 +85,17 @@ return [
             'replace_placeholders' => true,
         ],
 
+        // A registrar connection's debug log (its switch, off by default): each frame, secrets hidden, but contacts'
+        // names and addresses in it: 14 days, never readable by others.
+        'registrar-debug' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/registrar-debug.log'),
+            'level' => 'debug',
+            'permission' => 0660,
+            'days' => 14,
+            'replace_placeholders' => false,
+        ],
+
         'slack' => [
             'driver' => 'slack',
             'url' => env('LOG_SLACK_WEBHOOK_URL'),
