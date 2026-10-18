@@ -1,0 +1,30 @@
+[
+  {
+    "handle": "d00000000000000000000000000000000-gr",
+    "name": "example1.gr",
+    "protocol": 1234567,
+    "status": [
+      "ok"
+    ],
+    "bundles": [
+      "example1.gr"
+    ],
+    "nameservers": [
+      "ns1.example.com",
+      "ns2.example.com",
+      "ns3.example.com"
+    ],
+    "secureDNS": {
+      "delegationSigned": false
+    },
+    "createDate": "01-03-2005",
+    "updateDate": "18-10-2026",
+    "expireDate": "01-03-2029",
+    "registrar": {
+      "name": "MYIP NETWORKS",
+      "email": "support@myip.gr",
+      "voice": "+30.2152154722",
+      "url": "https://myip.gr"
+    }
+  }
+]

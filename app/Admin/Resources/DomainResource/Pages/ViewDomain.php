@@ -275,6 +275,9 @@ class ViewDomain extends ViewRecord
             ])->label(__('At the registrar'))->icon('heroicon-o-globe-alt')->button(),
 
             // Here only, not at the registrar.
+            // What the world sees at its registry: the public whois (for .gr the registry's WHOIS API, G6 of grepp).
+            Action::make('whois')->label(__('WHOIS'))->icon('heroicon-o-globe-alt')->color('gray')
+                ->url(fn (Domain $record) => route('domain.whois', ['domain' => $record->fqdn]))->openUrlInNewTab(),
             Action::make('edit')->label(__('Edit'))->icon('heroicon-o-pencil-square')
                 ->visible(fn () => self::can('admin.domains.update'))
                 ->fillForm(fn (Domain $record) => ['auto_renew' => $record->auto_renew, 'notes' => $record->notes, 'years' => max(1, (int) $record->years)])

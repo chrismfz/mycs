@@ -12,8 +12,8 @@ use Livewire\Attributes\Url;
 use Nixpal\DomainTools\DomainName;
 
 /**
- * Public whois (D8a): who has a name, from its registry (RDAP, else port 43 with personal data masked; .gr later, with
- * grepp). Registrar, dates, status, nameservers, DNSSEC: what the registry publishes. At most 10 per 10 minutes per
+ * Public whois (D8a): who has a name, from its registry (RDAP, else port 43 with personal data masked; .gr and .ελ from
+ * the registry's WHOIS API, G6 of grepp). Registrar, dates, status, nameservers, DNSSEC: what the registry publishes. At most 10 per 10 minutes per
  * address; answers cached an hour.
  */
 class Whois extends Component
@@ -80,7 +80,9 @@ class Whois extends Component
         if (count($labels) <= 2) {
             return $fqdn;
         }
-        $suffixes = DomainTld::query()->where('tld', 'like', '%.%')->pluck('tld')->map(fn ($t) => (string) DomainName::toAscii($t))->all();
+        // The .gr registry's second levels are its own, fixed (ADV-6 of #197), listed as TLDs here or not.
+        $suffixes = array_merge(['com.gr', 'net.gr', 'org.gr', 'edu.gr', 'gov.gr'],
+            DomainTld::query()->where('tld', 'like', '%.%')->pluck('tld')->map(fn ($t) => (string) DomainName::toAscii($t))->all());
         $lastTwo = implode('.', array_slice($labels, -2));
 
         return in_array($lastTwo, $suffixes, true) ? implode('.', array_slice($labels, -3)) : $lastTwo;

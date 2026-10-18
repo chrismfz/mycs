@@ -372,7 +372,7 @@ class GreppWritesTest extends TestCase
         } catch (RegistrarNotAsked $e) {
             $thrown = $e;
         }
-        $this->assertStringContainsString('glue', (string) $thrown?->getMessage());
+        $this->assertStringContainsString('must register it', (string) $thrown?->getMessage());
         $this->assertNotContains('create', $this->transport->kinds());
     }
 

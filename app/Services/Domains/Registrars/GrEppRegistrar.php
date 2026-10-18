@@ -339,7 +339,7 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
             [$handles, $hosts] = self::prepare(function () use ($session, $domain, $years, $credentials) {
                 Rules::years($years);
 
-                return [self::ensureContacts($session, $domain, self::prefix($credentials)), self::ensureHosts($session, $domain->nameservers->pluck('host')->all())];
+                return [self::ensureContacts($session, $domain, self::prefix($credentials)), self::ensureHosts($session, $domain->nameservers->pluck('host')->all(), $domain->fqdn)];
             });
             if (!isset($handles['registrant'])) {
                 throw new RegistrarNotAsked("{$domain->fqdn} has no registrant contact: the registry needs one.");
@@ -465,7 +465,7 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
      * @param  list<string>  $hosts
      * @return list<string>
      */
-    private static function ensureHosts(Session $session, array $hosts): array
+    private static function ensureHosts(Session $session, array $hosts, ?string $fqdn = null): array
     {
         $hosts = Rules::nameservers($hosts);
         foreach (array_chunk($hosts, HostCheck::MAX) as $batch) {
@@ -475,7 +475,11 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
                     continue; // registered there already
                 }
                 if (HostCreate::internal($host)) {
-                    throw new InvalidArgumentException("The nameserver {$host} is not at the registry: create it with its IP (glue) first.");
+                    // Under this domain: ours to make (its child nameservers); under another: its own registrar's (G6).
+                    $own = $fqdn !== null ? Rules::name($fqdn) : null;
+                    throw new InvalidArgumentException($own !== null && $host !== $own && !str_ends_with($host, ".{$own}")
+                        ? "The nameserver {$host} is not at the .gr registry: the registrar of " . self::registeredName($host) . ' must register it (with its IP) first.'
+                        : "The nameserver {$host} is not at the registry: create it with its IP (glue) first (Child nameservers).");
                 }
                 HostCreate::parse(self::send($session, fn (string $clTRID) => HostCreate::request($host, [], $clTRID)));
             }
@@ -605,7 +609,7 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
                     if ($changes->nameservers === []) {
                         throw new InvalidArgumentException('A domain is never left without nameservers.'); // ADV-2 of #195
                     }
-                    $wanted = self::ensureHosts($session, $changes->nameservers);
+                    $wanted = self::ensureHosts($session, $changes->nameservers, $domain->fqdn);
                     // The registry's as ours (Rules::name: case, a trailing dot, xn--, NFC: review 5 of #195), its own
                     // spelling kept for the removal.
                     $current = [];
@@ -752,6 +756,15 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
             });
             self::charge(fn () => HostDelete::parse(self::send($session, fn (string $clTRID) => HostDelete::request($host, $clTRID))));
         });
+    }
+
+    /** The registered name a host is under: ns1.example.com.gr → example.com.gr (com, net, org, edu, gov.gr: review 3 of #197). */
+    private static function registeredName(string $host): string
+    {
+        $labels = explode('.', $host);
+        $second = count($labels) >= 3 && in_array($labels[count($labels) - 2], ['com', 'net', 'org', 'edu', 'gov'], true);
+
+        return implode('.', array_slice($labels, $second ? -3 : -2));
     }
 
     /** The domain read fresh, ours at the registry (its clID): another registrar's hosts are never touched. */

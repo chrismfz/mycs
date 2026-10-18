@@ -11,7 +11,7 @@ return [
     'registrars' => [
         'openprovider' => OpenproviderRegistrar::class,
         // 'cnic' => CentralNic Reseller, only if its domains are not moved first (D-10)
-        'grepp' => GrEppRegistrar::class, // the .gr registry (EPP over HTTPS, docs/domains/grepp.md): reads only until G5
+        'grepp' => GrEppRegistrar::class, // the .gr registry (EPP over HTTPS, docs/domains/grepp.md)
     ],
 
     'registrar_fields' => [

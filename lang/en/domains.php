@@ -64,6 +64,7 @@ return [
 
     // The client area (D7-2).
     'portal' => [
+        'whois' => 'WHOIS: what the registry publishes',
         'show' => 'Show',
         'filter' => ['active' => 'Active', 'expired' => 'Expired', 'ended' => 'Ended'],
         'search' => 'Search your domains…',
@@ -149,6 +150,7 @@ return [
         'whois_title' => 'Who owns a domain (whois)',
         'whois_lead' => 'What the registry publishes about a domain: registrar, dates, status and nameservers.',
         'lookup' => 'Look up',
+        'whois_not_listed' => 'Not in the registry\'s WHOIS (it may be free, reserved or pending): its availability is in the search.',
         'whois_free' => 'This domain is not registered.',
         'search_it' => 'Check its price',
         'whois_unsupported' => 'Whois for this ending is not available here yet.',
