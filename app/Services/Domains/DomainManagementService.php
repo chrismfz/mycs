@@ -4,6 +4,7 @@ namespace App\Services\Domains;
 
 use App\Contracts\DomainRegistrar;
 use App\Contracts\EmailsAuthCode;
+use App\Contracts\ManagesChildHosts;
 use App\Contracts\RecallsRegistration;
 use App\Enums\DomainStatus;
 use App\Exceptions\DisplayException;
@@ -13,6 +14,7 @@ use App\Models\DomainRegistrarConnection;
 use App\Models\DomainRegistrarLog;
 use App\Models\Staff;
 use App\Models\User;
+use App\Support\Domains\ChildHost;
 use App\Support\Domains\DomainChanges;
 use App\Support\Domains\DomainRegistrarCredentials;
 use App\Support\Domains\DomainSyncResult;
@@ -245,6 +247,108 @@ class DomainManagementService
         } catch (Throwable) {
             return false;
         }
+    }
+
+    /** Whether its registrar keeps nameservers as objects of their own (child nameservers with glue: the .gr registry). */
+    public function managesChildHosts(Domain $domain): bool
+    {
+        $connection = $domain->effectiveRegistrarConnection();
+        try {
+            return $this->isManageable($domain) && $connection instanceof DomainRegistrarConnection
+                && $this->factory->for($connection) instanceof ManagesChildHosts;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * Its child nameservers read from the registrar, kept on the domain (meta.child_hosts, with when) for the page: a read
+     * on request, never on each view. Logged.
+     *
+     * @return list<array{name: string, addresses: list<string>, linked: bool, read: bool}>
+     */
+    public function readChildHosts(Domain $domain, Staff|User|null $staff): array
+    {
+        $hosts = [];
+        $this->call($domain, 'child_hosts', [], $staff, function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, &$hosts) {
+            $hosts = array_map(fn (ChildHost $host) => $host->toArray(), self::childHostsOf($registrar)->childHosts($domain, $credentials));
+
+            return ['hosts' => count($hosts)];
+        });
+        $meta = $domain->refresh()->meta ?? [];
+        $meta['child_hosts'] = ['read_at' => now()->toIso8601String(), 'hosts' => $hosts];
+        $domain->forceFill(['meta' => $meta])->save();
+
+        return $hosts;
+    }
+
+    /** @param  list<string>  $addresses */
+    public function createChildHost(Domain $domain, string $host, array $addresses, Staff|User|null $staff): void
+    {
+        try {
+            $this->call($domain, 'child_host_create', ['host' => $host, 'addresses' => $addresses], $staff,
+                function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $host, $addresses) {
+                    self::childHostsOf($registrar)->createChildHost($domain, $host, $addresses, $credentials);
+
+                    return ['created' => $host];
+                });
+        } finally {
+            // Read again whatever came of it (a «maybe done» too: review 3 of #196).
+            $this->rereadChildHosts($domain, $staff);
+        }
+    }
+
+    /** @param  list<string>  $addresses  the full set */
+    public function updateChildHost(Domain $domain, string $host, array $addresses, Staff|User|null $staff): void
+    {
+        try {
+            $this->call($domain, 'child_host_update', ['host' => $host, 'addresses' => $addresses], $staff,
+                function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $host, $addresses) {
+                    self::childHostsOf($registrar)->updateChildHost($domain, $host, $addresses, $credentials);
+
+                    return ['updated' => $host];
+                });
+        } finally {
+            // Read again whatever came of it (a «maybe done» too: review 3 of #196).
+            $this->rereadChildHosts($domain, $staff);
+        }
+    }
+
+    public function deleteChildHost(Domain $domain, string $host, Staff|User|null $staff): void
+    {
+        try {
+            $this->call($domain, 'child_host_delete', ['host' => $host], $staff,
+                function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $host) {
+                    self::childHostsOf($registrar)->deleteChildHost($domain, $host, $credentials);
+
+                    return ['deleted' => $host];
+                });
+        } finally {
+            // Read again whatever came of it (a «maybe done» too: review 3 of #196).
+            $this->rereadChildHosts($domain, $staff);
+        }
+    }
+
+    /** The list read again after a change: a read that fails never makes the change look failed (the page says when). */
+    private function rereadChildHosts(Domain $domain, Staff|User|null $staff): void
+    {
+        try {
+            $this->readChildHosts($domain, $staff);
+        } catch (Throwable $e) {
+            report($e);
+            // The list kept is older than the change: said so on the page.
+            $meta = $domain->refresh()->meta ?? [];
+            if (isset($meta['child_hosts']) && is_array($meta['child_hosts'])) {
+                $meta['child_hosts']['stale'] = true;
+                $domain->forceFill(['meta' => $meta])->save();
+            }
+        }
+    }
+
+    private static function childHostsOf(DomainRegistrar $registrar): ManagesChildHosts
+    {
+        return $registrar instanceof ManagesChildHosts ? $registrar
+            : throw new DomainRegistrarNotConfigured(__('domains.manage.no_child_hosts'));
     }
 
     /** Whether its registrar emails the code instead of giving it (DACoR). */
