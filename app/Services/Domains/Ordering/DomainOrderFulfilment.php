@@ -247,11 +247,13 @@ class DomainOrderFulfilment
         return self::SENT;
     }
 
-    /** The customer's mail: registered (with its expiry, once synced), or its transfer started. */
+    /** The customer's mail: registered (with its expiry, once synced), its transfer started, or done (G5b-3). */
     private function notify(Domain $domain, bool $register): void
     {
         try {
-            NotificationHelper::domainNotification($domain->client, $domain, $register ? 'domain_registered' : 'domain_transfer_started', [
+            // A transfer the sync already found active (the .gr registry approves it at once): done, not «started».
+            $key = $register ? 'domain_registered' : ($domain->status === DomainStatus::Active ? 'domain_transferred' : 'domain_transfer_started');
+            NotificationHelper::domainNotification($domain->client, $domain, $key, [
                 'fqdn' => $domain->fqdn,
                 'years' => $domain->years,
                 'expires' => $domain->expires_at?->format('d/m/Y'),

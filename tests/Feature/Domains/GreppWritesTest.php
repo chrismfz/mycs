@@ -16,6 +16,8 @@ use App\Models\Order;
 use App\Models\Staff;
 use App\Models\User;
 use App\Services\Domains\DomainManagementService;
+use App\Services\Domains\DomainNotFoundAtRegistrar;
+use App\Services\Domains\DomainSyncService;
 use App\Services\Domains\Ordering\DomainOrderFulfilment;
 use App\Services\Domains\RegistrarNotAsked;
 use App\Services\Domains\RegistrarRefused;
@@ -454,5 +456,72 @@ class GreppWritesTest extends TestCase
         // After 5 days, not any more.
         Carbon::setTestNow('2026-10-26 10:00:00');
         $this->assertFalse(app(DomainManagementService::class)->recallable($this->domain(['ns1.myip.gr'], ['sld' => 'late', 'fqdn' => 'late.gr', 'registered_at' => null, 'meta' => ['sent_at' => '2026-10-20T09:00:00+00:00']])));
+    }
+
+    public function test_a_pending_registration_the_registry_no_longer_has_is_told_to_staff(): void
+    {
+        // G5b-3: sent, «Προς Έγκριση», then refused by the EETT: the registry answers 2303 for it.
+        $order = Order::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'EUR']);
+        $domain = $this->domain(['ns1.myip.gr', 'ns2.myip.gr'], ['order_id' => $order->id, 'registered_at' => null,
+            'meta' => ['sent_at' => '2026-10-19T10:00:00+00:00']]);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'EUR']);
+        InvoiceItem::query()->create(['invoice_id' => $invoice->id, 'quantity' => 1, 'price' => '24.00', 'description' => 'example.gr',
+            'reference_type' => Domain::class, 'reference_id' => $domain->id, 'kind' => InvoiceItem::KIND_REGISTER, 'applied_at' => now()]);
+        Invoice::query()->whereKey($invoice->id)->update(['status' => Invoice::STATUS_PAID]);
+        $this->loggedIn();
+        $this->transport->result(2303, 'Το αντικείμενο δεν υπάρχει');
+
+        try {
+            app(DomainSyncService::class)->sync($domain->fresh());
+        } catch (DomainNotFoundAtRegistrar) {
+        }
+
+        $action = ModuleAction::query()->open()->where('domain_id', $domain->id)->where('action', ModuleAction::DOMAIN_REGISTER)->first();
+        $this->assertNotNull($action, 'staff told: refund or register again');
+        $this->assertStringContainsString('example.gr', (string) $action->last_error);
+        // No longer sent (code review 1, 2, 4 of #205): not read again (nor told again each sync, nor after Close), and
+        // Retry registers it again.
+        $domain->refresh();
+        $this->assertArrayNotHasKey('sent_at', $domain->meta);
+        $this->assertSame('2026-10-19T10:00:00+00:00', $domain->meta['registration_gone']['sent_at'] ?? null);
+        $this->assertFalse(app(DomainSyncService::class)->isSyncable($domain));
+        $this->assertFalse(DomainOrderFulfilment::due()->whereKey($domain->id)->exists(), 'not sent again on its own');
+        GrEppRegistrar::reset();
+        $this->transport = new FakeTransport;
+        $id = 'c60_mcs' . base_convert((string) $domain->registrant_contact_id, 10, 36);
+        $this->loggedIn();
+        $this->contactCheck($id, false);
+        $this->contactInfo($id);
+        $this->hostCheck(['ns1.myip.gr' => false, 'ns2.myip.gr' => false]);
+        $this->fixture('v4.3/38-domain-create-response.xml');
+        $this->assertSame(DomainOrderFulfilment::SENT, app(DomainOrderFulfilment::class)->fulfil($domain->id), 'Retry');
+        $this->assertNotEmpty($domain->fresh()->meta['sent_at'] ?? null);
+
+        // Recalled here: cancelled already, nothing to tell.
+        $recalled = $this->domain(['ns1.myip.gr'], ['sld' => 'recalled', 'fqdn' => 'recalled.gr', 'order_id' => $order->id,
+            'meta' => ['sent_at' => '2026-10-19T10:00:00+00:00', 'recalled_at' => '2026-10-19T11:00:00+00:00']]);
+        GrEppRegistrar::reset();
+        $this->transport = new FakeTransport;
+        $this->loggedIn();
+        $this->transport->result(2303, 'Το αντικείμενο δεν υπάρχει');
+        try {
+            app(DomainSyncService::class)->sync($recalled->fresh());
+        } catch (DomainNotFoundAtRegistrar) {
+        }
+        $this->assertFalse(ModuleAction::query()->open()->where('domain_id', $recalled->id)->exists());
+
+        // The registry's record under another clID (a wrong «Registrar id», code review 3 of #205): ours, not refused.
+        $mistyped = $this->domain(['ns1.myip.gr'], ['sld' => 'forth', 'fqdn' => 'forth.gr', 'order_id' => $order->id,
+            'meta' => ['sent_at' => '2026-10-19T10:00:00+00:00']]);
+        GrEppRegistrar::reset();
+        $this->transport = new FakeTransport;
+        $this->loggedIn();
+        $this->fixture('v4.3/36-domain-info-response.xml');
+        try {
+            app(DomainSyncService::class)->sync($mistyped->fresh());
+        } catch (DomainNotFoundAtRegistrar) {
+        }
+        $this->assertFalse(ModuleAction::query()->open()->where('domain_id', $mistyped->id)->exists());
+        $this->assertNotEmpty($mistyped->fresh()->meta['sent_at'] ?? null);
     }
 }

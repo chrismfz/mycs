@@ -209,7 +209,7 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
             // 2303: no such name; 2201: not ours to read (another registrar's, no code given).
             if (in_array($e->resultCode, [2303, 2201], true)) {
                 throw new DomainNotFoundAtRegistrar("{$domain->fqdn} is not ours at the registry ({$e->resultCode}: {$e->registryMessage}).",
-                    elsewhere: $e->resultCode === 2201); // 2201: another registrar's; 2303: no such name
+                    elsewhere: $e->resultCode === 2201, resultCode: $e->resultCode); // 2201: another registrar's; 2303: no such name
             }
             throw new RuntimeException("The registry refused to read {$domain->fqdn}: {$e->getMessage()}");
         }
@@ -492,7 +492,7 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
     private static function draft(string $id, Contact $contact): ContactDraft
     {
         $name = trim($contact->first_name . ' ' . $contact->last_name) ?: trim((string) $contact->company_name);
-        $voice = Phone::epp($contact->phone) ?? throw new InvalidArgumentException("The contact {$id} has no phone: the registry needs one.");
+        $voice = Phone::epp($contact->phone, $contact->country) ?? throw new InvalidArgumentException("The contact {$id} has no phone: the registry needs one.");
 
         return new ContactDraft($id,
             new PostalInfo('loc', $name, trim((string) $contact->company_name) ?: null, array_values(array_filter([trim((string) $contact->address1), trim((string) $contact->address2)])),

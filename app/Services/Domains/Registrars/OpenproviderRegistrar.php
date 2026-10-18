@@ -516,15 +516,11 @@ class OpenproviderRegistrar implements DomainRegistrar
             } elseif (preg_match('/^(\d\S*)\s+(.+)$/u', $street, $m) === 1) {
                 [, $number, $street] = $m; // «12 Main St»
             }
-            // Registrant phone is WHOIS data: digits only (and a leading +); split on real ITU country-code lengths; a
-            // local number keeps all its digits under the +30 default.
-            $digits = preg_replace('/(?!^\+)[^0-9]/', '', trim((string) $contact->phone)) ?? '';
-            if (str_starts_with($digits, '00')) {
-                $digits = '+' . substr($digits, 2);
-            }
+            // Registrant phone is WHOIS data: digits only (and a leading +), split on real ITU country-code lengths; a
+            // local number under its contact's country's code (code review 6 of #205), +30 when not known.
             $phonePayload = null;
-            if (ltrim($digits, '+') !== '') {
-                [$cc, $subscriber] = $this->splitCountryCode($digits);
+            if (($parts = Phone::split($contact->phone, $contact->country)) !== null) {
+                [$cc, $subscriber] = $parts;
                 // OP rejects an empty area_code («Invalid telephone region code», live finding) and only re-joins the
                 // parts: a head of up to 3 digits, never all of them.
                 $len = strlen($subscriber);
@@ -929,19 +925,6 @@ class OpenproviderRegistrar implements DomainRegistrar
         }
 
         return ['name' => $host, 'ip' => $ip];
-    }
-
-    /**
-     * '+CC' + subscriber per ITU zone rules: +1/+7 are one-digit; zones 3/4
-     * (Europe) are two-digit EXCEPT the 35x/37x/38x/42x three-digit ranges
-     * (+357 Κύπρος, +353, +371, +380, +420, …); everything else defaults to
-     * two digits — a local (no-prefix) number keeps all its digits under +30.
-     *
-     * @return array{0: string, 1: string} [country_code, subscriber]
-     */
-    private function splitCountryCode(string $digits): array
-    {
-        return Phone::splitCountryCode($digits); // one rule for every registrar
     }
 
     /** OP returns "YYYY-MM-DD HH:MM:SS" — the date part is our clock. */
