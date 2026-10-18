@@ -390,11 +390,13 @@ class StaffCorrectionsAdversarialTest extends TestCase
         $invoice->update(['status' => Invoice::STATUS_CANCELLED, 'cancellation_reason' => 'Overdue']);
         Event::listen(TransactionCreated::class, fn () => throw new RuntimeException('gateway hook failed'));
 
+        $thrown = null;
         try {
             (new RecordPaymentService)->recordByStaff($invoice->fresh(), null, '100.00', 'TRANSFER-X', reopen: true);
-            $this->fail('no failure');
-        } catch (RuntimeException) {
+        } catch (RuntimeException $e) {
+            $thrown = $e;
         }
+        $this->assertInstanceOf(RuntimeException::class, $thrown, 'no failure');
 
         $this->assertSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status);
         $this->assertSame(AdjustmentNoteStatus::Active, $invoice->adjustmentNotes()->where('is_cancellation', true)->sole()->status);

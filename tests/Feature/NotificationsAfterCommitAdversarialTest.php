@@ -101,11 +101,13 @@ class NotificationsAfterCommitAdversarialTest extends TestCase
         });
 
         // First attempt of the queued job: fails after the key was taken.
+        $thrown = null;
         try {
             NotificationHelper::invoicePaymentFailedNotification($invoice->client, $invoice);
-            $this->fail('the first attempt was expected to throw');
-        } catch (RuntimeException) {
+        } catch (RuntimeException $e) {
+            $thrown = $e;
         }
+        $this->assertInstanceOf(RuntimeException::class, $thrown, 'the first attempt was expected to throw');
         // The queue retries the job (backoff 60s): same call.
         NotificationHelper::invoicePaymentFailedNotification($invoice->client, $invoice->fresh());
 

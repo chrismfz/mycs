@@ -234,12 +234,14 @@ class DomainsD2AdversarialTest extends TestCase
     public function test_holds_a_login_failure_or_error_body_does_not_carry_the_password(): void
     {
         Http::fake([self::PRODUCTION . '/v1beta/auth/login' => Http::response('{"desc":"bad","echo":"Op-Secret-Pa55"}', 401)]);
+        $thrown = null;
         try {
             (new OpenproviderRegistrar)->checkAvailability('a.com', new DomainRegistrarCredentials(['username' => 'u', 'password' => 'Op-Secret-Pa55'], sandbox: false));
-            $this->fail('no exception');
         } catch (\RuntimeException $e) {
-            $this->assertStringNotContainsString('Op-Secret-Pa55', $e->getMessage());
+            $thrown = $e;
         }
+        $this->assertInstanceOf(\RuntimeException::class, $thrown, 'no exception');
+        $this->assertStringNotContainsString('Op-Secret-Pa55', $thrown->getMessage());
         $cached = Cache::get('domains:op:token:' . md5(self::PRODUCTION . '|u'));
         $this->assertNull($cached);
     }

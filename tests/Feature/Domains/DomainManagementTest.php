@@ -174,11 +174,13 @@ class DomainManagementTest extends TestCase
         $domain = $this->domain(['transfer_lock' => true]);
         $this->fakeOp([], refuse: 'Domain is in a state that does not allow this');
 
+        $thrown = null;
         try {
             app(DomainManagementService::class)->setTransferLock($domain, false, null);
-            $this->fail('the refusal must reach staff');
-        } catch (RuntimeException) {
+        } catch (RuntimeException $e) {
+            $thrown = $e;
         }
+        $this->assertInstanceOf(RuntimeException::class, $thrown, 'the refusal must reach staff');
 
         $this->assertTrue($domain->fresh()->transfer_lock);
         $log = DomainRegistrarLog::query()->sole();

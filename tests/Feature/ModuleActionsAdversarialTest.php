@@ -137,11 +137,13 @@ namespace Tests\Feature {
 
         private function failingCreate(): void
         {
+            $thrown = null;
             try {
                 (new CreateJob($this->service->fresh()))->handle();
-                $this->fail('the server should refuse');
-            } catch (Exception) {
+            } catch (Exception $e) {
+                $thrown = $e;
             }
+            $this->assertInstanceOf(Exception::class, $thrown, 'the server should refuse');
         }
 
         /**
