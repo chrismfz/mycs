@@ -12,8 +12,8 @@ use Livewire\Attributes\Url;
 use Nixpal\DomainTools\DomainName;
 
 /**
- * Public whois (D8a): who has a name, from its registry (RDAP, else port 43 with personal data masked; .gr later, with
- * grepp). Registrar, dates, status, nameservers, DNSSEC: what the registry publishes. At most 10 per 10 minutes per
+ * Public whois (D8a): who has a name, from its registry (RDAP, else port 43 with personal data masked; .gr and .ελ from
+ * the registry's WHOIS API, G6 of grepp). Registrar, dates, status, nameservers, DNSSEC: what the registry publishes. At most 10 per 10 minutes per
  * address; answers cached an hour.
  */
 class Whois extends Component

@@ -19,7 +19,7 @@ use Nixpal\DomainTools\Whois\SocketConnector;
  */
 class DomainLookup
 {
-    /** TLDs whose registry answers neither RDAP nor port 43 here (punycode): their adapter comes with their module. */
+    /** TLDs whose registry answers neither RDAP nor port 43 here (punycode); .gr and .ελ go to GrWhois before this. */
     public const UNSUPPORTED = ['gr', 'xn--qxam'];
 
     private ?RdapClient $rdap = null;
@@ -29,7 +29,7 @@ class DomainLookup
     public function __construct(private readonly ?SocketConnector $socket = null) {}
 
     /**
-     * @return array{status: string, record: RdapRecord|null, text: string|null} status: found, not_found, unsupported, error
+     * @return array{status: string, record: RdapRecord|null, text: string|null} status: found, not_found, not_listed (.gr: not in its WHOIS), unsupported, error
      */
     public function whois(string $fqdn): array
     {
@@ -37,12 +37,13 @@ class DomainLookup
         $tld = substr($fqdn, (int) strrpos($fqdn, '.') + 1);
         $key = 'domain-whois-answer:' . sha1($fqdn);
         if (GrWhois::covers($tld)) {
+            $key .= ':' . GrWhois::scope(); // the live registry's answers never served for the test one's
             if (($cached = Cache::get($key)) !== null) {
                 return $cached;
             }
             [$status, $record] = app(GrWhois::class)->lookup($fqdn);
             $answer = ['status' => $status, 'record' => $record, 'text' => null];
-            if ($status === 'found' || $status === 'not_found') {
+            if ($status === 'found' || $status === 'not_listed') {
                 Cache::put($key, $answer, 3600);
             }
 

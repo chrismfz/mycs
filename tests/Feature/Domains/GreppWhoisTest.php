@@ -6,6 +6,7 @@ use App\Livewire\DomainShop\Whois;
 use App\Models\DomainRegistrarConnection;
 use App\Services\Domains\Lookup\DomainLookup;
 use App\Services\Domains\Lookup\GrWhois;
+use App\Services\Domains\Registrars\GrEppRegistrar;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
@@ -68,14 +69,15 @@ class GreppWhoisTest extends TestCase
             return str_contains($request->url(), 'limited') ? Http::response('', 429) : Http::response('{"error":404,"message":"not found"}', 404);
         });
 
-        $this->assertSame('not_found', app(DomainLookup::class)->whois('xn--hxajbheg2az3al.gr')['status']);
+        $this->assertSame('not_listed', app(DomainLookup::class)->whois('xn--hxajbheg2az3al.gr')['status']);
         $this->assertSame(GrWhois::SANDBOX . '/api/v1/domain/παράδειγμα.gr', $urls[0]);
-        $this->assertSame('not_found', app(DomainLookup::class)->whois('xn--hxajbheg2az3al.xn--qxam')['status'], '.ελ too');
+        $this->assertSame('not_listed', app(DomainLookup::class)->whois('xn--hxajbheg2az3al.xn--qxam')['status'], '.ελ too');
         $this->assertStringEndsWith('/παράδειγμα.ελ', $urls[1]);
 
         $this->assertSame('error', app(DomainLookup::class)->whois('limited.gr')['status']);
         app(DomainLookup::class)->whois('limited.gr');
-        $this->assertCount(4, $urls, 'a 429 is never cached');
+        app(DomainLookup::class)->whois('other.gr');
+        $this->assertCount(3, $urls, 'a 429 is never cached, and pauses it a minute (review 4 of #197)');
     }
 
     public function test_without_its_account_gr_is_not_supported_and_the_page_shows_a_gr_name(): void
@@ -88,5 +90,22 @@ class GreppWhoisTest extends TestCase
         Http::fake(fn () => Http::response((string) file_get_contents(base_path('packages/gr-epp/tests/fixtures/whois/domain-response.json')), 200));
         Livewire::withQueryParams(['domain' => 'example1.gr'])->test(Whois::class)
             ->assertSee('MYIP NETWORKS')->assertSee('ns1.example.com');
+    }
+
+    public function test_review_fixes_of_197(): void
+    {
+        // 1 and 2: the live connection first, never one that is «off».
+        $this->connection('sandbox');
+        $this->connection('production');
+        $off = DomainRegistrarConnection::query()->create(['registrar' => 'grepp', 'label' => 'Off', 'is_active' => true, 'mode' => 'off']);
+        $off->storeCredentials(['whois_username' => 'x', 'whois_password' => 'y'], ['whois_password']);
+        $this->assertSame('production', GrWhois::connection()?->mode);
+        DomainRegistrarConnection::query()->where('mode', '!=', 'off')->delete();
+        $this->assertNull(GrWhois::connection());
+        $this->assertSame('unsupported', app(DomainLookup::class)->whois('example1.gr')['status']);
+
+        // 3: a missing nameserver under another .com.gr names that domain, not com.gr.
+        $this->assertSame('example.com.gr', (fn (string $h) => self::registeredName($h))->call(new GrEppRegistrar, 'ns1.example.com.gr'));
+        $this->assertSame('example.gr', (fn (string $h) => self::registeredName($h))->call(new GrEppRegistrar, 'ns1.example.gr'));
     }
 }
