@@ -180,7 +180,10 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
             throw new RuntimeException("The registry refused to read {$domain->fqdn}: {$e->getMessage()}");
         }
         if ($info->clientId !== null && strcasecmp($info->clientId, self::registrarId($credentials)) !== 0) {
-            throw new DomainNotFoundAtRegistrar("{$domain->fqdn} is managed by another registrar at the registry ({$info->clientId}).", elsewhere: true);
+            // The registry gave its record, which it gives only its sponsor: ours, and the connection's «Registrar id» is
+            // wrong. Never taken as a transfer away (ADV-1 of #203): elsewhere false, staff fix the setting.
+            throw new DomainNotFoundAtRegistrar("{$domain->fqdn}: the registry's clID is {$info->clientId}, not the connection's registrar id "
+                . self::registrarId($credentials) . ': check its «Registrar id».', elsewhere: false);
         }
 
         $result = self::syncResultFrom($info);

@@ -6,11 +6,10 @@ use App\Enums\DomainStatus;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainTld;
-use App\Models\Invoice;
-use App\Models\InvoiceItem;
 use App\Support\Domains\DomainSyncResult;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 use Throwable;
@@ -240,7 +239,9 @@ class DomainSyncService
         $warning = $changes['_warning'][1] ?? null;
         unset($changes['_warning']);
         $meta = $domain->meta ?? [];
-        unset($meta['not_ours_since']); // ours again: a «not ours» seen before was not a transfer away
+        unset($meta['not_ours']); // ours again: a «not ours» seen before was not a transfer away
+        // The connection that read it as ours: only that one can later say it left (ADV-3 of #203).
+        $meta['read_by'] = $domain->effectiveRegistrarConnection()?->id;
         if ($result->rawStatus !== null) {
             $meta['registrar_status'] = $result->rawStatus;
         }
@@ -289,16 +290,22 @@ class DomainSyncService
         }
     }
 
-    /** When it was read and what went wrong: bookkeeping, not a change of the domain (no audit, no updated_at). */
-    /** Seen «not ours» this long, twice at least, before it is taken as transferred away (never on one answer). */
+    /** Seen «not ours» this long apart (twice at least, the same connection and mode) before it is marked transferred away. */
     public const AWAY_AFTER_SECONDS = 3600;
 
+    /** This many other domains of one connection saying «not ours» within a day: a setting, not transfers: none is marked. */
+    public const AWAY_BREAKER = 2;
+
     /**
-     * A domain of ours its registrar no longer holds (transferred to another: the .gr registry's 2201, the account not
-     * listing it): first noted; seen so again an hour later, it is transferred away (D-18: kept with its history; billing
-     * and sync stop, auto-renew off). Never on one answer (a wrong setting, a moment's failure); never a pending order
-     * (its fulfilment decides) or one already ended; never a name that no longer exists (2303: gone, not moved). An open
-     * renewal invoice is left to staff, noted.
+     * Its registrar says it is not ours (moved to another registrar: the .gr registry's 2201, the account no longer listing
+     * it). As WHMCS's sync (owner 2026-10-18), it is marked transferred away by itself, safely (reviews of #203):
+     * - seen so twice, an hour apart at least, by the same production connection and mode, the one that last read it as
+     *   ours (another connection, sandbox, or a note older than a day: never);
+     * - not when AWAY_BREAKER other domains of that connection said so within a day too: a wrong setting (credentials, a
+     *   registrar id, a TLD routed elsewhere) hits them all, a transfer one: staff decide (the badge, «Transferred away»);
+     * - an active one only (a lapsed one missing is more likely gone: noted); never a pending order, one ended, or a name
+     *   that no longer exists (2303) or a contradicting setting (elsewhere false). Read as ours again, the note goes.
+     * Marked: auto-renew off, sync and billing stop; staff can resume it; its open invoices are cancelled a day later.
      */
     private function notOurs(Domain $domain, DomainNotFoundAtRegistrar $e): void
     {
@@ -306,25 +313,43 @@ class DomainSyncService
         if ($e->elsewhere === false || !in_array($domain->status, [DomainStatus::Active, ...self::LAPSED], true)) {
             return;
         }
+        $connection = $domain->effectiveRegistrarConnection();
         $meta = $domain->meta ?? [];
-        $since = is_string($meta['not_ours_since'] ?? null) ? Carbon::parse($meta['not_ours_since']) : null;
-        if ($since === null || $since->greaterThan(now())) {
-            $meta['not_ours_since'] = now()->toIso8601String();
-            $domain->forceFill(['meta' => $meta])->saveQuietly();
-
+        $was = is_array($meta['not_ours'] ?? null) ? $meta['not_ours'] : [];
+        // The same connection and mode, and a note of the last day (ADV-6: one answer weeks ago is no first sighting).
+        $same = ($was['connection_id'] ?? null) === $connection?->id && ($was['mode'] ?? null) === $connection?->mode
+            && is_string($was['last'] ?? null) && Carbon::parse($was['last'])->greaterThanOrEqualTo(now()->subDay());
+        $since = $same && is_string($was['since'] ?? null) ? Carbon::parse($was['since']) : now();
+        if ($since->greaterThan(now())) {
+            $since = now(); // a clock moved back
+        }
+        $meta['not_ours'] = ['since' => $since->toIso8601String(), 'last' => now()->toIso8601String(), 'connection_id' => $connection?->id,
+            'mode' => $connection?->mode, 'elsewhere' => $e->elsewhere, 'said' => mb_substr($e->getMessage(), 0, 300)];
+        $domain->forceFill(['meta' => $meta])->saveQuietly();
+        // Active only: a lapsed one missing is more likely gone than moved (ADV-8): noted, staff decide.
+        if ($domain->status !== DomainStatus::Active || $connection === null || $connection->mode !== 'production'
+            || $since->diffInSeconds(now()) < self::AWAY_AFTER_SECONDS) {
             return;
         }
-        if ($since->diffInSeconds(now()) < self::AWAY_AFTER_SECONDS) {
+        // Said by a connection other than the one that read it as ours (a TLD routed elsewhere): noted only (ADV-3).
+        if (isset($meta['read_by']) && $meta['read_by'] !== $connection->id) {
             return;
         }
-        unset($meta['not_ours_since']);
-        $open = InvoiceItem::query()->where('reference_type', Domain::class)->where('reference_id', $domain->id)
-            ->whereHas('invoice', fn ($invoice) => $invoice->where('status', Invoice::STATUS_UNPAID))->pluck('invoice_id')->unique()->values()->all();
-        $meta['transferred_away'] = array_filter(['at' => now()->toIso8601String(), 'seen_since' => $since->toIso8601String(),
-            'registrar' => mb_substr($e->getMessage(), 0, 300), 'open_invoices' => $open ?: null]);
-        $domain->forceFill(['status' => DomainStatus::TransferredAway, 'auto_renew' => false, 'meta' => $meta])->save(); // audited
+        $saying = Domain::query()->whereKeyNot($domain->id)->whereNotIn('status', DomainStatus::terminalValues())
+            ->where('meta->not_ours->connection_id', $connection->id)->where('meta->not_ours->last', '>=', now()->subDay()->toIso8601String())->count();
+        if ($saying >= self::AWAY_BREAKER) {
+            return; // too many of one connection at once: not transfers; staff's to look at
+        }
+        $audit = Config::get('audit.console');
+        Config::set('audit.console', true); // audited from a queue worker too (review 6 of #203)
+        try {
+            app(DomainManagementService::class)->markTransferredAway($domain, null);
+        } finally {
+            Config::set('audit.console', $audit);
+        }
     }
 
+    /** When it was read and what went wrong: bookkeeping, not a change of the domain (no audit, no updated_at). */
     private function bookkeep(Domain $domain, ?string $error): void
     {
         $at = Carbon::now();

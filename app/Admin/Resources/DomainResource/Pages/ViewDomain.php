@@ -4,6 +4,7 @@ namespace App\Admin\Resources\DomainResource\Pages;
 
 use App\Admin\Actions\InvoiceSelectedItemsAction;
 use App\Admin\Resources\DomainResource;
+use App\Enums\DomainStatus;
 use App\Exceptions\DisplayException;
 use App\Models\Contact;
 use App\Models\Domain;
@@ -238,6 +239,28 @@ class ViewDomain extends ViewRecord
 
                 // Read when the modal opens and only rendered in it (review 4): not a notification, which Filament keeps in
                 // the cache and the page's state until shown. Each read is logged, the code never.
+                // Its registrar says it is not ours (the sync's note): staff confirm it moved, after a look at its whois.
+                Action::make('markTransferredAway')->label(__('Transferred away'))->icon('heroicon-o-arrow-right-on-rectangle')->color('danger')
+                    ->visible(fn (Domain $record) => self::can('admin.domains.manage') && is_array($record->meta['not_ours'] ?? null)
+                        && !$record->status->isTerminal())
+                    ->requiresConfirmation()
+                    ->modalDescription(fn (Domain $record) => __('Its registrar says it is not ours since :since (:said). Check its WHOIS first: if a setting of its connection is wrong, fix that instead. Ended here: auto-renew off, no more sync or billing; its open renewal invoices are cancelled a day later. Logged.',
+                        ['since' => (string) ($record->meta['not_ours']['since'] ?? '—'), 'said' => (string) ($record->meta['not_ours']['said'] ?? '—')]))
+                    ->action(fn (Domain $record) => $this->attempt(
+                        fn () => app(DomainManagementService::class)->markTransferredAway($record, self::staff() ?? throw new \RuntimeException('No staff.')),
+                        __('Marked transferred away.'),
+                    )),
+
+                Action::make('resumeNotAway')->label(__('Not transferred away: resume'))->icon('heroicon-o-arrow-uturn-left')
+                    ->visible(fn (Domain $record) => self::can('admin.domains.manage') && $record->status === DomainStatus::TransferredAway
+                        && is_array($record->meta['transferred_away'] ?? null))
+                    ->requiresConfirmation()
+                    ->modalDescription(__('Its status and auto-renew as they were, then synced. Logged.'))
+                    ->action(fn (Domain $record) => $this->attempt(
+                        fn () => app(DomainManagementService::class)->resumeNotTransferredAway($record, self::staff() ?? throw new \RuntimeException('No staff.')),
+                        __('Resumed.'),
+                    )),
+
                 // A registration recalled within 5 days (the .gr registry, G5a of grepp): its payment refunded separately.
                 Action::make('recall')->label(__('Recall the registration'))->icon('heroicon-o-arrow-uturn-left')->color('danger')
                     ->visible(fn (Domain $record) => self::can('admin.domains.manage') && app(DomainManagementService::class)->recallable($record))

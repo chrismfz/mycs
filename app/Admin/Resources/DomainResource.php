@@ -73,6 +73,8 @@ class DomainResource extends Resource
             ])
             ->filters([
                 SelectFilter::make('status')->label(__('Status'))->options(DomainStatus::options()),
+                Filter::make('not_ours')->label(__('Not ours at its registrar'))
+                    ->query(fn ($query) => $query->whereNotNull('meta->not_ours')),
                 Filter::make('expiring')->label(__('Expiring in 60 days'))
                     ->query(fn (Builder $query) => $query->whereBetween('expires_at', [today(), today()->addDays(60)])),
                 SelectFilter::make('client')->label(__('Client'))->relationship('client', 'id')->searchable()
@@ -193,7 +195,14 @@ class DomainResource extends Resource
                     Section::make(__('Nameservers'))->schema([
                         TextEntry::make('nameservers.host')->hiddenLabel()->listWithLineBreaks()->placeholder('—'),
                     ]),
-                    // Why the sync took it as transferred away (seen «not ours» an hour apart), and its open invoices for staff.
+                    // Its registrar says it is not ours: for staff to confirm «Transferred away» or fix its connection.
+                    Section::make(__('Not ours at its registrar'))
+                        ->visible(fn (Domain $record) => is_array($record->meta['not_ours'] ?? null))
+                        ->schema([
+                            TextEntry::make('not_ours_notes')->hiddenLabel()->listWithLineBreaks()->color('danger')
+                                ->state(fn (Domain $record) => collect($record->meta['not_ours'] ?? [])->map(fn ($v, $k) => "{$k}: " . (is_scalar($v) ? var_export($v, true) : json_encode($v)))->values()->all()),
+                        ]),
+                    // Staff's «Transferred away»: when, by whom, from what, and its open invoices then.
                     Section::make(__('Transferred away'))->collapsible()
                         ->visible(fn (Domain $record) => is_array($record->meta['transferred_away'] ?? null))
                         ->schema([
@@ -223,6 +232,19 @@ class DomainResource extends Resource
                 ]),
             ]),
         ]);
+    }
+
+    /** Domains whose registrar says they are not ours: staff's to confirm (the sync only notes it). */
+    public static function getNavigationBadge(): ?string
+    {
+        $count = Domain::query()->whereNotNull('meta->not_ours')->whereNotIn('status', DomainStatus::terminalValues())->count();
+
+        return $count > 0 ? (string) $count : null;
+    }
+
+    public static function getNavigationBadgeColor(): ?string
+    {
+        return 'danger';
     }
 
     public static function getRelations(): array

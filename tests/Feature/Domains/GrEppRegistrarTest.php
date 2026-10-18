@@ -141,7 +141,9 @@ class GrEppRegistrarTest extends TestCase
             (new GrEppRegistrar)->syncDomain(new Domain(['fqdn' => 'forth.gr']), $this->credentials('myip1'));
             $this->fail('another registrar\'s');
         } catch (DomainNotFoundAtRegistrar $e) {
-            $this->assertStringContainsString('another registrar', $e->getMessage());
+            // A full record answered with another clID: its registrar id setting, never a transfer away (ADV-1 of #203).
+            $this->assertStringContainsString('Registrar id', $e->getMessage());
+            $this->assertFalse($e->elsewhere);
         }
 
         GrEppRegistrar::reset();

@@ -44,6 +44,7 @@ use App\Services\Payment\CardExpiryNotices;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
@@ -176,6 +177,11 @@ class CronJob extends Command
                     // past its last recoverable day (review F2: the registrar may still restore it by hand until then).
                     $domain = $domain->fresh();
                     if ($domain === null || !$domain->status->isTerminal() || ($domain->status === DomainStatus::Deleted && !self::pastRecovery($domain))) {
+                        continue;
+                    }
+                    // Transferred away: a day after staff marked it (owner 2026-10-18: time to undo a mistake first).
+                    $away = $domain->meta['transferred_away']['at'] ?? null;
+                    if ($domain->status === DomainStatus::TransferredAway && is_string($away) && Carbon::parse($away)->greaterThan(now()->subDay())) {
                         continue;
                     }
                     // Not one staff reopened after this cancelled it (ADV-6): theirs to decide, not cancelled every night.

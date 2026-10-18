@@ -12,6 +12,8 @@ use App\Models\Contact;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainRegistrarLog;
+use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\Staff;
 use App\Models\User;
 use App\Support\Domains\ChildHost;
@@ -247,6 +249,48 @@ class DomainManagementService
             return $connection instanceof DomainRegistrarConnection && (bool) ($this->factory->for($connection)->capabilities()->{$capability} ?? false);
         } catch (Throwable) {
             return false;
+        }
+    }
+
+    /**
+     * A domain moved to another registrar: marked by the sync (seen twice, safely: DomainSyncService::notOurs) or by staff
+     * (the badge, its page): ended with its history
+     * (D-18), auto-renew off, its sync and billing stop; its open renewal invoices are cancelled by the daily cron a day
+     * later (CronJob «domain_invoices_cancelled»). Audited.
+     */
+    public function markTransferredAway(Domain $domain, ?Staff $staff): void
+    {
+        $domain->refresh();
+        if (!in_array($domain->status, [DomainStatus::Active, DomainStatus::Expired, DomainStatus::Grace, DomainStatus::Redemption], true)) {
+            throw new DisplayException(__('domains.manage.not_markable_away', ['domain' => $domain->fqdn]));
+        }
+        $meta = $domain->meta ?? [];
+        $open = InvoiceItem::query()->where('reference_type', Domain::class)->where('reference_id', $domain->id)
+            ->whereHas('invoice', fn ($invoice) => $invoice->whereIn('status', Invoice::OPEN_STATUSES))->pluck('invoice_id')->unique()->values()->all();
+        $meta['transferred_away'] = array_filter(['at' => now()->toIso8601String(), 'staff_id' => $staff?->id, 'by' => $staff === null ? 'sync' : 'staff', 'from' => $domain->status->value,
+            'auto_renew' => $domain->auto_renew, 'registrar' => $meta['not_ours']['said'] ?? null, 'open_invoices' => $open ?: null],
+            fn ($v) => $v !== null);
+        unset($meta['not_ours']);
+        $domain->forceFill(['status' => DomainStatus::TransferredAway, 'auto_renew' => false, 'meta' => $meta])->save(); // audited
+    }
+
+    /** Staff undo it (a wrong setting, a mistake): its status and auto-renew as they were, then synced. Audited. */
+    public function resumeNotTransferredAway(Domain $domain, Staff $staff): void
+    {
+        $domain->refresh();
+        $away = $domain->meta['transferred_away'] ?? null;
+        if ($domain->status !== DomainStatus::TransferredAway || !is_array($away)) {
+            throw new DisplayException(__('domains.manage.not_resumable', ['domain' => $domain->fqdn]));
+        }
+        $meta = $domain->meta;
+        unset($meta['transferred_away']);
+        $meta['resumed'] = ['at' => now()->toIso8601String(), 'staff_id' => $staff->id];
+        $domain->forceFill(['status' => DomainStatus::tryFrom((string) ($away['from'] ?? '')) ?? DomainStatus::Active,
+            'auto_renew' => (bool) ($away['auto_renew'] ?? false), 'meta' => $meta])->save(); // audited
+        try {
+            $this->sync->sync($domain->refresh());
+        } catch (Throwable $e) {
+            report($e); // its sync error shown on the page; resumed all the same
         }
     }
 

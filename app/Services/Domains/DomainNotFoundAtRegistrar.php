@@ -10,8 +10,9 @@ use RuntimeException;
  * «genuinely not ours» (register may proceed / a taken name is a third
  * party's) from «could not read» (abort, never act blind).
  *
- * $elsewhere: the name exists, held by another registrar (true: the .gr registry's 2201), it does not exist at all
- * (false: 2303, gone), or not known (null: the account simply does not list it).
+ * $elsewhere: the name exists, held by another registrar (true: the .gr registry's 2201); never to be taken as moved
+ * (false: 2303, no such name; or our own setting contradicts the registry, a wrong registrar id); or not known (null:
+ * the account simply does not list it).
  */
 class DomainNotFoundAtRegistrar extends RuntimeException
 {

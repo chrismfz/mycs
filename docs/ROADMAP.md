@@ -399,10 +399,9 @@ importer):
       Domains → «Default Nameserver 1–5» ανά instance (το συμπληρώνει ο ιδιοκτήτης).
 - [x] **Tab «Domains» στα Settings + έτη ανανέωσης** που αλλάζει ο πελάτης/staff (ιδιοκτήτης 2026-10-17,
       `docs/domains.md` §6). Μετά: **grepp** μόνο του.
-- [ ] **Τιμολόγια ανανέωσης domain που τελείωσε** (ιδιοκτήτης 2026-10-18): όταν ένα domain τελειώνει οριστικά (deleted μετά
-      το grace/redemption, ή transferred away από το sync), τα **απλήρωτα** τιμολόγια ανανέωσής του γίνονται cancel αυτόματα
-      **μία μέρα μετά** (cron, με audit και ειδοποίηση στο staff). Μέχρι τότε: σημειώνονται στο `meta.transferred_away`
-      για το staff. Ποτέ πληρωμένα ή μερικώς πληρωμένα (εκεί αποφασίζει το staff: επιστροφή ή πίστωση).
+- [x] **Τιμολόγια ανανέωσης domain που τελείωσε** (ιδιοκτήτης 2026-10-18): το ημερήσιο cron (`domain_invoices_cancelled`)
+      ακυρώνει τα ανοιχτά τιμολόγια ανανέωσης ενός domain που τελείωσε (deleted μετά το grace/redemption· transferred away
+      **μία μέρα** μετά τη σήμανση από το staff, για να προλάβει να διορθωθεί λάθος)· όσα κρατούν χρήματα μένουν στο staff.
 - [ ] **grepp** (.gr EPP, myip). Πλάνο (2026-10-18): G0 υλικό του μητρώου από το Ekdosi (έγινε) · G1 `packages/gr-epp`
       transport/session · G2 εντολές και parsers (XSD) · G3 driver ανάγνωσης · G4 οι 5 αλλαγές των υπηρεσιών για .gr
       (ζυγά έτη στη grace, NS μεταφοράς χωρίς RDAP, DACoR με email, χωρίς restore, μεταφορά άμεση) · G5 εγγραφές (χρήματα)
@@ -410,7 +409,8 @@ importer):
       (ιδιοκτήτης 2026-10-18: τα .gr είναι τα περισσότερα, 1.300+· `docs/domains/grepp.md` §0). Απαντήσεις ιδιοκτήτη 2026-10-18 στο `docs/domains/grepp.md` §0
       (χωρίς UAT: παραγωγή με δικά μας domains και recall· πρόθεμα c60· IPs δηλωμένες· NS από το WHOIS API). Τα 1.388
       στο migration από το WHMCS (importer D6). Ζυγά έτη 2–10 (FAQ του Μητρώου, `docs/domains/grepp/faq.md`).
-      **Sync σε παρτίδες, για όλους τους registrars** (ιδιοκτήτης 2026-10-18, για ασφάλεια: Openprovider και όποιος έρθει,
+      **Sync σε παρτίδες, για όλους τους registrars** (ιδιοκτήτης 2026-10-18· **ένα cron**, κάθε 2 ώρες, 200 ανά σύνδεση
+      registrar, και τα δύο ρυθμίσεις στο Settings → Domains· 0 ώρες = σταματημένο· «Sync now» για ένα αμέσως· για ασφάλεια: Openprovider και όποιος έρθει,
       όχι μόνο .gr· στο G3 ή αμέσως πριν): σήμερα το `domains:sync` περνά όλα κάθε 4 ώρες, σειριακά· γίνεται N ανά εκτέλεση (τα παλιότερα `last_synced_at` πρώτα), συχνότερη εκτέλεση, παύση ανάμεσα στις
       κλήσεις, ρυθμίσεις στο Settings → Domains (ανά εκτέλεση, ελάχιστες ώρες ανά domain), με όριο ανά σύνδεση registrar
       (`DomainRegistrarConnection`)· τα pending πιο συχνά· «Sync now»
