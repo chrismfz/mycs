@@ -213,7 +213,8 @@ class DomainReminders
     {
         // Unpaid only: a draft is not the customer's to see (review R3).
         $invoice = $line?->invoice !== null && $line->invoice->status === Invoice::STATUS_UNPAID ? $line->invoice : null;
-        $price = $domain->renewalPrice();
+        // The period and price its next renewal is billed for (the stage's in grace: two years for .gr; review of #189).
+        $price = $domain->renewalPriceFor($domain->nextRenewalYears());
         // Free by its open invoice when it has one (adversarial ADV-9: billed at a price since), else by its price.
         $free = $invoice !== null ? $invoice->remaining <= 0 : $price !== null && bccomp($price, '0', 2) === 0;
         // What renewing late costs on top (owner 2026-10-17: the point is paying before it): before the expiry the fee of
@@ -242,7 +243,7 @@ class DomainReminders
             'free' => $free,
             'price' => $free ? '' : $money($price),
             'late_fee' => $free ? '' : $money($fee),
-            'years' => max(1, (int) $domain->years),
+            'years' => $domain->nextRenewalYears(),
             'invoice' => $invoice,
             // Charged without the customer, by AutoCharge's own rules (review R2: not a mixed invoice it leaves alone).
             'auto_charged' => $invoice !== null ? PaymentReminders::chargedOnItsOwn($invoice) : $domain->client->autoChargeAgreement() !== null,

@@ -59,7 +59,8 @@ class DomainAdopter
         } catch (Throwable $e) {
             throw new DisplayException($fqdn . ': ' . $e->getMessage());
         }
-        if ($result->deadRecord || $result->rawStatus !== 'ACT' || $result->expiresAt === null) {
+        // Active as the adapter reads it (Openprovider's ACT, the .gr registry's ok: never one registrar's raw words).
+        if ($result->deadRecord || $result->status !== DomainStatus::Active || $result->expiresAt === null) {
             throw new DisplayException(__(':domain is «:status» at the registrar: only an active domain is added.', ['domain' => $fqdn, 'status' => (string) $result->rawStatus]));
         }
 

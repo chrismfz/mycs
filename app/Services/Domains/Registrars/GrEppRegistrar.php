@@ -62,8 +62,9 @@ class GrEppRegistrar implements DomainRegistrar
 
     public function capabilities(): DomainRegistrarCapabilities
     {
-        // Reads only until G5; the registry has no privacy toggle, no transfer lock, no price feed, no portfolio list.
-        return new DomainRegistrarCapabilities;
+        // Reads only until G5; the registry has no privacy toggle, no transfer lock, no price feed, no portfolio list. A
+        // name in its 15 days after expiry is renewed (no restore), in even years (its FAQ).
+        return new DomainRegistrarCapabilities(renewsInGrace: true, renewYearStep: 2);
     }
 
     /** Contract: never throws. A login (and nothing else): the credentials and our IP at the registry. */
@@ -216,7 +217,8 @@ class GrEppRegistrar implements DomainRegistrar
         if (in_array('pendingCreate', $info->statuses, true) || in_array('pendingRegulatorApproval', $info->regulatorStatuses, true)) {
             return [DomainStatus::PendingRegister, null];
         }
-        if ($info->expiresOn === null) {
+        // On its way to another registrar (or in): not a state the app keeps; never «active» for the adopter (review 5).
+        if ($info->expiresOn === null || in_array('pendingTransfer', $info->statuses, true)) {
             return [null, null];
         }
         $expires = Carbon::parse($info->expiresOn, 'UTC');

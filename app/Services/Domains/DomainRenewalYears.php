@@ -20,7 +20,8 @@ use Illuminate\Support\Facades\DB;
  * with it (period and price, ChangeOpenLine); one paid, or with money on it, keeps its period (the next one changes).
  *
  * Not while it is pending (its order registers or transfers the years paid for) or ended. In grace or redemption a
- * renewal is one year whatever the period (D-13): the period changes the renewals after it.
+ * renewal is its TLD's shortest period whatever the period (D-13; two years for .gr): the period changes the renewals
+ * after it.
  */
 final class DomainRenewalYears
 {
@@ -141,7 +142,7 @@ final class DomainRenewalYears
      */
     private function changeOpenLine(Domain $domain, ?string $billedAt): bool
     {
-        // In grace or redemption its open renewal is one year (D-13): kept. Expired is billed for its period (code review 2).
+        // In grace or redemption its open renewal is the stage's period (D-13): kept. Expired is billed for its period (code review 2).
         if (!in_array($domain->status, [DomainStatus::Active, DomainStatus::Expired], true) || $domain->expires_at === null
             || $domain->recurring_amount !== null || $billedAt === null) {
             return false;

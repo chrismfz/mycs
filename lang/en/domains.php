@@ -54,6 +54,7 @@ return [
         'not_renewable' => ':domain cannot be renewed now: it has no expiry or has ended.',
         'no_price' => ':domain has no renew price for :years year(s): set one on its TLD or the domain.',
         'not_active_at_registrar' => 'The registrar has :domain as :status: renew it there by hand.',
+        'not_in_steps' => 'The registrar renews :domain in steps of :step years, not :years: set its renewal period, or renew it there by hand.',
     ],
 
     // The client area (D7-2).

@@ -27,6 +27,13 @@ final class DomainRegistrarCapabilities
         public readonly bool $supportsTransfer = false,
         /** Child/glue host records registered at the registry. */
         public readonly bool $supportsGlueHosts = false,
+        /**
+         * In its grace a name is renewed as it is (the .gr registry: 15 days of pendingDelete, renewal only), not restored
+         * (Openprovider's soft quarantine: a restore with the grace fee). G4a of grepp.
+         */
+        public readonly bool $renewsInGrace = false,
+        /** Renewals in whole multiples of this many years (the .gr registry: 2, 4 … 10). */
+        public readonly int $renewYearStep = 1,
     ) {}
 
     /** The API-less baseline: a manually-managed registrar can do none of this. */
