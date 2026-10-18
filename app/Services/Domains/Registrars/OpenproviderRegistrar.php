@@ -989,9 +989,12 @@ class OpenproviderRegistrar implements DomainRegistrar
         // tombstone would disown a registration that was just paid for.
         // Only records of this very name: a search may answer with others (review F1: another domain's id, expiry and
         // nameservers were written onto ours, and a renewal would have charged for it).
-        $candidates = is_array($results)
-            ? array_values(array_filter($results, fn ($r) => is_array($r) && $this->isRecordOf($r, $domain->fqdn)))
-            : [];
+        if (!is_array($results)) {
+            // Not its search's answer (a maintenance page, a proxy, a changed API): could not read, never «not ours»
+            // (ADV-4 of #203).
+            throw new RuntimeException("Openprovider's search for {$domain->fqdn} did not answer with results: could not read.");
+        }
+        $candidates = array_values(array_filter($results, fn ($r) => is_array($r) && $this->isRecordOf($r, $domain->fqdn)));
         $first = null;
         foreach ($candidates as $candidate) {
             if (!in_array((string) ($candidate['status'] ?? ''), self::DEAD_STATUSES, true)) {

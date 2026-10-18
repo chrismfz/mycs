@@ -34,6 +34,8 @@ return [
         'no_auth_code_email' => 'This registrar gives the code: use «Show».',
         'recalled' => 'The registration of :domain was recalled.',
         'no_child_hosts' => 'Its registrar has no child nameservers of their own (their IPs go with the domain\'s nameservers).',
+        'not_markable_away' => ':domain is not one to mark transferred away (pending, or ended already).',
+        'not_resumable' => ':domain was not marked transferred away here.',
         'not_recallable' => ':domain cannot be recalled: only a registration of the last :days days at a registry that allows it.',
         'not_manageable' => ':domain is not at a registrar with an API, or it has ended.',
         'owner_change_not_here' => 'The registrar does not allow the owner to be changed here (it may be a paid trade): not done.',

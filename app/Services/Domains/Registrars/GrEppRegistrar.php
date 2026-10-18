@@ -208,12 +208,16 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
             }
             // 2303: no such name; 2201: not ours to read (another registrar's, no code given).
             if (in_array($e->resultCode, [2303, 2201], true)) {
-                throw new DomainNotFoundAtRegistrar("{$domain->fqdn} is not ours at the registry ({$e->resultCode}: {$e->registryMessage}).");
+                throw new DomainNotFoundAtRegistrar("{$domain->fqdn} is not ours at the registry ({$e->resultCode}: {$e->registryMessage}).",
+                    elsewhere: $e->resultCode === 2201); // 2201: another registrar's; 2303: no such name
             }
             throw new RuntimeException("The registry refused to read {$domain->fqdn}: {$e->getMessage()}");
         }
         if ($info->clientId !== null && strcasecmp($info->clientId, self::registrarId($credentials)) !== 0) {
-            throw new DomainNotFoundAtRegistrar("{$domain->fqdn} is managed by another registrar at the registry ({$info->clientId}).");
+            // The registry gave its record, which it gives only its sponsor: ours, and the connection's «Registrar id» is
+            // wrong. Never taken as a transfer away (ADV-1 of #203): elsewhere false, staff fix the setting.
+            throw new DomainNotFoundAtRegistrar("{$domain->fqdn}: the registry's clID is {$info->clientId}, not the connection's registrar id "
+                . self::registrarId($credentials) . ': check its «Registrar id».', elsewhere: false);
         }
 
         $result = self::syncResultFrom($info);

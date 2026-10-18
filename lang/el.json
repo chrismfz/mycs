@@ -628,5 +628,12 @@
     "Out of date (changed after it was read): read again.": "Παλιά λίστα (άλλαξε μετά την ανάγνωση): διαβάστε ξανά.",
     "not read": "δεν διαβάστηκε",
     "WHOIS": "WHOIS",
-    "Transfer to us": "Μεταφορά σε εμάς"
+    "Transfer to us": "Μεταφορά σε εμάς",
+    "Transferred away": "Μεταφέρθηκε αλλού",
+    "Not ours at its registrar": "Όχι δικό μας στον registrar του",
+    "Its registrar says it is not ours since :since (:said). Check its WHOIS first: if a setting of its connection is wrong, fix that instead. Ended here: auto-renew off, no more sync or billing; its open renewal invoices are cancelled a day later. Logged.": "Ο registrar του λέει ότι δεν είναι δικό μας από :since (:said). Δείτε πρώτα το WHOIS: αν φταίει ρύθμιση της σύνδεσης, διορθώστε εκείνη. Εδώ τελειώνει: auto-renew off, χωρίς sync και χρέωση· τα ανοιχτά τιμολόγια ανανέωσης ακυρώνονται μία μέρα μετά. Καταγράφεται.",
+    "Marked transferred away.": "Σημειώθηκε μεταφερμένο αλλού.",
+    "Not transferred away: resume": "Δεν μεταφέρθηκε: συνέχεια",
+    "Its status and auto-renew as they were, then synced. Logged.": "Κατάσταση και auto-renew όπως ήταν, και sync. Καταγράφεται.",
+    "Resumed.": "Συνεχίζει."
 }
