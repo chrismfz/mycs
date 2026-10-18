@@ -65,7 +65,7 @@ class GrEppRegistrarTest extends TestCase
         $this->assertInstanceOf(GrEppRegistrar::class, app(DomainRegistrarRegistry::class)->for('grepp'));
         $this->assertSame(['username', 'password', 'registrar_id', 'contact_prefix', 'whois_username', 'whois_password'], array_keys(config('domains.registrar_fields.grepp')));
         $this->assertTrue(config('domains.registrar_fields.grepp.password.secret') && config('domains.registrar_fields.grepp.whois_password.secret'));
-        $this->assertFalse((new GrEppRegistrar)->capabilities()->supportsTransfer, 'reads only until G5');
+        $this->assertTrue((new GrEppRegistrar)->capabilities()->supportsTransfer, 'transfers from G5b-2');
     }
 
     public function test_ping_is_a_login_and_never_throws(): void
@@ -224,7 +224,6 @@ class GrEppRegistrarTest extends TestCase
     {
         $domain = new Domain(['fqdn' => 'cdnet.gr']);
         foreach ([
-            fn (GrEppRegistrar $r) => $r->transferIn($domain, 'code', $this->credentials()),
             fn (GrEppRegistrar $r) => $r->restore($domain, $this->credentials()),
             fn (GrEppRegistrar $r) => $r->getEppCode($domain, $this->credentials()),
         ] as $write) {

@@ -40,6 +40,7 @@ use MyCS\GrEpp\Command\DomainCreate;
 use MyCS\GrEpp\Command\DomainDelete;
 use MyCS\GrEpp\Command\DomainInfo;
 use MyCS\GrEpp\Command\DomainRenew;
+use MyCS\GrEpp\Command\DomainTransfer;
 use MyCS\GrEpp\Command\DomainUpdate;
 use MyCS\GrEpp\Command\HostCheck;
 use MyCS\GrEpp\Command\HostCreate;
@@ -94,11 +95,10 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
 
     public function capabilities(): DomainRegistrarCapabilities
     {
-        // Reads only until G5; the registry has no privacy toggle, no transfer lock, no price feed, no portfolio list. A
-        // name in its 15 days after expiry is renewed (no restore), in even years (its FAQ).
-        // G5a: registrations and renewals; transfers from G5b (not sold before: review 1 of #191).
+        // The registry has no privacy toggle, no transfer lock, no price feed, no portfolio list. A name in its 15 days
+        // after expiry is renewed (no restore), in even years (its FAQ). G5a: registrations, renewals; G5b-2: transfers.
         return new DomainRegistrarCapabilities(renewsInGrace: true, renewYearStep: 2, authCodeByEmail: true, transferKeepsNameservers: true,
-            supportsRegistration: true, supportsRecall: true, supportsGlueHosts: true);
+            supportsRegistration: true, supportsRecall: true, supportsGlueHosts: true, supportsTransfer: true);
     }
 
     /** Contract: never throws. A login (and nothing else): the credentials and our IP at the registry. */
@@ -551,9 +551,81 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
         }
     }
 
+    /**
+     * WRITE (G5b-2): a name moved to us, by its code (the registrant's, from DACoR or its registrar). The registrant goes
+     * into a contact id of ours that does not exist yet (the registry copies it as it holds it: the owner's name never
+     * changes in a transfer); approved at once, its nameservers kept, no period added (free at the .gr registry). Then
+     * its admin, tech and billing (the other registrar's, e.g. 533_) replaced by ours from the domain's contacts: after
+     * the transfer, so a failure there never undoes it (kept in its details for staff; the next change retries it).
+     */
     public function transferIn(Domain $domain, string $authCode, DomainRegistrarCredentials $credentials): DomainSyncResult
     {
-        throw self::notYet('transfer');
+        return $this->locked($credentials, function (Session $session) use ($domain, $authCode, $credentials) {
+            $registrant = self::prepare(function () use ($session, $domain, $authCode, $credentials) {
+                if (trim($authCode) === '') {
+                    throw new InvalidArgumentException('A .gr transfer needs the name\'s authorisation code.');
+                }
+
+                return self::freshContactId($session, $domain, self::prefix($credentials));
+            });
+            $result = self::charge(fn () => DomainTransfer::parse(self::send($session,
+                fn (string $clTRID) => DomainTransfer::request($domain->fqdn, $authCode, $registrant, $clTRID))));
+            Domain::query()->whereKey($domain->getKey())->update(['registrant_handle' => $registrant]);
+            $domain->forceFill(['registrant_handle' => $registrant])->syncOriginalAttribute('registrant_handle');
+
+            $details = array_filter(['transfer' => $result->transferStatus, 'comments' => implode(' ', $result->comments) ?: null]);
+            try {
+                $details['contacts'] = self::replaceRoles($session, $domain, self::prefix($credentials));
+            } catch (Throwable $e) {
+                $details['contacts'] = 'not replaced: ' . mb_substr($e->getMessage(), 0, 300); // done all the same
+            }
+            try {
+                $after = self::syncResultFrom(self::read($session, $domain));
+
+                return new DomainSyncResult($after->expiresAt, $after->nameservers, $after->registrarDomainId, $after->status, $after->rawStatus,
+                    $after->contactHandles, false, null, null, $after->registeredAt, $details + $after->details, $after->graceEndsOn, $after->redemptionEndsOn);
+            } catch (Throwable) {
+                return new DomainSyncResult(status: DomainStatus::Active, rawStatus: 'ok', details: $details); // read on the next sync
+            }
+        });
+    }
+
+    /**
+     * A contact id of ours the registry does not have yet, for a transferred name's registrant: «{prefix}_mcst<domain
+     * id, base 36>», a letter added while it is taken (a contact made by an earlier transfer of the same domain).
+     */
+    private static function freshContactId(Session $session, Domain $domain, string $prefix): string
+    {
+        $base = "{$prefix}_mcst" . base_convert((string) $domain->getKey(), 10, 36);
+        foreach (array_merge([''], range('a', 'z')) as $suffix) {
+            $id = Rules::contactId($base . $suffix, $prefix);
+            $check = array_change_key_case(ContactCheck::parse(self::send($session, fn (string $clTRID) => ContactCheck::request([$id], $clTRID))));
+            if ($check[strtolower($id)]->available ?? false) {
+                return $id;
+            }
+        }
+        throw new InvalidArgumentException("No free contact id for {$domain->fqdn}'s registrant.");
+    }
+
+    /**
+     * After a transfer: its admin, tech and billing set to ours (from the domain's contacts), the registry's others on them
+     * (the previous registrar's) removed. A role without a contact here keeps what it has.
+     */
+    private static function replaceRoles(Session $session, Domain $domain, string $prefix): string
+    {
+        $info = self::read($session, $domain);
+        $add = $remove = [];
+        foreach (self::ensureContacts($session, $domain, $prefix, ['admin', 'tech', 'billing']) as $role => $ours) {
+            $there = $info->contacts[$role] ?? [];
+            $add[$role] = in_array(strtolower($ours), array_map('strtolower', $there), true) ? [] : [$ours];
+            $remove[$role] = array_values(array_filter($there, fn (string $id) => strtolower($id) !== strtolower($ours)));
+        }
+        if (array_filter($add) === [] && array_filter($remove) === []) {
+            return 'ours already';
+        }
+        DomainUpdate::parse(self::send($session, fn (string $clTRID) => DomainUpdate::request($domain->fqdn, $clTRID, [], [], $add, $remove)));
+
+        return 'replaced';
     }
 
     /**

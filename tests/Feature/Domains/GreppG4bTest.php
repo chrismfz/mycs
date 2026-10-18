@@ -160,8 +160,8 @@ class GreppG4bTest extends TestCase
 
     public function test_a_gr_transfer_needs_no_nameservers(): void
     {
-        // The registry keeps the name's nameservers: no RDAP read (.gr has none), never «ns_unknown» for staff. The
-        // transfer itself still refuses before anything is sent until G5.
+        // The registry keeps the name's nameservers: no RDAP read (.gr has none), never «ns_unknown» for staff. From G5b-2
+        // the transfer is sent (here the registry does not answer: staff; the whole flow in GreppTransfersTest).
         $order = Order::query()->create(['client_id' => $this->user->client()->id, 'currency_code' => 'EUR']);
         $domain = $this->domain(['status' => DomainStatus::PendingTransfer, 'expires_at' => null, 'order_id' => $order->id,
             'epp_code' => 'Code-1', 'meta' => ['free_order' => true]]);
@@ -170,8 +170,7 @@ class GreppG4bTest extends TestCase
 
         $error = (string) ModuleAction::query()->sole()->last_error;
         $this->assertStringNotContainsString(__('domains.order.ns_unknown', ['domain' => 'example1.gr']), $error);
-        $this->assertStringContainsString('G5', $error);
-        $this->assertSame([], $this->transport->sent, 'nothing asked of the registry');
+        $this->assertSame('hello', $this->transport->kinds()[0] ?? null, 'sent to the registry, with no nameservers');
         $this->assertSame(0, $domain->nameservers()->count());
     }
 
