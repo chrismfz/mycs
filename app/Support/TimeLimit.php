@@ -9,10 +9,11 @@ namespace App\Support;
  */
 final class TimeLimit
 {
-    /** At least $seconds from now, where the process has a limit; none stays none. */
+    /** At least $seconds from now, where the process has a shorter limit; none, or a longer one, stays (review 1). */
     public static function atLeast(int $seconds): void
     {
-        if ((int) ini_get('max_execution_time') === 0) {
+        $limit = (int) ini_get('max_execution_time');
+        if ($limit === 0 || $limit >= $seconds) {
             return;
         }
         set_time_limit($seconds);
