@@ -64,7 +64,7 @@ class GrEppRegistrarTest extends TestCase
     public function test_it_is_a_registrar_with_its_connection_fields(): void
     {
         $this->assertInstanceOf(GrEppRegistrar::class, app(DomainRegistrarRegistry::class)->for('grepp'));
-        $this->assertSame(['username', 'password', 'contact_prefix', 'whois_username', 'whois_password'], array_keys(config('domains.registrar_fields.grepp')));
+        $this->assertSame(['username', 'password', 'registrar_id', 'contact_prefix', 'whois_username', 'whois_password'], array_keys(config('domains.registrar_fields.grepp')));
         $this->assertTrue(config('domains.registrar_fields.grepp.password.secret') && config('domains.registrar_fields.grepp.whois_password.secret'));
         $this->assertFalse((new GrEppRegistrar)->capabilities()->supportsTransfer, 'reads only until G5');
     }
@@ -197,6 +197,28 @@ class GrEppRegistrarTest extends TestCase
         $this->assertSame(['hello', 'login', 'logout'], $this->transport->kinds());
         $this->expectException(DomainRegistrarNotConfigured::class);
         (new GrEppRegistrar)->syncDomain(new Domain(['fqdn' => 'a.gr']), $this->credentials('ab'));
+    }
+
+    public function test_a_live_domain_of_ours_is_ours(): void
+    {
+        // Live (2026-10-18): domain:clID is the registrar («myip»), the EPP user «myip1».
+        Carbon::setTestNow('2026-10-18 10:00:00');
+        $sync = function (array $credentials) {
+            GrEppRegistrar::reset();
+            $this->transport = $this->transportWith(function () {
+                $body = (string) file_get_contents(base_path('packages/gr-epp/tests/fixtures/live/domain-info-response.xml'));
+                $this->transport->queue(new HttpResponse(200, (string) preg_replace('#<clTRID>[^<]*</clTRID>#', '<clTRID>ECHO</clTRID>', $body)));
+            });
+
+            return (new GrEppRegistrar)->syncDomain(new Domain(['fqdn' => 'example1.gr']), new DomainRegistrarCredentials($credentials + ['password' => 'Secret-pw1'], sandbox: false));
+        };
+        $result = $sync(['username' => 'myip1']);
+        $this->assertSame([DomainStatus::Active, '2029-03-01'], [$result->status, $result->expiresAt]);
+        $this->assertSame(DomainStatus::Active, $sync(['username' => 'MYIP1'])->status, 'case');
+        $this->assertSame(DomainStatus::Active, $sync(['username' => 'myip1', 'registrar_id' => '  '])->status, 'blank: the fallback');
+        $this->assertSame(DomainStatus::Active, $sync(['username' => 'epp-user', 'registrar_id' => 'MYIP'])->status, 'set: used');
+        $this->expectException(DomainNotFoundAtRegistrar::class);
+        $sync(['username' => 'myip1', 'registrar_id' => 'other']); // set and not the clID: not ours
     }
 
     public function test_writes_are_refused_before_anything_is_sent(): void
