@@ -16,10 +16,13 @@ use MyCS\GrEpp\Command\HostDelete;
 use MyCS\GrEpp\Command\HostUpdate;
 use MyCS\GrEpp\Command\OwnerChange;
 use MyCS\GrEpp\Command\Rules;
+use MyCS\GrEpp\Config;
 use MyCS\GrEpp\Data\ContactChanges;
 use MyCS\GrEpp\Data\ContactDraft;
 use MyCS\GrEpp\Data\PostalInfo;
+use MyCS\GrEpp\Refused;
 use MyCS\GrEpp\Response;
+use MyCS\GrEpp\Session;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -33,7 +36,7 @@ final class WritesTest extends TestCase
     {
         return new ContactDraft('c60_q1pcBkTq',
             new PostalInfo('loc', 'Χρήστος Παναγιωτάκης', 'MyIP', ['Οδός 1', 'Ισόγειο'], 'Αθήνα', 'Αττική', '10000', 'GR'),
-            new PostalInfo('int', 'Christos Panagiotakis', 'MyIP', ['Odos 1'], 'Athina', null, '10000', 'GR'),
+            new PostalInfo('int', 'Christos Panagiotakis', 'MyIP', ['Odos 1'], 'Athina', 'Attiki', '10000', 'GR'),
             '+30.2100000000', 'owner@example.test', '12', '+30.2100000001');
     }
 
@@ -46,7 +49,7 @@ final class WritesTest extends TestCase
     {
         foreach ([
             ContactCreate::request(self::contact(), 'mycs-1'),
-            ContactUpdate::request('c60_q1pcBkTq', new ContactChanges(localAddress: ['street' => ['Νέα οδός 2'], 'city' => 'Πάτρα', 'country' => 'gr'],
+            ContactUpdate::request('c60_q1pcBkTq', new ContactChanges(localAddress: ['street' => ['Νέα οδός 2'], 'city' => 'Πάτρα', 'province' => 'Αχαΐα', 'postcode' => '26221', 'country' => 'gr'],
                 voice: '+30.6900000000', voiceExtension: '5', email: 'new@example.test'), 'mycs-1'),
             ContactUpdate::request('c60_q1pcBkTq', new ContactChanges(fax: ''), 'mycs-1'),
             HostCreate::request('ns1.myip.gr', ['192.0.2.1', '2001:db8::1'], 'mycs-1'),
@@ -135,6 +138,68 @@ final class WritesTest extends TestCase
         }
     }
 
+    public function test_review_fixes(): void
+    {
+        // 1: a transfer's exDate is the moment of the transfer, never taken as the expiry.
+        $transfer = DomainTransfer::parse(self::fixture('62-domain-transfer-response'));
+        $this->assertSame(['serverApproved', null, null], [$transfer->transferStatus, $transfer->expires, $transfer->expiresOn]);
+
+        // 6: a refusal keeps the registry's reasons.
+        $transport = (new FakeTransport)->fixture('02-hello-response.xml', ['JSESSIONID=A'])->fixture('04-login-response.xml')
+            ->fixture('38.1-domain-create-response-when-domain-is-already-registered.xml');
+        try {
+            (new Session(new Config('myip1', 'Secret-pw1'), $transport))
+                ->command(DomainCreate::request('forth.gr', 2, [], 'c60_q1pcBkTq', [], 'mycs-1'));
+            $this->fail('refused');
+        } catch (Refused $e) {
+            $this->assertSame(2302, $e->resultCode);
+            $this->assertNotSame([], $e->comments);
+        }
+
+        // 7: decomposed Greek is the same text, composed; names lower case, NFC, no trailing dot.
+        $this->assertSame('Ελληνικά', Rules::text(\Normalizer::normalize('Ελληνικά', \Normalizer::FORM_D), 'name'));
+        $this->assertStringContainsString('<domain:name>ελληνικό.gr</domain:name>',
+            DomainCreate::request('ΕΛΛΗΝΙΚΌ.gr.', 2, ['NS1.MYIP.GR.'], 'c60_q1pcBkTq', [], 'mycs-1'));
+
+        // 9: removing old glue from an external host is allowed.
+        QueriesTest::assertValid(HostUpdate::request('ns1.example.com', [], ['192.0.2.9'], 'mycs-1'));
+        $this->assertStringContainsString('<domain:contact type="tech">ics_old01</domain:contact>',
+            DomainUpdate::request('a.gr', 'mycs-1', removeContacts: ['tech' => ['ics_old01']]));
+    }
+
+    public function test_review_refusals(): void
+    {
+        $int = fn (string $street) => new ContactDraft('c60_abcde', self::contact()->local,
+            new PostalInfo('int', 'Christos', null, [$street], 'Athina', 'Attiki', '10000', 'GR'), '+30.2100000000', 'a@example.test');
+        $refused = [
+            // 2: Latin postal info ASCII only; the slots' types.
+            'Greek in int' => fn () => ContactCreate::request($int('Οδός 1'), 'mycs-1'),
+            'an accent in int' => fn () => ContactCreate::request($int('Café 1'), 'mycs-1'),
+            'swapped types' => fn () => ContactCreate::request(new ContactDraft('c60_abcde', self::contact()->international, null, '+30.2100000000', 'a@example.test'), 'mycs-1'),
+            // 3: the Greek address's required fields; 1 to 3 streets, never cut.
+            'no postcode in loc' => fn () => ContactCreate::request(new ContactDraft('c60_abcde', new PostalInfo('loc', 'Χ', null, ['Οδός'], 'Αθήνα', 'Αττική', null, 'GR'), null, '+30.2100000000', 'a@example.test'), 'mycs-1'),
+            'four streets' => fn () => ContactCreate::request(new ContactDraft('c60_abcde', new PostalInfo('loc', 'Χ', null, ['1', '2', '3', '4'], 'Αθήνα', 'Αττική', '10000', 'GR'), null, '+30.2100000000', 'a@example.test'), 'mycs-1'),
+            'no street' => fn () => ContactCreate::request(new ContactDraft('c60_abcde', new PostalInfo('loc', 'Χ', null, [], 'Αθήνα', 'Αττική', '10000', 'GR'), null, '+30.2100000000', 'a@example.test'), 'mycs-1'),
+            // 4: unknown roles.
+            'an unknown role' => fn () => DomainUpdate::request('a.gr', 'mycs-1', addContacts: ['Tech' => ['c60_abcde']]),
+            'a registrant as a role' => fn () => DomainCreate::request('a.gr', 2, [], 'c60_q1pcBkTq', ['registrant' => ['c60_abcde']], 'mycs-1'),
+            // 9: a real day; an extension of digits; an email; one line.
+            'no such day' => fn () => DomainRenew::request('a.gr', '2026-02-30', 2, 'mycs-1'),
+            'an extension with letters' => fn () => ContactUpdate::request('c60_abcde', new ContactChanges(voice: '+30.2100000000', voiceExtension: '12a'), 'mycs-1'),
+            'not an email' => fn () => ContactUpdate::request('c60_abcde', new ContactChanges(email: 'not-an-email'), 'mycs-1'),
+            'a newline in a name' => fn () => Rules::text("Χρήστος\nΠ", 'name'),
+            'an empty code on a renew' => fn () => DomainRenew::request('a.gr', '2026-11-01', 2, 'mycs-1', 'c60_q1pcBkTq', ' '),
+        ];
+        foreach ($refused as $case => $call) {
+            try {
+                $call();
+                $this->fail("refused: {$case}");
+            } catch (InvalidArgumentException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+    }
+
     public function test_the_registrys_rules_are_checked_before_sending(): void
     {
         $refused = [
@@ -148,17 +213,17 @@ final class WritesTest extends TestCase
             'a tab' => fn () => Rules::text("a\tb", 'street'),
             'a not sign (U+00AC)' => fn () => Rules::text('a¬b', 'street'),
             'odd years' => fn () => Rules::years(3),
-            'one year' => fn () => DomainCreate::request('a.gr', 1, [], 'c60_q1pcBkTq', [], 'c'),
-            'twelve years' => fn () => DomainRenew::request('a.gr', '2026-11-01', 12, 'c'),
-            'an empty update' => fn () => DomainUpdate::request('a.gr', 'c'),
-            'an empty contact update' => fn () => ContactUpdate::request('c60_q1pcBkTq', new ContactChanges, 'c'),
-            'glue on an external host' => fn () => HostCreate::request('ns1.example.com', ['192.0.2.1'], 'c'),
-            'not an IP' => fn () => HostCreate::request('ns1.myip.gr', ['999.1.1.1'], 'c'),
-            'a renew with a datetime' => fn () => DomainRenew::request('a.gr', '2026-11-01T23:59:59Z', 2, 'c'),
-            'another registrar\'s renew without its code' => fn () => DomainRenew::request('a.gr', '2026-11-01', 2, 'c', 'c60_q1pcBkTq'),
-            'a recall without its protocol' => fn () => DomainDelete::recall('a.gr', ' ', 'c'),
-            'a transfer without its code' => fn () => DomainTransfer::request('a.gr', '', 'c60_q1pcBkTq', 'c'),
-            'not an owner change' => fn () => OwnerChange::request('a.gr', 'c60_q1pcBkTq', 'deleteDomain', 'c'),
+            'one year' => fn () => DomainCreate::request('a.gr', 1, [], 'c60_q1pcBkTq', [], 'mycs-1'),
+            'twelve years' => fn () => DomainRenew::request('a.gr', '2026-11-01', 12, 'mycs-1'),
+            'an empty update' => fn () => DomainUpdate::request('a.gr', 'mycs-1'),
+            'an empty contact update' => fn () => ContactUpdate::request('c60_q1pcBkTq', new ContactChanges, 'mycs-1'),
+            'glue on an external host' => fn () => HostCreate::request('ns1.example.com', ['192.0.2.1'], 'mycs-1'),
+            'not an IP' => fn () => HostCreate::request('ns1.myip.gr', ['999.1.1.1'], 'mycs-1'),
+            'a renew with a datetime' => fn () => DomainRenew::request('a.gr', '2026-11-01T23:59:59Z', 2, 'mycs-1'),
+            'another registrar\'s renew without its code' => fn () => DomainRenew::request('a.gr', '2026-11-01', 2, 'mycs-1', 'c60_q1pcBkTq'),
+            'a recall without its protocol' => fn () => DomainDelete::recall('a.gr', ' ', 'mycs-1'),
+            'a transfer without its code' => fn () => DomainTransfer::request('a.gr', '', 'c60_q1pcBkTq', 'mycs-1'),
+            'not an owner change' => fn () => OwnerChange::request('a.gr', 'c60_q1pcBkTq', 'deleteDomain', 'mycs-1'),
         ];
         foreach ($refused as $case => $call) {
             try {

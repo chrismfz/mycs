@@ -16,17 +16,17 @@ final class HostUpdate
     {
         Rules::notEmpty($add !== [] || $remove !== [] || $newName !== null);
         $command = Builder::start('update', 'host');
-        $command->add($command->object, 'host', 'name', mb_strtolower($name));
+        $command->add($command->object, 'host', 'name', Rules::name($name));
         foreach (['add' => $add, 'rem' => $remove] as $op => $addresses) {
             if ($addresses !== []) {
                 $element = $command->add($command->object, 'host', $op);
-                foreach (HostCreate::addresses($name, $addresses) as [$ip, $version]) {
+                foreach (HostCreate::addresses($name, $addresses, removing: $op === 'rem') as [$ip, $version]) {
                     $command->add($element, 'host', 'addr', $ip)->setAttribute('ip', $version);
                 }
             }
         }
         if ($newName !== null) {
-            $command->add($command->add($command->object, 'host', 'chg'), 'host', 'name', mb_strtolower($newName));
+            $command->add($command->add($command->object, 'host', 'chg'), 'host', 'name', Rules::name($newName));
         }
 
         return $command->finish($clTRID);

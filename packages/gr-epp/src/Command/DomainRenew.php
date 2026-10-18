@@ -18,14 +18,15 @@ final class DomainRenew
     public static function request(string $name, string $currentExpiry, int $years, string $clTRID,
         ?string $registrantId = null, #[SensitiveParameter] ?string $authCode = null): string
     {
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $currentExpiry) !== 1) {
-            throw new InvalidArgumentException("The current expiry is a day (Y-m-d): {$currentExpiry}");
+        Rules::day($currentExpiry);
+        if ($authCode !== null && trim($authCode) === '') {
+            $authCode = null;
         }
         if (($registrantId === null) !== ($authCode === null)) {
             throw new InvalidArgumentException('Renewing another registrar\'s name needs both a registrant of ours and its authorisation code.');
         }
         $command = Builder::start('renew', 'domain');
-        $command->add($command->object, 'domain', 'name', $name);
+        $command->add($command->object, 'domain', 'name', Rules::name($name));
         $command->add($command->object, 'domain', 'curExpDate', $currentExpiry);
         $command->add($command->object, 'domain', 'period', (string) Rules::years($years))->setAttribute('unit', 'y');
         if ($registrantId !== null && $authCode !== null) {

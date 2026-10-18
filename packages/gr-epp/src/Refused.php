@@ -8,8 +8,10 @@ namespace MyCS\GrEpp;
  */
 final class Refused extends GrEppException
 {
-    public function __construct(public readonly int $resultCode, public readonly string $registryMessage, public readonly ?string $svTRID = null)
+    /** @param  list<string>  $comments  the registry's reasons (extdomain/extcommon comments: «Σε Χρήση, Ταυτόσημο όνομα χώρου») */
+    public function __construct(public readonly int $resultCode, public readonly string $registryMessage, public readonly ?string $svTRID = null,
+        public readonly array $comments = [])
     {
-        parent::__construct("The registry refused ({$resultCode}): {$registryMessage}");
+        parent::__construct("The registry refused ({$resultCode}): {$registryMessage}" . ($comments !== [] ? ' — ' . implode(' ', $comments) : ''));
     }
 }

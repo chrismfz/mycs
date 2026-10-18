@@ -11,7 +11,7 @@ final class HostDelete
     public static function request(string $name, string $clTRID): string
     {
         $command = Builder::start('delete', 'host');
-        $command->add($command->object, 'host', 'name', mb_strtolower($name));
+        $command->add($command->object, 'host', 'name', Rules::name($name));
 
         return $command->finish($clTRID);
     }

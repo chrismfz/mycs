@@ -15,7 +15,7 @@ final class DacorIssueToken
     public static function request(string $name, string $clTRID): string
     {
         $command = Builder::start('update', 'domain');
-        $command->add($command->object, 'domain', 'name', $name);
+        $command->add($command->object, 'domain', 'name', Rules::name($name));
         $command->extension('dacor', 'issueToken');
 
         return $command->finish($clTRID);

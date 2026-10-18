@@ -20,7 +20,7 @@ final class DomainDelete
             throw new InvalidArgumentException('Deleting a name needs its authorisation code.');
         }
         $command = Builder::start('delete', 'domain');
-        $command->add($command->object, 'domain', 'name', $name);
+        $command->add($command->object, 'domain', 'name', Rules::name($name));
         $delete = $command->extension('extdomain', 'delete');
         $command->add($delete, 'extdomain', 'pw', $authCode);
         $command->add($delete, 'extdomain', 'op', $homograph ? 'deleteHomograph' : 'deleteDomain');
@@ -31,11 +31,12 @@ final class DomainDelete
     /** A registration recalled (within 5 days of it), by the protocol its create answered. */
     public static function recall(string $name, string $protocol, string $clTRID): string
     {
-        if (trim($protocol) === '') {
-            throw new InvalidArgumentException('A recall needs the registration\'s protocol.');
+        $protocol = trim($protocol);
+        if (preg_match('/^\d{1,20}\z/', $protocol) !== 1) {
+            throw new InvalidArgumentException('A recall needs the registration\'s protocol (its number).');
         }
         $command = Builder::start('delete', 'domain');
-        $command->add($command->object, 'domain', 'name', $name);
+        $command->add($command->object, 'domain', 'name', Rules::name($name));
         $delete = $command->extension('extdomain', 'delete');
         $command->add($delete, 'extdomain', 'protocol', $protocol);
         $command->add($delete, 'extdomain', 'op', 'recallApplication');

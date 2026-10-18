@@ -179,7 +179,7 @@ final class QueriesTest extends TestCase
         $this->assertFalse($gov['forth.gov.gr']->restricted);
 
         // 3: the registry's limits per check, before sending.
-        foreach ([fn () => DomainCheck::request(array_fill(0, 8, 'a.gr'), 'c'), fn () => ContactCheck::request(['a', 'b', 'c', 'd'], 'c'), fn () => HostCheck::request([], 'c')] as $tooMany) {
+        foreach ([fn () => DomainCheck::request(array_fill(0, 8, 'a.gr'), 'mycs-1'), fn () => ContactCheck::request(['a', 'b', 'c', 'd'], 'mycs-1'), fn () => HostCheck::request([], 'mycs-1')] as $tooMany) {
             try {
                 $tooMany();
                 $this->fail('limit');
@@ -208,7 +208,7 @@ final class QueriesTest extends TestCase
 
         // 8: another registrar's contact needs both.
         $this->expectException(\InvalidArgumentException::class);
-        ContactInfo::request('reg_contact002', 'c', 'roid-only');
+        ContactInfo::request('reg_contact002', 'mycs-1', 'roid-only');
     }
 
     public function test_dates_must_be_dates(): void

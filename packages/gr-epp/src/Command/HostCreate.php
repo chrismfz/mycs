@@ -16,7 +16,7 @@ final class HostCreate
     public static function request(string $name, array $addresses, string $clTRID): string
     {
         $command = Builder::start('create', 'host');
-        $command->add($command->object, 'host', 'name', mb_strtolower($name));
+        $command->add($command->object, 'host', 'name', Rules::name($name));
         foreach (self::addresses($name, $addresses) as [$ip, $version]) {
             $command->add($command->object, 'host', 'addr', $ip)->setAttribute('ip', $version);
         }
@@ -32,16 +32,21 @@ final class HostCreate
     /** True for a host under .gr or .ελ (its glue is registered with it). */
     public static function internal(string $name): bool
     {
-        return preg_match('/\.(gr|ελ|xn--qxam)$/u', mb_strtolower(rtrim($name, '.'))) === 1;
+        try {
+            return preg_match('/\.(gr|ελ)\z/u', Rules::name($name)) === 1;
+        } catch (InvalidArgumentException) {
+            return false; // not a name at all: not one of the registry's
+        }
     }
 
     /**
      * @param  list<string>  $addresses
      * @return list<array{0: string, 1: string}> [ip, v4|v6]
      */
-    public static function addresses(string $host, array $addresses): array
+    public static function addresses(string $host, array $addresses, bool $removing = false): array
     {
-        if ($addresses !== [] && !self::internal($host)) {
+        // Removing old glue from an external host is allowed (review 9 of #186); adding is not (2308).
+        if ($addresses !== [] && !$removing && !self::internal($host)) {
             throw new InvalidArgumentException("{$host} is not under .gr or .ελ: the registry takes no addresses for it (2308).");
         }
         if (count($addresses) > 16) {

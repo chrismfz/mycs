@@ -23,7 +23,7 @@ final class OwnerChange
             throw new InvalidArgumentException("Not an owner change: {$op}");
         }
         $command = Builder::start('update', 'domain');
-        $command->add($command->object, 'domain', 'name', $name);
+        $command->add($command->object, 'domain', 'name', Rules::name($name));
         $command->add($command->add($command->object, 'domain', 'chg'), 'domain', 'registrant', Rules::contactId($registrant));
         $command->add($command->extension('extdomain', 'update'), 'extdomain', 'op', $op);
 

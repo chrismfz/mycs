@@ -22,15 +22,22 @@ final class DomainTransfer
         }
         $command = Builder::start('transfer', 'domain');
         $command->document->getElementsByTagNameNS('urn:ietf:params:xml:ns:epp-1.0', 'transfer')->item(0)?->setAttribute('op', 'request');
-        $command->add($command->object, 'domain', 'name', $name);
+        $command->add($command->object, 'domain', 'name', Rules::name($name));
         $command->add($command->add($command->object, 'domain', 'authInfo'), 'domain', 'pw', $authCode);
         $command->add($command->extension('extdomain', 'transfer'), 'extdomain', 'registrantid', Rules::contactId($registrantId));
 
         return $command->finish($clTRID);
     }
 
+    /**
+     * Its status (serverApproved). Never its expiry: the registry's exDate here is the moment of the transfer (the guide's
+     * example 62), so it is left out; read the expiry with domain:info (review 1 of #186: else a domain looks expired).
+     */
     public static function parse(Response $response): Result
     {
-        return Results::of($response, 'domain:trnData');
+        $result = Results::of($response, 'domain:trnData');
+
+        return new Result($result->code, $result->name, $result->protocol, $result->created, null, null, $result->transferStatus,
+            $result->comments, $result->svTRID);
     }
 }

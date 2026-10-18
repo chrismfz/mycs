@@ -29,7 +29,7 @@ final class ContactUpdate
         if ($changes->voice !== null) {
             $voice = $command->add($chg, 'contact', 'voice', Rules::phone($changes->voice));
             if ($changes->voiceExtension !== null && $changes->voiceExtension !== '') {
-                $voice->setAttribute('x', $changes->voiceExtension);
+                $voice->setAttribute('x', Rules::extension($changes->voiceExtension));
             }
             $any = true;
         }
@@ -38,7 +38,7 @@ final class ContactUpdate
             $any = true;
         }
         if ($changes->email !== null) {
-            $command->add($chg, 'contact', 'email', Rules::text($changes->email, 'email'));
+            $command->add($chg, 'contact', 'email', Rules::email($changes->email));
             $any = true;
         }
         Rules::notEmpty($any);

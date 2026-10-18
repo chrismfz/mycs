@@ -13,8 +13,7 @@ final class Results
     {
         $xpath = $response->xpath();
         $node = $data !== null ? Read::required($response, "//{$data}") : null;
-        $comments = array_map(fn (string $c) => trim((string) preg_replace('/\s+/u', ' ', $c)),
-            Read::texts($xpath, '//extdomain:resData/extdomain:comment | //extcommon:comment | //extcontact:comment | //exthost:comment'));
+        $comments = $response->comments();
 
         return new Result(
             code: (int) $response->code,

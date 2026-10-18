@@ -21,12 +21,14 @@ final class DomainCreate
      */
     public static function request(string $name, int $years, array $nameservers, string $registrant, array $contacts, string $clTRID): string
     {
+        Rules::roles($contacts);
+        Rules::contactCount($contacts);
         $command = Builder::start('create', 'domain');
-        $command->add($command->object, 'domain', 'name', $name);
+        $command->add($command->object, 'domain', 'name', Rules::name($name));
         $command->add($command->object, 'domain', 'period', (string) Rules::years($years))->setAttribute('unit', 'y');
         if ($nameservers !== []) {
             $ns = $command->add($command->object, 'domain', 'ns');
-            foreach (array_values(array_unique(array_map('mb_strtolower', $nameservers))) as $host) {
+            foreach (Rules::nameservers($nameservers) as $host) {
                 $command->add($ns, 'domain', 'hostObj', $host);
             }
         }
@@ -48,13 +50,17 @@ final class DomainCreate
             throw new InvalidArgumentException('Activating a reserved form needs the authorisation code of the name held.');
         }
         $command = Builder::start('create', 'domain');
-        $command->add($command->object, 'domain', 'name', $form);
+        $command->add($command->object, 'domain', 'name', Rules::name($form));
         $command->add($command->add($command->object, 'domain', 'authInfo'), 'domain', 'pw', $heldAuthCode);
         $command->add($command->extension('extdomain', 'create'), 'extdomain', 'record', 'dname');
 
         return $command->finish($clTRID);
     }
 
+    /**
+     * The answer to a registration. To activateForm, the registry answers with the name held and its dates, not the
+     * form's (the guide's example 41): never store them against the form (review 8 of #186).
+     */
     public static function parse(Response $response): Result
     {
         return Results::of($response, 'domain:creData');
