@@ -21,6 +21,7 @@ use App\Support\Domains\DomainSyncResult;
 use App\Support\Domains\RegistrarContact;
 use App\Support\Domains\RegistrarTransactions;
 use App\Support\Redact;
+use App\Support\TimeLimit;
 use Closure;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Carbon;
@@ -551,7 +552,7 @@ class DomainManagementService
 
         // Longer than the longest call (review 5: contacts make up to 7 requests of 30s, each retried once on a 401), and
         // PHP allowed as long, so the lock never lapses mid-call and `finally` always runs.
-        set_time_limit(self::LOCK_SECONDS);
+        TimeLimit::atLeast(self::LOCK_SECONDS);
         $lock = Cache::lock("domain-registrar:{$domain->id}", self::LOCK_SECONDS);
         if (!$lock->get()) {
             throw new RuntimeException(__('domains.manage.busy', ['domain' => $domain->fqdn]));
