@@ -257,6 +257,19 @@ class Domain extends Model implements Auditable
      * The last day of its grace (D5a): the registrar's date, else its expiry plus the grace days; null when it has no
      * grace (0 days or unknown) or no expiry.
      */
+    /**
+     * The years a renewal in grace or redemption is for (D-13): its TLD's shortest renewal period (one year; two for
+     * .gr, whose periods are even: G4a of grepp), else one.
+     */
+    public function stageRenewalYears(): int
+    {
+        $years = $this->domainTld?->loadMissing('prices')->prices
+            ->where('operation', 'renew')->where('currency_code', $this->currency_code)->whereNotNull('price')
+            ->pluck('years')->map(fn ($y) => (int) $y)->filter(fn (int $y) => $y >= 1)->min();
+
+        return max(1, (int) ($years ?? 1));
+    }
+
     public function graceEndsOn(): ?Carbon
     {
         if ($this->grace_ends_on !== null && $this->hasRegistrarStageDates()) {

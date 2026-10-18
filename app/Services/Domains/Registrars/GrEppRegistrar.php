@@ -62,8 +62,9 @@ class GrEppRegistrar implements DomainRegistrar
 
     public function capabilities(): DomainRegistrarCapabilities
     {
-        // Reads only until G5; the registry has no privacy toggle, no transfer lock, no price feed, no portfolio list.
-        return new DomainRegistrarCapabilities;
+        // Reads only until G5; the registry has no privacy toggle, no transfer lock, no price feed, no portfolio list. A
+        // name in its 15 days after expiry is renewed (no restore), in even years (its FAQ).
+        return new DomainRegistrarCapabilities(renewsInGrace: true, renewYearStep: 2);
     }
 
     /** Contract: never throws. A login (and nothing else): the credentials and our IP at the registry. */

@@ -278,10 +278,11 @@ final class RenewalBilling
 
             return 0;
         }
-        // In grace or redemption one year (D-13: a restore brings back one year; review 8), at that year's price.
-        $years = in_array($domain->status, [DomainStatus::Grace, DomainStatus::Redemption], true) ? 1 : max(1, (int) $domain->years);
+        // In grace or redemption its TLD's shortest period (D-13: a restore brings back one year; review 8; .gr: two, its
+        // periods are even, G4a of grepp), at that period's price.
+        $years = in_array($domain->status, [DomainStatus::Grace, DomainStatus::Redemption], true) ? $domain->stageRenewalYears() : max(1, (int) $domain->years);
         $price = $years === max(1, (int) $domain->years) ? $domain->renewalPrice()
-            : $domain->domainTld?->loadMissing('prices')->priceFor('renew', 1, $domain->currency_code);
+            : $domain->domainTld?->loadMissing('prices')->priceFor('renew', $years, $domain->currency_code);
         if ($price === null) {
             $this->notices["invoices_created domain #{$id}"] = new DisplayException("Domain {$domain->fqdn}: no renew price for "
                 . max(1, (int) $domain->years) . " year(s) in {$domain->currency_code}: not billed (set one on its TLD or the domain).");

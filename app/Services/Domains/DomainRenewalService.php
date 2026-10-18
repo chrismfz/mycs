@@ -128,8 +128,8 @@ class DomainRenewalService
         for ($i = 0; $i < 20 && ($billed = self::billedLine($domain, $start, payable: true)) !== null && $billed->period_end !== null; $i++) {
             $start = Carbon::instance($billed->period_end)->startOfDay();
         }
-        // As the cron bills it (F8, D-13): one year in grace or redemption (a restore brings back one), else its years.
-        $years = in_array($domain->status, [DomainStatus::Grace, DomainStatus::Redemption], true) ? 1 : max(1, (int) $domain->years);
+        // As the cron bills it (F8, D-13): its TLD's shortest period in grace or redemption (one; two for .gr), else its years.
+        $years = in_array($domain->status, [DomainStatus::Grace, DomainStatus::Redemption], true) ? $domain->stageRenewalYears() : max(1, (int) $domain->years);
         $line->period_start = $start->toImmutable();
         $line->period_end = $start->toImmutable()->addYearsNoOverflow($years);
     }
@@ -214,8 +214,12 @@ class DomainRenewalService
             return self::FAILED;
         }
 
-        $restore = $now->status === DomainStatus::Grace && $now->rawStatus === 'DEL';
-        if (!$restore && $now->rawStatus !== 'ACT') {
+        // Renewed when active; in its grace restored (Openprovider's soft quarantine), or renewed where the registrar renews
+        // in grace (the .gr registry's 15 days: G4a of grepp). The adapter's status, never its raw words.
+        $capabilities = $this->factory->for($connection)->capabilities();
+        $restore = $now->status === DomainStatus::Grace && !$capabilities->renewsInGrace;
+        $renewable = $now->status === DomainStatus::Active || ($now->status === DomainStatus::Grace && $capabilities->renewsInGrace);
+        if (!$restore && !$renewable) {
             $stage = $now->status === DomainStatus::Redemption ? 'its redemption (a restore with a fee)' : "status {$now->rawStatus}";
             $this->staffDecides($domain, $line, $connection->registrar, "The registrar has it in {$stage}: staff decide (D-13).");
 
@@ -238,6 +242,12 @@ class DomainRenewalService
             return $this->apply($domain, $line, $connection, $staff, $now, false); // charged: the registrar lags
         }
         $years = min($this->lacking($now, $target), $paid - $done);
+        // A registrar that renews in steps (.gr: 2, 4 … 10) is never asked for another number of years: staff decide.
+        if ($years % max(1, $capabilities->renewYearStep) !== 0) {
+            $this->staffDecides($domain, $line, $connection->registrar, "The registrar renews in steps of {$capabilities->renewYearStep} years and {$years} would be needed: renew it by hand.");
+
+            return self::FAILED;
+        }
         $steps = $restore ? array_filter(['restore' => 1, 'renew' => $years - 1]) : ['renew' => $years];
         $result = $now;
         foreach ($steps as $action => $stepYears) {
@@ -392,8 +402,12 @@ class DomainRenewalService
             if ($this->covers($now, $target)) {
                 return $line; // already renewed: its payment adopts it
             }
-            if ($now->rawStatus !== 'ACT') {
+            $capabilities = $this->factory->for($connection)->capabilities();
+            if (!($now->status === DomainStatus::Active || ($now->status === DomainStatus::Grace && $capabilities->renewsInGrace))) {
                 throw new RuntimeException(__('domains.renew.not_active_at_registrar', ['domain' => $domain->fqdn, 'status' => (string) $now->rawStatus]));
+            }
+            if ($this->lacking($now, $target) % max(1, $capabilities->renewYearStep) !== 0) {
+                throw new RuntimeException("The registrar renews {$domain->fqdn} in steps of {$capabilities->renewYearStep} years: renew it by hand.");
             }
             if ($this->charge($domain, $line, $connection, $staff, 'renew', $this->lacking($now, $target), $target) === null) {
                 throw new RuntimeException((string) (ModuleAction::query()->open()->where('domain_id', $domain->id)->where('invoice_item_id', $line->id)->value('last_error')
