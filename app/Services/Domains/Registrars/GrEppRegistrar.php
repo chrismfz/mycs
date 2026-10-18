@@ -174,12 +174,13 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
             }
             // 2303: no such name; 2201: not ours to read (another registrar's, no code given).
             if (in_array($e->resultCode, [2303, 2201], true)) {
-                throw new DomainNotFoundAtRegistrar("{$domain->fqdn} is not ours at the registry ({$e->resultCode}: {$e->registryMessage}).");
+                throw new DomainNotFoundAtRegistrar("{$domain->fqdn} is not ours at the registry ({$e->resultCode}: {$e->registryMessage}).",
+                    elsewhere: $e->resultCode === 2201); // 2201: another registrar's; 2303: no such name
             }
             throw new RuntimeException("The registry refused to read {$domain->fqdn}: {$e->getMessage()}");
         }
         if ($info->clientId !== null && strcasecmp($info->clientId, self::registrarId($credentials)) !== 0) {
-            throw new DomainNotFoundAtRegistrar("{$domain->fqdn} is managed by another registrar at the registry ({$info->clientId}).");
+            throw new DomainNotFoundAtRegistrar("{$domain->fqdn} is managed by another registrar at the registry ({$info->clientId}).", elsewhere: true);
         }
 
         $result = self::syncResultFrom($info);

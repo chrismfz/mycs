@@ -399,6 +399,10 @@ importer):
       Domains → «Default Nameserver 1–5» ανά instance (το συμπληρώνει ο ιδιοκτήτης).
 - [x] **Tab «Domains» στα Settings + έτη ανανέωσης** που αλλάζει ο πελάτης/staff (ιδιοκτήτης 2026-10-17,
       `docs/domains.md` §6). Μετά: **grepp** μόνο του.
+- [ ] **Τιμολόγια ανανέωσης domain που τελείωσε** (ιδιοκτήτης 2026-10-18): όταν ένα domain τελειώνει οριστικά (deleted μετά
+      το grace/redemption, ή transferred away από το sync), τα **απλήρωτα** τιμολόγια ανανέωσής του γίνονται cancel αυτόματα
+      **μία μέρα μετά** (cron, με audit και ειδοποίηση στο staff). Μέχρι τότε: σημειώνονται στο `meta.transferred_away`
+      για το staff. Ποτέ πληρωμένα ή μερικώς πληρωμένα (εκεί αποφασίζει το staff: επιστροφή ή πίστωση).
 - [ ] **grepp** (.gr EPP, myip). Πλάνο (2026-10-18): G0 υλικό του μητρώου από το Ekdosi (έγινε) · G1 `packages/gr-epp`
       transport/session · G2 εντολές και parsers (XSD) · G3 driver ανάγνωσης · G4 οι 5 αλλαγές των υπηρεσιών για .gr
       (ζυγά έτη στη grace, NS μεταφοράς χωρίς RDAP, DACoR με email, χωρίς restore, μεταφορά άμεση) · G5 εγγραφές (χρήματα)

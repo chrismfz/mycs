@@ -628,5 +628,6 @@
     "Out of date (changed after it was read): read again.": "Παλιά λίστα (άλλαξε μετά την ανάγνωση): διαβάστε ξανά.",
     "not read": "δεν διαβάστηκε",
     "WHOIS": "WHOIS",
-    "Transfer to us": "Μεταφορά σε εμάς"
+    "Transfer to us": "Μεταφορά σε εμάς",
+    "Transferred away": "Μεταφέρθηκε αλλού"
 }

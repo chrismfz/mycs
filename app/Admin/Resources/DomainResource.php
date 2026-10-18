@@ -193,6 +193,13 @@ class DomainResource extends Resource
                     Section::make(__('Nameservers'))->schema([
                         TextEntry::make('nameservers.host')->hiddenLabel()->listWithLineBreaks()->placeholder('—'),
                     ]),
+                    // Why the sync took it as transferred away (seen «not ours» an hour apart), and its open invoices for staff.
+                    Section::make(__('Transferred away'))->collapsible()
+                        ->visible(fn (Domain $record) => is_array($record->meta['transferred_away'] ?? null))
+                        ->schema([
+                            TextEntry::make('transferred_away_notes')->hiddenLabel()->listWithLineBreaks()
+                                ->state(fn (Domain $record) => collect($record->meta['transferred_away'] ?? [])->map(fn ($v, $k) => "{$k}: " . (is_scalar($v) ? (string) $v : json_encode($v)))->values()->all()),
+                        ]),
                     // What its transfer to us did (its roles replaced, or why not; its owner): kept apart from the sync's.
                     Section::make(__('Transfer to us'))->collapsible()
                         ->visible(fn (Domain $record) => is_array($record->meta['transfer'] ?? null))

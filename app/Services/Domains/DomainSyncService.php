@@ -6,6 +6,8 @@ use App\Enums\DomainStatus;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainTld;
+use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Support\Domains\DomainSyncResult;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -77,6 +79,9 @@ class DomainSyncService
             } catch (Throwable $e) {
                 if ($write) {
                     $this->bookkeep($domain, mb_substr($e->getMessage(), 0, 1000));
+                    if ($e instanceof DomainNotFoundAtRegistrar) {
+                        $this->notOurs($domain, $e);
+                    }
                 }
 
                 throw $e;
@@ -235,6 +240,7 @@ class DomainSyncService
         $warning = $changes['_warning'][1] ?? null;
         unset($changes['_warning']);
         $meta = $domain->meta ?? [];
+        unset($meta['not_ours_since']); // ours again: a «not ours» seen before was not a transfer away
         if ($result->rawStatus !== null) {
             $meta['registrar_status'] = $result->rawStatus;
         }
@@ -284,6 +290,41 @@ class DomainSyncService
     }
 
     /** When it was read and what went wrong: bookkeeping, not a change of the domain (no audit, no updated_at). */
+    /** Seen «not ours» this long, twice at least, before it is taken as transferred away (never on one answer). */
+    public const AWAY_AFTER_SECONDS = 3600;
+
+    /**
+     * A domain of ours its registrar no longer holds (transferred to another: the .gr registry's 2201, the account not
+     * listing it): first noted; seen so again an hour later, it is transferred away (D-18: kept with its history; billing
+     * and sync stop, auto-renew off). Never on one answer (a wrong setting, a moment's failure); never a pending order
+     * (its fulfilment decides) or one already ended; never a name that no longer exists (2303: gone, not moved). An open
+     * renewal invoice is left to staff, noted.
+     */
+    private function notOurs(Domain $domain, DomainNotFoundAtRegistrar $e): void
+    {
+        $domain->refresh();
+        if ($e->elsewhere === false || !in_array($domain->status, [DomainStatus::Active, ...self::LAPSED], true)) {
+            return;
+        }
+        $meta = $domain->meta ?? [];
+        $since = is_string($meta['not_ours_since'] ?? null) ? Carbon::parse($meta['not_ours_since']) : null;
+        if ($since === null || $since->greaterThan(now())) {
+            $meta['not_ours_since'] = now()->toIso8601String();
+            $domain->forceFill(['meta' => $meta])->saveQuietly();
+
+            return;
+        }
+        if ($since->diffInSeconds(now()) < self::AWAY_AFTER_SECONDS) {
+            return;
+        }
+        unset($meta['not_ours_since']);
+        $open = InvoiceItem::query()->where('reference_type', Domain::class)->where('reference_id', $domain->id)
+            ->whereHas('invoice', fn ($invoice) => $invoice->where('status', Invoice::STATUS_UNPAID))->pluck('invoice_id')->unique()->values()->all();
+        $meta['transferred_away'] = array_filter(['at' => now()->toIso8601String(), 'seen_since' => $since->toIso8601String(),
+            'registrar' => mb_substr($e->getMessage(), 0, 300), 'open_invoices' => $open ?: null]);
+        $domain->forceFill(['status' => DomainStatus::TransferredAway, 'auto_renew' => false, 'meta' => $meta])->save(); // audited
+    }
+
     private function bookkeep(Domain $domain, ?string $error): void
     {
         $at = Carbon::now();
