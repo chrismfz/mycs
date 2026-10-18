@@ -15,6 +15,7 @@ use App\Support\Domains\DomainChanges;
 use App\Support\Domains\DomainRegistrarCapabilities;
 use App\Support\Domains\DomainRegistrarCredentials;
 use App\Support\Domains\DomainSyncResult;
+use App\Support\Domains\Phone;
 use App\Support\Domains\RegistrarContact;
 use App\Support\Domains\RegistrarDomainPage;
 use App\Support\Domains\RegistrarDomainRecord;
@@ -940,19 +941,7 @@ class OpenproviderRegistrar implements DomainRegistrar
      */
     private function splitCountryCode(string $digits): array
     {
-        if (!str_starts_with($digits, '+')) {
-            return ['+30', $digits];
-        }
-        if (preg_match('/^\+([17])(\d+)$/', $digits, $m) === 1) {
-            return ['+' . $m[1], $m[2]];
-        }
-        $three = substr($digits, 1, 3);
-        if (preg_match('/^(35\d|37\d|38[0-9])$/', $three) === 1 && !in_array($three, ['384', '388'], true)
-            || preg_match('/^42[013]$/', $three) === 1) {
-            return ['+' . $three, substr($digits, 4)];
-        }
-
-        return [substr($digits, 0, 3), substr($digits, 3)];
+        return Phone::splitCountryCode($digits); // one rule for every registrar
     }
 
     /** OP returns "YYYY-MM-DD HH:MM:SS" — the date part is our clock. */

@@ -4,16 +4,20 @@ namespace App\Services\Domains\Registrars;
 
 use App\Contracts\DomainRegistrar;
 use App\Contracts\EmailsAuthCode;
+use App\Contracts\RecallsRegistration;
 use App\Enums\DomainStatus;
+use App\Models\Contact;
 use App\Models\Domain;
 use App\Services\Domains\DomainNotFoundAtRegistrar;
 use App\Services\Domains\DomainRegistrarNotConfigured;
+use App\Services\Domains\RegistrarNotAsked;
 use App\Services\Domains\RegistrarRefused;
 use App\Support\Domains\AvailabilityResult;
 use App\Support\Domains\DomainChanges;
 use App\Support\Domains\DomainRegistrarCapabilities;
 use App\Support\Domains\DomainRegistrarCredentials;
 use App\Support\Domains\DomainSyncResult;
+use App\Support\Domains\Phone;
 use App\Support\Domains\RegistrarContact;
 use App\Support\Domains\RegistrarDomainPage;
 use App\Support\Domains\TldPricing;
@@ -21,16 +25,28 @@ use Closure;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use InvalidArgumentException;
+use MyCS\GrEpp\Command\ContactCheck;
+use MyCS\GrEpp\Command\ContactCreate;
 use MyCS\GrEpp\Command\ContactInfo;
 use MyCS\GrEpp\Command\DacorIssueToken;
 use MyCS\GrEpp\Command\DomainCheck;
+use MyCS\GrEpp\Command\DomainCreate;
+use MyCS\GrEpp\Command\DomainDelete;
 use MyCS\GrEpp\Command\DomainInfo;
+use MyCS\GrEpp\Command\DomainRenew;
+use MyCS\GrEpp\Command\HostCheck;
+use MyCS\GrEpp\Command\HostCreate;
 use MyCS\GrEpp\Command\Rules;
 use MyCS\GrEpp\Config;
+use MyCS\GrEpp\Data\ContactDraft;
 use MyCS\GrEpp\Data\DomainInfo as Info;
+use MyCS\GrEpp\Data\PostalInfo;
 use MyCS\GrEpp\GrEppException;
 use MyCS\GrEpp\Http\CurlTransport;
 use MyCS\GrEpp\Http\Transport;
+use MyCS\GrEpp\NotSent;
+use MyCS\GrEpp\OutcomeUnknown;
 use MyCS\GrEpp\Refused;
 use MyCS\GrEpp\Response;
 use MyCS\GrEpp\Session;
@@ -46,7 +62,7 @@ use Throwable;
  * One session per account and process, kept for the process (a worker reuses it; the registry ends one idle for 15
  * minutes and Session logs in again); commands one at a time per account, across processes (a cache lock).
  */
-class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode
+class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistration
 {
     /** The registry's grace after expiry (pendingDelete: renewable only, D-8; its FAQ). */
     public const GRACE_DAYS = 15;
@@ -66,8 +82,9 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode
     {
         // Reads only until G5; the registry has no privacy toggle, no transfer lock, no price feed, no portfolio list. A
         // name in its 15 days after expiry is renewed (no restore), in even years (its FAQ).
+        // G5a: registrations and renewals; transfers from G5b (not sold before: review 1 of #191).
         return new DomainRegistrarCapabilities(renewsInGrace: true, renewYearStep: 2, authCodeByEmail: true, transferKeepsNameservers: true,
-            supportsRegistration: false); // registrations and transfers from G5: not sold before (review 1 of #191)
+            supportsRegistration: true, supportsRecall: true);
     }
 
     /** Contract: never throws. A login (and nothing else): the credentials and our IP at the registry. */
@@ -274,14 +291,223 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode
         throw new DomainRegistrarNotConfigured('The .gr registry has no portfolio list: .gr domains are imported from WHMCS (D6).');
     }
 
+    /**
+     * WRITE (G5a): renew for $years (even, 2–10) with the current expiry day the registry has (read fresh: its
+     * confirmation, which also makes a renewal sent twice fail rather than renew twice). In its 15 days after expiry too.
+     * Returns the registry's truth after it.
+     */
     public function renew(Domain $domain, int $years, DomainRegistrarCredentials $credentials): DomainSyncResult
     {
-        throw self::notYet('renew');
+        return $this->locked($credentials, function (Session $session) use ($domain, $years): DomainSyncResult {
+            // Before the charge: anything failing here asked nothing that costs (RegistrarNotAsked).
+            $current = self::prepare(function () use ($session, $domain, $years) {
+                Rules::years($years);
+
+                return self::read($session, $domain);
+            });
+            if ($current->expiresOn === null) {
+                throw new RegistrarNotAsked("{$domain->fqdn} has no expiry at the registry: renew it in grweb.");
+            }
+            $result = self::charge(fn () => DomainRenew::parse(self::send($session, fn (string $clTRID) => DomainRenew::request($domain->fqdn, (string) $current->expiresOn, $years, $clTRID))));
+
+            return self::truthAfter($session, $domain, $result->expiresOn);
+        });
     }
 
+    /**
+     * WRITE (G5a): register for $years (even, 2–10). Its contacts become ours at the registry first (c60_…, one per
+     * contact, made once), its nameservers must exist there (an external one is created; one under .gr needs its glue
+     * made by staff first). Answered «pending» (1001) with its protocol: kept (its recall within 5 days needs it).
+     */
     public function register(Domain $domain, int $years, DomainRegistrarCredentials $credentials): DomainSyncResult
     {
-        throw self::notYet('register');
+        return $this->locked($credentials, function (Session $session) use ($domain, $years, $credentials): DomainSyncResult {
+            [$handles, $hosts] = self::prepare(function () use ($session, $domain, $years, $credentials) {
+                Rules::years($years);
+
+                return [self::ensureContacts($session, $domain, self::prefix($credentials)), self::ensureHosts($session, $domain)];
+            });
+            if (!isset($handles['registrant'])) {
+                throw new RegistrarNotAsked("{$domain->fqdn} has no registrant contact: the registry needs one.");
+            }
+            $roles = array_map(fn (string $id) => [$id], array_diff_key($handles, ['registrant' => true]));
+            $result = self::charge(fn () => DomainCreate::parse(self::send($session,
+                fn (string $clTRID) => DomainCreate::request($domain->fqdn, $years, $hosts, $handles['registrant'], $roles, $clTRID))));
+
+            return new DomainSyncResult(status: DomainStatus::PendingRegister, rawStatus: 'pendingCreate', contactHandles: $handles,
+                details: array_filter(['protocol' => $result->protocol, 'comments' => implode(' ', $result->comments) ?: null]));
+        });
+    }
+
+    /**
+     * WRITE (G5a): a registration recalled (within 5 days of it), by its protocol: the one kept from its answer, else
+     * read now. The registry refuses it later, or for anything but a registration. Staff only (DomainManagementService).
+     */
+    public function recall(Domain $domain, DomainRegistrarCredentials $credentials): string
+    {
+        return $this->locked($credentials, function (Session $session) use ($domain): string {
+            $protocol = self::prepare(function () use ($session, $domain) {
+                $kept = $domain->meta['registrar']['protocol'] ?? null;
+
+                return is_string($kept) && $kept !== '' ? $kept : (string) self::read($session, $domain)->protocol;
+            });
+            $result = self::charge(fn () => DomainDelete::parse(self::send($session, fn (string $clTRID) => DomainDelete::recall($domain->fqdn, $protocol, $clTRID))));
+
+            return implode(' ', $result->comments) ?: __('domains.manage.recalled', ['domain' => $domain->fqdn]);
+        });
+    }
+
+    /** The registrar's prefix for contact ids (the connection's, e.g. c60): our contacts are made with it. */
+    private static function prefix(DomainRegistrarCredentials $credentials): string
+    {
+        $prefix = trim((string) $credentials->get('contact_prefix', ''));
+        if (preg_match('/^[A-Za-z0-9]{3}\z/', $prefix) !== 1) {
+            throw new DomainRegistrarNotConfigured('The .gr registry connection has no contact prefix (e.g. c60): fill it in under Domain Registrars.');
+        }
+
+        return $prefix;
+    }
+
+    /**
+     * Each role's contact at the registry, ours (prefix_…): its handle if it has one of ours, else the contact's at the
+     * registry, made once (id «prefix_mcs<contact id, base 36>»: the same contact is the same registry contact on every
+     * domain; one made by a call whose answer was lost is found and used, never made twice). Kept on the domain at once.
+     *
+     * @return array<string, string> role => contact id
+     */
+    private static function ensureContacts(Session $session, Domain $domain, string $prefix): array
+    {
+        $handles = [];
+        $made = []; // contact id => registry id: one contact in several roles is checked once
+        foreach (Domain::ROLES as $role) {
+            $existing = trim((string) $domain->{"{$role}_handle"});
+            if ($existing !== '' && stripos($existing, "{$prefix}_") === 0) {
+                $handles[$role] = $existing;
+
+                continue;
+            }
+            $contact = $domain->{"{$role}Contact"};
+            if (!$contact instanceof Contact) {
+                continue;
+            }
+            if ((int) $contact->client_id !== (int) $domain->client_id) {
+                throw new InvalidArgumentException("The {$role} contact of {$domain->fqdn} belongs to another account.");
+            }
+            $id = $made[$contact->id] ??= (function () use ($session, $contact, $prefix): string {
+                $id = Rules::contactId("{$prefix}_mcs" . base_convert((string) $contact->id, 10, 36), $prefix);
+                $check = ContactCheck::parse(self::send($session, fn (string $clTRID) => ContactCheck::request([$id], $clTRID)));
+                if ($check[$id]->available ?? false) {
+                    ContactCreate::parse(self::send($session, fn (string $clTRID) => ContactCreate::request(self::draft($id, $contact), $clTRID)));
+                }
+
+                return $id;
+            })();
+            Domain::query()->whereKey($domain->getKey())->update(["{$role}_handle" => $id]);
+            $domain->forceFill(["{$role}_handle" => $id])->syncOriginalAttribute("{$role}_handle");
+            $handles[$role] = $id;
+        }
+
+        return $handles;
+    }
+
+    /** A contact as the registry takes it: its Greek postal info only (as the current module makes them), no disclose. */
+    private static function draft(string $id, Contact $contact): ContactDraft
+    {
+        $name = trim($contact->first_name . ' ' . $contact->last_name) ?: trim((string) $contact->company_name);
+        $voice = Phone::epp($contact->phone) ?? throw new InvalidArgumentException("The contact {$id} has no phone: the registry needs one.");
+
+        return new ContactDraft($id,
+            new PostalInfo('loc', $name, trim((string) $contact->company_name) ?: null, array_values(array_filter([trim((string) $contact->address1), trim((string) $contact->address2)])),
+                (string) $contact->city, trim((string) $contact->state) ?: (string) $contact->city, (string) $contact->postcode, (string) $contact->country),
+            null, $voice, (string) $contact->email, hidden: null);
+    }
+
+    /**
+     * Its nameservers, existing at the registry (a domain's must): an external one missing is created (no address); one
+     * under .gr/.ελ missing needs its glue (IPs), made by staff first.
+     *
+     * @return list<string>
+     */
+    private static function ensureHosts(Session $session, Domain $domain): array
+    {
+        $hosts = Rules::nameservers($domain->nameservers->pluck('host')->all());
+        foreach (array_chunk($hosts, HostCheck::MAX) as $batch) {
+            $check = HostCheck::parse(self::send($session, fn (string $clTRID) => HostCheck::request($batch, $clTRID)));
+            foreach ($batch as $host) {
+                if (!($check[$host]->available ?? false)) {
+                    continue; // registered there already
+                }
+                if (HostCreate::internal($host)) {
+                    throw new InvalidArgumentException("The nameserver {$host} is not at the registry: create it with its IP (glue) first.");
+                }
+                HostCreate::parse(self::send($session, fn (string $clTRID) => HostCreate::request($host, [], $clTRID)));
+            }
+        }
+
+        return $hosts;
+    }
+
+    private static function read(Session $session, Domain $domain): Info
+    {
+        return DomainInfo::parse(self::send($session, fn (string $clTRID) => DomainInfo::request($domain->fqdn, $clTRID)), $domain->fqdn);
+    }
+
+    /** @param  Closure(string): string  $request */
+    private static function send(Session $session, Closure $request): Response
+    {
+        $clTRID = $session->newTransactionId();
+
+        return $session->command($request($clTRID), $clTRID);
+    }
+
+    /**
+     * Before the charge: any failure here asked nothing that costs (contacts, hosts, a read): RegistrarNotAsked, never
+     * an unconfirmed charge (D-17); a refusal keeps the registry's words.
+     *
+     * @template T
+     *
+     * @param  Closure(): T  $steps
+     * @return T
+     */
+    private static function prepare(Closure $steps): mixed
+    {
+        try {
+            return $steps();
+        } catch (InvalidArgumentException|GrEppException $e) {
+            throw new RegistrarNotAsked($e->getMessage(), 0, $e);
+        }
+    }
+
+    /**
+     * The charge itself: refused → RegistrarRefused (nothing done); not sent → RegistrarNotAsked; no usable answer →
+     * RuntimeException (maybe done: never sent again blindly, D-17).
+     *
+     * @template T
+     *
+     * @param  Closure(): T  $send
+     * @return T
+     */
+    private static function charge(Closure $send): mixed
+    {
+        try {
+            return $send();
+        } catch (Refused $e) {
+            throw new RegistrarRefused($e->getMessage());
+        } catch (NotSent|InvalidArgumentException $e) {
+            throw new RegistrarNotAsked($e->getMessage(), 0, $e);
+        } catch (OutcomeUnknown $e) {
+            throw new RuntimeException($e->getMessage(), 0, $e);
+        }
+    }
+
+    /** The registry's truth after a charge; if it cannot be read now, what the charge answered (the next sync reads it). */
+    private static function truthAfter(Session $session, Domain $domain, ?string $expiresOn): DomainSyncResult
+    {
+        try {
+            return self::syncResultFrom(self::read($session, $domain));
+        } catch (Throwable) {
+            return new DomainSyncResult(expiresAt: $expiresOn, status: DomainStatus::Active, rawStatus: 'ok');
+        }
     }
 
     public function transferIn(Domain $domain, string $authCode, DomainRegistrarCredentials $credentials): DomainSyncResult
@@ -360,6 +586,8 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode
                 ->block($shop ? 5 : 60, fn () => $call(self::session($config, $credentials, $shop)));
         } catch (LockTimeoutException) {
             throw new RuntimeException('The .gr registry account is busy with another command: try again in a minute.');
+        } catch (NotSent $e) {
+            throw new RegistrarNotAsked($e->getMessage(), 0, $e);
         } catch (GrEppException $e) {
             throw $e instanceof Refused ? $e : new RuntimeException($e->getMessage(), 0, $e);
         }
@@ -373,7 +601,7 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode
         try {
             return new Config((string) $credentials->get('username'), (string) $credentials->get('password'),
                 endpoint: $credentials->sandbox ? Config::UAT : Config::PRODUCTION);
-        } catch (\InvalidArgumentException $e) {
+        } catch (InvalidArgumentException $e) {
             throw new DomainRegistrarNotConfigured('The .gr registry connection: ' . $e->getMessage()); // never the password (review 8)
         }
     }

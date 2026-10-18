@@ -4,6 +4,9 @@ namespace App\Services\Domains;
 
 use App\Contracts\DomainRegistrar;
 use App\Contracts\EmailsAuthCode;
+use App\Contracts\RecallsRegistration;
+use App\Enums\DomainStatus;
+use App\Exceptions\DisplayException;
 use App\Models\Contact;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
@@ -177,6 +180,51 @@ class DomainManagementService
         });
 
         return $message;
+    }
+
+    /** Days a registration can be recalled (the .gr registry: 5, counted from its registration). */
+    public const RECALL_DAYS = 5;
+
+    /**
+     * Staff recall a registration (within RECALL_DAYS of it, at a registrar that can: the .gr registry): the registry
+     * cancels it; here the domain is cancelled. Its payment is staff's to refund (the order's Cancel & Refund). Logged.
+     */
+    public function recall(Domain $domain, Staff $staff): string
+    {
+        if (!$this->recallable($domain)) {
+            throw new DisplayException(__('domains.manage.not_recallable', ['domain' => $domain->fqdn, 'days' => self::RECALL_DAYS]));
+        }
+        $said = '';
+        $this->call($domain, 'recall', [], $staff, function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, &$said) {
+            if (!$registrar instanceof RecallsRegistration) {
+                throw new DomainRegistrarNotConfigured(__('domains.manage.not_recallable', ['domain' => $domain->fqdn, 'days' => self::RECALL_DAYS]));
+            }
+            $said = $registrar->recall($domain, $credentials);
+
+            return ['recalled' => $said];
+        });
+        $meta = $domain->meta ?? [];
+        $meta['recalled_at'] = now()->toIso8601String();
+        $domain->forceFill(['status' => DomainStatus::Cancelled, 'meta' => $meta])->save(); // audited
+
+        return $said;
+    }
+
+    /** A registration recallable now: at a registrar that recalls, pending or active, registered within RECALL_DAYS. */
+    public function recallable(Domain $domain): bool
+    {
+        $since = $domain->registered_at ?? $domain->created_at;
+        if (!in_array($domain->status, [DomainStatus::PendingRegister, DomainStatus::Active], true) || $since === null
+            || $since->copy()->startOfDay()->lt(today()->subDays(self::RECALL_DAYS))) {
+            return false;
+        }
+        $connection = $domain->effectiveRegistrarConnection();
+        try {
+            return $connection instanceof DomainRegistrarConnection && $connection->isUsable()
+                && $this->factory->for($connection)->capabilities()->supportsRecall;
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     /** Whether its registrar emails the code instead of giving it (DACoR). */

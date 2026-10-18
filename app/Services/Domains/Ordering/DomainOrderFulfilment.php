@@ -204,6 +204,10 @@ class DomainOrderFulfilment
             $fresh = Domain::query()->lockForUpdate()->findOrFail($domain->id);
             $meta = $fresh->meta ?? [];
             $meta['sent_at'] = now()->toIso8601String();
+            // What its answer told (a .gr registration's protocol: its recall needs it), until a sync reads its truth.
+            if ($result->details !== []) {
+                $meta['registrar'] = $result->details + (is_array($meta['registrar'] ?? null) ? $meta['registrar'] : []);
+            }
             // Cancelled or refunded while the registrar was asked (code review 2): done there all the same; staff decide.
             $line = $line?->fresh(['invoice']);
             $ordered = in_array($fresh->status, [DomainStatus::PendingRegister, DomainStatus::PendingTransfer], true) && self::paid($fresh, $line);

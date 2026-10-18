@@ -32,6 +32,8 @@ return [
         'no_epp_code' => 'Ο registrar δεν έδωσε κωδικό EPP.',
         'auth_code_emailed' => 'Το μητρώο έστειλε στον κάτοχο σύνδεσμο για νέο κωδικό.',
         'no_auth_code_email' => 'Αυτός ο registrar δίνει τον κωδικό: χρησιμοποιήστε την «Εμφάνιση».',
+        'recalled' => 'Η καταχώριση του :domain ανακλήθηκε.',
+        'not_recallable' => 'Το :domain δεν ανακαλείται: μόνο καταχώριση των τελευταίων :days ημερών σε μητρώο που το επιτρέπει.',
         'not_manageable' => 'Το :domain δεν είναι σε registrar με API, ή έχει τελειώσει.',
         'owner_change_not_here' => 'Ο registrar δεν επιτρέπει αλλαγή κατόχου από εδώ (μπορεί να είναι trade με χρέωση): δεν έγινε.',
         'registrant_not_linked' => 'Ο registrant εδώ δεν είναι συνδεδεμένος με του registrar (το «Sync now» λέει γιατί): συνδέστε τον πριν αλλάξετε τις άλλες επαφές.',

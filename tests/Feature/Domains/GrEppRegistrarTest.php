@@ -221,12 +221,10 @@ class GrEppRegistrarTest extends TestCase
         $sync(['username' => 'myip1', 'registrar_id' => 'other']); // set and not the clID: not ours
     }
 
-    public function test_writes_are_refused_before_anything_is_sent(): void
+    public function test_writes_not_made_yet_are_refused_before_anything_is_sent(): void
     {
         $domain = new Domain(['fqdn' => 'cdnet.gr']);
         foreach ([
-            fn (GrEppRegistrar $r) => $r->renew($domain, 2, $this->credentials()),
-            fn (GrEppRegistrar $r) => $r->register($domain, 2, $this->credentials()),
             fn (GrEppRegistrar $r) => $r->transferIn($domain, 'code', $this->credentials()),
             fn (GrEppRegistrar $r) => $r->updateDomain($domain, new DomainChanges, $this->credentials()),
             fn (GrEppRegistrar $r) => $r->restore($domain, $this->credentials()),
