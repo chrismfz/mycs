@@ -102,11 +102,13 @@ class CPanelProvisioningTest extends TestCase
         ]);
         $this->service->update(['status' => 'pending']);
 
+        $thrown = null;
         try {
             ExtensionHelper::createServer($this->service->fresh());
-            $this->fail('the timeout throws');
-        } catch (Exception) {
+        } catch (Exception $e) {
+            $thrown = $e;
         }
+        $this->assertInstanceOf(Exception::class, $thrown, 'the timeout throws');
         $pending = $this->service->properties()->where('key', 'cpanel_pending_username')->value('value');
         $this->assertMatchesRegularExpression('/^[a-z][a-z0-9]{7}$/', (string) $pending);
         $this->assertNull($this->service->properties()->where('key', 'cpanel_username')->value('value'), 'not an account yet for suspend/terminate');

@@ -106,11 +106,13 @@ class ServiceOrderDeleteTest extends TestCase
         $service->product->update(['server_id' => $server->id]);
         $open = $this->invoiceFor($service, Invoice::STATUS_UNPAID);
 
+        $thrown = null;
         try {
             (new DeleteService)->handle($service->fresh(), terminate: true);
-            $this->fail('deleted although the server refused');
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            $thrown = $e;
         }
+        $this->assertInstanceOf(\Throwable::class, $thrown, 'deleted although the server refused');
 
         $this->assertNotNull(Service::find($service->id));
         $this->assertSame(Invoice::STATUS_UNPAID, $open->fresh()->status);

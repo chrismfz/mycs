@@ -195,11 +195,13 @@ class DomainsD5b2AdversarialTest extends TestCase
         $this->record['expiration_date'] = '2026-12-20 10:00:00';
         $staff = $this->staff();
         $this->script = ['timeout'];
+        $thrown = null;
         try {
             app(DomainRenewalService::class)->renewNow($domain, $staff);
-            $this->fail('a timeout surfaces');
-        } catch (Throwable) { // fix round: said to staff as «outcome unknown», not the raw exception
+        } catch (Throwable $e) { // fix round: said to staff as «outcome unknown», not the raw exception
+            $thrown = $e;
         }
+        $this->assertInstanceOf(Throwable::class, $thrown, 'a timeout surfaces');
         $this->assertSame(DomainRegistrarLog::STATUS_PENDING, DomainRegistrarLog::query()->where('action', 'renew')->sole()->status);
 
         try {

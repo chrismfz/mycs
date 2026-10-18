@@ -162,11 +162,7 @@ class ContactsTest extends TestCase
         $this->assertSame('billing@example.test', $contact->email);
 
         foreach ([$client->primaryContact->id, $foreign->id] as $id) {
-            try {
-                Livewire::test(Contacts::class)->call('edit', $id);
-                $this->fail('opened a contact that is not one of the account\'s other contacts');
-            } catch (\Throwable) {
-            }
+            Livewire::test(Contacts::class)->call('edit', $id)->assertNotFound(); // not one of the account's other contacts
         }
 
         Livewire::test(Contacts::class)->call('archive', $contact->id);

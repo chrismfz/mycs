@@ -338,11 +338,13 @@ class GatewayRefundAdversarialTest extends TestCase
                 throw new \RuntimeException('database hiccup after the gateway refunded');
             }
         });
+        $thrown = null;
         try {
             ExtensionHelper::refund($payment, 40.00);
-            $this->fail('the recording fails');
-        } catch (\RuntimeException) {
+        } catch (\RuntimeException $e) {
+            $thrown = $e;
         }
+        $this->assertInstanceOf(\RuntimeException::class, $thrown, 'the recording fails');
         $this->assertSame('0.00', (string) $payment->fresh()->refunded_amount);
         $this->assertSame(0, $this->refundNotices(), 'no email for a rolled-back refund');
 

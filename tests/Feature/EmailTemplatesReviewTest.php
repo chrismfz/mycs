@@ -180,11 +180,13 @@ class EmailTemplatesReviewTest extends TestCase
         $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-11-15']);
         EmailLog::creating(fn () => throw new \RuntimeException('database down'));
 
+        $thrown = null;
         try {
             NotificationHelper::invoiceCreatedNotification($user->client(), $invoice->fresh());
-            $this->fail('expected the exception');
-        } catch (\RuntimeException) {
+        } catch (\RuntimeException $e) {
+            $thrown = $e;
         }
+        $this->assertInstanceOf(\RuntimeException::class, $thrown, 'expected the exception');
 
         $this->assertSame('en', app()->getLocale());
     }
