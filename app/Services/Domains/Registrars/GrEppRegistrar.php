@@ -143,7 +143,7 @@ class GrEppRegistrar implements DomainRegistrar
             }
             throw new RuntimeException("The registry refused to read {$domain->fqdn}: {$e->getMessage()}");
         }
-        if ($info->clientId !== null && strcasecmp($info->clientId, (string) $credentials->get('username')) !== 0) {
+        if ($info->clientId !== null && strcasecmp($info->clientId, self::registrarId($credentials)) !== 0) {
             throw new DomainNotFoundAtRegistrar("{$domain->fqdn} is managed by another registrar at the registry ({$info->clientId}).");
         }
 
@@ -156,6 +156,17 @@ class GrEppRegistrar implements DomainRegistrar
         }
 
         return $result;
+    }
+
+    /**
+     * The registrar's id at the registry, as domain:clID carries it: the connection's, else the EPP user without its
+     * trailing digits («myip1» → «myip»: the registry's users of one registrar, live 2026-10-18).
+     */
+    public static function registrarId(DomainRegistrarCredentials $credentials): string
+    {
+        $id = trim((string) $credentials->get('registrar_id', ''));
+
+        return $id !== '' ? $id : (string) preg_replace('/\d+$/', '', (string) $credentials->get('username'));
     }
 
     public static function syncResultFrom(Info $info): DomainSyncResult

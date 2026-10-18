@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd">
+    <response>
+        <result code="1000">
+            <msg>Η εντολή ολοκληρώθηκε επιτυχώς</msg>
+        </result>
+        <resData>
+            <domain:infData xmlns:domain="urn:ietf:params:xml:ns:domain-1.0" xsi:schemaLocation="urn:ietf:params:xml:ns:domain-1.0 domain-1.0.xsd">
+                <domain:name>example2.gr</domain:name>
+                <domain:roid>d00000000000000000000000000000000-gr</domain:roid>
+                <domain:status s="ok"/>
+                <domain:registrant>c60_Example002</domain:registrant>
+                <domain:contact type="admin">533_Example002</domain:contact>
+                <domain:contact type="tech">533_Example002</domain:contact>
+                <domain:contact type="billing">533_Example002</domain:contact>
+                <domain:ns>
+                    <domain:hostObj>ns1.myip.gr</domain:hostObj>
+                    <domain:hostObj>ns2.myip.gr</domain:hostObj>
+                    <domain:hostObj>ns3.myip.gr</domain:hostObj>
+                </domain:ns>
+                <domain:clID>myip</domain:clID>
+                <domain:crID>other-registrar</domain:crID>
+                <domain:crDate>2022-03-01T10:00:00.2Z</domain:crDate>
+                <domain:upID>myip</domain:upID>
+                <domain:upDate>2027-03-01T10:00:00.4Z</domain:upDate>
+                <domain:exDate>2028-03-01T23:59:59.0Z</domain:exDate>
+                <domain:trDate>2027-03-01T10:00:00.8Z</domain:trDate>
+            </domain:infData>
+        </resData>
+        <extension>
+            <extdomain:resData xmlns:extdomain="urn:ics-forth:params:xml:ns:extdomain-1.3" xsi:schemaLocation="urn:ics-forth:params:xml:ns:extdomain-1.3 extdomain-1.3.xsd">
+                <extdomain:protocol>100001</extdomain:protocol>
+                <extdomain:bundle>
+                    <extdomain:bundleName chargeable="1" recordType="domain">example2.gr</extdomain:bundleName>
+                </extdomain:bundle>
+            </extdomain:resData>
+            <extSecDNS:lastValidationResult xmlns:extSecDNS="urn:ics-forth:params:xml:ns:extSecDNS-1.0" xsi:schemaLocation="urn:ics-forth:params:xml:ns:extSecDNS-1.0 extSecDNS-1.0.xsd">
+                <extSecDNS:wasSuccessful>true</extSecDNS:wasSuccessful>
+                <extSecDNS:validationOutcome>Η επιβεβαίωση των εγγραφών DS ήταν επιτυχής.</extSecDNS:validationOutcome>
+                <extSecDNS:validationDate>2022-03-01T10:00:00Z</extSecDNS:validationDate>
+            </extSecDNS:lastValidationResult>
+        </extension>
+        <trID>
+            <clTRID>mycs-0000000000000001</clTRID>
+            <svTRID>00000000-0000-0000-0000-000000000000</svTRID>
+        </trID>
+    </response>
+</epp>

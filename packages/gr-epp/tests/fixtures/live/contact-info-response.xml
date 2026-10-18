@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:ietf:params:xml:ns:epp-1.0 epp-1.0.xsd">
+    <response>
+        <result code="1000">
+            <msg>Η εντολή ολοκληρώθηκε επιτυχώς</msg>
+        </result>
+        <resData>
+            <contact:infData xmlns:contact="urn:ietf:params:xml:ns:contact-1.0" xsi:schemaLocation="urn:ietf:params:xml:ns:contact-1.0 contact-1.0.xsd">
+                <contact:id>c60_Example001</contact:id>
+                <contact:roid>d00000000000000000000000000000000-gr</contact:roid>
+                <contact:status s="linked"/>
+                <contact:status s="serverDeleteProhibited"/>
+                <contact:postalInfo type="loc">
+                    <contact:name>Ονοματεπώνυμο Δικαιούχου</contact:name>
+                    <contact:addr>
+                        <contact:street>Οδός Παραδείγματος 1</contact:street>
+                        <contact:city>Αθήνα</contact:city>
+                        <contact:sp>Αττική</contact:sp>
+                        <contact:pc>10000</contact:pc>
+                        <contact:cc>gr</contact:cc>
+                    </contact:addr>
+                </contact:postalInfo>
+                <contact:voice>+30.2100000000</contact:voice>
+                <contact:email>registrant@example.test</contact:email>
+                <contact:clID>myip</contact:clID>
+                <contact:crID>myip</contact:crID>
+                <contact:crDate>2027-03-01T10:00:00.9Z</contact:crDate>
+                <contact:trDate>2027-03-01T10:00:00.9Z</contact:trDate>
+            </contact:infData>
+        </resData>
+        <trID>
+            <clTRID>mycs-0000000000000001</clTRID>
+            <svTRID>00000000-0000-0000-0000-000000000000</svTRID>
+        </trID>
+    </response>
+</epp>

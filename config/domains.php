@@ -23,6 +23,8 @@ return [
         'grepp' => [
             'username' => ['label' => 'EPP username', 'secret' => false],
             'password' => ['label' => 'EPP password', 'secret' => true],
+            // The registrar's id at the registry (domain:clID), not the EPP user: «myip» for myip1 (live, 2026-10-18).
+            'registrar_id' => ['label' => 'Registrar id (clID; empty: the username without its digits)', 'secret' => false],
             'contact_prefix' => ['label' => 'Contact prefix (e.g. c60)', 'secret' => false],
             'whois_username' => ['label' => 'WHOIS API username', 'secret' => false],
             'whois_password' => ['label' => 'WHOIS API password', 'secret' => true],
