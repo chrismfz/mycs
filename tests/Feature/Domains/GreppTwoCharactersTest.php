@@ -3,16 +3,24 @@
 namespace Tests\Feature\Domains;
 
 use App\Enums\DomainStatus;
+use App\Exceptions\DisplayException;
 use App\Models\Currency;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainTld;
+use App\Models\DomainTldPrice;
+use App\Models\InvoiceItem;
+use App\Models\Staff;
 use App\Models\User;
+use App\Services\Billing\RenewalBilling;
+use App\Services\Domains\DomainRenewalService;
+use App\Services\Domains\Ordering\DomainOffer;
 use App\Services\Domains\RegistrarNotAsked;
 use App\Services\Domains\Registrars\GrEppRegistrar;
 use App\Support\Domains\DomainRegistrarCredentials;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use MyCS\GrEpp\Http\HttpResponse;
 use MyCS\GrEpp\Tests\FakeTransport;
 use Tests\TestCase;
@@ -90,5 +98,53 @@ class GreppTwoCharactersTest extends TestCase
             $this->assertStringContainsString('2 characters', (string) $thrown?->getMessage());
         }
         $this->assertCount($sent, $this->transport->sent, 'nothing sent');
+    }
+
+    public function test_never_billed_or_ordered_at_the_tlds_price(): void
+    {
+        // Review 1-3 of #202: the renewal invoice, «renew now» and a transfer order, not only the registry's deeds.
+        config(['settings.domain_billing_enabled' => true, 'settings.domain_invoice_days' => 15, 'settings.credits_auto_use' => false]);
+        Currency::query()->firstOrCreate(['code' => 'EUR'], ['name' => 'Euro', 'suffix' => 'EUR', 'format' => '1.000,00']);
+        $gr = DomainRegistrarConnection::query()->create(['registrar' => 'grepp', 'label' => 'GR', 'is_active' => true, 'mode' => 'production']);
+        $gr->storeCredentials(['username' => 'myip1', 'password' => 'Secret-pw1', 'contact_prefix' => 'c60'], ['password']);
+        $tld = DomainTld::query()->create(['tld' => 'gr', 'is_active' => true, 'registrar_connection_id' => $gr->id, 'grace_days' => 15, 'redemption_days' => 0]);
+        foreach (['register' => 2, 'renew' => 2, 'transfer' => 1] as $operation => $years) {
+            DomainTldPrice::query()->create(['domain_tld_id' => $tld->id, 'operation' => $operation, 'years' => $years, 'currency_code' => 'EUR',
+                'price' => $operation === 'transfer' ? '0.00' : '19.00']);
+        }
+        $user = User::factory()->create();
+        $make = fn (string $sld, array $more = []) => Domain::factory()->create($more + ['client_id' => $user->client()->id, 'sld' => $sld, 'tld' => 'gr',
+            'fqdn' => "{$sld}.gr", 'domain_tld_id' => $tld->id, 'registrar_connection_id' => $gr->id, 'status' => DomainStatus::Active,
+            'expires_at' => now()->addDays(10)->toDateString(), 'currency_code' => 'EUR', 'years' => 2, 'auto_renew' => true]);
+        $ab = $make('ab');
+        $this->assertTrue($ab->staffPriced());
+        $this->assertNull($ab->renewalPriceFor(2));
+        $this->assertSame('19.00', $make('abc')->renewalPriceFor(2), 'three characters: its TLD\'s price');
+
+        $billed = DB::transaction(fn () => app(RenewalBilling::class)->billDomainRenewal($ab->id, now()->addMonth()));
+        $this->assertSame(0, $billed, 'no renewal invoice at the TLD\'s price');
+        $this->assertSame(0, InvoiceItem::query()->where('reference_id', $ab->id)->count());
+
+        $thrown = null;
+        try {
+            app(DomainRenewalService::class)->renewNow($ab, Staff::factory()->create());
+        } catch (\RuntimeException $e) {
+            $thrown = $e;
+        }
+        $this->assertStringContainsString('ab.gr', (string) $thrown?->getMessage());
+        $this->assertSame(0, InvoiceItem::query()->where('reference_id', $ab->id)->count(), 'refused before any invoice');
+
+        // Its own price set by staff is billed (done by hand at the registry).
+        $ab->forceFill(['recurring_amount' => '400.00'])->save();
+        $this->assertSame('400.00', $ab->fresh()->renewalPrice());
+
+        // A taken one is never «transfer it to us», at checkout either (no availability check there).
+        $refused = null;
+        try {
+            app(DomainOffer::class)->check('xy.gr', 'transfer', 1, 'EUR', availability: false);
+        } catch (DisplayException $e) {
+            $refused = $e->getMessage();
+        }
+        $this->assertSame(__('domains.shop.premium'), $refused);
     }
 }

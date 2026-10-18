@@ -6,6 +6,7 @@ use App\Contracts\DomainRegistrar;
 use App\Contracts\EmailsAuthCode;
 use App\Contracts\ManagesChildHosts;
 use App\Contracts\RecallsRegistration;
+use App\Contracts\StaffPricedNames;
 use App\Enums\DomainStatus;
 use App\Models\Contact;
 use App\Models\Domain;
@@ -74,7 +75,7 @@ use Throwable;
  * One session per account and process, kept for the process (a worker reuses it; the registry ends one idle for 15
  * minutes and Session logs in again); commands one at a time per account, across processes (a cache lock).
  */
-class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHosts, RecallsRegistration
+class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHosts, RecallsRegistration, StaffPricedNames
 {
     /** The registry's grace after expiry (pendingDelete: renewable only, D-8; its FAQ). */
     public const GRACE_DAYS = 15;
@@ -160,7 +161,7 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
     }
 
     /**
-     * A name of 2 characters (ab.gr, ab.com.gr, αβ.ελ, its punycode too): the EETT charges 300 € for each deed (registration,
+     * A name of 2 characters or fewer (ab.gr, ab.com.gr, αβ.ελ, its punycode too): the EETT charges 300 € for each deed (registration,
      * renewal, transfer) and the registry's ceiling to the customer is 550 € + VAT (docs/domains/grepp/faq.md). Never sold
      * or charged from here at a TLD's price: staff do it by hand (owner 2026-10-18; none at myip so far).
      */
@@ -169,16 +170,24 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
         try {
             $name = Rules::name($fqdn); // Unicode, lower case
         } catch (InvalidArgumentException) {
-            return false;
+            return false; // not a name the registry takes: every deed refuses it before anything is sent (Rules::name again)
         }
 
-        return mb_strlen(explode('.', $name)[0]) <= 2;
+        $labels = explode('.', $name);
+
+        // A .gr or .ελ name only (the EETT's fee), whichever registrar or connection its TLD has (F4 of #202).
+        return in_array(end($labels), ['gr', 'ελ'], true) && mb_strlen($labels[0]) <= 2;
+    }
+
+    public function staffPriced(string $fqdn): bool
+    {
+        return self::twoCharacters($fqdn);
     }
 
     private static function notTwoCharacters(string $fqdn): void
     {
         if (self::twoCharacters($fqdn)) {
-            throw new RegistrarNotAsked("{$fqdn} has 2 characters: the EETT charges 300 € for each deed, so staff do it by hand (not at the TLD's price).");
+            throw new RegistrarNotAsked("{$fqdn} has 2 characters or fewer: the EETT charges 300 € for each deed, so staff do it by hand (not at the TLD's price).");
         }
     }
 

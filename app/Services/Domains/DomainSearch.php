@@ -103,7 +103,7 @@ class DomainSearch
                 'years' => $years,
                 // «Transfer it to us» only where a transfer is priced and its registrar can do it (review 6 of #191).
                 // A transfer is sold for one year only (DomainOffer::years: it adds no period; .gr: priced «1 year, 0.00»).
-                'transferable' => $model->priceFor('transfer', 1, $currency) !== null && $model->registrarCan('transfer'),
+                'transferable' => $model->priceFor('transfer', 1, $currency) !== null && $model->registrarCan('transfer') && !$model->staffPriced($fqdn),
                 'price' => $register,
                 // «then X a year» only when it differs (a first-year offer).
                 'renew' => $renew !== null && bccomp($renew, $register, 2) !== 0 ? $renew : null,
