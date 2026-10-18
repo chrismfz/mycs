@@ -78,6 +78,8 @@ final class ClientTest extends TestCase
         $this->client($http)->findDomain('παράδειγμα.eu');
 
         $this->assertStringEndsWith('full_name=xn--hxajbheg2az3al.eu', $http->last()['url']);
+        // Non-transitional, as DomainName: «ß» kept, not «ss».
+        $this->assertSame(['xn--strae-oqa', 'de'], Client::splitFqdn('straße.de'));
     }
 
     public function test_renew_restore_and_autorenew_requests()

@@ -106,7 +106,10 @@ final class DomainName
         return true;
     }
 
-    /** Punycode for non-ASCII input; null when it cannot be converted. */
+    /**
+     * Punycode for non-ASCII input; null when it cannot be converted. Non-transitional (IDNA2008, as browsers and the
+     * .gr registry): «ς» and «ß» are kept, so «καλός.ελ» is xn--mxare2a1c, not xn--mxare6a6b (καλόσ.ελ).
+     */
     public static function toAscii($name)
     {
         if (!preg_match('/[^\x20-\x7E]/', (string) $name)) {
@@ -115,7 +118,7 @@ final class DomainName
         if (!function_exists('idn_to_ascii')) {
             return null;
         }
-        $ascii = idn_to_ascii((string) $name, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46);
+        $ascii = idn_to_ascii((string) $name, IDNA_NONTRANSITIONAL_TO_ASCII, INTL_IDNA_VARIANT_UTS46);
 
         return $ascii === false ? null : strtolower($ascii);
     }

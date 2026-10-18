@@ -41,4 +41,17 @@ final class DomainNameTest extends TestCase
         $this->assertFalse(DomainName::validDomain('nodot'));
         $this->assertFalse(DomainName::validDomain('a..com'));
     }
+
+    public function test_idn_is_non_transitional()
+    {
+        // IDNA2008, as browsers and the .gr registry: final sigma and sharp s are kept, not mapped to σ and ss.
+        $this->assertSame('xn--mxare2a1c.xn--qxam', DomainName::toAscii('καλός.ελ'));
+        // Capital Σ has no final form: it lowers to σ, as in a browser.
+        $this->assertSame('xn--mxare6a6b.xn--qxam', DomainName::toAscii('ΚΑΛΌΣ.ΕΛ'));
+        $this->assertNotSame(DomainName::toAscii('καλός.ελ'), DomainName::toAscii('καλόσ.ελ'));
+        $this->assertSame('xn--strae-oqa.de', DomainName::toAscii('straße.de'));
+        $this->assertSame('strasse.de', DomainName::toAscii('strasse.de'));
+        $this->assertSame(['xn--strae-oqa', 'com'], self::parts('https://www.Straße.com/'));
+        $this->assertSame(['xn--mxare2a1c', 'eu'], self::parts('καλός.eu'));
+    }
 }
