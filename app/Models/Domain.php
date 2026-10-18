@@ -2,8 +2,10 @@
 
 namespace App\Models;
 
+use App\Contracts\StaffPricedNames;
 use App\Enums\DomainStatus;
 use App\Services\Domains\DomainRegistrarFactory;
+use App\Services\Domains\Registrars\GrEppRegistrar;
 use Carbon\CarbonInterface;
 use Database\Factories\DomainFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -283,8 +285,31 @@ class Domain extends Model implements Auditable
     /** The price of renewing it for $years: its own (recurring amount, or its TLD's for its period), else its TLD's for $years. */
     public function renewalPriceFor(int $years): ?string
     {
-        return $years === max(1, (int) $this->years) ? $this->renewalPrice()
-            : $this->domainTld?->loadMissing('prices')->priceFor('renew', $years, $this->currency_code);
+        if ($years === max(1, (int) $this->years)) {
+            return $this->renewalPrice();
+        }
+
+        return $this->staffPriced() ? null : $this->domainTld?->loadMissing('prices')->priceFor('renew', $years, $this->currency_code);
+    }
+
+    /**
+     * A name its registrar never does at its TLD's price (.gr: 2 characters, the EETT's 300 € a deed): no catalog price
+     * applies, only its own set by staff (never billed otherwise; owner 2026-10-18).
+     */
+    public function staffPriced(): bool
+    {
+        // By its name first (F4 of #202: never lost with its registrar's connection off or another registrar's).
+        if (GrEppRegistrar::twoCharacters((string) $this->fqdn)) {
+            return true;
+        }
+        try {
+            $connection = $this->effectiveRegistrarConnection();
+            $registrar = $connection !== null ? app(DomainRegistrarFactory::class)->for($connection) : null;
+
+            return $registrar instanceof StaffPricedNames && $registrar->staffPriced((string) $this->fqdn);
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /**
@@ -363,6 +388,9 @@ class Domain extends Model implements Auditable
     {
         if ($this->recurring_amount !== null) {
             return (string) $this->recurring_amount;
+        }
+        if ($this->staffPriced()) {
+            return null; // never at its TLD's price
         }
 
         return $this->domainTld?->loadMissing('prices')->priceFor('renew', max(1, (int) $this->years), $this->currency_code);

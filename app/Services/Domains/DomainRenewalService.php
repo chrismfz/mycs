@@ -411,6 +411,11 @@ class DomainRenewalService
             if ($renewedUnpaid !== null) {
                 throw new RuntimeException(__('domains.renew.renewed_unpaid', ['domain' => $domain->fqdn, 'invoice' => $renewedUnpaid]));
             }
+            // A name never renewed at its TLD's price (.gr: 2 characters): staff do it by hand, before any invoice (review 2
+            // of #202).
+            if ($domain->staffPriced()) {
+                throw new RuntimeException(__('domains.renew.staff_priced', ['domain' => $domain->fqdn]));
+            }
             // Never billed for a period its registrar does not renew (review 2 of #189): checked before the invoice.
             $step = max(1, $this->factory->for($connection)->capabilities()->renewYearStep);
             if ($domain->nextRenewalYears() % $step !== 0) {

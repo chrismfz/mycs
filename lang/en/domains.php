@@ -59,6 +59,7 @@ return [
         'not_renewable' => ':domain cannot be renewed now: it has no expiry or has ended.',
         'no_price' => ':domain has no renew price for :years year(s): set one on its TLD or the domain.',
         'not_active_at_registrar' => 'The registrar has :domain as :status: renew it there by hand.',
+        'staff_priced' => ':domain is never renewed at its TLD\'s price (a .gr name of 2 characters: the EETT\'s 300 € a deed): renew it by hand.',
         'not_in_steps' => 'The registrar renews :domain in steps of :step years, not :years: set its renewal period, or renew it there by hand.',
     ],
 

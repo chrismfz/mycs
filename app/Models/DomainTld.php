@@ -2,8 +2,10 @@
 
 namespace App\Models;
 
+use App\Contracts\StaffPricedNames;
 use App\Exceptions\DisplayException;
 use App\Services\Domains\DomainRegistrarFactory;
+use App\Services\Domains\Registrars\GrEppRegistrar;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -100,6 +102,22 @@ class DomainTld extends Model implements Auditable
      * Whether its registrar can do $operation (register, transfer) through its API now: a TLD at the .gr registry before
      * G5 cannot, so it is not sold (review 1 of #191). No connection, or one without an API: staff do it, as before.
      */
+    /** A name of this TLD its registrar never does at the TLD's price (.gr: 2 characters): never sold here. */
+    public function staffPriced(string $fqdn): bool
+    {
+        if (GrEppRegistrar::twoCharacters($fqdn)) {
+            return true; // by its name, whatever its registrar (F4 of #202)
+        }
+        try {
+            $connection = $this->registrarConnection;
+            $registrar = $connection !== null ? app(DomainRegistrarFactory::class)->for($connection) : null;
+
+            return $registrar instanceof StaffPricedNames && $registrar->staffPriced($fqdn);
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
     public function registrarCan(string $operation): bool
     {
         $connection = $this->registrarConnection;

@@ -42,6 +42,11 @@ class DomainOffer
             throw new DisplayException(__('domains.order.years_not_offered', ['years' => $years]));
         }
         // Its registrar must be able to do it (review 1 of #191: never a paid order that only staff can fulfil).
+        // Never sold at its TLD's price whatever the search said (review 3 of #202: a taken 2-character .gr name was
+        // still transferable; the checkout re-checks without availability).
+        if ($tld->staffPriced($fqdn)) {
+            throw new DisplayException(__('domains.shop.premium'));
+        }
         if (!$tld->registrarCan($operation)) {
             throw new DisplayException(__('domains.order.not_offered_op', ['operation' => __('domains.shop.' . $operation)]));
         }
