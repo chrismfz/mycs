@@ -128,7 +128,8 @@ class ViewDomain extends ViewRecord
                 Action::make('lock')->label(fn (Domain $record) => $record->transfer_lock ? __('Unlock (allow transfer)') : __('Lock (block transfer)'))
                     ->icon(fn (Domain $record) => $record->transfer_lock ? 'heroicon-o-lock-open' : 'heroicon-o-lock-closed')
                     ->visible(fn (Domain $record) => self::can('admin.domains.manage') && self::manageable($record)
-                        && ($record->meta['registrar']['is_lockable'] ?? true) !== false)
+                        && ($record->meta['registrar']['is_lockable'] ?? true) !== false
+                        && app(DomainManagementService::class)->registrarSupports($record, 'supportsTransferLock'))
                     ->requiresConfirmation()
                     ->action(fn (Domain $record) => $this->attempt(
                         fn () => app(DomainManagementService::class)->setTransferLock($record, !$record->transfer_lock, self::staff()),
@@ -138,7 +139,8 @@ class ViewDomain extends ViewRecord
                 Action::make('privacy')->label(fn (Domain $record) => $record->id_protection ? __('Turn WHOIS privacy off') : __('Turn WHOIS privacy on'))
                     ->icon('heroicon-o-eye-slash')
                     ->visible(fn (Domain $record) => self::can('admin.domains.manage') && self::manageable($record)
-                        && ($record->meta['registrar']['is_private_whois_allowed'] ?? true) !== false)
+                        && ($record->meta['registrar']['is_private_whois_allowed'] ?? true) !== false
+                        && app(DomainManagementService::class)->registrarSupports($record, 'supportsPrivacy'))
                     ->requiresConfirmation()
                     ->action(fn (Domain $record) => $this->attempt(
                         fn () => app(DomainManagementService::class)->setWhoisPrivacy($record, !$record->id_protection, self::staff()),

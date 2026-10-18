@@ -11,6 +11,7 @@ use App\Models\Domain;
 use App\Services\Domains\DomainNotFoundAtRegistrar;
 use App\Services\Domains\DomainRegistrarNotConfigured;
 use App\Services\Domains\RegistrarNotAsked;
+use App\Services\Domains\RegistrarOutcomeUnknown;
 use App\Services\Domains\RegistrarRefused;
 use App\Support\Domains\AvailabilityResult;
 use App\Support\Domains\DomainChanges;
@@ -37,6 +38,7 @@ use MyCS\GrEpp\Command\DomainCreate;
 use MyCS\GrEpp\Command\DomainDelete;
 use MyCS\GrEpp\Command\DomainInfo;
 use MyCS\GrEpp\Command\DomainRenew;
+use MyCS\GrEpp\Command\DomainUpdate;
 use MyCS\GrEpp\Command\HostCheck;
 use MyCS\GrEpp\Command\HostCreate;
 use MyCS\GrEpp\Command\Rules;
@@ -331,7 +333,7 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
             [$handles, $hosts] = self::prepare(function () use ($session, $domain, $years, $credentials) {
                 Rules::years($years);
 
-                return [self::ensureContacts($session, $domain, self::prefix($credentials)), self::ensureHosts($session, $domain)];
+                return [self::ensureContacts($session, $domain, self::prefix($credentials)), self::ensureHosts($session, $domain->nameservers->pluck('host')->all())];
             });
             if (!isset($handles['registrant'])) {
                 throw new RegistrarNotAsked("{$domain->fqdn} has no registrant contact: the registry needs one.");
@@ -381,11 +383,12 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
      *
      * @return array<string, string> role => contact id
      */
-    private static function ensureContacts(Session $session, Domain $domain, string $prefix): array
+    /** @param  list<string>  $roles  its roles to ensure (an update: never the registrant, an owner change) */
+    private static function ensureContacts(Session $session, Domain $domain, string $prefix, array $roles = Domain::ROLES): array
     {
         $handles = [];
         $made = []; // contact id => registry id: one contact in several roles is checked once
-        foreach (Domain::ROLES as $role) {
+        foreach ($roles as $role) {
             $existing = trim((string) $domain->{"{$role}_handle"});
             if ($existing !== '' && stripos($existing, "{$prefix}_") === 0) {
                 $handles[$role] = $existing;
@@ -412,8 +415,10 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
                     // #192): read, and used only if it is this contact (its name, which the registry never changes).
                     $info = ContactInfo::parse(self::send($session, fn (string $clTRID) => ContactInfo::request($id, $clTRID)));
                     $held = $info->postalInfo['loc'] ?? $info->postalInfo['int'] ?? null;
-                    if ($held === null || self::sameName($held->name, $draft->local->name) === false) {
-                        throw new InvalidArgumentException("The registry's contact {$id} holds another name than this contact's: not used. Staff decide (a new contact here, or the registry's corrected).");
+                    // Its name and its email (ADV-7 of #195: the same name alone may be another person's contact).
+                    if ($held === null || !self::sameName($held->name, $draft->local->name)
+                        || strcasecmp(trim((string) $info->email), trim($draft->email)) !== 0) {
+                        throw new InvalidArgumentException("The registry's contact {$id} holds another name or email than this contact's: not used. Staff decide (a new contact here, or the registry's corrected).");
                     }
                 }
 
@@ -451,11 +456,12 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
      * Its nameservers, existing at the registry (a domain's must): an external one missing is created (no address); one
      * under .gr/.ελ missing needs its glue (IPs), made by staff first.
      *
+     * @param  list<string>  $hosts
      * @return list<string>
      */
-    private static function ensureHosts(Session $session, Domain $domain): array
+    private static function ensureHosts(Session $session, array $hosts): array
     {
-        $hosts = Rules::nameservers($domain->nameservers->pluck('host')->all());
+        $hosts = Rules::nameservers($hosts);
         foreach (array_chunk($hosts, HostCheck::MAX) as $batch) {
             $check = HostCheck::parse(self::send($session, fn (string $clTRID) => HostCheck::request($batch, $clTRID)));
             foreach ($batch as $host) {
@@ -521,7 +527,7 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
         } catch (NotSent|InvalidArgumentException $e) {
             throw new RegistrarNotAsked($e->getMessage(), 0, $e);
         } catch (OutcomeUnknown $e) {
-            throw new RuntimeException($e->getMessage(), 0, $e);
+            throw new RegistrarOutcomeUnknown($e->getMessage(), 0, $e);
         }
     }
 
@@ -560,9 +566,95 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
         throw self::notYet('give an EPP code (the registry emails the registrant instead: DACoR)');
     }
 
+    /**
+     * WRITE (G5b-1): its nameservers (a full set: what is missing added, what is extra removed; external hosts made, an
+     * internal one needs its glue first) and the contacts of its admin, tech and billing roles (ours made from the
+     * domain's contacts; the registry's others on those roles removed: another registrar's `533_`, the old module's).
+     * Never the registrant: changing it is an owner change, charged (G8). Read fresh first: the change is what differs
+     * from the registry, never an empty update. No transfer lock or WHOIS privacy at the .gr registry.
+     */
     public function updateDomain(Domain $domain, DomainChanges $changes, DomainRegistrarCredentials $credentials): DomainSyncResult
     {
-        throw self::notYet('update');
+        if ($changes->transferLock !== null || $changes->whoisPrivacy !== null) {
+            throw new RegistrarNotAsked('The .gr registry has no transfer lock or WHOIS privacy.');
+        }
+        if ($changes->isEmpty()) {
+            throw new RegistrarNotAsked('Nothing to change.');
+        }
+
+        return $this->locked($credentials, function (Session $session) use ($domain, $changes, $credentials) {
+            [$info, $addHosts, $removeHosts, $addContacts, $removeContacts] = self::prepare(function () use ($session, $domain, $changes, $credentials) {
+                $info = self::read($session, $domain);
+                // Ours and updatable, before anything is made (ADV-1 of #195): another registrar's, or one the registry
+                // will not change now, gets no host, no contact and no update.
+                if ($info->clientId !== null && strcasecmp($info->clientId, self::registrarId($credentials)) !== 0) {
+                    throw new InvalidArgumentException("{$domain->fqdn} is managed by another registrar at the registry ({$info->clientId}).");
+                }
+                $blocked = array_intersect($info->statuses, ['serverUpdateProhibited', 'clientUpdateProhibited', 'pendingTransfer', 'pendingDelete']);
+                if ($blocked !== []) {
+                    throw new InvalidArgumentException("{$domain->fqdn} cannot be changed at the registry now (" . implode(', ', $blocked) . ').');
+                }
+                $addHosts = $removeHosts = [];
+                if ($changes->nameservers !== null) {
+                    if ($changes->nameservers === []) {
+                        throw new InvalidArgumentException('A domain is never left without nameservers.'); // ADV-2 of #195
+                    }
+                    $wanted = self::ensureHosts($session, $changes->nameservers);
+                    // The registry's as ours (Rules::name: case, a trailing dot, xn--, NFC: review 5 of #195), its own
+                    // spelling kept for the removal.
+                    $current = [];
+                    foreach ($info->nameservers as $host) {
+                        try {
+                            $current[Rules::name($host)] = $host;
+                        } catch (InvalidArgumentException) {
+                            $current[strtolower($host)] = $host;
+                        }
+                    }
+                    $addHosts = array_values(array_diff($wanted, array_keys($current)));
+                    $removeHosts = array_values(array_intersect_key($current, array_flip(array_diff(array_keys($current), $wanted))));
+                }
+                $addContacts = $removeContacts = [];
+                if ($changes->applyContacts) {
+                    // The registry keeps a contact on a role: one cleared here is not cleared there (review 3 of #195).
+                    foreach (['admin', 'tech', 'billing'] as $role) {
+                        if ($domain->{"{$role}_contact_id"} === null && ($info->contacts[$role] ?? []) !== []) {
+                            throw new InvalidArgumentException("The .gr registry keeps a {$role} contact: choose another contact instead of none.");
+                        }
+                    }
+                    // A role linked to another registrar's contact here, not changed (its handle kept), stays as it is: only
+                    // what was asked is changed (ADV-6 of #195); G8's cleanup replaces those on purpose.
+                    $prefix = self::prefix($credentials);
+                    $roles = array_values(array_filter(['admin', 'tech', 'billing'], function (string $role) use ($domain, $prefix) {
+                        $handle = trim((string) $domain->{"{$role}_handle"});
+
+                        return $handle === '' || stripos($handle, "{$prefix}_") === 0;
+                    }));
+                    foreach (self::ensureContacts($session, $domain, $prefix, $roles) as $role => $ours) {
+                        $there = $info->contacts[$role] ?? [];
+                        $has = in_array(strtolower($ours), array_map('strtolower', $there), true);
+                        $addContacts[$role] = $has ? [] : [$ours];
+                        $removeContacts[$role] = array_values(array_filter($there, fn (string $id) => strtolower($id) !== strtolower($ours)));
+                    }
+                }
+
+                return [$info, $addHosts, $removeHosts, $addContacts, $removeContacts];
+            });
+            if ($addHosts === [] && $removeHosts === [] && array_filter($addContacts) === [] && array_filter($removeContacts) === []) {
+                return self::syncResultFrom($info); // as asked already: nothing sent
+            }
+            self::charge(fn () => DomainUpdate::parse(self::send($session, fn (string $clTRID) => DomainUpdate::request($domain->fqdn, $clTRID,
+                $addHosts, $removeHosts, $addContacts, $removeContacts))));
+            try {
+                return self::syncResultFrom(self::read($session, $domain));
+            } catch (Throwable) {
+                // Done, not read back: what it was with what was changed, never a made-up status (review 2 of #195).
+                $before = self::syncResultFrom($info);
+                $nameservers = $changes->nameservers !== null ? Rules::nameservers($changes->nameservers) : $before->nameservers;
+
+                return new DomainSyncResult($before->expiresAt, $nameservers, $before->registrarDomainId, $before->status, $before->rawStatus,
+                    $before->contactHandles, false, null, null, $before->registeredAt, $before->details, $before->graceEndsOn, $before->redemptionEndsOn);
+            }
+        });
     }
 
     public function restore(Domain $domain, DomainRegistrarCredentials $credentials): DomainSyncResult
@@ -615,7 +707,7 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, RecallsRegistra
         } catch (NotSent $e) {
             throw new RegistrarNotAsked($e->getMessage(), 0, $e);
         } catch (GrEppException $e) {
-            throw $e instanceof Refused ? $e : new RuntimeException($e->getMessage(), 0, $e);
+            throw $e instanceof Refused ? $e : new RegistrarOutcomeUnknown($e->getMessage(), 0, $e);
         }
     }
 

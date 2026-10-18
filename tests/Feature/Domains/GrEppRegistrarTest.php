@@ -9,7 +9,6 @@ use App\Services\Domains\DomainRegistrarNotConfigured;
 use App\Services\Domains\DomainRegistrarRegistry;
 use App\Services\Domains\RegistrarRefused;
 use App\Services\Domains\Registrars\GrEppRegistrar;
-use App\Support\Domains\DomainChanges;
 use App\Support\Domains\DomainRegistrarCredentials;
 use Illuminate\Support\Carbon;
 use MyCS\GrEpp\Http\HttpResponse;
@@ -226,7 +225,6 @@ class GrEppRegistrarTest extends TestCase
         $domain = new Domain(['fqdn' => 'cdnet.gr']);
         foreach ([
             fn (GrEppRegistrar $r) => $r->transferIn($domain, 'code', $this->credentials()),
-            fn (GrEppRegistrar $r) => $r->updateDomain($domain, new DomainChanges, $this->credentials()),
             fn (GrEppRegistrar $r) => $r->restore($domain, $this->credentials()),
             fn (GrEppRegistrar $r) => $r->getEppCode($domain, $this->credentials()),
         ] as $write) {

@@ -209,7 +209,8 @@ class Show extends Component
     /** Offered as in the admin (R7): only where the registrar says the domain can be locked. */
     public function lockable(): bool
     {
-        return ($this->domain->meta['registrar']['is_lockable'] ?? true) !== false;
+        return ($this->domain->meta['registrar']['is_lockable'] ?? true) !== false
+            && $this->management()->registrarSupports($this->domain, 'supportsTransferLock');
     }
 
     /**
@@ -218,7 +219,8 @@ class Show extends Component
      */
     public function privacyOffered(): bool
     {
-        return (bool) $this->domain->domainTld?->id_protection && ($this->domain->meta['registrar']['is_private_whois_allowed'] ?? true) !== false;
+        return (bool) $this->domain->domainTld?->id_protection && ($this->domain->meta['registrar']['is_private_whois_allowed'] ?? true) !== false
+            && $this->management()->registrarSupports($this->domain, 'supportsPrivacy');
     }
 
     public function toggleTransferLock(): void
