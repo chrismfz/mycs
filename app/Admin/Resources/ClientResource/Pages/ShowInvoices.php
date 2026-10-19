@@ -10,6 +10,7 @@ use Filament\Resources\Pages\ManageRelatedRecords;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class ShowInvoices extends ManageRelatedRecords
 {
@@ -21,25 +22,36 @@ class ShowInvoices extends ManageRelatedRecords
 
     public static function getNavigationLabel(): string
     {
-        return 'Invoices';
+        return __('Invoices');
     }
 
+    /**
+     * As WHMCS's client «Invoices» tab: number, dates, total, what is still due and the status, the newest first. The
+     * totals need the lines, notes and transactions: loaded with the rows, not per row.
+     */
     public function table(Table $table): Table
     {
         return $table
-            ->recordTitleAttribute('product.name')
+            ->recordTitleAttribute('number')
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['items', 'adjustmentNotes', 'transactions', 'currency']))
             ->columns([
-                TextColumn::make('id')->sortable(),
-                TextColumn::make('formattedTotal')->label('Total'),
+                TextColumn::make('id')->label('ID')->sortable(),
+                TextColumn::make('number')->label(__('Invoice #'))->searchable()->sortable()->placeholder('—'),
+                TextColumn::make('created_at')->label(__('Invoice Date'))->date()->sortable(),
+                TextColumn::make('due_at')->label(__('Due Date'))->date()->sortable()->placeholder('—'),
+                TextColumn::make('formattedTotal')->label(__('Total')),
+                TextColumn::make('formattedCurrentBalance')->label(__('Remaining')),
                 TextColumn::make('status')
-                    ->label('Status')
+                    ->label(__('Status'))
                     ->formatStateUsing(fn (string $state): string => Invoice::statusLabel($state))
                     ->badge()
-                    ->color(fn (string $state): string => Invoice::statusColor($state)),
+                    ->color(fn (string $state): string => Invoice::statusColor($state))
+                    ->sortable(),
             ])
+            ->defaultSort('id', 'desc')
             ->filters([
                 SelectFilter::make('status')
-                    ->label('Status')
+                    ->label(__('Status'))
                     ->options(Invoice::statusOptions()),
             ])
             ->recordActions([
