@@ -349,6 +349,14 @@ class Settings
                     'default' => false,
                 ],
                 [
+                    'name' => 'mail_staff_new_order',
+                    'label' => 'Email staff on new orders',
+                    'type' => 'checkbox',
+                    'database_type' => 'boolean',
+                    'default' => true,
+                    'description' => 'As WHMCS\'s «New Order Notification»: when a customer places an order, an email to the System Email Address with its items, invoice, notes and links to it. Not for orders staff create.',
+                ],
+                [
                     'name' => 'mail_host',
                     'label' => 'Mail Host',
                     'type' => 'text',
