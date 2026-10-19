@@ -55,10 +55,10 @@ class DomainsD2AdversarialTest extends TestCase
     public function test_f1_a_cached_token_is_never_used_for_credentials_with_another_password(): void
     {
         Http::fake([
-            self::PRODUCTION . '/v1beta/auth/login' => fn ($request) => $request['password'] === 'Op-Secret-Pa55'
+            self::PRODUCTION . '/v1/auth/login' => fn ($request) => $request['password'] === 'Op-Secret-Pa55'
                 ? Http::response(['data' => ['token' => 'tok-real']])
                 : Http::response(['desc' => 'Authentication failed'], 401),
-            self::PRODUCTION . '/v1beta/domains/check' => Http::response(['data' => ['results' => [['status' => 'free']]]]),
+            self::PRODUCTION . '/v1/domains/check' => Http::response(['data' => ['results' => [['status' => 'free']]]]),
         ]);
         $op = new OpenproviderRegistrar;
         $op->checkAvailability('a.com', new DomainRegistrarCredentials(['username' => 'reseller', 'password' => 'Op-Secret-Pa55'], sandbox: false));
@@ -76,8 +76,8 @@ class DomainsD2AdversarialTest extends TestCase
     public function test_f1b_a_connection_without_a_password_is_not_configured_even_when_a_token_is_cached(): void
     {
         Http::fake([
-            self::PRODUCTION . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok-real']]),
-            self::PRODUCTION . '/v1beta/domains/check' => Http::response(['data' => ['results' => [['status' => 'free']]]]),
+            self::PRODUCTION . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok-real']]),
+            self::PRODUCTION . '/v1/domains/check' => Http::response(['data' => ['results' => [['status' => 'free']]]]),
         ]);
         $op = new OpenproviderRegistrar;
         $op->checkAvailability('a.com', new DomainRegistrarCredentials(['username' => 'reseller', 'password' => 'Op-Secret-Pa55'], sandbox: false));
@@ -95,9 +95,9 @@ class DomainsD2AdversarialTest extends TestCase
         $domain = Domain::factory()->create(['client_id' => $owner->id, 'sld' => 'shop', 'tld' => 'test', 'fqdn' => 'shop.test',
             'registrant_contact_id' => $owner->primaryContact->id, 'tech_contact_id' => $stranger->id]);
         Http::fake([
-            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX . '/v1beta/customers' => Http::sequence()->push(['data' => ['handle' => 'A1-GR']])->push(['data' => ['handle' => 'B1-GR']]),
-            self::SANDBOX . '/v1beta/domains' => Http::response(['data' => ['id' => 1, 'status' => 'REQ']]),
+            self::SANDBOX . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1/customers' => Http::sequence()->push(['data' => ['handle' => 'A1-GR']])->push(['data' => ['handle' => 'B1-GR']]),
+            self::SANDBOX . '/v1/domains' => Http::response(['data' => ['id' => 1, 'status' => 'REQ']]),
         ]);
 
         try {
@@ -106,7 +106,7 @@ class DomainsD2AdversarialTest extends TestCase
             // refusing is the right answer
         }
 
-        Http::assertNotSent(fn ($request) => str_ends_with($request->url(), '/v1beta/customers') && ($request['email'] ?? null) === 'stranger@example.test');
+        Http::assertNotSent(fn ($request) => str_ends_with($request->url(), '/v1/customers') && ($request['email'] ?? null) === 'stranger@example.test');
         $this->assertNull($domain->fresh()->tech_handle);
     }
 
@@ -120,9 +120,9 @@ class DomainsD2AdversarialTest extends TestCase
             'registrant_contact_id' => $old->id, 'registrant_handle' => 'OLD1-GR', 'registrar_domain_id' => '55']);
         $domain->update(['registrant_contact_id' => $new->id]); // the owner changes the registrant
         Http::fake([
-            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX . '/v1beta/customers' => Http::response(['data' => ['handle' => 'NEW1-GR']]),
-            self::SANDBOX . '/v1beta/domains/55' => Http::response(['data' => ['id' => 55, 'status' => 'ACT']]),
+            self::SANDBOX . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1/customers' => Http::response(['data' => ['handle' => 'NEW1-GR']]),
+            self::SANDBOX . '/v1/domains/55' => Http::response(['data' => ['id' => 55, 'status' => 'ACT']]),
         ]);
 
         (new OpenproviderRegistrar)->updateDomain($domain->fresh(), new DomainChanges(applyContacts: true), new DomainRegistrarCredentials(['username' => 'u', 'password' => 'p']));
@@ -134,7 +134,7 @@ class DomainsD2AdversarialTest extends TestCase
     public function test_f4_view_only_staff_cannot_fire_a_login_with_the_stored_credentials(): void
     {
         $connection = $this->connection();
-        Http::fake([self::PRODUCTION . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']])]);
+        Http::fake([self::PRODUCTION . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']])]);
 
         try {
             $this->livewireAs($this->staff(['admin.domain_registrars.viewAny']))->test(ListDomainRegistrarConnections::class)
@@ -233,7 +233,7 @@ class DomainsD2AdversarialTest extends TestCase
 
     public function test_holds_a_login_failure_or_error_body_does_not_carry_the_password(): void
     {
-        Http::fake([self::PRODUCTION . '/v1beta/auth/login' => Http::response('{"desc":"bad","echo":"Op-Secret-Pa55"}', 401)]);
+        Http::fake([self::PRODUCTION . '/v1/auth/login' => Http::response('{"desc":"bad","echo":"Op-Secret-Pa55"}', 401)]);
         $thrown = null;
         try {
             (new OpenproviderRegistrar)->checkAvailability('a.com', new DomainRegistrarCredentials(['username' => 'u', 'password' => 'Op-Secret-Pa55'], sandbox: false));
@@ -249,15 +249,15 @@ class DomainsD2AdversarialTest extends TestCase
     public function test_holds_sandbox_and_production_tokens_never_cross(): void
     {
         Http::fake([
-            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok-sandbox']]),
-            self::PRODUCTION . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok-live']]),
-            '*/v1beta/domains/check' => Http::response(['data' => ['results' => [['status' => 'free']]]]),
+            self::SANDBOX . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok-sandbox']]),
+            self::PRODUCTION . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok-live']]),
+            '*/v1/domains/check' => Http::response(['data' => ['results' => [['status' => 'free']]]]),
         ]);
         $op = new OpenproviderRegistrar;
         $op->checkAvailability('a.com', new DomainRegistrarCredentials(['username' => 'u', 'password' => 'p'], sandbox: true));
         $op->checkAvailability('a.com', new DomainRegistrarCredentials(['username' => 'u', 'password' => 'p'], sandbox: false));
-        Http::assertSent(fn ($r) => str_starts_with($r->url(), self::PRODUCTION . '/v1beta/domains/check') && $r->header('Authorization')[0] === 'Bearer tok-live');
-        Http::assertSent(fn ($r) => str_starts_with($r->url(), self::SANDBOX . '/v1beta/domains/check') && $r->header('Authorization')[0] === 'Bearer tok-sandbox');
+        Http::assertSent(fn ($r) => str_starts_with($r->url(), self::PRODUCTION . '/v1/domains/check') && $r->header('Authorization')[0] === 'Bearer tok-live');
+        Http::assertSent(fn ($r) => str_starts_with($r->url(), self::SANDBOX . '/v1/domains/check') && $r->header('Authorization')[0] === 'Bearer tok-sandbox');
     }
 
     public function test_holds_a_retry_after_a_partial_failure_creates_no_second_customer(): void
@@ -270,13 +270,13 @@ class DomainsD2AdversarialTest extends TestCase
         $domain->nameservers()->create(['host' => 'ns1.example.net', 'sort' => 0]); // always sent explicitly (since the D2 review)
         $customers = 0;
         Http::fake([
-            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX . '/v1beta/customers' => function () use (&$customers) {
+            self::SANDBOX . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1/customers' => function () use (&$customers) {
                 $customers++;
 
                 return $customers === 2 ? Http::response(['desc' => 'boom'], 500) : Http::response(['data' => ['handle' => 'H' . $customers . '-GR']]);
             },
-            self::SANDBOX . '/v1beta/domains' => Http::response(['data' => ['id' => 1, 'status' => 'REQ']]),
+            self::SANDBOX . '/v1/domains' => Http::response(['data' => ['id' => 1, 'status' => 'REQ']]),
         ]);
         $creds = new DomainRegistrarCredentials(['username' => 'u', 'password' => 'p']);
         try {

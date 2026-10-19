@@ -185,7 +185,7 @@ class GreppRenewalsAdversarialTest extends TestCase
         $this->record = array_merge($this->record, ['status' => 'DEL', 'soft_quarantine_expiry_date' => '2026-12-30 10:00:00']);
 
         $this->assertSame(DomainRenewalService::APPLIED, app(DomainRenewalService::class)->renewLine($line->id));
-        $this->assertSame(['/v1beta/domains/30391502/restore', '/v1beta/domains/30391502/renew'], array_column($this->opCharges, 0));
+        $this->assertSame(['/v1/domains/30391502/restore', '/v1/domains/30391502/renew'], array_column($this->opCharges, 0));
         $this->assertSame(1, $this->opCharges[1][1]['period']);
         $this->assertSame('2028-11-20', $domain->fresh()->expires_at->toDateString());
     }

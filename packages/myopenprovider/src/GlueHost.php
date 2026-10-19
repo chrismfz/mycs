@@ -88,7 +88,7 @@ final class GlueHost
             || ord($packed[0]) === 0xFF || (ord($packed[0]) === 0xFE && (ord($packed[1]) & 0xC0) === 0x80);
     }
 
-    /** The payload of POST /v1beta/dns/nameservers and PUT /v1beta/dns/nameservers/{name}. */
+    /** The payload of POST /v1/dns/nameservers and PUT /v1/dns/nameservers/{name}. */
     public function toArray()
     {
         $host = ['name' => $this->name];

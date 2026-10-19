@@ -3,7 +3,7 @@
 namespace Nixpal\MyOpenprovider;
 
 /**
- * Where the bearer token from POST /v1beta/auth/login is kept between requests
+ * Where the bearer token from POST /v1/auth/login is kept between requests
  * (Blesta: module meta). Keys never contain the password.
  */
 interface TokenStore

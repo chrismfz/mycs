@@ -55,9 +55,9 @@ class DomainTldsTest extends TestCase
     /** @param  array<string, array<string, mixed>>  $prices  tld => Openprovider price block */
     private function fakeOpenprovider(array $prices): void
     {
-        $routes = [self::PROD . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']])];
+        $routes = [self::PROD . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']])];
         foreach ($prices as $tld => $block) {
-            $routes[self::PROD . '/v1beta/tlds/' . $tld . '*'] = $block === []
+            $routes[self::PROD . '/v1/tlds/' . $tld . '*'] = $block === []
                 ? Http::response(['desc' => 'Extension not supported'], 400)
                 : Http::response(['data' => ['prices' => $block]]);
         }

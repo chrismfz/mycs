@@ -251,27 +251,27 @@ Value objects (immutable): `AvailabilityResult`, `RegistrarResult`, `DomainSyncR
 - `App\Services\Domains\NullDomainRegistrar` — no-op/throws → καταχώρηση domains by hand χωρίς API (A1).
 
 ### 4.3 Openprovider adapter — endpoint mapping (από module source + swagger)
-- **Auth:** `POST /v1beta/auth/login` (username + **plaintext** password/HTTPS — το MD5 hash/token
+- **Auth:** `POST /v1/auth/login` (username + **plaintext** password/HTTPS — το MD5 hash/token
   είναι legacy XML-RPC, ΟΧΙ REST) → bearer, **~24h TTL** (cache + re-auth σε 401). Prod
   `https://api.openprovider.eu`.
-- **Sandbox:** `http://api.sandbox.openprovider.nl:8480/v1beta/` (HTTP, :8480, `.nl`) + **ξεχωριστό**
+- **Sandbox:** `http://api.sandbox.openprovider.nl:8480/v1/` (HTTP, :8480, `.nl`) + **ξεχωριστό**
   sandbox account. Το παλιό `*.cte.openprovider.eu` αποσύρθηκε. Επιλογή = swap base URL + creds →
   κουμπώνει στο `DomainRegistrarCredentials` sandbox flag.
 
 | Contract method | Openprovider API |
 |---|---|
-| `ping` | `POST /v1beta/auth/login` |
-| `checkAvailability` | `POST /v1beta/domains/check` |
-| `register` | ensure handles (`POST /v1beta/customers`) → `POST /v1beta/domains` |
-| `renew` | `POST /v1beta/domains/{id}/renew` |
-| `transfer` | `POST /v1beta/domains/transfer` (+ `…/{id}/transfer/approve`, `…/send-foa1`) |
-| `syncDomain` | `GET /v1beta/domains/{id}` → `expiration_date`, `status`, `is_locked`, `autorenew` |
-| `setNameservers` / lock / privacy / dnssec / contacts / autorenew | **`PUT /v1beta/domains/{id}`** (ένα call τα κάνει όλα: `name_servers`, `is_locked`, `is_private_whois_enabled`, `is_dnssec_enabled`+`dnssec_keys[]`, `owner/admin/tech/billing_handle`) |
-| `getEppCode` | `GET /v1beta/domains/{id}/authcode` (reset: `POST …/authcode/reset`) |
-| registrant change | `POST /v1beta/domains/trade` (ICANN IRTP) |
-| restore/redemption | `POST /v1beta/domains/{id}/restore` |
-| glue hosts | `GET|POST /v1beta/dns/nameservers`, `PUT|DELETE …/{name}` |
-| `getTldPricing` | `GET /v1beta/domains/prices`, `GET /v1beta/tlds/{name}` (requirements/additional-data) |
+| `ping` | `POST /v1/auth/login` |
+| `checkAvailability` | `POST /v1/domains/check` |
+| `register` | ensure handles (`POST /v1/customers`) → `POST /v1/domains` |
+| `renew` | `POST /v1/domains/{id}/renew` |
+| `transfer` | `POST /v1/domains/transfer` (+ `…/{id}/transfer/approve`, `…/send-foa1`) |
+| `syncDomain` | `GET /v1/domains/{id}` → `expiration_date`, `status`, `is_locked`, `autorenew` |
+| `setNameservers` / lock / privacy / dnssec / contacts / autorenew | **`PUT /v1/domains/{id}`** (ένα call τα κάνει όλα: `name_servers`, `is_locked`, `is_private_whois_enabled`, `is_dnssec_enabled`+`dnssec_keys[]`, `owner/admin/tech/billing_handle`) |
+| `getEppCode` | `GET /v1/domains/{id}/authcode` (reset: `POST …/authcode/reset`) |
+| registrant change | `POST /v1/domains/trade` (ICANN IRTP) |
+| restore/redemption | `POST /v1/domains/{id}/restore` |
+| glue hosts | `GET|POST /v1/dns/nameservers`, `PUT|DELETE …/{name}` |
+| `getTldPricing` | `GET /v1/domains/prices`, `GET /v1/tlds/{name}` (requirements/additional-data) |
 
 **3 gaps για σχεδίαση:** (α) **κανένα arbitrary WHOIS** endpoint — μόνο availability + το δικό-σου
 domain → πραγματικό WHOIS = ξεχωριστή port-43/RDAP πηγή (`App\Services\Domains\WhoisLookup`).
@@ -532,8 +532,8 @@ company_admin/operator· `DomainRegistrarConnection` creds = **super_admin only*
 - **Import — REGISTRAR-FIRST bootstrap** (απόφαση ιδιοκτήτη 2026-09-07 — «να μην εξαρτιόμαστε
   από WHMCS db») — **A2c-2 SHIPPED**:
   - **Κύρια πηγή = ο registrar**: `domains:import-registrar [--tenant] [--connection]` →
-    Openprovider `GET /v1beta/domains` (paginated, 100/σελίδα) + resolve των
-    **registrant/admin/tech/billing handles** (`GET /v1beta/customers/{handle}`, cached ανά run —
+    Openprovider `GET /v1/domains` (paginated, 100/σελίδα) + resolve των
+    **registrant/admin/tech/billing handles** (`GET /v1/customers/{handle}`, cached ανά run —
     κοινά handles = ΜΙΑ κλήση· 404 = σιωπηλό «χωρίς aid», 5xx = warn+continue) → κάθε domain
     μπαίνει **αδέσποτο με γεμάτα `domain_contacts`**, και ο operator κάνει το assign ΧΕΙΡΟΚΙΝΗΤΑ
     από το worklist «Χωρίς πελάτη». Υλοποίηση: `DomainImportService` — υπάρχοντα rows παίρνουν

@@ -5,11 +5,11 @@ namespace Nixpal\MyOpenprovider;
 use Nixpal\MyOpenprovider\Http\Transport;
 
 /**
- * Openprovider REST API (v1beta) without the generated SDK: plain JSON over a
+ * Openprovider REST API (v1) without the generated SDK: plain JSON over a
  * Transport. Ported from Ekdosi's OpenproviderRegistrar; request and response field
  * names checked against openprovider/rest-client-php (docs/openprovider.md).
  *
- * Auth: POST /v1beta/auth/login → bearer (~24h at Openprovider); kept in the
+ * Auth: POST /v1/auth/login → bearer (~24h at Openprovider); kept in the
  * TokenStore for 6h and re-fetched once when a request answers 401.
  */
 final class Client
@@ -78,7 +78,7 @@ final class Client
     public function findDomain($fqdn)
     {
         [$name, $extension] = self::splitFqdn($fqdn);
-        $data = $this->request('GET', '/v1beta/domains?full_name=' . rawurlencode($name . '.' . $extension));
+        $data = $this->request('GET', '/v1/domains?full_name=' . rawurlencode($name . '.' . $extension));
         $results = isset($data['results']) && is_array($data['results'])
             ? array_values(array_filter($data['results'], 'is_array'))
             : [];
@@ -94,7 +94,7 @@ final class Client
     /** @return array<string,mixed> */
     public function getDomain($id)
     {
-        $data = $this->request('GET', '/v1beta/domains/' . self::id($id));
+        $data = $this->request('GET', '/v1/domains/' . self::id($id));
         if (!is_array($data) || !isset($data['id'])) {
             throw new OpenproviderException('Openprovider returned no domain for id ' . self::id($id));
         }
@@ -110,7 +110,7 @@ final class Client
             throw new OpenproviderException('Invalid renewal period: ' . $years);
         }
 
-        return $this->request('POST', '/v1beta/domains/' . self::id($id) . '/renew', [
+        return $this->request('POST', '/v1/domains/' . self::id($id) . '/renew', [
             'id' => (int) self::id($id),
             'period' => $years,
         ]);
@@ -119,7 +119,7 @@ final class Client
     /** Restores a deleted domain from quarantine (redemption fee). */
     public function restoreDomain($id)
     {
-        return $this->request('POST', '/v1beta/domains/' . self::id($id) . '/restore', [
+        return $this->request('POST', '/v1/domains/' . self::id($id) . '/restore', [
             'id' => (int) self::id($id),
         ]);
     }
@@ -131,7 +131,7 @@ final class Client
             throw new OpenproviderException('Invalid autorenew value: ' . $value);
         }
 
-        return $this->request('PUT', '/v1beta/domains/' . self::id($id), [
+        return $this->request('PUT', '/v1/domains/' . self::id($id), [
             'id' => (int) self::id($id),
             'autorenew' => $value,
         ]);
@@ -148,7 +148,7 @@ final class Client
     {
         [$name, $extension] = self::splitFqdn($fqdn);
         $zone = $name . '.' . $extension;
-        $zones = $this->request('GET', '/v1beta/dns/zones?name_pattern=' . rawurlencode($zone) . '&limit=10');
+        $zones = $this->request('GET', '/v1/dns/zones?name_pattern=' . rawurlencode($zone) . '&limit=10');
         $found = false;
         foreach ((array) ($zones['results'] ?? []) as $candidate) {
             if (is_array($candidate) && strtolower((string) ($candidate['name'] ?? '')) === $zone && empty($candidate['is_deleted'])) {
@@ -162,7 +162,7 @@ final class Client
 
         $records = [];
         for ($offset = 0; $offset < 5000; $offset += 500) {
-            $data = $this->request('GET', '/v1beta/dns/zones/' . rawurlencode($zone) . '/records?limit=500&offset=' . $offset);
+            $data = $this->request('GET', '/v1/dns/zones/' . rawurlencode($zone) . '/records?limit=500&offset=' . $offset);
             $batch = array_values(array_filter((array) ($data['results'] ?? []), 'is_array'));
             $records = array_merge($records, $batch);
             if (count($batch) < 500) {
@@ -178,7 +178,7 @@ final class Client
     {
         [$name, $extension] = self::splitFqdn($fqdn);
 
-        return $this->request('POST', '/v1beta/dns/zones', [
+        return $this->request('POST', '/v1/dns/zones', [
             'domain' => ['name' => $name, 'extension' => $extension],
             'type' => 'master',
             'records' => array_values($records),
@@ -197,7 +197,7 @@ final class Client
             $records['remove'] = array_values($remove);
         }
 
-        return $this->request('PUT', '/v1beta/dns/zones/' . rawurlencode($name . '.' . $extension), [
+        return $this->request('PUT', '/v1/dns/zones/' . rawurlencode($name . '.' . $extension), [
             'name' => $name . '.' . $extension,
             'records' => $records,
         ]);
@@ -210,7 +210,7 @@ final class Client
     {
         [$name, $extension] = self::splitFqdn($fqdn);
         $suffix = '.' . $name . '.' . $extension;
-        $data = $this->request('GET', '/v1beta/dns/nameservers?pattern=' . rawurlencode('*' . $suffix) . '&limit=100');
+        $data = $this->request('GET', '/v1/dns/nameservers?pattern=' . rawurlencode('*' . $suffix) . '&limit=100');
         $hosts = [];
         foreach ((array) ($data['results'] ?? []) as $host) {
             $host_name = is_array($host) ? strtolower(rtrim((string) ($host['name'] ?? ''), '.')) : '';
@@ -226,22 +226,22 @@ final class Client
     public function saveNameserver(array $host, $exists)
     {
         if ($exists) {
-            return $this->request('PUT', '/v1beta/dns/nameservers/' . rawurlencode($host['name']), $host);
+            return $this->request('PUT', '/v1/dns/nameservers/' . rawurlencode($host['name']), $host);
         }
 
-        return $this->request('POST', '/v1beta/dns/nameservers', $host);
+        return $this->request('POST', '/v1/dns/nameservers', $host);
     }
 
     /** Deletes a nameserver host (Openprovider refuses while a domain still uses it). */
     public function deleteNameserver($host_name)
     {
-        return $this->request('DELETE', '/v1beta/dns/nameservers/' . rawurlencode(strtolower((string) $host_name)));
+        return $this->request('DELETE', '/v1/dns/nameservers/' . rawurlencode(strtolower((string) $host_name)));
     }
 
     // ---- name suggestions ----------------------------------------------------------------
 
     /**
-     * Openprovider's name suggestions for $term (POST /v1beta/domains/suggest-name), as
+     * Openprovider's name suggestions for $term (POST /v1/domains/suggest-name), as
      * lower-case domain names. Not availability-checked, and the TLD filter is a hint
      * only (other TLDs come back too).
      *
@@ -259,7 +259,7 @@ final class Client
         if ($tlds) {
             $payload['tlds'] = array_values(array_map('strval', $tlds));
         }
-        $data = $this->request('POST', '/v1beta/domains/suggest-name', $payload);
+        $data = $this->request('POST', '/v1/domains/suggest-name', $payload);
 
         $names = [];
         foreach ((array) ($data['results'] ?? []) as $result) {
@@ -306,7 +306,7 @@ final class Client
             return $cached;
         }
 
-        [$status, $json] = $this->send('POST', '/v1beta/auth/login', [
+        [$status, $json] = $this->send('POST', '/v1/auth/login', [
             'username' => $this->username,
             'password' => $this->password,
         ], null);

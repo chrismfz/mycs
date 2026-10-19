@@ -65,9 +65,9 @@ class DomainsD5aAdversarialTest extends TestCase
     private function fakeTlds(array $tlds): void
     {
         $q = fn (string $price) => ['reseller' => ['price' => $price, 'currency' => 'EUR']];
-        $routes = [self::PROD . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']])];
+        $routes = [self::PROD . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']])];
         foreach ($tlds as $tld => $t) {
-            $routes[self::PROD . '/v1beta/tlds/' . $tld . '*'] = Http::response(['data' => ['name' => $tld,
+            $routes[self::PROD . '/v1/tlds/' . $tld . '*'] = Http::response(['data' => ['name' => $tld,
                 'soft_quarantine_period' => $t[0], 'quarantine_period' => $t[1],
                 'prices' => ['create_price' => $q('11.22'), 'renew_price' => $q('9.80'), 'transfer_price' => $q('9.80'),
                     'restore_price' => $q($t[2]), 'soft_restore_price' => $q($t[3] ?? '0')]]]);
@@ -93,10 +93,10 @@ class DomainsD5aAdversarialTest extends TestCase
     {
         $data = $this->record($record);
         Http::fake([
-            self::PROD . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::PROD . '/v1beta/domains?*' => Http::response(['data' => ['results' => [$data]]]),
-            self::PROD . '/v1beta/domains/*' => Http::response(['data' => $data]),
-            self::PROD . '/v1beta/customers/*' => Http::response([], 404),
+            self::PROD . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::PROD . '/v1/domains?*' => Http::response(['data' => ['results' => [$data]]]),
+            self::PROD . '/v1/domains/*' => Http::response(['data' => $data]),
+            self::PROD . '/v1/customers/*' => Http::response([], 404),
         ]);
     }
 

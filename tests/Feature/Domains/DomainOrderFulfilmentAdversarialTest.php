@@ -111,7 +111,7 @@ class DomainOrderFulfilmentAdversarialTest extends TestCase
             ], $request->data()['domains'])]]),
             $request->method() === 'POST' && str_ends_with($path, '/customers') => Http::response(['data' => ['handle' => 'MP000001-GR']]),
             $request->method() === 'POST' && (str_ends_with($path, '/domains') || str_ends_with($path, '/domains/transfer')) => $this->create($path, $request->data()),
-            $request->method() === 'GET' && str_contains($path, '/v1beta/domains') => Http::response(['data' => ['results' => $this->created === [] ? [] : [$this->record()], 'total' => $this->created === [] ? 0 : 1] + $this->record()]),
+            $request->method() === 'GET' && str_contains($path, '/v1/domains') => Http::response(['data' => ['results' => $this->created === [] ? [] : [$this->record()], 'total' => $this->created === [] ? 0 : 1] + $this->record()]),
             str_contains($url, 'data.iana.org') => Http::response(['services' => [[['com'], ['https://rdap.example/']]]]),
             str_contains($url, 'rdap.example/domain/nixpal.com') => match ($this->rdap) {
                 'down' => Http::response([], 503),

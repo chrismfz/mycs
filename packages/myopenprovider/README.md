@@ -1,6 +1,6 @@
 # myopenprovider (lib)
 
-Our dependency-free client for the Openprovider REST API (v1beta) and the renewal
+Our dependency-free client for the Openprovider REST API (v1) and the renewal
 decision, used by the Blesta module `components/modules/myopenprovider` (symlink `lib`).
 No Blesta, no SDK: plain JSON over a `Transport` (cURL in production, a fake in tests).
 

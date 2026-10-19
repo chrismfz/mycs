@@ -71,9 +71,9 @@ class DomainsD4AdversarialTest extends TestCase
             'domain' => ['name' => 'nixpal', 'extension' => 'com'],
             'name_servers' => [['name' => 'ns1.nixpal.com'], ['name' => 'ns2.nixpal.com']], 'is_locked' => true];
         Http::fake([
-            self::PROD . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::PROD . '/v1beta/domains?full_name=*' => Http::response(['data' => ['results' => $byName ?? [$record]]]),
-            self::PROD . '/v1beta/domains/*' => Http::response(['data' => $record]),
+            self::PROD . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::PROD . '/v1/domains?full_name=*' => Http::response(['data' => ['results' => $byName ?? [$record]]]),
+            self::PROD . '/v1/domains/*' => Http::response(['data' => $record]),
         ]);
     }
 
@@ -139,9 +139,9 @@ class DomainsD4AdversarialTest extends TestCase
     {
         $old = $this->domain(['status' => DomainStatus::Deleted, 'registrar_domain_id' => '111', 'expires_at' => '2025-01-01']);
         Http::fake([
-            self::PROD . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::PROD . '/v1beta/domains/111' => Http::response(['desc' => 'Domain not found'], 404),
-            self::PROD . '/v1beta/domains?full_name=*' => Http::response(['data' => ['results' => [
+            self::PROD . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::PROD . '/v1/domains/111' => Http::response(['desc' => 'Domain not found'], 404),
+            self::PROD . '/v1/domains?full_name=*' => Http::response(['data' => ['results' => [
                 ['id' => 222, 'status' => 'ACT', 'expiration_date' => '2027-06-01 00:00:00', 'domain' => ['name' => 'nixpal', 'extension' => 'com']],
             ]]]),
         ]);
@@ -158,8 +158,8 @@ class DomainsD4AdversarialTest extends TestCase
     {
         $this->domain(['status' => DomainStatus::Deleted, 'expires_at' => '2024-01-01']);
         Http::fake([
-            self::PROD . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::PROD . '/v1beta/domains?full_name=*' => Http::response(['data' => ['results' => []]]),
+            self::PROD . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::PROD . '/v1/domains?full_name=*' => Http::response(['data' => ['results' => []]]),
         ]);
 
         $this->artisan('domains:sync')->assertSuccessful();
@@ -202,8 +202,8 @@ class DomainsD4AdversarialTest extends TestCase
     {
         $tld = $this->tld(40, 30);
         $domain = $this->domain(['domain_tld_id' => $tld->id, 'expires_at' => '2026-10-01']);
-        Http::fake([self::PROD . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::PROD . '/v1beta/domains*' => Http::response(['desc' => 'Server error'], 500)]);
+        Http::fake([self::PROD . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::PROD . '/v1/domains*' => Http::response(['desc' => 'Server error'], 500)]);
 
         $this->artisan('domains:sync');
 
@@ -243,8 +243,8 @@ class DomainsD4AdversarialTest extends TestCase
     {
         $tld = $this->tld(40, 30);
         $domain = $this->domain(['domain_tld_id' => $tld->id, 'expires_at' => '2026-10-01']);
-        Http::fake([self::PROD . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::PROD . '/v1beta/domains*' => Http::response(['desc' => 'Server error'], 500)]);
+        Http::fake([self::PROD . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::PROD . '/v1/domains*' => Http::response(['desc' => 'Server error'], 500)]);
         $this->artisan('domains:sync', ['--dry-run' => true]);
         $domain->refresh();
         $this->assertSame([null, null, DomainStatus::Active], [$domain->sync_error, $domain->last_synced_at, $domain->status]);
@@ -296,8 +296,8 @@ class DomainsD4AdversarialTest extends TestCase
     private function fakeByName(array $results): void
     {
         Http::fake([
-            self::PROD . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::PROD . '/v1beta/domains?full_name=*' => Http::response(['data' => ['results' => $results]]),
+            self::PROD . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::PROD . '/v1/domains?full_name=*' => Http::response(['data' => ['results' => $results]]),
         ]);
     }
 

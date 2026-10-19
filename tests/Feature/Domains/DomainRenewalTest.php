@@ -204,7 +204,7 @@ class DomainRenewalTest extends TestCase
 
         $this->assertSame(DomainRenewalService::APPLIED, $this->renew($line));
 
-        $this->assertSame(['/v1beta/domains/30391502/restore', '/v1beta/domains/30391502/renew'], array_column($this->charges, 0));
+        $this->assertSame(['/v1/domains/30391502/restore', '/v1/domains/30391502/renew'], array_column($this->charges, 0));
         $this->assertSame(1, $this->charges[1][1]['period']);
         $this->assertSame([DomainStatus::Active, '2028-11-01'], [$domain->fresh()->status, $domain->fresh()->expires_at->toDateString()]);
     }

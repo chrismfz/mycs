@@ -163,7 +163,7 @@
   *NoTransferAwayEmails* → «όχι δικό μας» σημειώνεται από το sync, το «Μεταφέρθηκε αλλού» το επιβεβαιώνει το staff (2026-10-18, μετά τη ζωντανή μεταφορά του cdnet.gr· D-18), μένει ποιος παίρνει email· *ForceSync* → το καλύπτει
   το sync σε παρτίδες (ROADMAP).
 - **G8-1 (έγινε, 2026-10-19):** «Registrar credit» στο dashboard (permission `admin.widgets.registrar_credit`): το
-  `domains:balances` κάθε ώρα διαβάζει το `account:info` του .gr και το `GET /v1beta/resellers` του Openprovider
+  `domains:balances` κάθε ώρα διαβάζει το `account:info` του .gr και το `GET /v1/resellers` του Openprovider
   (επαληθευμένο ζωντανά: `balance`, `reserved_balance`, χωρίς νόμισμα, οπότε EUR· το `/resellers/me` δίνει 501) και τα
   κρατά στη σύνδεση (`balance`, χωρίς audit). Η σελίδα δεν καλεί registrar. «Low balance» ανά σύνδεση· mail στο staff
   (system email) μία φορά για κάθε κατάσταση: κάτω από το όριο, «θα ανασταλεί» (`tbSuspendedOn`), σε αναστολή
