@@ -12,6 +12,7 @@ use App\Models\Client;
 use App\Models\Domain;
 use App\Services\Domains\DomainManagementService;
 use App\Support\Domains\DnssecRecord;
+use App\Support\Domains\RegistryStatuses;
 use Filament\Actions\ViewAction;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Resources\Resource;
@@ -152,11 +153,7 @@ class DomainResource extends Resource
      */
     public static function registryStatuses(?string $statuses): array
     {
-        return array_values(array_map(function (string $status) {
-            $key = 'domains.registry_status.' . $status;
-
-            return trans()->has($key) ? __($key) . " ({$status})" : $status;
-        }, array_filter(array_map('trim', explode(',', (string) $statuses)))));
+        return RegistryStatuses::words($statuses);
     }
 
     /** A stage's last day, with the days left while the domain is in it. */

@@ -70,6 +70,10 @@ return [
 
     // Περιοχή πελάτη (D7-2).
     'portal' => [
+        'at_registry' => 'Στο μητρώο .gr',
+        'registry_status' => 'Κατάσταση',
+        'forms' => 'Μορφές (.gr / .ελ)',
+        'registry_updated' => 'Τελευταία αλλαγή στο μητρώο',
         'contacts' => 'Επαφές',
         'registrant_locked_here' => 'Ο κάτοχος δεν αλλάζει από εδώ: ο registrar του δεν επιτρέπει απλή αλλαγή (μπορεί να είναι χρεώσιμη πράξη). Επικοινωνήστε μαζί μας.',
         'contact_required' => 'Επιλέξτε επαφή: ο ρόλος αυτός δεν μένει κενός.',
@@ -245,5 +249,10 @@ return [
         'regulatorExpirationProhibited' => 'ΕΕΤΤ: δεν λήγει',
         'regulatorDelegationChangeProhibited' => 'ΕΕΤΤ: οι nameservers δεν αλλάζουν',
         'regulatorDebtOwnership' => 'ΕΕΤΤ: καθεστώς οφειλής',
+    ],
+    // Πιο απλά λόγια για τον πελάτη όπου διαφέρουν (P2, review 4 του #220)· τα υπόλοιπα όπως του μητρώου.
+    'portal_registry_status' => [
+        'pendingCreate' => 'Καταχώριση προς έγκριση από το μητρώο',
+        'regulatorDebtOwnership' => 'ΕΕΤΤ: σημείωση για οφειλή του κατόχου· επικοινωνήστε μαζί μας',
     ],
 ];
