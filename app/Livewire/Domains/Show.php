@@ -12,17 +12,24 @@ use App\Models\Staff;
 use App\Models\User;
 use App\Services\Billing\InvoiceSelectedItems;
 use App\Services\Billing\RenewalBilling;
+use App\Services\Domains\DnssecChangedSinceRead;
 use App\Services\Domains\DomainManagementService;
 use App\Services\Domains\DomainRenewalService;
 use App\Services\Domains\DomainRenewalYears;
+use App\Services\Domains\RegistrarNotAsked;
+use App\Services\Domains\RegistrarOutcomeUnknown;
 use App\Services\Domains\RegistrarRefused;
 use App\Support\Actor;
 use App\Support\CurrentClient;
+use App\Support\Domains\DnssecOptions;
+use App\Support\Domains\DnssecRecord;
 use App\Support\Domains\RegistryStatuses;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use InvalidArgumentException;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Renderless;
 use RuntimeException;
 use Throwable;
@@ -49,6 +56,15 @@ class Show extends Component
     public array $contactRoles = [];
 
     public bool $editContacts = false;
+
+    /** @var list<array<string, mixed>> DNSSEC records being edited (P3), as the browser sent them: checked on save */
+    public array $dnssecRows = [];
+
+    /** What the form started from (P3, as G8-4b): the registrar having another set now refuses the change. Set here only. */
+    #[Locked]
+    public string $dnssecSeen = '';
+
+    public bool $editDnssec = false;
 
     public function mount(): void
     {
@@ -194,6 +210,116 @@ class Show extends Component
         $actor = Actor::current();
 
         return !Actor::impersonating() || ($actor instanceof Staff && $actor->hasPermission($permission));
+    }
+
+    /** DNSSEC (P3): read from its registrar when asked (never on each view), kept for the page; logged with the login. */
+    public function readDnssec(): void
+    {
+        if ($this->mayCallRegistrar() && $this->management()->dnssecKind($this->domain) !== null) {
+            $this->atRegistrar(fn () => $this->management()->readDnssec($this->domain, $this->actor()), __('domains.portal.dnssec_read'));
+            $this->editDnssec = false; // a form from an older read never stays (ADV-6 of #223): «Change» starts from this one
+        }
+    }
+
+    /** The form from this registrar's last read (never another registrar's, never out of date: G8-4b). */
+    public function startDnssec(): void
+    {
+        $this->authorize('update', $this->domain);
+        abort_unless($this->staffMay('admin.domains.manage'), 404); // as the change itself (review L4 of #223)
+        $read = $this->management()->dnssecRead($this->domain);
+        if ($read === null) {
+            $this->notify(__('domains.portal.dnssec_read_first'), 'error');
+
+            return;
+        }
+        $this->dnssecRows = array_map(fn ($r) => $r->toArray(), $read);
+        $this->dnssecSeen = (string) json_encode($this->dnssecRows);
+        $this->editDnssec = true;
+    }
+
+    public function addDnssecRow(): void
+    {
+        if (count($this->dnssecRows) < 16) {
+            $this->dnssecRows[] = [];
+        }
+    }
+
+    public function removeDnssecRow(int $index): void
+    {
+        unset($this->dnssecRows[$index]);
+        $this->dnssecRows = array_values($this->dnssecRows);
+    }
+
+    /**
+     * Its DNSSEC records set to the form's (the full set; none: unsigned), as staff's «Change DNSSEC» (G8-4b): checked
+     * against what the form started from, the registry's rules first; its outcome in the customer's words.
+     */
+    public function saveDnssec(): void
+    {
+        $this->authorize('update', $this->domain);
+        $kind = $this->management()->dnssecKind($this->domain);
+        if ($kind === null) {
+            $this->notify(__('domains.portal.not_manageable'), 'error'); // no longer ours to change here (ADV-7 of #223)
+            $this->editDnssec = false;
+
+            return;
+        }
+        $this->dnssecRows = array_values(array_filter($this->dnssecRows, 'is_array'));
+        $in = fn (array $options): string => 'in:' . implode(',', array_keys($options));
+        // The form's own choices for its kind, and whatever the registrar had (kept as read: ADV-4 of #223).
+        $readAlgorithms = array_column(array_filter((array) json_decode($this->dnssecSeen, true), 'is_array'), 'algorithm');
+        $algorithms = DnssecOptions::algorithms($kind) + array_fill_keys(array_filter($readAlgorithms, 'is_int'), '');
+        $rules = $kind === DnssecRecord::DS ? [
+            'dnssecRows.*.key_tag' => ['required', 'integer', 'min:0', 'max:65535'],
+            'dnssecRows.*.algorithm' => ['required', 'integer', $in($algorithms)],
+            'dnssecRows.*.digest_type' => ['required', 'integer', $in(DnssecOptions::DIGEST_TYPES)],
+            'dnssecRows.*.digest' => ['required', 'string', 'max:200', 'regex:/\A[0-9A-Fa-f\s]+\z/'],
+        ] : [
+            'dnssecRows.*.flags' => ['required', 'integer', $in(DnssecOptions::FLAGS)],
+            'dnssecRows.*.algorithm' => ['required', 'integer', $in($algorithms)],
+            'dnssecRows.*.public_key' => ['required', 'string', 'max:4000', 'regex:/\A[A-Za-z0-9+\/=\s]+\z/'],
+        ];
+        // Its fields in the customer's words, never «dnssecRows.0.digest» (review M2 of #223).
+        $this->validate(['dnssecRows' => 'array|max:16'] + $rules, [], collect(['key_tag' => __('domains.portal.dnssec_key_tag'), 'algorithm' => __('domains.portal.dnssec_algorithm'),
+            'digest_type' => __('domains.portal.dnssec_digest_type'), 'digest' => __('domains.portal.dnssec_digest'), 'flags' => __('domains.portal.dnssec_flags'),
+            'public_key' => __('domains.portal.dnssec_public_key')])
+            ->mapWithKeys(fn (string $label, string $field) => ["dnssecRows.*.{$field}" => $label])->all() + ['dnssecRows' => 'DNSSEC']);
+        if (!$this->mayCallRegistrar()) {
+            return;
+        }
+        $rows = fn (array $list): array => array_map(fn (array $row) => DnssecRecord::fromArray(['kind' => $kind] + $row), array_values(array_filter($list, 'is_array')));
+        $seen = json_decode($this->dnssecSeen, true);
+        try {
+            $records = $rows($this->dnssecRows);
+            $expected = is_array($seen) ? $rows($seen) : null;
+        } catch (InvalidArgumentException) {
+            $this->notify(__('domains.portal.dnssec_refused'), 'error');
+
+            return;
+        }
+        if ($expected === null) {
+            $this->notify(__('domains.portal.dnssec_read_first'), 'error');
+
+            return;
+        }
+        $done = $this->atRegistrar(function () use ($records, $expected) {
+            try {
+                $this->management()->setDnssec($this->domain, $records, $this->actor(), $expected);
+            } catch (DnssecChangedSinceRead) {
+                $this->editDnssec = false; // the records were read again: the form closes (review L2 of #223)
+                throw new DisplayException(__('domains.portal.dnssec_changed'));
+            } catch (RegistrarOutcomeUnknown $e) {
+                report($e);
+                throw new DisplayException(__('domains.portal.dnssec_maybe'));
+            } catch (RegistrarNotAsked $e) {
+                // Ours to say plainly: busy, or the registry's own rules (its words are staff's).
+                throw new DisplayException(str_contains($e->getMessage(), 'busy') ? __('domains.manage.busy', ['domain' => $this->domain->fqdn]) : __('domains.portal.dnssec_refused'));
+            }
+        }, __('domains.portal.dnssec_saved'));
+        $this->domain->refresh();
+        if ($done) {
+            $this->editDnssec = false;
+        }
     }
 
     /** May the login see the account's invoices (where «Renew» leads, R3)? */
@@ -485,6 +611,12 @@ class Show extends Component
             'registrantLocked' => __($this->atGrRegistry() ? 'domains.portal.registrant_locked' : 'domains.portal.registrant_locked_here'),
             'seesContacts' => $this->seesContacts(),
             'registry' => RegistryStatuses::forCustomer($this->domain),
+            'dnssecKind' => $manageable ? $this->management()->dnssecKind($this->domain) : null,
+            'dnssec' => $manageable ? $this->management()->dnssecRead($this->domain) : null,
+            // The registry's check under way: its note while it may be (an hour), with its time; never another kind's (M1).
+            'dnssecChecking' => $manageable && $this->management()->dnssecKind($this->domain) === DnssecRecord::DS
+                && ($this->domain->meta['dnssec']['note_kind'] ?? null) === 'check' && is_string($at = $this->domain->meta['dnssec']['note_at'] ?? null)
+                && Carbon::parse($at)->gt(now()->subHour()) ? Carbon::parse($at)->timezone(config('app.timezone'))->format('d/m/Y H:i') : null,
         ])->layoutData([
             'title' => $this->domain->fqdn,
             'sidebar' => true,

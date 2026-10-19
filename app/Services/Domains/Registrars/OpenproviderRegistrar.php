@@ -7,6 +7,7 @@ use App\Contracts\ManagesDnssec;
 use App\Contracts\ReadsAccountBalance;
 use App\Enums\DomainStatus;
 use App\Models\Domain;
+use App\Services\Domains\DnssecChangedSinceRead;
 use App\Services\Domains\DomainNotFoundAtRegistrar;
 use App\Services\Domains\DomainRegistrarNotConfigured;
 use App\Services\Domains\Pricing\TldPriceMath;
@@ -1107,13 +1108,28 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
                 throw new RegistrarNotAsked('A DNSKEY\'s public key is base64.');
             }
         }
-        if ($expected !== null && !DnssecRecord::sameSet($expected, $this->dnssecRecords($domain, $credentials))) {
-            throw new RegistrarNotAsked("{$domain->fqdn}'s DNSKEYs changed at Openprovider since they were read: read them again.");
+        // Before the PUT: whatever fails asked nothing (ADV-3 of #223), never «maybe done».
+        try {
+            $now = $expected !== null ? $this->dnssecRecords($domain, $credentials) : null;
+            $id = $this->resolveDomainId($domain, $credentials, 'αδύνατη η ενημέρωση');
+        } catch (RegistrarRefused|RegistrarNotAsked|DomainRegistrarNotConfigured $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            throw new RegistrarNotAsked('Openprovider could not be read before the change: nothing sent (' . $e->getMessage() . ').', 0, $e);
         }
-        $id = $this->resolveDomainId($domain, $credentials, 'αδύνατη η ενημέρωση');
-        $this->request($credentials, 'PUT', '/v1/domains/' . rawurlencode($id), ['dnssec_keys' => array_map(fn (DnssecRecord $record) => [
-            'flags' => $record->flags, 'alg' => $record->algorithm, 'protocol' => $record->protocol, 'pub_key' => $record->publicKey,
-        ], $records)]);
+        if ($now !== null && !DnssecRecord::sameSet($expected, $now)) {
+            throw new DnssecChangedSinceRead("{$domain->fqdn}'s DNSKEYs changed at Openprovider since they were read: read them again.");
+        }
+        // The PUT: a 5xx or a lost connection may have landed (ADV-2 of #223): maybe done; a 4xx refused, nothing done.
+        try {
+            $this->request($credentials, 'PUT', '/v1/domains/' . rawurlencode($id), ['dnssec_keys' => array_map(fn (DnssecRecord $record) => [
+                'flags' => $record->flags, 'alg' => $record->algorithm, 'protocol' => $record->protocol, 'pub_key' => $record->publicKey,
+            ], $records)]);
+        } catch (RegistrarRefused|RegistrarOutcomeUnknown $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            throw new RegistrarOutcomeUnknown('Openprovider did not answer the change clearly: it may have been done (' . $e->getMessage() . ').', 0, $e);
+        }
 
         try {
             $kept = $this->dnssecRecords($domain, $credentials);
