@@ -432,10 +432,35 @@ class DomainManagementService
             return ['records' => count($records)];
         });
         $meta = $domain->refresh()->meta ?? [];
-        $meta['dnssec'] = ['read_at' => now()->toIso8601String(), 'records' => $records] + array_intersect_key($meta['dnssec'] ?? [], ['note' => true, 'note_at' => true]);
+        // Which connection and kind it was read from (ADV-3 of #210): after a move, another registrar's is not offered.
+        $meta['dnssec'] = ['read_at' => now()->toIso8601String(), 'connection_id' => $domain->effectiveRegistrarConnection()?->id,
+            'kind' => $this->dnssecKind($domain), 'records' => $records] + array_intersect_key($meta['dnssec'] ?? [], ['note' => true, 'note_at' => true]);
         $domain->forceFill(['meta' => $meta])->save();
 
         return $records;
+    }
+
+    /**
+     * Its records as last read, when that read is this registrar's now and not out of date: what «Change DNSSEC» starts
+     * from (ADV-3 of #210, review 2); null otherwise (read again).
+     *
+     * @return list<DnssecRecord>|null
+     */
+    public function dnssecRead(Domain $domain): ?array
+    {
+        $read = $domain->meta['dnssec'] ?? null;
+        $kind = $this->dnssecKind($domain);
+        if (!is_array($read) || ($read['stale'] ?? false) || $kind === null || ($read['kind'] ?? null) !== $kind
+            || ($read['connection_id'] ?? null) !== $domain->effectiveRegistrarConnection()?->id || !is_array($read['records'] ?? null)) {
+            return null;
+        }
+        try {
+            $records = array_map(fn ($r) => DnssecRecord::fromArray(is_array($r) ? $r : []), array_values($read['records']));
+        } catch (Throwable) {
+            return null;
+        }
+
+        return array_values(array_filter($records, fn (DnssecRecord $r) => $r->kind === $kind)) === $records ? $records : null;
     }
 
     /**
@@ -443,20 +468,28 @@ class DomainManagementService
      * of it. The registrar's word on it (the .gr registry's check) kept for the page.
      *
      * @param  list<DnssecRecord>  $records
+     * @param  list<DnssecRecord>|null  $expected  the set staff saw (dnssecRead): another one at the registrar refuses it
      */
-    public function setDnssec(Domain $domain, array $records, Staff|User|null $staff): ?string
+    public function setDnssec(Domain $domain, array $records, Staff|User|null $staff, ?array $expected = null): ?string
     {
         $note = null;
         try {
             $this->call($domain, 'dnssec_update', ['records' => array_map(fn (DnssecRecord $r) => $r->label(), $records)], $staff,
-                function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $records, &$note) {
-                    $note = self::dnssecOf($registrar)->setDnssec($domain, $records, $credentials);
+                function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $records, $expected, &$note) {
+                    $note = self::dnssecOf($registrar)->setDnssec($domain, $records, $credentials, $expected);
 
                     return ['records' => count($records), 'note' => $note];
                 });
-            $meta = $domain->refresh()->meta ?? [];
-            $meta['dnssec'] = array_merge($meta['dnssec'] ?? [], ['note' => $note, 'note_at' => $note !== null ? now()->toIso8601String() : null]);
-            $domain->forceFill(['meta' => $meta])->save();
+            $this->dnssecNote($domain, $note);
+        } catch (RegistrarOutcomeUnknown $e) {
+            // Maybe done (review 4 of #210): said so, with when; the records read again below show what came of it.
+            $this->dnssecNote($domain, __('domains.manage.dnssec_maybe', ['said' => mb_substr($e->getMessage(), 0, 300)]));
+
+            throw $e;
+        } catch (Throwable $e) {
+            $this->dnssecNote($domain, null); // not done: an older change's note is not this one's
+
+            throw $e;
         } finally {
             // Read again whatever came of it (a «maybe done» too), as child hosts.
             try {
@@ -472,6 +505,14 @@ class DomainManagementService
         }
 
         return $note;
+    }
+
+    private function dnssecNote(Domain $domain, ?string $note): void
+    {
+        $meta = $domain->refresh()->meta ?? [];
+        $meta['dnssec'] = array_merge(is_array($meta['dnssec'] ?? null) ? $meta['dnssec'] : [],
+            ['note' => $note, 'note_at' => $note !== null ? now()->toIso8601String() : null]);
+        $domain->forceFill(['meta' => $meta])->save();
     }
 
     private static function dnssecOf(DomainRegistrar $registrar): ManagesDnssec

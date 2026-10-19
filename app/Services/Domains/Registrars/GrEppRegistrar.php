@@ -857,10 +857,10 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
      * domain serverUpdateProhibited until then; one that does not match a signed DNSKEY there refuses them all). Not
      * charged.
      */
-    public function setDnssec(Domain $domain, array $records, DomainRegistrarCredentials $credentials): ?string
+    public function setDnssec(Domain $domain, array $records, DomainRegistrarCredentials $credentials, ?array $expected = null): ?string
     {
-        return $this->locked($credentials, function (Session $session) use ($domain, $records, $credentials) {
-            [$add, $remove] = self::prepare(function () use ($session, $domain, $records, $credentials) {
+        return $this->locked($credentials, function (Session $session) use ($domain, $records, $credentials, $expected) {
+            [$add, $remove] = self::prepare(function () use ($session, $domain, $records, $credentials, $expected) {
                 $wanted = array_map(function (DnssecRecord $record) {
                     if ($record->kind !== DnssecRecord::DS) {
                         throw new InvalidArgumentException('The .gr registry takes DS records only, not DNSKEYs.');
@@ -874,6 +874,10 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
                     throw new InvalidArgumentException("{$domain->fqdn} has no nameservers: DS records need them (the registry refuses).");
                 }
                 $have = $info->dsRecords;
+                // Changed since staff read it (ADV-1 of #210): never a DS they did not see removed.
+                if ($expected !== null && !DnssecRecord::sameSet($expected, array_map(fn (DsRecord $d) => DnssecRecord::ds($d->keyTag, $d->algorithm, $d->digestType, $d->digest), $have))) {
+                    throw new InvalidArgumentException("{$domain->fqdn}'s DS records changed at the registry since they were read: read them again.");
+                }
                 $add = array_values(array_filter($wanted, fn (DsRecord $w) => array_filter($have, fn (DsRecord $h) => $h->same($w)) === []));
                 $extra = array_values(array_filter($have, fn (DsRecord $h) => array_filter($wanted, fn (DsRecord $w) => $w->same($h)) === []));
 

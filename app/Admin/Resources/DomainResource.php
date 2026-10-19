@@ -302,9 +302,11 @@ class DomainResource extends Resource
                     // Openprovider), and what the registrar said of the last change (the .gr registry's check).
                     Section::make(__('DNSSEC'))->collapsible()
                         ->visible(fn (Domain $record) => is_array($record->meta['dnssec'] ?? null))
-                        ->description(fn (Domain $record) => ($record->meta['dnssec']['stale'] ?? false)
-                            ? __('Out of date (changed after it was read): read again.')
-                            : __('Read :when', ['when' => (string) ($record->meta['dnssec']['read_at'] ?? '—')]))
+                        ->description(fn (Domain $record) => match (true) {
+                            (bool) ($record->meta['dnssec']['stale'] ?? false) => __('Out of date (changed after it was read): read again.'),
+                            app(DomainManagementService::class)->dnssecRead($record) === null => __('Read from another registrar, or not readable: read again.'),
+                            default => __('Read :when', ['when' => (string) ($record->meta['dnssec']['read_at'] ?? '—')]),
+                        })
                         ->schema([
                             TextEntry::make('dnssec_records')->hiddenLabel()->placeholder(__('Not signed at the registrar.'))->listWithLineBreaks()->fontFamily('mono')
                                 ->state(fn (Domain $record) => collect($record->meta['dnssec']['records'] ?? [])->filter(fn ($r) => is_array($r))
@@ -317,7 +319,8 @@ class DomainResource extends Resource
                                     })->values()->all()),
                             TextEntry::make('dnssec_note')->label(__('The registrar said'))
                                 ->visible(fn (Domain $record) => is_string($record->meta['dnssec']['note'] ?? null))
-                                ->state(fn (Domain $record) => (string) ($record->meta['dnssec']['note'] ?? '')),
+                                ->state(fn (Domain $record) => (string) ($record->meta['dnssec']['note'] ?? '')
+                                    . (is_string($record->meta['dnssec']['note_at'] ?? null) ? ' (' . $record->meta['dnssec']['note_at'] . ')' : '')),
                         ]),
                     $registrar,
                     $registry,

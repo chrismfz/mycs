@@ -23,7 +23,9 @@ interface ManagesDnssec
      * The domain's records set to these (the full set: what is missing added, what is extra removed; none: unsigned).
      *
      * @param  list<DnssecRecord>  $records
+     * @param  list<DnssecRecord>|null  $expected  what staff saw when they changed it: the registrar having another set now
+     *                                             (one added since, elsewhere) refuses it, nothing sent (ADV-1 of #210)
      * @return string|null what the registrar said of it, when it is not done at once (the .gr registry's check)
      */
-    public function setDnssec(Domain $domain, array $records, DomainRegistrarCredentials $credentials): ?string;
+    public function setDnssec(Domain $domain, array $records, DomainRegistrarCredentials $credentials, ?array $expected = null): ?string;
 }

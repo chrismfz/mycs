@@ -11,10 +11,12 @@ use App\Models\DomainTld;
 use App\Models\Staff;
 use App\Models\User;
 use App\Services\Domains\DomainManagementService;
-use App\Services\Domains\RegistrarRefused;
+use App\Services\Domains\RegistrarNotAsked;
+use App\Services\Domains\RegistrarOutcomeUnknown;
 use App\Services\Domains\Registrars\GrEppRegistrar;
 use App\Support\Domains\DnssecRecord;
 use Filament\Facades\Filament;
+use Filament\Forms\Components\Repeater;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
@@ -43,6 +45,9 @@ class DnssecTest extends TestCase
 
     /** @var list<array<string, mixed>> Openprovider's DNSKEYs */
     private array $opKeys = [];
+
+    /** Openprovider's reads fail (429) once a PUT has been answered. */
+    private bool $opReadFailsAfterPut = false;
 
     /** Openprovider answers a PUT but keeps nothing of it. */
     private bool $opIgnores = false;
@@ -160,12 +165,15 @@ class DnssecTest extends TestCase
             'an algorithm it does not take' => [[$this->info()], [DnssecRecord::ds(2371, 15, 2, self::DIGEST)]],
         ] as $why => [$answers, $records]) {
             $this->registry(...array_merge($answers, [$this->info()]));
+            // Refused before anything is sent (review 5 of #210: a bare Throwable would swallow the fail()).
+            $refused = null;
             try {
                 $service->setDnssec($domain->fresh(), $records, $this->staff());
-                $this->fail("sent: {$why}");
-            } catch (\Throwable) {
-                $this->assertSame([], $this->updates(), $why);
+            } catch (RegistrarNotAsked $e) {
+                $refused = $e;
             }
+            $this->assertNotNull($refused, "sent: {$why}");
+            $this->assertSame([], $this->updates(), $why);
         }
     }
 
@@ -184,6 +192,9 @@ class DnssecTest extends TestCase
                 $this->opKeys = $this->opIgnores ? [] : ($request->data()['dnssec_keys'] ?? []);
 
                 return Http::response(['code' => 0, 'data' => ['id' => 42]]);
+            }
+            if ($this->opReadFailsAfterPut && $this->puts !== []) {
+                return Http::response(['desc' => 'Too many requests'], 429);
             }
 
             return Http::response(['code' => 0, 'data' => ['id' => 42, 'domain' => ['name' => 'example', 'extension' => 'com'], 'status' => 'ACT',
@@ -210,7 +221,7 @@ class DnssecTest extends TestCase
         $this->assertSame([], $domain->fresh()->meta['dnssec']['records']);
 
         // A DS is not what it takes: refused before anything is sent.
-        $this->expectException(RegistrarRefused::class);
+        $this->expectException(RegistrarNotAsked::class);
         $service->setDnssec($domain->fresh(), [DnssecRecord::ds(2371, 13, 2, self::DIGEST)], $this->staff());
     }
 
@@ -243,5 +254,41 @@ class DnssecTest extends TestCase
 
         $this->livewireAs(Staff::factory()->withPermissions(['admin.domains.viewAny'])->create())
             ->test(ViewDomain::class, ['record' => $domain->getRouteKey()])->assertActionHidden('readDnssec')->assertActionHidden('editDnssec');
+    }
+
+    public function test_a_change_whose_answer_is_lost_is_maybe_done_not_refused(): void
+    {
+        // Review 3, 4 of #210: the .gr registry answers garbage to the update; the records read again show it landed.
+        $domain = $this->grDomain();
+        $this->registry($this->info(), 'not xml', $this->info([[2371, 13, 2, self::DIGEST]]));
+
+        $this->livewireAs($this->staff())->test(ViewDomain::class, ['record' => $domain->getRouteKey()])
+            ->callAction('readDnssec');
+        $this->registry($this->info(), 'not xml', $this->info([[2371, 13, 2, self::DIGEST]]));
+        $undo = Repeater::fake();
+        $this->livewireAs($this->staff())->test(ViewDomain::class, ['record' => $domain->fresh()->getRouteKey()])
+            ->callAction('editDnssec', ['records' => [['key_tag' => 2371, 'algorithm' => 13, 'digest_type' => 2, 'digest' => self::DIGEST]]])
+            ->assertHasNoFormErrors()
+            ->assertNotified(__('Maybe done: the registrar\'s answer was lost or unclear.'));
+        $undo();
+
+        $dnssec = $domain->fresh()->meta['dnssec'];
+        $this->assertStringContainsString('may have been done', (string) $dnssec['note']);
+        $this->assertNotNull($dnssec['note_at']);
+        $this->assertCount(1, $dnssec['records'], 'read again: what it has');
+    }
+
+    public function test_openprovider_answered_then_not_read_back_is_maybe_done(): void
+    {
+        $domain = $this->opDomain();
+        $this->opReadFailsAfterPut = true;
+
+        $this->expectException(RegistrarOutcomeUnknown::class);
+        try {
+            app(DomainManagementService::class)->setDnssec($domain, [DnssecRecord::dnskey(257, 13, self::KEY)], $this->staff(), []);
+        } finally {
+            $this->assertCount(1, $this->puts);
+            $this->assertTrue($domain->fresh()->meta['dnssec']['stale'] ?? false, 'not read again: out of date');
+        }
     }
 }

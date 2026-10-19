@@ -68,6 +68,23 @@ final readonly class DnssecRecord
             : "DS {$this->keyTag} {$this->algorithm} {$this->digestType} {$this->digest}";
     }
 
+    /**
+     * The same records, in whatever order.
+     *
+     * @param  list<self>  $a
+     * @param  list<self>  $b
+     */
+    public static function sameSet(array $a, array $b): bool
+    {
+        $key = fn (self $r): string => (string) json_encode($r->toArray());
+        $a = array_map($key, $a);
+        $b = array_map($key, $b);
+        sort($a);
+        sort($b);
+
+        return $a === $b;
+    }
+
     public function same(self $other): bool
     {
         return $this->toArray() === $other->toArray();

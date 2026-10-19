@@ -15,10 +15,12 @@ use App\Services\Domains\DomainManagementService;
 use App\Services\Domains\DomainRenewalService;
 use App\Services\Domains\DomainRenewalYears;
 use App\Services\Domains\DomainSyncService;
+use App\Services\Domains\RegistrarOutcomeUnknown;
 use App\Support\Domains\DnssecRecord;
 use Closure;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -29,6 +31,7 @@ use Filament\Resources\Pages\ViewRecord;
 use Filament\Schemas\Components\Utilities\Set;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\HtmlString;
+use MyCS\GrEpp\Command\Rules;
 use Throwable;
 
 /**
@@ -59,8 +62,20 @@ class ViewDomain extends ViewRecord
     }
 
     /** DNSSEC algorithms (IANA): those registrars take today. */
-    private const DNSSEC_ALGORITHMS = [8 => '8 RSA/SHA-256', 10 => '10 RSA/SHA-512', 13 => '13 ECDSA P-256/SHA-256',
-        14 => '14 ECDSA P-384/SHA-384', 15 => '15 Ed25519', 16 => '16 Ed448', 5 => '5 RSA/SHA-1', 7 => '7 RSASHA1-NSEC3-SHA1'];
+    private const DNSSEC_ALGORITHMS = [13 => '13 ECDSA P-256/SHA-256', 8 => '8 RSA/SHA-256', 14 => '14 ECDSA P-384/SHA-384',
+        10 => '10 RSA/SHA-512', 15 => '15 Ed25519', 16 => '16 Ed448', 7 => '7 RSASHA1-NSEC3-SHA1', 5 => '5 RSA/SHA-1',
+        6 => '6 DSA-NSEC3-SHA1', 3 => '3 DSA/SHA-1', 12 => '12 GOST R 34.10-2001'];
+
+    /**
+     * A list's options with the value already there, whatever it is: a record read from the registrar is kept as it is.
+     *
+     * @param  array<int, string>  $options
+     * @return array<int, string>
+     */
+    private static function withCurrent(array $options, mixed $state): array
+    {
+        return is_numeric($state) && !isset($options[(int) $state]) ? $options + [(int) $state => (string) $state] : $options;
+    }
 
     /** @return list<array<string, mixed>> as last read (meta.child_hosts: stored data, each key checked) */
     private static function childHosts(Domain $record): array
@@ -82,6 +97,9 @@ class ViewDomain extends ViewRecord
         try {
             $call();
             Notification::make()->success()->title($done)->send();
+        } catch (RegistrarOutcomeUnknown $e) {
+            // Its answer lost or unclear: maybe done, never «not accepted» (review 4 of #210).
+            Notification::make()->warning()->title(__('Maybe done: the registrar\'s answer was lost or unclear.'))->body(e($e->getMessage()))->send();
         } catch (Throwable $e) {
             Notification::make()->danger()->title(__('The registrar did not accept it.'))->body(e($e->getMessage()))->send();
         }
@@ -209,32 +227,44 @@ class ViewDomain extends ViewRecord
                     )),
 
                 Action::make('editDnssec')->label(__('Change DNSSEC'))->icon('heroicon-o-key')->color('warning')
-                    ->visible(fn (Domain $record) => self::can('admin.domains.manage') && app(DomainManagementService::class)->managesDnssec($record)
-                        && isset($record->meta['dnssec']) && !($record->meta['dnssec']['stale'] ?? false))
+                    // From this registrar's read only, not out of date (ADV-3 of #210, review 2).
+                    ->visible(fn (Domain $record) => self::can('admin.domains.manage') && app(DomainManagementService::class)->dnssecRead($record) !== null)
                     ->modalDescription(fn (Domain $record) => app(DomainManagementService::class)->dnssecKind($record) === DnssecRecord::DS
                         ? __('The full set of DS records (none: unsigned). Sign the zone at its nameservers first: the .gr registry checks them there within 20 minutes and refuses them all if one does not match.')
                         : __('The full set of DNSKEYs (none: unsigned); the registrar makes the DS. Sign the zone at its nameservers first: a key that does not match breaks the domain for validating resolvers.'))
-                    ->fillForm(fn (Domain $record) => ['records' => collect($record->meta['dnssec']['records'] ?? [])->filter(fn ($r) => is_array($r))->values()->all()])
+                    ->fillForm(function (Domain $record) {
+                        $records = array_map(fn (DnssecRecord $r) => $r->toArray(), app(DomainManagementService::class)->dnssecRead($record) ?? []);
+
+                        // What staff see is what the registrar must still have when they send it (ADV-1 of #210).
+                        return ['records' => $records, 'seen' => json_encode($records)];
+                    })
                     ->schema(fn (Domain $record) => [
+                        Hidden::make('seen'),
                         Repeater::make('records')->hiddenLabel()->defaultItems(0)->maxItems(16)->columns(4)
                             ->schema(app(DomainManagementService::class)->dnssecKind($record) === DnssecRecord::DS ? [
                                 TextInput::make('key_tag')->label(__('Key tag'))->required()->integer()->minValue(0)->maxValue(65535),
-                                Select::make('algorithm')->label(__('Algorithm'))->required()->options(self::DNSSEC_ALGORITHMS),
+                                // The registry's own lists, and whatever it has already (ADV-2 of #210: one kept, never dropped).
+                                Select::make('algorithm')->label(__('Algorithm'))->required()
+                                    ->options(fn ($state) => self::withCurrent(array_intersect_key(self::DNSSEC_ALGORITHMS, array_flip(Rules::DS_ALGORITHMS)), $state)),
                                 Select::make('digest_type')->label(__('Digest type'))->required()
-                                    ->options([1 => '1 SHA-1', 2 => '2 SHA-256', 3 => '3 GOST R 34.11-94', 4 => '4 SHA-384']),
-                                TextInput::make('digest')->label(__('Digest'))->required()->maxLength(200)->columnSpanFull(),
+                                    ->options(fn ($state) => self::withCurrent([1 => '1 SHA-1', 2 => '2 SHA-256', 3 => '3 GOST R 34.11-94', 4 => '4 SHA-384'], $state)),
+                                TextInput::make('digest')->label(__('Digest'))->required()->maxLength(200)->columnSpanFull()
+                                    ->regex('/\A[0-9A-Fa-f\s]+\z/')->validationMessages(['regex' => __('Hex digits only.')]),
                             ] : [
-                                Select::make('flags')->label(__('Flags'))->required()->options([257 => '257 KSK', 256 => '256 ZSK']),
-                                Select::make('algorithm')->label(__('Algorithm'))->required()->options(self::DNSSEC_ALGORITHMS),
-                                TextInput::make('protocol')->label(__('Protocol'))->default(3)->integer()->required(),
-                                Textarea::make('public_key')->label(__('Public key'))->required()->rows(3)->columnSpanFull(),
+                                Select::make('flags')->label(__('Flags'))->required()->options(fn ($state) => self::withCurrent([257 => '257 KSK', 256 => '256 ZSK'], $state)),
+                                Select::make('algorithm')->label(__('Algorithm'))->required()
+                                    ->options(fn ($state) => self::withCurrent(array_diff_key(self::DNSSEC_ALGORITHMS, [3 => 1, 6 => 1, 12 => 1]), $state)),
+                                Textarea::make('public_key')->label(__('Public key'))->required()->rows(3)->columnSpanFull()
+                                    ->regex('/\A[A-Za-z0-9+\/=\s]+\z/')->validationMessages(['regex' => __('Base64 only.')]),
                             ]),
                     ])
                     ->action(fn (Domain $record, array $data) => $this->attempt(function () use ($record, $data) {
-                        $kind = app(DomainManagementService::class)->dnssecKind($record);
-                        $records = array_map(fn (array $row) => DnssecRecord::fromArray(['kind' => $kind] + $row),
-                            array_values(array_filter($data['records'] ?? [], 'is_array')));
-                        app(DomainManagementService::class)->setDnssec($record, $records, self::staff());
+                        $service = app(DomainManagementService::class);
+                        $kind = $service->dnssecKind($record);
+                        $rows = fn (array $list) => array_map(fn (array $row) => DnssecRecord::fromArray(['kind' => $kind] + $row),
+                            array_values(array_filter($list, 'is_array')));
+                        $seen = json_decode((string) ($data['seen'] ?? ''), true);
+                        $service->setDnssec($record, $rows($data['records'] ?? []), self::staff(), is_array($seen) ? $rows($seen) : $service->dnssecRead($record));
                     }, __('DNSSEC sent to the registrar.'))),
 
                 Action::make('lock')->label(fn (Domain $record) => $record->transfer_lock ? __('Unlock (allow transfer)') : __('Lock (block transfer)'))

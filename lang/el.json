@@ -678,5 +678,9 @@
     "Digest": "Digest",
     "Flags": "Flags",
     "Public key": "Δημόσιο κλειδί",
-    "DNSSEC sent to the registrar.": "Το DNSSEC στάλθηκε στον registrar."
+    "DNSSEC sent to the registrar.": "Το DNSSEC στάλθηκε στον registrar.",
+    "Maybe done: the registrar's answer was lost or unclear.": "Ίσως έγινε: η απάντηση του registrar χάθηκε ή δεν ήταν σαφής.",
+    "Hex digits only.": "Μόνο δεκαεξαδικά ψηφία.",
+    "Base64 only.": "Μόνο base64.",
+    "Read from another registrar, or not readable: read again.": "Διαβάστηκε από άλλον registrar ή δεν διαβάζεται: διαβάστε ξανά."
 }

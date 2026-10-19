@@ -11,6 +11,7 @@ use App\Services\Domains\DomainNotFoundAtRegistrar;
 use App\Services\Domains\DomainRegistrarNotConfigured;
 use App\Services\Domains\Pricing\TldPriceMath;
 use App\Services\Domains\RegistrarNotAsked;
+use App\Services\Domains\RegistrarOutcomeUnknown;
 use App\Services\Domains\RegistrarRefused;
 use App\Support\Domains\AvailabilityResult;
 use App\Support\Domains\DnssecRecord;
@@ -1074,29 +1075,38 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
 
     /**
      * WRITE (DNSSEC): its DNSKEYs set to these, the full set (PUT dnssec_keys; none: unsigned), then read back: what
-     * Openprovider kept is what counts (an empty set's removal was not tried live; one it ignored is said so).
+     * Openprovider kept is what counts (an empty set's removal was not tried live). Its keys checked before anything is
+     * sent (protocol 3, RFC 4034; flags 256/257; a base64 key: ADV-4 of #210), and compared with what staff saw (ADV-1).
+     * Answered and then not read back, or read back otherwise: maybe done, never «refused» (review 3).
      */
-    public function setDnssec(Domain $domain, array $records, DomainRegistrarCredentials $credentials): ?string
+    public function setDnssec(Domain $domain, array $records, DomainRegistrarCredentials $credentials, ?array $expected = null): ?string
     {
         foreach ($records as $record) {
-            if ($record->kind !== DnssecRecord::DNSKEY || $record->publicKey === null || $record->publicKey === ''
-                || preg_match('/\A[A-Za-z0-9+\/]+={0,2}\z/', $record->publicKey) !== 1) {
-                throw new RegistrarRefused('Openprovider takes DNSKEYs (flags, algorithm, protocol, a base64 public key), not DS records.');
+            if ($record->kind !== DnssecRecord::DNSKEY) {
+                throw new RegistrarNotAsked('Openprovider takes DNSKEYs (flags, algorithm, a public key), not DS records.');
             }
+            if ($record->protocol !== 3 || !in_array($record->flags, [256, 257], true) || $record->algorithm < 1 || $record->algorithm > 255) {
+                throw new RegistrarNotAsked('A DNSKEY is protocol 3, flags 256 or 257, an algorithm 1 to 255.');
+            }
+            if ($record->publicKey === null || preg_match('/\A[A-Za-z0-9+\/]+={0,2}\z/', $record->publicKey) !== 1) {
+                throw new RegistrarNotAsked('A DNSKEY\'s public key is base64.');
+            }
+        }
+        if ($expected !== null && !DnssecRecord::sameSet($expected, $this->dnssecRecords($domain, $credentials))) {
+            throw new RegistrarNotAsked("{$domain->fqdn}'s DNSKEYs changed at Openprovider since they were read: read them again.");
         }
         $id = $this->resolveDomainId($domain, $credentials, 'αδύνατη η ενημέρωση');
         $this->request($credentials, 'PUT', '/v1beta/domains/' . rawurlencode($id), ['dnssec_keys' => array_map(fn (DnssecRecord $record) => [
-            'flags' => $record->flags, 'alg' => $record->algorithm, 'protocol' => $record->protocol ?? 3, 'pub_key' => $record->publicKey,
+            'flags' => $record->flags, 'alg' => $record->algorithm, 'protocol' => $record->protocol, 'pub_key' => $record->publicKey,
         ], $records)]);
 
-        $kept = $this->dnssecRecords($domain, $credentials);
-        $key = fn (DnssecRecord $r) => json_encode($r->toArray());
-        $want = array_map($key, $records);
-        $have = array_map($key, $kept);
-        sort($want);
-        sort($have);
-        if ($want !== $have) {
-            throw new RuntimeException('Openprovider answered, but now has ' . count($kept) . ' DNSKEY(s), not the ' . count($records)
+        try {
+            $kept = $this->dnssecRecords($domain, $credentials);
+        } catch (Throwable $e) {
+            throw new RegistrarOutcomeUnknown('Openprovider answered, but its keys could not be read back: read DNSSEC again (' . $e->getMessage() . ').', 0, $e);
+        }
+        if (!DnssecRecord::sameSet($records, $kept)) {
+            throw new RegistrarOutcomeUnknown('Openprovider answered, but now has ' . count($kept) . ' DNSKEY(s), not the ' . count($records)
                 . ' sent: check the domain in its panel.');
         }
 
