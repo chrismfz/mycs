@@ -57,6 +57,7 @@
     },
     "require-dev": {
         "barryvdh/laravel-debugbar": "^4.4",
+        "brianium/paratest": "^7.20",
         "dedoc/scramble": "^0.13.0",
         "fakerphp/faker": "^1.23",
         "filament/upgrade": "~5.0",

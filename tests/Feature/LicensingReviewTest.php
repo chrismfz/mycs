@@ -78,6 +78,8 @@ class LicensingReviewTest extends TestCase
     /** R2. `artisan down` answers zlic with a 503 HTML page: the endpoint is not exempt from maintenance mode. */
     public function test_zlic_keeps_answering_json_in_maintenance_mode(): void
     {
+        // Down in this process only: the file driver's storage/framework/down would answer 503 to every parallel process.
+        config(['app.maintenance.driver' => 'cache', 'app.maintenance.store' => 'array']);
         $this->app->maintenanceMode()->activate(['except' => [], 'status' => 503]);
         try {
             $response = $this->withServerVariables(['REMOTE_ADDR' => '198.51.100.7'])->post('/zlic.php', ['license' => $this->key, 'license_PSK' => 'TestSecret']);

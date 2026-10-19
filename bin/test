@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Fast local tests: SQLite on tmpfs, one database file per process, all cores (CLAUDE.md, «Tests»).
+# Not :memory:: the settings are read from the database when the app boots, before an in-memory database is migrated.
+#
+#   bin/test                          the whole suite
+#   bin/test tests/Feature/Foo.php    one file or directory (artisan test --parallel takes one path)
+#   bin/test --filter=some_test       anything `php artisan test` takes
+#   TEST_PROCESSES=4 bin/test         fewer processes (default: all cores)
+#   bin/test --serial ...             one process, e.g. to read a single failure
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+base="${TEST_TMPDIR:-$([ -w /dev/shm ] && echo /dev/shm || echo "${TMPDIR:-/tmp}")}"
+dir="$(mktemp -d "$base/mycs-test.XXXXXX")"
+trap 'rm -rf "$dir"' EXIT
+touch "$dir/test.sqlite"
+
+export DB_CONNECTION=sqlite
+export DB_DATABASE="$dir/test.sqlite"
+export APP_KEY="${APP_KEY:-base64:$(head -c32 /dev/urandom | base64)}"
+
+if [ "${1:-}" = "--serial" ]; then
+    shift
+    php -d memory_limit=-1 artisan test "$@"
+    exit
+fi
+
+processes="${TEST_PROCESSES:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)}"
+php -d memory_limit=-1 artisan test --parallel --processes="$processes" "$@"
