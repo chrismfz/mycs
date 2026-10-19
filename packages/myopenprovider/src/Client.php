@@ -365,11 +365,10 @@ final class Client
             return;
         }
         $desc = isset($json['desc']) && is_scalar($json['desc']) ? (string) $json['desc'] : 'no description';
-        // Only a 4xx, or a 2xx carrying an Openprovider error code, says for sure that
-        // nothing was done; no answer, a 5xx or a body without the envelope does not.
-        // The app's OpenproviderRegistrar is warier (#211): a 2xx with an error code is
-        // «maybe done» there. This package is not used by the app; align before it is.
-        $definitive = $hasCode && (($status >= 400 && $status < 500) || ($status >= 200 && $status < 300));
+        // Only a 4xx carrying Openprovider's envelope says for sure that nothing was done;
+        // no answer, a 5xx, a body without the envelope, or a 2xx carrying an error code
+        // (answered, yet an error: ADV-3 of #211, as the app's OpenproviderRegistrar) does not.
+        $definitive = $hasCode && $status >= 400 && $status < 500;
         throw new OpenproviderException(
             'Openprovider ' . $what . ' failed (HTTP ' . (int) $status . ', code ' . ($hasCode ? $code : 'none') . '): ' . $desc,
             $definitive

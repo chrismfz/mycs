@@ -98,7 +98,7 @@ class DomainRenewalTest extends TestCase
                 $this->record['status'] = 'ACT';
                 unset($this->record['soft_quarantine_expiry_date'], $this->record['hard_quarantine_expiry_date']);
 
-                return Http::response(['data' => ['success' => true]]);
+                return Http::response(['code' => 0, 'data' => ['success' => true]]);
             }
 
             return Http::response(['data' => $this->record]);

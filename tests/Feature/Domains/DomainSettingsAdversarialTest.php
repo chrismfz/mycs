@@ -100,7 +100,7 @@ class DomainSettingsAdversarialTest extends TestCase
                     $this->record['expiration_date'] = Carbon::parse($this->record['expiration_date'])->addYears($years)->format('Y-m-d H:i:s');
                 }
 
-                return Http::response(['data' => ['success' => true]]);
+                return Http::response(['code' => 0, 'data' => ['success' => true]]);
             }
 
             return Http::response(['data' => $this->record]);

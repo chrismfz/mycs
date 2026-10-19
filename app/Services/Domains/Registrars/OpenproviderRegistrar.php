@@ -207,7 +207,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
         $this->request($credentials, 'POST', '/v1/domains/' . rawurlencode($id) . '/renew', [
             'id' => (int) $id,
             'period' => $years,
-        ]);
+        ], charge: true);
 
         // The renew envelope doesn't reliably carry the new expiry — re-fetch
         // so the caller gets (and applies) the registrar's OWN post-renew
@@ -347,7 +347,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
 
         $this->request($credentials, 'POST', '/v1/domains/' . rawurlencode($id) . '/restore', [
             'id' => (int) $id,
-        ]);
+        ], charge: true);
 
         return $this->refetchAfterWrite($id, $credentials);
     }
@@ -437,7 +437,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
             throw new RegistrarNotAsked($e->getMessage(), 0, $e);
         }
 
-        $data = $this->request($credentials, 'POST', $path, $payload)->json('data');
+        $data = $this->request($credentials, 'POST', $path, $payload, charge: true)->json('data');
         $base = is_array($data) ? $this->syncResultFrom($data) : new DomainSyncResult;
 
         return new DomainSyncResult(
@@ -1032,7 +1032,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
      * returns that one failing status to the caller instead of throwing
      * (e.g. 404 = unknown contact handle, a legitimate answer).
      */
-    private function request(DomainRegistrarCredentials $credentials, string $method, string $path, array $payload = [], ?int $tolerateStatus = null): Response
+    private function request(DomainRegistrarCredentials $credentials, string $method, string $path, array $payload = [], ?int $tolerateStatus = null, bool $charge = false): Response
     {
         $response = $this->send($credentials, $this->token($credentials), $method, $path, $payload);
 
@@ -1059,6 +1059,11 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
         // an error: not known to be undone, so maybe done, never «refused»: RegistrarOutcomeUnknown (review 1 of #211), so
         // a management write re-reads instead of undoing; the money flows take it as pending, for staff (D-17).
         $code = $response->json('code');
+        // A charge (register, transfer, renew, restore) answered 2xx without its envelope (a maintenance page, an empty
+        // body: ADV-1 of #211) is no proof it was done: maybe done, as above. A read is checked by its callers.
+        if ($charge && !is_numeric($code)) {
+            throw new RegistrarOutcomeUnknown('Openprovider answered ' . $response->status() . ' without its envelope: whether it was done is not known.');
+        }
         if (is_numeric($code) && (int) $code !== 0) {
             $desc = $response->json('desc');
 

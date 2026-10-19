@@ -128,7 +128,7 @@ class DomainRegistrarsTest extends TestCase
 
                 return Http::response(['data' => ['handle' => 'NEW' . $created . '-GR']]);
             },
-            self::SANDBOX . '/v1/domains' => Http::response(['data' => ['id' => 777, 'status' => 'REQ']]),
+            self::SANDBOX . '/v1/domains' => Http::response(['code' => 0, 'data' => ['id' => 777, 'status' => 'REQ']]),
             self::SANDBOX . '/v1/domains/777' => Http::response(['data' => ['id' => 777, 'status' => 'REQ']]),
         ]);
 

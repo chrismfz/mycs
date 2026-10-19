@@ -148,7 +148,7 @@ final class ClientTest extends TestCase
     public function test_ambiguous_failures_are_marked_as_such()
     {
         $http = (new FakeTransport)->queueLogin()
-            ->queue(200, ['code' => 399, 'desc' => 'refused'])      // definitive
+            ->queue(200, ['code' => 399, 'desc' => 'refused'])      // answered with an error: unknown (ADV-3 of #211)
             ->queue(400, ['code' => 320, 'desc' => 'bad request'])  // definitive
             ->queue(0, '')                                          // timeout: unknown
             ->queue(502, '<html>bad gateway</html>')                // unknown
@@ -164,7 +164,7 @@ final class ClientTest extends TestCase
             }
         }
 
-        $this->assertSame(['definitive', 'definitive', 'unknown', 'unknown', 'unknown'], $seen);
+        $this->assertSame(['unknown', 'definitive', 'unknown', 'unknown', 'unknown'], $seen);
     }
 
     public function test_failed_login_throws()

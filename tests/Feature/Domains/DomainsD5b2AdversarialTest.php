@@ -113,7 +113,7 @@ class DomainsD5b2AdversarialTest extends TestCase
                     unset($this->record['soft_quarantine_expiry_date'], $this->record['hard_quarantine_expiry_date']);
                 }
 
-                return Http::response(['data' => ['success' => true]]); // «lag»: charged, the record unchanged yet
+                return Http::response(['code' => 0, 'data' => ['success' => true]]); // «lag»: charged, the record unchanged yet
             }
             if ($this->onRead !== null) {
                 ($this->onRead)();

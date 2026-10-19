@@ -140,7 +140,7 @@ class DomainOrderFulfilmentAdversarialTest extends TestCase
         }
         $this->created[] = [$path, $data];
 
-        return Http::response(['data' => ['id' => 9001, 'status' => $this->status]]);
+        return Http::response(['code' => 0, 'data' => ['id' => 9001, 'status' => $this->status]]);
     }
 
     private function record(): array

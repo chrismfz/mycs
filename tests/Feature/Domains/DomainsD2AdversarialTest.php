@@ -97,7 +97,7 @@ class DomainsD2AdversarialTest extends TestCase
         Http::fake([
             self::SANDBOX . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']]),
             self::SANDBOX . '/v1/customers' => Http::sequence()->push(['data' => ['handle' => 'A1-GR']])->push(['data' => ['handle' => 'B1-GR']]),
-            self::SANDBOX . '/v1/domains' => Http::response(['data' => ['id' => 1, 'status' => 'REQ']]),
+            self::SANDBOX . '/v1/domains' => Http::response(['code' => 0, 'data' => ['id' => 1, 'status' => 'REQ']]),
         ]);
 
         try {
@@ -276,7 +276,7 @@ class DomainsD2AdversarialTest extends TestCase
 
                 return $customers === 2 ? Http::response(['desc' => 'boom'], 500) : Http::response(['data' => ['handle' => 'H' . $customers . '-GR']]);
             },
-            self::SANDBOX . '/v1/domains' => Http::response(['data' => ['id' => 1, 'status' => 'REQ']]),
+            self::SANDBOX . '/v1/domains' => Http::response(['code' => 0, 'data' => ['id' => 1, 'status' => 'REQ']]),
         ]);
         $creds = new DomainRegistrarCredentials(['username' => 'u', 'password' => 'p']);
         try {
