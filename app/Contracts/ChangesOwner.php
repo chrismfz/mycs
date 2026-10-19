@@ -24,7 +24,7 @@ interface ChangesOwner
      * WRITE, charged: the domain's holder set to $holder (a new registry contact with its details, made for it). Done at
      * once, or awaiting the regulator (the .gr registry's 1001: geographic terms, .gov.gr), said in its details.
      *
-     * @param  self::NAME|self::OWNER  $kind
+     * @param  string  $kind  self::NAME or self::OWNER; anything else is refused, nothing asked
      */
     public function changeOwner(Domain $domain, Contact $holder, string $kind, DomainRegistrarCredentials $credentials): DomainSyncResult;
 }

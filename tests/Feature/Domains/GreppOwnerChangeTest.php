@@ -128,7 +128,7 @@ class GreppOwnerChangeTest extends TestCase
         $result = (new GrEppRegistrar)->changeOwner($domain, $renamed, ChangesOwner::NAME, $this->credentials());
 
         $id = 'c60_mow' . base_convert((string) $domain->id, 10, 36);
-        $this->assertSame(['registrant' => $id], $result->contactHandles);
+        $this->assertSame($id, $result->details['owner_contact'], 'its new contact, in its details (the registry read again says the rest)');
         $this->assertSame('name change: done', $result->details['owner_change']);
         $this->assertStringContainsString('Παπαδοπούλου-Νέα', $this->sent('contact:create')[0]);
         $update = $this->sent('extdomain:op')[0];
