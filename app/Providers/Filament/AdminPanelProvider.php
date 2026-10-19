@@ -22,6 +22,8 @@ use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
 use Filament\Support\Enums\Alignment;
+use Filament\Support\Enums\Width;
+use Filament\Tables\Table;
 use Filament\View\PanelsRenderHook;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
@@ -35,6 +37,9 @@ use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 class AdminPanelProvider extends PanelProvider
 {
+    /** Rows per page of the admin's tables (WHMCS shows long lists). */
+    private const PAGE_OPTIONS = [25, 50, 100, 200];
+
     public function panel(Panel $panel): Panel
     {
         // Filament loads before the settings provider, so we need to load the settings here
@@ -54,6 +59,14 @@ class AdminPanelProvider extends PanelProvider
             ->profile(EditProfile::class, isSimple: false)
             ->multiFactorAuthentication([AppAuthentication::make()->recoverable()])
             ->spa()
+            // Density, closer to WHMCS (docs/admin-ux.md): the whole width of the screen, a sidebar that folds away
+            // (the top menu has the same pages), tighter spacing in density.css.
+            ->maxContentWidth(Width::Full)
+            ->sidebarCollapsibleOnDesktop()
+            // 50 rows a page. A table that chooses its own options (widgets, logs under a record) keeps its default.
+            ->bootUsing(fn () => Table::configureUsing(fn (Table $table) => $table
+                ->paginationPageOptions(self::PAGE_OPTIONS)
+                ->defaultPaginationPageOption(fn () => $table->getPaginationPageOptions() === self::PAGE_OPTIONS ? 50 : null)))
             ->colors([
                 'primary' => Color::Blue,
             ])

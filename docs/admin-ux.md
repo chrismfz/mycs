@@ -28,6 +28,21 @@
 
 Νέα σελίδα (domains, reports): μία γραμμή στο `TopMenu::MENU`.
 
+## Πυκνότητα (2026-10-19)
+Το Filament είναι «αέρινο» και το πλήρωμα συνηθισμένο στο WHMCS. Μετρήσεις στο ίδιο παράθυρο (2147px): γραμμή πίνακα
+WHMCS 29px, Filament 57px· πλάτος πίνακα WHMCS 1906px, Filament ~1030px (όριο 1280px). Τα γράμματα είναι ίδια (14px):
+το βάρος είναι το padding (τρία επίπεδα μέσα σε κάθε κελί) και το όριο πλάτους.
+
+**Όχι πληρωμένο «compact theme», όχι custom Blade για όλα.** Το Filament βάζει τα στυλ του σε `@layer components` και
+δίνει σταθερές κλάσεις `fi-*`, άρα ένα αρχείο CSS εκτός layer τα αλλάζει χωρίς `!important`:
+- `resources/css/filament/admin/density.css`: σελίδα, sections (το «compact» του Filament παντού), πίνακες από `sm`
+  και πάνω (γραμμή ~35px· στο κινητό μένει το stacked layout του Filament).
+- Panel: `maxContentWidth(Width::Full)`, `sidebarCollapsibleOnDesktop()` (το μενού πάνω έχει τις ίδιες σελίδες), 50
+  γραμμές ανά σελίδα (25/50/100/200)· όποιος πίνακας ορίζει δικές του επιλογές (widgets, logs) κρατά το default του.
+- Custom Blade μόνο όπου θέλουμε διάταξη WHMCS που δεν βγαίνει από πίνακα ή φόρμα: Summary πελάτη, dashboard.
+
+Σε αναβάθμιση του Filament: μια λίστα, μια φόρμα και ένα Summary, σε desktop και κινητό.
+
 ## Dashboard: τι έχει το WHMCS και τι έχουμε
 Τα widgets του upstream: `Overview` (έσοδα/tickets/υπηρεσίες με σύγκριση περιόδου), `Revenue` (γράφημα),
 `ActiveUsers` (online τελευταίας ώρας), `Support` (5 πρόσφατα ανοιχτά tickets), όλα με permission `admin.widgets.*`.
