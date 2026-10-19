@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Events\Service\RenewalTaxChanged;
 use App\Exceptions\DisplayException;
 use App\Models\Traits\HasPlans;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -38,6 +39,28 @@ class Product extends Model implements Auditable
 
     protected $guarded = [];
 
+    /**
+     * Listed in the shop (its category, the menu). A hidden product is not listed but is still ordered by its link, as
+     * WHMCS «Hidden»: the company's site links to it (docs/admin-ux.md, «Απευθείας links»).
+     *
+     * @param  Builder<Product>  $query
+     */
+    public function scopeListed(Builder $query): void
+    {
+        $query->where('hidden', false);
+    }
+
+    /**
+     * Opened by its link: listed, or hidden and still in stock. Hidden and out of stock is retired (WHMCS «Retired», as
+     * the importer brings it): not ordered any more, its page is not found.
+     *
+     * @param  Builder<Product>  $query
+     */
+    public function scopeReachable(Builder $query): void
+    {
+        $query->where(fn (Builder $query) => $query->where('hidden', false)->orWhereNull('stock')->orWhere('stock', '!=', 0));
+    }
+
     protected $casts = [
         'taxable' => 'boolean',
         'prorata_day' => 'integer',
@@ -61,6 +84,8 @@ class Product extends Model implements Auditable
 
     /**
      * Get the configurable options of the product.
+     *
+     * @return HasManyThrough<ConfigOption, ConfigOptionProduct, $this>
      */
     public function configOptions(): HasManyThrough
     {

@@ -53,6 +53,29 @@ WHMCS 29px, Filament 57px· πλάτος πίνακα WHMCS 1906px, Filament ~10
   lines, notes και transactions μαζί με τις γραμμές (όχι query ανά γραμμή). «Date Paid» δεν μπαίνει ακόμα: δεν είναι
   πεδίο του τιμολογίου, βγαίνει από τις συναλλαγές.
 
+## Απευθείας links (2026-10-19)
+Τα sites των εταιρειών (WordPress) πουλούν με links προς το WHMCS· στο cut-over πρέπει να δουλεύουν αλλάζοντας μόνο host.
+- **Ορατότητα, όπως στο WHMCS:** «hidden» = δεν εμφανίζεται στις λίστες, αγοράζεται με το link του· «retired» = δεν
+  αγοράζεται (ο importer το φέρνει hidden με `stock = 0`). `Product::listed()` / `Product::reachable()`. Μια κατηγορία
+  χωρίς ορατά προϊόντα (κρυφή ομάδα του WHMCS) ανοίγει με το link της και δείχνει ό,τι αγοράζεται ακόμα· μόνο με
+  retired δίνει 404.
+- **Redirects** (`WhmcsLinkController`, `routes/web.php`), στη ρίζα και κάτω από `/clients`, 302 ώσπου να ελεγχθούν:
+
+  | WHMCS | MyCS |
+  |---|---|
+  | `cart.php?a=add&pid=N[&billingcycle=…]`, `store/{ομάδα}/{προϊόν}[?billingcycle=…]` | checkout με το πλάνο του κύκλου (`whmcs_id` ή slug) |
+  | `cart.php?gid=N`, `store/{ομάδα}` | κατηγορία |
+  | `cart.php?a=add&domain=register\|transfer[&query=]`, `domainchecker.php` | αναζήτηση domain |
+  | `domain/pricing` | τιμές domains |
+  | `clientarea.php[?action=domains\|services\|invoices\|details]` | dashboard / αντίστοιχη σελίδα |
+  | `supporttickets.php`, `submitticket.php`, `contact.php` | tickets / νέο ticket (με login, ώσπου να γίνει το contact χωρίς login) |
+  | `knowledgebase`, `/clients/login` | αρχική / login |
+
+  Μετρημένα στα sites (2026-10-19): myip.gr κυρίως `cart.php?a=add&domain=…`, `domain/pricing`, `clientarea.php`,
+  `supporttickets.php`, `submitticket.php?deptid=N`, `store/{ομάδα}`· nixpal `store/{ομάδα}/{προϊόν}?billingcycle=` και
+  73 links `submitticket.php`.
+- **Admin:** «Order link» (με αντιγραφή) στην επεξεργασία κατηγορίας και προϊόντος.
+
 ## Dashboard: τι έχει το WHMCS και τι έχουμε
 Τα widgets του upstream: `Overview` (έσοδα/tickets/υπηρεσίες με σύγκριση περιόδου), `Revenue` (γράφημα),
 `ActiveUsers` (online τελευταίας ώρας), `Support` (5 πρόσφατα ανοιχτά tickets), όλα με permission `admin.widgets.*`.

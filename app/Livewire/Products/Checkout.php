@@ -52,7 +52,8 @@ class Checkout extends Component
 
     public function mount($product)
     {
-        $this->product = $this->category->products()->where('slug', $product)->firstOrFail();
+        // A hidden product is ordered by its link; a retired one (hidden, out of stock) is not found.
+        $this->product = $this->category->products()->where('slug', $product)->reachable()->firstOrFail();
         if ($this->product->stock === 0 || !$this->product->price()->available) {
             return $this->redirect(route('products.show', ['category' => $this->category, 'product' => $this->product]), true);
         }

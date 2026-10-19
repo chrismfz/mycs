@@ -18,6 +18,8 @@ class Category extends Model implements Auditable
 
     /**
      * Get the products of the category.
+     *
+     * @return HasMany<Product, $this>
      */
     public function products(): HasMany
     {

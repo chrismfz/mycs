@@ -18,7 +18,13 @@ class Index extends Component
 
     public function mount()
     {
-        $this->products = $this->category->products()->where('hidden', false)->with(['category', 'plans.prices', 'configOptions.children.plans.prices'])->orderBy('sort')->get();
+        $with = ['category', 'plans.prices', 'configOptions.children.plans.prices'];
+        $this->products = $this->category->products()->listed()->with($with)->orderBy('sort')->get();
+        // A hidden category (none of its products listed) opened by its link, as WHMCS: its products that can still be
+        // ordered, not the retired ones.
+        if ($this->products->isEmpty()) {
+            $this->products = $this->category->products()->reachable()->with($with)->orderBy('sort')->get();
+        }
         $this->childCategories = $this->category->children()->where(function ($query) {
             $query->whereHas('children')->orWhereHas('products', function ($query) {
                 $query->where('hidden', false);
