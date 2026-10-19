@@ -11,7 +11,8 @@ trait RemembersFilter
     protected function recallFilter(string $list, string $property = 'status'): void
     {
         if (!request()->query->has($property)) {
-            $this->{$property} = (string) session("portal.filters.{$list}", '');
+            $value = session("portal.filters.{$list}");
+            $this->{$property} = is_string($value) ? $value : '';
         }
     }
 

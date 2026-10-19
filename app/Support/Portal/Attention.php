@@ -52,7 +52,8 @@ final class Attention
 
             return (string) new Price(['price' => $cents / 100, 'currency' => $group->first()->currency], tax: 0);
         })->implode(' + ');
-        $oldest = $invoices->first()->due_at;
+        // The oldest due date among those that have one: one without must not hide an overdue one (review of #230).
+        $oldest = $invoices->whereNotNull('due_at')->sortBy('due_at')->first()?->due_at;
         $overdue = $oldest !== null && $oldest->lt(CarbonImmutable::today());
 
         return [[

@@ -162,7 +162,7 @@ class ViewInvoice extends ViewRecord
                 ->action(function (Invoice $invoice) {
                     return response()->streamDownload(function () use ($invoice) {
                         echo PDF::generateInvoice($invoice)->output(); // the PDF only: stream() is a whole response, its headers written into the file
-                    }, 'invoice-' . ($invoice->number ?? $invoice->id) . '.pdf');
+                    }, $invoice->pdfFileName());
                 }),
         ];
     }

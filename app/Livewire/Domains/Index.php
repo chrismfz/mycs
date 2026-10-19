@@ -44,7 +44,9 @@ class Index extends Component
 
     public function updatedStatus(): void
     {
-        $this->mount();
+        if (!isset(self::FILTERS[$this->status])) {
+            $this->status = '';
+        }
     }
 
     public function updatingSearch(): void

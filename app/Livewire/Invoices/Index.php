@@ -74,6 +74,10 @@ class Index extends Component
             $counts[$name] = $issued()->whereIn('status', $statuses)->count();
         }
 
+        if (!isset(self::FILTERS[$this->status])) { // a crafted update (review of #230): all, not a 500
+            $this->status = '';
+        }
+
         return view('invoices.index', [
             'invoices' => $issued()->when($this->status !== '', fn ($q) => $q->whereIn('status', self::FILTERS[$this->status]))
                 ->with(['client.primaryContact', 'client.ownerGrant.user', 'snapshot', 'items', 'transactions', 'currency'])
