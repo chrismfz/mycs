@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\Category;
-use App\Models\Currency;
 use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Product;
@@ -14,9 +13,9 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * Adversarial review of #216 (direct links): a retired product must stay unorderable, a hidden one unlisted, and the
- * WHMCS cycle must preselect a plan the visitor can buy. After the fix a retired product carries its own flag (as the
- * importer now brings it); the scenarios are unchanged.
+ * Adversarial review of #216 (direct links): a retired product must stay unorderable, a hidden one unlisted. After the
+ * fix a retired product carries its own flag (as the importer now brings it); the scenarios are unchanged. The tests of
+ * the WHMCS URL redirects went with them (no legacy URLs: the companies' sites link to ours).
  */
 class CatalogDirectLinksAdversarialTest extends TestCase
 {
@@ -46,7 +45,7 @@ class CatalogDirectLinksAdversarialTest extends TestCase
     /**
      * ADV-1 (high): retired = hidden + stock 0, but every way a service ends gives its stock back (cancellation,
      * termination, cron, Cancel Order). A retired product has old customers: the first one who cancels revives it, and
-     * it is sold again by its link and by cart.php?a=add&pid=N.
+     * it is sold again by its link.
      */
     public function test_a_retired_product_stays_retired_when_one_of_its_services_ends(): void
     {
@@ -61,7 +60,6 @@ class CatalogDirectLinksAdversarialTest extends TestCase
 
         $this->get('/products/cpanel-hosting/old')->assertNotFound();
         $this->get('/products/cpanel-hosting/old/checkout')->assertNotFound();
-        $this->get('/cart.php?a=add&pid=12')->assertRedirect(route('home'));
     }
 
     /**
@@ -78,26 +76,6 @@ class CatalogDirectLinksAdversarialTest extends TestCase
         $this->get('/products/hosting')->assertOk()->assertDontSee('Secret plan');
     }
 
-    /**
-     * ADV-3 (low): the WHMCS cycle picks the first plan of that cycle even when the visitor's currency has no price
-     * for it, while another plan of the same cycle has one: the checkout opens on an unpriced plan and the order fails.
-     */
-    public function test_the_whmcs_cycle_preselects_a_plan_the_visitor_can_buy(): void
-    {
-        Currency::query()->firstOrCreate(['code' => 'EUR'], ['name' => 'Euro', 'prefix' => '€', 'suffix' => '', 'format' => '1.000,00']);
-        $product = Product::factory()->create(['category_id' => $this->shop->id, 'slug' => 'vps', 'whmcs_id' => 20, 'name' => 'Vps']);
-        $eurOnly = Plan::factory()->create(['priceable_id' => $product->id, 'priceable_type' => Product::class, 'name' => 'Monthly EUR',
-            'type' => 'recurring', 'billing_period' => 1, 'billing_unit' => 'month', 'sort' => 0]);
-        Price::factory()->create(['plan_id' => $eurOnly->id, 'price' => 9, 'currency_code' => 'EUR']);
-        $usd = Plan::factory()->create(['priceable_id' => $product->id, 'priceable_type' => Product::class, 'name' => 'Monthly USD',
-            'type' => 'recurring', 'billing_period' => 1, 'billing_unit' => 'month', 'sort' => 1]);
-        Price::factory()->create(['plan_id' => $usd->id, 'price' => 10, 'currency_code' => 'USD']);
-        $this->assertSame([$usd->id], $product->fresh()->availablePlans('USD')->pluck('id')->values()->all());
-
-        $this->withSession(['currency' => 'USD'])->get('/cart.php?a=add&pid=20&billingcycle=monthly')
-            ->assertRedirect(route('products.checkout', ['category' => $this->shop, 'product' => $product, 'plan' => $usd->id]));
-    }
-
     // ---- Attacks that held -------------------------------------------------------------------------------------
 
     public function test_held_a_plan_of_another_product_is_not_taken_by_the_checkout(): void
@@ -108,22 +86,11 @@ class CatalogDirectLinksAdversarialTest extends TestCase
         $this->get('/products/cpanel-hosting/custom/checkout?plan=' . $other->plans()->first()->id)->assertNotFound();
     }
 
-    public function test_held_the_domain_link_cannot_redirect_off_site(): void
-    {
-        $response = $this->get('/cart.php?a=add&domain=register&query=' . urlencode('//evil.example/x'));
-        $this->assertStringStartsWith(route('domain.search'), (string) $response->headers->get('Location'));
-        $response = $this->get('/clients/cart.php?a=add&domain=register&sld=' . urlencode('https://evil.example'));
-        $this->assertStringStartsWith(route('domain.search'), (string) $response->headers->get('Location'));
-    }
-
-    public function test_held_retired_and_hidden_lookups_by_crafted_ids(): void
+    public function test_held_retired_and_hidden_products_are_not_listed(): void
     {
         $this->product($this->shop, ['slug' => 'old', 'whmcs_id' => 12, 'hidden' => true, 'stock' => 0, 'retired' => true]);
         $this->product($this->shop, ['slug' => 'local', 'hidden' => true]); // whmcs_id null
 
-        $this->get('/cart.php?a=add&pid[]=12')->assertRedirect(route('home'));
-        $this->get('/cart.php?a=add&pid=0')->assertRedirect(route('home'));
-        $this->get('/cart.php?a=add&pid=12abc')->assertRedirect(route('home'));
         // A retired product in a category that also lists others is not shown there.
         $this->product($this->shop, ['slug' => 'starter']);
         $this->get('/products/cpanel-hosting')->assertOk()->assertSee('Starter plan')->assertDontSee('Old plan')->assertDontSee('Local plan');
