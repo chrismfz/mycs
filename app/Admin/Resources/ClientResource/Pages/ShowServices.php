@@ -32,7 +32,8 @@ class ShowServices extends ManageRelatedRecords
     {
         return $table
             ->recordTitleAttribute('product.name')
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['product', 'plan', 'currency']))
+            // The amount's tax reads the client's country (review #213): loaded with the rows, not per row.
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['product', 'plan', 'currency', 'client.primaryContact']))
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')

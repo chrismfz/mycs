@@ -21,6 +21,7 @@ use App\Admin\Resources\Common\RelationManagers\PropertiesRelationManager;
 use App\Admin\Schemas\ContactForm;
 use App\Models\Client;
 use App\Models\Credit;
+use App\Services\Admin\ClientSummary;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Select;
@@ -141,13 +142,17 @@ class ClientResource extends Resource
                     ->label(__('Name'))
                     ->searchable(query: fn (Builder $query, string $search) => $query->whereHas('primaryContact', fn (Builder $query) => $query
                         ->where('first_name', 'like', "%$search%")->orWhere('last_name', 'like', "%$search%")->orWhere('company_name', 'like', "%$search%")))
+                    // Its credit, as the Summary shows it: only to staff who may see credits (review #213).
                     ->description(function (Client $client) {
+                        if (!auth()->user()?->hasPermission('admin.credits.viewAny')) {
+                            return null;
+                        }
                         $credits = $client->credits->filter(fn (Credit $credit) => (float) $credit->amount != 0);
                         if ($credits->isEmpty()) {
                             return null;
                         }
 
-                        return __('Credit') . ': ' . $credits->map(fn (Credit $credit) => "$credit->currency_code $credit->amount")->implode(', ');
+                        return __('Credit') . ': ' . $credits->map(fn (Credit $credit) => ClientSummary::money((int) round((float) $credit->amount * 100), $credit->currency_code))->implode(', ');
                     }),
                 TextColumn::make('primaryContact.company_name')->label(__('Company'))->placeholder('—'),
                 TextColumn::make('email')

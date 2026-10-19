@@ -10,10 +10,13 @@ use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\Role;
 use App\Models\Service;
+use App\Models\Setting;
 use App\Models\Staff;
+use App\Models\TaxRate;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -64,8 +67,20 @@ class AdminClientColumnsTest extends TestCase
             ->assertCanSeeTableRecords([$this->client, $idle])
             ->assertTableColumnFormattedStateSet('active_services_count', '1 (2)', $this->client)
             ->assertTableColumnFormattedStateSet('active_services_count', '0 (0)', $idle)
-            ->assertSee('Credit: USD 4.00')
+            ->assertSee('Credit: ')
+            ->assertSee('4.00')
             ->assertDontSee('Earnings');
+    }
+
+    /** As the Summary: the credit only to staff who may see credits (review #213). */
+    public function test_the_credit_is_hidden_from_staff_who_may_not_see_credits(): void
+    {
+        Credit::query()->create(['client_id' => $this->client->id, 'currency_code' => 'USD', 'amount' => '4.00']);
+        $this->actingAs(Staff::factory()->create(['role_id' => Role::create(['name' => 'Clients only', 'permissions' => ['admin.clients.viewAny']])->id]));
+
+        Livewire::test(ListClients::class)
+            ->assertCanSeeTableRecords([$this->client])
+            ->assertDontSee('Credit: ');
     }
 
     public function test_the_active_services_filter_splits_both_ways(): void
@@ -103,6 +118,33 @@ class AdminClientColumnsTest extends TestCase
             ->assertCanSeeTableRecords([$new, $old], inOrder: true)
             ->assertTableColumnExists('due_at')
             ->assertTableColumnExists('formattedCurrentBalance');
+    }
+
+    /** The amount's tax reads the client's country: with tax on, more services are not more queries (review #213). */
+    public function test_the_services_tab_does_not_query_per_row_with_tax_on(): void
+    {
+        foreach (['tax_enabled' => [true, 'boolean'], 'tax_type' => ['exclusive', 'string']] as $key => [$value, $type]) {
+            Setting::query()->updateOrCreate(['key' => $key, 'settingable_type' => null], ['value' => $value, 'type' => $type]);
+            config(["settings.$key" => $value]);
+        }
+        Cache::forget('settings.rows');
+        TaxRate::query()->create(['name' => 'VAT', 'rate' => 24, 'country' => 'all']);
+        $queries = function (): int {
+            DB::flushQueryLog();
+            DB::enableQueryLog();
+            Livewire::test(ShowServices::class, ['record' => $this->client->id]);
+            DB::disableQueryLog();
+
+            return count(DB::getQueryLog());
+        };
+
+        $queries(); // the role, the currency and the settings are looked up once, then cached
+        $one = $queries();
+        foreach (range(1, 5) as $i) {
+            $this->service(['plan_id' => $this->service->plan_id, 'product_id' => $this->service->product_id, 'status' => 'active']);
+        }
+
+        $this->assertSame($one, $queries());
     }
 
     /** The totals' lines, notes and transactions are loaded with the rows: more invoices, not more queries. */
