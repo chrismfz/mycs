@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Events\Service\RenewalTaxChanged;
 use App\Exceptions\DisplayException;
 use App\Models\Traits\HasPlans;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -38,7 +39,30 @@ class Product extends Model implements Auditable
 
     protected $guarded = [];
 
+    /**
+     * Listed in the shop (its category, the menu). A hidden product is not listed but is still ordered by its link, as
+     * WHMCS «Hidden»: the company's site links to it (docs/admin-ux.md, «Απευθείας links»).
+     *
+     * @param  Builder<Product>  $query
+     */
+    public function scopeListed(Builder $query): void
+    {
+        $query->where('hidden', false)->where('retired', false);
+    }
+
+    /**
+     * Opened by its link: anything but a retired product (WHMCS «Retired»: not ordered any more, its page is not found).
+     * A hidden product out of stock opens and says so, as a listed one.
+     *
+     * @param  Builder<Product>  $query
+     */
+    public function scopeReachable(Builder $query): void
+    {
+        $query->where('retired', false);
+    }
+
     protected $casts = [
+        'retired' => 'boolean',
         'taxable' => 'boolean',
         'prorata_day' => 'integer',
         'prorata_next_after_day' => 'integer',

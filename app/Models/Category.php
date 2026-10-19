@@ -31,7 +31,7 @@ class Category extends Model implements Auditable
     public function scopeInMenu(Builder $query): void
     {
         $query->whereNull('parent_id')->where('show_in_menu', true)
-            ->where(fn (Builder $query) => $query->whereHas('children')->orWhereHas('products', fn (Builder $query) => $query->where('hidden', false)))
+            ->where(fn (Builder $query) => $query->whereHas('children')->orWhereHas('products', fn (Builder $query) => $query->listed()))
             ->orderBy('sort');
     }
 
@@ -45,7 +45,7 @@ class Category extends Model implements Auditable
     public function startingPrice(): ?array
     {
         $best = null;
-        foreach ($this->products->where('hidden', false) as $product) {
+        foreach ($this->products->where('hidden', false)->where('retired', false) as $product) {
             $price = $product->price();
             if (!$price->available) {
                 continue;

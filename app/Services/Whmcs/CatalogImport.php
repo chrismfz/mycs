@@ -337,15 +337,16 @@ final class CatalogImport
                 'name' => (string) $row['name'],
                 'description' => $row['description'] ?? null,
                 'slug' => $this->uniqueSlug('products', $slug ?: 'product-' . $row['id'], $product->id),
-                // Retired in WHMCS: hidden and out of stock, not ordered any more; a hidden group's products are not
-                // listed (reviews 5, F1).
+                // Retired in WHMCS: not ordered any more, its own flag (ADV-1 of #216: a stock of 0 came back with the
+                // first cancellation); a hidden group's products are not listed (reviews 5, F1).
                 'hidden' => (bool) ($row['hidden'] ?? false) || $retired || ($this->hiddenGroups[(int) $row['gid']] ?? false),
+                'retired' => $retired,
                 'taxable' => (bool) ($row['tax'] ?? true),
                 'prorata_day' => ($row['proratabilling'] ?? 0) && (int) ($row['proratadate'] ?? 0) >= 1 ? min((int) $row['proratadate'], 28) : null,
                 'prorata_next_after_day' => ($row['proratabilling'] ?? 0) && (int) ($row['proratachargenextmonth'] ?? 0) >= 1
                     && (int) $row['proratachargenextmonth'] <= 31 ? (int) $row['proratachargenextmonth'] : null,
                 'autosetup' => Product::AUTOSETUP_FROM_WHMCS[$row['autosetup'] ?? 'payment'] ?? Product::AUTOSETUP_PAYMENT,
-                'stock' => $retired ? 0 : (($row['stockcontrol'] ?? 0) ? (int) $row['qty'] : null),
+                'stock' => ($row['stockcontrol'] ?? 0) ? (int) $row['qty'] : null,
                 'allow_quantity' => match ((int) ($row['allowqty'] ?? 0)) {
                     1 => 'separated',
                     3 => 'combined',

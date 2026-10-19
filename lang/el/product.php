@@ -21,6 +21,7 @@ return [
 
     'in_stock' => 'Διαθέσιμο',
     'out_of_stock' => 'Το :product δεν είναι διαθέσιμο αυτή τη στιγμή',
+    'retired' => 'Το :product δεν πωλείται πλέον',
     'not_available' => 'Το :product δεν διατίθεται στο νόμισμά σας',
     'user_limit' => 'Έχετε φτάσει το όριο για το :product',
     'payment_method' => 'Τρόπος πληρωμής',

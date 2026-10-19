@@ -55,6 +55,15 @@ class CategoryResource extends Resource
                     }),
                 TextInput::make('slug')
                     ->required(),
+                // The link the company's site uses: it opens the category also when it is not in the menu (hidden).
+                TextInput::make('order_link')
+                    ->label('Order link')
+                    ->readOnly()
+                    ->dehydrated(false)
+                    ->copyable()
+                    ->afterStateHydrated(fn (TextInput $component, ?Category $record) => $component->state($record?->exists ? route('category.show', ['category' => $record]) : null))
+                    ->helperText('Its products that can still be ordered are shown by this link, also when none is listed.')
+                    ->visibleOn('edit'),
                 RichEditor::make('description')
                     ->required(),
                 Select::make('parent_id')
