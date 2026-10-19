@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\InvoicePdfController;
 use App\Http\Controllers\SocialLoginController;
 use App\Http\Controllers\TicketAttachmentController;
 use App\Http\Middleware\MustVerfiyEmail;
@@ -53,6 +54,7 @@ Route::group(['middleware' => ['web', 'auth', MustVerfiyEmail::class]], function
     // Mass Pay (PR F2): the account's chosen invoices, paid at once.
     Route::get('/invoices/pay-together/{paymentGroup}', Invoices\PayTogether::class)->name('invoices.pay-together')->middleware('can:view,paymentGroup');
     Route::get('/invoices/{invoice}', Invoices\Show::class)->name('invoices.show')->middleware('can:view,invoice');
+    Route::get('/invoices/{invoice}/pdf', InvoicePdfController::class)->name('invoices.pdf')->middleware('can:view,invoice');
 
     Route::get('/tickets', Tickets\Index::class)->name('tickets')->middleware('client.can:tickets');
     Route::get('/tickets/create', Tickets\Create::class)->name('tickets.create')->middleware('client.can:tickets');
