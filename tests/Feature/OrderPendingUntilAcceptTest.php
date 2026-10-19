@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Admin\Resources\OrderResource\Pages\EditOrder;
 use App\Admin\Resources\OrderResource\Pages\ListOrders;
+use App\Classes\Settings;
 use App\Jobs\Server\CreateJob;
 use App\Models\Invoice;
 use App\Models\Order;
@@ -116,6 +117,22 @@ class OrderPendingUntilAcceptTest extends TestCase
         $this->assertSame(Service::STATUS_CANCELLED, $order->services()->sole()->status);
         $this->assertSame(Invoice::STATUS_CANCELLED, Invoice::query()->findOrFail($order->invoice_id)->status);
         $this->assertSame(Order::STATUS_CANCELLED, $order->fresh()->status, 'nothing left: cancelled, as WHMCS');
+    }
+
+    public function test_by_default_the_cron_cancels_no_order_only_staff_do(): void
+    {
+        // As WHMCS (OrderDaysGrace is the first invoice's term, not a cancellation): owner 2026-10-19.
+        $default = collect(Settings::settings())->flatten(1)->firstWhere('name', 'cronjob_order_cancel')['default'] ?? null;
+        $this->assertSame(0, $default);
+        config(['settings.cronjob_order_cancel' => $default]);
+        $order = $this->order(Product::AUTOSETUP_PAYMENT);
+
+        Carbon::setTestNow('2026-03-01 10:00:00'); // two months, never paid
+        $this->artisan('app:cron-job');
+
+        $this->assertSame(Service::STATUS_PENDING, $order->services()->sole()->status);
+        $this->assertSame(Order::STATUS_PENDING, $order->fresh()->status, 'left in Pending Orders for staff');
+        $this->assertSame(Invoice::STATUS_UNPAID, Invoice::query()->findOrFail($order->invoice_id)->status);
     }
 
     public function test_paid_later_it_is_set_up_as_usual(): void

@@ -299,7 +299,8 @@ class CronJob extends Command
                 // Cancel services if first invoice is not paid after x days. One service per transaction: an invoice
                 // that cannot be cancelled rolls back its own service only, never the step (audit sweep BIL-10).
                 // 0 disables (an order placed a minute ago would go, with the invoice its customer may be paying).
-                $days = (int) config('settings.cronjob_order_cancel', 7);
+                // Off by default (owner 2026-10-19): as WHMCS, only staff cancel an order, from Pending Orders.
+                $days = (int) config('settings.cronjob_order_cancel', 0);
                 $ids = $days <= 0 ? collect() : $this->unpaidOrders($days)->pluck('id');
                 if ($days > 0) {
                     foreach ($this->orderPartPaid($days)->pluck('id') as $partPaid) {
