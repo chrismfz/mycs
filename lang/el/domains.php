@@ -33,6 +33,7 @@ return [
         'auth_code_emailed' => 'Το μητρώο έστειλε στον κάτοχο σύνδεσμο για νέο κωδικό.',
         'no_auth_code_email' => 'Αυτός ο registrar δίνει τον κωδικό: χρησιμοποιήστε την «Εμφάνιση».',
         'recalled' => 'Η καταχώριση του :domain ανακλήθηκε.',
+        'no_dnssec' => 'Ο registrar του δεν κρατά εγγραφές DNSSEC εδώ.',
         'no_child_hosts' => 'Ο registrar του δεν έχει χωριστούς child nameservers (οι IP τους πάνε μαζί με τους nameservers του domain).',
         'not_markable_away' => 'Το :domain δεν σημειώνεται μεταφερμένο (σε εκκρεμότητα ή ήδη τελειωμένο).',
         'not_resumable' => 'Το :domain δεν σημειώθηκε μεταφερμένο εδώ.',

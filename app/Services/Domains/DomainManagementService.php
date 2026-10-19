@@ -5,6 +5,7 @@ namespace App\Services\Domains;
 use App\Contracts\DomainRegistrar;
 use App\Contracts\EmailsAuthCode;
 use App\Contracts\ManagesChildHosts;
+use App\Contracts\ManagesDnssec;
 use App\Contracts\RecallsRegistration;
 use App\Enums\DomainStatus;
 use App\Exceptions\DisplayException;
@@ -17,6 +18,7 @@ use App\Models\InvoiceItem;
 use App\Models\Staff;
 use App\Models\User;
 use App\Support\Domains\ChildHost;
+use App\Support\Domains\DnssecRecord;
 use App\Support\Domains\DomainChanges;
 use App\Support\Domains\DomainRegistrarCredentials;
 use App\Support\Domains\DomainSyncResult;
@@ -394,6 +396,88 @@ class DomainManagementService
     {
         return $registrar instanceof ManagesChildHosts ? $registrar
             : throw new DomainRegistrarNotConfigured(__('domains.manage.no_child_hosts'));
+    }
+
+    /** Whether its registrar keeps its DNSSEC records (G8-4b): DS (the .gr registry) or DNSKEY (Openprovider). */
+    public function managesDnssec(Domain $domain): bool
+    {
+        return $this->dnssecKind($domain) !== null;
+    }
+
+    /** Which records its registrar takes (DnssecRecord::DS or ::DNSKEY), or null when it keeps none. */
+    public function dnssecKind(Domain $domain): ?string
+    {
+        $connection = $domain->effectiveRegistrarConnection();
+        try {
+            $registrar = $this->isManageable($domain) && $connection instanceof DomainRegistrarConnection ? $this->factory->for($connection) : null;
+
+            return $registrar instanceof ManagesDnssec ? $registrar->dnssecKind() : null;
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Its DNSSEC records read from the registrar, kept on the domain (meta.dnssec, with when) for the page: a read on
+     * request, never on each view. Logged.
+     *
+     * @return list<array<string, int|string|null>>
+     */
+    public function readDnssec(Domain $domain, Staff|User|null $staff): array
+    {
+        $records = [];
+        $this->call($domain, 'dnssec', [], $staff, function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, &$records) {
+            $records = array_map(fn (DnssecRecord $record) => $record->toArray(), self::dnssecOf($registrar)->dnssecRecords($domain, $credentials));
+
+            return ['records' => count($records)];
+        });
+        $meta = $domain->refresh()->meta ?? [];
+        $meta['dnssec'] = ['read_at' => now()->toIso8601String(), 'records' => $records] + array_intersect_key($meta['dnssec'] ?? [], ['note' => true, 'note_at' => true]);
+        $domain->forceFill(['meta' => $meta])->save();
+
+        return $records;
+    }
+
+    /**
+     * Its DNSSEC records set to these (the full set; none: unsigned), audited and logged, then read again whatever came
+     * of it. The registrar's word on it (the .gr registry's check) kept for the page.
+     *
+     * @param  list<DnssecRecord>  $records
+     */
+    public function setDnssec(Domain $domain, array $records, Staff|User|null $staff): ?string
+    {
+        $note = null;
+        try {
+            $this->call($domain, 'dnssec_update', ['records' => array_map(fn (DnssecRecord $r) => $r->label(), $records)], $staff,
+                function (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) use ($domain, $records, &$note) {
+                    $note = self::dnssecOf($registrar)->setDnssec($domain, $records, $credentials);
+
+                    return ['records' => count($records), 'note' => $note];
+                });
+            $meta = $domain->refresh()->meta ?? [];
+            $meta['dnssec'] = array_merge($meta['dnssec'] ?? [], ['note' => $note, 'note_at' => $note !== null ? now()->toIso8601String() : null]);
+            $domain->forceFill(['meta' => $meta])->save();
+        } finally {
+            // Read again whatever came of it (a «maybe done» too), as child hosts.
+            try {
+                $this->readDnssec($domain, $staff);
+            } catch (Throwable $e) {
+                report($e);
+                $meta = $domain->refresh()->meta ?? [];
+                if (isset($meta['dnssec']) && is_array($meta['dnssec'])) {
+                    $meta['dnssec']['stale'] = true;
+                    $domain->forceFill(['meta' => $meta])->save();
+                }
+            }
+        }
+
+        return $note;
+    }
+
+    private static function dnssecOf(DomainRegistrar $registrar): ManagesDnssec
+    {
+        return $registrar instanceof ManagesDnssec ? $registrar
+            : throw new DomainRegistrarNotConfigured(__('domains.manage.no_dnssec'));
     }
 
     /** Whether its registrar emails the code instead of giving it (DACoR). */

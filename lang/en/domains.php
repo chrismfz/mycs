@@ -33,6 +33,7 @@ return [
         'auth_code_emailed' => 'The registry emailed the owner a link to reset the code.',
         'no_auth_code_email' => 'This registrar gives the code: use «Show».',
         'recalled' => 'The registration of :domain was recalled.',
+        'no_dnssec' => 'Its registrar keeps no DNSSEC records here.',
         'no_child_hosts' => 'Its registrar has no child nameservers of their own (their IPs go with the domain\'s nameservers).',
         'not_markable_away' => ':domain is not one to mark transferred away (pending, or ended already).',
         'not_resumable' => ':domain was not marked transferred away here.',

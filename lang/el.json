@@ -664,5 +664,19 @@
     "The registry's comments": "Σχόλια του μητρώου",
     "Handles at the registry": "Handles στο μητρώο",
     "The registry says": "Το μητρώο λέει",
-    "Contacts at the registry": "Επαφές στο μητρώο"
+    "Contacts at the registry": "Επαφές στο μητρώο",
+    "Not signed at the registrar.": "Χωρίς υπογραφή στον registrar.",
+    "The registrar said": "Ο registrar απάντησε",
+    "Read DNSSEC": "Ανάγνωση DNSSEC",
+    "DNSSEC read from the registrar.": "Το DNSSEC διαβάστηκε από τον registrar.",
+    "Change DNSSEC": "Αλλαγή DNSSEC",
+    "The full set of DS records (none: unsigned). Sign the zone at its nameservers first: the .gr registry checks them there within 20 minutes and refuses them all if one does not match.": "Όλες οι εγγραφές DS (καμία: χωρίς υπογραφή). Πρώτα υπογράψτε τη ζώνη στους nameservers της: το μητρώο .gr τις ελέγχει εκεί μέσα σε 20 λεπτά και τις απορρίπτει όλες αν μία δεν ταιριάζει.",
+    "The full set of DNSKEYs (none: unsigned); the registrar makes the DS. Sign the zone at its nameservers first: a key that does not match breaks the domain for validating resolvers.": "Όλα τα DNSKEY (κανένα: χωρίς υπογραφή)· το DS το φτιάχνει ο registrar. Πρώτα υπογράψτε τη ζώνη στους nameservers της: κλειδί που δεν ταιριάζει «σπάει» το domain στους resolvers που κάνουν validation.",
+    "Key tag": "Key tag",
+    "Algorithm": "Αλγόριθμος",
+    "Digest type": "Τύπος digest",
+    "Digest": "Digest",
+    "Flags": "Flags",
+    "Public key": "Δημόσιο κλειδί",
+    "DNSSEC sent to the registrar.": "Το DNSSEC στάλθηκε στον registrar."
 }

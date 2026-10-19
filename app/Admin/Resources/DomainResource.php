@@ -11,6 +11,7 @@ use App\Enums\DomainStatus;
 use App\Models\Client;
 use App\Models\Domain;
 use App\Services\Domains\DomainManagementService;
+use App\Support\Domains\DnssecRecord;
 use Filament\Actions\ViewAction;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Resources\Resource;
@@ -296,6 +297,27 @@ class DomainResource extends Resource
                                 ->state(fn (Domain $record) => collect($record->meta['child_hosts']['hosts'] ?? [])->filter(fn ($h) => is_array($h))
                                     ->map(fn (array $h) => ($h['name'] ?? '?') . '  ' . implode(', ', (array) ($h['addresses'] ?? []))
                                         . (($h['read'] ?? true) === false ? '  (' . __('not read') . ')' : (($h['linked'] ?? false) ? '  (' . __('in use') . ')' : '')))->values()->all()),
+                        ]),
+                    // DNSSEC (G8-4b): its records as last read from the registrar (DS at the .gr registry, DNSKEYs at
+                    // Openprovider), and what the registrar said of the last change (the .gr registry's check).
+                    Section::make(__('DNSSEC'))->collapsible()
+                        ->visible(fn (Domain $record) => is_array($record->meta['dnssec'] ?? null))
+                        ->description(fn (Domain $record) => ($record->meta['dnssec']['stale'] ?? false)
+                            ? __('Out of date (changed after it was read): read again.')
+                            : __('Read :when', ['when' => (string) ($record->meta['dnssec']['read_at'] ?? '—')]))
+                        ->schema([
+                            TextEntry::make('dnssec_records')->hiddenLabel()->placeholder(__('Not signed at the registrar.'))->listWithLineBreaks()->fontFamily('mono')
+                                ->state(fn (Domain $record) => collect($record->meta['dnssec']['records'] ?? [])->filter(fn ($r) => is_array($r))
+                                    ->map(function (array $r) {
+                                        try {
+                                            return DnssecRecord::fromArray($r)->label();
+                                        } catch (\Throwable) {
+                                            return '?';
+                                        }
+                                    })->values()->all()),
+                            TextEntry::make('dnssec_note')->label(__('The registrar said'))
+                                ->visible(fn (Domain $record) => is_string($record->meta['dnssec']['note'] ?? null))
+                                ->state(fn (Domain $record) => (string) ($record->meta['dnssec']['note'] ?? '')),
                         ]),
                     $registrar,
                     $registry,

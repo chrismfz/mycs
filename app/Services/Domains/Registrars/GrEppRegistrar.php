@@ -5,6 +5,7 @@ namespace App\Services\Domains\Registrars;
 use App\Contracts\DomainRegistrar;
 use App\Contracts\EmailsAuthCode;
 use App\Contracts\ManagesChildHosts;
+use App\Contracts\ManagesDnssec;
 use App\Contracts\ReadsAccountBalance;
 use App\Contracts\RecallsRegistration;
 use App\Contracts\StaffPricedNames;
@@ -18,6 +19,7 @@ use App\Services\Domains\RegistrarOutcomeUnknown;
 use App\Services\Domains\RegistrarRefused;
 use App\Support\Domains\AvailabilityResult;
 use App\Support\Domains\ChildHost;
+use App\Support\Domains\DnssecRecord;
 use App\Support\Domains\DomainChanges;
 use App\Support\Domains\DomainRegistrarCapabilities;
 use App\Support\Domains\DomainRegistrarCredentials;
@@ -44,6 +46,7 @@ use MyCS\GrEpp\Command\DomainCreate;
 use MyCS\GrEpp\Command\DomainDelete;
 use MyCS\GrEpp\Command\DomainInfo;
 use MyCS\GrEpp\Command\DomainRenew;
+use MyCS\GrEpp\Command\DomainSecDns;
 use MyCS\GrEpp\Command\DomainTransfer;
 use MyCS\GrEpp\Command\DomainUpdate;
 use MyCS\GrEpp\Command\HostCheck;
@@ -55,6 +58,7 @@ use MyCS\GrEpp\Command\Rules;
 use MyCS\GrEpp\Config;
 use MyCS\GrEpp\Data\ContactDraft;
 use MyCS\GrEpp\Data\DomainInfo as Info;
+use MyCS\GrEpp\Data\DsRecord;
 use MyCS\GrEpp\Data\HostInfo as HostData;
 use MyCS\GrEpp\Data\PostalInfo;
 use MyCS\GrEpp\GrEppException;
@@ -78,7 +82,7 @@ use Throwable;
  * One session per account and process, kept for the process (a worker reuses it; the registry ends one idle for 15
  * minutes and Session logs in again); commands one at a time per account, across processes (a cache lock).
  */
-class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHosts, ReadsAccountBalance, RecallsRegistration, StaffPricedNames
+class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHosts, ManagesDnssec, ReadsAccountBalance, RecallsRegistration, StaffPricedNames
 {
     /** The registry's grace after expiry (pendingDelete: renewable only, D-8; its FAQ). */
     public const GRACE_DAYS = 15;
@@ -830,6 +834,59 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
             chargesAllowed: $info->chargeableActionsAllowed,
             suspendsOn: $info->toBeSuspendedOn !== null ? Carbon::instance($info->toBeSuspendedOn) : null,
             suspendedOn: $info->suspendedOn !== null ? Carbon::instance($info->suspendedOn) : null);
+    }
+
+    /** DNSSEC (G8-4b): DS records only (the registry's DNSSEC guide v1.5, grepp.md §5.14). */
+    public function dnssecKind(): string
+    {
+        return DnssecRecord::DS;
+    }
+
+    /** Its DS records as the registry has them (domain:info). A read. */
+    public function dnssecRecords(Domain $domain, DomainRegistrarCredentials $credentials): array
+    {
+        return $this->locked($credentials, fn (Session $session) => self::prepare(fn () => array_map(
+            fn (DsRecord $ds) => DnssecRecord::ds($ds->keyTag, $ds->algorithm, $ds->digestType, $ds->digest),
+            self::ours($session, $domain, $credentials)->dsRecords,
+        )));
+    }
+
+    /**
+     * WRITE (DNSSEC): its DS records set to these: the extra ones removed (all of them when none is wanted), the missing
+     * ones added, in one update. Added ones are checked by the registry against its nameservers (every 20 minutes, the
+     * domain serverUpdateProhibited until then; one that does not match a signed DNSKEY there refuses them all). Not
+     * charged.
+     */
+    public function setDnssec(Domain $domain, array $records, DomainRegistrarCredentials $credentials): ?string
+    {
+        return $this->locked($credentials, function (Session $session) use ($domain, $records, $credentials) {
+            [$add, $remove] = self::prepare(function () use ($session, $domain, $records, $credentials) {
+                $wanted = array_map(function (DnssecRecord $record) {
+                    if ($record->kind !== DnssecRecord::DS) {
+                        throw new InvalidArgumentException('The .gr registry takes DS records only, not DNSKEYs.');
+                    }
+
+                    return new DsRecord((int) $record->keyTag, $record->algorithm, (int) $record->digestType, (string) $record->digest);
+                }, $records);
+                $wanted = Rules::dsRecords($wanted); // its rules before anything is read
+                $info = self::ours($session, $domain, $credentials, writing: true);
+                if ($wanted !== [] && $info->nameservers === []) {
+                    throw new InvalidArgumentException("{$domain->fqdn} has no nameservers: DS records need them (the registry refuses).");
+                }
+                $have = $info->dsRecords;
+                $add = array_values(array_filter($wanted, fn (DsRecord $w) => array_filter($have, fn (DsRecord $h) => $h->same($w)) === []));
+                $extra = array_values(array_filter($have, fn (DsRecord $h) => array_filter($wanted, fn (DsRecord $w) => $w->same($h)) === []));
+
+                return [$add, $wanted === [] && $have !== [] ? true : $extra];
+            });
+            if ($add === [] && $remove === []) {
+                return null; // as asked already: nothing sent
+            }
+            $result = self::charge(fn () => DomainSecDns::parse(self::send($session, fn (string $clTRID) => DomainSecDns::request($domain->fqdn, $clTRID, $add, $remove))));
+
+            return $add !== [] ? 'The registry checks the DS records against the nameservers within 20 minutes (the domain is locked for changes until then); all are refused if one does not match a signed DNSKEY there.'
+                . ($result->comments !== [] ? ' ' . implode(' ', $result->comments) : '') : null;
+        });
     }
 
     /** At most this many child hosts read (one host:info each). */
