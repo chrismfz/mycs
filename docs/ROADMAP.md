@@ -368,6 +368,9 @@ importer):
       header/footer του myip.gr (Appearance → Custom code): μετά το login η Home με μενού ή κατευθείαν στο Dashboard
       (όπως το clientarea του WHMCS). **Αποφασίστηκε 2026-10-19:** κατευθείαν στο Dashboard· μενού επισκέπτη και αρχική
       στο `admin-ux.md` («Μενού επισκέπτη»).
+- [ ] **Επικοινωνία χωρίς login και tickets με email** (2026-10-19): σχέδιο και μοντέλο ασφάλειας στο
+      [`tickets.md`](tickets.md) (προς έγκριση)· PRs Α (πυρήνας email από το Ekdosi, σκληρυμένος, tickets επισκέπτη),
+      Β (φόρμα), Γ (σελίδα επισκέπτη). Το σημερινό piping μένει κλειστό: είναι ευπαθές (§1).
 - [ ] Shadow-run του licensing → cut-over της nixpal, **μετά τα domains της Φάσης 2** (Openprovider, CNIC).
 
 ## Φάση 2: Domains (2–4 εβδομάδες, μετά το spike)
