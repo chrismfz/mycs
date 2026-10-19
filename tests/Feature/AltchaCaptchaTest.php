@@ -126,4 +126,40 @@ class AltchaCaptchaTest extends TestCase
             ->set('email', $user->email)->set('password', 'secret-password')
             ->call('submit')->assertHasNoErrors('captcha');
     }
+
+    /**
+     * Code review of #222: the same solution written another way (JSON layout, hex case, the counter and time the check
+     * ignores, an extra field) is the same challenge, already spent.
+     */
+    public function test_a_solution_written_another_way_is_still_spent(): void
+    {
+        $altcha = app(Altcha::class);
+        $b64 = $this->solve($this->challenge());
+        $this->assertTrue($altcha->verify($b64));
+
+        $arr = json_decode(base64_decode($b64), true);
+        $with = fn (array $solution) => base64_encode(json_encode(['challenge' => $arr['challenge'], 'solution' => $solution + $arr['solution']]));
+        $variants = [
+            'pretty JSON' => base64_encode(json_encode($arr, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)),
+            'uppercase derivedKey' => $with(['derivedKey' => strtoupper($arr['solution']['derivedKey'])]),
+            'other counter' => $with(['counter' => 999999]),
+            'other time' => $with(['time' => 42.5]),
+            'extra field' => base64_encode(json_encode($arr + ['x' => 1])),
+        ];
+
+        $this->assertSame([], array_keys(array_filter(array_map(fn (string $v) => $altcha->verify($v), $variants))));
+    }
+
+    /** Code review of #222: a shorter lifetime set after a challenge was given does not make its solution reusable. */
+    public function test_a_solution_stays_spent_for_its_challenges_whole_life(): void
+    {
+        config(['settings.altcha_minutes' => 60]);
+        $payload = $this->solve($this->challenge());
+        config(['settings.altcha_minutes' => 1]);
+        $this->assertTrue(app(Altcha::class)->verify($payload));
+
+        $this->travel(5)->minutes(); // past the new setting, within the challenge's own hour
+
+        $this->assertFalse(app(Altcha::class)->verify($payload));
+    }
 }

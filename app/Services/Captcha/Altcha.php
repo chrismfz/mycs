@@ -5,6 +5,7 @@ namespace App\Services\Captcha;
 use AltchaOrg\Altcha\Algorithm\Pbkdf2;
 use AltchaOrg\Altcha\Altcha as AltchaLibrary;
 use AltchaOrg\Altcha\CreateChallengeOptions;
+use AltchaOrg\Altcha\Payload;
 use AltchaOrg\Altcha\VerifySolutionOptions;
 use Illuminate\Support\Facades\Cache;
 use Throwable;
@@ -17,15 +18,18 @@ use Throwable;
 class Altcha
 {
     /**
-     * PBKDF2 iterations per try and the range of the hidden counter: the work is about cost × counter. «normal» is the
-     * library's own example; «low» for old phones, «high» under attack.
+     * PBKDF2 iterations per try and the range of the hidden counter: the work is about cost × counter / 2 on average.
+     * Measured (2026-10-19, OpenSSL, one core): cost 500 ≈ 1750 tries/s, 1000 ≈ 970, 2000 ≈ 580. A browser (WASM) is
+     * slower, but the widget spreads the tries over up to 4 workers: «normal» ≈ 1–2 s on a computer, a few on a phone.
+     * The library's own example (cost 5000) took ≈ 30 s on one core (code review of #222). To be measured in real
+     * browsers before the pilot (docs/captcha.md).
      *
      * @var array<string, array{cost: int, counter: array{int, int}}>
      */
     public const DIFFICULTIES = [
-        'low' => ['cost' => 1000, 'counter' => [2000, 5000]],
-        'normal' => ['cost' => 5000, 'counter' => [5000, 10000]],
-        'high' => ['cost' => 10000, 'counter' => [10000, 20000]],
+        'low' => ['cost' => 500, 'counter' => [500, 1500]],
+        'normal' => ['cost' => 1000, 'counter' => [1000, 3000]],
+        'high' => ['cost' => 2000, 'counter' => [2000, 6000]],
     ];
 
     /** How long a challenge can be solved and posted, in minutes, when the setting is empty or off. */
@@ -54,17 +58,24 @@ class Altcha
             return false;
         }
         try {
-            $result = $this->library()->verifySolution(new VerifySolutionOptions(algorithm: new Pbkdf2, payload: $payload));
+            $parsed = Payload::fromBase64($payload);
+            $result = $this->library()->verifySolution(new VerifySolutionOptions(algorithm: new Pbkdf2, payload: $parsed));
         } catch (Throwable) {
             return false;
         }
-        if (!$result->verified) {
+        $signature = $parsed->challenge->signature;
+        if (!$result->verified || $signature === null || $signature === '') {
             return false;
         }
 
-        // Single use: the first request to record it wins, also when two arrive together. Kept as long as it could
-        // still be posted.
-        return Cache::add('altcha:spent:' . hash('sha256', $payload), true, now()->addMinutes($this->minutes() + 1));
+        // Single use, per challenge: its signature (an HMAC of all its parameters) and not the payload's text, which
+        // has endless forms of the same solution (JSON layout, hex case, the counter and time the check ignores; code
+        // review of #222). The first request to record it wins, also when two arrive together. Kept as long as that
+        // challenge could still be posted, whatever the lifetime setting is now.
+        $expiresAt = (int) ($parsed->challenge->parameters->expiresAt ?? 0);
+        $seconds = max(60, $expiresAt - now()->getTimestamp() + 60);
+
+        return Cache::add('altcha:spent:' . hash('sha256', $signature), true, $seconds);
     }
 
     /** @return array{cost: int, counter: array{int, int}} the chosen difficulty («normal» when not set) */

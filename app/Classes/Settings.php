@@ -164,7 +164,7 @@ class Settings
                         'high' => 'High (under attack)',
                     ],
                     'default' => 'normal',
-                    'description' => 'The work the visitor\'s browser does before a form is sent: a second or two at «Normal».',
+                    'description' => 'The work the visitor\'s browser does before a form is sent: about 1–2 s on a computer at «Normal», a few on a phone; «High» about three times that.',
                     'hidden' => fn (Get $get) => $get('captcha') !== 'altcha',
                 ],
                 [

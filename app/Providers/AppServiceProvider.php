@@ -172,6 +172,8 @@ class AppServiceProvider extends ServiceProvider
         $this->app->terminating(fn () => GrEppRegistrar::reset());
         // The public price list API (D8a): 60 a minute per caller's own address (review R2, App\Support\CallerIp).
         RateLimiter::for('domain-pricing', fn ($request) => Limit::perMinute(60)->by(VisitorKey::of($request)));
+        // Our captcha's challenges (docs/captcha.md): a bucket of their own, not shared with other by-IP limits.
+        RateLimiter::for('altcha', fn ($request) => Limit::perMinute(30)->by('altcha:' . VisitorKey::of($request)));
 
         // The admin API (AUTH-17): 120 calls a minute per key that exists and is enabled; anything else (no token, a
         // junk one) shares 60 a minute per address, so a new junk token on every call gets no fresh bucket (R1 of #90).
