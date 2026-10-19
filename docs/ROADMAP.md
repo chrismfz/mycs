@@ -359,7 +359,8 @@ importer):
       Πλοήγηση client area (2026-10-14): η Home, ο κατάλογος και το καλάθι δεν έχουν το μενού αριστερά (design του
       upstream: «βιτρίνα» ίδια με ή χωρίς login, ανά σελίδα `'sidebar' => true`). Να αποφασιστεί μαζί με το
       header/footer του myip.gr (Appearance → Custom code): μετά το login η Home με μενού ή κατευθείαν στο Dashboard
-      (όπως το clientarea του WHMCS).
+      (όπως το clientarea του WHMCS). **Αποφασίστηκε 2026-10-19:** κατευθείαν στο Dashboard· μενού επισκέπτη και αρχική
+      στο `admin-ux.md` («Μενού επισκέπτη»).
 - [ ] Shadow-run του licensing → cut-over της nixpal, **μετά τα domains της Φάσης 2** (Openprovider, CNIC).
 
 ## Φάση 2: Domains (2–4 εβδομάδες, μετά το spike)

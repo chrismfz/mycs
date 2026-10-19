@@ -53,6 +53,22 @@ WHMCS 29px, Filament 57px· πλάτος πίνακα WHMCS 1906px, Filament ~10
   lines, notes και transactions μαζί με τις γραμμές (όχι query ανά γραμμή). «Date Paid» δεν μπαίνει ακόμα: δεν είναι
   πεδίο του τιμολογίου, βγαίνει από τις συναλλαγές.
 
+## Μενού επισκέπτη και αρχική (2026-10-19)
+Η βιτρίνα κάθε εταιρείας είναι το δικό της site (WordPress)· το MyCS για τον επισκέπτη είναι κατάστημα και πόρτα στον
+λογαριασμό, όχι δεύτερο site. Μετρημένα (WHMCS, 2026-10-19): myip 22 ομάδες, 5 ορατές (η SSL & Security με 56
+προϊόντα)· nixpal 7, 2 ορατές. Γι' αυτό δεν «χύνονται» όλες οι κατηγορίες στη σελίδα.
+- **Κατηγορία «Show in menu»** (`categories.show_in_menu`): στο μενού και στην αρχική μόνο αυτές (`Category::inMenu()`).
+  Ο importer το γεμίζει από το `hidden` της ομάδας του WHMCS. Οι άλλες ανοίγουν με το link τους.
+- **Μενού** (`Navigation::getLinks()`): Προϊόντα ▾ (κατηγορίες του μενού) · Domains ▾ (αναζήτηση, τιμές, whois) ·
+  Επικοινωνία (νέο ticket· χωρίς login όταν γίνει το contact). Η αρχική είναι το λογότυπο. Γνωσιακή βάση και κατάσταση
+  δικτύου όχι (είναι στα sites των εταιρειών).
+- **Link «← κεντρικό site»** στο μενού από το Appearance (`theme_main_site_url`, `theme_main_site_label`), όχι
+  ξεχωριστή μπάρα: το μενού είναι fixed.
+- **Αρχική:** το `home_page_text`, αναζήτηση domain, οι κατηγορίες του μενού ως λίστα με «από €X · κύκλος (€Y/μήνα)»
+  (η μικρότερη από τις τιμές που δείχνει η σελίδα της κατηγορίας, `Category::startingPrice()`), «Ήδη πελάτης;».
+  Με login πηγαίνει στο Dashboard, όπως το clientarea του WHMCS.
+- Επόμενα: η SSL & Security με υποκατηγορίες ή φίλτρα· contact χωρίς login με δικό μας captcha (ALTCHA).
+
 ## Dashboard: τι έχει το WHMCS και τι έχουμε
 Τα widgets του upstream: `Overview` (έσοδα/tickets/υπηρεσίες με σύγκριση περιόδου), `Revenue` (γράφημα),
 `ActiveUsers` (online τελευταίας ώρας), `Support` (5 πρόσφατα ανοιχτά tickets), όλα με permission `admin.widgets.*`.
