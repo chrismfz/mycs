@@ -44,5 +44,7 @@ final readonly class DomainInfo
         public array $statusReasons = [],
         /** @var list<string> the registry's comments on it (extdomain:comment) */
         public array $comments = [],
+        /** @var list<DsRecord> its DS records (secDNS-1.1 infData) */
+        public array $dsRecords = [],
     ) {}
 }

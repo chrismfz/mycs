@@ -710,14 +710,23 @@ Elements: `create`, `renew`, `update`, `info` (+ `creData`, `renData`, `infData`
 
 ### 5.14 DNSSEC
 
-- Οι DS εγγραφές πάνε με **standard `secDNS-1.1`** (RFC 5910) — όχι custom.
-  Άρα υπάρχει έτοιμη υποστήριξη σε libraries.
-- Το αποτέλεσμα επαλήθευσης έρχεται read-only στο `extSecDNS-1.0`:
-  `wasSuccessful`, `validationOutcome` (κείμενο στα ελληνικά), `validationDate`.
-- ⚠️ Ονόματα με **εκκρεμή επαλήθευση DS μένουν σε `serverUpdateProhibited`**
-  μέχρι να ολοκληρωθεί. Άλλος ένας λόγος για polling.
+Από τον οδηγό DNSSEC v1.5 του μητρώου (2024-05-28, **εμπιστευτικός**: δεν μπαίνει στο repo, που είναι public· το έδωσε
+ο ιδιοκτήτης 2026-10-19). Οι κανόνες με δικά μας λόγια:
 
----
+- **Μόνο DS records** (`secDNS-1.1`, RFC 5910, η διεπαφή DS Data): keyTag, alg, digestType, digest. Χωρίς Key Data,
+  χωρίς `maxSigLife`, χωρίς `urgent` (2102/2306). Όχι στο `domain:create` (2101): μόνο με `domain:update`.
+- **Αλγόριθμοι:** 3, 5, 6, 7, 8, 10, 12, 13, 14. **Digest types:** 1 (SHA-1, 40 hex), 2 (SHA-256, 64), 3 (GOST, 64),
+  4 (SHA-384, 96). keyTag 0–65535. Έως **16** DS σε ένα add ή rem (2308).
+- **Αφαίρεση:** με όλα τα πεδία κάθε DS, ή όλα με `<secDNS:rem><secDNS:all>true</secDNS:all></secDNS:rem>`. Σε ένα
+  update πρώτα `rem`, μετά `add`. Το `<secDNS:chg/>` μόνο κενό (χωρίς επίδραση).
+- **Προσθήκη:** απάντηση **1001**· το domain γίνεται `serverUpdateProhibited` (καμία άλλη αλλαγή) μέχρι τον έλεγχο, που
+  τρέχει **κάθε 20 λεπτά**, μετά `ok` όποιο κι αν είναι το αποτέλεσμα. Ο έλεγχος σε όλους τους nameservers: DNSKEY (KSK)
+  με το keyTag, ίδιος αλγόριθμος, digest που ταιριάζει, έγκυρη RRSIG. **Ένα λάθος απορρίπτει όλα τα DS** του αιτήματος
+  (τα υπόλοιπα του update περνούν). Email στον καταχωρητή και στον κάτοχο. Αποτέλεσμα στο `extSecDNS:lastValidationResult`
+  του `domain:info` (`ds_check` στα στοιχεία μας).
+- **Προϋπόθεση:** nameservers στο domain (αλλιώς 2306). Ο διαχειριστής της ζώνης βάζει πρώτα το κλειδί στους
+  nameservers, μετά στέλνουμε τα DS.
+- **Υλοποίηση:** `DsRecord`, `DomainSecDns` (G8-4a), τα DS από το `secDNS:infData` του `domain:info`.
 
 ## 6. Statuses
 

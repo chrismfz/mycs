@@ -5,6 +5,7 @@ namespace MyCS\GrEpp\Command;
 use DOMElement;
 use MyCS\GrEpp\Data\BundleName;
 use MyCS\GrEpp\Data\DomainInfo as Info;
+use MyCS\GrEpp\Data\DsRecord;
 use MyCS\GrEpp\Data\DsValidation;
 use MyCS\GrEpp\OutcomeUnknown;
 use MyCS\GrEpp\Response;
@@ -60,6 +61,25 @@ final class DomainInfo
             }
         }
         $ds = $xpath->query('//extSecDNS:lastValidationResult')->item(0);
+        $dsRecords = [];
+        foreach ($xpath->query('//secDNS:infData/secDNS:dsData') as $record) {
+            if ($record instanceof DOMElement) {
+                // Numbers as numbers, never a missing one read as 0 (review 3 of #209).
+                $number = function (string $field) use ($xpath, $record): int {
+                    $value = trim((string) Read::text($xpath, "secDNS:{$field}", $record));
+                    if (!ctype_digit($value) || strlen($value) > 5) {
+                        throw new OutcomeUnknown("The registry gave a DS {$field} that is not a number: {$value}");
+                    }
+
+                    return (int) $value;
+                };
+                $digest = strtoupper((string) preg_replace('/\s+/', '', (string) Read::text($xpath, 'secDNS:digest', $record)));
+                if (preg_match('/\A[0-9A-F]+\z/', $digest) !== 1) {
+                    throw new OutcomeUnknown('The registry gave a DS digest that is not hex.');
+                }
+                $dsRecords[] = new DsRecord($number('keyTag'), $number('alg'), $number('digestType'), $digest);
+            }
+        }
 
         return new Info(
             name: $name,
@@ -87,6 +107,7 @@ final class DomainInfo
             createdOn: Read::day($xpath, 'domain:crDate', $data),
             statusReasons: $reasons,
             comments: array_map(fn (string $c) => trim((string) preg_replace('/\s+/u', ' ', $c)), Read::texts($xpath, '//extdomain:resData/extdomain:comment')),
+            dsRecords: $dsRecords,
         );
     }
 }
