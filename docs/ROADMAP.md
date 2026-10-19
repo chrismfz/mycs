@@ -445,9 +445,26 @@ importer):
       επιλογέας λογαριασμού στο client area, importer από `tblusers_clients` (2026-10-11).
 - [x] **Eurobank/Cardlink + IRIS** (`packages/cardlink-eurobank`, με server-to-server returns): το 42% των πληρωμών. PR H2a
   (#149, `docs/payments.md` «Cardlink / Eurobank»)· μένει μία πραγματική πληρωμή στο test τερματικό.
-- [ ] Έμβασμα + `payments_tracking` (αντιστοίχιση καταθέσεων από IMAP τράπεζας) πάνω στον allocator: ο πελάτης
+- [ ] **Έμβασμα + `payments_tracking`** (αντιστοίχιση καταθέσεων από IMAP τράπεζας) πάνω στον allocator: ο πελάτης
       γράφει τον αριθμό προτιμολογίου στην αιτιολογία· αν ταιριάζει, mark paid το συγκεκριμένο τιμολόγιο (port του
-      δικού μας κώδικα από το WHMCS).
+      δικού μας κώδικα από το WHMCS). Ιδιοκτήτης 2026-10-19, μετά το «Registrar credit» (G8-1), **για πολύ αργότερα**:
+      port **όλου του concept** του δικού μας addon/hook του WHMCS του myip, που διαβάζει τα emails των τραπεζών
+      (Πειραιώς, Eurobank): αιτιολογίες των καταθέσεων για τα χειροκίνητα εμβάσματα **και** τα υπόλοιπα των
+      λογαριασμών. Ο κώδικας είναι δικός μας, οπότε μπορεί να μεταφερθεί.
+      - **Μέθοδος πληρωμής «Κατάθεση σε τραπεζικό λογαριασμό»**, «dummy»: δείχνει μόνο κείμενο με τους λογαριασμούς
+        (IBAN) από τις ρυθμίσεις, για parity με το WHMCS του myip. Η αντιστοίχιση γίνεται από το `payments_tracking` ή
+        από το staff.
+      - **Widgets στο dashboard**, όπως στο WHMCS του myip:
+        - «Payments tracking»: οι καταθέσεις με ποσό, τράπεζα, αιτιολογία και ώρα, με το τιμολόγιο που ταίριαξε και
+          «Load more / Load pending». **Δικό του permission**, για να το βλέπουν και οι τεχνικοί.
+        - «Bank Totals»: υπόλοιπο ανά τράπεζα και σύνολο, με την τελευταία κατάθεση.
+        - «Stripe Balance» (available/pending ανά νόμισμα, από το Balance API) και «PayPal Balance» (από το API του
+          PayPal· στο WHMCS φαίνεται και η αναζήτηση συναλλαγής με ID).
+        - «Income Forecast»: έσοδα ανά κύκλο χρέωσης (μηνιαία, τριμηνιαία, εξαμηνιαία, ετήσια, διετή, τριετή) από τις
+          ενεργές υπηρεσίες και τα domains, με εκτίμηση ετήσιου. Μαζί με το «Dashboard σαν WHMCS» της Φάσης 0.
+        - Τα widgets με υπόλοιπα (τράπεζες, Stripe, PayPal, Income Forecast) θέλουν ρόλο με `*` (μόνο ιδιοκτήτες)· μόνο
+          το «Payments tracking» έχει ξεχωριστό permission. Όπως στο G8-1: ανάγνωση στο παρασκήνιο, η σελίδα δεν
+          καλεί API.
 - [ ] **Reports** στο admin (τα χρησιμοποιούμε συχνά): ιδέες από τα reports του WHMCS και του Ekdosi· μενού «Reports»
       στο `App\Admin\TopMenu`.
 - [ ] Stripe SEPA.
