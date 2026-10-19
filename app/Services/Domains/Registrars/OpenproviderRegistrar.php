@@ -3,6 +3,7 @@
 namespace App\Services\Domains\Registrars;
 
 use App\Contracts\DomainRegistrar;
+use App\Contracts\ManagesDnssec;
 use App\Contracts\ReadsAccountBalance;
 use App\Enums\DomainStatus;
 use App\Models\Domain;
@@ -10,8 +11,10 @@ use App\Services\Domains\DomainNotFoundAtRegistrar;
 use App\Services\Domains\DomainRegistrarNotConfigured;
 use App\Services\Domains\Pricing\TldPriceMath;
 use App\Services\Domains\RegistrarNotAsked;
+use App\Services\Domains\RegistrarOutcomeUnknown;
 use App\Services\Domains\RegistrarRefused;
 use App\Support\Domains\AvailabilityResult;
+use App\Support\Domains\DnssecRecord;
 use App\Support\Domains\DomainChanges;
 use App\Support\Domains\DomainRegistrarCapabilities;
 use App\Support\Domains\DomainRegistrarCredentials;
@@ -43,7 +46,7 @@ use Throwable;
  * variant is legacy XML-RPC) → bearer, ~24h TTL. We cache it for 6h keyed by
  * (endpoint × username) and re-login ONCE on a 401 mid-flight.
  */
-class OpenproviderRegistrar implements DomainRegistrar, ReadsAccountBalance
+class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAccountBalance
 {
     private const PRODUCTION_URL = 'https://api.openprovider.eu';
 
@@ -1053,6 +1056,61 @@ class OpenproviderRegistrar implements DomainRegistrar, ReadsAccountBalance
         }
 
         return $response;
+    }
+
+    /** DNSSEC (G8-4b): DNSKEYs (its API's dnssec_keys: flags, alg, protocol, pub_key); it makes the DS itself. */
+    public function dnssecKind(): string
+    {
+        return DnssecRecord::DNSKEY;
+    }
+
+    /** Its DNSKEYs as Openprovider has them (GET domain: dnssec_keys, when signed). A read. */
+    public function dnssecRecords(Domain $domain, DomainRegistrarCredentials $credentials): array
+    {
+        $keys = $this->fetchDomainData($domain, $credentials)['dnssec_keys'] ?? [];
+
+        return array_values(array_map(fn (array $key) => DnssecRecord::dnskey((int) ($key['flags'] ?? 0), (int) ($key['alg'] ?? 0),
+            (string) ($key['pub_key'] ?? ''), (int) ($key['protocol'] ?? 3)), array_filter(is_array($keys) ? $keys : [], 'is_array')));
+    }
+
+    /**
+     * WRITE (DNSSEC): its DNSKEYs set to these, the full set (PUT dnssec_keys; none: unsigned), then read back: what
+     * Openprovider kept is what counts (an empty set's removal was not tried live). Its keys checked before anything is
+     * sent (protocol 3, RFC 4034; flags 256/257; a base64 key: ADV-4 of #210), and compared with what staff saw (ADV-1).
+     * Answered and then not read back, or read back otherwise: maybe done, never «refused» (review 3).
+     */
+    public function setDnssec(Domain $domain, array $records, DomainRegistrarCredentials $credentials, ?array $expected = null): ?string
+    {
+        foreach ($records as $record) {
+            if ($record->kind !== DnssecRecord::DNSKEY) {
+                throw new RegistrarNotAsked('Openprovider takes DNSKEYs (flags, algorithm, a public key), not DS records.');
+            }
+            if ($record->protocol !== 3 || !in_array($record->flags, [256, 257], true) || $record->algorithm < 1 || $record->algorithm > 255) {
+                throw new RegistrarNotAsked('A DNSKEY is protocol 3, flags 256 or 257, an algorithm 1 to 255.');
+            }
+            if ($record->publicKey === null || preg_match('/\A[A-Za-z0-9+\/]+={0,2}\z/', $record->publicKey) !== 1) {
+                throw new RegistrarNotAsked('A DNSKEY\'s public key is base64.');
+            }
+        }
+        if ($expected !== null && !DnssecRecord::sameSet($expected, $this->dnssecRecords($domain, $credentials))) {
+            throw new RegistrarNotAsked("{$domain->fqdn}'s DNSKEYs changed at Openprovider since they were read: read them again.");
+        }
+        $id = $this->resolveDomainId($domain, $credentials, 'αδύνατη η ενημέρωση');
+        $this->request($credentials, 'PUT', '/v1beta/domains/' . rawurlencode($id), ['dnssec_keys' => array_map(fn (DnssecRecord $record) => [
+            'flags' => $record->flags, 'alg' => $record->algorithm, 'protocol' => $record->protocol, 'pub_key' => $record->publicKey,
+        ], $records)]);
+
+        try {
+            $kept = $this->dnssecRecords($domain, $credentials);
+        } catch (Throwable $e) {
+            throw new RegistrarOutcomeUnknown('Openprovider answered, but its keys could not be read back: read DNSSEC again (' . $e->getMessage() . ').', 0, $e);
+        }
+        if (!DnssecRecord::sameSet($records, $kept)) {
+            throw new RegistrarOutcomeUnknown('Openprovider answered, but now has ' . count($kept) . ' DNSKEY(s), not the ' . count($records)
+                . ' sent: check the domain in its panel.');
+        }
+
+        return null;
     }
 
     /**

@@ -67,8 +67,9 @@ class OpenproviderRegistrarTest extends TestCase
         $this->assertContains('geteppcode', $methods, 'A3c: getEppCode() (read, transfer-out aid) landed');
         $this->assertContains('updatedomain', $methods, 'A3d: updateDomain() (NS/lock/privacy/contacts) landed');
         $this->assertContains('restore', $methods, 'A3d: restore() (redemption) landed');
-        foreach (['requestdelete', 'setdnssec', 'setdnsseckeys', 'deletedomain'] as $forbidden) {
-            $this->assertNotContains($forbidden, $methods, "adapter must not expose {$forbidden}() before its slice (delete = A4/never; DNSSEC keys = BACKLOG)");
+        $this->assertContains('setdnssec', $methods, 'G8-4b: setDnssec() (DNSKEYs, the full set, read back) landed');
+        foreach (['requestdelete', 'setdnsseckeys', 'deletedomain'] as $forbidden) {
+            $this->assertNotContains($forbidden, $methods, "adapter must not expose {$forbidden}() before its slice (delete = A4/never)");
         }
     }
 

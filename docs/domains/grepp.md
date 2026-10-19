@@ -727,6 +727,11 @@ Elements: `create`, `renew`, `update`, `info` (+ `creData`, `renData`, `infData`
 - **Προϋπόθεση:** nameservers στο domain (αλλιώς 2306). Ο διαχειριστής της ζώνης βάζει πρώτα το κλειδί στους
   nameservers, μετά στέλνουμε τα DS.
 - **Υλοποίηση:** `DsRecord`, `DomainSecDns` (G8-4a), τα DS από το `secDNS:infData` του `domain:info`.
+- **G8-4b:** `ManagesDnssec` (.gr: DS· Openprovider: DNSKEY, `dnssec_keys` του API του, που φτιάχνει το DS μόνος του).
+  «Read DNSSEC» και «Change DNSSEC» στη σελίδα του domain (admin, `admin.domains.manage`), ενότητα DNSSEC από το
+  `meta.dnssec` (η σελίδα δεν καλεί registrar). Το .gr παίρνει τη διαφορά από ό,τι έχει (rem των περιττών ή όλων, add
+  των νέων, ένα update)· ο Openprovider όλο το σετ, που ξαναδιαβάζεται: αν κράτησε άλλα, λέγεται (η αφαίρεση όλων με
+  κενό `dnssec_keys` δεν έχει δοκιμαστεί ζωντανά). Στο portal: με το D7-2.
 
 ## 6. Statuses
 
