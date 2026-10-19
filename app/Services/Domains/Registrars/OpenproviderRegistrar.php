@@ -1056,12 +1056,13 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
         }
 
         // Its envelope: a code other than 0 is an error, whatever the HTTP status (its API docs, 2026-10-19). Answered with
-        // an error: not known to be undone, so maybe done (as a 5xx), never «refused».
+        // an error: not known to be undone, so maybe done, never «refused»: RegistrarOutcomeUnknown (review 1 of #211), so
+        // a management write re-reads instead of undoing; the money flows take it as pending, for staff (D-17).
         $code = $response->json('code');
         if (is_numeric($code) && (int) $code !== 0) {
             $desc = $response->json('desc');
 
-            throw new RuntimeException('Openprovider error code ' . (int) $code . ': ' . (is_scalar($desc) && $desc !== '' ? mb_substr((string) $desc, 0, 300) : 'no description'));
+            throw new RegistrarOutcomeUnknown('Openprovider error code ' . (int) $code . ': ' . (is_scalar($desc) && $desc !== '' ? mb_substr((string) $desc, 0, 300) : 'no description'));
         }
 
         return $response;

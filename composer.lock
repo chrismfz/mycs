@@ -5758,7 +5758,7 @@
             "license": [
                 "proprietary"
             ],
-            "description": "Small, dependency-free Openprovider REST (v1beta) client and renewal logic.",
+            "description": "Small, dependency-free Openprovider REST (v1) client and renewal logic.",
             "transport-options": {
                 "symlink": true,
                 "relative": true

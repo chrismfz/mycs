@@ -87,6 +87,9 @@ class DomainRenewalTest extends TestCase
                 if ($this->failWith === 'timeout') {
                     throw new ConnectionException('cURL error 28: Operation timed out');
                 }
+                if ($this->failWith === 'code in a 200') {
+                    return Http::response(['code' => 399, 'desc' => 'Something went wrong', 'data' => []], 200);
+                }
                 if ($this->failWith !== null) {
                     return Http::response(['code' => 399, 'desc' => $this->failWith], 400);
                 }
@@ -175,6 +178,22 @@ class DomainRenewalTest extends TestCase
         $this->assertSame(DomainRenewalService::FAILED, $this->renew($line));
         $this->assertCount(1, $this->charges, 'still never charged again: staff check the registrar');
         $this->assertSame(1, ModuleAction::query()->open()->where('domain_id', $domain->id)->count());
+    }
+
+    public function test_an_error_code_in_a_200_is_maybe_done_never_charged_again_blindly(): void
+    {
+        // #211: Openprovider's envelope code ≠ 0 in a 200 was taken as renewed; now maybe done, for staff (D-17).
+        $domain = $this->domain();
+        $line = $this->billAndPay($domain);
+        $this->failWith = 'code in a 200';
+
+        $this->assertSame(DomainRenewalService::FAILED, $this->renew($line));
+        $this->assertNull($line->fresh()->applied_at, 'not taken as renewed');
+        $this->assertSame(DomainRegistrarLog::STATUS_PENDING, DomainRegistrarLog::query()->where('action', 'renew')->sole()->status);
+        $this->failWith = null;
+        $this->assertSame(DomainRenewalService::WAITING, $this->renew($line));
+        $this->assertCount(1, $this->charges, 'never asked again blindly');
+        $this->assertSame(Invoice::STATUS_PAID, $line->invoice->fresh()->status);
     }
 
     public function test_a_refusal_is_a_pending_action_staff_retry(): void
