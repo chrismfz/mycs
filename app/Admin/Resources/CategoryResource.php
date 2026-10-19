@@ -14,11 +14,13 @@ use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
+use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -71,6 +73,11 @@ class CategoryResource extends Resource
                     ->label('Parent Category')
                     // Disallow having same category as it's own parent
                     ->disableOptionWhen(fn (string $value, ?Category $record): bool => $record && (int) $value === $record->id),
+                // WHMCS «Hidden» the other way round: off the menu and the home page, still opened by its link.
+                Toggle::make('show_in_menu')
+                    ->label('Show in menu')
+                    ->helperText('Off: not in the shop menu or on the home page; its link still works.')
+                    ->default(true),
                 FileUpload::make('image')
                     ->label('Image')
                     ->nullable()
@@ -88,6 +95,7 @@ class CategoryResource extends Resource
                 TextColumn::make('name')
                     ->searchable()
                     ->sortable(),
+                IconColumn::make('show_in_menu')->label('In menu')->boolean(),
                 TextColumn::make('slug')
                     ->searchable()
                     ->sortable(),

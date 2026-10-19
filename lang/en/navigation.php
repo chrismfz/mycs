@@ -20,4 +20,7 @@ return [
     'users' => 'Users',
     'contacts' => 'Contacts',
     'switch_account' => 'Switch account',
+    'domain_pricing' => 'Domain prices',
+    'whois' => 'Whois',
+    'contact' => 'Contact',
 ];

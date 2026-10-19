@@ -16,36 +16,40 @@ class Navigation
     {
         return once(function () {
 
-            $categories = Category::whereNull('parent_id')->where(function ($query) {
-                $query->whereHas('children')->orWhereHas('products', function ($query) {
-                    $query->where('hidden', false);
-                });
-            })->orderBy('sort')->get();
+            // The guest menu (docs/admin-ux.md, «Μενού επισκέπτη»): the shop's categories marked «Show in menu», the
+            // domain pages, contact. Home is the logo.
+            $categories = Category::query()->inMenu()->get();
+            $domains = DomainTld::query()->where('is_active', true)->exists();
 
             $routes = [
                 [
-                    'name' => __('navigation.home'),
-                    'url' => route('home'),
-                    'icon' => 'ri-home-2',
-                ],
-                [
                     'name' => __('navigation.shop'),
-                    'children' => $categories->map(function ($category) {
-                        return [
-                            'name' => $category->name,
-                            'url' => route('category.show', ['category' => $category->slug]),
-                        ];
-                    })->toArray(),
+                    'children' => $categories->map(fn (Category $category) => [
+                        'name' => $category->name,
+                        'url' => route('category.show', ['category' => $category->slug]),
+                    ])->toArray(),
                     'condition' => count($categories) > 0,
                     'separator' => true,
                     'icon' => 'ri-shopping-bag',
                 ],
                 [
-                    // D8a: find a domain; the price list and whois from its page.
-                    'name' => __('navigation.domain_search'),
-                    'url' => route('domain.search'),
-                    'icon' => 'ri-search',
-                    'condition' => DomainTld::query()->where('is_active', true)->exists(),
+                    'name' => __('navigation.domains'),
+                    'children' => [
+                        ['name' => __('navigation.domain_search'), 'url' => route('domain.search')],
+                        ['name' => __('navigation.domain_pricing'), 'url' => route('domain.pricing')],
+                        ['name' => __('navigation.whois'), 'url' => route('domain.whois')],
+                    ],
+                    'condition' => $domains,
+                    'icon' => 'ri-global',
+                ],
+                [
+                    // A ticket to support; until it can be opened without logging in, after the login.
+                    'name' => __('navigation.contact'),
+                    'url' => route('tickets.create'),
+                    'icon' => 'ri-customer-service-2',
+                    // A login whose account does not allow tickets would get a 403 (code review of #217); a guest
+                    // goes to the login.
+                    'condition' => !config('settings.tickets_disabled', false) && (!Auth::guard('web')->check() || CurrentClient::allows('tickets')),
                 ],
             ];
 

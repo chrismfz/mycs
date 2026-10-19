@@ -57,6 +57,13 @@
             </div>
 
             <div class="flex flex-row items-center">
+                {{-- Only an https address, also when set outside the Appearance page (code review of #217). --}}
+                @if (str_starts_with((string) theme('main_site_url'), 'https://'))
+                <a href="{{ theme('main_site_url') }}" rel="noopener" class="hidden md:flex items-center gap-1 mr-3 text-sm text-base/70 hover:text-base">
+                    <x-ri-arrow-left-line class="size-4" />
+                    {{ theme('main_site_label') ?: parse_url((string) theme('main_site_url'), PHP_URL_HOST) }}
+                </a>
+                @endif
                 <livewire:components.cart />
 
                 <div class="items-center hidden md:flex mr-1">

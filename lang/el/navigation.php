@@ -20,4 +20,7 @@ return [
     'users' => 'Χρήστες',
     'contacts' => 'Επαφές',
     'switch_account' => 'Αλλαγή λογαριασμού',
+    'domain_pricing' => 'Τιμές domains',
+    'whois' => 'Whois',
+    'contact' => 'Επικοινωνία',
 ];

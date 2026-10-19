@@ -228,4 +228,16 @@ class WhmcsCatalogImportTest extends TestCase
         $row = DomainTldPrice::query()->where(['domain_tld_id' => $com->id, 'operation' => 'register', 'years' => 2])->sole();
         $this->assertSame([null, '12.00'], [$row->price, number_format((float) $row->cost, 2, '.', '')]);
     }
+
+    /** A hidden WHMCS group is off the menu, still opened by its link; a visible one is in it (docs/admin-ux.md). */
+    public function test_a_hidden_group_is_imported_off_the_menu(): void
+    {
+        $this->whmcs->exec('ALTER TABLE tblproductgroups ADD COLUMN hidden INTEGER DEFAULT 0');
+        $this->whmcs->exec('UPDATE tblproductgroups SET hidden = 1 WHERE id = 7');
+
+        $this->import();
+
+        $this->assertTrue(Category::query()->where('whmcs_id', 3)->value('show_in_menu'));
+        $this->assertFalse(Category::query()->where('whmcs_id', 7)->value('show_in_menu'));
+    }
 }

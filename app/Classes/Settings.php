@@ -737,6 +737,24 @@ class Settings
                     'section' => 'Layout',
                 ],
                 [
+                    // A way back to the company's own site, which is its shop window (docs/admin-ux.md, «Μενού επισκέπτη»).
+                    'name' => 'theme_main_site_url',
+                    'label' => 'Company site URL',
+                    'type' => 'text',
+                    'default' => '',
+                    'validation' => 'nullable|url:https',
+                    'description' => 'Shown in the menu as a link back to the company\'s site. Empty: no link.',
+                    'section' => 'Layout',
+                ],
+                [
+                    'name' => 'theme_main_site_label',
+                    'label' => 'Company site link text',
+                    'type' => 'text',
+                    'default' => '',
+                    'description' => 'Empty: the site\'s address, e.g. myip.gr.',
+                    'section' => 'Layout',
+                ],
+                [
                     'name' => 'theme_home_page_text',
                     'label' => 'Home Page Text',
                     'type' => 'markdown',

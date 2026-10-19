@@ -193,6 +193,8 @@ final class CatalogImport
                 'description' => $row['tagline'] ?? null,
                 'sort' => max(0, min(255, (int) ($row['order'] ?? 0))), // an unsigned tinyint here (review 14)
                 'slug' => $this->uniqueSlug('categories', $slug ?: 'group-' . $row['id'], $category->id),
+                // A hidden group: off the menu, still sold by its link (docs/admin-ux.md, «Μενού επισκέπτη»).
+                'show_in_menu' => !($row['hidden'] ?? false),
             ])->save();
             $this->categoryIds[(int) $row['id']] = $category->id;
             $this->hiddenGroups[(int) $row['id']] = (bool) ($row['hidden'] ?? false);
