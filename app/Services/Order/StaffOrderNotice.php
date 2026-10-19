@@ -29,11 +29,12 @@ class StaffOrderNotice
         $admin = fn (string $resource, string $page, int $id) => e($resource::getUrl($page, ['record' => $id], panel: 'admin'));
 
         $lines = $order->services->map(fn (Service $service) => '<li>' . e($service->label
+            . ($service->quantity > 1 ? ' × ' . $service->quantity : '')
             . ($service->domain ? ' · ' . $service->domain : '') . ($service->plan ? ' (' . $service->plan->name . ')' : '')) . '</li>')
-            ->concat($order->domains->map(fn (Domain $domain) => '<li>' . e(match ($domain->status) {
-                DomainStatus::PendingTransfer => 'Domain transfer',
-                default => 'Domain registration',
-            } . ': ' . $domain->fqdn . ' (' . $domain->years . ' ' . ($domain->years === 1 ? 'year' : 'years') . ')') . '</li>'))
+            // A transfer by its EPP code too: a free one may be done already (Active) when this is sent.
+            ->concat($order->domains->map(fn (Domain $domain) => '<li>' . e(
+                ($domain->status === DomainStatus::PendingTransfer || $domain->epp_code !== null ? 'Domain transfer' : 'Domain registration')
+                . ': ' . $domain->fqdn . ' (' . $domain->years . ' ' . ($domain->years === 1 ? 'year' : 'years') . ')') . '</li>'))
             ->implode("\n");
 
         $invoice = $order->invoice_id === null ? null : Invoice::query()->find($order->invoice_id);
@@ -49,7 +50,7 @@ class StaffOrderNotice
         }
         $table = collect($rows)->map(fn (string $value, string $label) => "<tr><th align=\"left\">{$label}</th><td>{$value}</td></tr>")->implode("\n");
 
-        $notes = trim((string) $order->notes);
+        $notes = (string) $order->notes; // trimmed by the PlaceOrderService
         $body = "<p>A new order was placed.</p>\n<table cellpadding=\"4\" cellspacing=\"0\">\n{$table}\n</table>\n"
             . "<p><strong>Items</strong></p>\n<ul>\n{$lines}\n</ul>\n"
             . '<p><strong>Notes</strong></p>' . ($notes === '' ? '<p>—</p>' : '<p>' . nl2br(e($notes)) . '</p>');
