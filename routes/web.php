@@ -2,7 +2,6 @@
 
 use App\Http\Controllers\SocialLoginController;
 use App\Http\Controllers\TicketAttachmentController;
-use App\Http\Controllers\WhmcsLinkController;
 use App\Http\Middleware\MustVerfiyEmail;
 use App\Livewire\Auth;
 use App\Livewire\Cart;
@@ -86,31 +85,6 @@ Route::group(['middleware' => ['web', 'auth']], function () {
 Route::get('/invite/{token}', Client\AcceptInvite::class)->name('invites.accept')->middleware(['web', 'throttle:30,1']);
 
 Route::get('cart', Cart::class)->name('cart')->middleware('checkout');
-
-// The WHMCS links of the companies' sites and old emails (docs/admin-ux.md, «Απευθείας links»): at the root, as
-// clients.nixpal.com, and under /clients, as myip.gr/clients, so that at the cut-over only their host changes.
-foreach (['' => 'whmcs.', 'clients' => 'whmcs.clients.'] as $prefix => $name) {
-    Route::prefix($prefix)->name($name)->group(function () use ($prefix) {
-        Route::get('cart.php', [WhmcsLinkController::class, 'cart'])->name('cart');
-        Route::get('store/{group}/{product?}', [WhmcsLinkController::class, 'store'])->name('store');
-        Route::get('clientarea.php', [WhmcsLinkController::class, 'clientArea'])->name('clientarea');
-        Route::get('viewinvoice.php', [WhmcsLinkController::class, 'invoice'])->name('viewinvoice');
-        Route::redirect('register.php', '/register')->name('register');
-        Route::redirect('pwreset.php', '/password/request')->name('pwreset');
-        Route::redirect('announcements', '/')->name('announcements');
-        Route::redirect('domain/pricing', '/domain-pricing')->name('domain-pricing');
-        Route::redirect('domainchecker.php', '/domain-search')->name('domainchecker');
-        Route::redirect('supporttickets.php', '/tickets')->name('tickets');
-        // Until a ticket can be opened without logging in (contact): the new ticket page, after the login.
-        Route::redirect('submitticket.php', '/tickets/create')->name('submitticket');
-        Route::redirect('contact.php', '/tickets/create')->name('contact');
-        Route::redirect('knowledgebase', '/')->name('knowledgebase');
-        if ($prefix !== '') {
-            Route::redirect('login', '/login')->name('login');
-            Route::redirect('/', '/')->name('home');
-        }
-    });
-}
 
 Route::group(['prefix' => 'products', 'middleware' => 'checkout'], function () {
     Route::get('/{category:slug}', Products\Index::class)->name('category.show')/* ->where('category', '[A-Za-z0-9_/-]+') */;
