@@ -40,6 +40,7 @@ class Index extends Component
         if (!isset(self::FILTERS[$this->status])) {
             $this->status = '';
         }
+        $this->rememberFilter('domains');
     }
 
     public function updatedStatus(): void
@@ -93,12 +94,14 @@ class Index extends Component
             ->when(trim($this->search) !== '', fn ($q) => $q->where('fqdn', 'like', '%' . str_replace(['%', '_'], ['\%', '\_'], mb_strtolower(trim($this->search))) . '%'));
 
         $page = $query->paginate(config('settings.pagination'));
-        $staffMay = $this->staffMay();
+        // Whose auto renew can be turned on or off from its row. The policy is asked once (review of #230: a grant query
+        // per row): past a domain's status, its answer is the account's, the same for every row of this list.
+        $open = $page->getCollection()->reject(fn (Domain $domain) => $domain->status->isTerminal());
+        $toggleable = $open->isNotEmpty() && $this->staffMay() && Gate::allows('update', $open->first()) ? $open->modelKeys() : [];
 
         return view('domains.index', [
             'domains' => $page,
-            // Whose auto renew can be turned on or off from its row.
-            'toggleable' => $page->getCollection()->filter(fn (Domain $domain) => $staffMay && Gate::allows('update', $domain))->modelKeys(),
+            'toggleable' => $toggleable,
             'counts' => $counts,
         ])->layoutData([
             'title' => __('domains.domains'),

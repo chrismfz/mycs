@@ -37,11 +37,13 @@ class Index extends Component
         if (!isset(self::FILTERS[$this->status])) {
             $this->status = '';
         }
+        $this->rememberFilter('invoices');
     }
 
     public function filter(string $status): void
     {
         $this->status = isset(self::FILTERS[$status]) && $this->status !== $status ? $status : '';
+        $this->selected = []; // none chosen out of sight
         $this->rememberFilter('invoices');
         $this->resetPage();
     }
@@ -80,10 +82,11 @@ class Index extends Component
 
         return view('invoices.index', [
             'invoices' => $issued()->when($this->status !== '', fn ($q) => $q->whereIn('status', self::FILTERS[$this->status]))
-                ->with(['client.primaryContact', 'client.ownerGrant.user', 'snapshot', 'items', 'transactions', 'currency'])
+                ->with(['client.primaryContact', 'client.ownerGrant.user', 'snapshot', 'items', 'adjustmentNotes', 'currency'])
                 ->orderBy('id', 'desc')->paginate(config('settings.pagination')),
             'counts' => $counts,
-            'massPay' => MassPay::enabled() && $counts['unpaid'] >= 2,
+            // Where unpaid invoices are listed (review of #230: not on the paid or cancelled ones).
+            'massPay' => MassPay::enabled() && $counts['unpaid'] >= 2 && in_array($this->status, ['', 'unpaid'], true),
         ])->layoutData([
             'title' => __('invoices.invoices'),
             'sidebar' => true,

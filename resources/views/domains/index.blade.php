@@ -32,7 +32,7 @@
                     </thead>
                     <tbody>
                         @forelse ($domains as $domain)
-                        <tr class="border-b border-neutral last:border-0 hover:bg-background-secondary/80">
+                        <tr class="border-b border-neutral last:border-0 hover:bg-background-secondary/80" wire:key="domain-{{ $domain->id }}">
                             <td class="px-4 py-3">
                                 <a href="{{ route('domains.show', $domain) }}" wire:navigate class="font-medium text-primary hover:underline">{{ $domain->fqdn }}</a>
                                 <div class="text-xs text-base/60 flex items-center gap-1 mt-0.5">

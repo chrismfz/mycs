@@ -157,6 +157,6 @@ return [
         'cancelled' => 'Cancelled',
     ],
     'more_lines' => '{1} +1 more|[2,*] +:count more',
-    'due_on' => 'Due :date',
+    'due_on' => 'Due on :date',
     'overdue_since' => 'Overdue since :date',
 ];

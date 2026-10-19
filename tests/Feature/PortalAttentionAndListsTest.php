@@ -121,6 +121,26 @@ class PortalAttentionAndListsTest extends TestCase
             ->assertDontSee(trans_choice('dashboard.attention.unpaid', 1, ['count' => 1, 'amount' => '10,00']), false);
     }
 
+    public function test_a_recoverable_domain_and_a_recent_card_are_told_an_old_card_is_not(): void
+    {
+        // Code review of #230: an expired domain still recoverable is the most urgent; a card that ended years ago is not news.
+        $user = User::factory()->create();
+        $client = $user->client();
+        $this->domain($client, 'grace.gr', '2026-10-10', autoRenew: false, status: DomainStatus::Grace);
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'AcPay'], ['name' => 'AcPay', 'type' => 'gateway']);
+        BillingAgreement::query()->create(['client_id' => $client->id, 'gateway_id' => $gateway->id, 'name' => 'Visa 1111',
+            'external_reference' => 'pm_1', 'type' => 'card', 'expiry' => '2026-09-30']);
+        BillingAgreement::query()->create(['client_id' => $client->id, 'gateway_id' => $gateway->id, 'name' => 'Visa 2222',
+            'external_reference' => 'pm_2', 'type' => 'card', 'expiry' => '2023-01-31']);
+        $this->invoice($client, Invoice::STATUS_UNPAID, due: '2026-10-05');
+
+        $this->workOn($user)->get(route('dashboard'))->assertOk()
+            ->assertSee(__('dashboard.attention.domain_ended', ['domain' => 'grace.gr', 'date' => '10/10/2026']))
+            ->assertSee(__('dashboard.attention.card_expired', ['name' => 'Visa 1111', 'date' => '09/2026']))
+            ->assertDontSee('Visa 2222')
+            ->assertSee(__('dashboard.attention.unpaid_overdue_one', ['date' => '05/10/2026']));
+    }
+
     // ===================================================================================  invoices
 
     public function test_an_invoice_row_says_what_it_is_for_with_its_pdf(): void
@@ -167,6 +187,19 @@ class PortalAttentionAndListsTest extends TestCase
         Livewire::withQueryParams(['status' => 'unpaid'])->test(InvoicesIndex::class)->assertSet('status', 'unpaid')->assertSee('Unpaid thing');
         Livewire::withQueryParams(['status' => 'bogus'])->test(InvoicesIndex::class)->assertSet('status', '');
         $this->assertNotNull($unpaid->id + $paid->id);
+    }
+
+    public function test_a_links_filter_is_kept_and_mass_pay_is_only_where_unpaid_ones_are(): void
+    {
+        $user = User::factory()->create();
+        $this->invoice($user->client(), Invoice::STATUS_UNPAID);
+        $this->invoice($user->client(), Invoice::STATUS_UNPAID);
+        $this->actingAs($user)->withSession($this->loginUser($user, [CurrentClient::SESSION_KEY => $user->client()->id]));
+
+        Livewire::withQueryParams(['status' => 'unpaid'])->test(InvoicesIndex::class)->assertSee(__('invoices.mass_pay_hint'));
+        $this->assertSame('unpaid', session('portal.filters.invoices'), 'what the list showed last');
+        Livewire::test(InvoicesIndex::class)->set('selected', ['1'])->call('filter', 'paid')
+            ->assertSet('selected', [])->assertDontSee(__('invoices.mass_pay_hint'));
     }
 
     // ===================================================================================  domains

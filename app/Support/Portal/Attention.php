@@ -19,6 +19,12 @@ final class Attention
     /** Domains that end within these days without renewing are told. */
     public const DOMAIN_DAYS = 30;
 
+    /** A card that ended is told for these months after. */
+    public const CARD_MONTHS_AFTER = 3;
+
+    /** A domain past its expiry but still recoverable (review of #230: the most urgent of all). */
+    private const RECOVERABLE = [DomainStatus::Expired, DomainStatus::Grace, DomainStatus::Redemption];
+
     public function __construct(private readonly Client $client) {}
 
     /**
@@ -43,7 +49,7 @@ final class Attention
     /** Unpaid invoices: how many, what they come to (per currency), the oldest due date. */
     private function unpaid(): array
     {
-        $invoices = $this->client->invoices()->where('status', Invoice::STATUS_UNPAID)->with(['transactions', 'items', 'currency'])->orderBy('due_at')->get();
+        $invoices = $this->client->invoices()->where('status', Invoice::STATUS_UNPAID)->with(['transactions', 'items', 'adjustmentNotes', 'currency'])->get();
         if ($invoices->isEmpty()) {
             return [];
         }
@@ -59,20 +65,25 @@ final class Attention
         return [[
             'kind' => 'invoices',
             'text' => trans_choice('dashboard.attention.unpaid', $invoices->count(), ['count' => $invoices->count(), 'amount' => $amounts]),
-            'detail' => $oldest === null ? '' : __($overdue ? 'dashboard.attention.unpaid_overdue' : 'dashboard.attention.unpaid_due', ['date' => $oldest->format('d/m/Y')]),
+            'detail' => $oldest === null ? '' : __('dashboard.attention.' . ($overdue ? 'unpaid_overdue' : 'unpaid_due') . ($invoices->count() === 1 ? '_one' : ''),
+                ['date' => $oldest->format('d/m/Y')]),
             'action' => __('dashboard.attention.pay'),
             'url' => $invoices->count() === 1 ? route('invoices.show', $invoices->first()) : route('invoices', ['status' => 'unpaid']),
             'urgent' => $overdue,
         ]];
     }
 
-    /** A saved card that has expired or ends this month or the next: automatic payments stop with it. */
+    /**
+     * A saved card that ends this month or the next, or ended in the last months (not one forgotten years ago, review
+     * of #230): automatic payments cannot use it after.
+     */
     private function cards(): array
     {
-        $until = CarbonImmutable::today()->addMonthNoOverflow()->endOfMonth();
+        $today = CarbonImmutable::today();
 
-        return BillingAgreement::query()->where('client_id', $this->client->id)->whereHas('gateway')
-            ->whereNotNull('expiry')->where('expiry', '<=', $until->toDateString())->orderBy('expiry')->get()
+        return BillingAgreement::query()->where('client_id', $this->client->id)->whereHas('gateway')->whereNotNull('expiry')
+            ->whereBetween('expiry', [$today->subMonthsNoOverflow(self::CARD_MONTHS_AFTER)->startOfMonth()->toDateString(), $today->addMonthNoOverflow()->endOfMonth()->toDateString()])
+            ->orderBy('expiry')->get()
             ->map(function (BillingAgreement $card) {
                 $expiry = CarbonImmutable::parse($card->expiry);
                 $expired = $expiry->lt(CarbonImmutable::today());
@@ -88,17 +99,22 @@ final class Attention
             })->values()->all();
     }
 
-    /** Active domains that end soon and do not renew (auto renew off): lost unless renewed by hand. */
+    /**
+     * Domains that do not renew (auto renew off) and end soon, or ended and can still be recovered: lost unless renewed
+     * by hand.
+     */
     private function domains(): array
     {
-        $domains = $this->client->domains()->where('status', DomainStatus::Active->value)->where('auto_renew', false)
+        $statuses = array_map(fn (DomainStatus $status) => $status->value, [DomainStatus::Active, ...self::RECOVERABLE]);
+        $domains = $this->client->domains()->whereIn('status', $statuses)->where('auto_renew', false)
             ->whereNotNull('expires_at')->where('expires_at', '<=', CarbonImmutable::today()->addDays(self::DOMAIN_DAYS)->endOfDay())
             ->orderBy('expires_at')->get();
 
         return $domains->map(fn ($domain) => [
             'kind' => 'domain',
-            'text' => __('dashboard.attention.domain_ends', ['domain' => $domain->fqdn, 'date' => $domain->expires_at->format('d/m/Y')]),
-            'detail' => __('dashboard.attention.domain_detail'),
+            'text' => __($domain->expires_at->isPast() ? 'dashboard.attention.domain_ended' : 'dashboard.attention.domain_ends',
+                ['domain' => $domain->fqdn, 'date' => $domain->expires_at->format('d/m/Y')]),
+            'detail' => __($domain->expires_at->isPast() ? 'dashboard.attention.domain_ended_detail' : 'dashboard.attention.domain_detail'),
             'action' => __('dashboard.attention.manage'),
             'url' => route('domains.show', $domain),
             'urgent' => $domain->expires_at->lt(CarbonImmutable::today()->addDays(7)),
@@ -108,17 +124,19 @@ final class Attention
     /** Tickets answered by us and waiting on the customer. */
     private function tickets(): array
     {
-        $tickets = $this->client->tickets()->where('status', 'replied')->latest('updated_at')->get();
-        if ($tickets->isEmpty()) {
+        $replied = $this->client->tickets()->where('status', 'replied');
+        $count = (clone $replied)->count();
+        if ($count === 0) {
             return [];
         }
+        $ticket = $replied->latest('updated_at')->first();
 
         return [[
             'kind' => 'tickets',
-            'text' => trans_choice('dashboard.attention.tickets', $tickets->count(), ['count' => $tickets->count()]),
-            'detail' => $tickets->count() === 1 ? '#' . $tickets->first()->id . ' · ' . $tickets->first()->subject : '',
+            'text' => trans_choice('dashboard.attention.tickets', $count, ['count' => $count]),
+            'detail' => $count === 1 ? '#' . $ticket->id . ' · ' . $ticket->subject : '',
             'action' => __('dashboard.attention.reply'),
-            'url' => $tickets->count() === 1 ? route('tickets.show', $tickets->first()) : route('tickets'),
+            'url' => $count === 1 ? route('tickets.show', $ticket) : route('tickets'),
             'urgent' => false,
         ]];
     }

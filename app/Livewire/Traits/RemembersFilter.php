@@ -3,8 +3,8 @@
 namespace App\Livewire\Traits;
 
 /**
- * A list's filter kept for the session (P4b): back on the list, it shows what was chosen last, unless its link says
- * otherwise (`?status=…`, e.g. «Pay» on the home page).
+ * A list's filter kept for the session (P4b): back on the list, it shows what it showed last, unless its link says
+ * otherwise (`?status=…`, e.g. «Pay» on the home page; then that is what it shows last).
  */
 trait RemembersFilter
 {
