@@ -21,6 +21,7 @@ use App\Admin\Resources\Common\RelationManagers\PropertiesRelationManager;
 use App\Admin\Schemas\ContactForm;
 use App\Models\Client;
 use App\Models\Credit;
+use App\Services\Admin\ClientSummary;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Select;
@@ -32,7 +33,7 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Filters\Filter;
+use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
@@ -126,33 +127,53 @@ class ClientResource extends Resource
             ->columns(1);
     }
 
+    /**
+     * As WHMCS's «View/Search Clients»: name, company, email, its services (active and all), the date it was created.
+     * The name searches the primary contact's names and company; the credit shows under the name.
+     */
     public static function table(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['primaryContact', 'ownerGrant.user', 'credits']))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['primaryContact', 'ownerGrant.user', 'credits'])
+                ->withCount(['services', 'services as active_services_count' => fn (Builder $query) => $query->where('status', 'active')]))
             ->columns([
                 TextColumn::make('id')->label('ID')->sortable()->searchable(),
                 TextColumn::make('name')
                     ->label(__('Name'))
                     ->searchable(query: fn (Builder $query, string $search) => $query->whereHas('primaryContact', fn (Builder $query) => $query
                         ->where('first_name', 'like', "%$search%")->orWhere('last_name', 'like', "%$search%")->orWhere('company_name', 'like', "%$search%")))
+                    // Its credit, as the Summary shows it: only to staff who may see credits (review #213).
                     ->description(function (Client $client) {
-                        if (count($client->credits) <= 0) {
+                        if (!auth()->user()?->hasPermission('admin.credits.viewAny')) {
+                            return null;
+                        }
+                        $credits = $client->credits->filter(fn (Credit $credit) => (float) $credit->amount != 0);
+                        if ($credits->isEmpty()) {
                             return null;
                         }
 
-                        return 'Earnings - ' . implode(', ', $client->credits->map(fn (Credit $credit) => "$credit->currency_code: $credit->amount")->toArray());
+                        return __('Credit') . ': ' . $credits->map(fn (Credit $credit) => ClientSummary::money((int) round((float) $credit->amount * 100), $credit->currency_code))->implode(', ');
                     }),
+                TextColumn::make('primaryContact.company_name')->label(__('Company'))->placeholder('—'),
                 TextColumn::make('email')
                     ->label(__('Email'))
                     ->searchable(query: fn (Builder $query, string $search) => $query->whereHas('primaryContact', fn (Builder $query) => $query->where('email', 'like', "%$search%"))),
-                TextColumn::make('created_at')->dateTime()->sortable(),
+                // WHMCS «Services»: active (all).
+                TextColumn::make('active_services_count')
+                    ->label(__('Services'))
+                    ->formatStateUsing(fn (Client $record) => $record->getAttribute('active_services_count') . ' (' . $record->getAttribute('services_count') . ')')
+                    ->sortable(),
+                TextColumn::make('created_at')->label(__('Date Created'))->date()->sortable(),
             ])
             ->filters([
-                Filter::make('has_active_services')
-                    ->label('Has Active Services')
-                    ->query(fn ($query) => $query->whereHas('services', fn ($q) => $q->where('status', 'active'))),
+                TernaryFilter::make('active_services')
+                    ->label(__('Active services'))
+                    ->queries(
+                        true: fn (Builder $query) => $query->whereHas('services', fn (Builder $query) => $query->where('status', 'active')),
+                        false: fn (Builder $query) => $query->whereDoesntHave('services', fn (Builder $query) => $query->where('status', 'active')),
+                    ),
             ])
+            ->recordUrl(fn (Client $record) => static::getUrl('view', ['record' => $record]))
             ->recordActions([
                 ViewAction::make()->label(__('Summary')),
                 EditAction::make(),

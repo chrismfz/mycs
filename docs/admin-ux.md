@@ -43,6 +43,16 @@ WHMCS 29px, Filament 57px· πλάτος πίνακα WHMCS 1906px, Filament ~10
 
 Σε αναβάθμιση του Filament: μια λίστα, μια φόρμα και ένα Summary, σε desktop και κινητό.
 
+## Λίστα πελατών και tabs του πελάτη (2026-10-19)
+Οι στήλες και οι όροι του WHMCS:
+- **Clients:** ID, Name (με την πίστωση από κάτω), Company, Email, Services «ενεργές (όλες)», Date Created· φίλτρο
+  «Active services» ναι/όχι· το κλικ στη γραμμή ανοίγει το Summary.
+- **Products/Services:** Product/Service (με το domain από κάτω), Amount (με φόρο, όπως στο Summary), Billing Cycle
+  (`ClientSummary::cycle`), Signup Date, Next Due Date, Status· αναζήτηση σε προϊόν και domain, φίλτρο Status.
+- **Invoices:** Invoice #, Invoice Date, Due Date, Total, Remaining, Status, τα νεότερα πρώτα. Τα σύνολα φορτώνουν
+  lines, notes και transactions μαζί με τις γραμμές (όχι query ανά γραμμή). «Date Paid» δεν μπαίνει ακόμα: δεν είναι
+  πεδίο του τιμολογίου, βγαίνει από τις συναλλαγές.
+
 ## Dashboard: τι έχει το WHMCS και τι έχουμε
 Τα widgets του upstream: `Overview` (έσοδα/tickets/υπηρεσίες με σύγκριση περιόδου), `Revenue` (γράφημα),
 `ActiveUsers` (online τελευταίας ώρας), `Support` (5 πρόσφατα ανοιχτά tickets), όλα με permission `admin.widgets.*`.

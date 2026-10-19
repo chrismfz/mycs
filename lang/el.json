@@ -682,5 +682,15 @@
     "Maybe done: the registrar's answer was lost or unclear.": "Ίσως έγινε: η απάντηση του registrar χάθηκε ή δεν ήταν σαφής.",
     "Hex digits only.": "Μόνο δεκαεξαδικά ψηφία.",
     "Base64 only.": "Μόνο base64.",
-    "Read from another registrar, or not readable: read again.": "Διαβάστηκε από άλλον registrar ή δεν διαβάζεται: διαβάστε ξανά."
+    "Read from another registrar, or not readable: read again.": "Διαβάστηκε από άλλον registrar ή δεν διαβάζεται: διαβάστε ξανά.",
+    "Invoice #": "Αρ. προτιμολογίου",
+    "Invoice Date": "Ημ/νία έκδοσης",
+    "Due Date": "Λήξη πληρωμής",
+    "Total": "Σύνολο",
+    "Remaining": "Υπόλοιπο",
+    "Date Created": "Ημ/νία δημιουργίας",
+    "Credit": "Πίστωση",
+    "Services": "Υπηρεσίες",
+    "Active services": "Ενεργές υπηρεσίες",
+    "Quantity": "Ποσότητα"
 }

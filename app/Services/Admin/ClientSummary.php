@@ -237,7 +237,8 @@ class ClientSummary
     /** @var array<string, Currency|null> one lookup per currency, not per amount */
     private static array $currencies = [];
 
-    private static function money(int $cents, string $currency): string
+    /** An amount in cents as the currency formats it (also the client list's credit). */
+    public static function money(int $cents, string $currency): string
     {
         $model = self::$currencies[$currency] ??= Currency::query()->find($currency);
         $amount = $cents / 100;
