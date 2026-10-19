@@ -55,7 +55,7 @@ class RegistrarCreditTest extends TestCase
             if (str_contains($request->url(), '/auth/login')) {
                 return Http::response(['data' => ['token' => 'tok']]);
             }
-            if (str_ends_with($request->url(), '/v1beta/resellers')) {
+            if (str_ends_with($request->url(), '/v1/resellers')) {
                 return Http::response(['code' => 0, 'data' => ['id' => 1, 'company_name' => 'Example', 'balance' => (float) $this->opBalance, 'reserved_balance' => 12.5]]);
             }
 

@@ -53,9 +53,9 @@ class DomainsD3AdversarialTest extends TestCase
     /** @param  array<string, array<string, mixed>>  $prices */
     private function fakeOpenprovider(array $prices): void
     {
-        $routes = [self::PROD . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']])];
+        $routes = [self::PROD . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']])];
         foreach ($prices as $tld => $block) {
-            $routes[self::PROD . '/v1beta/tlds/' . $tld . '*'] = Http::response(['data' => ['prices' => $block]]);
+            $routes[self::PROD . '/v1/tlds/' . $tld . '*'] = Http::response(['data' => ['prices' => $block]]);
         }
         Http::fake($routes);
     }

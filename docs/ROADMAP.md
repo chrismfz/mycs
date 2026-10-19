@@ -425,7 +425,7 @@ importer):
             κατόχους `c60_`. Δεν χρειάζεται πριν: τα domains του myip έρχονται με τον importer.
       - [ ] **Το repo γίνεται private** όταν ηρεμήσουμε (ιδιοκτήτης 2026-10-19· public τώρα για το δωρεάν CI). Ως τότε ο
             οδηγός EPP του μητρώου («Μόνο για Καταχωρητές») μένει· ό,τι είναι «ΕΜΠΙΣΤΕΥΤΙΚΟ» (οδηγός DNSSEC) δεν μπαίνει ποτέ.
-      - [ ] **Openprovider `/v1beta` → `/v1` πριν τις 30/06/2027** (τότε κλείνει το `/v1beta`· «functionally identical»,
+      - [x] **Openprovider `/v1beta` → `/v1` πριν τις 30/06/2027** (**έγινε** 2026-10-19, ζωντανός έλεγχος: ίδια πεδία) (τότε κλείνει το `/v1beta`· «functionally identical»,
             αλλαγή μόνο του base URL: `docs.openprovider.com`, 2026-10-19). Στο `OpenproviderRegistrar` όλα τα paths.
       - [ ] **G8-5b (μελλοντικό):** στον Openprovider η αλλαγή κατόχου γίνεται ήδη δωρεάν (`updateDomain`, ο registrant μαζί
             με τις επαφές)· μερικά ccTLDs θέλουν «trade» με χρέωση (`modify_owner_allowed` / `trade_allowed` του domain).

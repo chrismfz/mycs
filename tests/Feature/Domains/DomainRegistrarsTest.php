@@ -69,7 +69,7 @@ class DomainRegistrarsTest extends TestCase
     {
         $connection = DomainRegistrarConnection::query()->create(['registrar' => 'openprovider', 'label' => 'OP', 'is_active' => true, 'mode' => 'sandbox']);
         $connection->storeCredentials(['username' => 'u', 'password' => 'Op-Secret-Pa55'], ['password']);
-        Http::fake([self::SANDBOX . '/v1beta/auth/login' => Http::sequence()
+        Http::fake([self::SANDBOX . '/v1/auth/login' => Http::sequence()
             ->push(['data' => ['token' => 'tok']])->push(['desc' => 'Authentication failed'], 401)]);
 
         $this->livewireAs($this->staff())->test(EditDomainRegistrarConnection::class, ['record' => $connection->getRouteKey()])
@@ -122,14 +122,14 @@ class DomainRegistrarsTest extends TestCase
         $domain->nameservers()->create(['host' => 'ns1.example.net', 'sort' => 0]);
         $created = 0;
         Http::fake([
-            self::SANDBOX . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::SANDBOX . '/v1beta/customers' => function () use (&$created) {
+            self::SANDBOX . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::SANDBOX . '/v1/customers' => function () use (&$created) {
                 $created++;
 
                 return Http::response(['data' => ['handle' => 'NEW' . $created . '-GR']]);
             },
-            self::SANDBOX . '/v1beta/domains' => Http::response(['data' => ['id' => 777, 'status' => 'REQ']]),
-            self::SANDBOX . '/v1beta/domains/777' => Http::response(['data' => ['id' => 777, 'status' => 'REQ']]),
+            self::SANDBOX . '/v1/domains' => Http::response(['code' => 0, 'data' => ['id' => 777, 'status' => 'REQ']]),
+            self::SANDBOX . '/v1/domains/777' => Http::response(['data' => ['id' => 777, 'status' => 'REQ']]),
         ]);
 
         (new OpenproviderRegistrar)->register($domain->fresh(), 1, new DomainRegistrarCredentials(['username' => 'u', 'password' => 'p'], sandbox: true));
@@ -137,8 +137,8 @@ class DomainRegistrarsTest extends TestCase
         $this->assertSame(2, $created, 'owner (two roles) once, tech once; billing kept its handle');
         $domain->refresh();
         $this->assertSame(['NEW1-GR', 'NEW1-GR', 'NEW2-GR', 'EX111-GR'], [$domain->registrant_handle, $domain->admin_handle, $domain->tech_handle, $domain->billing_handle]);
-        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/v1beta/domains') && $request['autorenew'] === 'off'
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/v1/domains') && $request['autorenew'] === 'off'
             && $request['owner_handle'] === 'NEW1-GR' && $request['tech_handle'] === 'NEW2-GR' && $request['billing_handle'] === 'EX111-GR');
-        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/v1beta/customers') && isset($request['phone']) && $request['phone']['area_code'] !== '');
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/v1/customers') && isset($request['phone']) && $request['phone']['area_code'] !== '');
     }
 }

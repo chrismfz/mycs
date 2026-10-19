@@ -25,7 +25,7 @@ final class ClientTest extends TestCase
         $client->findDomain('example.net');
 
         $this->assertCount(3, $http->requests);
-        $this->assertSame('https://api.openprovider.eu/v1beta/auth/login', $http->requests[0]['url']);
+        $this->assertSame('https://api.openprovider.eu/v1/auth/login', $http->requests[0]['url']);
         $this->assertSame(['username' => 'reseller', 'password' => 'secret-pass'], $http->json(0));
         $this->assertArrayNotHasKey('Authorization', $http->requests[0]['headers']);
         $this->assertSame('Bearer T1', $http->requests[1]['headers']['Authorization']);
@@ -43,7 +43,7 @@ final class ClientTest extends TestCase
         $this->client($http2, $store)->findDomain('example.com');
 
         $this->assertSame('Bearer OLD', $http2->requests[0]['headers']['Authorization']);
-        $this->assertStringEndsWith('/v1beta/auth/login', $http2->requests[1]['url']);
+        $this->assertStringEndsWith('/v1/auth/login', $http2->requests[1]['url']);
         $this->assertSame('Bearer NEW', $http2->requests[2]['headers']['Authorization']);
         $this->assertSame(['NEW'], array_values($store->tokens));
     }
@@ -57,7 +57,7 @@ final class ClientTest extends TestCase
         $record = $this->client($http)->findDomain(' Example.CO.uk. ');
 
         $this->assertSame(2, $record['id']);
-        $this->assertSame('https://api.openprovider.eu/v1beta/domains?full_name=example.co.uk', $http->last()['url']);
+        $this->assertSame('https://api.openprovider.eu/v1/domains?full_name=example.co.uk', $http->last()['url']);
     }
 
     public function test_find_domain_falls_back_to_the_tombstone_and_null_when_absent()
@@ -90,9 +90,9 @@ final class ClientTest extends TestCase
         $client->restoreDomain('123');
         $client->setAutorenew(123, 'off');
 
-        $this->assertSame(['POST', 'https://api.openprovider.eu/v1beta/domains/123/renew'], [$http->requests[1]['method'], $http->requests[1]['url']]);
+        $this->assertSame(['POST', 'https://api.openprovider.eu/v1/domains/123/renew'], [$http->requests[1]['method'], $http->requests[1]['url']]);
         $this->assertSame(['id' => 123, 'period' => 2], $http->json(1));
-        $this->assertSame('https://api.openprovider.eu/v1beta/domains/123/restore', $http->requests[2]['url']);
+        $this->assertSame('https://api.openprovider.eu/v1/domains/123/restore', $http->requests[2]['url']);
         $this->assertSame(['id' => 123], $http->json(2));
         $this->assertSame('PUT', $http->requests[3]['method']);
         $this->assertSame(['id' => 123, 'autorenew' => 'off'], $http->json(3));
@@ -148,7 +148,7 @@ final class ClientTest extends TestCase
     public function test_ambiguous_failures_are_marked_as_such()
     {
         $http = (new FakeTransport)->queueLogin()
-            ->queue(200, ['code' => 399, 'desc' => 'refused'])      // definitive
+            ->queue(200, ['code' => 399, 'desc' => 'refused'])      // answered with an error: unknown (ADV-3 of #211)
             ->queue(400, ['code' => 320, 'desc' => 'bad request'])  // definitive
             ->queue(0, '')                                          // timeout: unknown
             ->queue(502, '<html>bad gateway</html>')                // unknown
@@ -164,7 +164,7 @@ final class ClientTest extends TestCase
             }
         }
 
-        $this->assertSame(['definitive', 'definitive', 'unknown', 'unknown', 'unknown'], $seen);
+        $this->assertSame(['unknown', 'definitive', 'unknown', 'unknown', 'unknown'], $seen);
     }
 
     public function test_failed_login_throws()
@@ -202,8 +202,8 @@ final class ClientTest extends TestCase
         $records = $this->client($http)->getZoneRecords('Example.com');
 
         $this->assertSame('www.example.com', $records[0]['name']);
-        $this->assertSame('https://api.openprovider.eu/v1beta/dns/zones?name_pattern=example.com&limit=10', $http->requests[1]['url']);
-        $this->assertSame('https://api.openprovider.eu/v1beta/dns/zones/example.com/records?limit=500&offset=0', $http->requests[2]['url']);
+        $this->assertSame('https://api.openprovider.eu/v1/dns/zones?name_pattern=example.com&limit=10', $http->requests[1]['url']);
+        $this->assertSame('https://api.openprovider.eu/v1/dns/zones/example.com/records?limit=500&offset=0', $http->requests[2]['url']);
 
         // Only a similarly named zone (or none): no zone.
         $none = (new FakeTransport)->queueLogin()->queueData(['results' => [['name' => 'example.com.au']]]);
@@ -218,10 +218,10 @@ final class ClientTest extends TestCase
         $client->createZone('example.com', [['name' => 'www', 'type' => 'A', 'value' => '192.0.2.1', 'ttl' => 3600]]);
         $client->updateZoneRecords('example.com', [['name' => 'mail', 'type' => 'A', 'value' => '192.0.2.2', 'ttl' => 3600]], [['name' => 'www', 'type' => 'A', 'value' => '192.0.2.1', 'ttl' => 3600]]);
 
-        $this->assertSame(['POST', 'https://api.openprovider.eu/v1beta/dns/zones'], [$http->requests[1]['method'], $http->requests[1]['url']]);
+        $this->assertSame(['POST', 'https://api.openprovider.eu/v1/dns/zones'], [$http->requests[1]['method'], $http->requests[1]['url']]);
         $this->assertSame(['domain' => ['name' => 'example', 'extension' => 'com'], 'type' => 'master',
             'records' => [['name' => 'www', 'type' => 'A', 'value' => '192.0.2.1', 'ttl' => 3600]]], $http->json(1));
-        $this->assertSame(['PUT', 'https://api.openprovider.eu/v1beta/dns/zones/example.com'], [$http->requests[2]['method'], $http->requests[2]['url']]);
+        $this->assertSame(['PUT', 'https://api.openprovider.eu/v1/dns/zones/example.com'], [$http->requests[2]['method'], $http->requests[2]['url']]);
         $this->assertSame(['name' => 'example.com', 'records' => [
             'add' => [['name' => 'mail', 'type' => 'A', 'value' => '192.0.2.2', 'ttl' => 3600]],
             'remove' => [['name' => 'www', 'type' => 'A', 'value' => '192.0.2.1', 'ttl' => 3600]],
@@ -236,15 +236,15 @@ final class ClientTest extends TestCase
         $client = $this->client($http);
 
         $this->assertSame([['name' => 'ns1.example.com', 'ip' => '192.0.2.1', 'ip6' => '']], $client->listNameservers('Example.com'));
-        $this->assertSame('https://api.openprovider.eu/v1beta/dns/nameservers?pattern=%2A.example.com&limit=100', $http->requests[1]['url']);
+        $this->assertSame('https://api.openprovider.eu/v1/dns/nameservers?pattern=%2A.example.com&limit=100', $http->requests[1]['url']);
 
         $client->saveNameserver(['name' => 'ns2.example.com', 'ip' => '192.0.2.2'], false);
         $client->saveNameserver(['name' => 'ns1.example.com', 'ip6' => '2001:db8::1'], true);
         $client->deleteNameserver('NS1.example.com');
-        $this->assertSame(['POST', 'https://api.openprovider.eu/v1beta/dns/nameservers'], [$http->requests[2]['method'], $http->requests[2]['url']]);
+        $this->assertSame(['POST', 'https://api.openprovider.eu/v1/dns/nameservers'], [$http->requests[2]['method'], $http->requests[2]['url']]);
         $this->assertSame(['name' => 'ns2.example.com', 'ip' => '192.0.2.2'], $http->json(2));
-        $this->assertSame(['PUT', 'https://api.openprovider.eu/v1beta/dns/nameservers/ns1.example.com'], [$http->requests[3]['method'], $http->requests[3]['url']]);
-        $this->assertSame(['DELETE', 'https://api.openprovider.eu/v1beta/dns/nameservers/ns1.example.com'], [$http->requests[4]['method'], $http->requests[4]['url']]);
+        $this->assertSame(['PUT', 'https://api.openprovider.eu/v1/dns/nameservers/ns1.example.com'], [$http->requests[3]['method'], $http->requests[3]['url']]);
+        $this->assertSame(['DELETE', 'https://api.openprovider.eu/v1/dns/nameservers/ns1.example.com'], [$http->requests[4]['method'], $http->requests[4]['url']]);
     }
 
     public function test_suggest_names()
@@ -259,7 +259,7 @@ final class ClientTest extends TestCase
         $names = $this->client($http)->suggestNames('greek bakery', ['com', 'net'], 99, 'eng', true);
 
         $this->assertSame(['greek-bakery.com', 'greekbakery.net'], $names);
-        $this->assertSame(['POST', 'https://api.openprovider.eu/v1beta/domains/suggest-name'], [$http->requests[1]['method'], $http->requests[1]['url']]);
+        $this->assertSame(['POST', 'https://api.openprovider.eu/v1/domains/suggest-name'], [$http->requests[1]['method'], $http->requests[1]['url']]);
         $this->assertSame(['name' => 'greek bakery', 'limit' => 50, 'language' => 'eng', 'sensitive' => true, 'tlds' => ['com', 'net']], $http->json(1));
     }
 }

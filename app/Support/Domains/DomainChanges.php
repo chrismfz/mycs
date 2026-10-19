@@ -5,7 +5,7 @@ namespace App\Support\Domains;
 /**
  * What a management write (A3d) asks the registrar to change — null = «don't
  * touch». One DTO for the whole PUT-shaped surface so an adapter can batch
- * everything one API call carries (Openprovider's PUT /v1beta/domains/{id})
+ * everything one API call carries (Openprovider's PUT /v1/domains/{id})
  * while the service keeps per-operation actions in the audit log.
  *
  * DNSSEC key management is DELIBERATELY absent v1 (docs/BACKLOG.md) — the

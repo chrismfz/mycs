@@ -58,9 +58,9 @@ class DomainSyncTest extends TestCase
         $record += ['domain' => ['name' => 'nixpal', 'extension' => 'com'], 'id' => 30391502, 'status' => 'ACT', 'expiration_date' => '2027-11-17 00:00:00',
             'name_servers' => [['name' => 'ns1.nixpal.com'], ['name' => 'ns2.nixpal.com']], 'is_locked' => true];
         Http::fake([
-            self::PROD . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::PROD . '/v1beta/domains?full_name=*' => Http::response(['data' => ['results' => [$record]]]),
-            self::PROD . '/v1beta/domains/*' => Http::response(['data' => $record]),
+            self::PROD . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::PROD . '/v1/domains?full_name=*' => Http::response(['data' => ['results' => [$record]]]),
+            self::PROD . '/v1/domains/*' => Http::response(['data' => $record]),
         ]);
     }
 
@@ -99,8 +99,8 @@ class DomainSyncTest extends TestCase
     public function test_a_failure_is_written_on_the_domain_and_does_not_stop_the_rest(): void
     {
         $domain = $this->domain();
-        Http::fake([self::PROD . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::PROD . '/v1beta/domains*' => Http::response(['desc' => 'Server error'], 500)]);
+        Http::fake([self::PROD . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::PROD . '/v1/domains*' => Http::response(['desc' => 'Server error'], 500)]);
 
         $this->artisan('domains:sync')->assertFailed();
 
@@ -135,8 +135,8 @@ class DomainSyncTest extends TestCase
     {
         $record = ['domain' => ['name' => 'nixpal', 'extension' => 'com'], 'id' => 30391502, 'status' => 'ACT', 'expiration_date' => '2027-11-17 00:00:00', 'name_servers' => [['name' => 'ns1.nixpal.com']]];
         Http::fake([
-            self::PROD . '/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            self::PROD . '/v1beta/domains?full_name=*' => fn ($request) => Http::response(['data' => ['results' => str_contains($request->url(), 'nixpal.com') ? [$record] : []]]),
+            self::PROD . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            self::PROD . '/v1/domains?full_name=*' => fn ($request) => Http::response(['data' => ['results' => str_contains($request->url(), 'nixpal.com') ? [$record] : []]]),
         ]);
         $client = $this->user->client();
 

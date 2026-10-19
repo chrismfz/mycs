@@ -186,8 +186,8 @@ class DomainTransferredAwayAdversarialTest extends TestCase
         $op = DomainRegistrarConnection::query()->create(['registrar' => 'openprovider', 'label' => 'OP', 'is_active' => true, 'mode' => 'production']);
         $op->storeCredentials(['username' => 'u', 'password' => 'Op-Secret-Pa55'], ['password']);
         Http::fake([
-            'https://api.openprovider.eu/v1beta/auth/login' => Http::response(['data' => ['token' => 'tok']]),
-            'https://api.openprovider.eu/v1beta/domains?full_name=*' => Http::response('<html>Scheduled maintenance</html>', 200),
+            'https://api.openprovider.eu/v1/auth/login' => Http::response(['data' => ['token' => 'tok']]),
+            'https://api.openprovider.eu/v1/domains?full_name=*' => Http::response('<html>Scheduled maintenance</html>', 200),
         ]);
         $domain = $this->domain(['sld' => 'example7', 'tld' => 'com', 'fqdn' => 'example7.com', 'domain_tld_id' => null, 'registrar_connection_id' => $op->id]);
 

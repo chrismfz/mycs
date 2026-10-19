@@ -42,7 +42,7 @@ use Throwable;
  * domain services, which hold the per-domain lock, log every attempt and adopt what the registrar already did (D-2,
  * D-17); never from the UI. Autorenew is always off: the billing clock is ours (D-12).
  *
- * Auth: POST /v1beta/auth/login (plaintext password over HTTPS — the MD5/token
+ * Auth: POST /v1/auth/login (plaintext password over HTTPS — the MD5/token
  * variant is legacy XML-RPC) → bearer, ~24h TTL. We cache it for 6h keyed by
  * (endpoint × username) and re-login ONCE on a 401 mid-flight.
  */
@@ -124,7 +124,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
         $previous = $this->timeout;
         $this->timeout = $timeout;
         try {
-            $response = $this->request($credentials, 'POST', '/v1beta/domains/check', ['domains' => array_values($domains)]);
+            $response = $this->request($credentials, 'POST', '/v1/domains/check', ['domains' => array_values($domains)]);
         } finally {
             $this->timeout = $previous;
         }
@@ -152,7 +152,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
         [$name, $extension] = $this->splitFqdn($fqdn);
         $fqdn = $name . '.' . $extension; // normalized (lowercased/trimmed)
 
-        $response = $this->request($credentials, 'POST', '/v1beta/domains/check', [
+        $response = $this->request($credentials, 'POST', '/v1/domains/check', [
             'domains' => [['name' => $name, 'extension' => $extension]],
         ]);
 
@@ -187,7 +187,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
     }
 
     /**
-     * WRITE (A3): renew at Openprovider — POST /v1beta/domains/{id}/renew.
+     * WRITE (A3): renew at Openprovider — POST /v1/domains/{id}/renew.
      * ONLY DomainRenewalService calls this (it owns the §6.6 adopt guard +
      * the audit log). Uses the stored OP id, else resolves it by name,
      * fires the renewal, then RE-FETCHES the domain so the caller applies the
@@ -204,10 +204,10 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
         // row genuinely lacks one.
         $id = $this->resolveDomainId($domain, $credentials, 'αδύνατη η ανανέωση');
 
-        $this->request($credentials, 'POST', '/v1beta/domains/' . rawurlencode($id) . '/renew', [
+        $this->request($credentials, 'POST', '/v1/domains/' . rawurlencode($id) . '/renew', [
             'id' => (int) $id,
             'period' => $years,
-        ]);
+        ], charge: true);
 
         // The renew envelope doesn't reliably carry the new expiry — re-fetch
         // so the caller gets (and applies) the registrar's OWN post-renew
@@ -219,8 +219,8 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
 
     /**
      * WRITE (A3b): register at Openprovider — ensure reusable contact handles
-     * (POST /v1beta/customers for contacts without one), then POST
-     * /v1beta/domains. ONLY DomainRegistrationService calls this (it owns the
+     * (POST /v1/customers for contacts without one), then POST
+     * /v1/domains. ONLY DomainRegistrationService calls this (it owns the
      * availability pre-check, the adopt-on-retry guard and the audit log).
      * autorenew is ALWAYS 'off' — the billing clock is ours, never the
      * registrar's (D-12). The ensured handles are saved on the domain.
@@ -231,11 +231,11 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
             throw new RegistrarNotAsked('Μη έγκυρη διάρκεια καταχώρησης: ' . $years);
         }
 
-        return $this->createDomainObject($domain, $credentials, '/v1beta/domains', ['period' => $years]);
+        return $this->createDomainObject($domain, $credentials, '/v1/domains', ['period' => $years]);
     }
 
     /**
-     * WRITE (A3c): start an INBOUND transfer — POST /v1beta/domains/transfer
+     * WRITE (A3c): start an INBOUND transfer — POST /v1/domains/transfer
      * with the losing registrar's auth code. Same money discipline as
      * register (gTLD transfers charge a renewal year): ONLY
      * DomainTransferService calls this. Async: the response usually carries a
@@ -247,7 +247,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
             throw new RegistrarNotAsked('Ο κωδικός EPP/auth είναι κενός — απαιτείται για τη μεταφορά.');
         }
 
-        return $this->createDomainObject($domain, $credentials, '/v1beta/domains/transfer', [
+        return $this->createDomainObject($domain, $credentials, '/v1/domains/transfer', [
             'auth_code' => trim($authCode),
             'period' => 1, // gTLD transfers extend one year — never more from this path
         ]);
@@ -261,13 +261,13 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
     {
         $id = $this->resolveDomainId($domain, $credentials, 'αδύνατη η ανάκτηση κωδικού EPP');
 
-        $code = $this->request($credentials, 'GET', '/v1beta/domains/' . rawurlencode($id) . '/authcode')->json('data.auth_code');
+        $code = $this->request($credentials, 'GET', '/v1/domains/' . rawurlencode($id) . '/authcode')->json('data.auth_code');
 
         return is_string($code) && $code !== '' ? $code : null;
     }
 
     /**
-     * WRITE (A3d): registrar-side settings — one PUT /v1beta/domains/{id}
+     * WRITE (A3d): registrar-side settings — one PUT /v1/domains/{id}
      * carrying exactly what `$changes` asks (name_servers / is_locked /
      * is_private_whois_enabled / contact handles). ONLY
      * DomainManagementService calls this. Contacts reuse ensureHandles (same
@@ -315,7 +315,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
             }
         }
 
-        $this->request($credentials, 'PUT', '/v1beta/domains/' . rawurlencode($id), $payload);
+        $this->request($credentials, 'PUT', '/v1/domains/' . rawurlencode($id), $payload);
 
         $base = $this->refetchAfterWrite($id, $credentials);
 
@@ -335,7 +335,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
     }
 
     /**
-     * WRITE (A3d): restore from redemption — POST /v1beta/domains/{id}/restore.
+     * WRITE (A3d): restore from redemption — POST /v1/domains/{id}/restore.
      * REAL (usually large) MONEY: ONLY DomainManagementService calls this (it
      * owns the sync-first adopt guard + the audit log). From the POST on the
      * registrar HAS charged — a re-fetch hiccup must never surface as a failed
@@ -345,9 +345,9 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
     {
         $id = $this->resolveDomainId($domain, $credentials, 'αδύνατη η επαναφορά');
 
-        $this->request($credentials, 'POST', '/v1beta/domains/' . rawurlencode($id) . '/restore', [
+        $this->request($credentials, 'POST', '/v1/domains/' . rawurlencode($id) . '/restore', [
             'id' => (int) $id,
-        ]);
+        ], charge: true);
 
         return $this->refetchAfterWrite($id, $credentials);
     }
@@ -380,7 +380,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
     private function refetchAfterWrite(string $id, DomainRegistrarCredentials $credentials): DomainSyncResult
     {
         try {
-            $fresh = $this->request($credentials, 'GET', '/v1beta/domains/' . rawurlencode($id))->json('data');
+            $fresh = $this->request($credentials, 'GET', '/v1/domains/' . rawurlencode($id))->json('data');
         } catch (Throwable) {
             return new DomainSyncResult(registrarDomainId: $id);
         }
@@ -437,7 +437,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
             throw new RegistrarNotAsked($e->getMessage(), 0, $e);
         }
 
-        $data = $this->request($credentials, 'POST', $path, $payload)->json('data');
+        $data = $this->request($credentials, 'POST', $path, $payload, charge: true)->json('data');
         $base = is_array($data) ? $this->syncResultFrom($data) : new DomainSyncResult;
 
         return new DomainSyncResult(
@@ -455,7 +455,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
 
     /**
      * The domain's handle per role (D-3): a role's stored handle as is; a role whose contact (an account contact) has
-     * none becomes an Openprovider «customer» (POST /v1beta/customers), its handle saved on the domain at once, so a
+     * none becomes an Openprovider «customer» (POST /v1/customers), its handle saved on the domain at once, so a
      * later failure never creates a duplicate customer at the registrar. A contact holding two roles is created once.
      * A role without a contact falls back to the registrant at the call site, never invented here.
      *
@@ -556,7 +556,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
                 ], fn ($v) => $v !== null),
             ], fn ($v) => $v !== null);
 
-            $handle = $this->request($credentials, 'POST', '/v1beta/customers', $payload)->json('data.handle');
+            $handle = $this->request($credentials, 'POST', '/v1/customers', $payload)->json('data.handle');
             if (!is_string($handle) || $handle === '') {
                 throw new RuntimeException("Openprovider returned no handle for the {$role} contact of {$domain->fqdn}.");
             }
@@ -691,7 +691,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
             throw new RuntimeException('Κενό TLD για άντληση τιμών.');
         }
 
-        $data = $this->request($credentials, 'GET', '/v1beta/tlds/' . rawurlencode($tld) . '?with_price=true')->json('data');
+        $data = $this->request($credentials, 'GET', '/v1/tlds/' . rawurlencode($tld) . '?with_price=true')->json('data');
         $prices = is_array($data) && is_array($data['prices'] ?? null) ? $data['prices'] : null;
         if ($prices === null) {
             throw new RuntimeException('Το Openprovider δεν επέστρεψε τιμές για το .' . $tld . '.');
@@ -763,7 +763,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
         $data = $this->request(
             $credentials,
             'GET',
-            '/v1beta/domains?limit=' . max(1, $limit) . '&offset=' . max(0, $offset)
+            '/v1/domains?limit=' . max(1, $limit) . '&offset=' . max(0, $offset)
         )->json('data');
 
         $results = is_array($data) && is_array($data['results'] ?? null) ? $data['results'] : [];
@@ -789,7 +789,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
      */
     public function getContact(string $handle, DomainRegistrarCredentials $credentials): ?RegistrarContact
     {
-        $response = $this->request($credentials, 'GET', '/v1beta/customers/' . rawurlencode($handle), tolerateStatus: 404);
+        $response = $this->request($credentials, 'GET', '/v1/customers/' . rawurlencode($handle), tolerateStatus: 404);
         if ($response->status() === 404) {
             return null; // unknown/foreign handle — not an error, just no assign-aid
         }
@@ -955,7 +955,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
 
         if ($domain->registrar_domain_id !== null && $domain->registrar_domain_id !== '') {
             try {
-                $data = $this->request($credentials, 'GET', '/v1beta/domains/' . rawurlencode($domain->registrar_domain_id))->json('data');
+                $data = $this->request($credentials, 'GET', '/v1/domains/' . rawurlencode($domain->registrar_domain_id))->json('data');
                 // Only this domain's record: an id now pointing at another name is not ours (review F1).
                 if (is_array($data) && $this->isRecordOf($data, $domain->fqdn)) {
                     return $data;
@@ -969,7 +969,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
         }
 
         [$name, $extension] = $this->splitFqdn($domain->fqdn);
-        $results = $this->request($credentials, 'GET', '/v1beta/domains?full_name=' . rawurlencode($name . '.' . $extension))
+        $results = $this->request($credentials, 'GET', '/v1/domains?full_name=' . rawurlencode($name . '.' . $extension))
             ->json('data.results');
         // Prefer a LIVE record: after a lapse-and-rebuy the account can hold
         // BOTH the lingering DEL tombstone AND the fresh ACT record for the
@@ -1032,7 +1032,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
      * returns that one failing status to the caller instead of throwing
      * (e.g. 404 = unknown contact handle, a legitimate answer).
      */
-    private function request(DomainRegistrarCredentials $credentials, string $method, string $path, array $payload = [], ?int $tolerateStatus = null): Response
+    private function request(DomainRegistrarCredentials $credentials, string $method, string $path, array $payload = [], ?int $tolerateStatus = null, bool $charge = false): Response
     {
         $response = $this->send($credentials, $this->token($credentials), $method, $path, $payload);
 
@@ -1053,6 +1053,21 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
 
             // A 4xx is a refusal: nothing done. A 5xx may have been done (D5b-2 code review 1).
             throw $response->clientError() ? new RegistrarRefused($message) : new RuntimeException($message);
+        }
+
+        // Its envelope: a code other than 0 is an error, whatever the HTTP status (its API docs, 2026-10-19). Answered with
+        // an error: not known to be undone, so maybe done, never «refused»: RegistrarOutcomeUnknown (review 1 of #211), so
+        // a management write re-reads instead of undoing; the money flows take it as pending, for staff (D-17).
+        $code = $response->json('code');
+        // A charge (register, transfer, renew, restore) answered 2xx without its envelope (a maintenance page, an empty
+        // body: ADV-1 of #211) is no proof it was done: maybe done, as above. A read is checked by its callers.
+        if ($charge && !is_numeric($code)) {
+            throw new RegistrarOutcomeUnknown('Openprovider answered ' . $response->status() . ' without its envelope: whether it was done is not known.');
+        }
+        if (is_numeric($code) && (int) $code !== 0) {
+            $desc = $response->json('desc');
+
+            throw new RegistrarOutcomeUnknown('Openprovider error code ' . (int) $code . ': ' . (is_scalar($desc) && $desc !== '' ? mb_substr((string) $desc, 0, 300) : 'no description'));
         }
 
         return $response;
@@ -1096,7 +1111,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
             throw new RegistrarNotAsked("{$domain->fqdn}'s DNSKEYs changed at Openprovider since they were read: read them again.");
         }
         $id = $this->resolveDomainId($domain, $credentials, 'αδύνατη η ενημέρωση');
-        $this->request($credentials, 'PUT', '/v1beta/domains/' . rawurlencode($id), ['dnssec_keys' => array_map(fn (DnssecRecord $record) => [
+        $this->request($credentials, 'PUT', '/v1/domains/' . rawurlencode($id), ['dnssec_keys' => array_map(fn (DnssecRecord $record) => [
             'flags' => $record->flags, 'alg' => $record->algorithm, 'protocol' => $record->protocol, 'pub_key' => $record->publicKey,
         ], $records)]);
 
@@ -1114,12 +1129,12 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
     }
 
     /**
-     * The reseller account's balance (G8-1): GET /v1beta/resellers answers our own reseller (verified live 2026-10-19;
+     * The reseller account's balance (G8-1): GET /v1/resellers answers our own reseller (verified live 2026-10-19;
      * /resellers/me is 501), with what it holds back for orders under way. No currency in it: the account's (EUR).
      */
     public function accountBalance(DomainRegistrarCredentials $credentials): RegistrarBalance
     {
-        $data = $this->request($credentials, 'GET', '/v1beta/resellers')->json('data');
+        $data = $this->request($credentials, 'GET', '/v1/resellers')->json('data');
         $balance = is_array($data) ? $data['balance'] ?? null : null;
         if (!is_int($balance) && !is_float($balance) && !(is_string($balance) && is_numeric($balance))) {
             throw new RuntimeException('Openprovider gave no balance for the reseller account.');
@@ -1184,7 +1199,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
 
         $response = Http::acceptJson()
             ->timeout(30)
-            ->post($this->baseUrl($credentials) . '/v1beta/auth/login', [
+            ->post($this->baseUrl($credentials) . '/v1/auth/login', [
                 'username' => (string) $credentials->get('username'),
                 'password' => (string) $credentials->get('password'),
             ]);

@@ -116,7 +116,11 @@ class DomainSyncService
             if ($theirs === null || $contact === null || trim((string) $domain->{"{$role}_handle"}) !== '' || !$connection instanceof DomainRegistrarConnection) {
                 continue;
             }
-            $record = $this->factory->for($connection)->getContact($theirs, $this->factory->credentialsFor($connection));
+            try {
+                $record = $this->factory->for($connection)->getContact($theirs, $this->factory->credentialsFor($connection));
+            } catch (Throwable) {
+                continue; // only an aid to link it: one not read is not linked, the sync goes on (review 3 of #211)
+            }
             $email = mb_strtolower(trim((string) $contact->email));
             if ($record !== null && $email !== '' && mb_strtolower(trim((string) $record->email)) === $email) {
                 $verified[$role] = $theirs;
