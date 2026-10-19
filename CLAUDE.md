@@ -47,7 +47,7 @@
   διεργασία, όλοι οι πυρήνες· καμία κοινή βάση, άρα δύο sessions δεν μπλοκάρουν πια η μία την άλλη.
 - Τα tests που κλειδώνουν γραμμές (`*Concurrency*`, `*RaceReview*`) θέλουν MariaDB και pcntl, και στο SQLite
   παραλείπονται. Τα τρέχει το job της MariaDB στο CI· όταν το PR αγγίζει locks χρημάτων, τρέξ' τα και τοπικά πάνω σε
-  MariaDB (`php artisan test --filter='Concurrency|Race'`).
+  MariaDB (`php artisan test --filter='Concurrency|RaceReview'`).
 - Το CI τρέχει `php artisan test --parallel` σε SQLite και MariaDB. Κάθε διεργασία έχει δική της βάση, που
   ορίζεται **μετά** το boot της εφαρμογής· γι' αυτό το `tests/TestCase.php` ξαναδιαβάζει τις ρυθμίσεις σε κάθε test.
 

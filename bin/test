@@ -21,9 +21,9 @@ export APP_KEY="${APP_KEY:-base64:$(head -c32 /dev/urandom | base64)}"
 
 if [ "${1:-}" = "--serial" ]; then
     shift
-    php -d memory_limit=-1 artisan test "$@"
+    php artisan test "$@"
     exit
 fi
 
 processes="${TEST_PROCESSES:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)}"
-php -d memory_limit=-1 artisan test --parallel --processes="$processes" "$@"
+php artisan test --parallel --processes="$processes" "$@"

@@ -56,7 +56,10 @@ class LicensingReviewTest extends TestCase
         $env = ['APP_KEY' => config('app.key'), 'DB_CONNECTION' => 'sqlite', 'DB_DATABASE' => $db, 'APP_ENV' => 'local'] + getenv();
         $migrate = proc_open([PHP_BINARY, base_path('artisan'), 'migrate', '--force', '--seed', '-q'], [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, base_path(), $env);
         proc_close($migrate);
-        $port = 19000 + getmypid() % 1000;
+        // A free port from the kernel: two test runs at once (bin/test) must not share one, nor find another's server.
+        $probe = stream_socket_server('tcp://127.0.0.1:0');
+        $port = (int) parse_url('tcp://' . stream_socket_get_name($probe, false), PHP_URL_PORT);
+        fclose($probe);
         $server = proc_open([PHP_BINARY, '-S', "127.0.0.1:{$port}", '-t', public_path()], [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, base_path(), $env);
         try {
             for ($i = 0; $i < 50 && !@fsockopen('127.0.0.1', $port); $i++) {
