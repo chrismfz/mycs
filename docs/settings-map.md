@@ -31,7 +31,8 @@
 | On-Demand Renewals (πρόωρη ανανέωση από πελάτη, ημέρες ανά κύκλο 31/92/183/366/731/1096) | off | **Ν** (#1167). Μαζί με το «Ανανέωση τώρα» του admin |
 | Enable TOS Acceptance + URL | on, `https://myip.gr/tos/` | **P:** `tos` |
 | Auto Redirect on Checkout | → payment gateway | P~ |
-| Allow Notes on Checkout | on | **Ν** |
+| Allow Notes on Checkout | on | **P:** πάντα (σημειώσεις στο cart, στην παραγγελία, στη λίστα παραγγελιών και στο email «New Order») |
+| New Order Notification (email στους admins) | on | **P:** `mail_staff_new_order`, default on· στο System Email Address, μόνο για παραγγελίες πελάτη από το checkout (όχι του staff)· με είδη, τιμολόγιο, σημειώσεις, IP και links |
 | Monthly Pricing Breakdown | off | — |
 | **Block Existing Domains** | on | **Ν**: και για το DirectAdmin #1186 (διπλό domain) |
 | No Invoice Email on Order | off | P (templates) |

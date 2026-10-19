@@ -15,6 +15,7 @@ use App\Services\Domains\Ordering\DomainOffer;
 use App\Services\Domains\Ordering\DomainOrderLine;
 use App\Services\Order\OrderLine;
 use App\Services\Order\PlaceOrderService;
+use App\Services\Order\StaffOrderNotice;
 use App\Support\CurrentClient;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -225,6 +226,13 @@ class Cart extends Component
 
         // The cart row is gone; this drops its cookie.
         ClassesCart::clear();
+
+        // Staff are told (WHMCS «New Order Notification»), after the commit. A mail that fails never fails the order.
+        try {
+            StaffOrderNotice::send($placed->order, request()->ip());
+        } catch (Throwable $e) {
+            report($e);
+        }
 
         if ($placed->invoice === null && $placed->order->services()->doesntExist()) {
             return $this->redirect(route('domains'), true); // only domains, nothing to pay (a free transfer)
