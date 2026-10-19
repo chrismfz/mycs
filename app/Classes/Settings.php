@@ -543,6 +543,15 @@ class Settings
                     'description' => 'Not in WHMCS. Never terminated sooner after its suspension, whatever the due date (a hold that ended late, a date moved back, the cron down): the customer gets the suspension email first. 0 = as WHMCS.',
                 ],
                 [
+                    'name' => 'cronjob_suspension_digest',
+                    'section' => 'Automatic Module Functions',
+                    'label' => 'Email staff what was suspended',
+                    'type' => 'checkbox',
+                    'database_type' => 'boolean',
+                    'default' => true,
+                    'description' => 'After the daily run, one email to the System Email Address listing each service suspended or terminated for non-payment, with its client, unpaid invoices and a link to it (to unsuspend it or set «Do Not Suspend Until»). Only on a day something was suspended or terminated, as WHMCS\'s «Cron Job Activity».',
+                ],
+                [
                     'name' => 'cronjob_end_keeps_overdue',
                     'section' => 'Automatic Module Functions',
                     'label' => 'Keep overdue invoices of ended services',

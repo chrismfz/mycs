@@ -41,6 +41,7 @@ use App\Services\Mcp\Proposals;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Payment\AutoCharge;
 use App\Services\Payment\CardExpiryNotices;
+use App\Services\Service\SuspensionDigest;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
@@ -74,6 +75,12 @@ class CronJob extends Command
     /** @var array<string, Throwable> what staff must look at, though nothing failed (an invoice left open): mailed, the run succeeds */
     private array $notices = [];
 
+    /** @var list<int> services suspended for non-payment in this run (committed): the staff digest */
+    private array $suspended = [];
+
+    /** @var list<int> services terminated for non-payment in this run (committed): the staff digest */
+    private array $terminated = [];
+
     /**
      * Execute the console command.
      */
@@ -98,7 +105,7 @@ class CronJob extends Command
     {
         Config::set('audit.console', true);
         // One command object can run twice (a test, a long-lived worker): nothing carries over from a run to the next.
-        $this->failures = $this->notices = [];
+        $this->failures = $this->notices = $this->suspended = $this->terminated = [];
 
         // Each job commits on its own (renewals: per service): one failure no longer rolls back the
         // whole run, nothing stays locked for the whole run, and each step sees what the previous
@@ -419,7 +426,7 @@ class CronJob extends Command
                 }
                 foreach ($this->suspendable(overdueInvoice: $requiresInvoice)->pluck('id') as $id) {
                     try {
-                        $number += DB::transaction(function () use ($id, $requiresInvoice) {
+                        $done = DB::transaction(function () use ($id, $requiresInvoice) {
                             $service = $this->suspendable(overdueInvoice: $requiresInvoice)->whereKey($id)->lockForUpdate()->first();
                             if ($service === null) {
                                 return 0;
@@ -430,6 +437,10 @@ class CronJob extends Command
 
                             return 1;
                         });
+                        $number += $done;
+                        if ($done === 1) {
+                            $this->suspended[] = (int) $id;
+                        }
                     } catch (Throwable $e) {
                         report($e);
                         $this->failures["services_suspended #{$id}"] = $e;
@@ -448,7 +459,7 @@ class CronJob extends Command
                 // BIL-4). One service per transaction (BIL-10), the rule read again under its lock.
                 foreach ($this->terminable()->pluck('id') as $id) {
                     try {
-                        $number += DB::transaction(function () use ($id) {
+                        $done = DB::transaction(function () use ($id) {
                             $service = $this->terminable()->whereKey($id)->lockForUpdate()->first();
                             if ($service === null) {
                                 return 0;
@@ -467,6 +478,10 @@ class CronJob extends Command
 
                             return 1;
                         });
+                        $number += $done;
+                        if ($done === 1) {
+                            $this->terminated[] = (int) $id;
+                        }
                     } catch (Throwable $e) {
                         report($e);
                         $this->failures["services_terminated #{$id}"] = $e;
@@ -518,6 +533,17 @@ class CronJob extends Command
 
                 return EmailLog::where('created_at', '<', now()->subDays($days))->delete();
             });
+
+            // What went down today, per service (as WHMCS's «Cron Job Activity»): staff unsuspend or hold the ones
+            // they want kept. Before the notices mail (its failure would skip this), and also on a run with failures:
+            // these suspensions happened all the same. Not sent is a notice, not a failed run: every step did its work.
+            try {
+                SuspensionDigest::send($this->suspended, $this->terminated);
+            } catch (Throwable $e) {
+                report($e);
+                $this->notices['suspension_digest'] = new DisplayException('The email of the services suspended or terminated today could not be sent: '
+                    . $e->getMessage() . '. See Services, status Suspended or Terminated.');
+            }
 
             if ($this->notices !== []) {
                 $notices = e(implode("\n", array_map(fn ($key, $notice) => "{$key}: {$notice->getMessage()}", array_keys($this->notices), $this->notices)));
