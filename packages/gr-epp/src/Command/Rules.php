@@ -212,12 +212,13 @@ final class Rules
 
     /**
      * DS records as the registry takes them: a key tag 0–65535, an algorithm and digest type it knows, a digest of that
-     * type's length in hex (upper-cased); none twice; at most 16.
+     * type's length in hex (its spaces dropped, as `dig` prints it; upper-cased); none twice; at most 16. Ones to remove
+     * only by their shape (review 4 of #209): one the registry no longer lists, or another registrar's, still goes.
      *
      * @param  list<DsRecord>  $records
      * @return list<DsRecord>
      */
-    public static function dsRecords(array $records): array
+    public static function dsRecords(array $records, bool $adding = true): array
     {
         if (count($records) > self::DS_MAX) {
             throw new InvalidArgumentException('At most ' . self::DS_MAX . ' DS records at once.');
@@ -227,16 +228,20 @@ final class Rules
             if ($record->keyTag < 0 || $record->keyTag > 65535) {
                 throw new InvalidArgumentException("A DS key tag is 0 to 65535, not {$record->keyTag}.");
             }
-            if (!in_array($record->algorithm, self::DS_ALGORITHMS, true)) {
+            if ($record->algorithm < 0 || $record->algorithm > 255 || $record->digestType < 0 || $record->digestType > 255) {
+                throw new InvalidArgumentException('A DS algorithm and digest type are 0 to 255.');
+            }
+            if ($adding && !in_array($record->algorithm, self::DS_ALGORITHMS, true)) {
                 throw new InvalidArgumentException("The .gr registry does not take DNSSEC algorithm {$record->algorithm}.");
             }
             $length = self::DS_DIGESTS[$record->digestType] ?? null;
-            if ($length === null) {
+            if ($adding && $length === null) {
                 throw new InvalidArgumentException("The .gr registry does not take digest type {$record->digestType}.");
             }
-            $digest = strtoupper($record->digest);
-            if (preg_match('/^[0-9A-F]{' . $length . '}$/', $digest) !== 1) {
-                throw new InvalidArgumentException("A digest of type {$record->digestType} is {$length} hex digits.");
+            // Its whitespace dropped (a trailing newline too: review 1, 2), then whole: \z, never «$» before a newline.
+            $digest = strtoupper((string) preg_replace('/\s+/', '', $record->digest));
+            if (preg_match('/\A[0-9A-F]' . ($length !== null ? '{' . $length . '}' : '+') . '\z/', $digest) !== 1) {
+                throw new InvalidArgumentException($length !== null ? "A digest of type {$record->digestType} is {$length} hex digits." : 'A digest is hex digits.');
             }
             $record = new DsRecord($record->keyTag, $record->algorithm, $record->digestType, $digest);
             foreach ($clean as $seen) {

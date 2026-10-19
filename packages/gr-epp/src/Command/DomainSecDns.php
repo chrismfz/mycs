@@ -22,9 +22,10 @@ final class DomainSecDns
     {
         $add = Rules::dsRecords($add);
         if ($remove !== true) {
-            $remove = Rules::dsRecords($remove);
+            $remove = Rules::dsRecords($remove, adding: false);
         }
         Rules::notEmpty($add !== [] || $remove === true || $remove !== []);
+        // Ours, not the registry's: one record both added and removed at once is a mistake here (review 5 of #209).
         foreach ($add as $record) {
             if ($remove !== true && array_filter($remove, fn (DsRecord $r) => $r->same($record)) !== []) {
                 throw new \InvalidArgumentException("A DS record both added and removed (key tag {$record->keyTag}).");

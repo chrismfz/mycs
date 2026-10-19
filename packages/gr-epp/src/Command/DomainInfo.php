@@ -64,8 +64,20 @@ final class DomainInfo
         $dsRecords = [];
         foreach ($xpath->query('//secDNS:infData/secDNS:dsData') as $record) {
             if ($record instanceof DOMElement) {
-                $dsRecords[] = new DsRecord((int) Read::text($xpath, 'secDNS:keyTag', $record), (int) Read::text($xpath, 'secDNS:alg', $record),
-                    (int) Read::text($xpath, 'secDNS:digestType', $record), strtoupper(trim((string) Read::text($xpath, 'secDNS:digest', $record))));
+                // Numbers as numbers, never a missing one read as 0 (review 3 of #209).
+                $number = function (string $field) use ($xpath, $record): int {
+                    $value = trim((string) Read::text($xpath, "secDNS:{$field}", $record));
+                    if (!ctype_digit($value) || strlen($value) > 5) {
+                        throw new OutcomeUnknown("The registry gave a DS {$field} that is not a number: {$value}");
+                    }
+
+                    return (int) $value;
+                };
+                $digest = strtoupper((string) preg_replace('/\s+/', '', (string) Read::text($xpath, 'secDNS:digest', $record)));
+                if (preg_match('/\A[0-9A-F]+\z/', $digest) !== 1) {
+                    throw new OutcomeUnknown('The registry gave a DS digest that is not hex.');
+                }
+                $dsRecords[] = new DsRecord($number('keyTag'), $number('alg'), $number('digestType'), $digest);
             }
         }
 

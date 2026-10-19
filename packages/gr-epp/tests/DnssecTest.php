@@ -6,6 +6,7 @@ use InvalidArgumentException;
 use MyCS\GrEpp\Command\DomainInfo;
 use MyCS\GrEpp\Command\DomainSecDns;
 use MyCS\GrEpp\Data\DsRecord;
+use MyCS\GrEpp\OutcomeUnknown;
 use MyCS\GrEpp\Response;
 use PHPUnit\Framework\TestCase;
 
@@ -47,27 +48,42 @@ final class DnssecTest extends TestCase
 
     public function test_what_the_registry_refuses_is_never_sent(): void
     {
+        // Each for its own reason (review 6 of #209: a rule refusing everything would pass a bare «it threw»).
         foreach ([
-            'nothing to change' => fn () => DomainSecDns::request('cdnet.gr', 'mycs-1'),
-            'an algorithm it does not take' => fn () => DomainSecDns::request('cdnet.gr', 'mycs-1', add: [self::ds(algorithm: 15)]),
-            'a digest type it does not take' => fn () => DomainSecDns::request('cdnet.gr', 'mycs-1', add: [self::ds(digestType: 5)]),
-            'a digest of the wrong length' => fn () => DomainSecDns::request('cdnet.gr', 'mycs-1', add: [self::ds(digestType: 4)]),
-            'a digest not hex' => fn () => DomainSecDns::request('cdnet.gr', 'mycs-1', add: [self::ds(digest: str_repeat('G', 64))]),
-            'a key tag out of range' => fn () => DomainSecDns::request('cdnet.gr', 'mycs-1', add: [self::ds(65536)]),
-            'a negative key tag' => fn () => DomainSecDns::request('cdnet.gr', 'mycs-1', add: [self::ds(-1)]),
-            'seventeen' => fn () => DomainSecDns::request('cdnet.gr', 'mycs-1', add: array_map(fn (int $tag) => self::ds($tag), range(1, 17))),
-            'the same twice' => fn () => DomainSecDns::request('cdnet.gr', 'mycs-1', add: [self::ds(), self::ds(digest: strtolower(self::SHA256))]),
-            'added and removed' => fn () => DomainSecDns::request('cdnet.gr', 'mycs-1', add: [self::ds()], remove: [self::ds()]),
-            'a control character' => fn () => DomainSecDns::request("cdnet.gr\0.mine.gr", 'mycs-1', add: [self::ds()]),
+            'without changes' => fn () => DomainSecDns::request('cdnet.gr', 'mycs-1'),
+            'algorithm 15' => fn () => DomainSecDns::request('cdnet.gr', 'mycs-1', add: [self::ds(algorithm: 15)]),
+            'digest type 5' => fn () => DomainSecDns::request('cdnet.gr', 'mycs-1', add: [self::ds(digestType: 5)]),
+            'is 96 hex digits' => fn () => DomainSecDns::request('cdnet.gr', 'mycs-1', add: [self::ds(digestType: 4)]),
+            'is 64 hex digits' => fn () => DomainSecDns::request('cdnet.gr', 'mycs-1', add: [self::ds(digest: str_repeat('G', 64))]),
+            'not 65536' => fn () => DomainSecDns::request('cdnet.gr', 'mycs-1', add: [self::ds(65536)]),
+            'not -1' => fn () => DomainSecDns::request('cdnet.gr', 'mycs-1', add: [self::ds(-1)]),
+            'At most 16' => fn () => DomainSecDns::request('cdnet.gr', 'mycs-1', add: array_map(fn (int $tag) => self::ds($tag), range(1, 17))),
+            'twice' => fn () => DomainSecDns::request('cdnet.gr', 'mycs-1', add: [self::ds(), self::ds(digest: strtolower(self::SHA256))]),
+            'twice ' => fn () => DomainSecDns::request('cdnet.gr', 'mycs-1', add: [self::ds(), self::ds(digest: self::SHA256 . "\n")]),
+            'both added and removed' => fn () => DomainSecDns::request('cdnet.gr', 'mycs-1', add: [self::ds()], remove: [self::ds()]),
+            'control character' => fn () => DomainSecDns::request("cdnet.gr\0.mine.gr", 'mycs-1', add: [self::ds()]),
+            '0 to 255' => fn () => DomainSecDns::request('cdnet.gr', 'mycs-1', remove: [self::ds(algorithm: 256)]),
+            'is hex digits' => fn () => DomainSecDns::request('cdnet.gr', 'mycs-1', remove: [self::ds(algorithm: 16, digestType: 9, digest: 'XYZ')]),
         ] as $why => $call) {
             try {
                 $call();
                 $this->fail("sent: {$why}");
-            } catch (InvalidArgumentException) {
-                $this->addToAssertionCount(1);
+            } catch (InvalidArgumentException $e) {
+                $this->assertStringContainsString(trim($why), $e->getMessage());
             }
         }
-        QueriesTest::assertValid(DomainSecDns::request('cdnet.gr', 'mycs-1', add: array_map(fn (int $tag) => self::ds($tag), range(1, 16))), 'sixteen: its limit');
+    }
+
+    public function test_what_it_takes_at_its_edges(): void
+    {
+        // Its limits taken: key tags 0 and 65535, sixteen added or removed, a digest as `dig` prints it (review 1, 2, 6).
+        QueriesTest::assertValid(DomainSecDns::request('cdnet.gr', 'mycs-1', add: [self::ds(0), self::ds(65535)]));
+        QueriesTest::assertValid(DomainSecDns::request('cdnet.gr', 'mycs-1', add: array_map(fn (int $tag) => self::ds($tag), range(1, 16))));
+        QueriesTest::assertValid(DomainSecDns::request('cdnet.gr', 'mycs-1', remove: array_map(fn (int $tag) => self::ds($tag), range(1, 16))));
+        $xml = DomainSecDns::request('cdnet.gr', 'mycs-1', add: [self::ds(digest: implode(' ', str_split(strtolower(self::SHA256), 32)) . "\n")]);
+        $this->assertStringContainsString('<secDNS:digest>' . self::SHA256 . '</secDNS:digest>', $xml, 'its spaces and newline dropped');
+        // One the registry no longer lists, or another registrar's (Ed25519, 15): still removed by itself (review 4).
+        QueriesTest::assertValid(DomainSecDns::request('cdnet.gr', 'mycs-1', remove: [self::ds(algorithm: 15)]));
     }
 
     public function test_its_ds_records_are_read(): void
@@ -93,5 +109,19 @@ final class DnssecTest extends TestCase
     {
         $info = DomainInfo::parse(Response::parse((string) file_get_contents(__DIR__ . '/fixtures/v4.3/36-domain-info-response.xml')));
         $this->assertSame([], $info->dsRecords);
+    }
+
+    public function test_a_ds_record_the_registry_gives_oddly_is_not_read_as_zeros(): void
+    {
+        // Review 3 of #209: an empty key tag is not key tag 0.
+        $answer = '<?xml version="1.0" encoding="UTF-8"?><epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><response><result code="1000"><msg>ok</msg></result>'
+            . '<resData><domain:infData xmlns:domain="urn:ietf:params:xml:ns:domain-1.0"><domain:name>cdnet.gr</domain:name><domain:roid>d1-gr</domain:roid>'
+            . '<domain:clID>myip</domain:clID></domain:infData></resData><extension><secDNS:infData xmlns:secDNS="urn:ietf:params:xml:ns:secDNS-1.1">'
+            . '<secDNS:dsData><secDNS:keyTag></secDNS:keyTag><secDNS:alg>13</secDNS:alg><secDNS:digestType>2</secDNS:digestType>'
+            . '<secDNS:digest>' . self::SHA256 . '</secDNS:digest></secDNS:dsData></secDNS:infData></extension>'
+            . '<trID><clTRID>mycs-1</clTRID><svTRID>s</svTRID></trID></response></epp>';
+
+        $this->expectException(OutcomeUnknown::class);
+        DomainInfo::parse(Response::parse($answer), 'cdnet.gr');
     }
 }
