@@ -214,5 +214,76 @@
             </dl>
             @endif
         </div>
+
+        {{-- DNSSEC (P3): DS records at the .gr registry, DNSKEYs elsewhere; read when asked, changed as the admin does. --}}
+        @if ($dnssecKind)
+        <div class="mt-6">
+            <div class="flex items-center gap-3 mb-2">
+                <h4 class="text-lg font-semibold">DNSSEC</h4>
+                <button type="button" class="text-sm underline" wire:click="readDnssec" wire:loading.attr="disabled">{{ __('domains.portal.dnssec_read_now') }}</button>
+                @if ($dnssec !== null && !$editDnssec)
+                <button type="button" class="text-sm underline" wire:click="startDnssec">{{ __('domains.portal.change') }}</button>
+                @endif
+            </div>
+            @if ($editDnssec)
+            <form wire:submit="saveDnssec" class="space-y-3">
+                <p class="text-sm text-warning">{{ $dnssecKind === \App\Support\Domains\DnssecRecord::DS ? __('domains.portal.dnssec_ds_help') : __('domains.portal.dnssec_dnskey_help') }}</p>
+                @foreach ($dnssecRows as $i => $row)
+                <div class="grid sm:grid-cols-4 gap-2 items-start border border-neutral rounded-md p-2" wire:key="dnssec-{{ $i }}">
+                    @if ($dnssecKind === \App\Support\Domains\DnssecRecord::DS)
+                    <x-form.input name="dnssecRows.{{ $i }}.key_tag" wire:model="dnssecRows.{{ $i }}.key_tag" placeholder="Key tag" />
+                    <select wire:model="dnssecRows.{{ $i }}.algorithm" class="bg-background-secondary border border-neutral rounded-md px-2 py-1 text-sm" aria-label="{{ __('domains.portal.dnssec_algorithm') }}">
+                        <option value="">{{ __('domains.portal.dnssec_algorithm') }}</option>
+                        @foreach (\App\Support\Domains\DnssecOptions::algorithms($dnssecKind, $row['algorithm'] ?? null) as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach
+                    </select>
+                    <select wire:model="dnssecRows.{{ $i }}.digest_type" class="bg-background-secondary border border-neutral rounded-md px-2 py-1 text-sm" aria-label="{{ __('domains.portal.dnssec_digest_type') }}">
+                        <option value="">{{ __('domains.portal.dnssec_digest_type') }}</option>
+                        @foreach (\App\Support\Domains\DnssecOptions::digestTypes($row['digest_type'] ?? null) as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach
+                    </select>
+                    <button type="button" class="text-sm underline justify-self-start" wire:click="removeDnssecRow({{ $i }})">{{ __('domains.portal.remove') }}</button>
+                    <div class="sm:col-span-4"><x-form.input name="dnssecRows.{{ $i }}.digest" wire:model="dnssecRows.{{ $i }}.digest" placeholder="Digest" /></div>
+                    @else
+                    <select wire:model="dnssecRows.{{ $i }}.flags" class="bg-background-secondary border border-neutral rounded-md px-2 py-1 text-sm" aria-label="Flags">
+                        <option value="">Flags</option>
+                        @foreach (\App\Support\Domains\DnssecOptions::flags($row['flags'] ?? null) as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach
+                    </select>
+                    <select wire:model="dnssecRows.{{ $i }}.algorithm" class="bg-background-secondary border border-neutral rounded-md px-2 py-1 text-sm" aria-label="{{ __('domains.portal.dnssec_algorithm') }}">
+                        <option value="">{{ __('domains.portal.dnssec_algorithm') }}</option>
+                        @foreach (\App\Support\Domains\DnssecOptions::algorithms($dnssecKind, $row['algorithm'] ?? null) as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach
+                    </select>
+                    <span></span>
+                    <button type="button" class="text-sm underline justify-self-start" wire:click="removeDnssecRow({{ $i }})">{{ __('domains.portal.remove') }}</button>
+                    <div class="sm:col-span-4"><textarea wire:model="dnssecRows.{{ $i }}.public_key" rows="2" class="w-full bg-background-secondary border border-neutral rounded-md px-2 py-1 text-sm font-mono" placeholder="Public key"></textarea></div>
+                    @endif
+                    @foreach (['key_tag', 'algorithm', 'digest_type', 'digest', 'flags', 'public_key'] as $field)
+                    @error('dnssecRows.' . $i . '.' . $field) <p class="sm:col-span-4 text-sm text-error">{{ $message }}</p> @enderror
+                    @endforeach
+                </div>
+                @endforeach
+                <div class="flex gap-3">
+                    @if (count($dnssecRows) < 16)
+                    <button type="button" class="text-sm underline" wire:click="addDnssecRow">{{ __('domains.portal.dnssec_add') }}</button>
+                    @endif
+                    <x-button.primary class="!w-fit" type="submit" wire:loading.attr="disabled"
+                        wire:confirm="{{ count($dnssecRows) === 0 ? __('domains.portal.dnssec_unsign_confirm') : __('domains.portal.dnssec_save_confirm') }}">{{ __('domains.portal.save') }}</x-button.primary>
+                    <button type="button" class="text-sm underline" wire:click="$set('editDnssec', false)">{{ __('domains.portal.cancel') }}</button>
+                </div>
+            </form>
+            @elseif ($dnssec === null)
+            <p class="text-sm text-base/60">{{ __('domains.portal.dnssec_not_read') }}</p>
+            @else
+            <ul class="text-base/60 font-mono text-sm space-y-0.5 break-all">
+                @forelse ($dnssec as $record)
+                <li>{{ $record->label() }}</li>
+                @empty
+                <li class="font-sans">{{ __('domains.portal.dnssec_unsigned') }}</li>
+                @endforelse
+            </ul>
+            @if (is_string($domain->meta['dnssec']['note'] ?? null))
+            <p class="text-xs text-base/60 mt-1">{{ __('domains.portal.dnssec_note') }}</p>
+            @endif
+            @endif
+        </div>
+        @endif
     </div>
 </div>
