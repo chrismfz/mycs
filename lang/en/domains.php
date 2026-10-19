@@ -71,6 +71,9 @@ return [
     // The client area (D7-2).
     'portal' => [
         'contacts' => 'Contacts',
+        'registrant_locked_here' => 'The registrant (holder) cannot be changed here: its registrar does not allow a simple change (it may be a paid trade). Contact us.',
+        'contact_required' => 'Choose a contact: this role cannot be left empty.',
+        'contacts_need_us' => 'The contacts of this domain need a check from us first: contact us and we will change them for you.',
         'contacts_saved' => 'Contacts changed at the registrar.',
         'registrant_locked' => 'The registrant (holder) cannot be changed here: at the .gr registry a change of the holder\'s name or a transfer to another holder is a charged act we do for you, and elsewhere only where the registrar allows it. Contact us.',
         'contacts_help' => 'Choose among your account\'s contacts; to add one or correct its details, go to :link.',

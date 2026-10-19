@@ -160,7 +160,7 @@
                     <label class="block text-sm mb-1" for="contact-{{ $role }}">{{ __('domains.role.' . $role) }}</label>
                     <select id="contact-{{ $role }}" wire:model="contactRoles.{{ $role }}" class="w-full bg-background-secondary border border-neutral rounded-md px-2 py-1 text-sm"
                         @disabled($role === 'registrant' && !$registrantChangeable)>
-                        @if ($role !== 'registrant')
+                        @if ($domain->{$role . '_contact_id'} === null)
                         <option value="">—</option>
                         @endif
                         @foreach ($contactOptions as $id => $label)
@@ -168,12 +168,14 @@
                         @endforeach
                     </select>
                     @if ($role === 'registrant' && !$registrantChangeable)
-                    <p class="text-xs text-base/60 mt-1">{{ __('domains.portal.registrant_locked') }}</p>
+                    <p class="text-xs text-base/60 mt-1">{{ $registrantLocked }}</p>
                     @endif
                     @error('contactRoles.' . $role) <p class="text-sm text-error">{{ $message }}</p> @enderror
                 </div>
                 @endforeach
+                @if ($seesContacts)
                 <p class="text-xs text-base/60">{!! __('domains.portal.contacts_help', ['link' => '<a href="' . e(route('account.contacts')) . '" wire:navigate class="underline">' . e(__('domains.portal.account_contacts')) . '</a>']) !!}</p>
+                @endif
                 <div class="flex gap-3">
                     <x-button.primary class="!w-fit" type="submit" wire:loading.attr="disabled">{{ __('domains.portal.save') }}</x-button.primary>
                     <button type="button" class="text-sm underline" wire:click="$set('editContacts', false)">{{ __('domains.portal.cancel') }}</button>
@@ -182,7 +184,8 @@
             @else
             <dl class="grid sm:grid-cols-2 gap-x-6 gap-y-1 text-sm">
                 @foreach (\App\Models\Domain::ROLES as $role)
-                @php($contact = $domain->{$role . 'Contact'})
+                {{-- Only this account's: one left by a move from another account is never shown (ADV-F2 of #219). --}}
+                @php($contact = $domain->{$role . 'Contact'}?->client_id === $domain->client_id ? $domain->{$role . 'Contact'} : null)
                 <div class="flex gap-2">
                     <dt>{{ __('domains.role.' . $role) }}:</dt>
                     <dd class="text-base/60">{{ $contact ? trim(trim($contact->first_name . ' ' . $contact->last_name) . ($contact->company_name ? ' · ' . $contact->company_name : '')) : '—' }}</dd>

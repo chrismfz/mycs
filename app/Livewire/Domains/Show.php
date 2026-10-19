@@ -17,6 +17,7 @@ use App\Services\Domains\DomainRenewalService;
 use App\Services\Domains\DomainRenewalYears;
 use App\Services\Domains\RegistrarRefused;
 use App\Support\Actor;
+use App\Support\CurrentClient;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
@@ -43,7 +44,7 @@ class Show extends Component
 
     public bool $editNameservers = false;
 
-    /** @var array<string, int|string|null> role => one of the account's contacts (P1 of the portal) */
+    /** @var array<string, mixed> role => one of the account's contacts (P1 of the portal): as the browser sent it, checked on save */
     public array $contactRoles = [];
 
     public bool $editContacts = false;
@@ -58,12 +59,27 @@ class Show extends Component
     private function contactOptions(): array
     {
         $now = array_filter(array_map(fn (string $role) => $this->domain->{"{$role}_contact_id"}, Domain::ROLES));
+        // Their emails only to who may see the account's contacts (review 2 of #219: names are enough to choose).
+        $emails = $this->seesContacts();
 
         return Contact::query()->where('client_id', $this->domain->client_id)
             ->where(fn ($q) => $q->whereNull('archived_at')->orWhereIn('id', $now))
             ->orderBy('first_name')->orderBy('last_name')->get()
-            ->mapWithKeys(fn (Contact $c) => [$c->id => trim(trim($c->first_name . ' ' . $c->last_name) . ($c->company_name ? ' · ' . $c->company_name : '')) . ' <' . $c->email . '>'])
+            ->mapWithKeys(fn (Contact $c) => [$c->id => trim(trim($c->first_name . ' ' . $c->last_name) . ($c->company_name ? ' · ' . $c->company_name : ''))
+                . ($emails ? ' <' . $c->email . '>' : '')])
             ->all();
+    }
+
+    /** May the login see the account's contacts (where the help's link leads)? Staff in «Login as client» may. */
+    private function seesContacts(): bool
+    {
+        return Actor::impersonating() || CurrentClient::allows('contacts');
+    }
+
+    /** A .gr / .ελ name (its fqdn is kept in punycode). */
+    private function atGrRegistry(): bool
+    {
+        return preg_match('/\.(gr|xn--qxam)\z/', mb_strtolower($this->domain->fqdn)) === 1;
     }
 
     /**
@@ -73,13 +89,14 @@ class Show extends Component
      */
     public function registrantChangeable(): bool
     {
-        return preg_match('/\.(gr|ελ|xn--qxam)\z/u', mb_strtolower($this->domain->fqdn)) !== 1
-            && ($this->domain->meta['registrar']['modify_owner_allowed'] ?? null) === true;
+        return !$this->atGrRegistry() && ($this->domain->meta['registrar']['modify_owner_allowed'] ?? null) === true;
     }
 
     /**
      * Its contacts by role, from the account's contacts (P1 of the portal): sent to the registrar as staff's «Change
-     * contacts» does (DomainManagementService::setContacts: every role linked, the holder only where it may change).
+     * contacts» does (DomainManagementService::setContacts: every role linked, the holder only where it may change). What
+     * only staff can sort out (a role not linked to the registrar's, the registry's own refusals) is said in the customer's
+     * words (review 1 of #219); the choices stay as typed when it is not done (review 3).
      */
     public function saveContacts(): void
     {
@@ -88,20 +105,39 @@ class Show extends Component
         $wanted = [];
         foreach (Domain::ROLES as $role) {
             $id = $this->contactRoles[$role] ?? null;
-            $id = $id === null || $id === '' ? null : (int) $id;
+            if ($id !== null && !is_scalar($id)) { // a tampered value (an array): refused, never read as none
+                $this->addError("contactRoles.{$role}", __('domains.manage.contact_not_the_accounts'));
+
+                return;
+            }
+            $id = $id !== '' && $id !== null ? (int) $id : null;
+            if ($id === $this->domain->{"{$role}_contact_id"}) {
+                continue; // unchanged: never checked again (review 5: one moved from another account blocks nothing)
+            }
             if ($id !== null && !array_key_exists($id, $options)) {
                 $this->addError("contactRoles.{$role}", __('domains.manage.contact_not_the_accounts'));
 
                 return;
             }
-            if ($role === 'registrant' && $id !== $this->domain->registrant_contact_id && !$this->registrantChangeable()) {
-                $this->addError('contactRoles.registrant', __('domains.portal.registrant_locked'));
+            // An archived contact only where it is already (ADV-F5 of #219), never spread to another role.
+            if ($id !== null && Contact::query()->whereKey($id)->whereNotNull('archived_at')->exists()) {
+                $this->addError("contactRoles.{$role}", __('domains.manage.contact_not_the_accounts'));
 
                 return;
             }
-            if ($id !== $this->domain->{"{$role}_contact_id"}) {
-                $wanted[$role] = $id;
+            if ($role === 'registrant' && !$this->registrantChangeable()) {
+                $this->addError('contactRoles.registrant', __($this->atGrRegistry() ? 'domains.portal.registrant_locked' : 'domains.portal.registrant_locked_here'));
+
+                return;
             }
+            // A role is never emptied here (ADV-F4 of #219: the registrar keeps the one it has, so «none» would be a
+            // change said and not made; the .gr registry keeps one on each role anyway): another contact instead.
+            if ($id === null) {
+                $this->addError("contactRoles.{$role}", __('domains.portal.contact_required'));
+
+                return;
+            }
+            $wanted[$role] = $id;
         }
         if ($wanted === []) {
             $this->editContacts = false;
@@ -111,11 +147,33 @@ class Show extends Component
         if (!$this->mayCallRegistrar()) {
             return;
         }
-        if ($this->atRegistrar(fn () => $this->management()->setContacts($this->domain, $wanted, $this->actor()), __('domains.portal.contacts_saved'))) {
-            $this->editContacts = false;
+        // Linked first, as setContacts asks (staff's «Link here»): ours to do, said so before anything is sent.
+        $management = $this->management();
+        foreach (Domain::ROLES as $role) {
+            if (!array_key_exists($role, $wanted) && $this->domain->{"{$role}_contact_id"} !== null && $management->isUnlinked($this->domain, $role)) {
+                $this->notify(__('domains.portal.contacts_need_us'), 'error');
+
+                return;
+            }
         }
-        $this->domain->refresh();
-        $this->mount();
+        if ($this->domain->registrant_contact_id !== null && !array_key_exists('registrant', $wanted) && trim((string) $this->domain->registrant_handle) === '') {
+            $this->notify(__('domains.portal.contacts_need_us'), 'error');
+
+            return;
+        }
+        $saved = $this->atRegistrar(function () use ($management, $wanted) {
+            try {
+                $management->setContacts($this->domain, $wanted, $this->actor());
+            } catch (InvalidArgumentException $e) {
+                report($e); // staff's words (or the registry's, in English): the customer's instead
+                throw new DisplayException(__('domains.portal.contacts_need_us'));
+            }
+        }, __('domains.portal.contacts_saved'));
+        if ($saved) {
+            $this->editContacts = false;
+            $this->domain->refresh();
+            $this->contactRoles = collect(Domain::ROLES)->mapWithKeys(fn (string $role) => [$role => $this->domain->{"{$role}_contact_id"}])->all();
+        }
     }
 
     private function management(): DomainManagementService
@@ -423,6 +481,8 @@ class Show extends Component
             'openInvoice' => $seesInvoices ? $this->openInvoice() : null,
             'contactOptions' => $manageable && $this->editContacts ? $this->contactOptions() : [],
             'registrantChangeable' => $this->registrantChangeable(),
+            'registrantLocked' => __($this->atGrRegistry() ? 'domains.portal.registrant_locked' : 'domains.portal.registrant_locked_here'),
+            'seesContacts' => $this->seesContacts(),
         ])->layoutData([
             'title' => $this->domain->fqdn,
             'sidebar' => true,
