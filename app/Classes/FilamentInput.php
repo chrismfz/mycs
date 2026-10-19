@@ -25,6 +25,15 @@ class FilamentInput
      */
     public static function convert($setting)
     {
+        $component = self::build($setting);
+        // A setting shown only with another one's value (e.g. ALTCHA's, with that captcha chosen).
+        $hidden = is_array($setting) ? ($setting['hidden'] ?? null) : (!method_exists($setting, 'getName') ? ($setting->hidden ?? null) : null);
+
+        return $hidden !== null && is_object($component) && method_exists($component, 'hidden') ? $component->hidden($hidden) : $component;
+    }
+
+    private static function build($setting)
+    {
         // If its already a filament component, return it
         if (is_object($setting) && method_exists($setting, 'getName')) {
             return $setting;
