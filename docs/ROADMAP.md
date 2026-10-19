@@ -47,6 +47,13 @@ importer):
 - **Webhooks στη μεταβατική περίοδο:** Stripe/PayPal στέλνουν σε ένα endpoint ανά λογαριασμό· τι γίνεται με γεγονότα που
   αφορούν ακόμα το WHMCS, ειδικά οι 5 ενεργές legacy συνδρομές PayPal (PAY-10/PAY-11 στο Σ3).
 - **Ενημέρωση πελατών της nixpal:** νέο URL/login, ίσως reset κωδικών αν δεν περάσουν τα bcrypt· email και template.
+- **Links των sites (WordPress) προς το clientarea** (προστέθηκε 2026-10-19): δεν κρατάμε legacy URLs του WHMCS
+  (`admin-ux.md`, «Απευθείας links»), άρα στο cut-over αλλάζουν στα URLs του MyCS (το «Order link» του admin). Μετρημένα
+  2026-10-19: myip.gr `cart.php?a=add&domain=register|transfer` (~45 το καθένα), `domain/pricing`, `clientarea.php`
+  (`?action=domains`), `supporttickets.php`, `submitticket.php?step=2&deptid=N` (31), `store/{ομάδα}`· nixpal.com
+  `submitticket.php?step=2&deptid=N` (73), `login`, `clientarea.php`, `store/{ομάδα}/{προϊόν}[?billingcycle=…]`,
+  `contact.php`. Τα παλιά emails τιμολογίων (`viewinvoice.php?id=`) δεν θα ανοίγουν: ο πελάτης βρίσκει το τιμολόγιο
+  μετά το login.
 
 ## Παράλληλα, από τώρα (ανεξάρτητα από φάση)
 - [x] **.gr EPP:** η IP του devbox (84.54.49.31) δηλώθηκε στο Μητρώο .GR (2026-10-11).

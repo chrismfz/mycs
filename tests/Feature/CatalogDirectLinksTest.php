@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Admin\Resources\CategoryResource\Pages\EditCategory;
 use App\Admin\Resources\ProductResource\Pages\EditProduct;
 use App\Exceptions\DisplayException;
+use App\Livewire\Products\Checkout;
 use App\Models\Category;
 use App\Models\Plan;
 use App\Models\Price;
@@ -125,5 +126,16 @@ class CatalogDirectLinksTest extends TestCase
         $service = Service::factory()->create(['client_id' => $client->id, 'product_id' => $this->listed->id, 'plan_id' => $this->plan($this->listed, 1, 'month')->id,
             'status' => Service::STATUS_ACTIVE, 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1, 'expires_at' => now()->addMonth()]);
         $this->assertSame([$this->hidden->id], $service->productUpgrades()->pluck('id')->values()->all());
+    }
+
+    /** The «Order link» with ?plan= opens the checkout on that plan, its billing cycle chosen (docs/admin-ux.md). */
+    public function test_the_order_link_with_a_plan_opens_on_that_plan(): void
+    {
+        config(['settings.default_currency' => 'USD']);
+        $biennial = $this->plan($this->hidden, 2, 'year');
+
+        Livewire::withQueryParams(['plan' => $biennial->id])
+            ->test(Checkout::class, ['category' => $this->shop, 'product' => 'custom'])
+            ->assertSet('plan_id', $biennial->id);
     }
 }
