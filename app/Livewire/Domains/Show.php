@@ -302,12 +302,11 @@ class Show extends Component
 
             return;
         }
-        $changed = false;
-        $done = $this->atRegistrar(function () use ($records, $expected, &$changed) {
+        $done = $this->atRegistrar(function () use ($records, $expected) {
             try {
                 $this->management()->setDnssec($this->domain, $records, $this->actor(), $expected);
             } catch (DnssecChangedSinceRead) {
-                $changed = true;
+                $this->editDnssec = false; // the records were read again: the form closes (review L2 of #223)
                 throw new DisplayException(__('domains.portal.dnssec_changed'));
             } catch (RegistrarOutcomeUnknown $e) {
                 report($e);
@@ -318,8 +317,7 @@ class Show extends Component
             }
         }, __('domains.portal.dnssec_saved'));
         $this->domain->refresh();
-        // Done, or changed since read (the records were read again): the form closes (review L2 of #223).
-        if ($done || $changed) {
+        if ($done) {
             $this->editDnssec = false;
         }
     }
