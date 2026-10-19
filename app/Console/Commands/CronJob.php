@@ -41,6 +41,7 @@ use App\Services\Mcp\Proposals;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Payment\AutoCharge;
 use App\Services\Payment\CardExpiryNotices;
+use App\Services\Service\SuspensionDigest;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
@@ -73,6 +74,12 @@ class CronJob extends Command
 
     /** @var array<string, Throwable> what staff must look at, though nothing failed (an invoice left open): mailed, the run succeeds */
     private array $notices = [];
+
+    /** @var list<int> services suspended for non-payment in this run (committed): the staff digest */
+    private array $suspended = [];
+
+    /** @var list<int> services terminated for non-payment in this run (committed): the staff digest */
+    private array $terminated = [];
 
     /**
      * Execute the console command.
@@ -419,7 +426,7 @@ class CronJob extends Command
                 }
                 foreach ($this->suspendable(overdueInvoice: $requiresInvoice)->pluck('id') as $id) {
                     try {
-                        $number += DB::transaction(function () use ($id, $requiresInvoice) {
+                        $done = DB::transaction(function () use ($id, $requiresInvoice) {
                             $service = $this->suspendable(overdueInvoice: $requiresInvoice)->whereKey($id)->lockForUpdate()->first();
                             if ($service === null) {
                                 return 0;
@@ -430,6 +437,10 @@ class CronJob extends Command
 
                             return 1;
                         });
+                        $number += $done;
+                        if ($done === 1) {
+                            $this->suspended[] = (int) $id;
+                        }
                     } catch (Throwable $e) {
                         report($e);
                         $this->failures["services_suspended #{$id}"] = $e;
@@ -448,7 +459,7 @@ class CronJob extends Command
                 // BIL-4). One service per transaction (BIL-10), the rule read again under its lock.
                 foreach ($this->terminable()->pluck('id') as $id) {
                     try {
-                        $number += DB::transaction(function () use ($id) {
+                        $done = DB::transaction(function () use ($id) {
                             $service = $this->terminable()->whereKey($id)->lockForUpdate()->first();
                             if ($service === null) {
                                 return 0;
@@ -467,6 +478,10 @@ class CronJob extends Command
 
                             return 1;
                         });
+                        $number += $done;
+                        if ($done === 1) {
+                            $this->terminated[] = (int) $id;
+                        }
                     } catch (Throwable $e) {
                         report($e);
                         $this->failures["services_terminated #{$id}"] = $e;
@@ -525,6 +540,15 @@ class CronJob extends Command
                     The cron job left these for staff:<br>
                     <pre>{$notices}</pre>
                     HTML);
+            }
+
+            // What went down today, per service (as WHMCS's «Cron Job Activity»): staff unsuspend or hold the ones
+            // they want kept. Also on a run with failures: these suspensions happened all the same.
+            try {
+                SuspensionDigest::send($this->suspended, $this->terminated);
+            } catch (Throwable $e) {
+                report($e);
+                $this->failures['suspension_digest'] = $e;
             }
 
             if ($this->failures !== []) {
