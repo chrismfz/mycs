@@ -29,15 +29,19 @@ class EditOrder extends EditRecord
             Action::make('accept')->label('Accept Order')->icon('ri-check-double-line')->color('success')
                 ->visible(fn (Order $record) => $record->status === Order::STATUS_PENDING)
                 ->authorize('update')
-                ->modalDescription('The order turns active and its pending services are set up, paid or not.')
+                ->modalDescription('You looked at it: the order turns active. What waits for staff is set up (a product set up on Accept, a paid service not set up yet); a service still waiting for its payment keeps waiting, unless you start it below.')
                 ->schema([
                     Checkbox::make('run_create')->label('Run module create')->default(true)
-                        ->helperText('Unticked: the services turn active as they are (built by hand).'),
+                        ->helperText('Unticked: the services set up now turn active as they are (built by hand).'),
                     Checkbox::make('send_email')->label('Send welcome email')->default(true),
+                    Checkbox::make('start_unpaid')->label('Also start the services not paid yet')->default(false)
+                        ->helperText('They are set up now, their invoices stay due; the cron no longer cancels the order as unpaid.')
+                        ->visible(fn (Order $record) => Service::query()->where('order_id', $record->id)->where('status', Service::STATUS_PENDING)->get()
+                            ->contains(fn (Service $service) => AcceptOrder::waitsForPayment($service))),
                 ])
                 ->action(function (Order $record, array $data) {
                     try {
-                        AcceptOrder::handle($record, self::staff(), (bool) $data['run_create'], (bool) $data['send_email']);
+                        AcceptOrder::handle($record, self::staff(), (bool) $data['run_create'], (bool) $data['send_email'], (bool) ($data['start_unpaid'] ?? false));
                     } catch (Throwable $e) {
                         if (!$e instanceof DisplayException) {
                             report($e);

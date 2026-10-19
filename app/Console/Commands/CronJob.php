@@ -318,6 +318,8 @@ class CronJob extends Command
                             if ($service->product?->stock !== null) {
                                 $service->product->increment('stock', $service->quantity);
                             }
+                            // Accepted (looked at) or not, an order with nothing left is cancelled (as WHMCS).
+                            $service->order?->refreshStatus(unpaid: true);
 
                             return 1;
                         });
@@ -347,7 +349,7 @@ class CronJob extends Command
                                 return 0;
                             }
                             $domain->update(['status' => DomainStatus::Cancelled]);
-                            $domain->order?->refreshStatus();
+                            $domain->order?->refreshStatus(unpaid: true);
 
                             return 1;
                         });
@@ -596,8 +598,10 @@ class CronJob extends Command
     private function unpaidOrders(int $days): Builder
     {
         return Service::query()->where('status', Service::STATUS_PENDING)->where('created_at', '<', now()->subDays($days))
-            // Not one of an order staff accepted (paid or not, decision 4; its create may still be failing: ADV-4).
-            ->whereDoesntHave('order', fn ($order) => $order->whereNotNull('accepted_at'))
+            // Not one of an order whose Accept started a service not paid yet (decision 4; its create may still be failing:
+            // ADV-4). An order staff only accepted, its services waiting for their payment, is cancelled as any other
+            // (owner 2026-10-19: Accept is staff's look, every order waits for it).
+            ->whereDoesntHave('order', fn ($order) => $order->whereNotNull('started_unpaid_at'))
             ->whereHas('invoices', fn ($invoices) => $invoices->whereIn('invoices.status', [Invoice::STATUS_UNPAID, Invoice::STATUS_CANCELLED]))
             ->whereDoesntHave('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_PAID))
             ->whereDoesntHave('invoices', fn ($invoices) => $this->withRealMoney($invoices));
@@ -617,7 +621,7 @@ class CronJob extends Command
 
     /**
      * Domains of an order (D8b), pending since $days ago, their registration or transfer not paid nor on its way: never
-     * paid, no money from a gateway or a transfer, not an order staff accepted.
+     * paid, no money from a gateway or a transfer (an accepted order too: Accept sends no domain).
      *
      * @return Builder<Domain>
      */
@@ -627,7 +631,7 @@ class CronJob extends Command
 
         return Domain::query()->whereIn('status', [DomainStatus::PendingRegister->value, DomainStatus::PendingTransfer->value])
             ->whereNotNull('order_id')->where('created_at', '<', now()->subDays($days))
-            ->whereDoesntHave('order', fn ($order) => $order->whereNotNull('accepted_at'))
+            // Accept sends no domain to its registrar: an accepted order's unpaid domain is cancelled as any other.
             // Never sent to its registrar (D8b-2 marks it once sent; a free transfer included, adversarial review).
             ->where(fn ($q) => $q->whereNull('meta')->orWhereNull('meta->sent_at'))
             // Its line open, or cancelled already with the rest of its order (code review H1: a service of the same order

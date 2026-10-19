@@ -192,7 +192,7 @@ class DomainOrderFulfilmentTest extends TestCase
         $this->assertNotNull($domain->meta['sent_at'] ?? null);
         $this->assertNotNull(InvoiceItem::query()->where('reference_id', $domain->id)->value('applied_at'));
         $this->assertSame(DomainRegistrarLog::STATUS_OK, DomainRegistrarLog::query()->where('domain_id', $domain->id)->where('action', 'register')->value('status'));
-        $this->assertSame(Order::STATUS_ACTIVE, Order::query()->sole()->status);
+        $this->assertSame(Order::STATUS_PENDING, Order::query()->sole()->status, 'registered: the order waits for staff\'s Accept (owner 2026-10-19: every order waits for staff\'s Accept, as WHMCS)');
         $this->assertSame(0, ModuleAction::query()->count());
         $this->assertContains(['domain_registered', 'Your domain mybusiness.com is registered'],
             MailFacade::queued(Mail::class)->map(fn (Mail $mail) => [$mail->templateKey, $mail->renderedSubject])->values()->all());
@@ -405,7 +405,7 @@ class DomainOrderFulfilmentTest extends TestCase
         ModuleAction::query()->sole()->markResolved(null);
         $domain->refresh();
         $this->assertSame([DomainStatus::Active, '2027-10-20'], [$domain->status, $domain->expires_at?->toDateString()]);
-        $this->assertSame(Order::STATUS_ACTIVE, Order::query()->sole()->status);
+        $this->assertSame(Order::STATUS_PENDING, Order::query()->sole()->status, 'for staff\'s Accept');
     }
 
     public function test_a_transfer_code_is_cleared_30_days_after_the_order_once_not_pending(): void

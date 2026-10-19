@@ -3,6 +3,7 @@
 namespace App\Admin\Resources;
 
 use App\Admin\Actions\CancelSubscriptionAction;
+use App\Admin\Actions\OrderBulkActions;
 use App\Admin\Components\ClientComponent;
 use App\Admin\Resources\OrderResource\Pages\CreateOrder;
 use App\Admin\Resources\OrderResource\Pages\EditOrder;
@@ -11,6 +12,7 @@ use App\Admin\Resources\OrderResource\RelationManagers\DomainRelationManager;
 use App\Admin\Resources\OrderResource\RelationManagers\ServiceRelationManager;
 use App\Models\Client;
 use App\Models\Currency;
+use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\Plan;
 use App\Models\Product;
@@ -223,7 +225,7 @@ class OrderResource extends Resource
     {
         return $table
             // The account's name is its owner's (until the contacts, PR 3): loaded with the rows, not per row.
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user']))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user', 'invoice']))
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -246,6 +248,18 @@ class OrderResource extends Resource
                     ->sortable(),
                 TextColumn::make('formattedTotal')
                     ->label('Total'),
+                // WHMCS's «Payment Status»: its own invoice paid or not (an order with nothing to pay has none).
+                TextColumn::make('payment_status')->label('Payment Status')->badge()
+                    ->state(fn (Order $record): string => match ($record->invoice?->status) {
+                        null => 'Nothing to pay',
+                        Invoice::STATUS_PAID => 'Paid',
+                        default => ucfirst((string) $record->invoice->status),
+                    })
+                    ->color(fn (string $state) => match ($state) {
+                        'Paid' => 'success',
+                        'Unpaid' => 'danger',
+                        default => 'gray',
+                    }),
                 TextColumn::make('notes')
                     ->label('Notes')
                     ->limit(40)
@@ -267,6 +281,9 @@ class OrderResource extends Resource
                 EditAction::make(),
             ])
             ->toolbarActions([
+                // WHMCS's «With Selected» on Pending Orders.
+                OrderBulkActions::accept(),
+                OrderBulkActions::cancel(),
                 BulkActionGroup::make([
                     // An order with services is refused by its guard (DATA-2) and counted as not deleted (R6 of #82).
                     DeleteBulkAction::make(),
