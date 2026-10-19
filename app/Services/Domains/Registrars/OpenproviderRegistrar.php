@@ -1052,7 +1052,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
             $message = 'Openprovider error ' . $response->status() . ': ' . (is_scalar($desc) && $desc !== '' ? mb_substr((string) $desc, 0, 300) : 'no description');
 
             // A 4xx is a refusal: nothing done. A 5xx may have been done (D5b-2 code review 1).
-            throw $response->clientError() ? new RegistrarRefused($message) : new RuntimeException($message);
+            throw $response->clientError() ? new RegistrarRefused($message, $response->status()) : new RuntimeException($message);
         }
 
         // Its envelope: a code other than 0 is an error, whatever the HTTP status (its API docs, 2026-10-19). Answered with

@@ -8,9 +8,12 @@ use App\Models\DomainTld;
 use App\Services\Domains\Lookup\DomainLookup;
 use App\Services\Domains\Registrars\GrEppRegistrar;
 use App\Services\Domains\Registrars\OpenproviderRegistrar;
+use App\Support\Domains\AvailabilityResult;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\RateLimiter;
+use MyCS\GrEpp\Refused;
 use Nixpal\DomainTools\DomainName;
 use Throwable;
 
@@ -23,6 +26,12 @@ use Throwable;
  * without a registrar, within a time budget; only definite answers are cached (5 minutes); a registrar that failed says
  * «could not check», never RDAP's «free» (it cannot see premium); at most GLOBAL_CHECKS registrar lookups a minute for
  * the whole site, so no one can spend the registrar account.
+ *
+ * Each registrar connection on its own (2026-10-19: one Openprovider timeout made every row «could not check»): a
+ * failure says «could not check» for that connection's names only; a batch the registrar refused because of a name (it
+ * answered: Openprovider's 400/422, the registry's 2005/2306) is asked again name by name, within REGISTRAR_TIMEOUT in
+ * all; one that did not answer (a timeout, no connection) is not, and that connection is left out of the
+ * searches for PAUSE seconds, so no search waits on it again meanwhile (docs/domains.md, D8a).
  */
 class DomainSearch
 {
@@ -34,6 +43,18 @@ class DomainSearch
 
     /** Seconds RDAP may take in all for one search (review R1). */
     public const RDAP_BUDGET = 8;
+
+    /** Seconds a registrar's check may take (Openprovider's; the .gr registry keeps its own 5): 5 was too short live. */
+    public const REGISTRAR_TIMEOUT = 10;
+
+    /** A failure after this many seconds is a registrar that does not answer, as a timeout is (the .gr registry's is 5). */
+    public const SLOW = 4;
+
+    /** Registrar requests a minute for asking a refused batch again name by name: apart, never the search's own budget. */
+    public const RETRY_CHECKS = 30;
+
+    /** Seconds a connection that did not answer is left out of the searches («could not check» at once). */
+    public const PAUSE = 30;
 
     public const FREE = 'free';
 
@@ -157,33 +178,42 @@ class DomainSearch
     }
 
     /**
+     * One connection's names: «could not check» for them alone when it fails (never RDAP's «free»: it cannot see a
+     * premium name, review R4 of #178).
+     *
      * @param  list<string>  $fqdns
      * @return array<string, string>
      */
     private function atRegistrar(DomainRegistrarConnection $connection, array $fqdns): array
     {
-        $unknown = array_fill_keys($fqdns, self::UNKNOWN);
-        // The whole site's budget at the registrar (review R2): past it, «could not check» until the minute turns.
-        if (RateLimiter::tooManyAttempts('domain-search-registrar', self::GLOBAL_CHECKS)) {
-            return $unknown;
+        $statuses = array_fill_keys($fqdns, self::UNKNOWN);
+        if (Cache::has(self::pauseKey($connection))) {
+            return $statuses; // it did not answer a moment ago: not waited on again
         }
-        RateLimiter::hit('domain-search-registrar', 60);
+        $started = microtime(true);
         try {
-            $registrar = $this->registrars->for($connection);
-            $credentials = $this->registrars->credentialsFor($connection);
-            // All of a search's names in one request where the registrar can (Openprovider, the .gr registry).
-            $results = $registrar instanceof OpenproviderRegistrar || $registrar instanceof GrEppRegistrar
-                ? $registrar->checkAvailabilityMany($fqdns, $credentials)
-                : collect($fqdns)->mapWithKeys(fn ($fqdn) => [$fqdn => $registrar->checkAvailability($fqdn, $credentials)])->all();
+            $results = $this->ask($connection, $fqdns);
         } catch (Throwable $e) {
-            // Reported once a minute per registrar, not for every search during an outage (review R11).
-            if (Cache::add("domain-search-registrar-failed:{$connection->id}", true, 60)) {
-                report($e);
+            $this->failed($connection, $e);
+            if (!self::refusedForAName($e) || count($fqdns) < 2) {
+                return $statuses;
             }
-
-            return $unknown; // never RDAP's «free» instead: it cannot see a premium name (review R4)
+            // It answered, refusing the batch for a name in it: each on its own, the rest still shown. Within the
+            // timeout in all, never once it is paused, on a budget of its own (code review of #214).
+            $results = [];
+            foreach ($fqdns as $fqdn) {
+                if (microtime(true) - $started >= self::REGISTRAR_TIMEOUT || Cache::has(self::pauseKey($connection))) {
+                    break;
+                }
+                try {
+                    $results += $this->ask($connection, [$fqdn], retry: true);
+                } catch (Throwable $e) {
+                    if (!self::refusedForAName($e)) {
+                        break; // it stopped answering, or refuses the account: the rest «could not check»
+                    }
+                }
+            }
         }
-        $statuses = [];
         foreach ($fqdns as $fqdn) {
             $result = $results[$fqdn] ?? null;
             $status = match (true) {
@@ -198,6 +228,63 @@ class DomainSearch
         }
 
         return $statuses;
+    }
+
+    /**
+     * One request to the connection's registrar for $fqdns (all of them in one where it can: Openprovider, the .gr
+     * registry), within the whole site's budget (review R2: past it, «could not check» until the minute turns). A
+     * failure that took SLOW seconds or more, or found no connection, pauses the connection.
+     *
+     * @param  list<string>  $fqdns
+     * @return array<string, AvailabilityResult>
+     */
+    private function ask(DomainRegistrarConnection $connection, array $fqdns, bool $retry = false): array
+    {
+        [$key, $budget] = $retry ? ['domain-search-registrar-retry', self::RETRY_CHECKS] : ['domain-search-registrar', self::GLOBAL_CHECKS];
+        if (RateLimiter::tooManyAttempts($key, $budget)) {
+            return [];
+        }
+        RateLimiter::hit($key, 60);
+        $started = microtime(true);
+        try {
+            $registrar = $this->registrars->for($connection);
+            $credentials = $this->registrars->credentialsFor($connection);
+
+            return match (true) {
+                $registrar instanceof OpenproviderRegistrar => $registrar->checkAvailabilityMany($fqdns, $credentials, self::REGISTRAR_TIMEOUT),
+                $registrar instanceof GrEppRegistrar => $registrar->checkAvailabilityMany($fqdns, $credentials),
+                default => collect($fqdns)->mapWithKeys(fn ($fqdn) => [$fqdn => $registrar->checkAvailability($fqdn, $credentials)])->all(),
+            };
+        } catch (Throwable $e) {
+            if ($e instanceof ConnectionException || microtime(true) - $started >= self::SLOW) {
+                Cache::put(self::pauseKey($connection), true, self::PAUSE);
+            }
+
+            throw $e;
+        }
+    }
+
+    /**
+     * A refusal for a name in the batch, not for the account (a login refused, 401/403, 429: asking once a name would
+     * only repeat it, and a refused login again and again may lock the registry account; code review of #214).
+     */
+    private static function refusedForAName(Throwable $e): bool
+    {
+        return ($e instanceof RegistrarRefused && in_array($e->status, [400, 422], true))
+            || ($e instanceof Refused && in_array($e->resultCode, [2005, 2306], true)); // syntax error, parameter policy
+    }
+
+    /** Reported once a minute per connection, not for every search during an outage (review R11 of #178). */
+    private function failed(DomainRegistrarConnection $connection, Throwable $e): void
+    {
+        if (Cache::add("domain-search-registrar-failed:{$connection->id}", true, 60)) {
+            report($e);
+        }
+    }
+
+    private static function pauseKey(DomainRegistrarConnection $connection): string
+    {
+        return "domain-search-registrar-paused:{$connection->id}";
     }
 
     /** Only a definite answer is kept (review R3): «could not check» is asked again next time. */
