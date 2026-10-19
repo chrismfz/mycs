@@ -24,11 +24,8 @@ class Index extends Component
                 $query->where('hidden', false);
             });
         })->orderBy('sort')->get();
-        $this->categories = Category::whereNull('parent_id')->where(function ($query) {
-            $query->whereHas('children')->orWhereHas('products', function ($query) {
-                $query->where('hidden', false);
-            });
-        })->orderBy('sort')->get();
+        // The categories of the menu (docs/admin-ux.md, «Μενού επισκέπτη»; code review of #217).
+        $this->categories = Category::query()->inMenu()->get();
         if (count($this->products) === 0 && count($this->childCategories) === 0) {
             abort(404);
         }

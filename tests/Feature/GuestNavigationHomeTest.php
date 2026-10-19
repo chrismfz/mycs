@@ -107,4 +107,19 @@ class GuestNavigationHomeTest extends TestCase
 
         $this->get('/')->assertSee('href="https://www.example.test/"', false)->assertSee('www.example.test');
     }
+
+    /** Only https, also when set outside the Appearance page (code review of #217). */
+    public function test_a_company_site_address_that_is_not_https_is_not_linked(): void
+    {
+        config(['settings.theme_main_site_url' => 'javascript:alert(1)']);
+
+        $this->get('/')->assertOk()->assertDontSee('javascript:alert(1)', false);
+    }
+
+    /** A guest's Contact goes to the login first. */
+    public function test_a_guests_contact_goes_to_the_login(): void
+    {
+        $this->get('/')->assertSee(route('tickets.create'), false);
+        $this->get(route('tickets.create'))->assertRedirect(route('login'));
+    }
 }

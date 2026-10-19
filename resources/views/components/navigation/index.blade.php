@@ -57,7 +57,8 @@
             </div>
 
             <div class="flex flex-row items-center">
-                @if (theme('main_site_url'))
+                {{-- Only an https address, also when set outside the Appearance page (code review of #217). --}}
+                @if (str_starts_with((string) theme('main_site_url'), 'https://'))
                 <a href="{{ theme('main_site_url') }}" rel="noopener" class="hidden md:flex items-center gap-1 mr-3 text-sm text-base/70 hover:text-base">
                     <x-ri-arrow-left-line class="size-4" />
                     {{ theme('main_site_label') ?: parse_url((string) theme('main_site_url'), PHP_URL_HOST) }}

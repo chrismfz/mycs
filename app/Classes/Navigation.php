@@ -47,7 +47,9 @@ class Navigation
                     'name' => __('navigation.contact'),
                     'url' => route('tickets.create'),
                     'icon' => 'ri-customer-service-2',
-                    'condition' => !config('settings.tickets_disabled', false),
+                    // A login whose account does not allow tickets would get a 403 (code review of #217); a guest
+                    // goes to the login.
+                    'condition' => !config('settings.tickets_disabled', false) && (!Auth::guard('web')->check() || CurrentClient::allows('tickets')),
                 ],
             ];
 
