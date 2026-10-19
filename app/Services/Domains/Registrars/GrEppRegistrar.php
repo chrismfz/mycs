@@ -2,6 +2,7 @@
 
 namespace App\Services\Domains\Registrars;
 
+use App\Contracts\ChangesOwner;
 use App\Contracts\DomainRegistrar;
 use App\Contracts\EmailsAuthCode;
 use App\Contracts\ManagesChildHosts;
@@ -54,6 +55,7 @@ use MyCS\GrEpp\Command\HostCreate;
 use MyCS\GrEpp\Command\HostDelete;
 use MyCS\GrEpp\Command\HostInfo;
 use MyCS\GrEpp\Command\HostUpdate;
+use MyCS\GrEpp\Command\OwnerChange;
 use MyCS\GrEpp\Command\Rules;
 use MyCS\GrEpp\Config;
 use MyCS\GrEpp\Data\ContactDraft;
@@ -82,7 +84,7 @@ use Throwable;
  * One session per account and process, kept for the process (a worker reuses it; the registry ends one idle for 15
  * minutes and Session logs in again); commands one at a time per account, across processes (a cache lock).
  */
-class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHosts, ManagesDnssec, ReadsAccountBalance, RecallsRegistration, StaffPricedNames
+class GrEppRegistrar implements ChangesOwner, DomainRegistrar, EmailsAuthCode, ManagesChildHosts, ManagesDnssec, ReadsAccountBalance, RecallsRegistration, StaffPricedNames
 {
     /** The registry's grace after expiry (pendingDelete: renewable only, D-8; its FAQ). */
     public const GRACE_DAYS = 15;
@@ -418,6 +420,65 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
 
             return implode(' ', $result->comments) ?: __('domains.manage.recalled', ['domain' => $domain->fqdn]);
         });
+    }
+
+    /**
+     * WRITE, charged and never recalled (G8-5a): its holder changed: «ownerNameChange» (the same holder's name) or
+     * «ownerChange» (another holder), to a registry contact of ours made now with $holder's details (a registry contact's
+     * name never changes: a new one each time, «{prefix}_mow<domain id, base 36>»). Ours and changeable first, and not
+     * where the EETT forbids it; whatever fails before the update asked nothing that costs. 1000: done; 1001: awaiting the
+     * EETT (geographic terms, .gov.gr).
+     */
+    public function changeOwner(Domain $domain, Contact $holder, string $kind, DomainRegistrarCredentials $credentials): DomainSyncResult
+    {
+        $op = match ($kind) {
+            ChangesOwner::NAME => OwnerChange::NAME_CHANGE,
+            ChangesOwner::OWNER => OwnerChange::OWNER_CHANGE,
+            default => throw new RegistrarNotAsked("Not a change of holder: {$kind}."),
+        };
+
+        return $this->locked($credentials, function (Session $session) use ($domain, $holder, $op, $kind, $credentials): DomainSyncResult {
+            $id = self::prepare(function () use ($session, $domain, $holder, $op, $kind, $credentials) {
+                $info = self::ours($session, $domain, $credentials, writing: true);
+                $forbidden = array_intersect($info->regulatorStatuses, ['regulatorUpdateProhibited', 'regulatorHold', 'regulatorDebtOwnership',
+                    $op === OwnerChange::NAME_CHANGE ? 'regulatorOwnerNameChangeProhibited' : 'regulatorOwnerChangeProhibited']);
+                if ($forbidden !== []) {
+                    throw new InvalidArgumentException("The EETT does not allow it for {$domain->fqdn} (" . implode(', ', $forbidden) . ').');
+                }
+                // The same holder keeps its own: its name is what changes (never another person's details by a name change).
+                if ($kind === ChangesOwner::NAME && $domain->registrantContact instanceof Contact && (int) $holder->client_id !== (int) $domain->client_id) {
+                    throw new InvalidArgumentException("A name change keeps {$domain->fqdn}'s holder: a contact of another account is another holder (ownerChange).");
+                }
+                $id = self::freshOwnerId($session, $domain, self::prefix($credentials));
+                ContactCreate::parse(self::send($session, fn (string $clTRID) => ContactCreate::request(self::draft($id, $holder), $clTRID)));
+
+                return $id;
+            });
+            $result = self::charge(fn () => OwnerChange::parse(self::send($session, fn (string $clTRID) => OwnerChange::request($domain->fqdn, $id, $op, $clTRID))));
+            $pending = $result->code === 1001;
+
+            return new DomainSyncResult(contactHandles: ['registrant' => $id], details: array_filter([
+                'owner_change' => ($kind === ChangesOwner::NAME ? 'name change' : 'change of holder') . ($pending ? ': awaiting the EETT' : ': done'),
+                'comments' => implode(' ', $result->comments) ?: null,
+            ]));
+        });
+    }
+
+    /** A contact id of ours the registry does not have yet for a new holder: «{prefix}_mow<domain id, base 36>», a letter added while taken. */
+    private static function freshOwnerId(Session $session, Domain $domain, string $prefix): string
+    {
+        $base = "{$prefix}_mow" . base_convert((string) $domain->getKey(), 10, 36);
+        foreach (array_chunk(array_merge([''], range('a', 'z')), ContactCheck::MAX) as $suffixes) {
+            $ids = array_map(fn (string $s) => Rules::contactId($base . $s, $prefix), $suffixes);
+            $check = array_change_key_case(ContactCheck::parse(self::send($session, fn (string $clTRID) => ContactCheck::request($ids, $clTRID))));
+            foreach ($ids as $id) {
+                $found = $check[strtolower($id)] ?? throw new InvalidArgumentException("The registry's check did not answer for contact {$id}.");
+                if ($found->available) {
+                    return $id;
+                }
+            }
+        }
+        throw new InvalidArgumentException("No free contact id for {$domain->fqdn}'s new holder.");
     }
 
     /** The registrar's prefix for contact ids (the connection's, e.g. c60): our contacts are made with it. */
