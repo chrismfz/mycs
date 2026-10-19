@@ -57,16 +57,31 @@
         @apply leading-5;
     }
 
-    /* The first and last columns: 1rem from the edge, as the header and the toolbar. */
-    .fi-ta-header-cell:first-of-type,
-    .fi-ta-cell:first-of-type,
-    .fi-ta-cell:first-of-type:has(.fi-ta-actions),
-    .fi-ta-cell:first-of-type:has(.fi-ta-record-checkbox) {
+    /*
+     * The first and last columns: text 1rem from the edge, as the toolbar, and aligned with its header. A body cell
+     * holds a column with its own px-3, so it gets ps-1/pe-1 (0.25 + 0.75rem); cells with actions or a checkbox have
+     * no inner padding, so they get the whole 1rem, as the header cells (review #212).
+     */
+    .fi-ta-header-cell:first-of-type {
         @apply ps-4;
     }
 
-    .fi-ta-header-cell:last-of-type,
-    .fi-ta-cell:last-of-type,
+    .fi-ta-header-cell:last-of-type {
+        @apply pe-4;
+    }
+
+    .fi-ta-cell:first-of-type {
+        @apply ps-1;
+    }
+
+    .fi-ta-cell:last-of-type {
+        @apply pe-1;
+    }
+
+    .fi-ta-cell:first-of-type:is(:has(.fi-ta-actions), :has(.fi-ta-record-checkbox), .fi-ta-selection-cell) {
+        @apply ps-4;
+    }
+
     .fi-ta-cell:last-of-type:has(.fi-ta-actions) {
         @apply pe-4;
     }
