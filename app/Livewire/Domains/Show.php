@@ -5,6 +5,7 @@ namespace App\Livewire\Domains;
 use App\Exceptions\DisplayException;
 use App\Livewire\Component;
 use App\Models\ClientUser;
+use App\Models\Contact;
 use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\Staff;
@@ -42,9 +43,79 @@ class Show extends Component
 
     public bool $editNameservers = false;
 
+    /** @var array<string, int|string|null> role => one of the account's contacts (P1 of the portal) */
+    public array $contactRoles = [];
+
+    public bool $editContacts = false;
+
     public function mount(): void
     {
         $this->nameservers = $this->domain->nameservers->map(fn ($ns) => ['host' => $ns->host])->values()->all();
+        $this->contactRoles = collect(Domain::ROLES)->mapWithKeys(fn (string $role) => [$role => $this->domain->{"{$role}_contact_id"}])->all();
+    }
+
+    /** The account's contacts a role may take (active ones; the one a role has now too, archived or not). */
+    private function contactOptions(): array
+    {
+        $now = array_filter(array_map(fn (string $role) => $this->domain->{"{$role}_contact_id"}, Domain::ROLES));
+
+        return Contact::query()->where('client_id', $this->domain->client_id)
+            ->where(fn ($q) => $q->whereNull('archived_at')->orWhereIn('id', $now))
+            ->orderBy('first_name')->orderBy('last_name')->get()
+            ->mapWithKeys(fn (Contact $c) => [$c->id => trim(trim($c->first_name . ' ' . $c->last_name) . ($c->company_name ? ' · ' . $c->company_name : '')) . ' <' . $c->email . '>'])
+            ->all();
+    }
+
+    /**
+     * Whether its holder may be changed here (P1): only where the registrar says the owner may simply be modified
+     * (Openprovider's modify_owner_allowed); never a .gr name (its holder's name change or transfer is a charged act
+     * of the registry, G8-5: asked from us).
+     */
+    public function registrantChangeable(): bool
+    {
+        return preg_match('/\.(gr|ελ|xn--qxam)\z/u', mb_strtolower($this->domain->fqdn)) !== 1
+            && ($this->domain->meta['registrar']['modify_owner_allowed'] ?? null) === true;
+    }
+
+    /**
+     * Its contacts by role, from the account's contacts (P1 of the portal): sent to the registrar as staff's «Change
+     * contacts» does (DomainManagementService::setContacts: every role linked, the holder only where it may change).
+     */
+    public function saveContacts(): void
+    {
+        $this->authorize('update', $this->domain);
+        $options = $this->contactOptions();
+        $wanted = [];
+        foreach (Domain::ROLES as $role) {
+            $id = $this->contactRoles[$role] ?? null;
+            $id = $id === null || $id === '' ? null : (int) $id;
+            if ($id !== null && !array_key_exists($id, $options)) {
+                $this->addError("contactRoles.{$role}", __('domains.manage.contact_not_the_accounts'));
+
+                return;
+            }
+            if ($role === 'registrant' && $id !== $this->domain->registrant_contact_id && !$this->registrantChangeable()) {
+                $this->addError('contactRoles.registrant', __('domains.portal.registrant_locked'));
+
+                return;
+            }
+            if ($id !== $this->domain->{"{$role}_contact_id"}) {
+                $wanted[$role] = $id;
+            }
+        }
+        if ($wanted === []) {
+            $this->editContacts = false;
+
+            return;
+        }
+        if (!$this->mayCallRegistrar()) {
+            return;
+        }
+        if ($this->atRegistrar(fn () => $this->management()->setContacts($this->domain, $wanted, $this->actor()), __('domains.portal.contacts_saved'))) {
+            $this->editContacts = false;
+        }
+        $this->domain->refresh();
+        $this->mount();
     }
 
     private function management(): DomainManagementService
@@ -350,6 +421,8 @@ class Show extends Component
             'renewable' => $canManage && $seesInvoices && $this->staffMay('admin.invoices.create')
                 && in_array($this->domain->status, RenewalBilling::BILLED_DOMAINS, true),
             'openInvoice' => $seesInvoices ? $this->openInvoice() : null,
+            'contactOptions' => $manageable && $this->editContacts ? $this->contactOptions() : [],
+            'registrantChangeable' => $this->registrantChangeable(),
         ])->layoutData([
             'title' => $this->domain->fqdn,
             'sidebar' => true,

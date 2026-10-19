@@ -70,6 +70,11 @@ return [
 
     // The client area (D7-2).
     'portal' => [
+        'contacts' => 'Contacts',
+        'contacts_saved' => 'Contacts changed at the registrar.',
+        'registrant_locked' => 'The registrant (holder) cannot be changed here: at the .gr registry a change of the holder\'s name or a transfer to another holder is a charged act we do for you, and elsewhere only where the registrar allows it. Contact us.',
+        'contacts_help' => 'Choose among your account\'s contacts; to add one or correct its details, go to :link.',
+        'account_contacts' => 'Account → Contacts',
         'whois' => 'WHOIS: what the registry publishes',
         'show' => 'Show',
         'filter' => ['active' => 'Active', 'expired' => 'Expired', 'ended' => 'Ended'],
