@@ -77,6 +77,17 @@ class ProductResource extends Resource
                                         $set('slug', Str::slug($state));
                                     }),
                                 TextInput::make('slug')->required()->unique(ignoreRecord: true),
+                                // The link the company's site uses to sell it, also when it is hidden (not when retired).
+                                TextInput::make('order_link')
+                                    ->label('Order link')
+                                    ->readOnly()
+                                    ->dehydrated(false)
+                                    ->copyable()
+                                    ->afterStateHydrated(fn (TextInput $component, ?Product $record) => $component->state($record?->exists && $record->category
+                                        ? route('products.checkout', ['category' => $record->category, 'product' => $record]) : null))
+                                    ->helperText('Add ?plan= with a plan id to preselect its billing cycle.')
+                                    ->visibleOn('edit')
+                                    ->columnSpanFull(),
                                 TextInput::make('stock')->integer()->nullable(),
                                 TextInput::make('per_user_limit')->integer()->nullable(),
                                 // WHMCS «Apply Tax» (Δ1): a product sold without VAT.
@@ -102,7 +113,11 @@ class ProductResource extends Resource
                                     ->nullable(),
                                 Checkbox::make('hidden')
                                     ->label('Hide product')
-                                    ->hint('Hide the product from the client area.'),
+                                    ->hint('Not listed in the shop; still ordered by its link.'),
+                                // WHMCS «Retired»: its services go on, no new orders (ADV-1 of #216).
+                                Checkbox::make('retired')
+                                    ->label('Retired')
+                                    ->hint('Not ordered any more, also not by its link or by staff; its services go on.'),
 
                                 RichEditor::make('description')->nullable()->columnSpanFull(),
                                 FileUpload::make('image')

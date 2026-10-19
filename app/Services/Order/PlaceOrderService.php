@@ -227,6 +227,10 @@ final class PlaceOrderService
         foreach ($quantities as $productId => $quantity) {
             // The latest product row, locked: two orders cannot both take the last unit.
             $product = Product::query()->whereKey($productId)->lockForUpdate()->firstOrFail();
+            // Retired (WHMCS «Retired»): not ordered any more, whatever its stock says (ADV-1 of #216).
+            if ($product->retired) {
+                throw new DisplayException(__('product.retired', ['product' => $product->name]));
+            }
 
             if ($product->per_user_limit > 0) {
                 // In units, as the new lines (ADV-3). Cancelled services do not count (CART-18): an order that was

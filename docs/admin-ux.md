@@ -53,6 +53,37 @@ WHMCS 29px, Filament 57px· πλάτος πίνακα WHMCS 1906px, Filament ~10
   lines, notes και transactions μαζί με τις γραμμές (όχι query ανά γραμμή). «Date Paid» δεν μπαίνει ακόμα: δεν είναι
   πεδίο του τιμολογίου, βγαίνει από τις συναλλαγές.
 
+## Απευθείας links (2026-10-19)
+Τα sites των εταιρειών (WordPress) πουλούν με links προς το WHMCS· στο cut-over πρέπει να δουλεύουν αλλάζοντας μόνο host.
+- **Ορατότητα, όπως στο WHMCS:** «hidden» = δεν εμφανίζεται στις λίστες, αγοράζεται με το link του· «retired»
+  (`products.retired`, από το `retired` του WHMCS) = δεν αγοράζεται: 404 στη σελίδα και στο checkout, άρνηση στο
+  `PlaceOrderService` (και για staff), όχι στόχος αναβάθμισης. Όχι «stock 0»: κάθε ακύρωση ή τερματισμός δίνει πίσω stock
+  (ADV-1 του #216). Κρυφό με stock 0 = απλώς εξαντλημένο. `Product::listed()` / `Product::reachable()`. Μια κατηγορία
+  χωρίς ορατά προϊόντα **και** χωρίς ορατές υποκατηγορίες (κρυφή ομάδα του WHMCS) ανοίγει με το link της και δείχνει
+  ό,τι αγοράζεται ακόμα· μόνο με retired δίνει 404.
+- **Redirects** (`WhmcsLinkController`, `routes/web.php`), στη ρίζα και κάτω από `/clients`, 302 ώσπου να ελεγχθούν:
+
+  | WHMCS | MyCS |
+  |---|---|
+  | `cart.php?a=add&pid=N[&billingcycle=…]`, `store/{ομάδα}/{προϊόν}[?billingcycle=…]` | checkout με το πλάνο του κύκλου (`whmcs_id` ή slug) |
+  | `cart.php?gid=N`, `store/{ομάδα}` | κατηγορία |
+  | `cart.php?a=add&domain=register\|transfer[&query=]`, `domainchecker.php` | αναζήτηση domain |
+  | `domain/pricing` | τιμές domains |
+  | `clientarea.php[?action=domains\|services\|invoices\|details]` | dashboard / αντίστοιχη σελίδα |
+  | `supporttickets.php`, `submitticket.php`, `contact.php` | tickets / νέο ticket (με login, ώσπου να γίνει το contact χωρίς login) |
+  | `viewinvoice.php?id=N` (κάθε παλιό email τιμολογίου) | το τιμολόγιο (τα IDs του WHMCS κρατιούνται) |
+  | `register.php`, `pwreset.php` | εγγραφή / νέος κωδικός |
+  | `knowledgebase`, `announcements`, `/clients/login` | αρχική / login |
+
+  `?promocode=` γίνεται `?coupon=`· `?sld=&tld=` ενώνονται· `store/{ομάδα}/{προϊόν}` βρίσκει και το `{προϊόν}-N` που
+  έδωσε ο importer όταν το slug υπήρχε σε άλλη ομάδα. Όχι ακόμα: `index.php?rp=…` (τα sites έχουν friendly URLs) και
+  τα παλιά callbacks των πυλών (`modules/gateways/callback/…`), που είναι θέμα των πυλών.
+
+  Μετρημένα στα sites (2026-10-19): myip.gr κυρίως `cart.php?a=add&domain=…`, `domain/pricing`, `clientarea.php`,
+  `supporttickets.php`, `submitticket.php?deptid=N`, `store/{ομάδα}`· nixpal `store/{ομάδα}/{προϊόν}?billingcycle=` και
+  73 links `submitticket.php`.
+- **Admin:** «Order link» (με αντιγραφή) στην επεξεργασία κατηγορίας και προϊόντος.
+
 ## Dashboard: τι έχει το WHMCS και τι έχουμε
 Τα widgets του upstream: `Overview` (έσοδα/tickets/υπηρεσίες με σύγκριση περιόδου), `Revenue` (γράφημα),
 `ActiveUsers` (online τελευταίας ώρας), `Support` (5 πρόσφατα ανοιχτά tickets), όλα με permission `admin.widgets.*`.

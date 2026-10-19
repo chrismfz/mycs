@@ -883,6 +883,10 @@ class Service extends Model implements Auditable
             if ($product->server?->extension !== $module) {
                 return false;
             }
+            // Retired (WHMCS «Retired»): not a new package either, whatever its stock (ADV-1 of #216).
+            if ($product->retired) {
+                return false;
+            }
             // Check stock
             if ($product->stock !== null && ($product->stock - $this->quantity) < 0) {
                 return false;

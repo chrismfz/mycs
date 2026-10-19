@@ -112,6 +112,8 @@ class WhmcsCatalogImportAdversarialTest extends TestCase
 
         $old = Product::query()->where('whmcs_id', 12)->first();
         $this->assertTrue($old === null || $old->hidden, 'a retired product must not be offered for order');
+        // Its own flag, not «stock 0», which every cancellation gives back (ADV-1 of #216).
+        $this->assertTrue($old === null || $old->retired);
     }
 
     /** F2: WHMCS stops offering a cycle (price set to -1) — the re-run keeps selling it here at the old price. */
