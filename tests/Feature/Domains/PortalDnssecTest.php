@@ -128,7 +128,7 @@ class PortalDnssecTest extends TestCase
             ->call('saveDnssec')->assertHasErrors('dnssecRows.0.digest');
         $this->registry($this->info(), $this->info());
         $page->set('dnssecRows.0', ['key_tag' => '1', 'algorithm' => '15', 'digest_type' => '2', 'digest' => self::DIGEST])
-            ->call('saveDnssec')->assertDispatched('notify', ['message' => __('domains.portal.dnssec_refused'), 'type' => 'error']);
+            ->call('saveDnssec')->assertHasErrors('dnssecRows.0.algorithm'); // not the .gr registry's: the form's own list (ADV-4 of #223)
         $this->assertSame([], $this->updates());
     }
 

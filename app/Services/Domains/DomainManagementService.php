@@ -434,7 +434,7 @@ class DomainManagementService
         $meta = $domain->refresh()->meta ?? [];
         // Which connection and kind it was read from (ADV-3 of #210): after a move, another registrar's is not offered.
         $meta['dnssec'] = ['read_at' => now()->toIso8601String(), 'connection_id' => $domain->effectiveRegistrarConnection()?->id,
-            'kind' => $this->dnssecKind($domain), 'records' => $records] + array_intersect_key($meta['dnssec'] ?? [], ['note' => true, 'note_at' => true]);
+            'kind' => $this->dnssecKind($domain), 'records' => $records] + array_intersect_key($meta['dnssec'] ?? [], ['note' => true, 'note_at' => true, 'note_kind' => true]);
         $domain->forceFill(['meta' => $meta])->save();
 
         return $records;
@@ -480,10 +480,10 @@ class DomainManagementService
 
                     return ['records' => count($records), 'note' => $note];
                 });
-            $this->dnssecNote($domain, $note);
+            $this->dnssecNote($domain, $note, 'check');
         } catch (RegistrarOutcomeUnknown $e) {
             // Maybe done (review 4 of #210): said so, with when; the records read again below show what came of it.
-            $this->dnssecNote($domain, __('domains.manage.dnssec_maybe', ['said' => mb_substr($e->getMessage(), 0, 300)]));
+            $this->dnssecNote($domain, __('domains.manage.dnssec_maybe', ['said' => mb_substr($e->getMessage(), 0, 300)]), 'maybe');
 
             throw $e;
         } catch (Throwable $e) {
@@ -507,11 +507,12 @@ class DomainManagementService
         return $note;
     }
 
-    private function dnssecNote(Domain $domain, ?string $note): void
+    /** @param  'check'|'maybe'|null  $kind  the registry's check under way, or a change maybe done (review M1 of #223) */
+    private function dnssecNote(Domain $domain, ?string $note, ?string $kind = null): void
     {
         $meta = $domain->refresh()->meta ?? [];
         $meta['dnssec'] = array_merge(is_array($meta['dnssec'] ?? null) ? $meta['dnssec'] : [],
-            ['note' => $note, 'note_at' => $note !== null ? now()->toIso8601String() : null]);
+            ['note' => $note, 'note_at' => $note !== null ? now()->toIso8601String() : null, 'note_kind' => $note !== null ? $kind : null]);
         $domain->forceFill(['meta' => $meta])->save();
     }
 
