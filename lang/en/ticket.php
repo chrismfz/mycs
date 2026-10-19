@@ -33,4 +33,5 @@ return [
     'select_service' => 'Select Service',
     'create' => 'Create',
     'no_tickets' => 'No tickets found',
+    'title' => 'Ticket #:id',
 ];

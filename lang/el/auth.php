@@ -25,6 +25,7 @@ return [
     ],
 
     'oauth' => [
+        'unverified_google_account' => 'Το email του λογαριασμού σας στη Google δεν είναι επιβεβαιωμένο: επιβεβαιώστε το στη Google ή συνδεθείτε με τον κωδικό σας.',
         'unverified_discord_account' => 'Ο λογαριασμός σας στο Discord δεν είναι επιβεβαιωμένος.',
         'account_not_registered' => 'Δεν υπάρχει λογαριασμός με αυτά τα στοιχεία.',
     ],

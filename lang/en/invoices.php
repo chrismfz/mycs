@@ -148,5 +148,5 @@ return [
         'problems' => 'To look at',
         'busy' => 'Invoices of this customer are being made right now: try again in a moment.',
     ],
-
+    'apply_credit_and_continue' => 'Use :amount of credit and continue',
 ];

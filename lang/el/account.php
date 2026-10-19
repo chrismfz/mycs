@@ -24,6 +24,7 @@ return [
     'current_device' => 'Αυτή η συσκευή',
 
     'input' => [
+        'amount_placeholder' => 'π.χ. 50.00',
         'current_password' => 'Τρέχων κωδικός',
         'current_password_placeholder' => 'Ο τρέχων κωδικός σας',
         'new_password' => 'Νέος κωδικός',
@@ -40,6 +41,8 @@ return [
     ],
 
     'notifications' => [
+        'push_enabled_title' => 'Οι ειδοποιήσεις push ενεργοποιήθηκαν',
+        'push_enabled_body' => 'Θα λαμβάνετε πλέον εδώ ειδοποιήσεις από :app.',
         'password_changed' => 'Ο κωδικός άλλαξε.',
         'password_incorrect' => 'Ο τρέχων κωδικός δεν είναι σωστός.',
         'two_factor_enabled' => 'Η επαλήθευση δύο βημάτων ενεργοποιήθηκε.',
@@ -217,4 +220,6 @@ return [
         'country' => 'Χώρα',
         'receives_emails' => 'Λαμβάνει email',
     ],
+    'no_payment_gateways_available' => 'Δεν μπορεί να αποθηκευτεί τρόπος πληρωμής αυτή τη στιγμή.',
+    'invalid_payment_gateway' => 'Αυτός ο τρόπος πληρωμής δεν είναι διαθέσιμος.',
 ];

@@ -300,7 +300,7 @@ class Upgrade extends Component
     public function render()
     {
         return view('services.upgrade')->layoutData([
-            'title' => 'Upgrade Service',
+            'title' => __('navigation.upgrade'),
             'sidebar' => true,
         ]);
     }

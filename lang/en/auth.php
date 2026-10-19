@@ -36,6 +36,7 @@ return [
     ],
 
     'oauth' => [
+        'unverified_google_account' => 'Your Google account\'s email is not verified: verify it at Google, or log in with your password.',
         'unverified_discord_account' => 'Your Discord account is not verified.',
         'account_not_registered' => 'You are not registered on this site.',
     ],
