@@ -1,4 +1,4 @@
-<div>
+<div class="container mt-14">
     <x-navigation.breadcrumb :trail="[['name' => __('navigation.tickets'), 'url' => route('tickets')], ['name' => __('ticket.create_ticket')]]" />
 <div class="bg-primary-800 p-6 rounded-lg mt-2">
     <h1 class="text-2xl font-semibold mb-2">{{ __('ticket.create_ticket') }}</h1>

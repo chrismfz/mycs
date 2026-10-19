@@ -87,7 +87,8 @@ class Navigation
                 }
             }
             if ($order !== []) {
-                $links[] = ['name' => __('navigation.new_order'), 'children' => $order, 'icon' => 'ri-add-circle-line'];
+                $links[] = ['name' => __('navigation.new_order'), 'children' => $order, 'icon' => 'ri-add-circle-line',
+                    'active' => collect($order)->contains(fn ($child) => (bool) ($child['active'] ?? false))];
             }
 
             return $links;

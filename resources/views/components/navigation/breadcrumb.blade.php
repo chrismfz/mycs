@@ -3,7 +3,8 @@
     // The way back (P4a, owner 2026-10-19: «it was hard to go back a page»): always from Home, every step but the last a
     // link. A page with its own way (a domain, an invoice, a ticket) passes `trail` = [['name', 'url'?], …] after Home;
     // else it is found in the menus by the current address.
-    $currentRoute = request()->livewireUrl();
+    // Its address without the query: a list's page 2 or filter is still that list (code review 2 of #226).
+    $currentRoute = strtok(request()->livewireUrl(), '?');
     $home = ['name' => __('navigation.home'), 'url' => auth('web')->check() ? route('dashboard') : route('home')];
 
     if (is_array($trail)) {

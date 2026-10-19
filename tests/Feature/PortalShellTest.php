@@ -3,8 +3,10 @@
 namespace Tests\Feature;
 
 use App\Enums\DomainStatus;
+use App\Models\Currency;
 use App\Models\Domain;
 use App\Models\DomainTld;
+use App\Models\Invoice;
 use App\Models\User;
 use App\Support\CurrentClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -56,6 +58,23 @@ class PortalShellTest extends TestCase
         $nav = substr($html, (int) strpos($html, 'aria-label="' . __('navigation.breadcrumb') . '"'), 800);
 
         $this->assertStringContainsString('href="' . route('dashboard') . '"', $nav);
+        $this->assertStringContainsString('aria-current="page">' . __('navigation.invoices'), $nav);
+    }
+
+    public function test_a_proforma_and_a_listed_page_keep_their_way_back(): void
+    {
+        // Code review 1, 2 of #226: a proforma has no number yet; page 2 of a list is still that list.
+        Currency::query()->firstOrCreate(['code' => 'EUR'], ['name' => 'Euro', 'suffix' => 'EUR', 'format' => '1.000,00']);
+        config(['settings.invoice_proforma' => true, 'settings.default_currency' => 'EUR']);
+        $user = User::factory()->create();
+        $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'number' => null]);
+
+        $html = $this->workOn($user)->get(route('invoices.show', $invoice))->assertOk()->getContent();
+        $nav = substr($html, (int) strpos($html, 'aria-label="' . __('navigation.breadcrumb') . '"'), 1500);
+        $this->assertStringContainsString('aria-current="page">' . e(__('invoices.proforma_invoice', ['id' => $invoice->id])), $nav);
+
+        $html = $this->workOn($user)->get(route('invoices') . '?page=2')->assertOk()->getContent();
+        $nav = substr($html, (int) strpos($html, 'aria-label="' . __('navigation.breadcrumb') . '"'), 800);
         $this->assertStringContainsString('aria-current="page">' . __('navigation.invoices'), $nav);
     }
 }
