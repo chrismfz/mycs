@@ -105,7 +105,7 @@ class CronJob extends Command
     {
         Config::set('audit.console', true);
         // One command object can run twice (a test, a long-lived worker): nothing carries over from a run to the next.
-        $this->failures = $this->notices = [];
+        $this->failures = $this->notices = $this->suspended = $this->terminated = [];
 
         // Each job commits on its own (renewals: per service): one failure no longer rolls back the
         // whole run, nothing stays locked for the whole run, and each step sees what the previous
@@ -534,21 +534,23 @@ class CronJob extends Command
                 return EmailLog::where('created_at', '<', now()->subDays($days))->delete();
             });
 
+            // What went down today, per service (as WHMCS's «Cron Job Activity»): staff unsuspend or hold the ones
+            // they want kept. Before the notices mail (its failure would skip this), and also on a run with failures:
+            // these suspensions happened all the same. Not sent is a notice, not a failed run: every step did its work.
+            try {
+                SuspensionDigest::send($this->suspended, $this->terminated);
+            } catch (Throwable $e) {
+                report($e);
+                $this->notices['suspension_digest'] = new DisplayException('The email of the services suspended or terminated today could not be sent: '
+                    . $e->getMessage() . '. See Services, status Suspended or Terminated.');
+            }
+
             if ($this->notices !== []) {
                 $notices = e(implode("\n", array_map(fn ($key, $notice) => "{$key}: {$notice->getMessage()}", array_keys($this->notices), $this->notices)));
                 NotificationHelper::sendSystemEmailNotification('Cron Job: needs staff attention', <<<HTML
                     The cron job left these for staff:<br>
                     <pre>{$notices}</pre>
                     HTML);
-            }
-
-            // What went down today, per service (as WHMCS's «Cron Job Activity»): staff unsuspend or hold the ones
-            // they want kept. Also on a run with failures: these suspensions happened all the same.
-            try {
-                SuspensionDigest::send($this->suspended, $this->terminated);
-            } catch (Throwable $e) {
-                report($e);
-                $this->failures['suspension_digest'] = $e;
             }
 
             if ($this->failures !== []) {

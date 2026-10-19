@@ -79,7 +79,8 @@ class SuspensionDigest
     private static function unpaidInvoices(Service $service): string
     {
         /** @var Collection<int, Invoice> $invoices */
-        $invoices = $service->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->with('transactions')->orderBy('invoices.due_at')->get();
+        $invoices = $service->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->with('transactions')->orderBy('invoices.due_at')->get()
+            ->unique('id'); // HasManyThrough its lines: an invoice with two lines of the service comes once
 
         return $invoices->map(fn (Invoice $invoice) => '#' . ($invoice->number ?? $invoice->id) . ' ' . $invoice->formattedRemaining
             . ($invoice->due_at ? ' due ' . $invoice->due_at->toDateString() : ''))->implode('; ');
