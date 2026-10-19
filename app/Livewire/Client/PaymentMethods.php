@@ -145,7 +145,7 @@ class PaymentMethods extends Component
             'defaultAgreementId' => CurrentClient::model()->fresh()?->default_billing_agreement_id,
         ])->layoutData([
             'sidebar' => true,
-            'title' => 'Payment Methods',
+            'title' => __('account.payment_methods'),
         ]);
     }
 }

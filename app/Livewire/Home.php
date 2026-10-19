@@ -24,7 +24,7 @@ class Home extends Component
         return view('home', [
             'categories' => Category::query()->inMenu()->with(['products.plans.prices'])->get(),
             'domains' => DomainTld::query()->where('is_active', true)->exists(),
-            'title' => 'Home',
+            'title' => __('navigation.home'),
         ]);
     }
 }

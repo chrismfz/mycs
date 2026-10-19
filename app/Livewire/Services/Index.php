@@ -23,7 +23,7 @@ class Index extends Component
         return view('services.index', [
             'services' => $query->paginate(config('settings.pagination')),
         ])->layoutData([
-            'title' => 'Services',
+            'title' => __('navigation.services'),
             'sidebar' => true,
         ]);
     }
