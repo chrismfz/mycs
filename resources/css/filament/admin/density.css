@@ -1,0 +1,73 @@
+/*
+ * Admin density: closer to WHMCS, so more fits on a screen (docs/admin-ux.md, «Πυκνότητα»).
+ *
+ * Filament puts its own styles in `@layer components`; these rules are outside any layer, so they win without
+ * !important. They target Filament's `fi-*` classes: after a Filament upgrade, check a list, a form and a Summary.
+ * Table rules start at `sm`, so the stacked tables on a phone keep Filament's spacing.
+ */
+
+/* Page: less space above the title and between the header, the tabs and the content. */
+.fi-page-header-main-ctn {
+    @apply gap-y-4 py-4;
+}
+
+.fi-page-main {
+    @apply gap-4;
+}
+
+/* Sections: Filament's own «compact» spacing, for every contained section. */
+.fi-section:not(.fi-section-not-contained):not(.fi-aside) > .fi-section-header {
+    @apply px-4 py-2.5;
+}
+
+.fi-section:not(.fi-section-not-contained):not(.fi-divided) > .fi-section-content-ctn > .fi-section-content,
+.fi-section:not(.fi-section-not-contained).fi-divided > .fi-section-content-ctn > .fi-section-content > * {
+    @apply p-4;
+}
+
+/* Tables: a row is ~35px instead of ~57px (WHMCS: ~29px). */
+@media (width >= 40rem) {
+    .fi-ta-ctn .fi-ta-header,
+    .fi-ta-ctn .fi-ta-header-toolbar {
+        @apply px-4 py-2;
+    }
+
+    .fi-ta-header-cell {
+        @apply py-2;
+    }
+
+    .fi-ta-text:not(.fi-inline),
+    .fi-ta-icon:not(.fi-inline),
+    .fi-ta-select:not(.fi-inline),
+    .fi-ta-text-input:not(.fi-inline),
+    .fi-ta-image:not(.fi-inline),
+    .fi-ta-checkbox:not(.fi-inline),
+    .fi-ta-color:not(.fi-inline),
+    .fi-ta-toggle:not(.fi-inline) {
+        @apply py-1.5;
+    }
+
+    .fi-ta-cell:has(.fi-ta-actions),
+    .fi-ta-cell:has(.fi-ta-record-checkbox),
+    .fi-ta-table .fi-ta-selection-cell {
+        @apply py-1.5;
+    }
+
+    .fi-ta-text-item.fi-size-sm {
+        @apply leading-5;
+    }
+
+    /* The first and last columns: 1rem from the edge, as the header and the toolbar. */
+    .fi-ta-header-cell:first-of-type,
+    .fi-ta-cell:first-of-type,
+    .fi-ta-cell:first-of-type:has(.fi-ta-actions),
+    .fi-ta-cell:first-of-type:has(.fi-ta-record-checkbox) {
+        @apply ps-4;
+    }
+
+    .fi-ta-header-cell:last-of-type,
+    .fi-ta-cell:last-of-type,
+    .fi-ta-cell:last-of-type:has(.fi-ta-actions) {
+        @apply pe-4;
+    }
+}
