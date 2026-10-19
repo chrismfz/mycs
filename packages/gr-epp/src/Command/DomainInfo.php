@@ -5,6 +5,7 @@ namespace MyCS\GrEpp\Command;
 use DOMElement;
 use MyCS\GrEpp\Data\BundleName;
 use MyCS\GrEpp\Data\DomainInfo as Info;
+use MyCS\GrEpp\Data\DsRecord;
 use MyCS\GrEpp\Data\DsValidation;
 use MyCS\GrEpp\OutcomeUnknown;
 use MyCS\GrEpp\Response;
@@ -60,6 +61,13 @@ final class DomainInfo
             }
         }
         $ds = $xpath->query('//extSecDNS:lastValidationResult')->item(0);
+        $dsRecords = [];
+        foreach ($xpath->query('//secDNS:infData/secDNS:dsData') as $record) {
+            if ($record instanceof DOMElement) {
+                $dsRecords[] = new DsRecord((int) Read::text($xpath, 'secDNS:keyTag', $record), (int) Read::text($xpath, 'secDNS:alg', $record),
+                    (int) Read::text($xpath, 'secDNS:digestType', $record), strtoupper(trim((string) Read::text($xpath, 'secDNS:digest', $record))));
+            }
+        }
 
         return new Info(
             name: $name,
@@ -87,6 +95,7 @@ final class DomainInfo
             createdOn: Read::day($xpath, 'domain:crDate', $data),
             statusReasons: $reasons,
             comments: array_map(fn (string $c) => trim((string) preg_replace('/\s+/u', ' ', $c)), Read::texts($xpath, '//extdomain:resData/extdomain:comment')),
+            dsRecords: $dsRecords,
         );
     }
 }

@@ -32,6 +32,7 @@ final class QueriesTest extends TestCase
         'urn:ics-forth:params:xml:ns:extdomain-1.3' => 'extdomain-1.3.xsd',
         'urn:ics-forth:params:xml:ns:account-1.1' => 'account-1.1.xsd',
         'urn:ics-forth:params:xml:ns:dacor-1.0' => 'dacor-1.0.xsd',
+        'urn:ietf:params:xml:ns:secDNS-1.1' => 'secDNS-1.1.xsd',
     ];
 
     /**

@@ -3,6 +3,7 @@
 namespace MyCS\GrEpp\Command;
 
 use InvalidArgumentException;
+use MyCS\GrEpp\Data\DsRecord;
 
 /**
  * The registry's rules checked before anything is sent (the guide v4.3): a request that breaks one is refused (2306,
@@ -198,5 +199,54 @@ final class Rules
         if (!$changes) {
             throw new InvalidArgumentException('An update without changes is refused by the registry.');
         }
+    }
+
+    /** The key algorithms the registry takes (its DNSSEC guide v1.5): 3, 5, 6, 7, 8, 10, 12, 13, 14. */
+    public const DS_ALGORITHMS = [3, 5, 6, 7, 8, 10, 12, 13, 14];
+
+    /** Its digest types and their hex lengths: SHA-1, SHA-256, GOST R 34.11-94, SHA-384. */
+    public const DS_DIGESTS = [1 => 40, 2 => 64, 3 => 64, 4 => 96];
+
+    /** At most this many DS records in one add or remove (2308). */
+    public const DS_MAX = 16;
+
+    /**
+     * DS records as the registry takes them: a key tag 0–65535, an algorithm and digest type it knows, a digest of that
+     * type's length in hex (upper-cased); none twice; at most 16.
+     *
+     * @param  list<DsRecord>  $records
+     * @return list<DsRecord>
+     */
+    public static function dsRecords(array $records): array
+    {
+        if (count($records) > self::DS_MAX) {
+            throw new InvalidArgumentException('At most ' . self::DS_MAX . ' DS records at once.');
+        }
+        $clean = [];
+        foreach ($records as $record) {
+            if ($record->keyTag < 0 || $record->keyTag > 65535) {
+                throw new InvalidArgumentException("A DS key tag is 0 to 65535, not {$record->keyTag}.");
+            }
+            if (!in_array($record->algorithm, self::DS_ALGORITHMS, true)) {
+                throw new InvalidArgumentException("The .gr registry does not take DNSSEC algorithm {$record->algorithm}.");
+            }
+            $length = self::DS_DIGESTS[$record->digestType] ?? null;
+            if ($length === null) {
+                throw new InvalidArgumentException("The .gr registry does not take digest type {$record->digestType}.");
+            }
+            $digest = strtoupper($record->digest);
+            if (preg_match('/^[0-9A-F]{' . $length . '}$/', $digest) !== 1) {
+                throw new InvalidArgumentException("A digest of type {$record->digestType} is {$length} hex digits.");
+            }
+            $record = new DsRecord($record->keyTag, $record->algorithm, $record->digestType, $digest);
+            foreach ($clean as $seen) {
+                if ($seen->same($record)) {
+                    throw new InvalidArgumentException("The same DS record twice (key tag {$record->keyTag}).");
+                }
+            }
+            $clean[] = $record;
+        }
+
+        return $clean;
     }
 }
