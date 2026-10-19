@@ -94,6 +94,10 @@ foreach (['' => 'whmcs.', 'clients' => 'whmcs.clients.'] as $prefix => $name) {
         Route::get('cart.php', [WhmcsLinkController::class, 'cart'])->name('cart');
         Route::get('store/{group}/{product?}', [WhmcsLinkController::class, 'store'])->name('store');
         Route::get('clientarea.php', [WhmcsLinkController::class, 'clientArea'])->name('clientarea');
+        Route::get('viewinvoice.php', [WhmcsLinkController::class, 'invoice'])->name('viewinvoice');
+        Route::redirect('register.php', '/register')->name('register');
+        Route::redirect('pwreset.php', '/password/request')->name('pwreset');
+        Route::redirect('announcements', '/')->name('announcements');
         Route::redirect('domain/pricing', '/domain-pricing')->name('domain-pricing');
         Route::redirect('domainchecker.php', '/domain-search')->name('domainchecker');
         Route::redirect('supporttickets.php', '/tickets')->name('tickets');

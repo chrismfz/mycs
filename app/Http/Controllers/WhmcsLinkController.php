@@ -25,7 +25,7 @@ class WhmcsLinkController extends Controller
         if ($request->filled('pid')) {
             $product = Product::query()->where('whmcs_id', (int) $request->query('pid'))->reachable()->with('category')->first();
 
-            return $product === null ? $this->shop() : $this->checkout($product, $request->query('billingcycle'));
+            return $product === null ? $this->shop() : $this->checkout($product, $request);
         }
         if ($request->filled('gid')) {
             $category = Category::query()->where('whmcs_id', (int) $request->query('gid'))->first();
@@ -33,7 +33,10 @@ class WhmcsLinkController extends Controller
             return $category === null ? $this->shop() : redirect()->route('category.show', ['category' => $category]);
         }
         if ($request->filled('domain')) {
-            $name = trim((string) ($request->query('query') ?? $request->query('sld') ?? ''));
+            // ?query=example.gr, or WHMCS's ?sld=example&tld=.gr (code review of #216: the ending was lost).
+            $name = $request->filled('query') ? (string) $request->query('query')
+                : trim((string) $request->query('sld')) . ($request->filled('sld') && $request->filled('tld') ? '.' . ltrim((string) $request->query('tld'), '.') : '');
+            $name = trim($name);
 
             return redirect()->route('domain.search', $name === '' ? [] : ['domain' => $name]);
         }
@@ -51,9 +54,21 @@ class WhmcsLinkController extends Controller
         if ($product === null) {
             return redirect()->route('category.show', ['category' => $category]);
         }
-        $found = $category->products()->where('slug', $product)->reachable()->with('category')->first();
+        // Its slug, or the one the importer gave it when another group's product had it (`slug-2`, code review of #216):
+        // WHMCS slugs are per group, ours are not.
+        $found = $category->products()->reachable()->with('category')->where('slug', $product)->first()
+            ?? $category->products()->reachable()->with('category')->where('slug', 'like', str_replace(['%', '_'], ['\\%', '\\_'], $product) . '-%')
+                ->get()->first(fn (Product $candidate) => preg_match('/^' . preg_quote($product, '/') . '-\\d+$/', (string) $candidate->slug) === 1);
 
-        return $found === null ? redirect()->route('category.show', ['category' => $category]) : $this->checkout($found, $request->query('billingcycle'));
+        return $found === null ? redirect()->route('category.show', ['category' => $category]) : $this->checkout($found, $request);
+    }
+
+    /** viewinvoice.php?id=N, in every old invoice mail: the invoice, after the login (WHMCS's invoice ids are kept). */
+    public function invoice(Request $request): RedirectResponse
+    {
+        $id = (string) $request->query('id');
+
+        return ctype_digit($id) ? redirect()->to('/invoices/' . $id) : redirect()->route('invoices');
     }
 
     /** clientarea.php and its ?action= pages; the login comes first where needed. */
@@ -68,23 +83,31 @@ class WhmcsLinkController extends Controller
         });
     }
 
-    private function checkout(Product $product, mixed $cycle): RedirectResponse
+    /** The checkout, with the plan of WHMCS's ?billingcycle= and its ?promocode= as our ?coupon= (code review of #216). */
+    private function checkout(Product $product, Request $request): RedirectResponse
     {
         $parameters = ['category' => $product->category, 'product' => $product];
+        $cycle = $request->query('billingcycle');
         $plan = $this->plan($product, is_string($cycle) ? strtolower($cycle) : '');
         if ($plan !== null) {
             $parameters['plan'] = $plan->id;
+        }
+        if (is_string($request->query('promocode')) && $request->query('promocode') !== '') {
+            $parameters['coupon'] = $request->query('promocode');
         }
 
         return redirect()->route('products.checkout', $parameters);
     }
 
-    /** The product's plan for a WHMCS cycle; none (the checkout's default) when it has no such plan. */
+    /**
+     * The product's plan for a WHMCS cycle, of those the visitor can buy (priced in their currency, ADV-3 of #216); none
+     * (the checkout's default) when it has no such plan.
+     */
     private function plan(Product $product, string $cycle): ?Plan
     {
         $months = self::CYCLE_MONTHS[$cycle] ?? null;
 
-        return $product->plans()->get()->first(fn (Plan $plan) => match (true) {
+        return $product->availablePlans(session('currency', config('settings.default_currency')))->first(fn (Plan $plan) => match (true) {
             $months !== null => $plan->type === 'recurring' && match ($plan->billing_unit) {
                 'month' => $plan->billing_period,
                 'year' => $plan->billing_period * 12,

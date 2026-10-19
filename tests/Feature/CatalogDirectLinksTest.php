@@ -4,14 +4,20 @@ namespace Tests\Feature;
 
 use App\Admin\Resources\CategoryResource\Pages\EditCategory;
 use App\Admin\Resources\ProductResource\Pages\EditProduct;
+use App\Exceptions\DisplayException;
 use App\Models\Category;
 use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Product;
 use App\Models\Role;
+use App\Models\Service;
 use App\Models\Staff;
+use App\Models\User;
+use App\Services\Order\OrderLine;
+use App\Services\Order\PlaceOrderService;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -36,7 +42,7 @@ class CatalogDirectLinksTest extends TestCase
         $this->shop = Category::factory()->create(['slug' => 'cpanel-hosting', 'whmcs_id' => 1]);
         $this->listed = $this->product($this->shop, ['slug' => 'starter', 'whmcs_id' => 10]);
         $this->hidden = $this->product($this->shop, ['slug' => 'custom', 'whmcs_id' => 11, 'hidden' => true]);
-        $this->product($this->shop, ['slug' => 'old', 'whmcs_id' => 12, 'hidden' => true, 'stock' => 0]); // retired
+        $this->product($this->shop, ['slug' => 'old', 'whmcs_id' => 12, 'hidden' => true, 'retired' => true]);
     }
 
     /** @param array<string, mixed> $attributes */
@@ -74,9 +80,9 @@ class CatalogDirectLinksTest extends TestCase
     {
         $custom = Category::factory()->create(['slug' => 'custom-hosting']);
         $this->product($custom, ['slug' => 'bespoke', 'hidden' => true]);
-        $this->product($custom, ['slug' => 'gone', 'hidden' => true, 'stock' => 0]);
+        $this->product($custom, ['slug' => 'gone', 'hidden' => true, 'retired' => true]);
         $retiredOnly = Category::factory()->create(['slug' => 'retired-packages']);
-        $this->product($retiredOnly, ['slug' => 'ancient', 'hidden' => true, 'stock' => 0]);
+        $this->product($retiredOnly, ['slug' => 'ancient', 'hidden' => true, 'retired' => true]);
 
         $this->get('/products/custom-hosting')->assertOk()->assertSee('Bespoke plan')->assertDontSee('Gone plan');
         $this->get('/products/retired-packages')->assertNotFound();
@@ -122,8 +128,55 @@ class CatalogDirectLinksTest extends TestCase
         $this->actingAs(Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]), 'staff');
 
         Livewire::test(EditCategory::class, ['record' => $this->shop->getRouteKey()])
-            ->assertSchemaStateSet(['order_link' => route('category.show', ['category' => $this->shop])]);
+            ->assertSchemaStateSet(['order_link' => url('/products/cpanel-hosting')]);
         Livewire::test(EditProduct::class, ['record' => $this->hidden->getRouteKey()])
-            ->assertSchemaStateSet(['order_link' => route('products.checkout', ['category' => $this->shop, 'product' => $this->hidden])]);
+            ->assertSchemaStateSet(['order_link' => url('/products/cpanel-hosting/custom/checkout')]);
+    }
+
+    /** A hidden product that sold out opens and says so, as WHMCS: out of stock is not retired (ADV-1 of #216). */
+    public function test_a_hidden_product_out_of_stock_is_not_retired(): void
+    {
+        $this->product($this->shop, ['slug' => 'sold-out', 'hidden' => true, 'stock' => 0]);
+
+        $this->get('/products/cpanel-hosting/sold-out')->assertOk();
+    }
+
+    /** Retired is refused when the order is placed and as a new package, whatever its stock (ADV-1 of #216). */
+    public function test_a_retired_product_is_not_ordered_nor_an_upgrade(): void
+    {
+        $retired = Product::query()->where('slug', 'old')->sole();
+        $retired->forceFill(['stock' => 5])->save(); // given back by cancellations
+        $client = User::factory()->create()->client();
+
+        try {
+            (new PlaceOrderService)->place($client, 'USD', [new OrderLine($retired, $retired->plans()->first(), price: '10.00')]);
+            $this->fail('a retired product was ordered');
+        } catch (DisplayException $e) {
+            $this->assertSame(__('product.retired', ['product' => $retired->name]), $e->getMessage());
+        }
+        $this->assertSame(0, Service::query()->count());
+
+        DB::table('product_upgrades')->insert([['product_id' => $this->listed->id, 'upgrade_id' => $retired->id], ['product_id' => $this->listed->id, 'upgrade_id' => $this->hidden->id]]);
+        $service = Service::factory()->create(['client_id' => $client->id, 'product_id' => $this->listed->id, 'plan_id' => $this->plan($this->listed, 1, 'month')->id,
+            'status' => Service::STATUS_ACTIVE, 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1, 'expires_at' => now()->addMonth()]);
+        $this->assertSame([$this->hidden->id], $service->productUpgrades()->pluck('id')->values()->all());
+    }
+
+    /** Code review of #216: the WHMCS promo code, the domain's ending, a slug the importer renamed, an invoice link. */
+    public function test_promo_codes_domain_endings_renamed_slugs_and_invoice_links(): void
+    {
+        $this->get('/cart.php?a=add&pid=10&promocode=SAVE10')
+            ->assertRedirect(route('products.checkout', ['category' => $this->shop, 'product' => $this->listed, 'coupon' => 'SAVE10']));
+        $this->get('/cart.php?a=add&domain=register&sld=example&tld=.gr')->assertRedirect(route('domain.search', ['domain' => 'example.gr']));
+
+        $other = Category::factory()->create(['slug' => 'reseller']);
+        $renamed = $this->product($other, ['slug' => 'starter-2']); // WHMCS's «starter» of another group
+        $this->product($other, ['slug' => 'starter-pro']);
+        $this->get('/store/reseller/starter')->assertRedirect(route('products.checkout', ['category' => $other, 'product' => $renamed]));
+
+        $this->get('/clients/viewinvoice.php?id=32476')->assertRedirect('/invoices/32476');
+        $this->get('/viewinvoice.php?id=../admin')->assertRedirect(route('invoices'));
+        $this->get('/clients/register.php')->assertRedirect('/register');
+        $this->get('/pwreset.php')->assertRedirect('/password/request');
     }
 }

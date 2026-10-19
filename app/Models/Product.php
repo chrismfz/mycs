@@ -47,21 +47,22 @@ class Product extends Model implements Auditable
      */
     public function scopeListed(Builder $query): void
     {
-        $query->where('hidden', false);
+        $query->where('hidden', false)->where('retired', false);
     }
 
     /**
-     * Opened by its link: listed, or hidden and still in stock. Hidden and out of stock is retired (WHMCS «Retired», as
-     * the importer brings it): not ordered any more, its page is not found.
+     * Opened by its link: anything but a retired product (WHMCS «Retired»: not ordered any more, its page is not found).
+     * A hidden product out of stock opens and says so, as a listed one.
      *
      * @param  Builder<Product>  $query
      */
     public function scopeReachable(Builder $query): void
     {
-        $query->where(fn (Builder $query) => $query->where('hidden', false)->orWhereNull('stock')->orWhere('stock', '!=', 0));
+        $query->where('retired', false);
     }
 
     protected $casts = [
+        'retired' => 'boolean',
         'taxable' => 'boolean',
         'prorata_day' => 'integer',
         'prorata_next_after_day' => 'integer',

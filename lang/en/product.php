@@ -21,6 +21,7 @@ return [
 
     'in_stock' => 'In stock',
     'out_of_stock' => 'Product :product is out of stock',
+    'retired' => 'Product :product is not sold any more',
     'not_available' => ':product is not available in your currency',
     'user_limit' => 'You have reached the limit of :product',
     'payment_method' => 'Payment method',

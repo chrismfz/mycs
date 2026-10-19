@@ -113,7 +113,11 @@ class ProductResource extends Resource
                                     ->nullable(),
                                 Checkbox::make('hidden')
                                     ->label('Hide product')
-                                    ->hint('Not listed in the shop; still ordered by its link. To stop orders, set the stock to 0.'),
+                                    ->hint('Not listed in the shop; still ordered by its link.'),
+                                // WHMCS «Retired»: its services go on, no new orders (ADV-1 of #216).
+                                Checkbox::make('retired')
+                                    ->label('Retired')
+                                    ->hint('Not ordered any more, also not by its link or by staff; its services go on.'),
 
                                 RichEditor::make('description')->nullable()->columnSpanFull(),
                                 FileUpload::make('image')
