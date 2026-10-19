@@ -4,6 +4,7 @@ namespace MyCS\GrEpp\Tests;
 
 use InvalidArgumentException;
 use MyCS\GrEpp\Command\ContactCreate;
+use MyCS\GrEpp\Command\ContactDelete;
 use MyCS\GrEpp\Command\ContactUpdate;
 use MyCS\GrEpp\Command\DacorIssueToken;
 use MyCS\GrEpp\Command\DomainCreate;
@@ -70,6 +71,7 @@ final class WritesTest extends TestCase
             DomainDelete::delete('ιτέ.gr', 'Auth-code1', 'mycs-1', homograph: true),
             DomainDelete::recall('cdnet.gr', '66155', 'mycs-1'),
             DacorIssueToken::request('cdnet.gr', 'mycs-1'),
+            ContactDelete::request('c60_mow1', 'mycs-1'),
         ] as $xml) {
             QueriesTest::assertValid($xml);
         }
