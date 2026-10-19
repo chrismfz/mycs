@@ -28,8 +28,9 @@ use Throwable;
  * the whole site, so no one can spend the registrar account.
  *
  * Each registrar connection on its own (2026-10-19: one Openprovider timeout made every row «could not check»): a
- * failure says «could not check» for that connection's names only; a batch the registrar refused (it answered) is asked
- * again name by name; one that did not answer (a timeout, no connection) is not, and that connection is left out of the
+ * failure says «could not check» for that connection's names only; a batch the registrar refused because of a name (it
+ * answered: Openprovider's 400/422, the registry's 2005/2306) is asked again name by name, within REGISTRAR_TIMEOUT in
+ * all; one that did not answer (a timeout, no connection) is not, and that connection is left out of the
  * searches for PAUSE seconds, so no search waits on it again meanwhile (docs/domains.md, D8a).
  */
 class DomainSearch
@@ -46,8 +47,11 @@ class DomainSearch
     /** Seconds a registrar's check may take (Openprovider's; the .gr registry keeps its own 5): 5 was too short live. */
     public const REGISTRAR_TIMEOUT = 10;
 
-    /** A failure after this many seconds is a registrar that does not answer, as a timeout is. */
-    public const SLOW = 5;
+    /** A failure after this many seconds is a registrar that does not answer, as a timeout is (the .gr registry's is 5). */
+    public const SLOW = 4;
+
+    /** Registrar requests a minute for asking a refused batch again name by name: apart, never the search's own budget. */
+    public const RETRY_CHECKS = 30;
 
     /** Seconds a connection that did not answer is left out of the searches («could not check» at once). */
     public const PAUSE = 30;
@@ -186,27 +190,29 @@ class DomainSearch
         if (Cache::has(self::pauseKey($connection))) {
             return $statuses; // it did not answer a moment ago: not waited on again
         }
+        $started = microtime(true);
         try {
             $results = $this->ask($connection, $fqdns);
-        } catch (Refused|RegistrarRefused $e) {
-            // It answered, refusing the batch (one name it would not take?): each name on its own, the rest still shown.
+        } catch (Throwable $e) {
             $this->failed($connection, $e);
+            if (!self::refusedForAName($e) || count($fqdns) < 2) {
+                return $statuses;
+            }
+            // It answered, refusing the batch for a name in it: each on its own, the rest still shown. Within the
+            // timeout in all, never once it is paused, on a budget of its own (code review of #214).
             $results = [];
-            if (count($fqdns) > 1) {
-                foreach ($fqdns as $fqdn) {
-                    try {
-                        $results += $this->ask($connection, [$fqdn]);
-                    } catch (Refused|RegistrarRefused) {
-                        continue; // that name only
-                    } catch (Throwable) {
-                        break; // it stopped answering: the rest «could not check»
+            foreach ($fqdns as $fqdn) {
+                if (microtime(true) - $started >= self::REGISTRAR_TIMEOUT || Cache::has(self::pauseKey($connection))) {
+                    break;
+                }
+                try {
+                    $results += $this->ask($connection, [$fqdn], retry: true);
+                } catch (Throwable $e) {
+                    if (!self::refusedForAName($e)) {
+                        break; // it stopped answering, or refuses the account: the rest «could not check»
                     }
                 }
             }
-        } catch (Throwable $e) {
-            $this->failed($connection, $e);
-
-            return $statuses;
         }
         foreach ($fqdns as $fqdn) {
             $result = $results[$fqdn] ?? null;
@@ -232,12 +238,13 @@ class DomainSearch
      * @param  list<string>  $fqdns
      * @return array<string, AvailabilityResult>
      */
-    private function ask(DomainRegistrarConnection $connection, array $fqdns): array
+    private function ask(DomainRegistrarConnection $connection, array $fqdns, bool $retry = false): array
     {
-        if (RateLimiter::tooManyAttempts('domain-search-registrar', self::GLOBAL_CHECKS)) {
+        [$key, $budget] = $retry ? ['domain-search-registrar-retry', self::RETRY_CHECKS] : ['domain-search-registrar', self::GLOBAL_CHECKS];
+        if (RateLimiter::tooManyAttempts($key, $budget)) {
             return [];
         }
-        RateLimiter::hit('domain-search-registrar', 60);
+        RateLimiter::hit($key, 60);
         $started = microtime(true);
         try {
             $registrar = $this->registrars->for($connection);
@@ -255,6 +262,16 @@ class DomainSearch
 
             throw $e;
         }
+    }
+
+    /**
+     * A refusal for a name in the batch, not for the account (a login refused, 401/403, 429: asking once a name would
+     * only repeat it, and a refused login again and again may lock the registry account; code review of #214).
+     */
+    private static function refusedForAName(Throwable $e): bool
+    {
+        return ($e instanceof RegistrarRefused && in_array($e->status, [400, 422], true))
+            || ($e instanceof Refused && in_array($e->resultCode, [2005, 2306], true)); // syntax error, parameter policy
     }
 
     /** Reported once a minute per connection, not for every search during an outage (review R11 of #178). */

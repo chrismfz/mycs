@@ -9,4 +9,11 @@ use RuntimeException;
  * charge was asked (a 5xx, a gateway timeout, no answer) has an unknown outcome and is never asked again blindly
  * (D5b-2 code review 1, as the Blesta module's RenewalPlan).
  */
-final class RegistrarRefused extends RuntimeException {}
+final class RegistrarRefused extends RuntimeException
+{
+    /** @param  ?int  $status  its HTTP status, where it gave one (Openprovider's 4xx) */
+    public function __construct(string $message = '', public readonly ?int $status = null)
+    {
+        parent::__construct($message);
+    }
+}

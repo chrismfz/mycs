@@ -14,9 +14,11 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\RateLimiter;
 use Livewire\Livewire;
 use MyCS\GrEpp\Http\HttpResponse;
 use MyCS\GrEpp\Tests\FakeTransport;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
@@ -170,6 +172,28 @@ class DomainSearchIsolationTest extends TestCase
         $this->assertSame(DomainSearch::UNKNOWN, $statuses['example1.net'], 'refused on its own too: could not check');
         $this->assertSame(DomainSearch::TAKEN, $statuses['example1.gr']);
         $this->assertFalse(Cache::has('domain-search-registrar-paused:' . $this->tlds['com']->registrar_connection_id), 'a refusal is an answer: no pause');
+        // The retries on a budget of their own: never the search's (one Openprovider batch, one registry batch).
+        $this->assertSame(2, RateLimiter::attempts('domain-search-registrar'));
+        $this->assertSame(2, RateLimiter::attempts('domain-search-registrar-retry'));
+    }
+
+    /** @return array<string, array{int}> */
+    public static function accountRefusals(): array
+    {
+        return ['not allowed (IP not whitelisted)' => [403], 'rate limited' => [429], 'still unauthorized after a new login' => [401]];
+    }
+
+    #[DataProvider('accountRefusals')]
+    public function test_a_refusal_of_the_account_not_of_a_name_is_not_asked_again_name_by_name(int $status): void
+    {
+        $this->openprovider(fn () => Http::response(['code' => 1, 'desc' => 'No'], $status));
+        $this->registryAnswers();
+
+        $statuses = $this->statuses();
+
+        $this->assertSame($status === 401 ? 2 : 1, $this->checks, 'the batch only (a 401: once more after a new login)');
+        $this->assertSame([DomainSearch::UNKNOWN, DomainSearch::UNKNOWN], [$statuses['example1.com'], $statuses['example1.net']]);
+        $this->assertSame(DomainSearch::FREE, $statuses['free-example.gr']);
     }
 
     public function test_a_timeout_while_asking_name_by_name_stops_asking(): void
@@ -188,5 +212,6 @@ class DomainSearchIsolationTest extends TestCase
         $this->assertSame(2, $this->checks);
         $this->assertSame([DomainSearch::UNKNOWN, DomainSearch::UNKNOWN], [$statuses['example1.com'], $statuses['example1.net']]);
         $this->assertSame(DomainSearch::FREE, $statuses['free-example.gr']);
+        $this->assertTrue(Cache::has('domain-search-registrar-paused:' . $this->tlds['com']->registrar_connection_id), 'it did not answer: paused');
     }
 }
