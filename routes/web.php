@@ -14,6 +14,7 @@ use App\Livewire\Invoices;
 use App\Livewire\Products;
 use App\Livewire\Services;
 use App\Livewire\Tickets;
+use App\Services\Captcha\Altcha;
 use Illuminate\Foundation\Auth\EmailVerificationRequest;
 use Illuminate\Support\Facades\Route;
 
@@ -22,6 +23,11 @@ Route::get('/', Home::class)->name('home');
 Route::get('/domain-search', DomainShop\Search::class)->name('domain.search');
 Route::get('/whois', DomainShop\Whois::class)->name('domain.whois');
 Route::get('/domain-pricing', DomainShop\Pricing::class)->name('domain.pricing');
+
+// Our captcha's challenges (docs/captcha.md): only while it is the chosen captcha; a few a minute per address.
+Route::get('/captcha/altcha', fn (Altcha $altcha) => config('settings.captcha') === 'altcha'
+    ? response()->json($altcha->challenge())->header('Cache-Control', 'no-store')
+    : abort(404))->name('captcha.altcha')->middleware('throttle:altcha');
 
 // Destroy the session and log out the user.
 // auth()->logout();

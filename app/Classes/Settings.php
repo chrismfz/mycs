@@ -148,22 +148,48 @@ class Settings
                         'recaptcha-v3' => 'Google reCAPTCHA v3',
                         'turnstile' => 'Cloudflare Turnstile',
                         'hcaptcha' => 'hCaptcha',
+                        // Ours, nothing sent to anyone (docs/captcha.md): no keys to fill in.
+                        'altcha' => 'ALTCHA (self-hosted)',
                     ],
                     'default' => 'disabled',
                     'live' => true,
                 ],
                 [
+                    'name' => 'altcha_difficulty',
+                    'label' => 'ALTCHA difficulty',
+                    'type' => 'select',
+                    'options' => [
+                        'low' => 'Low (old phones)',
+                        'normal' => 'Normal',
+                        'high' => 'High (under attack)',
+                    ],
+                    'default' => 'normal',
+                    'description' => 'The work the visitor\'s browser does before a form is sent: about 1–2 s on a computer at «Normal», a few on a phone; «High» about three times that.',
+                    'hidden' => fn (Get $get) => $get('captcha') !== 'altcha',
+                ],
+                [
+                    'name' => 'altcha_minutes',
+                    'label' => 'ALTCHA challenge lifetime (minutes)',
+                    'type' => 'number',
+                    'default' => 10,
+                    'validation' => 'nullable|integer|min:1|max:60',
+                    'description' => 'How long a solved challenge can still be sent.',
+                    'hidden' => fn (Get $get) => $get('captcha') !== 'altcha',
+                ],
+                [
                     'name' => 'captcha_site_key',
                     'label' => 'Captcha Site Key',
                     'type' => 'text',
-                    'required' => fn (Get $get) => $get('captcha') && $get('captcha') !== 'disabled',
+                    'required' => fn (Get $get) => $get('captcha') && !in_array($get('captcha'), ['disabled', 'altcha'], true),
+                    'hidden' => fn (Get $get) => $get('captcha') === 'altcha',
                 ],
                 [
                     'name' => 'captcha_secret',
                     'label' => 'Captcha Secret',
                     'type' => 'text',
                     'encrypted' => true, // a secret: stored encrypted, never sent to the page (sweep §6 review R4)
-                    'required' => fn (Get $get) => $get('captcha') && $get('captcha') !== 'disabled',
+                    'required' => fn (Get $get) => $get('captcha') && !in_array($get('captcha'), ['disabled', 'altcha'], true),
+                    'hidden' => fn (Get $get) => $get('captcha') === 'altcha',
                 ],
 
                 [

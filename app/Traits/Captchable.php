@@ -2,6 +2,7 @@
 
 namespace App\Traits;
 
+use App\Services\Captcha\Altcha;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\ValidationException;
 
@@ -13,6 +14,11 @@ trait Captchable
 
     public function updated()
     {
+        // ALTCHA is checked when the form is sent, not on every field's update: a solution counts once, and a live
+        // field's update before the submit would spend it (docs/captcha.md).
+        if (config('settings.captcha') === 'altcha') {
+            return;
+        }
         $this->captcha();
     }
 
@@ -33,7 +39,19 @@ trait Captchable
             $this->hcaptcha($this->captcha);
         } elseif (config('settings.captcha') == 'recaptcha-v2' || config('settings.captcha') == 'recaptcha-v3') {
             $this->recaptcha($this->captcha);
+        } elseif (config('settings.captcha') == 'altcha') {
+            $this->altcha($this->captcha);
         }
+    }
+
+    // ALTCHA, our own (docs/captcha.md): checked here, nothing sent anywhere; a solution counts once.
+    private function altcha(string $value): bool
+    {
+        if (app(Altcha::class)->verify($value)) {
+            return $this->is_valid = true;
+        }
+
+        throw ValidationException::withMessages(['captcha' => __('auth.captcha_invalid')]);
     }
 
     // Turnstile
