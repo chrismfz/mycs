@@ -72,7 +72,6 @@ return [
     'portal' => [
         'at_registry' => 'Στο μητρώο .gr',
         'registry_status' => 'Κατάσταση',
-        'eett_status' => 'ΕΕΤΤ',
         'forms' => 'Μορφές (.gr / .ελ)',
         'registry_updated' => 'Τελευταία αλλαγή στο μητρώο',
         'contacts' => 'Επαφές',
@@ -250,5 +249,10 @@ return [
         'regulatorExpirationProhibited' => 'ΕΕΤΤ: δεν λήγει',
         'regulatorDelegationChangeProhibited' => 'ΕΕΤΤ: οι nameservers δεν αλλάζουν',
         'regulatorDebtOwnership' => 'ΕΕΤΤ: καθεστώς οφειλής',
+    ],
+    // Πιο απλά λόγια για τον πελάτη όπου διαφέρουν (P2, review 4 του #220)· τα υπόλοιπα όπως του μητρώου.
+    'portal_registry_status' => [
+        'pendingCreate' => 'Καταχώριση προς έγκριση από το μητρώο',
+        'regulatorDebtOwnership' => 'ΕΕΤΤ: σημείωση για οφειλή του κατόχου· επικοινωνήστε μαζί μας',
     ],
 ];

@@ -10,6 +10,7 @@ use App\Models\DomainTld;
 use App\Models\User;
 use App\Support\Domains\RegistryStatuses;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -36,7 +37,7 @@ class PortalRegistryTest extends TestCase
     {
         $connection = DomainRegistrarConnection::query()->create(['registrar' => $registrar, 'label' => $registrar, 'is_active' => true, 'mode' => 'production']);
         [$sld, $tld] = explode('.', $fqdn, 2);
-        $domainTld = DomainTld::query()->create(['tld' => $tld, 'grace_days' => 15, 'redemption_days' => 0, 'is_active' => true]);
+        $domainTld = DomainTld::query()->firstOrCreate(['tld' => $tld], ['grace_days' => 15, 'redemption_days' => 0, 'is_active' => true]);
 
         return Domain::factory()->create(['client_id' => $this->user->client()->id, 'sld' => $sld, 'tld' => $tld, 'fqdn' => $fqdn, 'domain_tld_id' => $domainTld->id,
             'registrar_connection_id' => $connection->id, 'status' => DomainStatus::Active, 'meta' => ['registrar' => $record]]);
@@ -45,7 +46,7 @@ class PortalRegistryTest extends TestCase
     public function test_a_gr_customer_sees_its_records_statuses_in_words(): void
     {
         $domain = $this->domain('grepp', 'forth.gr', ['roid' => 'd34d-gr', 'statuses' => 'ok', 'protocol' => '63161',
-            'regulator_statuses' => 'regulatorOwnerChangeProhibited, regulatorHold', 'bundle' => 'forth.gr (domain, chargeable) <b>x</b>',
+            'regulator_statuses' => 'regulatorOwnerChangeProhibited, regulatorHold', 'bundle' => 'forth.gr (domain, chargeable), φορθ<b>.gr (dname)',
             'updated' => '2026-10-18 16:21 UTC', 'handles' => 'registrant c60_q1pcBkTq']);
 
         app()->setLocale('el');
@@ -53,8 +54,10 @@ class PortalRegistryTest extends TestCase
             ->assertSee('Στο μητρώο .gr')
             ->assertSee('Ενεργό, τίποτα σε εκκρεμότητα')
             ->assertSee('ΕΕΤΤ: δεν επιτρέπεται μεταβίβαση')
-            ->assertSee('2026-10-18 16:21 UTC')
-            ->assertSee('&lt;b&gt;x&lt;/b&gt;', false)
+            ->assertSee(Carbon::parse('2026-10-18 16:21 UTC')->timezone(config('app.timezone'))->format('d/m/Y H:i'), false) // its UTC in the app's time
+            ->assertSee('forth.gr · φορθ&lt;b&gt;.gr', false) // the forms by name, escaped
+            ->assertDontSee('chargeable')->assertDontSee('dname')
+            ->assertDontSee('ΕΕΤΤ: ΕΕΤΤ', false)
             ->assertDontSee('d34d-gr')->assertDontSee('63161')->assertDontSee('c60_q1pcBkTq')
             ->assertDontSee('(regulatorHold)', false);
     }
@@ -66,5 +69,10 @@ class PortalRegistryTest extends TestCase
 
         $unread = $this->domain('grepp', 'cdnet.gr', ['protocol' => '993651']);
         $this->assertNull(RegistryStatuses::forCustomer($unread));
+
+        // Ended: its last record would say «active» beside «transferred away» (review 1 of #220).
+        $gone = $this->domain('grepp', 'nac.gr', ['roid' => 'x-gr', 'statuses' => 'ok']);
+        $gone->forceFill(['status' => DomainStatus::TransferredAway])->save();
+        $this->assertNull(RegistryStatuses::forCustomer($gone->fresh()));
     }
 }

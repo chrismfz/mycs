@@ -152,7 +152,8 @@
             <dl class="text-sm space-y-1">
                 <div class="flex gap-2"><dt>{{ __('domains.portal.registry_status') }}:</dt><dd class="text-base/60">{{ implode(' · ', $registry['statuses']) }}</dd></div>
                 @if ($registry['regulator'] !== [])
-                <div class="flex gap-2"><dt>{{ __('domains.portal.eett_status') }}:</dt><dd class="text-warning">{{ implode(' · ', $registry['regulator']) }}</dd></div>
+                {{-- Each already says «EETT: …» (review 3 of #220): no label of its own. --}}
+                <div class="text-warning">{{ implode(' · ', $registry['regulator']) }}</div>
                 @endif
                 @if ($registry['forms'])
                 <div class="flex gap-2"><dt>{{ __('domains.portal.forms') }}:</dt><dd class="text-base/60">{{ $registry['forms'] }}</dd></div>

@@ -72,7 +72,6 @@ return [
     'portal' => [
         'at_registry' => 'At the .gr registry',
         'registry_status' => 'Status',
-        'eett_status' => 'EETT',
         'forms' => 'Forms (.gr / .ελ)',
         'registry_updated' => 'Last changed at the registry',
         'contacts' => 'Contacts',
@@ -250,5 +249,10 @@ return [
         'regulatorExpirationProhibited' => 'EETT: does not expire',
         'regulatorDelegationChangeProhibited' => 'EETT: nameservers may not change',
         'regulatorDebtOwnership' => 'EETT: debt status',
+    ],
+    // The portal's plainer words where they differ (P2, review 4 of #220); the rest as the registry's.
+    'portal_registry_status' => [
+        'pendingCreate' => 'Registration awaiting approval at the registry',
+        'regulatorDebtOwnership' => 'EETT: a note on the holder\'s debt status; contact us',
     ],
 ];
