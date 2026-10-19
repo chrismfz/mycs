@@ -1,5 +1,5 @@
 <div class="container mt-14 space-y-4">
-    <x-navigation.breadcrumb />
+    <x-navigation.breadcrumb :trail="[['name' => __('navigation.domains'), 'url' => route('domains')], ['name' => $domain->fqdn]]" />
 
     @if ($openInvoice)
     <div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-900 dark:bg-yellow-600/20 dark:text-yellow-200 p-4 rounded-lg">

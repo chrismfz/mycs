@@ -1,4 +1,5 @@
 <div class="container mt-14">
+    <x-navigation.breadcrumb :trail="[['name' => __('navigation.services'), 'url' => route('services')], ['name' => $service->label, 'url' => route('services.show', $service)], ['name' => __('navigation.upgrade')]]" />
     <h1 class="text-2xl font-bold">
         {{ __('services.upgrade_service', ['service' => $service->product->name]) }}
     </h1>

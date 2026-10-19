@@ -1,4 +1,5 @@
 <div class="container mt-14">
+    <x-navigation.breadcrumb :trail="[['name' => __('navigation.invoices'), 'url' => route('invoices')], ['name' => __('invoices.invoice', ['id' => $invoice->number])]]" />
     <div @if ($checkPayment) wire:poll.5s="checkPaymentStatus" @endif>
         @if ($this->pay || $showPayModal)
         @include('invoices.partials.payment-modal')

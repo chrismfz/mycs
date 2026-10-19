@@ -1,6 +1,9 @@
 <?php
 
 return [
+    'breadcrumb' => 'Διαδρομή',
+    'upgrade' => 'Αναβάθμιση',
+    'new_order' => 'Νέα παραγγελία',
     'home' => 'Αρχική',
     'shop' => 'Προϊόντα',
     'cart' => 'Καλάθι',
@@ -14,7 +17,7 @@ return [
     'personal_details' => 'Στοιχεία',
     'security' => 'Ασφάλεια',
     'dashboard' => 'Αρχική',
-    'tickets' => 'Tickets',
+    'tickets' => 'Υποστήριξη',
     'admin' => 'Διαχείριση',
     'notifications' => 'Ειδοποιήσεις',
     'users' => 'Χρήστες',
