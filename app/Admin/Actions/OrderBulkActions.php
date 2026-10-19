@@ -2,8 +2,10 @@
 
 namespace App\Admin\Actions;
 
+use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\DisplayException;
 use App\Models\Order;
+use App\Models\Service;
 use App\Models\Staff;
 use App\Services\Order\AcceptOrder;
 use App\Services\Order\CancelOrder;
@@ -41,13 +43,18 @@ final class OrderBulkActions
             ->color('danger')
             ->authorize(fn (): bool => (bool) auth('staff')->user()?->hasPermission('admin.orders.update'))
             ->requiresConfirmation()
-            ->modalDescription('Their services are cancelled and their open invoices with them; accounts already created on the servers are not terminated and paid invoices stay. To refund or terminate, cancel from the order\'s page.')
+            ->modalDescription('For what was never paid: their services are cancelled and their open invoices with them. An order with a payment or a running service is left: cancel it from its page, where you choose to refund and terminate.')
             ->deselectRecordsAfterCompletion()
             ->action(function (Collection $records): void {
                 self::each($records, 'cancelled', function (Order $order) {
                     // As the page offers it: not on one cancelled or set as fraud already.
                     if (in_array($order->status, [Order::STATUS_CANCELLED, Order::STATUS_FRAUD], true)) {
                         throw new DisplayException('It is ' . $order->status . ' already.');
+                    }
+                    // Paid or running: refund and terminate are staff's choice on its page (adversarial ADV-5).
+                    if ($order->services()->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])->exists()
+                        || $order->invoices->whereHas('transactions', fn ($payments) => $payments->where('status', InvoiceTransactionStatus::Succeeded))->exists()) {
+                        throw new DisplayException('It has a payment or a running service: cancel it from its page (refund, terminate).');
                     }
                     foreach (CancelOrder::handle($order, false, null, false) as $notice) {
                         Notification::make()->warning()->title("Order #{$order->id}: left for staff")->body($notice->getMessage())->persistent()->send();

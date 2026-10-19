@@ -46,9 +46,10 @@ final class AcceptOrder
                 if (!$startUnpaid && self::waitsForPayment($service)) {
                     continue;
                 }
-                // Started not paid (staff asked, or its product waits for Accept): the cron no longer cancels it as unpaid.
-                // This service only: another of the order left waiting for its payment still is (code review, 2026-10-19).
-                if ($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->exists()) {
+                // Started not paid (staff asked, its product waits for Accept, or staff gave it: its invoice cancelled): the
+                // cron no longer cancels it as unpaid. This service only: another of the order left waiting for its
+                // payment still is (code review and adversarial ADV-1/ADV-4, 2026-10-19).
+                if (!$service->invoices()->where('invoices.status', Invoice::STATUS_PAID)->exists()) {
                     $service->forceFill(['started_unpaid_at' => now()])->save();
                 }
                 if ($runCreate && $service->provisioningServer() !== null) {

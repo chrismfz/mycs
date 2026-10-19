@@ -98,7 +98,7 @@ class OrderPendingUntilAcceptAdversarialTest extends TestCase
         AcceptOrder::handle($order, null);
 
         $this->assertSame(Service::STATUS_PENDING, $waiting->fresh()->status, 'not paid: left waiting by Accept');
-        $this->assertNotNull($order->fresh()->started_unpaid_at, 'the other one was started unpaid');
+        $this->assertNotNull(Service::query()->where('order_id', $order->id)->where('product_id', $onAccept->id)->sole()->started_unpaid_at, 'the other one was started unpaid'); // per service since the code review
 
         Carbon::setTestNow('2026-02-01 10:00:00'); // Order Days Grace long gone, never paid
         $this->artisan('app:cron-job');
@@ -128,7 +128,8 @@ class OrderPendingUntilAcceptAdversarialTest extends TestCase
 
         AcceptOrder::handle($order, null);
 
-        Queue::assertPushed(CreateJob::class, 'set up on order, its create failed: staff\'s Accept sets it up, as WHMCS');
+        // Set up on order, its create failed: staff's Accept sets it up, as WHMCS.
+        Queue::assertPushed(CreateJob::class);
     }
 
     /**
@@ -145,7 +146,7 @@ class OrderPendingUntilAcceptAdversarialTest extends TestCase
             'reference_type' => Domain::class, 'reference_id' => $domain->id, 'kind' => InvoiceItem::KIND_REGISTER]);
 
         AcceptOrder::handle($order, null, startUnpaid: true);
-        $this->assertNotNull($order->fresh()->started_unpaid_at);
+        $this->assertNotNull($order->services()->sole()->started_unpaid_at); // per service since the code review
 
         Carbon::setTestNow('2026-02-01 10:00:00');
         $this->artisan('app:cron-job');

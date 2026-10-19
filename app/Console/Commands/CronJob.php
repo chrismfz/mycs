@@ -620,7 +620,8 @@ class CronJob extends Command
 
     /**
      * Domains of an order (D8b), pending since $days ago, their registration or transfer not paid nor on its way: never
-     * paid, no money from a gateway or a transfer (an accepted order too: Accept sends no domain).
+     * paid, no money from a gateway or a transfer (an accepted order too: Accept sends no domain), not one of an order staff
+     * started unpaid.
      *
      * @return Builder<Domain>
      */
@@ -630,7 +631,9 @@ class CronJob extends Command
 
         return Domain::query()->whereIn('status', [DomainStatus::PendingRegister->value, DomainStatus::PendingTransfer->value])
             ->whereNotNull('order_id')->where('created_at', '<', now()->subDays($days))
-            // Accept sends no domain to its registrar: an accepted order's unpaid domain is cancelled as any other.
+            // Accept sends no domain to its registrar: an accepted order's unpaid domain is cancelled as any other, unless
+            // staff started a service of the order unpaid (they gave the order credit: left with it, adversarial ADV-3).
+            ->whereDoesntHave('order.services', fn ($services) => $services->whereNotNull('started_unpaid_at'))
             // Never sent to its registrar (D8b-2 marks it once sent; a free transfer included, adversarial review).
             ->where(fn ($q) => $q->whereNull('meta')->orWhereNull('meta->sent_at'))
             // Its line open, or cancelled already with the rest of its order (code review H1: a service of the same order
