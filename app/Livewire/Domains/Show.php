@@ -18,6 +18,7 @@ use App\Services\Domains\DomainRenewalYears;
 use App\Services\Domains\RegistrarRefused;
 use App\Support\Actor;
 use App\Support\CurrentClient;
+use App\Support\Domains\RegistryStatuses;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
@@ -483,6 +484,7 @@ class Show extends Component
             'registrantChangeable' => $this->registrantChangeable(),
             'registrantLocked' => __($this->atGrRegistry() ? 'domains.portal.registrant_locked' : 'domains.portal.registrant_locked_here'),
             'seesContacts' => $this->seesContacts(),
+            'registry' => RegistryStatuses::forCustomer($this->domain),
         ])->layoutData([
             'title' => $this->domain->fqdn,
             'sidebar' => true,

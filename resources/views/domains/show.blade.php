@@ -145,6 +145,25 @@
             @endif
         </div>
 
+        {{-- At the .gr registry (P2): its statuses and the EETT's in words, as the sync last read them; nothing internal. --}}
+        @if ($registry)
+        <div class="mt-6">
+            <h4 class="text-lg font-semibold mb-2">{{ __('domains.portal.at_registry') }}</h4>
+            <dl class="text-sm space-y-1">
+                <div class="flex gap-2"><dt>{{ __('domains.portal.registry_status') }}:</dt><dd class="text-base/60">{{ implode(' · ', $registry['statuses']) }}</dd></div>
+                @if ($registry['regulator'] !== [])
+                <div class="flex gap-2"><dt>{{ __('domains.portal.eett_status') }}:</dt><dd class="text-warning">{{ implode(' · ', $registry['regulator']) }}</dd></div>
+                @endif
+                @if ($registry['forms'])
+                <div class="flex gap-2"><dt>{{ __('domains.portal.forms') }}:</dt><dd class="text-base/60">{{ $registry['forms'] }}</dd></div>
+                @endif
+                @if ($registry['updated'])
+                <div class="flex gap-2"><dt>{{ __('domains.portal.registry_updated') }}:</dt><dd class="text-base/60">{{ $registry['updated'] }}</dd></div>
+                @endif
+            </dl>
+        </div>
+        @endif
+
         {{-- Contacts (P1): each role from the account's contacts; a .gr holder is changed only by us (a charged act). --}}
         <div class="mt-6">
             <div class="flex items-center gap-3 mb-2">

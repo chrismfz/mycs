@@ -70,6 +70,11 @@ return [
 
     // The client area (D7-2).
     'portal' => [
+        'at_registry' => 'At the .gr registry',
+        'registry_status' => 'Status',
+        'eett_status' => 'EETT',
+        'forms' => 'Forms (.gr / .ελ)',
+        'registry_updated' => 'Last changed at the registry',
         'contacts' => 'Contacts',
         'registrant_locked_here' => 'The registrant (holder) cannot be changed here: its registrar does not allow a simple change (it may be a paid trade). Contact us.',
         'contact_required' => 'Choose a contact: this role cannot be left empty.',
