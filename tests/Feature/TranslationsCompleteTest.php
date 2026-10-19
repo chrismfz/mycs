@@ -11,6 +11,9 @@ use Tests\TestCase;
  * Everything says itself in Greek and English (CLAUDE.md; owner 2026-10-19): every key the code asks for exists in both
  * (a missing one shows its key, «invoices.apply_credit_and_continue», on the page), every plain string has its Greek, and
  * the Greek files hold every English key.
+ *
+ * Not seen: keys built at run time (ending in `.` or `_`, or from a variable: `__($label)`), and app, views and
+ * extensions only (not routes, config, database, packages). A key picked by a ternary, `__($x ? 'a.b' : 'a.c')`, is.
  */
 class TranslationsCompleteTest extends TestCase
 {
@@ -24,7 +27,9 @@ class TranslationsCompleteTest extends TestCase
                     continue;
                 }
                 preg_match_all("/(?:__|trans|trans_choice|@lang)\\(\\s*'((?:[^'\\\\]|\\\\.)+)'/", (string) file_get_contents((string) $file), $m);
-                foreach ($m[1] as $key) {
+                // A key picked by a ternary: __($cond ? 'a.b' : 'a.c').
+                preg_match_all("/(?:__|trans)\\(\\s*\\$[^;?'\"]*\\?\\s*'([^']+)'\\s*:\\s*'([^']+)'/", (string) file_get_contents((string) $file), $t);
+                foreach ([...$m[1], ...$t[1], ...$t[2]] as $key) {
                     $used[stripslashes($key)] ??= str_replace(base_path() . '/', '', (string) $file);
                 }
             }

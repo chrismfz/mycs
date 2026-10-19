@@ -33,5 +33,5 @@ return [
     'select_service' => 'Επιλέξτε υπηρεσία',
     'create' => 'Αποστολή',
     'no_tickets' => 'Δεν υπάρχουν tickets',
-    'title' => 'Αίτημα #:id',
+    'title' => 'Ticket #:id',
 ];

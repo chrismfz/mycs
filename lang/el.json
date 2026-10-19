@@ -709,7 +709,7 @@
     "The :attribute must be a valid CIDR subnet with a mask of %d-%d (IPv4) or %d-%d (IPv6) bits.": "Το πεδίο :attribute πρέπει να είναι έγκυρο υποδίκτυο CIDR με μάσκα %d-%d (IPv4) ή %d-%d (IPv6) bits.",
     "Only an active license can be reissued.": "Μόνο μια ενεργή άδεια μπορεί να επανεκδοθεί.",
     "Only a pending order can be accepted.": "Μόνο μια παραγγελία σε εκκρεμότητα μπορεί να γίνει δεκτή.",
-    "Every service of this order has ended: there is nothing to accept.": "Όλες οι υπηρεσίες αυτής της παραγγελίας έχουν τελειώσει: δεν υπάρχει τίποτα να γίνει δεκτό.",
+    "Every service of this order has ended: there is nothing to accept.": "Όλες οι υπηρεσίες αυτής της παραγγελίας έχουν λήξει: δεν υπάρχει τίποτα να γίνει δεκτό.",
     "© :year :app_name. | All rights reserved.": "© :year :app_name. | Με την επιφύλαξη παντός δικαιώματος.",
     "Announcements": "Ανακοινώσεις"
 }

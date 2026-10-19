@@ -24,7 +24,7 @@ return [
     'current_device' => 'Αυτή η συσκευή',
 
     'input' => [
-        'amount_placeholder' => 'π.χ. 50,00',
+        'amount_placeholder' => 'π.χ. 50.00',
         'current_password' => 'Τρέχων κωδικός',
         'current_password_placeholder' => 'Ο τρέχων κωδικός σας',
         'new_password' => 'Νέος κωδικός',
