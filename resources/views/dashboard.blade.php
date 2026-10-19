@@ -4,6 +4,42 @@
         {{ __('dashboard.dashboard_description') }}
     </p>
 
+    {{-- What waits on the customer, in one place (P4b) --}}
+    <section aria-labelledby="attention-title" class="bg-background-secondary border border-neutral rounded-lg p-4 mt-8">
+        <h2 id="attention-title" class="text-lg font-semibold mb-3 flex items-center gap-2">
+            <x-ri-notification-badge-line class="size-5" />
+            {{ __('dashboard.attention.title') }}
+        </h2>
+        @forelse ($attention as $item)
+        <div class="flex flex-wrap items-center justify-between gap-3 py-3 border-t border-neutral first-of-type:border-0" wire:key="attention-{{ $loop->index }}">
+            <div class="flex items-start gap-3 min-w-0">
+                <span class="mt-0.5 size-6 shrink-0 rounded-md p-1 {{ $item['urgent'] ? 'text-error bg-error/20' : 'text-warning bg-warning/20' }}">
+                    @switch($item['kind'])
+                        @case('invoices') <x-ri-bill-line /> @break
+                        @case('card') <x-ri-bank-card-line /> @break
+                        @case('domain') <x-ri-global-line /> @break
+                        @default <x-ri-chat-smile-2-line />
+                    @endswitch
+                </span>
+                <div class="min-w-0">
+                    <p class="font-medium">{{ $item['text'] }}</p>
+                    @if ($item['detail'] !== '')
+                    <p class="text-sm text-base/60">{{ $item['detail'] }}</p>
+                    @endif
+                </div>
+            </div>
+            <a href="{{ $item['url'] }}" wire:navigate class="shrink-0 bg-primary text-white hover:bg-primary/90 rounded-lg px-4 py-2 text-sm font-semibold">
+                {{ $item['action'] }}
+            </a>
+        </div>
+        @empty
+        <p class="text-sm text-base/70 flex items-center gap-2">
+            <x-ri-checkbox-circle-fill class="size-5 text-success" />
+            {{ __('dashboard.attention.all_good') }}
+        </p>
+        @endforelse
+    </section>
+
     <div class="grid grid-cols-1 md:grid-cols-2 gap-12 mt-8 items-start">
 
         <div class="grid gap-8 items-start">

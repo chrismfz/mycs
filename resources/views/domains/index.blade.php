@@ -32,11 +32,22 @@
                     </thead>
                     <tbody>
                         @forelse ($domains as $domain)
-                        <tr class="border-b border-neutral last:border-0 hover:bg-background-secondary/80">
+                        <tr class="border-b border-neutral last:border-0 hover:bg-background-secondary/80" wire:key="domain-{{ $domain->id }}">
                             <td class="px-4 py-3">
                                 <a href="{{ route('domains.show', $domain) }}" wire:navigate class="font-medium text-primary hover:underline">{{ $domain->fqdn }}</a>
                                 <div class="text-xs text-base/60 flex items-center gap-1 mt-0.5">
-                                    @if ($domain->auto_renew)
+                                    @if (in_array($domain->id, $toggleable, true))
+                                    {{-- Auto renew from the row (P4b), confirmed as on its page --}}
+                                    <button type="button" role="switch" aria-checked="{{ $domain->auto_renew ? 'true' : 'false' }}"
+                                        wire:click="toggleAutoRenew({{ $domain->id }})" wire:loading.attr="disabled" wire:target="toggleAutoRenew({{ $domain->id }})"
+                                        wire:confirm="{{ $domain->auto_renew ? __('domains.portal.auto_renew_off_confirm') : __('domains.portal.auto_renew_on_confirm') }}"
+                                        class="flex items-center gap-1.5 hover:text-base">
+                                        <span class="relative inline-flex h-4 w-7 shrink-0 rounded-full transition {{ $domain->auto_renew ? 'bg-success' : 'bg-neutral' }}">
+                                            <span class="absolute top-0.5 size-3 rounded-full bg-white transition-all {{ $domain->auto_renew ? 'left-3.5' : 'left-0.5' }}"></span>
+                                        </span>
+                                        {{ $domain->auto_renew ? __('domains.portal.auto_renew_on') : __('domains.portal.auto_renew_off') }}
+                                    </button>
+                                    @elseif ($domain->auto_renew)
                                     <x-ri-check-line class="size-3 text-success" /> {{ __('domains.portal.auto_renew_on') }}
                                     @else
                                     <x-ri-close-line class="size-3 text-inactive" /> {{ __('domains.portal.auto_renew_off') }}

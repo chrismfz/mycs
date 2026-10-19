@@ -554,6 +554,12 @@ class Invoice extends Model implements Auditable
         return $this->hasOne(InvoiceSnapshot::class);
     }
 
+    /** Its PDF's file name: a number is free text («INV/2026/15»), and a download's name may hold no slash (review of #230). */
+    public function pdfFileName(): string
+    {
+        return 'invoice-' . str_replace(['/', '\\'], '-', (string) ($this->number ?? $this->id)) . '.pdf';
+    }
+
     /** @return Attribute<mixed, mixed> */
     public function pdf(): Attribute
     {

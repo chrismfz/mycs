@@ -167,10 +167,10 @@
                         <h4 class="h-fit">{{ __('ticket.subject') }}:</h4> {{ $ticket->subject }}
                     </div>
                     <div class="font-semibold flex md:flex-col justify-between bg-primary-800 p-2 px-4 rounded-md">
-                        <h4>{{ __('ticket.status') }}:</h4> {{ ucfirst($ticket->status) }}
+                        <h4>{{ __('ticket.status') }}:</h4> <x-ticket.status :status="$ticket->status" class="w-fit" />
                     </div>
                     <div class="font-semibold flex md:flex-col justify-between bg-primary-800 p-2 px-4 rounded-md">
-                        <h4>{{ __('ticket.priority') }}:</h4> {{ ucfirst($ticket->priority) }}
+                        <h4>{{ __('ticket.priority') }}:</h4> {{ in_array($ticket->priority, ['low', 'medium', 'high'], true) ? __('ticket.' . $ticket->priority) : ucfirst((string) $ticket->priority) }}
                     </div>
                     <div class="font-semibold flex md:flex-col justify-between bg-primary-800 p-2 px-4 rounded-md">
                         <h4>{{ __('ticket.created_at') }}:</h4> {{ $ticket->created_at->diffForHumans() }}

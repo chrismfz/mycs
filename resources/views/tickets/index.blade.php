@@ -16,19 +16,7 @@
                     </div>
                     <span class="font-medium">#{{ $ticket->id }} - {{ $ticket->subject }}</span>
                 </div>
-                <div class="size-5 rounded-md p-0.5
-                    @if ($ticket->status == 'open') text-success bg-success/20 
-                    @elseif($ticket->status == 'closed') text-inactive bg-inactive/20
-                    @else text-info bg-info/20 
-                    @endif">
-                    @if ($ticket->status == 'open')
-                        <x-ri-add-circle-fill />
-                    @elseif($ticket->status == 'closed')
-                        <x-ri-forbid-fill />
-                    @elseif($ticket->status == 'replied')
-                        <x-ri-chat-smile-2-fill />
-                    @endif
-                </div>
+                <x-ticket.status :status="$ticket->status" />
             </div>
             <p class="text-base text-sm">
                 {{ __('ticket.last_activity') }}

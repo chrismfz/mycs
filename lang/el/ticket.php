@@ -34,4 +34,9 @@ return [
     'create' => 'Αποστολή',
     'no_tickets' => 'Δεν υπάρχουν tickets',
     'title' => 'Ticket #:id',
+    'statuses' => [
+        'open' => 'Το εξετάζουμε',
+        'replied' => 'Περιμένουμε την απάντησή σας',
+        'closed' => 'Κλειστό',
+    ],
 ];
