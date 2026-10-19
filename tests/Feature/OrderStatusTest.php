@@ -93,7 +93,7 @@ class OrderStatusTest extends TestCase
         return Staff::factory()->create(['role_id' => Role::create(['name' => 'Role ' . uniqid(), 'permissions' => $permissions])->id]);
     }
 
-    public function test_an_order_starts_pending_and_turns_active_once_its_services_are_set_up(): void
+    public function test_an_order_starts_pending_and_stays_pending_once_set_up_until_staff_accept_it(): void
     {
         $order = $this->order(Product::AUTOSETUP_PAYMENT);
         $this->assertSame(Order::STATUS_PENDING, $order->status);
@@ -101,7 +101,10 @@ class OrderStatusTest extends TestCase
         $this->payInvoice($order);
         $this->assertSame(Order::STATUS_PENDING, $order->fresh()->status, 'paid, the account not made yet');
         (new CreateJob($order->services()->sole()))->handle();
+        $this->assertSame(Service::STATUS_ACTIVE, $order->services()->sole()->status, 'set up on payment, as before');
 
+        $this->assertSame(Order::STATUS_PENDING, $order->fresh()->status, 'set up and paid: still for staff to see (owner 2026-10-19: every order waits for staff\'s Accept, as WHMCS)');
+        AcceptOrder::handle($order, null);
         $this->assertSame(Order::STATUS_ACTIVE, $order->fresh()->status);
     }
 

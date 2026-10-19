@@ -669,10 +669,10 @@ class Settings
                     'section' => 'Billing Settings',
                     'label' => 'Cancel unpaid orders after',
                     'type' => 'number',
-                    'default' => 7,
+                    'default' => 0,
                     'required' => true,
                     'min_value' => 0,
-                    'description' => 'Days after which a new order that was never paid is cancelled, with its invoice (0 to disable).',
+                    'description' => 'Not in WHMCS, where only staff cancel an order (Pending Orders). 0 (default): never, as WHMCS. Or days after which a new order that was never paid is cancelled, with its invoice.',
                 ],
                 [
                     'name' => 'cronjob_payment_reminder',

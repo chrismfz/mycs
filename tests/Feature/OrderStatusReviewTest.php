@@ -174,7 +174,7 @@ class OrderStatusReviewTest extends TestCase
         (new DeleteService)->handle($dropped->fresh());
 
         $this->assertNull(Service::query()->find($dropped->id));
-        $this->assertSame(Order::STATUS_ACTIVE, $order->fresh()->status, 'nothing waits any more');
+        $this->assertSame(Order::STATUS_PENDING, $order->fresh()->status, 'nothing waits, staff accept it (owner 2026-10-19: every order waits for staff\'s Accept, as WHMCS)');
     }
 
     /**

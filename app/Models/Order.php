@@ -51,6 +51,16 @@ class Order extends Model implements Auditable
         return $this->belongsTo(Client::class);
     }
 
+    /**
+     * Its own invoice (Σ1-b2), the one placing it made: its payment status in Pending Orders.
+     *
+     * @return BelongsTo<Invoice, $this>
+     */
+    public function invoice(): BelongsTo
+    {
+        return $this->belongsTo(Invoice::class);
+    }
+
     /** @return BelongsTo<Staff, $this> */
     public function acceptedBy(): BelongsTo
     {
@@ -58,19 +68,21 @@ class Order extends Model implements Auditable
     }
 
     /**
-     * A pending order follows its services (Δ4): active once none of them waits (set up on order or on payment, or by
-     * staff), cancelled once all of them ended (never paid). Staff's own status (active by Accept, cancelled, fraud)
-     * is not undone here.
+     * A pending order stays pending until staff accept it, as WHMCS (owner 2026-10-19, replacing Δ4's «active once
+     * set up»): Accept is staff's look at what came in, its services set up or not, paid or not. Only cancelled here,
+     * once all of its services and domains ended (never paid). Staff's own status (accepted, cancelled, fraud) is not
+     * undone here, except by the cron's «cancel unpaid orders» ($unpaid): an order staff only looked at (accepted), never
+     * paid, is cancelled with its services, as WHMCS.
      */
-    public function refreshStatus(): void
+    public function refreshStatus(bool $unpaid = false): void
     {
-        DB::transaction(fn () => $this->refreshStatusLocked());
+        DB::transaction(fn () => $this->refreshStatusLocked($unpaid));
     }
 
-    private function refreshStatusLocked(): void
+    private function refreshStatusLocked(bool $unpaid): void
     {
         $locked = self::query()->whereKey($this->id)->lockForUpdate()->first();
-        if ($locked === null || $locked->status !== self::STATUS_PENDING) {
+        if ($locked === null || !in_array($locked->status, $unpaid ? [self::STATUS_PENDING, self::STATUS_ACTIVE] : [self::STATUS_PENDING], true)) {
             return;
         }
         $statuses = Service::query()->where('order_id', $this->id)->pluck('status');
@@ -79,15 +91,9 @@ class Order extends Model implements Auditable
         if ($statuses->isEmpty() && $domains->isEmpty()) {
             return;
         }
-        $pendingDomain = $domains->contains(fn (DomainStatus $s) => in_array($s, [DomainStatus::PendingRegister, DomainStatus::PendingTransfer], true));
-        $status = match (true) {
-            $statuses->every(fn (string $status) => in_array($status, Service::ENDED_STATUSES, true))
-                && $domains->every(fn (DomainStatus $s) => $s->isTerminal()) => self::STATUS_CANCELLED,
-            !$statuses->contains(Service::STATUS_PENDING) && !$pendingDomain => self::STATUS_ACTIVE,
-            default => null,
-        };
-        if ($status !== null) {
-            $locked->forceFill(['status' => $status])->save();
+        if ($statuses->every(fn (string $status) => in_array($status, Service::ENDED_STATUSES, true))
+            && $domains->every(fn (DomainStatus $s) => $s->isTerminal())) {
+            $locked->forceFill(['status' => self::STATUS_CANCELLED])->save();
             $this->setRawAttributes($locked->getAttributes(), true);
         }
     }
