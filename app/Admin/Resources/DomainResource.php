@@ -108,6 +108,56 @@ class DomainResource extends Resource
         'handles' => 'Handles at the registrar',
     ];
 
+    /** The .gr registry's record fields shown (G8-3), in this order: what staff look up in grweb today. */
+    private const REGISTRY_DETAILS = [
+        'protocol' => 'Protocol',
+        'roid' => 'ROID',
+        'bundle' => 'Forms (.gr / .ελ)',
+        'punycode' => 'Punycode',
+        'ds_check' => 'DNSSEC (DS) check',
+        'updated' => 'Last changed at the registry',
+        'registry' => 'The registry says',
+        'transfer' => 'Transfer',
+        'contacts' => 'Contacts at the registry',
+        'status_reasons' => 'The registry\'s reasons',
+        'comments' => 'The registry\'s comments',
+        'handles' => 'Handles at the registry',
+    ];
+
+    /**
+     * A .gr registry's record (G8-3): by its connection (review 1 of #208: one just registered keeps only its protocol,
+     * a dead one only the registry's words), else by what the sync kept (roid and statuses: no other registrar's).
+     */
+    public static function fromGrRegistry(Domain $record): bool
+    {
+        $registrar = $record->effectiveRegistrarConnection()?->registrar;
+
+        return $registrar !== null ? $registrar === 'grepp' && !empty($record->meta['registrar'] ?? null)
+            : isset($record->meta['registrar']['roid'], $record->meta['registrar']['statuses']);
+    }
+
+    /** A kept value as text: an array (an older or odd record) never a 500 (review 4). */
+    private static function detail(Domain $record, string $key): string
+    {
+        $value = $record->meta['registrar'][$key] ?? null;
+
+        return is_scalar($value) ? (string) $value : ($value === null ? '' : (string) json_encode($value, JSON_UNESCAPED_UNICODE));
+    }
+
+    /**
+     * The registry's statuses (EPP or the EETT's, «a, b»), each with what it means (grepp.md §6); one unknown, as given.
+     *
+     * @return list<string>
+     */
+    public static function registryStatuses(?string $statuses): array
+    {
+        return array_values(array_map(function (string $status) {
+            $key = 'domains.registry_status.' . $status;
+
+            return trans()->has($key) ? __($key) . " ({$status})" : $status;
+        }, array_filter(array_map('trim', explode(',', (string) $statuses)))));
+    }
+
     /** A stage's last day, with the days left while the domain is in it. */
     private static function stageEnd(?Carbon $ends, bool $current): ?string
     {
@@ -169,7 +219,7 @@ class DomainResource extends Resource
 
         // All the registrar told the last sync (D4b): what staff would otherwise look up in its panel.
         $registrar = Section::make(__('At the registrar'))->columns(['default' => 1, 'sm' => 2, '2xl' => 3])->collapsible()
-            ->visible(fn (Domain $record) => !empty($record->meta['registrar'] ?? null))
+            ->visible(fn (Domain $record) => !empty($record->meta['registrar'] ?? null) && !self::fromGrRegistry($record))
             ->schema(array_map(
                 fn (string $key, string $label) => TextEntry::make("registrar_{$key}")->label(__($label))
                     ->state(function (Domain $record) use ($key, $yesNo) {
@@ -180,6 +230,25 @@ class DomainResource extends Resource
                 array_keys(self::REGISTRAR_DETAILS),
                 self::REGISTRAR_DETAILS,
             ));
+
+        // The .gr registry's record (G8-3): its statuses, the EETT's above them, in words; its protocol, forms and DS check.
+        $registry = Section::make(__('At the .gr registry'))->collapsible()
+            ->visible(fn (Domain $record) => self::fromGrRegistry($record))
+            ->schema([
+                TextEntry::make('registry_statuses')->label(__('Status at the registry'))->listWithLineBreaks()
+                    ->visible(fn (Domain $record) => self::detail($record, 'statuses') !== '')
+                    ->state(fn (Domain $record) => self::registryStatuses(self::detail($record, 'statuses'))),
+                TextEntry::make('registry_regulator')->label(__('EETT statuses'))->listWithLineBreaks()->color('danger')
+                    ->visible(fn (Domain $record) => self::detail($record, 'regulator_statuses') !== '')
+                    ->state(fn (Domain $record) => self::registryStatuses(self::detail($record, 'regulator_statuses'))),
+                Grid::make(['default' => 1, 'sm' => 2])->schema(array_map(
+                    fn (string $key, string $label) => TextEntry::make("registry_{$key}")->label(__($label))
+                        ->visible(fn (Domain $record) => self::detail($record, $key) !== '')
+                        ->state(fn (Domain $record) => self::detail($record, $key)),
+                    array_keys(self::REGISTRY_DETAILS),
+                    self::REGISTRY_DETAILS,
+                )),
+            ]);
 
         // Two columns that each flow on their own: no gap beside a short section (D4c).
         return $schema->columns(1)->components([
@@ -229,6 +298,7 @@ class DomainResource extends Resource
                                         . (($h['read'] ?? true) === false ? '  (' . __('not read') . ')' : (($h['linked'] ?? false) ? '  (' . __('in use') . ')' : '')))->values()->all()),
                         ]),
                     $registrar,
+                    $registry,
                 ]),
             ]),
         ]);
