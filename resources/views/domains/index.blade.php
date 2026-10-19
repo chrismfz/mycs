@@ -1,5 +1,5 @@
 <div class="container mt-14 space-y-4">
-    <x-navigation.breadcrumb />
+    <x-navigation.breadcrumb :trail="[['name' => __('navigation.domains')]]" />
 
     <div class="flex flex-col md:flex-row gap-4">
         {{-- Filters, as WHMCS's «My Domains» (D7-2) --}}

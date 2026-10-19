@@ -1,4 +1,5 @@
 <div class="container mt-14">
+    <x-navigation.breadcrumb :trail="[['name' => __('navigation.services'), 'url' => route('services')], ['name' => $service->label]]" />
     @if($invoice = $service->invoices()->where('status', 'unpaid')->first())
     <div class="w-full mb-4">
         <div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-900 dark:bg-yellow-600/20 dark:text-yellow-200 p-4 rounded-lg">

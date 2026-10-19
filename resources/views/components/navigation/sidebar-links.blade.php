@@ -1,6 +1,7 @@
 <div class="lg:px-4 lg:py-6 flex flex-col gap-2">
     <div class="flex flex-col gap-2 md:hidden">
-        @foreach (\App\Classes\Navigation::getLinks() as $nav)
+        {{-- As the desktop menu (code review 4 of #226): a customer's «New order» here, their own pages below. --}}
+        @foreach (auth('web')->check() ? array_filter(\App\Classes\Navigation::getClientLinks(), fn ($nav) => !empty($nav['children'])) : \App\Classes\Navigation::getLinks() as $nav)
         @if (!empty($nav['children']))
         <div x-data="{ activeAccordion: {{ $nav['active'] ? 'true' : 'false' }} }"
             class="relative w-full mx-auto overflow-hidden text-sm font-normal divide-y divide-gray-200">

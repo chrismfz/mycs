@@ -63,6 +63,38 @@ class Navigation
         });
     }
 
+    /**
+     * The main menu of a logged-in customer (P4a of the portal, owner 2026-10-19): their own pages, one click each, no
+     * dropdowns (Home, Services, Domains, Invoices, Tickets, as their grant allows), then «New order»: the shop's
+     * categories and the domain pages in one menu, so nothing of the guest menu is lost.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function getClientLinks(): array
+    {
+        return once(function () {
+            $links = [];
+            foreach (self::getDashboardLinks() as $link) {
+                if (!isset($link['url']) || !empty($link['children'])) {
+                    continue; // the account's pages stay in its own menu
+                }
+                $links[] = $link['url'] === route('dashboard') ? ['name' => __('navigation.home')] + $link : $link;
+            }
+            $order = [];
+            foreach (self::getLinks() as $guest) {
+                if (!empty($guest['children'])) {
+                    $order = array_merge($order, array_values($guest['children']));
+                }
+            }
+            if ($order !== []) {
+                $links[] = ['name' => __('navigation.new_order'), 'children' => $order, 'icon' => 'ri-add-circle-line',
+                    'active' => collect($order)->contains(fn ($child) => (bool) ($child['active'] ?? false))];
+            }
+
+            return $links;
+        });
+    }
+
     // Get navigation items for user dropdown menu
     public static function getAccountDropdownLinks()
     {
