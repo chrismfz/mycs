@@ -7,6 +7,7 @@ use App\Helpers\NotificationHelper;
 use App\Jobs\Server\CreateJob;
 use App\Models\Invoice;
 use App\Models\Order;
+use App\Models\Product;
 use App\Models\Service;
 use App\Models\Staff;
 use Illuminate\Support\Facades\DB;
@@ -45,9 +46,10 @@ final class AcceptOrder
                 if (!$startUnpaid && self::waitsForPayment($service)) {
                     continue;
                 }
-                // Started not paid (staff asked, or its product waits for Accept): the cron no longer cancels its order.
-                if ($locked->started_unpaid_at === null && $service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->exists()) {
-                    $locked->forceFill(['started_unpaid_at' => now()])->save();
+                // Started not paid (staff asked, or its product waits for Accept): the cron no longer cancels it as unpaid.
+                // This service only: another of the order left waiting for its payment still is (code review, 2026-10-19).
+                if ($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->exists()) {
+                    $service->forceFill(['started_unpaid_at' => now()])->save();
                 }
                 if ($runCreate && $service->provisioningServer() !== null) {
                     CreateJob::dispatch($service, $sendEmail)->afterCommit();
@@ -67,10 +69,13 @@ final class AcceptOrder
         });
     }
 
-    /** Set up when paid, by its product, and not paid yet: an open invoice of its own. */
+    /**
+     * Set up on its first payment, by its product, and not paid yet: an open invoice of its own. One set up on the order
+     * that is still pending had its create fail: it waits for staff, and Accept tries it again (code review, 2026-10-19).
+     */
     public static function waitsForPayment(Service $service): bool
     {
-        return ($service->product?->setsUpOnPayment() ?? true)
+        return ($service->product->autosetup ?? Product::AUTOSETUP_PAYMENT) === Product::AUTOSETUP_PAYMENT
             && $service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->exists();
     }
 }

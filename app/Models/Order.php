@@ -41,7 +41,7 @@ class Order extends Model implements Auditable
 
     protected $fillable = ['client_id', 'currency_code', 'notes'];
 
-    protected $casts = ['accepted_at' => 'datetime', 'started_unpaid_at' => 'datetime'];
+    protected $casts = ['accepted_at' => 'datetime'];
 
     public bool $send_create_email = true;
 

@@ -108,7 +108,7 @@ class OrderPendingUntilAcceptTest extends TestCase
         $this->assertSame(Order::STATUS_ACTIVE, $order->fresh()->status, 'looked at');
         $this->assertSame(Service::STATUS_PENDING, $order->services()->sole()->status, 'not started: not paid');
         Queue::assertNotPushed(CreateJob::class);
-        $this->assertNull($order->fresh()->started_unpaid_at);
+        $this->assertNull($order->services()->sole()->started_unpaid_at);
 
         Carbon::setTestNow('2026-01-20 10:00:00'); // Order Days Grace passed, never paid
         $this->artisan('app:cron-job');
@@ -135,7 +135,7 @@ class OrderPendingUntilAcceptTest extends TestCase
         AcceptOrder::handle($order, null, startUnpaid: true);
 
         Queue::assertPushed(CreateJob::class);
-        $this->assertNotNull($order->fresh()->started_unpaid_at);
+        $this->assertNotNull($order->services()->sole()->started_unpaid_at);
         FlakyServer::$failures = 99; // its create keeps failing (ADV-4)
         try {
             (new CreateJob($order->services()->sole()))->handle();
@@ -156,14 +156,32 @@ class OrderPendingUntilAcceptTest extends TestCase
         AcceptOrder::handle($order, null);
 
         Queue::assertPushed(CreateJob::class);
-        $this->assertNotNull($order->fresh()->started_unpaid_at, 'started not paid: the cron leaves it');
+        $this->assertNotNull($order->services()->sole()->started_unpaid_at, 'started not paid: the cron leaves it');
+    }
+
+    public function test_accept_tries_again_a_failed_create_of_a_product_set_up_on_order(): void
+    {
+        // Set up on the order, its create failed: it waits for staff, not for a payment (code review, 2026-10-19).
+        $order = $this->order(Product::AUTOSETUP_ORDER);
+        $this->assertSame(Service::STATUS_PENDING, $order->services()->sole()->status);
+        Queue::fake();
+
+        AcceptOrder::handle($order, null);
+
+        Queue::assertPushed(CreateJob::class);
     }
 
     public function test_an_order_accepted_before_keeps_the_cron_away(): void
     {
-        // Accepted under the old Accept (it started everything): the migration copies accepted_at.
+        // Accepted under the old Accept (it started everything): the migration gives its services accepted_at.
         $order = $this->order(Product::AUTOSETUP_PAYMENT);
-        $order->forceFill(['status' => Order::STATUS_ACTIVE, 'accepted_at' => now(), 'started_unpaid_at' => now()])->save();
+        $other = $this->order(Product::AUTOSETUP_PAYMENT);
+        $order->forceFill(['status' => Order::STATUS_ACTIVE, 'accepted_at' => '2026-01-02 09:00:00'])->save();
+        $migration = require database_path('migrations/2026_12_04_000000_services_started_unpaid_at.php');
+        $migration->down();
+        $migration->up();
+        $this->assertSame('2026-01-02 09:00:00', $order->services()->sole()->started_unpaid_at?->toDateTimeString());
+        $this->assertNull($other->services()->sole()->started_unpaid_at, 'not accepted: none');
 
         Carbon::setTestNow('2026-01-20 10:00:00');
         $this->artisan('app:cron-job');
