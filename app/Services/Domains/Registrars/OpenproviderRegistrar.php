@@ -3,6 +3,7 @@
 namespace App\Services\Domains\Registrars;
 
 use App\Contracts\DomainRegistrar;
+use App\Contracts\ReadsAccountBalance;
 use App\Enums\DomainStatus;
 use App\Models\Domain;
 use App\Services\Domains\DomainNotFoundAtRegistrar;
@@ -16,6 +17,7 @@ use App\Support\Domains\DomainRegistrarCapabilities;
 use App\Support\Domains\DomainRegistrarCredentials;
 use App\Support\Domains\DomainSyncResult;
 use App\Support\Domains\Phone;
+use App\Support\Domains\RegistrarBalance;
 use App\Support\Domains\RegistrarContact;
 use App\Support\Domains\RegistrarDomainPage;
 use App\Support\Domains\RegistrarDomainRecord;
@@ -41,7 +43,7 @@ use Throwable;
  * variant is legacy XML-RPC) → bearer, ~24h TTL. We cache it for 6h keyed by
  * (endpoint × username) and re-login ONCE on a 401 mid-flight.
  */
-class OpenproviderRegistrar implements DomainRegistrar
+class OpenproviderRegistrar implements DomainRegistrar, ReadsAccountBalance
 {
     private const PRODUCTION_URL = 'https://api.openprovider.eu';
 
@@ -1051,6 +1053,29 @@ class OpenproviderRegistrar implements DomainRegistrar
         }
 
         return $response;
+    }
+
+    /**
+     * The reseller account's balance (G8-1): GET /v1beta/resellers answers our own reseller (verified live 2026-10-19;
+     * /resellers/me is 501), with what it holds back for orders under way. No currency in it: the account's (EUR).
+     */
+    public function accountBalance(DomainRegistrarCredentials $credentials): RegistrarBalance
+    {
+        $data = $this->request($credentials, 'GET', '/v1beta/resellers')->json('data');
+        $balance = is_array($data) ? $data['balance'] ?? null : null;
+        if (!is_int($balance) && !is_float($balance) && !(is_string($balance) && is_numeric($balance))) {
+            throw new RuntimeException('Openprovider gave no balance for the reseller account.');
+        }
+        $reserved = $data['reserved_balance'] ?? null;
+
+        return new RegistrarBalance(amount: self::cents($balance), currency: 'EUR',
+            reserved: is_int($reserved) || is_float($reserved) || (is_string($reserved) && is_numeric($reserved)) ? self::cents($reserved) : null);
+    }
+
+    /** JSON's number (cents at most) as a decimal string: rounded to the cent, never carried on as a float. */
+    private static function cents(int|float|string $amount): string
+    {
+        return number_format(round((float) $amount, 2), 2, '.', '');
     }
 
     private function send(DomainRegistrarCredentials $credentials, string $token, string $method, string $path, array $payload): Response

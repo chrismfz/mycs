@@ -251,6 +251,8 @@ return [
                 'active_users' => 'View Active Users Widget',
                 // Renewals due soon and records to check (owner 2026-10-17).
                 'renewals' => 'View Renewals and Records to Check Widgets',
+                // What is left with each registrar (G8-1, owner 2026-10-19).
+                'registrar_credit' => 'View Registrar Credit Widget',
             ],
         ],
     ],

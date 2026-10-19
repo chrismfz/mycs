@@ -5,6 +5,7 @@ namespace App\Services\Domains\Registrars;
 use App\Contracts\DomainRegistrar;
 use App\Contracts\EmailsAuthCode;
 use App\Contracts\ManagesChildHosts;
+use App\Contracts\ReadsAccountBalance;
 use App\Contracts\RecallsRegistration;
 use App\Contracts\StaffPricedNames;
 use App\Enums\DomainStatus;
@@ -22,6 +23,7 @@ use App\Support\Domains\DomainRegistrarCapabilities;
 use App\Support\Domains\DomainRegistrarCredentials;
 use App\Support\Domains\DomainSyncResult;
 use App\Support\Domains\Phone;
+use App\Support\Domains\RegistrarBalance;
 use App\Support\Domains\RegistrarContact;
 use App\Support\Domains\RegistrarDomainPage;
 use App\Support\Domains\RegistrarTransactions;
@@ -32,6 +34,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
+use MyCS\GrEpp\Command\AccountInfo;
 use MyCS\GrEpp\Command\ContactCheck;
 use MyCS\GrEpp\Command\ContactCreate;
 use MyCS\GrEpp\Command\ContactInfo;
@@ -75,7 +78,7 @@ use Throwable;
  * One session per account and process, kept for the process (a worker reuses it; the registry ends one idle for 15
  * minutes and Session logs in again); commands one at a time per account, across processes (a cache lock).
  */
-class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHosts, RecallsRegistration, StaffPricedNames
+class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHosts, ReadsAccountBalance, RecallsRegistration, StaffPricedNames
 {
     /** The registry's grace after expiry (pendingDelete: renewable only, D-8; its FAQ). */
     public const GRACE_DAYS = 15;
@@ -811,6 +814,22 @@ class GrEppRegistrar implements DomainRegistrar, EmailsAuthCode, ManagesChildHos
                     $before->contactHandles, false, null, null, $before->registeredAt, $before->details, $before->graceEndsOn, $before->redemptionEndsOn);
             }
         });
+    }
+
+    /**
+     * The account's balance (G8-1, account:info): negative too; whether chargeable actions are allowed and when they will
+     * be, or were, suspended (then every registration and renewal stops). A read.
+     */
+    public function accountBalance(DomainRegistrarCredentials $credentials): RegistrarBalance
+    {
+        // The shop's short session (5 seconds to wait for the account, 5 to answer: review 6 of #206): staff's «Read
+        // balance» is a web request, the sync may hold the account; busy, it is read again the next hour.
+        $info = $this->locked($credentials, fn (Session $session) => AccountInfo::parse(self::send($session, fn (string $clTRID) => AccountInfo::request($clTRID))), shop: true);
+
+        return new RegistrarBalance(amount: $info->balance, currency: $info->currency !== '' ? $info->currency : null,
+            chargesAllowed: $info->chargeableActionsAllowed,
+            suspendsOn: $info->toBeSuspendedOn !== null ? Carbon::instance($info->toBeSuspendedOn) : null,
+            suspendedOn: $info->suspendedOn !== null ? Carbon::instance($info->suspendedOn) : null);
     }
 
     /** At most this many child hosts read (one host:info each). */

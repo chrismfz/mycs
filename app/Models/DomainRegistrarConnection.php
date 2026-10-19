@@ -20,6 +20,8 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property bool $is_active
  * @property string $mode off | sandbox | production
  * @property bool $debug_log its frames to the registrar debug log (secrets hidden)
+ * @property array<string, mixed>|null $balance as last read (RegistrarBalances, G8-1): never audited, written hourly
+ * @property string|null $low_balance staff are told under it
  */
 class DomainRegistrarConnection extends Model implements Auditable
 {
@@ -29,16 +31,19 @@ class DomainRegistrarConnection extends Model implements Auditable
 
     public const MANUAL = 'manual';
 
-    protected $fillable = ['registrar', 'label', 'is_active', 'mode', 'debug_log'];
+    protected $fillable = ['registrar', 'label', 'is_active', 'mode', 'debug_log', 'low_balance'];
 
     /** Its settings are the credentials, its TLDs and domains every account's: never in a JSON or a template. */
     protected $hidden = ['settings', 'tlds', 'domains'];
 
     public const TEMPLATE_HIDDEN = ['settings', 'tlds', 'domains'];
 
+    /** Read hourly: not a change anyone made. */
+    protected $auditExclude = ['balance'];
+
     protected function casts(): array
     {
-        return ['is_active' => 'boolean', 'debug_log' => 'boolean'];
+        return ['is_active' => 'boolean', 'debug_log' => 'boolean', 'balance' => 'array', 'low_balance' => 'decimal:2'];
     }
 
     protected static function booted(): void
