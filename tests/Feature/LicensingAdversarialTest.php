@@ -158,6 +158,8 @@ class LicensingAdversarialTest extends TestCase
     public function test_maintenance_mode_answers_remote_check_failed(): void
     {
         $key = $this->issued()->license_key;
+        // Down in this process only: the file driver's storage/framework/down would answer 503 to every parallel process.
+        config(['app.maintenance.driver' => 'cache', 'app.maintenance.store' => 'array']);
         $this->app->maintenanceMode()->activate(['time' => time(), 'retry' => null, 'status' => 503, 'secret' => null, 'template' => null, 'redirect' => null, 'refresh' => null, 'except' => []]);
         try {
             $response = $this->zlic(['license' => $key, 'license_PSK' => 'TestSecretValue']);
