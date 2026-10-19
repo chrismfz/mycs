@@ -78,4 +78,30 @@ class GreppRegistryDetailsTest extends TestCase
         $this->assertSame(['Ενεργό, τίποτα σε εκκρεμότητα (ok)', 'someNewStatus'], DomainResource::registryStatuses('ok, someNewStatus'));
         $this->assertSame([], DomainResource::registryStatuses(null));
     }
+
+    public function test_by_its_connection_whatever_it_kept(): void
+    {
+        // Review 1, 2, 4, 5 of #208.
+        $gr = DomainRegistrarConnection::query()->create(['registrar' => 'grepp', 'label' => 'GR', 'is_active' => true, 'mode' => 'production']);
+        $op = DomainRegistrarConnection::query()->create(['registrar' => 'openprovider', 'label' => 'OP', 'is_active' => true, 'mode' => 'production']);
+        $client = User::factory()->create()->client();
+        $domain = fn (string $sld, DomainRegistrarConnection $connection, array $registrar) => Domain::factory()->create(['client_id' => $client->id,
+            'sld' => $sld, 'tld' => 'gr', 'fqdn' => "{$sld}.gr", 'registrar_connection_id' => $connection->id, 'status' => DomainStatus::Active,
+            'meta' => ['registrar' => $registrar]]);
+        $page = fn (Domain $d) => $this->livewireAs(Staff::factory()->withPermissions(['admin.domains.viewAny'])->create())
+            ->test(ViewDomain::class, ['record' => $d->getRouteKey()]);
+
+        // Just registered: its protocol only (what a recall needs), the registry's comment escaped.
+        $page($domain('fresh', $gr, ['protocol' => '4764916', 'comments' => '<script>alert(1)</script>']))
+            ->assertSee(__('At the .gr registry'))->assertSee('4764916')->assertDontSee('<script>alert(1)</script>', false)
+            ->assertDontSee(__('Auto renew at the registrar'));
+        // Its 15 days past: the registry's words.
+        $page($domain('gone', $gr, ['registry' => 'No such name at the registry (2303): deleted after its 15 days.']))
+            ->assertSee('deleted after its 15 days');
+        // An odd older value: no 500.
+        $page($domain('odd', $gr, ['roid' => 'x-gr', 'statuses' => 'ok', 'comments' => ['a', 'b']]))->assertSee('x-gr');
+        // Openprovider's: its own fields, even with .gr keys left from before.
+        $page($domain('moved', $op, ['roid' => 'old-gr', 'statuses' => 'ok', 'status' => 'ACT']))
+            ->assertSee(__('Auto renew at the registrar'))->assertDontSee(__('At the .gr registry'));
+    }
 }
