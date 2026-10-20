@@ -5,9 +5,11 @@ namespace App\Models;
 use App\Observers\TicketObserver;
 use App\Support\Tickets\TicketReference;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\UniqueConstraintViolationException;
 use OwenIt\Auditing\Contracts\Auditable;
 
 /**
@@ -54,11 +56,32 @@ class Ticket extends Model implements Auditable
         'service_id',
     ];
 
+    /** The number was drawn here, not given: another may be drawn when two tickets get the same one at once. */
+    private bool $referenceDrawn = false;
+
     protected static function booted(): void
     {
         static::creating(function (Ticket $ticket) {
-            $ticket->reference ??= TicketReference::generate();
+            if ($ticket->reference === null) {
+                $ticket->reference = TicketReference::generate();
+                $ticket->referenceDrawn = true;
+            }
         });
+    }
+
+    /** Two tickets opened at once may draw the same number between the check and the insert: draw again. */
+    protected function performInsert(Builder $query)
+    {
+        for ($try = 1; ; $try++) {
+            try {
+                return parent::performInsert($query);
+            } catch (UniqueConstraintViolationException $e) {
+                if (!$this->referenceDrawn || $try >= 5 || !str_contains($e->getMessage(), 'reference')) {
+                    throw $e;
+                }
+                $this->reference = TicketReference::generate();
+            }
+        }
     }
 
     /** @return array<string, string> status => label, for staff */
@@ -140,5 +163,11 @@ class Ticket extends Model implements Auditable
     public function messages(): HasMany
     {
         return $this->hasMany(TicketMessage::class);
+    }
+
+    /** What the customer may see: every message but staff's internal notes. @return HasMany<TicketMessage, $this> */
+    public function publicMessages(): HasMany
+    {
+        return $this->messages()->where('is_internal', false);
     }
 }

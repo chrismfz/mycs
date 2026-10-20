@@ -1,12 +1,12 @@
 <div class="container mt-14">
-    <x-navigation.breadcrumb :trail="[['name' => __('navigation.tickets'), 'url' => route('tickets')], ['name' => '#' . $ticket->id . ' · ' . $ticket->subject]]" />
+    <x-navigation.breadcrumb :trail="[['name' => __('navigation.tickets'), 'url' => route('tickets')], ['name' => '#' . $ticket->reference . ' · ' . $ticket->subject]]" />
     <div class="bg-primary-800 p-6 rounded-lg mt-2">
         <h1 class="text-2xl font-semibold">{{ __('ticket.title', ['id' => $ticket->reference]) }} · {{ $ticket->subject }}</h1>
 
         <div class="md:grid grid-cols-4 flex flex-col gap-4">
             <div class="md:col-span-3">
                 <div class="flex flex-col gap-4 max-h-[60vh] overflow-y-auto pr-4" wire:poll.10s>
-                    @foreach ($ticket->messages()->with(['user', 'staff'])->get() as $index => $message)
+                    @foreach ($ticket->publicMessages()->with(['user', 'staff'])->get() as $index => $message)
                     <div class="bg-background-secondary hover:bg-background-secondary/80 border border-neutral p-4 rounded-lg w-full max-w-[80%]  {{ $message->isFromStaff() ? 'mr-auto' : 'ml-auto' }}"
                         @if ($loop->last) x-data x-init="$nextTick(() => $el.scrollIntoView({ block: 'end' }))" @endif>
                         <div class="flex items-center justify-between gap-4">

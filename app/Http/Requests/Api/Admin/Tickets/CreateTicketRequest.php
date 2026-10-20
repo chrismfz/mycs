@@ -4,10 +4,11 @@ namespace App\Http\Requests\Api\Admin\Tickets;
 
 use App\Http\Requests\Api\Admin\AdminApiRequest;
 use App\Models\Ticket;
-use App\Models\TicketDepartment;
 
 class CreateTicketRequest extends AdminApiRequest
 {
+    use TakesOldTicketFields;
+
     protected $permission = 'tickets.create';
 
     public function rules(): array
@@ -24,19 +25,10 @@ class CreateTicketRequest extends AdminApiRequest
 
     public function prepareForValidation()
     {
-        $this->departmentByName();
+        $this->takeOldTicketFields();
         $this->mergeIfMissing([
             'priority' => 'medium', // Default priority to 'medium' if not provided
             'status' => 'open', // Default status to 'open' if not provided
         ]);
-    }
-
-    /** The department by its name too, as before the departments were a table: the API keeps working. */
-    protected function departmentByName(): void
-    {
-        if ($this->filled('department') && !$this->has('department_id')) {
-            $id = TicketDepartment::query()->where('name', (string) $this->input('department'))->value('id');
-            $this->merge(['department_id' => $id ?? 0]);
-        }
     }
 }

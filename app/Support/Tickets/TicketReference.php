@@ -29,12 +29,15 @@ final class TicketReference
         throw new RuntimeException('The ticket number mask has run out of numbers: add %n to it.');
     }
 
-    /** A mask with at least four random places (%n, %A, %a), at most 64 characters once filled. */
+    /** Numbers a mask can give in a day: 100.000 at least (five digits, or four letters), so it never runs out. */
+    public const MIN_NUMBERS = 100_000;
+
+    /** A mask of at least MIN_NUMBERS random numbers (%n, %A, %a), at most 64 characters once filled. */
     public static function validMask(string $mask): bool
     {
-        $random = preg_match_all('/%[nAa]/', $mask);
+        $numbers = 10 ** preg_match_all('/%n/', $mask) * 26 ** preg_match_all('/%[Aa]/', $mask);
 
-        return $mask !== '' && $random >= 4 && strlen(self::fill($mask)) <= 64 && preg_match('/^(?:%[nAaymd]|[A-Za-z0-9_-])+$/', $mask) === 1;
+        return $mask !== '' && $numbers >= self::MIN_NUMBERS && strlen(self::fill($mask)) <= 64 && preg_match('/^(?:%[nAaymd]|[A-Za-z0-9_-])+$/', $mask) === 1;
     }
 
     private static function fill(string $mask): string

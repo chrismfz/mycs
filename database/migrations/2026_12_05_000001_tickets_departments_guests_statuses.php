@@ -35,7 +35,14 @@ return new class extends Migration
         foreach (DB::table('tickets')->whereNotNull('department')->distinct()->pluck('department') as $name) {
             $names[] = trim((string) $name);
         }
-        $names = array_values(array_unique(array_filter($names, fn (string $name) => $name !== '')));
+        // One department per name, whatever its case («support» and «Support»): the first spelling met.
+        $unique = [];
+        foreach ($names as $name) {
+            if ($name !== '') {
+                $unique[mb_strtolower($name)] ??= $name;
+            }
+        }
+        $names = array_values($unique);
         // A new install had them as the setting's default, never stored: the same two.
         if ($names === []) {
             $names = ['Support', 'Sales'];
@@ -53,8 +60,12 @@ return new class extends Migration
             $table->string('reference', 64)->nullable()->unique()->after('id');
             $table->string('opened_via', 16)->nullable();
         });
-        foreach (DB::table('ticket_departments')->get(['id', 'name']) as $department) {
-            DB::table('tickets')->where('department', $department->name)->update(['department_id' => $department->id]);
+        // Each name as tickets carry it (spaces, case) to the department made from it.
+        $ids = DB::table('ticket_departments')->pluck('id', 'name')->mapWithKeys(fn (int $id, string $name) => [mb_strtolower($name) => $id]);
+        foreach (DB::table('tickets')->whereNotNull('department')->distinct()->pluck('department') as $carried) {
+            if ($id = $ids[mb_strtolower(trim((string) $carried))] ?? null) {
+                DB::table('tickets')->where('department', $carried)->whereNull('department_id')->update(['department_id' => $id]);
+            }
         }
         Schema::table('tickets', function (Blueprint $table) {
             $table->dropColumn('department');

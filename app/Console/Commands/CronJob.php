@@ -501,9 +501,9 @@ class CronJob extends Command
                     return 0;
                 }
                 // Answered by us and silent since: WHMCS «Close Inactive Tickets».
-                Ticket::where('status', Ticket::STATUS_ANSWERED)->each(function ($ticket) use (&$number, $days) {
-                    $lastMessage = $ticket->messages()->latest('created_at')->first();
-                    if ($lastMessage && $lastMessage->created_at < now()->subDays($days)) {
+                Ticket::where('status', Ticket::STATUS_ANSWERED)->each(function (Ticket $ticket) use (&$number, $days) {
+                    $lastReply = $ticket->publicMessages()->max('created_at'); // a note to ourselves is no reply
+                    if ($lastReply !== null && Carbon::parse($lastReply)->lt(now()->subDays($days))) {
                         $ticket->update(['status' => Ticket::STATUS_CLOSED]);
                         $number++;
                     }

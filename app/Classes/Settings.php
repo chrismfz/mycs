@@ -463,7 +463,7 @@ class Settings
                     'default' => '%n%n%n%n%n%n',
                     'required' => true,
                     'validation' => ['max:40', new TicketReferenceMask],
-                    'description' => 'As WHMCS «Ticket Mask»: %n a digit, %A an upper case letter, %a a lower case one, %y %m %d the date (e.g. %y-%m-%d-%n%n%n%n%n%n). At least four of %n, %A, %a. Departments are under Configuration → Ticket Departments.',
+                    'description' => 'As WHMCS «Ticket Mask»: %n a digit, %A an upper case letter, %a a lower case one, %y %m %d the date (e.g. %y-%m-%d-%n%n%n%n%n%n). At least five %n, or four %A or %a. Departments are under Configuration → Ticket Departments.',
                 ],
                 [
                     'name' => 'ticket_client_closing_disabled',

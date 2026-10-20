@@ -13,6 +13,11 @@ class TicketMessageAttachmentPolicy extends BasePolicy
      */
     public function view(User|Staff $user, TicketMessageAttachment $attachment): bool
     {
-        return $user->hasPermission('admin.tickets.viewAny') || $this->owns($user, $attachment->ticketMessage->ticket->client_id, 'tickets');
+        if ($user->hasPermission('admin.tickets.viewAny')) {
+            return true;
+        }
+
+        // An internal note, and its files, are staff's only.
+        return !$attachment->ticketMessage->is_internal && $this->owns($user, $attachment->ticketMessage->ticket->client_id, 'tickets');
     }
 }

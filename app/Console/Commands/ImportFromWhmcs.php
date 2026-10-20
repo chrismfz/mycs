@@ -750,30 +750,6 @@ class ImportFromWhmcs extends Command
         return $clientId;
     }
 
-    private function getUserIdTicket($message, &$userId)
-    {
-        if (!$userId) {
-            if (DB::table('users')->where('email', $message['email'])->exists()) {
-                $userRecord = DB::table('users')->where('email', $message['email'])->first();
-                $userId = $userRecord->id;
-            }
-            if (!$userId) {
-                // Create a user with the email
-                $newUserId = DB::table('users')->insertGetId([
-                    'first_name' => $message['name'],
-                    'last_name' => '',
-                    'email' => $message['email'],
-                    'password' => bcrypt(\Str::random(16)),
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-                $userId = $newUserId;
-            }
-        }
-
-        return $userId;
-    }
-
     /**
      * A reply by a WHMCS admin (its `admin` column, a name) → the staff member of that name; one no longer there → a
      * disabled member of that name, so the reply keeps its author and is never taken for the customer's.
@@ -838,18 +814,16 @@ class ImportFromWhmcs extends Command
             $data = [];
             $messages = [];
             foreach ($records as $record) {
-                // Get user
-                $user = $this->getUserIdTicket($record, $record['userid']);
-
-                if (!$user) {
-                    continue;
-                }
+                // No account in WHMCS (userid 0): a guest's ticket, never the account of the same email (docs/tickets.md §3 Δ).
+                $user = (int) $record['userid'] ?: null;
 
                 $departmentId = $this->ticketDepartmentId((int) $record['did']);
 
                 $data[] = [
                     'id' => $record['id'],
-                    'client_id' => $this->clientIdOfUser($user),
+                    'client_id' => $user === null ? null : $this->clientIdOfUser($user),
+                    'guest_name' => $user === null ? (string) $record['name'] : null,
+                    'guest_email' => $user === null ? (string) $record['email'] : null,
                     // The number the customer knows (docs/tickets.md §5α); the full importer is PR Δ.
                     'reference' => (string) ($record['tid'] ?? $record['id']),
                     'subject' => $record['title'],
@@ -881,7 +855,8 @@ class ImportFromWhmcs extends Command
                     $staffId = $this->staffIdOfReply($message);
                     $messages[] = [
                         'ticket_id' => $record['id'],
-                        'user_id' => $staffId === null ? $this->getUserIdTicket($message, $message['userid']) : null,
+                        // A reply without an account (a guest's, or one copied in) is nobody's login.
+                        'user_id' => $staffId === null ? ((int) $message['userid'] ?: null) : null,
                         'staff_id' => $staffId,
                         'message' => $message['message'],
                         'created_at' => $this->validateDate($message['date']),
