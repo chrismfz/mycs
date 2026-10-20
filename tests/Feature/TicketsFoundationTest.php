@@ -53,7 +53,7 @@ class TicketsFoundationTest extends TestCase
 
     public function test_the_migration_moves_departments_statuses_numbers_and_mail_templates(): void
     {
-        $migration = require database_path('migrations/2026_12_05_000000_tickets_departments_guests_statuses.php');
+        $migration = require database_path('migrations/2026_12_05_000001_tickets_departments_guests_statuses.php');
         $migration->down();
         DB::table('settings')->updateOrInsert(['key' => 'ticket_departments', 'settingable_type' => null], ['value' => json_encode(['Support', 'Sales']), 'type' => 'array']);
         $client = User::factory()->create()->client();
