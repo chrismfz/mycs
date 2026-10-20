@@ -165,3 +165,12 @@ Modules για το myip:
   PR #178, clusters). Άδεια **GPL-3.0** (επιβεβαιώθηκε 2026-10-15): όχι αυτούσιος κώδικας σε αυτό το repo (MIT).
   **Δικό μας module** πάνω στο API του Proxmox, με το pvewhmcs ως αναφορά συμπεριφοράς (ποιες κλήσεις, τι πεδία, πώς
   βρίσκει το node σε cluster). Ιδέες και από το Blesta, όχι κώδικας.
+
+## Δοκιμή στον orion (2026-10-20, ο υπεύθυνος έδωσε την άδεια)
+Από το devbox, μέσα από την εφαρμογή (`ExtensionHelper`, module actions), με τον reseller της nixpal και το προϊόν
+«Wordpress V16», στο `mycs-test-1.dummy-domain.tld`:
+- **create:** το WHM απέρριψε το πακέτο `V16` («not a valid package name»): ο reseller το έχει ως `<reseller>_V16`. Το
+  WHMCS βάζει μόνο του το πρόθεμα του reseller· το extension πλέον το ίδιο (#246: όπως το δίνει το `listpkgs`, με το
+  πρόθεμα όταν λείπει). Με το πλήρες όνομα ο λογαριασμός έγινε, με ιδιοκτήτη τον reseller.
+- **suspend / unsuspend / terminate:** εντάξει, επαληθευμένα με `accountsummary`· στο τέλος ο λογαριασμός δεν υπάρχει.
+- Η υπηρεσία δοκιμής (#3) μένει terminated στο devbox.

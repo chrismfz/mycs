@@ -60,6 +60,10 @@ registrars), **P5** (child nameservers/glue από τον πελάτη· για 
 - [ ] Έλεγχος σε πραγματικό browser (`audit-browser.md`, δεν έχει γραφτεί).
 
 ### Provisioning
+- [ ] **cPanel «σαν WHMCS/Blesta»** (ο υπεύθυνος, 2026-10-20: σήμερα το extension είναι πολύ «dummy»· ιδέες από το Blesta
+      και το cPanel/WHM API): αντιστοίχιση πακέτων WHM ↔ προϊόντων MyCS από λίστα, χρήση (quota, bandwidth) πίσω στο
+      MyCS, addon/parked/sub domains, email accounts (λίστα, δημιουργία), reseller accounts (παρακάτω). Δοκιμή στον
+      orion 2026-10-20 (reseller της nixpal): create/suspend/unsuspend/terminate δουλεύουν (`provisioning.md`).
 - [ ] **WHM reseller accounts** στο cPanel extension (`setupreseller`, ACLs, όρια, suspend/terminate): σήμερα μόνο απλοί
       λογαριασμοί. Μόνο το myip τα έχει (read-only 2026-10-20): **22 ενεργοί** + 1 suspended, 6 πακέτα (Reseller 70: 9,
       Reseller 120: 6, Reseller 30: 3, …), στους Virgo 5, Earth 5, Mars 4, Orion 3, Titan 3, Rigel 2· η nixpal κανέναν.

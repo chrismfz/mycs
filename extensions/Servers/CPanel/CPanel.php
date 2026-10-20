@@ -184,7 +184,7 @@ class CPanel extends Server
             'username' => $username,
             'contactemail' => $service->client->email,
             'domain' => $domain,
-            'plan' => $properties['package'] ?? $settings['package'],
+            'plan' => $this->package($settings, $properties),
         ])->json();
         if (($json['metadata']['result'] ?? null) !== 1) {
             // Refused (not lost): nothing was made under that name, and a refusal tied to it must not repeat for ever.
@@ -193,6 +193,35 @@ class CPanel extends Server
         }
 
         return $this->created($service, $username, $properties);
+    }
+
+    /**
+     * The service's package as WHM knows it: a config option «package» first, else the product's. A reseller's own
+     * packages are «reseller_package» in WHM, and WHMCS stores them without the prefix (an imported «V16» is the
+     * reseller's «…_V16»); a global (root's) package a reseller may use has none. With a reseller's login the name is
+     * resolved against what WHM lists for it: as stored if listed, else with the prefix (as WHMCS's cPanel module), else
+     * refused with why (test on a reseller of nixpal, 2026-10-20: «"V16" is not a valid package name»). Root's: as stored.
+     */
+    private function package(array $settings, array $properties): string
+    {
+        $package = trim((string) ($properties['package'] ?? $settings['package'] ?? ''));
+        $reseller = strtolower(trim((string) $this->config('username')));
+        if ($reseller === '' || $reseller === 'root' || $package === '') {
+            return $package;
+        }
+        $names = array_column($this->request('/listpkgs')->json()['package'] ?? [], 'name');
+        if ($names === []) {
+            // Not listed (an old WHM, a refused call): WHMCS's rule, prefixed unless it is already.
+            return str_starts_with($package, $reseller . '_') ? $package : $reseller . '_' . $package;
+        }
+        if (in_array($package, $names, true)) {
+            return $package;
+        }
+        if (in_array($reseller . '_' . $package, $names, true)) {
+            return $reseller . '_' . $package;
+        }
+
+        throw new Exception("cPanel: package «{$package}» is not one this server's login ({$reseller}) may use: set the product's package");
     }
 
     /** @return array<string, mixed>|null WHM's account by that name, or none */
@@ -307,7 +336,7 @@ class CPanel extends Server
         // warning in WHM's log) and answers result 1, so the package never changed. Verified on WHM 138 (2026-10-15).
         // The service's package as create chose it: a config option «package» first (review R1a). Only when it changed
         // (review R1b, as WHMCS): changepackage re-applies the package's limits and shell, undoing what staff set in WHM.
-        $package = $properties['package'] ?? $settings['package'];
+        $package = $this->package($settings, $properties);
         if (($this->account($properties['cpanel_username'])['plan'] ?? null) === $package) {
             return true;
         }
