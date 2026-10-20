@@ -2,16 +2,21 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Pages\Settings as SettingsPage;
 use App\Events\Invoice\Updating;
 use App\Helpers\ExtensionHelper;
 use App\Listeners\InvoiceNumberListener;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\Role;
 use App\Models\Setting;
+use App\Models\Staff;
 use App\Models\User;
 use App\Providers\SettingsProvider;
 use Carbon\Carbon;
+use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
@@ -114,5 +119,19 @@ class InvoiceNumberingTest extends TestCase
         (new InvoiceNumberListener)->handle(new Updating($paid));
         $this->assertSame('2026-11', $paid->number);
         $this->assertSame(11, $this->counter(), 'nothing given twice');
+    }
+
+    public function test_the_settings_page_refuses_number_is_id_while_a_number_could_be_an_id(): void
+    {
+        // The system email is required on the page and empty in the test seed.
+        $this->settings(['invoice_number_format' => ['{number}', 'string'], 'invoice_number' => [900, 'string'], 'system_email_address' => ['billing@example.test', 'string']]);
+        $this->invoice(); // numbered 901: a future id
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+
+        Livewire::actingAs($owner, 'staff')->test(SettingsPage::class)
+            ->set('data.invoice_number_is_id', true)->call('save')
+            ->assertHasErrors('data.invoice_number_is_id');
+        $this->assertFalse((bool) Setting::query()->where('key', 'invoice_number_is_id')->value('value'));
     }
 }

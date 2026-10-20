@@ -1185,7 +1185,7 @@ class Settings
                     'type' => 'number',
                     'default' => 1,
                     'required' => false,
-                    'description' => 'The next invoice number to use. This will be incremented automatically.',
+                    'description' => 'The last invoice number given: the next one is this plus one. Moved automatically.',
                 ],
                 [
                     'name' => 'invoice_number_padding',
@@ -1210,7 +1210,7 @@ class Settings
                     'type' => 'checkbox',
                     'database_type' => 'boolean',
                     'default' => false,
-                    'description' => 'Proforma invoices will not be assigned an official invoice number until payment is received and will be marked as "Proforma".',
+                    'description' => 'Proforma invoices will not be assigned an official invoice number until payment is received and will be marked as "Proforma". Not used when the invoice number is its ID.',
                 ],
                 [
                     'name' => 'invoice_number_is_id',
@@ -1258,7 +1258,7 @@ class Settings
                     'type' => 'number',
                     'default' => 1,
                     'required' => false,
-                    'description' => 'The next credit/debit note number to use. This will be incremented automatically.',
+                    'description' => 'The last credit/debit note number given: the next one is this plus one. Moved automatically.',
                 ],
                 [
                     'name' => 'credit_note_number_padding',

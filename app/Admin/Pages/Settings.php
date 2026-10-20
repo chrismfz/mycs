@@ -209,6 +209,15 @@ class Settings extends Page implements HasForms
             ->get()
             ->keyBy('key');
 
+        // «Number = id» only when no number given so far could be an invoice's id later: a number that is a whole number
+        // and not its own invoice's id (a «{number}» counter, an import) would be taken (adversarial ADV-5 of #238).
+        if (array_key_exists('invoice_number_is_id', $data) && filter_var($data['invoice_number_is_id'], FILTER_VALIDATE_BOOL)
+            && !filter_var($settings['invoice_number_is_id']->value ?? false, FILTER_VALIDATE_BOOL)
+            && ($clash = Invoice::query()->whereNotNull('number')->select(['id', 'number'])->lazyById()
+                ->first(fn (Invoice $invoice) => ctype_digit((string) $invoice->number) && $invoice->number !== (string) $invoice->id)) !== null) {
+            throw ValidationException::withMessages(['data.invoice_number_is_id' => "Invoice number {$clash->number} could be another invoice's id: numbering by id would give it twice."]);
+        }
+
         foreach (array_intersect(self::COUNTERS, array_keys($data)) as $key) {
             // A whole number in range: numeric() gives floats, and (int) of a float past PHP_INT_MAX wraps around.
             $value = filter_var($data[$key], FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => self::COUNTER_MAX]]);
