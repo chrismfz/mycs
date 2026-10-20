@@ -2,8 +2,9 @@
 
 namespace MyCS\TicketMail\Imap;
 
+use DirectoryTree\ImapEngine\FolderInterface;
 use DirectoryTree\ImapEngine\Mailbox as ImapEngine;
-use DirectoryTree\ImapEngine\MessageInterface;
+use DirectoryTree\ImapEngine\Message;
 use MyCS\TicketMail\InboundEmail;
 use MyCS\TicketMail\Parser;
 use Throwable;
@@ -29,7 +30,9 @@ final class ImapEngineMailbox implements Mailbox
                 return new TestResult(false, "No folder «{$settings->folder}».");
             }
             $messages = $folder->messages()->count();
-            $unseen = $folder->messages()->unseen()->count();
+            $query = $folder->messages();
+            $query->unseen(); // the builder's, through the query (it returns the query, not the builder)
+            $unseen = $query->count();
 
             return new TestResult(true, "Connected: {$messages} messages, {$unseen} unseen in «{$settings->folder}».", $messages, $unseen);
         } catch (Throwable $e) {
@@ -52,8 +55,13 @@ final class ImapEngineMailbox implements Mailbox
 
                 return $summary;
             }
-            $heads = $folder->messages()->unseen()->withHeaders()->withSize()->leaveUnread()->oldest()->limit($limit)->get();
+            $query = $folder->messages()->withHeaders()->withSize()->leaveUnread()->oldest()->limit($limit);
+            $query->unseen();
+            $heads = $query->get();
             foreach ($heads as $head) {
+                if (!$head instanceof Message) {
+                    continue; // only the library's own (a fake mailbox is a Mailbox of its own)
+                }
                 $summary->fetched++;
                 try {
                     if ($this->handleOne($folder, $head, $handle)) {
@@ -73,7 +81,7 @@ final class ImapEngineMailbox implements Mailbox
     }
 
     /** @param  callable(?InboundEmail, string): bool  $handle */
-    private function handleOne(mixed $folder, MessageInterface $head, callable $handle): bool
+    private function handleOne(FolderInterface $folder, Message $head, callable $handle): bool
     {
         $size = $head->size();
         // A size we could not read is not taken for a small one: headers only.

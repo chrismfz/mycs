@@ -7,6 +7,7 @@ use App\Models\Ticket;
 use App\Models\TicketBlockedSender;
 use App\Models\TicketDepartment;
 use App\Models\TicketMessage;
+use App\Models\TicketPollRun;
 use App\Models\TicketQuarantine;
 use App\Models\User;
 use App\Support\Tickets\InboundOutcome;
@@ -37,7 +38,7 @@ class TicketMailAdversarialTest extends TestCase
         parent::setUp();
         $this->mailbox = new FakeTicketMailbox;
         $this->app->instance(Mailbox::class, $this->mailbox);
-        $this->support = TicketDepartment::query()->where('name', 'Support')->firstOrFail();
+        $this->support = TicketDepartment::query()->firstOrCreate(['name' => 'Support']); // a truncating test may have taken the migration's (#242)
         $this->support->update(['email' => 'support@myip.test', 'imap_host' => 'imap.myip.test', 'imap_username' => 'support@myip.test',
             'imap_password' => 'secret', 'authserv_id' => 'mymail.myip.test', 'require_dmarc' => true, 'polling' => true]);
     }
@@ -126,7 +127,7 @@ class TicketMailAdversarialTest extends TestCase
         $this->receive(['From' => 'news@evil.test', 'List-Id' => '<x.evil.test>', 'Date' => 'Tue, 20 Oct 2099 10:00:00 +0000'], 'Bulk');
         $this->receive(['From' => 'news@evil.test', 'List-Id' => '<x.evil.test>', 'Date' => 'Thu, 01 Jan 1960 10:00:00 +0000'], 'Bulk');
 
-        $this->assertSame(2, TicketQuarantine::query()->count(), (string) json_encode(\App\Models\TicketPollRun::query()->pluck('errors')));
+        $this->assertSame(2, TicketQuarantine::query()->count(), (string) json_encode(TicketPollRun::query()->pluck('errors')));
         $this->assertSame([], $this->mailbox->unseen, 'nothing left to wedge the mailbox');
     }
 

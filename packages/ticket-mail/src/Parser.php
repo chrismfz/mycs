@@ -21,7 +21,7 @@ final class Parser
     public const MAX_BODY_CHARS = 60_000;
 
     /** The headers that tell automated mail (§3 Ε), kept as they are. */
-    private const KEPT_HEADERS = ['auto-submitted', 'precedence', 'x-autoreply', 'x-autorespond', 'x-auto-response-suppress',
+    private const KEPT_HEADERS = ['auto-submitted', 'precedence', 'x-autoreply', 'x-autorespond',
         'list-id', 'list-unsubscribe', 'return-path', 'content-type', 'x-loop', 'feedback-id', 'x-mycs-ticket'];
 
     public static function parse(string $raw): InboundEmail
@@ -72,9 +72,9 @@ final class Parser
         return new InboundEmail(
             messageId: MessageId::normalise($message->getHeader('Message-ID')?->getRawValue()),
             fromEmail: $from instanceof AddressPart ? strtolower(trim($from->getEmail())) : '',
-            fromName: $from instanceof AddressPart && trim((string) $from->getName()) !== '' ? mb_substr(trim((string) $from->getName()), 0, 191) : null,
+            fromName: $from instanceof AddressPart && self::line((string) $from->getName()) !== '' ? mb_substr(self::line((string) $from->getName()), 0, 191) : null,
             fromCount: count($froms),
-            subject: mb_substr(trim((string) preg_replace('/\s+/u', ' ', (string) $message->getSubject())), 0, 250),
+            subject: mb_substr(self::line((string) $message->getSubject()), 0, 250),
             body: $text,
             references: array_values(array_unique($references)),
             to: self::addresses($message, 'To'),
@@ -97,7 +97,8 @@ final class Parser
         if ($text === '') {
             $text = HtmlToText::convert((string) $message->getHtmlContent());
         }
-        $text = str_replace(["\r\n", "\r"], "\n", $text);
+        // A charset mbstring does not know (unknown-8bit, a typo) leaves bytes that are no UTF-8: kept as «?», never lost.
+        $text = str_replace(["\r\n", "\r"], "\n", mb_scrub($text, 'UTF-8'));
         // Never a NUL or another control character in what staff read (tabs and line breaks stay).
         $text = (string) preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $text);
         if (mb_strlen($text) <= self::MAX_BODY_CHARS) {
@@ -113,13 +114,18 @@ final class Parser
         $kept = [];
         $refused = [];
         $total = 0;
-        foreach ($message->getAllAttachmentParts() as $part) {
+        // Files the sender attached first, then pictures pasted into the text (inline, with a Content-ID): a screenshot
+        // of the error is often all there is, so it is kept too, after them (a signature's logo never pushes a file out).
+        $parts = $message->getAllAttachmentParts();
+        $inline = fn ($part) => strtolower((string) $part->getContentDisposition()) === 'inline' && $part->getContentId() !== null;
+        $parts = array_merge(array_filter($parts, fn ($part) => !$inline($part)), array_filter($parts, $inline));
+        foreach ($parts as $part) {
             /** @var IMessagePart $part */
-            // Pictures of a signature (inline, with a Content-ID) are not files the sender attached.
-            if (strtolower((string) $part->getContentDisposition()) === 'inline' && $part->getContentId() !== null) {
-                continue;
-            }
             $name = Attachments::safeName($part->getFilename() ?? '');
+            // A forwarded mail (message/rfc822) is a file of its own: kept as .eml.
+            if (strtolower($part->getContentType()) === 'message/rfc822' && Attachments::extension($name) !== 'eml') {
+                $name = Attachments::safeName(($part->getFilename() ? pathinfo($name, PATHINFO_FILENAME) : 'forwarded') . '.eml');
+            }
             if (count($kept) >= Attachments::MAX_COUNT) {
                 $refused[] = ['name' => $name, 'reason' => 'count'];
 
@@ -178,5 +184,13 @@ final class Parser
         $date = $header instanceof DateHeader ? $header->getDateTimeImmutable() : null;
 
         return $date instanceof DateTimeImmutable ? $date : null;
+    }
+
+    /** A header value as one line: valid UTF-8, no control characters, single spaces. */
+    private static function line(string $value): string
+    {
+        $value = (string) preg_replace('/[\x00-\x1F\x7F]+/u', ' ', mb_scrub($value, 'UTF-8'));
+
+        return trim((string) preg_replace('/\s+/u', ' ', $value));
     }
 }

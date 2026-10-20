@@ -39,7 +39,7 @@ class TicketMailInboundTest extends TestCase
         parent::setUp();
         $this->mailbox = new FakeTicketMailbox;
         $this->app->instance(Mailbox::class, $this->mailbox);
-        $this->support = TicketDepartment::query()->where('name', 'Support')->firstOrFail();
+        $this->support = TicketDepartment::query()->firstOrCreate(['name' => 'Support']); // a truncating test may have taken the migration's (#242)
         $this->support->update(['email' => 'support@myip.test', 'imap_host' => 'imap.myip.test', 'imap_username' => 'support@myip.test',
             'imap_password' => 'secret', 'authserv_id' => 'mymail.myip.test', 'require_dmarc' => true, 'polling' => true]);
     }
@@ -393,5 +393,46 @@ class TicketMailInboundTest extends TestCase
         $this->assertArrayNotHasKey('imap_password', $this->support->fresh()->toArray());
         $this->assertStringNotContainsString('secret', $stored);
         $this->assertContains('imap_password', $this->support->getAuditExclude());
+    }
+
+    /** Reviews of #244: a forwarded mail is kept as a file; a name keeps no control characters. */
+    public function test_a_forwarded_mail_is_kept_and_a_name_is_one_line(): void
+    {
+        $this->receive(['From' => '=?UTF-8?B?' . base64_encode("Maria\x07\r\nBcc: x") . '?= <maria@example.com>'], 'See below', [
+            ['name' => 'original.eml', 'type' => 'message/rfc822', 'content' => Eml::make(['Subject' => 'The original'], 'Original text')],
+        ]);
+
+        $ticket = Ticket::query()->sole();
+        $this->assertSame('Maria Bcc: x', $ticket->guest_name);
+        $this->assertSame('original.eml', $ticket->messages()->sole()->attachments()->sole()->filename);
+        @unlink($ticket->messages()->sole()->attachments()->sole()->localPath);
+    }
+
+    /** A message that fails after its files were written leaves none on disk. */
+    public function test_files_of_a_rolled_back_mail_are_deleted(): void
+    {
+        $before = glob(storage_path('app/tickets/uploads/*')) ?: [];
+        TicketMessage::created(function () {
+            throw new \RuntimeException('the disk is full');
+        });
+
+        try {
+            app(InboundRouter::class)->route($this->support, Parser::parse($raw = Eml::make(['From' => 'maria@example.com'], 'x',
+                [['name' => 'a.pdf', 'content' => Eml::pdf()]])), $raw);
+        } catch (\RuntimeException) {
+        }
+
+        $this->assertSame(0, Ticket::query()->count());
+        $this->assertSame($before, glob(storage_path('app/tickets/uploads/*')) ?: []);
+    }
+
+    /** A new ticket that could not be opened does not count against its sender's hour. */
+    public function test_the_hour_counts_tickets_opened(): void
+    {
+        RateLimiter::clear('ticket-mail-new:unvouched:maria@example.com');
+        $this->receive(['From' => 'maria@example.com', 'Subject' => 'One']);
+
+        $this->assertSame(1, RateLimiter::attempts('ticket-mail-new:unvouched:maria@example.com'));
+        $this->assertSame(0, RateLimiter::attempts('ticket-mail-new:vouched:maria@example.com'));
     }
 }

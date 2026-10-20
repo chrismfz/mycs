@@ -29,6 +29,20 @@ class TicketBlockedSender extends Model
             return false;
         }
 
-        return self::query()->whereIn('value', [$email, '@' . substr($email, strrpos($email, '@') + 1)])->exists();
+        return self::query()->whereIn('value', array_unique([$email, self::base($email), '@' . substr($email, strrpos($email, '@') + 1)]))->exists();
+    }
+
+    /** The mailbox behind an address: without its «+tag» (spammer+1@example.com is spammer@example.com). */
+    public static function base(string $email): string
+    {
+        $email = strtolower(trim($email));
+        $at = strrpos($email, '@');
+        if ($at === false) {
+            return $email;
+        }
+        $local = substr($email, 0, $at);
+        $plus = strpos($local, '+');
+
+        return ($plus !== false && $plus > 0 ? substr($local, 0, $plus) : $local) . substr($email, $at);
     }
 }

@@ -50,8 +50,9 @@ final class ParserTest extends TestCase
             ['name' => 'signature.png', 'content' => Eml::png(), 'inline' => 'logo@x'],
         ]));
 
-        $this->assertSame(['invoice.pdf', 'shot.png'], array_map(fn ($file) => $file->filename, $email->attachments));
-        $this->assertSame(['application/pdf', 'image/png'], array_map(fn ($file) => $file->mimeType, $email->attachments));
+        // A pasted picture (inline, with a Content-ID) is kept too, after the files.
+        $this->assertSame(['invoice.pdf', 'shot.png', 'signature.png'], array_map(fn ($file) => $file->filename, $email->attachments));
+        $this->assertSame(['application/pdf', 'image/png', 'image/png'], array_map(fn ($file) => $file->mimeType, $email->attachments));
         $this->assertSame(['run.exe' => 'type', 'page.html' => 'type', 'logo.svg' => 'type', 'fake.pdf' => 'content', 'notes.txt' => 'content'],
             array_column($email->refused, 'reason', 'name'));
     }
@@ -105,7 +106,8 @@ final class ParserTest extends TestCase
         yield 'bulk' => [['Precedence' => 'bulk'], 'precedence'];
         yield 'list precedence' => [['Precedence' => 'list'], 'precedence'];
         yield 'X-Autoreply' => [['X-Autoreply' => 'yes'], 'auto_reply'];
-        yield 'Exchange OOF' => [['X-Auto-Response-Suppress' => 'All'], 'auto_reply'];
+        // «Do not auto-reply to me»: helpdesks and CRMs send it with mail a person wrote.
+        yield 'X-Auto-Response-Suppress' => [['X-Auto-Response-Suppress' => 'All'], null];
         yield 'a list' => [['List-Id' => '<news.example.com>'], 'list'];
         yield 'a newsletter' => [['List-Unsubscribe' => '<mailto:u@example.com>'], 'list'];
         yield 'a bounce' => [['Return-Path' => '<>'], 'null_sender'];

@@ -37,6 +37,7 @@ class TicketQuarantine extends Model
         'rate_limited' => 'Too many new tickets from this sender',
         'too_large' => 'Too large to fetch',
         'unparseable' => 'Could not be read',
+        'failed' => 'Failed three times (the error is in its text)',
     ];
 
     protected $fillable = ['department_id', 'reason', 'message_id', 'from_email', 'from_name', 'subject', 'sent_at', 'authenticated',

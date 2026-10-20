@@ -77,7 +77,8 @@ class TicketQuarantineResource extends Resource
                     ->modalContent(fn (TicketQuarantine $record) => view('admin.ticket-quarantine.show', ['record' => $record])),
                 ActionGroup::make([
                     Action::make('attach')->label('Attach to a ticket')->icon('ri-attachment-2')
-                        ->authorize(fn (TicketQuarantine $record) => self::staff()->can('update', $record))
+                        // Tickets are searched and written: their permission too, not the quarantine's alone.
+                        ->authorize(fn (TicketQuarantine $record) => self::staff()->can('update', $record) && self::staff()->hasPermission('admin.tickets.update'))
                         ->schema([
                             Select::make('ticket_id')->label('Ticket')->required()->searchable()
                                 ->default(fn (TicketQuarantine $record) => $record->suggested_ticket_id)
@@ -89,9 +90,10 @@ class TicketQuarantineResource extends Resource
                         ->action(fn (TicketQuarantine $record, array $data) => self::run(fn () => app(QuarantineActions::class)
                             ->attach($record, Ticket::query()->findOrFail($data['ticket_id']), self::staff()), 'Attached')),
                     Action::make('open')->label('Open a new ticket')->icon('ri-add-line')
-                        ->authorize(fn (TicketQuarantine $record) => self::staff()->can('update', $record))
+                        ->authorize(fn (TicketQuarantine $record) => self::staff()->can('update', $record) && self::staff()->hasPermission('admin.tickets.create'))
                         ->schema([
                             Select::make('client_id')->label('In the account (empty: the sender\'s, as a guest)')->searchable()
+                                ->visible(fn () => self::staff()->hasPermission('admin.clients.viewAny'))
                                 ->getSearchResultsUsing(fn (string $search) => Client::query()->whereHas('users', fn ($query) => $query->where('email', 'like', "%{$search}%"))
                                     ->limit(20)->get()->mapWithKeys(fn (Client $client) => [$client->id => "#{$client->id} {$client->name}"])->all())
                                 ->getOptionLabelUsing(fn ($value) => ($client = Client::query()->find($value)) ? "#{$client->id} {$client->name}" : null),

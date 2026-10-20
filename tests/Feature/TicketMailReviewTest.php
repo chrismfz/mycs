@@ -33,7 +33,7 @@ class TicketMailReviewTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->support = TicketDepartment::query()->where('name', 'Support')->firstOrFail();
+        $this->support = TicketDepartment::query()->firstOrCreate(['name' => 'Support']); // a truncating test may have taken the migration's (#242)
         $this->support->update(['email' => 'support@myip.test', 'imap_host' => 'imap.myip.test', 'imap_username' => 'support@myip.test',
             'imap_password' => 'hunter2-secret', 'authserv_id' => 'mymail.myip.test', 'require_dmarc' => true, 'polling' => true]);
     }

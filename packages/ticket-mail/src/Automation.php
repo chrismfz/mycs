@@ -23,9 +23,6 @@ final class Automation
         if ($email->header('x-autoreply') !== null || $email->header('x-autorespond') !== null) {
             return 'auto_reply';
         }
-        if (preg_match('/\b(oof|autoreply|all)\b/i', (string) $email->header('x-auto-response-suppress')) === 1) {
-            return 'auto_reply';
-        }
         if ($email->header('list-id') !== null || $email->header('list-unsubscribe') !== null) {
             return 'list';
         }

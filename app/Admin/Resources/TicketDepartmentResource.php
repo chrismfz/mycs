@@ -64,7 +64,9 @@ class TicketDepartmentResource extends Resource
                         TextInput::make('imap_username')->label('Login')->maxLength(255)->autocomplete(false)->required(fn (Get $get) => (bool) $get('polling')),
                         TextInput::make('imap_password')->label('Password')->password()->revealable(false)->maxLength(500)
                             ->autocomplete('new-password')->dehydrated(fn ($state) => filled($state))
-                            ->required(fn (Get $get, ?TicketDepartment $record) => (bool) $get('polling') && $record?->imap_password === null)
+                            // A new host or login asks for it again: the stored one never goes to another server.
+                            ->required(fn (Get $get, ?TicketDepartment $record) => ((bool) $get('polling') && $record?->imap_password === null)
+                                || ($record?->imap_password !== null && ($get('imap_host') !== $record->imap_host || $get('imap_username') !== $record->imap_username)))
                             ->helperText(fn (?TicketDepartment $record) => $record?->imap_password !== null ? 'Stored encrypted and never shown: leave empty to keep it.' : null),
                         TextInput::make('authserv_id')->label('authserv-id of our mail server')->maxLength(255)
                             ->placeholder('mymail.myip.gr')->regex('/^[A-Za-z0-9._-]+$/')

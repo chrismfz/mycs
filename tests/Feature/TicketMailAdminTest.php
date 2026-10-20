@@ -39,7 +39,7 @@ class TicketMailAdminTest extends TestCase
     {
         parent::setUp();
         config(['settings.default_currency' => 'USD']);
-        $this->support = TicketDepartment::query()->where('name', 'Support')->firstOrFail();
+        $this->support = TicketDepartment::query()->firstOrCreate(['name' => 'Support']); // a truncating test may have taken the migration's (#242)
         $this->support->update(['email' => 'support@myip.test', 'authserv_id' => 'mymail.myip.test', 'require_dmarc' => true]);
     }
 
@@ -221,5 +221,15 @@ class TicketMailAdminTest extends TestCase
         $this->assertNull(\DB::table('settings')->where('key', 'ticket_mail_password')->value('value'), 'the old password goes');
         $this->assertTrue($this->support->fresh()->require_dmarc, 'DMARC demanded unless staff say otherwise');
         $this->assertFalse($this->support->fresh()->polling, 'nothing is read until staff turn it on');
+    }
+
+    /** The quarantine's ticket and account searches need those permissions too (review of #244). */
+    public function test_attaching_and_opening_need_the_tickets_permissions(): void
+    {
+        $quarantine = $this->quarantine(['From' => 'eve@evil.test', 'List-Id' => '<x>']);
+        $this->asStaff(['admin.ticket_quarantine.viewAny', 'admin.ticket_quarantine.update']);
+
+        Livewire::test(ListTicketQuarantine::class)->assertTableActionHidden('attach', $quarantine)->assertTableActionHidden('open', $quarantine)
+            ->assertTableActionVisible('dismiss', $quarantine);
     }
 }

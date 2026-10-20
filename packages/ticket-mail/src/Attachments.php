@@ -35,6 +35,7 @@ final class Attachments
         'txt' => ['text/plain'],
         'log' => ['text/plain'],
         'zip' => ['application/zip'],
+        'eml' => ['message/rfc822', 'text/plain'],
     ];
 
     /** Images a page may show inline (never SVG). */

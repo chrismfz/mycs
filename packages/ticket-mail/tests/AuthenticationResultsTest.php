@@ -67,4 +67,13 @@ final class AuthenticationResultsTest extends TestCase
         $this->assertStringContainsString('dmarc=fail', $email->authenticationResults[0]);
         $this->assertFalse(AuthenticationResults::verdict($email->authenticationResults, self::OURS, $email->fromEmail)->authenticated);
     }
+
+    /** Adversarial review of #244 (F1): a «;» or a result inside a quoted value is the sender's text, never ours. */
+    public function test_a_quoted_value_is_one_token(): void
+    {
+        $this->assertFalse($this->authenticated(['mymail.myip.test; spf=pass smtp.mailfrom="x;dmarc=pass header.from=example.com y"@evil.test; dmarc=fail header.from=example.com']));
+        $this->assertFalse($this->authenticated(['mymail.myip.test; spf=pass smtp.mailfrom="a\\";dmarc=pass header.from=example.com"@evil.test']));
+        $this->assertFalse($this->authenticated(['mymail.myip.test; dmarc=pass'], 'maria@example.com'), 'no header.from: no pass');
+        $this->assertTrue($this->authenticated(['mymail.myip.test; dkim=pass header.d=mail.example.com'], 'maria@example.com'), 'a subdomain aligns');
+    }
 }

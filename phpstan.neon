@@ -17,6 +17,7 @@ parameters:
         - packages/myopenprovider/src/
         - packages/nixpal-licensing/src/
         - packages/paypal-vault/src/
+        - packages/ticket-mail/src/
 
     # Level 9 is the highest level
     level: 5

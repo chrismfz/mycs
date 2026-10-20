@@ -4,6 +4,7 @@ namespace App\Support\Tickets;
 
 use App\Models\TicketMessage;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 use MyCS\TicketMail\Attachments;
@@ -50,12 +51,51 @@ final class TicketFiles
         };
     }
 
+    /** @var list<string>|null the files written in the open transaction() */
+    private static ?array $written = null;
+
+    /**
+     * A DB transaction whose files go with it: written during it and the transaction rolls back, they are deleted.
+     *
+     * @template T
+     *
+     * @param  \Closure(): T  $work
+     * @return T
+     */
+    public static function transaction(\Closure $work): mixed
+    {
+        $outer = self::$written;
+        self::$written = [];
+        try {
+            $result = DB::transaction($work);
+            self::$written = $outer === null ? null : array_merge($outer, self::$written);
+
+            return $result;
+        } catch (\Throwable $e) {
+            foreach (self::written() as $path) {
+                @unlink(storage_path('app/' . $path));
+            }
+            self::$written = $outer;
+
+            throw $e;
+        }
+    }
+
+    /** @return list<string> */
+    private static function written(): array
+    {
+        return self::$written ?? [];
+    }
+
     private static function put(TicketMessage $message, string $filename, string $content): void
     {
         $name = Attachments::safeName($filename);
         $path = self::DIRECTORY . '/' . Str::ulid() . '.' . Attachments::extension($name);
         File::ensureDirectoryExists(storage_path('app/' . self::DIRECTORY));
         file_put_contents(storage_path('app/' . $path), $content);
+        if (self::$written !== null) {
+            self::$written[] = $path;
+        }
         try {
             $message->attachments()->create(['path' => $path, 'filename' => $name, 'mime_type' => Attachments::sniff($content), 'filesize' => strlen($content)]);
         } catch (\Throwable $e) {

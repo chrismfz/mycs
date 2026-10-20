@@ -35,7 +35,8 @@ final class AuthenticationResults
                 continue;
             }
             $domain = match ($result['method']) {
-                'dmarc' => self::domainOf($result['props']['header.from'] ?? $fromEmail),
+                // Its own From domain, as our server read it: without one, no pass counts.
+                'dmarc' => self::domainOf($result['props']['header.from'] ?? ''),
                 'dkim' => self::domainOf($result['props']['header.d'] ?? $result['props']['header.i'] ?? ''),
                 'spf' => self::domainOf($result['props']['smtp.mailfrom'] ?? ''),
                 default => null,
@@ -55,20 +56,20 @@ final class AuthenticationResults
      */
     public static function parse(string $value): ?array
     {
-        $value = self::withoutComments(str_replace(["\r", "\n"], ' ', $value));
-        $parts = array_map('trim', explode(';', $value));
-        $id = strtolower((string) preg_replace('/\s+\d+$/', '', (string) array_shift($parts)));
+        $parts = self::statements(str_replace(["\r", "\n"], ' ', $value));
+        $id = strtolower((string) preg_replace('/\s+\d+$/', '', trim((string) array_shift($parts))));
         if ($id === '' || preg_match('/^[a-z0-9._-]+$/', $id) !== 1) {
             return null;
         }
 
         $results = [];
         foreach ($parts as $part) {
-            if (preg_match('/^([a-z0-9_-]+)(?:\/\d+)?\s*=\s*([a-z]+)(.*)$/i', $part, $m) !== 1) {
+            // A method's result opens its statement; a quoted value is one token (the sender chose it).
+            if (preg_match('/^([a-z0-9_-]+)(?:\/\d+)?\s*=\s*([a-z]+)(.*)$/is', trim($part), $m) !== 1) {
                 continue;
             }
             $props = [];
-            if (preg_match_all('/([a-z0-9_-]+\.[a-z0-9_.-]+)\s*=\s*("[^"]*"|[^\s;]+)/i', $m[3], $pairs, PREG_SET_ORDER) > 0) {
+            if (preg_match_all('/(?:^|\s)([a-z0-9_-]+\.[a-z0-9_.-]+)\s*=\s*("(?:[^"\\\\]|\\\\.)*"|[^\s"]+)/i', $m[3], $pairs, PREG_SET_ORDER) > 0) {
                 foreach ($pairs as $pair) {
                     $props[strtolower($pair[1])] ??= strtolower(trim($pair[2], '"'));
                 }
@@ -79,15 +80,70 @@ final class AuthenticationResults
         return ['authserv_id' => $id, 'results' => $results];
     }
 
-    /** Aligned (DMARC relaxed alignment): the same domain, or the From's domain under it. DMARC's own: the same. */
+    /**
+     * The statements of a header, split at the «;» outside quoted strings and comments, comments dropped (RFC 8601,
+     * RFC 5322). A «;» or a «dmarc=pass» inside the sender's quoted envelope address or a comment stays inside it.
+     *
+     * @return list<string>
+     */
+    private static function statements(string $value): array
+    {
+        $statements = [];
+        $current = '';
+        $quoted = false;
+        $depth = 0;
+        $length = strlen($value);
+        for ($i = 0; $i < $length; $i++) {
+            $char = $value[$i];
+            if ($char === '\\' && ($quoted || $depth > 0) && $i + 1 < $length) {
+                if ($depth === 0) {
+                    $current .= $char . $value[$i + 1];
+                }
+                $i++;
+
+                continue;
+            }
+            if ($depth > 0) {
+                $depth += $char === '(' ? 1 : ($char === ')' ? -1 : 0);
+                if ($depth === 0) {
+                    $current .= ' ';
+                }
+
+                continue;
+            }
+            if ($quoted) {
+                $current .= $char;
+                $quoted = $char !== '"';
+
+                continue;
+            }
+            if ($char === '"') {
+                $quoted = true;
+                $current .= $char;
+            } elseif ($char === '(') {
+                $depth = 1;
+            } elseif ($char === ';') {
+                $statements[] = $current;
+                $current = '';
+            } else {
+                $current .= $char;
+            }
+        }
+        $statements[] = $current;
+
+        return $statements;
+    }
+
+    /** Aligned (DMARC relaxed alignment): the same domain, a parent or a subdomain of it. DMARC's own: the same. */
     private static function aligned(string $fromDomain, string $domain, bool $exact): bool
     {
         if ($fromDomain === $domain) {
             return true;
         }
 
-        // A parent with at least one dot of its own (never a bare TLD): mail.example.com under example.com.
-        return !$exact && str_contains($domain, '.') && str_ends_with($fromDomain, '.' . $domain);
+        // The same organisation either way (relaxed alignment, without the public suffix list): a parent with a dot of
+        // its own (never a bare TLD), or a subdomain of the From's domain. mail.example.com and example.com align.
+        return !$exact && ((str_contains($domain, '.') && str_ends_with($fromDomain, '.' . $domain)) || str_ends_with($domain, '.' . $fromDomain));
     }
 
     /** The domain of an address (or a domain as such), lower case; null when there is none. */
@@ -97,15 +153,5 @@ final class AuthenticationResults
         $domain = str_contains($address, '@') ? substr($address, strrpos($address, '@') + 1) : $address;
 
         return preg_match('/^[a-z0-9-]+(\.[a-z0-9-]+)+$/', $domain) === 1 ? $domain : null;
-    }
-
-    private static function withoutComments(string $value): string
-    {
-        // Nested comments (RFC 5322): strip the innermost until none is left.
-        for ($i = 0; $i < 10 && str_contains($value, '('); $i++) {
-            $value = (string) preg_replace('/\([^()]*\)/', ' ', $value);
-        }
-
-        return $value;
     }
 }

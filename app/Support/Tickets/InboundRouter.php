@@ -10,7 +10,7 @@ use App\Models\TicketMessage;
 use App\Models\TicketQuarantine;
 use App\Models\User;
 use Illuminate\Database\UniqueConstraintViolationException;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -60,7 +60,7 @@ class InboundRouter
         if (TicketBlockedSender::blocks($from)) {
             return new InboundOutcome(InboundOutcome::BLOCKED);
         }
-        if (in_array($from, $this->ourAddresses(), true)) {
+        if (in_array(TicketBlockedSender::base($from), array_map([TicketBlockedSender::class, 'base'], $this->ourAddresses()), true)) {
             return $this->quarantine($department, $email, $raw, 'own_address', $messageId);
         }
         if (($automated = Automation::reason($email)) !== null) {
@@ -99,13 +99,17 @@ class InboundRouter
         if ($account === null && $department->clients_only) {
             return $this->quarantine($department, $email, $raw, 'clients_only', $messageId, $verdict);
         }
-        $limit = 'ticket-mail-new:' . $from;
+        // Vouched and unvouched mail count apart: forged mail in a customer's name never uses up their own hour.
+        $limit = 'ticket-mail-new:' . ($verdict->authenticated ? 'vouched:' : 'unvouched:') . TicketBlockedSender::base($from);
         if (RateLimiter::tooManyAttempts($limit, self::NEW_TICKETS_PER_HOUR)) {
             return $this->quarantine($department, $email, $raw, 'rate_limited', $messageId, $verdict);
         }
-        RateLimiter::hit($limit, 3600);
+        $outcome = $this->open($department, $email, $messageId, $account);
+        if ($outcome->kind === InboundOutcome::OPENED) {
+            RateLimiter::hit($limit, 3600);
+        }
 
-        return $this->open($department, $email, $messageId, $account);
+        return $outcome;
     }
 
     /**
@@ -161,7 +165,7 @@ class InboundRouter
 
     private function reply(Ticket $ticket, InboundEmail $email, string $messageId, ?User $author): InboundOutcome
     {
-        return $this->unique(fn () => DB::transaction(function () use ($ticket, $email, $messageId, $author) {
+        return $this->unique(fn () => TicketFiles::transaction(function () use ($ticket, $email, $messageId, $author) {
             $message = $ticket->messages()->create($this->messageData($email, $messageId, $author, ReplyText::clean($email->body)));
             TicketFiles::storeInbound($message, $email->attachments);
 
@@ -172,7 +176,7 @@ class InboundRouter
     /** @param  array{client_id: int, user: User}|null  $account */
     private function open(TicketDepartment $department, InboundEmail $email, string $messageId, ?array $account): InboundOutcome
     {
-        return $this->unique(fn () => DB::transaction(function () use ($department, $email, $messageId, $account) {
+        return $this->unique(fn () => TicketFiles::transaction(function () use ($department, $email, $messageId, $account) {
             $ticket = Ticket::query()->create([
                 'subject' => $this->subject($email->subject),
                 'status' => Ticket::STATUS_OPEN,
@@ -235,7 +239,7 @@ class InboundRouter
                 'from_email' => $email?->fromEmail !== '' ? mb_substr((string) $email?->fromEmail, 0, 250) : null,
                 'from_name' => $email?->fromName,
                 'subject' => $email !== null ? mb_substr($email->subject, 0, 250) : null,
-                'sent_at' => $email?->date,
+                'sent_at' => self::sentAt($email),
                 'authenticated' => $verdict !== null && $verdict->authenticated,
                 'auth_detail' => $detail ?? $verdict?->reason,
                 'preview' => $email !== null ? mb_substr($email->body, 0, 5000) : null,
@@ -248,9 +252,50 @@ class InboundRouter
             Storage::disk(TicketQuarantine::DISK)->delete($path);
 
             return new InboundOutcome(InboundOutcome::DUPLICATE);
+        } catch (\Throwable $e) {
+            Storage::disk(TicketQuarantine::DISK)->delete($path);
+
+            throw $e;
         }
 
         return new InboundOutcome(InboundOutcome::QUARANTINED, quarantine: $quarantine);
+    }
+
+    /**
+     * A mail that failed every time (the poller gave up on it): kept with the error, never left to wedge the mailbox. Only
+     * what cannot fail: no value of the mail but its raw copy.
+     */
+    public function failed(TicketDepartment $department, ?InboundEmail $email, string $raw, string $error): InboundOutcome
+    {
+        $messageId = 'failed.' . hash('sha256', $raw);
+        if (TicketQuarantine::query()->where('message_id', $messageId)->exists()) {
+            return new InboundOutcome(InboundOutcome::DUPLICATE);
+        }
+        $path = 'tickets/quarantine/' . Str::ulid() . '.eml';
+        Storage::disk(TicketQuarantine::DISK)->put($path, $raw);
+        try {
+            $quarantine = TicketQuarantine::query()->create(['department_id' => $department->id, 'reason' => 'failed', 'message_id' => $messageId,
+                'from_email' => $email !== null && filter_var($email->fromEmail, FILTER_VALIDATE_EMAIL) ? mb_substr($email->fromEmail, 0, 250) : null,
+                'subject' => $email !== null ? mb_substr($email->subject, 0, 250) : null,
+                'preview' => mb_substr($error, 0, 2000), 'raw_path' => $path, 'raw_size' => strlen($raw)]);
+        } catch (\Throwable $e) {
+            Storage::disk(TicketQuarantine::DISK)->delete($path);
+
+            throw $e;
+        }
+
+        return new InboundOutcome(InboundOutcome::QUARANTINED, quarantine: $quarantine);
+    }
+
+    /** The sender's Date, in our timezone; none when outside what a TIMESTAMP holds (1970–2038, spam's 2099). */
+    private static function sentAt(?InboundEmail $email): ?Carbon
+    {
+        if ($email?->date === null) {
+            return null;
+        }
+        $date = Carbon::instance($email->date)->setTimezone(config('app.timezone'));
+
+        return $date->year > 1970 && $date->year < 2038 ? $date : null;
     }
 
     private function seen(string $messageId): bool

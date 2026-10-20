@@ -172,18 +172,22 @@ final class Health
             return ['status' => self::OK, 'detail' => 'No mailbox is read', 'data' => ['mailboxes' => 0]];
         }
         $failing = [];
+        $erring = [];
         foreach ($departments as $department) {
             $run = $department->pollRuns()->latest('started_at')->first();
             if ($run === null || $run->started_at->lt(now()->subMinutes(30)) || !$run->connected) {
                 $failing[] = $department->name;
+            } elseif ($run->errors) {
+                $erring[] = $department->name . ': ' . $run->errors[0];
             }
         }
         $waiting = TicketQuarantine::query()->where('status', TicketQuarantine::PENDING)->where('reason', '!=', 'automated')
             ->where('created_at', '<', now()->subDay())->count();
-        $status = $failing !== [] ? self::FAIL : ($waiting > 0 ? self::WARN : self::OK);
+        $status = $failing !== [] ? self::FAIL : ($waiting > 0 || $erring !== [] ? self::WARN : self::OK);
 
         return ['status' => $status, 'detail' => ($failing !== [] ? 'Not read in 30 minutes: ' . implode(', ', $failing) . '. ' : '')
+            . ($erring !== [] ? 'Errors: ' . Scrub::text(implode('; ', $erring)) . '. ' : '')
             . "{$departments->count()} mailboxes read, {$waiting} quarantined mails waiting over a day",
-            'data' => ['mailboxes' => $departments->count(), 'not_read' => $failing, 'quarantine_waiting' => $waiting]];
+            'data' => ['mailboxes' => $departments->count(), 'not_read' => $failing, 'quarantine_waiting' => $waiting, 'errors' => $erring]];
     }
 }

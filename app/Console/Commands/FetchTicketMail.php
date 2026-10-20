@@ -8,6 +8,7 @@ use App\Models\TicketQuarantine;
 use App\Support\Tickets\InboundOutcome;
 use App\Support\Tickets\InboundRouter;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
 use MyCS\TicketMail\Imap\Mailbox;
@@ -26,9 +27,16 @@ class FetchTicketMail extends Command
 
     protected $description = 'Read the departments\' mailboxes into tickets (docs/tickets.md)';
 
+    /** A mail that failed this many runs is kept in the quarantine with its error, never left to hide newer mail. */
+    public const ATTEMPTS = 3;
+
     public function handle(Mailbox $mailbox, InboundRouter $router): int
     {
         Config::set('audit.console', true);
+        // A 40 MB mail is parsed at a few times its size; an out-of-memory cannot be caught and would stop every mailbox.
+        if ($this->bytes((string) ini_get('memory_limit')) < 512 * 1024 * 1024) {
+            ini_set('memory_limit', '512M');
+        }
         $departments = TicketDepartment::query()->where('polling', true)
             ->when($this->option('department'), fn ($query, $id) => $query->whereKey((int) $id))->get()
             ->filter(fn (TicketDepartment $department) => $department->hasMailbox());
@@ -44,8 +52,18 @@ class FetchTicketMail extends Command
                 } catch (Throwable $e) {
                     Log::error('Ticket mail: a message failed', ['department' => $department->id, 'error' => $e->getMessage()]);
                     $errors[] = mb_substr($e->getMessage(), 0, 300);
-
-                    return false;
+                    $key = 'ticket-mail-attempts:' . $department->id . ':' . hash('sha256', $raw);
+                    $attempts = (int) Cache::get($key, 0) + 1;
+                    Cache::put($key, $attempts, now()->addDays(2));
+                    if ($attempts < self::ATTEMPTS) {
+                        return false;
+                    }
+                    try {
+                        $outcome = $router->failed($department, $email, $raw, $e->getMessage());
+                        Cache::forget($key);
+                    } catch (Throwable) {
+                        return false;
+                    }
                 }
                 $kind = isset($counts[$outcome->kind]) ? $outcome->kind : 'skipped';
                 $counts[$kind]++;
@@ -68,5 +86,20 @@ class FetchTicketMail extends Command
             ->each(fn (TicketQuarantine $quarantine) => $quarantine->delete());
 
         return self::SUCCESS;
+    }
+
+    private function bytes(string $limit): int
+    {
+        if ($limit === '-1') {
+            return PHP_INT_MAX;
+        }
+        $value = (int) $limit;
+
+        return match (strtolower(substr(trim($limit), -1))) {
+            'g' => $value * 1024 ** 3,
+            'm' => $value * 1024 ** 2,
+            'k' => $value * 1024,
+            default => $value,
+        };
     }
 }

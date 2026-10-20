@@ -86,7 +86,7 @@ email επιβεβαίωσης στον επισκέπτη με τον αριθ�
 ## 4. Τι παίρνουμε από το Ekdosi
 | Από το Ekdosi | Πώς |
 |---|---|
-| `ImapMailbox` + `WebklexImapMailbox` + DTOs (`ParsedInboundEmail`, `InboundEmailAttachment`, `MailboxPollSummary`, `MailboxTestResult`) | σε `packages/ticket-mail` (χωρίς Laravel, CLAUDE.md), με το `webklex/php-imap`· αντικαθιστά το `directorytree/imapengine` του `FetchEmails` |
+| `ImapMailbox` + `WebklexImapMailbox` + DTOs (`ParsedInboundEmail`, `InboundEmailAttachment`, `MailboxPollSummary`, `MailboxTestResult`) | σε `packages/ticket-mail` (χωρίς Laravel, CLAUDE.md)· τελικά με το `directorytree/imapengine` και όχι το webklex (§6β) |
 | `InboundTicketRouter` | λογική (blocklist, dedup, νήμα μόνο από κάτοχο), **συν** τα Α, Β, Γ, Ε του §3· χωρίς `company_id`/`Customer`, με τους πελάτες και τα logins του MyCS |
 | Σχήμα εξερχόμενων (σταθερό Message-ID, References, retry με ίδιο ID) | με τυχαίο 128-bit αντί για `tk-{ref}-{id}-{rand}` |
 | `TicketAttachments` (λίστα τύπων, όρια) | ως έχει, και για τα συνημμένα του portal που σήμερα δεν έχουν λίστα |
@@ -220,6 +220,34 @@ email επιβεβαίωσης στον επισκέπτη με τον αριθ�
   sandbox CSP· προεπισκόπηση μόνο jpeg/png/gif/webp.
 - Health `ticket_mail` (και στο MCP): FAIL αν mailbox με polling δεν διαβάστηκε 30' ή δεν συνδέθηκε· WARN για
   καραντίνα που περιμένει πάνω από μέρα. `ticket_poll_runs` 30 μέρες.
+- **Reviews (#244):**
+  - Το `Authentication-Results` διαβάζεται με quotes και σχόλια: ένα `;` ή ένα `dmarc=pass` μέσα σε quoted envelope
+    sender του επιτιθέμενου μένει μέσα του. Ένα `dmarc=pass` χωρίς `header.from` δεν μετρά.
+  - Εικόνες επικολλημένες στο κείμενο (inline) κρατιούνται, μετά τα αρχεία. Ένα προωθημένο email κρατιέται ως `.eml`.
+  - Άγνωστο charset: το κείμενο δεν χάνεται (`mb_scrub`).
+  - Ένα email που αποτυγχάνει 3 φορές πάει στην καραντίνα (`failed`, με το σφάλμα), ώστε 50 τέτοια να μη μπλοκάρουν
+    το mailbox.
+  - Date εκτός 1970–2038: χωρίς `sent_at`. Πριν, στη MariaDB, το insert έσκαγε κάθε φορά και άφηνε ορφανό `.eml`.
+  - Αρχεία που γράφτηκαν σε transaction που αναιρέθηκε σβήνονται.
+  - Το όριο ανά ώρα μετρά χωριστά τα επιβεβαιωμένα από τα πλαστά, και μόνο tickets που άνοιξαν.
+  - `+tag` στη blocklist και στις δικές μας διευθύνσεις.
+  - Εσωτερική σημείωση δεν είναι ποτέ κλειδί νήματος.
+  - Νέος host ή login ζητά ξανά τον κωδικό.
+  - Health WARN για σφάλματα του τελευταίου read.
+  - Attach και open ζητούν και τα δικαιώματα tickets. Η αναζήτηση λογαριασμών ζητά και το δικαίωμα clients.
+  - `memory_limit` 512M στο poller.
+  - phpstan και στο πακέτο.
+- **Ο server πρέπει να γράφει `Authentication-Results` σε κάθε email που παραδίδει στο mailbox**, και για όσα στέλνει
+  ένας πελάτης του ίδιου server με login (SMTP AUTH) ή παραδίδονται τοπικά. Αλλιώς το επάνω header είναι του
+  αποστολέα, ακόμα κι αν γράφει το δικό μας `authserv_id`. Εναλλακτικά, ο server να σβήνει τα εισερχόμενα με το
+  `authserv_id` του (RFC 8601 §5). Ελέγχεται πριν ανοίξει το polling: email από login του ίδιου mailcow, και τι γράφει
+  το επάνω header.
+- Ανοιχτά (δεν διορθώθηκαν):
+  - Το portal δέχεται έως 12 MB/αρχείο, το γενικό όριο του Livewire για τα προσωρινά uploads. Το email δέχεται 20 MB.
+    Δεν το ανεβάσαμε για όλα τα uploads της εφαρμογής.
+  - Email με λάθος δηλωμένο charset (π.χ. UTF-8 ενώ είναι ISO-8859-7) βγαίνει με «?».
+  - Το dedup με Message-ID είναι κοινό για όλους τους αποστολείς: όποιος ξέρει το Message-ID ενός email πριν φτάσει
+    μπορεί να το κάνει να αγνοηθεί. Δύσκολο στην πράξη.
 - Έφυγαν: το `FetchEmails` (αριθμητικό `In-Reply-To`, εμπιστοσύνη στο `From`), οι ρυθμίσεις `ticket_mail_*`, ο
   `ticket_mail_logs`. Τα εξερχόμενα έχουν ακόμα τα παλιά Message-ID, που **δεν** νηματοποιούν: τα τυχαία, το Reply-To
   του τμήματος και ειδοποιήσεις staff είναι το Α3. Γι' αυτό **το polling μένει κλειστό ως το Α3** (μια απάντηση σε

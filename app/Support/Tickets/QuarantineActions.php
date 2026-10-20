@@ -8,7 +8,6 @@ use App\Models\TicketBlockedSender;
 use App\Models\TicketMessage;
 use App\Models\TicketQuarantine;
 use App\Models\User;
-use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use MyCS\TicketMail\InboundEmail;
 use MyCS\TicketMail\Parser;
@@ -88,7 +87,7 @@ final class QuarantineActions
      */
     private function handle(TicketQuarantine $quarantine, Staff $staff, \Closure $do, bool $parse = true): array
     {
-        return DB::transaction(function () use ($quarantine, $staff, $do, $parse) {
+        return TicketFiles::transaction(function () use ($quarantine, $staff, $do, $parse) {
             $locked = TicketQuarantine::query()->lockForUpdate()->findOrFail($quarantine->id);
             if (!$locked->isPending()) {
                 throw new InvalidArgumentException(__('Already handled.'));

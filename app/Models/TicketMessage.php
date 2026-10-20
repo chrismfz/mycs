@@ -44,7 +44,8 @@ class TicketMessage extends Model implements Auditable
      */
     public function scopeThreadKeys(Builder $query): void
     {
-        $query->where('email_message_id', 'like', 'tk.%')
+        // A note never leaves us, so its id is never one a reply can carry.
+        $query->where('email_message_id', 'like', 'tk.%')->where('is_internal', false)
             ->where(fn (Builder $query) => $query->whereNull('via')->orWhere('via', '!=', self::VIA_EMAIL));
     }
 
