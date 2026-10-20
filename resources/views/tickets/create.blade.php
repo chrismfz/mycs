@@ -32,11 +32,17 @@
         <div class="col-span-2">
 
             <div class="mt-4">
-                <form wire:submit.prevent="create" wire:ignore>
+                <form wire:submit.prevent="create">
                     <label for="editor" class="block text-sm font-medium text-primary-100">
                         {{ __('ticket.reply') }}
                     </label>
-                    <textarea id="editor" placeholder="{{ __('ticket.initial_message') }}"></textarea>
+                    {{-- Only the editor is Livewire's to leave alone (as on the reply page): the errors around it are redrawn. --}}
+                    <div wire:ignore>
+                        <textarea id="editor" placeholder="{{ __('ticket.initial_message') }}"></textarea>
+                    </div>
+                    @error('message')
+                        <p class="text-sm text-red-500 mt-1" role="alert">{{ $message }}</p>
+                    @enderror
                     
                     <label for="attachments" class="block text-sm font-medium text-primary-100 mt-2">
                         {{ __('ticket.attachments') }}
@@ -102,18 +108,15 @@
                             wire:model.live="attachments" x-ref="fileInput"
                             @change="selectedFiles = Array.from($event.target.files)" />
                     </div>
-                    <x-button.primary class="mt-2 !w-fit float-right">
-                        {{ __('ticket.create') }}
-                    </x-button.primary>
-                </form>
-                {{-- Outside the form: Livewire never redraws what is under wire:ignore (browser test of #260). --}}
-                <div class="clear-both">
                     @foreach ($errors->get('attachments*') as $messages)
                         @foreach ((array) $messages as $message)
                             <p class="text-sm text-red-500 mt-1" role="alert">{{ is_array($message) ? implode(' ', $message) : $message }}</p>
                         @endforeach
                     @endforeach
-                </div>
+                    <x-button.primary class="mt-2 !w-fit float-right">
+                        {{ __('ticket.create') }}
+                    </x-button.primary>
+                </form>
                 <x-easymde-editor />
             </div>
         </div>
