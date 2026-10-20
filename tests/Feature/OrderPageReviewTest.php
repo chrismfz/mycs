@@ -4,8 +4,8 @@ namespace Tests\Feature;
 
 use App\Admin\Resources\InvoiceResource;
 use App\Admin\Resources\OrderResource\OrderSummary;
-use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\OrderResource\Pages\EditOrder;
+use App\Admin\Resources\ServiceResource;
 use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\Plan;

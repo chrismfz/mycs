@@ -23,9 +23,9 @@ final class OrderSummary
     /** The order's own invoice (Σ1-b2), with its lines and payments. */
     public static function invoice(Order $order): ?Invoice
     {
-        // Read once per request: the page asks for it in several places.
+        // Read each time (code review: a memo outlived a payment): a few small queries per render.
         return $order->invoice_id === null ? null
-            : once(fn () => Invoice::query()->with(['items.invoice.currency', 'transactions.gateway'])->find($order->invoice_id));
+            : Invoice::query()->with(['items.invoice.currency', 'transactions.gateway'])->find($order->invoice_id);
     }
 
     /** WHMCS «Payment Status»: of the order's invoice. */
@@ -74,7 +74,8 @@ final class OrderSummary
                 'item' => 'Product/Service',
                 'description' => trim(($service->product->name ?? $service->label) . ($service->quantity > 1 ? ' × ' . $service->quantity : '')
                     . "\n" . ($service->domain ?? '')),
-                'url' => ServiceResource::getUrl('edit', ['record' => $service->id], panel: 'admin'),
+                // A link only for staff who may open it (code review: no link to a 403).
+                'url' => ServiceResource::canEdit($service) ? ServiceResource::getUrl('edit', ['record' => $service->id], panel: 'admin') : null,
                 'cycle' => $service->plan->name ?? '—',
                 'amount' => $amount($item),
                 'status' => ucfirst((string) $service->status),
@@ -89,7 +90,7 @@ final class OrderSummary
             return [
                 'item' => $transfer ? 'Domain transfer' : 'Domain registration',
                 'description' => $domain->fqdn,
-                'url' => DomainResource::getUrl('view', ['record' => $domain->id], panel: 'admin'),
+                'url' => DomainResource::canView($domain) ? DomainResource::getUrl('view', ['record' => $domain->id], panel: 'admin') : null,
                 'cycle' => $domain->years . ' ' . ($domain->years === 1 ? 'year' : 'years'),
                 'amount' => $amount($item),
                 'status' => $domain->status->getLabel(),

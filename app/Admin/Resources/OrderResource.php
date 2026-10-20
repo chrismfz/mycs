@@ -63,10 +63,12 @@ class OrderResource extends Resource
                     TextEntry::make('id')->label('Order #'),
                     TextEntry::make('invoice')->label('Invoice #')
                         ->state(fn (Order $record) => $record->invoice_id === null ? '—' : '#' . (OrderSummary::invoice($record)->number ?? $record->invoice_id))
-                        ->url(fn (Order $record) => $record->invoice_id === null ? null : InvoiceResource::getUrl('view', ['record' => $record->invoice_id])),
+                        ->url(fn (Order $record) => ($invoice = OrderSummary::invoice($record)) !== null && InvoiceResource::canView($invoice)
+                            ? InvoiceResource::getUrl('view', ['record' => $invoice->id]) : null),
                     TextEntry::make('client_summary')->label('Client')
                         ->state(fn (Order $record) => self::clientSummary($record))
-                        ->url(fn (Order $record) => ClientResource::getUrl('view', ['record' => $record->client_id]))
+                        ->url(fn (Order $record) => $record->client !== null && ClientResource::canView($record->client)
+                            ? ClientResource::getUrl('view', ['record' => $record->client_id]) : null)
                         ->extraAttributes(['class' => 'whitespace-pre-line']),
                     TextEntry::make('status')->label('Status')->badge()
                         ->formatStateUsing(fn (string $state) => ucfirst($state))
@@ -230,10 +232,13 @@ class OrderResource extends Resource
             ]);
     }
 
-    /** WHMCS's «Client» on the order: the account's name and its primary contact's address. */
+    /**
+     * WHMCS's «Client» on the order: the account's name, and its primary contact's address for staff who may see the
+     * account (code review: not to those with orders only).
+     */
     private static function clientSummary(Order $order): string
     {
-        $contact = $order->client?->primaryContact;
+        $contact = $order->client !== null && ClientResource::canView($order->client) ? $order->client->primaryContact : null;
         $place = trim(implode(' ', array_filter([$contact?->postcode, $contact?->city])));
 
         return implode("\n", array_filter([
