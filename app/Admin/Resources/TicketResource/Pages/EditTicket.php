@@ -107,11 +107,25 @@ class EditTicket extends EditRecord
     // Save action
     public function send()
     {
+        $this->store(internal: false);
+    }
+
+    /** A note for staff only: never mailed, never shown to the customer, moves no status (docs/tickets.md §5). */
+    public function note()
+    {
+        $this->store(internal: true);
+
+        Notification::make()->title(__('Internal note added.'))->success()->send();
+    }
+
+    private function store(bool $internal): void
+    {
         $data = $this->form->getState();
 
         $message = $this->record->messages()->create([
             'staff_id' => Auth::guard('staff')->id(),
             'message' => $data['message'] ?? '',
+            'is_internal' => $internal,
         ]);
 
         // Move attachments
