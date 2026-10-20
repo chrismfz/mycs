@@ -29,4 +29,18 @@ return [
     'tos' => 'I agree to the ',
     'tos_link' => 'Terms of Service',
     'tos_required' => 'You must agree to the Terms of Service',
+
+    // The shop (polish of 2026-10-20).
+    'categories' => 'Categories',
+    'order' => 'Order',
+    'details' => 'Details',
+    'per_cycle' => 'per :cycle',
+    'one_time' => 'one time',
+    'also_for' => 'Also for :cycles',
+    'select_plan' => 'Billing cycle',
+    'continue_shopping' => 'Continue shopping',
+    'empty_cart_text' => 'Choose a service from our products to start.',
+    'coupon' => 'Coupon',
+    'each' => ':price each',
+    'billed' => 'Billed :cycle',
 ];
