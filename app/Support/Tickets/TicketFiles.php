@@ -86,7 +86,7 @@ final class TicketFiles
             $refusal = Attachments::refusal($value->getClientOriginalName(), (string) file_get_contents($value->getRealPath()));
             if ($refusal !== null) {
                 $fail(__('ticket.file_refused', ['name' => Attachments::safeName($value->getClientOriginalName()),
-                    'types' => implode(', ', array_keys(Attachments::TYPES))]));
+                    'types' => implode(', ', array_keys(Attachments::TYPES)), 'size' => self::maxUploadMegabytes()]));
             }
         };
     }

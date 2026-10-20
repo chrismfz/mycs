@@ -14,7 +14,7 @@
         @endif
         <x-form.select wire:model="priority" label="{{ __('ticket.priority') }}" name="priority" required>
             <option value="">{{ __('ticket.select_priority') }}</option>
-            <option value="low" selected>{{ __('ticket.low') }}</option>
+            <option value="low">{{ __('ticket.low') }}</option>
             <option value="medium">{{ __('ticket.medium') }}</option>
             <option value="high">{{ __('ticket.high') }}</option>
         </x-form.select>
