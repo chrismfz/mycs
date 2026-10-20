@@ -170,4 +170,18 @@ final class LinePricerTest extends TestCase
             }
         }
     }
+
+    public function test_a_price_override_makes_the_amounts_its_value_never_more(): void
+    {
+        // WHMCS «Price Override» (nixpal: FREETRIAL 0.00, 25OffAgentNode 1.50).
+        $free = LinePricer::price('20', '5', new Discount('override', '0'));
+        $this->assertSame(['0.00', '0.00', '20.00', '5.00'], [$free->price, $free->setupFee, $free->priceDiscount, $free->setupFeeDiscount]);
+
+        $agent = LinePricer::price('2', '0', new Discount('override', '1.50', 'price'));
+        $this->assertSame(['1.50', '0.50'], [$agent->price, $agent->priceDiscount]);
+
+        $cheaper = LinePricer::price('1', '0', new Discount('override', '1.50'));
+        $this->assertSame(['1.00', '0.00'], [$cheaper->price, $cheaper->priceDiscount], 'never raises a price');
+        $this->assertFalse($cheaper->hasDiscount());
+    }
 }

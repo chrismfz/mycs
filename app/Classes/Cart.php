@@ -248,6 +248,11 @@ class Cart
             if (Auth::check() && $coupon->hasExceededMaxUsesPerUser(CurrentClient::id())) {
                 throw new DisplayException('You have already used this coupon the maximum number of times allowed');
             }
+            // Its rules for this customer (a guest's are checked again at checkout, once signed up or in).
+            $refusal = $coupon->refusalFor(Auth::check() ? CurrentClient::model() : null, self::get()->items->pluck('product_id')->map(fn ($id) => (int) $id)->all());
+            if ($refusal !== null) {
+                throw new DisplayException($refusal);
+            }
             if ($coupon->products->isNotEmpty()) {
                 $cart = self::get();
                 $applicable = false;

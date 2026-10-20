@@ -997,7 +997,7 @@ class Service extends Model implements Auditable
             // invoice was made with the order): a first-cycle coupon is never in it, even before the first payment (ADV-4).
             $cycle ??= max($this->invoices()->where('status', 'paid')->count(), 1) + 1;
             if ($this->coupon->cycles() === 0 || $cycle <= $this->coupon->cycles()) {
-                $discount = OrderPricing::discount($this->coupon, (int) $this->product_id);
+                $discount = OrderPricing::discount($this->coupon, (int) $this->product_id, $this->plan);
             }
         }
 

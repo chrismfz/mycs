@@ -100,6 +100,16 @@ final class LinePricer
             ];
         }
 
+        if ($discount->type === 'override') {
+            // Each amount it applies to becomes its value: what is above it comes off (a price under it stays).
+            $off = fn (BigDecimal $amount) => BigDecimal::max($amount->minus($value->toScale(2, RoundingMode::HalfUp)), $zero);
+
+            return [
+                $discount->appliesToPrice() ? $off($price) : $zero,
+                $discount->appliesToSetupFee() ? $off($setupFee) : $zero,
+            ];
+        }
+
         // Fixed: one amount per line, the price first (it is the part that recurs), then the setup fee.
         $left = self::money((string) $value);
         $priceDiscount = $discount->appliesToPrice() ? BigDecimal::min($left, $price) : $zero;

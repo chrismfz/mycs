@@ -79,7 +79,7 @@ final class PlaceOrderService
                 if ($catalog === null) {
                     throw new DisplayException(__('product.not_available', ['product' => $line->product->name]));
                 }
-                $discount = OrderPricing::discount($coupon, $line->product->id);
+                $discount = OrderPricing::discount($coupon, $line->product->id, $line->plan);
                 $withCoupon = OrderPricing::line($catalog, $discount, $client, $line->product);
                 $priced[] = [$line, $withCoupon, $discount !== null && $withCoupon->hasDiscount() ? OrderPricing::line($catalog, null, $client, $line->product) : null];
             }
@@ -87,7 +87,8 @@ final class PlaceOrderService
             $this->takeStock($client, $lines);
             if ($coupon !== null) {
                 // A use is a unit: a line of five discounted units is five uses (ADV-1/2).
-                $this->checkCoupon($client, $coupon, array_sum(array_map(fn ($p) => $p[2] !== null ? $p[0]->quantity : 0, $priced)));
+                $this->checkCoupon($client, $coupon, array_sum(array_map(fn ($p) => $p[2] !== null ? $p[0]->quantity : 0, $priced)),
+                    array_map(fn (OrderLine $line) => (int) $line->product->id, $lines));
             }
 
             // Its IP: the customer's checkout only (WHMCS `ipaddress`), never from a form: not fillable.
@@ -259,11 +260,16 @@ final class PlaceOrderService
      * Under the coupon's lock, counted with locking reads so a concurrent order's uses are seen (CART-5): every
      * discounted unit is a use, not the checkout once.
      */
-    private function checkCoupon(Client $client, Coupon $coupon, int $uses): void
+    /** @param  list<int>  $productIds */
+    private function checkCoupon(Client $client, Coupon $coupon, int $uses, array $productIds): void
     {
         if (($coupon->starts_at && $coupon->starts_at->isFuture())
             || ($coupon->expires_at && $coupon->expires_at->isPast())) {
             throw new CouponUnusableException(__('This coupon can no longer be used'));
+        }
+        // Who may use it (new or existing customers, once each, with a product it requires): under the coupon's lock.
+        if (($refusal = $coupon->refusalFor($client, $productIds)) !== null) {
+            throw new CouponUnusableException($refusal);
         }
         if ($uses === 0) {
             return;

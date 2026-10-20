@@ -72,10 +72,10 @@ final class OrderPricing
         return ['price' => $price, 'setup_fee' => $setupFee];
     }
 
-    /** The coupon's discount for a product, or null when it does not cover it (CART-2). */
-    public static function discount(?Coupon $coupon, int $productId): ?Discount
+    /** The coupon's discount for a product (on a plan's cycle when given), or null when it does not cover it (CART-2). */
+    public static function discount(?Coupon $coupon, int $productId, ?Plan $plan = null): ?Discount
     {
-        if ($coupon === null || !$coupon->covers($productId)) {
+        if ($coupon === null || !$coupon->covers($productId, $plan)) {
             return null;
         }
 
