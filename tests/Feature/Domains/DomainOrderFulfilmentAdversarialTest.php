@@ -345,7 +345,7 @@ class DomainOrderFulfilmentAdversarialTest extends TestCase
         $domain->refresh();
         $this->assertSame(DomainStatus::Active, $domain->status, 'registered by hand, still pending_register');
         $this->assertSame('2027-10-20', $domain->expires_at?->toDateString(), 'no expiry: never invoiced for renewal');
-        $this->assertSame(Order::STATUS_ACTIVE, Order::query()->sole()->status);
+        $this->assertSame(Order::STATUS_PENDING, Order::query()->sole()->status, 'for staff\'s Accept');
     }
 
     /**

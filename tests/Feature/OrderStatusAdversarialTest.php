@@ -237,7 +237,7 @@ class OrderStatusAdversarialTest extends TestCase
      * ADV-7 (low). The order follows its services only on ServiceObserver::updated: deleting the one pending service
      * of an order whose other service is active leaves the order «pending» (in Pending Orders) for good.
      */
-    public function test_deleting_the_last_pending_service_lets_the_order_turn_active(): void
+    public function test_deleting_the_last_pending_service_leaves_the_order_for_staff_to_accept(): void
     {
         $this->product->update(['autosetup' => Product::AUTOSETUP_NEVER, 'server_id' => null, 'stock' => 10]);
         $product = $this->product->fresh();
@@ -250,6 +250,8 @@ class OrderStatusAdversarialTest extends TestCase
 
         (new DeleteService)->handle($dropped);
 
-        $this->assertSame(Order::STATUS_ACTIVE, $order->fresh()->status, 'no service waits any more, the order stays pending');
+        $this->assertSame(Order::STATUS_PENDING, $order->fresh()->status, 'nothing waits, but staff have not seen it (owner 2026-10-19: every order waits for staff\'s Accept, as WHMCS)');
+        AcceptOrder::handle($order->fresh(), null);
+        $this->assertSame(Order::STATUS_ACTIVE, $order->fresh()->status, 'and Accept is not refused');
     }
 }

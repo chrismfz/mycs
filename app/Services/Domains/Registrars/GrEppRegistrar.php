@@ -13,6 +13,7 @@ use App\Contracts\StaffPricedNames;
 use App\Enums\DomainStatus;
 use App\Models\Contact;
 use App\Models\Domain;
+use App\Services\Domains\DnssecChangedSinceRead;
 use App\Services\Domains\DomainNotFoundAtRegistrar;
 use App\Services\Domains\DomainRegistrarNotConfigured;
 use App\Services\Domains\RegistrarNotAsked;
@@ -985,7 +986,7 @@ class GrEppRegistrar implements ChangesOwner, DomainRegistrar, EmailsAuthCode, M
                 $have = $info->dsRecords;
                 // Changed since staff read it (ADV-1 of #210): never a DS they did not see removed.
                 if ($expected !== null && !DnssecRecord::sameSet($expected, array_map(fn (DsRecord $d) => DnssecRecord::ds($d->keyTag, $d->algorithm, $d->digestType, $d->digest), $have))) {
-                    throw new InvalidArgumentException("{$domain->fqdn}'s DS records changed at the registry since they were read: read them again.");
+                    throw new DnssecChangedSinceRead("{$domain->fqdn}'s DS records changed at the registry since they were read: read them again.");
                 }
                 $add = array_values(array_filter($wanted, fn (DsRecord $w) => array_filter($have, fn (DsRecord $h) => $h->same($w)) === []));
                 $extra = array_values(array_filter($have, fn (DsRecord $h) => array_filter($wanted, fn (DsRecord $w) => $w->same($h)) === []));

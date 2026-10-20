@@ -154,6 +154,7 @@ class CancelOpenInvoicesAdversarialTest extends TestCase
      */
     public function test_an_unpaid_order_keeps_the_charge_of_a_service_already_active(): void
     {
+        config(['settings.cronjob_order_cancel' => 7]); // opt-in since 2026-10-19 (default 0, as WHMCS)
         Queue::fake();
         $a = $this->service(['status' => 'pending', 'expires_at' => null]);
         $a->forceFill(['created_at' => now()->subDays(10)])->save();

@@ -90,6 +90,7 @@ class CancelOpenInvoicesTest extends TestCase
 
     public function test_the_cron_cancels_an_unpaid_order_through_the_model_with_its_credit_note_and_audit(): void
     {
+        config(['settings.cronjob_order_cancel' => 7]); // opt-in since 2026-10-19 (default 0, as WHMCS)
         Queue::fake();
         $service = $this->service(['status' => 'pending', 'expires_at' => null]);
         $service->forceFill(['created_at' => now()->subDays(10)])->save();

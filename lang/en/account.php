@@ -24,6 +24,7 @@ return [
     'current_device' => 'Current device',
 
     'input' => [
+        'amount_placeholder' => 'e.g. 50.00',
         'current_password' => 'Current password',
         'current_password_placeholder' => 'Your current password',
         'new_password' => 'New password',
@@ -40,6 +41,8 @@ return [
     ],
 
     'notifications' => [
+        'push_enabled_title' => 'Push notifications enabled',
+        'push_enabled_body' => 'You will now receive notifications from :app here.',
         'password_changed' => 'Password has been changed.',
         'password_incorrect' => 'The current password is incorrect.',
         'two_factor_enabled' => 'Two-factor authentication has been enabled.',
@@ -217,4 +220,6 @@ return [
         'country' => 'Country',
         'receives_emails' => 'Receives emails',
     ],
+    'no_payment_gateways_available' => 'No payment method can be saved at the moment.',
+    'invalid_payment_gateway' => 'This payment method is not available.',
 ];

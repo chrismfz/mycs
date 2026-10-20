@@ -16,6 +16,7 @@ use App\Services\Domains\DomainRenewalService;
 use App\Services\Domains\DomainRenewalYears;
 use App\Services\Domains\DomainSyncService;
 use App\Services\Domains\RegistrarOutcomeUnknown;
+use App\Support\Domains\DnssecOptions;
 use App\Support\Domains\DnssecRecord;
 use Closure;
 use Filament\Actions\Action;
@@ -31,7 +32,6 @@ use Filament\Resources\Pages\ViewRecord;
 use Filament\Schemas\Components\Utilities\Set;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\HtmlString;
-use MyCS\GrEpp\Command\Rules;
 use Throwable;
 
 /**
@@ -59,22 +59,6 @@ class ViewDomain extends ViewRecord
     private static function manageable(Domain $record): bool
     {
         return app(DomainManagementService::class)->isManageable($record);
-    }
-
-    /** DNSSEC algorithms (IANA): those registrars take today. */
-    private const DNSSEC_ALGORITHMS = [13 => '13 ECDSA P-256/SHA-256', 8 => '8 RSA/SHA-256', 14 => '14 ECDSA P-384/SHA-384',
-        10 => '10 RSA/SHA-512', 15 => '15 Ed25519', 16 => '16 Ed448', 7 => '7 RSASHA1-NSEC3-SHA1', 5 => '5 RSA/SHA-1',
-        6 => '6 DSA-NSEC3-SHA1', 3 => '3 DSA/SHA-1', 12 => '12 GOST R 34.10-2001'];
-
-    /**
-     * A list's options with the value already there, whatever it is: a record read from the registrar is kept as it is.
-     *
-     * @param  array<int, string>  $options
-     * @return array<int, string>
-     */
-    private static function withCurrent(array $options, mixed $state): array
-    {
-        return is_numeric($state) && !isset($options[(int) $state]) ? $options + [(int) $state => (string) $state] : $options;
     }
 
     /** @return list<array<string, mixed>> as last read (meta.child_hosts: stored data, each key checked) */
@@ -245,15 +229,15 @@ class ViewDomain extends ViewRecord
                                 TextInput::make('key_tag')->label(__('Key tag'))->required()->integer()->minValue(0)->maxValue(65535),
                                 // The registry's own lists, and whatever it has already (ADV-2 of #210: one kept, never dropped).
                                 Select::make('algorithm')->label(__('Algorithm'))->required()
-                                    ->options(fn ($state) => self::withCurrent(array_intersect_key(self::DNSSEC_ALGORITHMS, array_flip(Rules::DS_ALGORITHMS)), $state)),
+                                    ->options(fn ($state) => DnssecOptions::algorithms(DnssecRecord::DS, $state)),
                                 Select::make('digest_type')->label(__('Digest type'))->required()
-                                    ->options(fn ($state) => self::withCurrent([1 => '1 SHA-1', 2 => '2 SHA-256', 3 => '3 GOST R 34.11-94', 4 => '4 SHA-384'], $state)),
+                                    ->options(fn ($state) => DnssecOptions::digestTypes($state)),
                                 TextInput::make('digest')->label(__('Digest'))->required()->maxLength(200)->columnSpanFull()
                                     ->regex('/\A[0-9A-Fa-f\s]+\z/')->validationMessages(['regex' => __('Hex digits only.')]),
                             ] : [
-                                Select::make('flags')->label(__('Flags'))->required()->options(fn ($state) => self::withCurrent([257 => '257 KSK', 256 => '256 ZSK'], $state)),
+                                Select::make('flags')->label(__('Flags'))->required()->options(fn ($state) => DnssecOptions::flags($state)),
                                 Select::make('algorithm')->label(__('Algorithm'))->required()
-                                    ->options(fn ($state) => self::withCurrent(array_diff_key(self::DNSSEC_ALGORITHMS, [3 => 1, 6 => 1, 12 => 1]), $state)),
+                                    ->options(fn ($state) => DnssecOptions::algorithms(DnssecRecord::DNSKEY, $state)),
                                 Textarea::make('public_key')->label(__('Public key'))->required()->rows(3)->columnSpanFull()
                                     ->regex('/\A[A-Za-z0-9+\/=\s]+\z/')->validationMessages(['regex' => __('Base64 only.')]),
                             ]),

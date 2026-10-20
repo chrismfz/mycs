@@ -18,7 +18,8 @@
                     @endif
                 </a>
                 <div class="md:flex hidden flex-row ml-6">
-                    @foreach (\App\Classes\Navigation::getLinks() as $nav)
+                    {{-- A customer's own pages, a guest the shop (P4a of the portal). --}}
+                    @foreach (auth('web')->check() ? \App\Classes\Navigation::getClientLinks() : \App\Classes\Navigation::getLinks() as $nav)
                     @if (isset($nav['children']) && count($nav['children']) > 0)
                     <div class="relative">
                         <x-dropdown>
@@ -72,6 +73,9 @@
                 </div>
 
                 @if(auth('web')->check())
+                @if (\App\Support\CurrentClient::model() !== null)
+                <livewire:components.quick-search />
+                @endif
                 <livewire:components.notifications />
                 <div class="hidden lg:flex">
                     <x-dropdown :showArrow="false">

@@ -81,6 +81,13 @@ class SettingsProvider extends ServiceProvider
         }
     }
 
+    /** The settings again from the database, past the cached rows (tests: the database is switched after the boot). */
+    public static function reload(): void
+    {
+        Cache::forget(self::CACHE_KEY);
+        self::getSettings(true);
+    }
+
     public static function flushCache()
     {
         Cache::forget(self::CACHE_KEY);

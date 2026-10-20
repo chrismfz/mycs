@@ -95,8 +95,8 @@ class Notifications extends Component
         $result = $webPush->sendOneNotification(
             $pushSubscription->subscription(),
             json_encode([
-                'title' => 'Push Notifications Enabled!',
-                'body' => 'You will now receive push notifications from ' . config('app.name'),
+                'title' => __('account.notifications.push_enabled_title'),
+                'body' => __('account.notifications.push_enabled_body', ['app' => config('app.name')]),
                 'icon' => Storage::url(config('settings.logo')),
                 'badge' => Storage::url(config('settings.logo')),
                 'show_in_app' => false,
@@ -155,7 +155,7 @@ class Notifications extends Component
     {
         return view('client.account.notifications')->layoutData([
             'sidebar' => true,
-            'title' => 'Notifications',
+            'title' => __('navigation.notifications'),
         ]);
     }
 }

@@ -1,5 +1,5 @@
 <div class="container mt-14">
-    <x-navigation.breadcrumb />
+    <x-navigation.breadcrumb :trail="[['name' => __('navigation.account'), 'url' => route('account')], ['name' => __('navigation.switch_account')]]" />
     <div class="px-2 space-y-4">
         <div>
             <h3 class="text-2xl font-bold">{{ __('account.accounts') }}</h3>

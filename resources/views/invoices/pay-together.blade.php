@@ -1,5 +1,5 @@
 <div class="container mt-14 space-y-4">
-    <x-navigation.breadcrumb />
+    <x-navigation.breadcrumb :trail="[['name' => __('navigation.invoices'), 'url' => route('invoices')], ['name' => __('invoices.mass_pay_title')]]" />
 
     @if ($pay)
     <x-modal :title="__('invoices.mass_pay_title')" open>

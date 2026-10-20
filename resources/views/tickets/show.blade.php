@@ -1,6 +1,7 @@
 <div class="container mt-14">
+    <x-navigation.breadcrumb :trail="[['name' => __('navigation.tickets'), 'url' => route('tickets')], ['name' => '#' . $ticket->id . ' · ' . $ticket->subject]]" />
     <div class="bg-primary-800 p-6 rounded-lg mt-2">
-        <h1 class="text-2xl font-semibold">Ticket #{{ $ticket->id }} - {{ $ticket->subject }}</h1>
+        <h1 class="text-2xl font-semibold">{{ __('ticket.title', ['id' => $ticket->id]) }} · {{ $ticket->subject }}</h1>
 
         <div class="md:grid grid-cols-4 flex flex-col gap-4">
             <div class="md:col-span-3">
@@ -166,10 +167,10 @@
                         <h4 class="h-fit">{{ __('ticket.subject') }}:</h4> {{ $ticket->subject }}
                     </div>
                     <div class="font-semibold flex md:flex-col justify-between bg-primary-800 p-2 px-4 rounded-md">
-                        <h4>{{ __('ticket.status') }}:</h4> {{ ucfirst($ticket->status) }}
+                        <h4>{{ __('ticket.status') }}:</h4> <x-ticket.status :status="$ticket->status" class="w-fit" />
                     </div>
                     <div class="font-semibold flex md:flex-col justify-between bg-primary-800 p-2 px-4 rounded-md">
-                        <h4>{{ __('ticket.priority') }}:</h4> {{ ucfirst($ticket->priority) }}
+                        <h4>{{ __('ticket.priority') }}:</h4> {{ in_array($ticket->priority, ['low', 'medium', 'high'], true) ? __('ticket.' . $ticket->priority) : ucfirst((string) $ticket->priority) }}
                     </div>
                     <div class="font-semibold flex md:flex-col justify-between bg-primary-800 p-2 px-4 rounded-md">
                         <h4>{{ __('ticket.created_at') }}:</h4> {{ $ticket->created_at->diffForHumans() }}

@@ -148,7 +148,7 @@ class Credits extends Component
 
         return view('client.account.credits', ['history' => $history])->layoutData([
             'sidebar' => true,
-            'title' => 'Add Credits',
+            'title' => __('account.credits'),
         ]);
     }
 }

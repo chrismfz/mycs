@@ -315,7 +315,7 @@ class Show extends Component
             'contactOptions' => $options,
             'licenseFields' => $this->licenseFields(),
         ])->layoutData([
-            'title' => 'Services',
+            'title' => $this->service->label,
             'sidebar' => true,
         ]);
     }

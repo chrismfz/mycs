@@ -148,5 +148,15 @@ return [
         'problems' => 'To look at',
         'busy' => 'Invoices of this customer are being made right now: try again in a moment.',
     ],
-
+    'apply_credit_and_continue' => 'Use :amount of credit and continue',
+    'filter' => [
+        'label' => 'Show',
+        'all' => 'All',
+        'unpaid' => 'Unpaid',
+        'paid' => 'Paid',
+        'cancelled' => 'Cancelled',
+    ],
+    'more_lines' => '{1} +1 more|[2,*] +:count more',
+    'due_on' => 'Due on :date',
+    'overdue_since' => 'Overdue since :date',
 ];

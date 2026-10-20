@@ -1,4 +1,10 @@
+@php
+    // A proforma has no number yet (nixpal): its id, as its heading says (code review 1 of #226).
+    $invoiceTitle = !$invoice->number && config('settings.invoice_proforma', false)
+        ? __('invoices.proforma_invoice', ['id' => $invoice->id]) : __('invoices.invoice', ['id' => $invoice->number]);
+@endphp
 <div class="container mt-14">
+    <x-navigation.breadcrumb :trail="[['name' => __('navigation.invoices'), 'url' => route('invoices')], ['name' => $invoiceTitle]]" />
     <div @if ($checkPayment) wire:poll.5s="checkPaymentStatus" @endif>
         @if ($this->pay || $showPayModal)
         @include('invoices.partials.payment-modal')
@@ -19,8 +25,7 @@
 
         <div class="bg-background-secondary border border-neutral p-12 rounded-lg mt-2">
             <h1 class="text-2xl font-bold sm:text-3xl">
-                {{ !$invoice->number && config('settings.invoice_proforma', false) ? __('invoices.proforma_invoice', ['id'
-            => $invoice->id]) : __('invoices.invoice', ['id' => $invoice->number]) }}
+                {{ $invoiceTitle }}
             </h1>
             <div class="sm:flex justify-between pr-4 pt-4">
                 <div class="mt-4 sm:mt-0">

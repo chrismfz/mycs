@@ -299,7 +299,8 @@ class CronJob extends Command
                 // Cancel services if first invoice is not paid after x days. One service per transaction: an invoice
                 // that cannot be cancelled rolls back its own service only, never the step (audit sweep BIL-10).
                 // 0 disables (an order placed a minute ago would go, with the invoice its customer may be paying).
-                $days = (int) config('settings.cronjob_order_cancel', 7);
+                // Off by default (owner 2026-10-19): as WHMCS, only staff cancel an order, from Pending Orders.
+                $days = (int) config('settings.cronjob_order_cancel', 0);
                 $ids = $days <= 0 ? collect() : $this->unpaidOrders($days)->pluck('id');
                 if ($days > 0) {
                     foreach ($this->orderPartPaid($days)->pluck('id') as $partPaid) {
@@ -318,6 +319,8 @@ class CronJob extends Command
                             if ($service->product?->stock !== null) {
                                 $service->product->increment('stock', $service->quantity);
                             }
+                            // Accepted (looked at) or not, an order with nothing left is cancelled (as WHMCS).
+                            $service->order?->refreshStatus(unpaid: true);
 
                             return 1;
                         });
@@ -347,7 +350,7 @@ class CronJob extends Command
                                 return 0;
                             }
                             $domain->update(['status' => DomainStatus::Cancelled]);
-                            $domain->order?->refreshStatus();
+                            $domain->order?->refreshStatus(unpaid: true);
 
                             return 1;
                         });
@@ -596,8 +599,9 @@ class CronJob extends Command
     private function unpaidOrders(int $days): Builder
     {
         return Service::query()->where('status', Service::STATUS_PENDING)->where('created_at', '<', now()->subDays($days))
-            // Not one of an order staff accepted (paid or not, decision 4; its create may still be failing: ADV-4).
-            ->whereDoesntHave('order', fn ($order) => $order->whereNotNull('accepted_at'))
+            // Not one staff's Accept started not paid yet (decision 4; its create may still be failing: ADV-4). One staff
+            // only looked at (accepted), waiting for its payment, is cancelled as any other (owner 2026-10-19).
+            ->whereNull('started_unpaid_at')
             ->whereHas('invoices', fn ($invoices) => $invoices->whereIn('invoices.status', [Invoice::STATUS_UNPAID, Invoice::STATUS_CANCELLED]))
             ->whereDoesntHave('invoices', fn ($invoices) => $invoices->where('invoices.status', Invoice::STATUS_PAID))
             ->whereDoesntHave('invoices', fn ($invoices) => $this->withRealMoney($invoices));
@@ -617,7 +621,8 @@ class CronJob extends Command
 
     /**
      * Domains of an order (D8b), pending since $days ago, their registration or transfer not paid nor on its way: never
-     * paid, no money from a gateway or a transfer, not an order staff accepted.
+     * paid, no money from a gateway or a transfer (an accepted order too: Accept sends no domain), not one of an order staff
+     * started unpaid.
      *
      * @return Builder<Domain>
      */
@@ -627,7 +632,9 @@ class CronJob extends Command
 
         return Domain::query()->whereIn('status', [DomainStatus::PendingRegister->value, DomainStatus::PendingTransfer->value])
             ->whereNotNull('order_id')->where('created_at', '<', now()->subDays($days))
-            ->whereDoesntHave('order', fn ($order) => $order->whereNotNull('accepted_at'))
+            // Accept sends no domain to its registrar: an accepted order's unpaid domain is cancelled as any other, unless
+            // staff started a service of the order unpaid (they gave the order credit: left with it, adversarial ADV-3).
+            ->whereDoesntHave('order.services', fn ($services) => $services->whereNotNull('started_unpaid_at'))
             // Never sent to its registrar (D8b-2 marks it once sent; a free transfer included, adversarial review).
             ->where(fn ($q) => $q->whereNull('meta')->orWhereNull('meta->sent_at'))
             // Its line open, or cancelled already with the rest of its order (code review H1: a service of the same order

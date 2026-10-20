@@ -349,6 +349,14 @@ class Settings
                     'default' => false,
                 ],
                 [
+                    'name' => 'mail_staff_new_order',
+                    'label' => 'Email staff on new orders',
+                    'type' => 'checkbox',
+                    'database_type' => 'boolean',
+                    'default' => true,
+                    'description' => 'As WHMCS\'s «New Order Notification»: when a customer places an order, an email to the System Email Address with its items, invoice, notes and links to it. Not for orders staff create.',
+                ],
+                [
                     'name' => 'mail_host',
                     'label' => 'Mail Host',
                     'type' => 'text',
@@ -661,10 +669,10 @@ class Settings
                     'section' => 'Billing Settings',
                     'label' => 'Cancel unpaid orders after',
                     'type' => 'number',
-                    'default' => 7,
+                    'default' => 0,
                     'required' => true,
                     'min_value' => 0,
-                    'description' => 'Days after which a new order that was never paid is cancelled, with its invoice (0 to disable).',
+                    'description' => 'Not in WHMCS, where only staff cancel an order (Pending Orders). 0 (default): never, as WHMCS. Or days after which a new order that was never paid is cancelled, with its invoice.',
                 ],
                 [
                     'name' => 'cronjob_payment_reminder',

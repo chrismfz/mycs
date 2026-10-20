@@ -33,4 +33,10 @@ return [
     'select_service' => 'Select Service',
     'create' => 'Create',
     'no_tickets' => 'No tickets found',
+    'title' => 'Ticket #:id',
+    'statuses' => [
+        'open' => 'We are looking into it',
+        'replied' => 'Waiting for your reply',
+        'closed' => 'Closed',
+    ],
 ];

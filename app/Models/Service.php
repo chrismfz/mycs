@@ -134,6 +134,7 @@ class Service extends Model implements Auditable
         'expires_at' => 'date',
         'activated_at' => 'datetime',
         'suspend_hold_until' => 'date',
+        'started_unpaid_at' => 'datetime',
         'dunning_suspended_at' => 'immutable_datetime',
         'coupon_started_at' => 'immutable_date',
         'coupon_expired_at' => 'immutable_datetime',

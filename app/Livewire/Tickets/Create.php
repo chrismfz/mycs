@@ -91,7 +91,7 @@ class Create extends Component
             'departments' => (array) config('settings.ticket_departments'),
             'services' => CurrentClient::allows('products') ? CurrentClient::model()->services()->orderBy('id', 'desc')->get() : collect(),
         ])->layoutData([
-            'title' => 'Create Ticket',
+            'title' => __('ticket.create_ticket'),
             'sidebar' => true,
         ]);
     }

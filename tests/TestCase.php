@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Models\Staff;
 use App\Models\User;
 use App\Models\UserSession;
+use App\Providers\SettingsProvider;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Collection;
@@ -26,6 +27,11 @@ abstract class TestCase extends BaseTestCase
         // The seeder runs code that memoises with once() (e.g. the settings' currency list, read before the
         // seeder creates USD): start every test from what the seeded database says.
         Once::flush();
+
+        // The settings were read when the app booted, before RefreshDatabase seeded: from the base database, which a
+        // parallel run never migrates (each process switches to its own after the boot), or from whatever a serial run
+        // left there. Read them from the database this test sees.
+        SettingsProvider::reload();
     }
 
     /**

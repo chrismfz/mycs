@@ -1,6 +1,9 @@
 <?php
 
 return [
+    'breadcrumb' => 'Breadcrumb',
+    'upgrade' => 'Upgrade',
+    'new_order' => 'New order',
     'home' => 'Home',
     'shop' => 'Shop',
     'cart' => 'Cart',
