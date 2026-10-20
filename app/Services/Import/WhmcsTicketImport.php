@@ -279,7 +279,7 @@ final class WhmcsTicketImport
                 $attributes['id'] = $whmcsId;
             }
             $ticketId = (int) DB::table('tickets')->insertGetId($attributes);
-            // Only an open ticket's (owner, 2026-10-20): WHMCS also filled its CC from incoming mail's Cc (§3 Γ).
+            // Only a ticket not closed (owner, 2026-10-20): WHMCS also filled its CC from incoming mail's Cc (§3 Γ).
             if ($fields['status'] !== Ticket::STATUS_CLOSED) {
                 $this->copies($ticketId, (string) ($row['cc'] ?? ''), $owner);
             }
