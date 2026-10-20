@@ -6,6 +6,7 @@ use App\Models\ClientUser;
 use App\Models\Ticket;
 use App\Models\TicketBlockedSender;
 use App\Models\TicketDepartment;
+use App\Models\TicketMailId;
 use App\Models\TicketMessage;
 use App\Models\TicketQuarantine;
 use App\Models\User;
@@ -107,6 +108,10 @@ class InboundRouter
         $outcome = $this->open($department, $email, $messageId, $account);
         if ($outcome->kind === InboundOutcome::OPENED) {
             RateLimiter::hit($limit, 3600);
+            // «We received it», only to an address our server vouched for: never mail to a forged From (backscatter).
+            if ($verdict->authenticated && $outcome->ticket !== null) {
+                app(TicketMailer::class)->received($outcome->ticket, $from);
+            }
         }
 
         return $outcome;
@@ -136,9 +141,10 @@ class InboundRouter
         if ($email->references === []) {
             return null;
         }
-        $message = TicketMessage::query()->threadKeys()->whereIn('email_message_id', $email->references)->latest('id')->first();
+        // Only the Message-IDs we gave our own mails (TicketMailId, A3): never one that came in.
+        $key = TicketMailId::query()->whereIn('message_id', $email->references)->latest('id')->first();
 
-        return $message?->ticket;
+        return $key?->ticket;
     }
 
     /** A ticket named in a subject as WHMCS and we write it: «[Ticket ID: 123456]», «[#123456]». */

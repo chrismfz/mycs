@@ -6,6 +6,7 @@ use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\TicketBlockedSender;
 use App\Models\TicketDepartment;
+use App\Models\TicketMailId;
 use App\Models\TicketMessage;
 use App\Models\TicketPollRun;
 use App\Models\TicketQuarantine;
@@ -64,14 +65,14 @@ class TicketMailInboundTest extends TestCase
         $this->artisan('app:fetch-emails')->assertSuccessful();
     }
 
-    /** A ticket with a staff reply we mailed: its Message-ID is the thread key (A3 will write them). */
+    /** A ticket with a staff reply we mailed: its Message-ID of ours is the thread key. */
     private function answered(array $attributes): array
     {
         $ticket = Ticket::query()->create($attributes + ['subject' => 'Help', 'status' => Ticket::STATUS_OPEN, 'priority' => 'medium',
             'department_id' => $this->support->id]);
         $key = MessageId::generate('myip.test');
-        TicketMessage::query()->create(['ticket_id' => $ticket->id, 'staff_id' => Staff::factory()->admin()->create()->id,
-            'message' => 'Our answer', 'email_message_id' => $key]);
+        $message = TicketMessage::query()->create(['ticket_id' => $ticket->id, 'staff_id' => Staff::factory()->admin()->create()->id, 'message' => 'Our answer']);
+        TicketMailId::query()->create(['ticket_id' => $ticket->id, 'ticket_message_id' => $message->id, 'message_id' => $key, 'kind' => TicketMailId::REPLY]);
 
         return [$ticket->fresh(), $key];
     }

@@ -196,19 +196,17 @@ class NotificationsAfterCommitReviewTest extends TestCase
         $this->assertIsString(serialize($job));
     }
 
-    /** Check (passes): ticket replies are still threaded (Message-ID) with the new view data keys. */
+    /** Check (passes): ticket replies are still threaded with the new view data keys: a Message-ID of ours (A3). */
     public function test_check_ticket_reply_is_threaded(): void
     {
         config(['mail.default' => 'array']);
         $user = User::factory()->create();
         $ticket = Ticket::query()->create(['client_id' => $user->client()->id, 'subject' => 'Help', 'priority' => 'low', 'status' => 'open']);
-        $message = $ticket->messages()->create(['user_id' => $user->id, 'message' => 'Reply']);
-
-        NotificationHelper::ticketMessageNotification($user->client(), $message);
+        $ticket->messages()->create(['staff_id' => Staff::factory()->admin()->create()->id, 'message' => 'Reply']);
 
         $sent = app('mailer')->getSymfonyTransport()->messages();
         $this->assertNotEmpty($sent);
         $headers = $sent->last()->getOriginalMessage()->getHeaders();
-        $this->assertStringContainsString($message->id . '@', $headers->get('Message-ID')->getBodyAsString());
+        $this->assertStringStartsWith('<tk.', $headers->get('Message-ID')->getBodyAsString());
     }
 }

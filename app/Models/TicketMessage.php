@@ -37,16 +37,14 @@ class TicketMessage extends Model implements Auditable
     ];
 
     /**
-     * The messages whose Message-ID is a thread key (§3 Α): one of ours (`tk.` and 128 random bits), on a message we
-     * sent. An id that came in by email is the sender's choice, so it never threads, also when it looks like ours.
+     * The messages a reply may join by (§3 Α): those we mailed, whose Message-ID of ours is in TicketMailId. An id on
+     * the message itself is one that came in (the sender's choice), and a note is never mailed: neither is a key.
      *
      * @param  Builder<TicketMessage>  $query
      */
     public function scopeThreadKeys(Builder $query): void
     {
-        // A note never leaves us, so its id is never one a reply can carry.
-        $query->where('email_message_id', 'like', 'tk.%')->where('is_internal', false)
-            ->where(fn (Builder $query) => $query->whereNull('via')->orWhere('via', '!=', self::VIA_EMAIL));
+        $query->where('is_internal', false)->whereIn('id', TicketMailId::query()->whereNotNull('ticket_message_id')->select('ticket_message_id'));
     }
 
     /** @return BelongsTo<Ticket, $this> */

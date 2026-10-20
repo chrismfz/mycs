@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use MyCS\TicketMail\Imap\MailboxSettings;
 use OwenIt\Auditing\Contracts\Auditable;
@@ -51,6 +52,12 @@ class TicketDepartment extends Model implements Auditable
     {
         return array_values(array_filter(array_map(fn ($address) => strtolower(trim((string) $address)),
             [$this->email, str_contains((string) $this->imap_username, '@') ? $this->imap_username : null])));
+    }
+
+    /** Staff told of its new tickets and replies (when the ticket is assigned to no one). @return BelongsToMany<Staff, $this> */
+    public function notifyStaff(): BelongsToMany
+    {
+        return $this->belongsToMany(Staff::class, 'ticket_department_staff');
     }
 
     /** @return HasMany<TicketPollRun, $this> */
