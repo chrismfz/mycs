@@ -50,7 +50,7 @@ class FailedJobResource extends Resource
                 })->wrap()->tooltip(function ($state) {
                     return $state;
                 })->limit(200),
-                TextColumn::make('failed_at'),
+                TextColumn::make('failed_at')->dateTime(),
             ])
             ->poll()
             ->recordActions([

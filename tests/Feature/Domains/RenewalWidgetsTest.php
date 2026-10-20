@@ -112,7 +112,11 @@ class RenewalWidgetsTest extends TestCase
         $this->assertFalse(DomainRenewals::canView());
 
         $this->actingAs($this->staff(), 'staff');
-        $this->assertTrue(DomainRenewals::canView() && RecordsToCheck::canView() && ServiceRenewals::canView() && ServicesToCheck::canView());
+        $this->assertTrue(DomainRenewals::canView() && ServiceRenewals::canView());
+        // A list of problems shows only while there is one (owner 2026-10-21: no empty boxes on the dashboard).
+        $this->assertFalse(RecordsToCheck::canView() || ServicesToCheck::canView());
+        Domain::factory()->create(['status' => DomainStatus::Active, 'expires_at' => null]);
+        $this->assertTrue(RecordsToCheck::canView());
 
         // The widget permission alone does not show records the role may not see (R6).
         $this->actingAs(Staff::factory()->withPermissions(['admin.widgets.renewals'])->create(), 'staff');

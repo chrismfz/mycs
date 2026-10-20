@@ -86,7 +86,7 @@ class TransactionsRelationManager extends RelationManager
                 TextColumn::make('formattedAmount')->label('Amount'),
                 TextColumn::make('formattedRefundedAmount')->label(__('invoices.refunded_amount')),
                 TextColumn::make('formattedFee')->label('Fee'),
-                TextColumn::make('created_at'),
+                TextColumn::make('created_at')->dateTime(),
             ])
             ->filters([
                 //

@@ -35,6 +35,7 @@ class Support extends BaseWidget
                     ->label('Client')
                     ->state(fn (Ticket $record) => $record->requesterName()),
                 TextColumn::make('created_at')
+                    ->dateTime()
                     ->label('Created At'),
             ])
             ->recordUrl(fn (Ticket $record) => TicketResource::getUrl('edit', ['record' => $record]))

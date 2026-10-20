@@ -3,6 +3,7 @@
 namespace App\Admin\Resources\ClientResource\Pages;
 
 use App\Admin\Actions\InvoiceSelectedItemsAction;
+use App\Admin\Concerns\RemembersRecent;
 use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\DomainResource;
 use App\Admin\Resources\EmailLogResource;
@@ -25,6 +26,8 @@ use Filament\Schemas\Schema;
  */
 class ClientSummaryPage extends ViewRecord
 {
+    use RemembersRecent;
+
     protected static string $resource = ClientResource::class;
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-identification';

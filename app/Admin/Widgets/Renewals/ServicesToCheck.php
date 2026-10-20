@@ -47,6 +47,7 @@ class ServicesToCheck extends TableWidget
 
     public static function canView(): bool
     {
-        return (bool) auth()->user()?->hasPermission('admin.widgets.renewals') && ServiceResource::canViewAny();
+        // A list of problems: on the dashboard only while there is one (owner 2026-10-21: empty boxes take the page).
+        return (bool) auth()->user()?->hasPermission('admin.widgets.renewals') && ServiceResource::canViewAny() && self::query()->exists();
     }
 }

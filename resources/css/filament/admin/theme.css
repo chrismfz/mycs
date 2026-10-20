@@ -43,3 +43,16 @@
     background-color: hsl(var(--color-secondary)) !important;
 }
 */
+
+/*
+ * The sidebar on a desktop is for the day's work (AdminSidebar): its full menu is the top menu there, so the groups
+ * below the work list show only where the top menu is not (below lg), or when the sidebar is folded to its icons.
+ */
+@media (min-width: 64rem) {
+    .fi-sidebar-nav:has(.mycs-work-sidebar) .fi-sidebar-nav-groups {
+        display: none;
+    }
+    .fi-sidebar:not(.fi-sidebar-open) .fi-sidebar-nav:has(.mycs-work-sidebar) .fi-sidebar-nav-groups {
+        display: flex;
+    }
+}

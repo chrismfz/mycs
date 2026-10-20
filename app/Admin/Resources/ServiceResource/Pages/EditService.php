@@ -4,6 +4,7 @@ namespace App\Admin\Resources\ServiceResource\Pages;
 
 use App\Admin\Actions\AuditAction;
 use App\Admin\Actions\InvoiceSelectedItemsAction;
+use App\Admin\Concerns\RemembersRecent;
 use App\Admin\Resources\ServiceResource;
 use App\Exceptions\DisplayException;
 use App\Exceptions\NothingToDoOnServer;
@@ -32,6 +33,8 @@ use Livewire\Attributes\Locked;
 
 class EditService extends EditRecord
 {
+    use RemembersRecent;
+
     protected static string $resource = ServiceResource::class;
 
     /** The record as the form was filled from it: a save writes only what staff changed since. */

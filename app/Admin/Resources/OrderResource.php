@@ -39,11 +39,23 @@ use Filament\Support\RawJs;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 
 class OrderResource extends Resource
 {
     protected static ?string $model = Order::class;
+
+    /** Its name in «Recently viewed» (the sidebar shows its kind beside it). */
+    public static function getRecordTitle(?Model $record): string|Htmlable|null
+    {
+        if (!$record instanceof Order) {
+            return parent::getRecordTitle($record);
+        }
+
+        return '#' . $record->getKey();
+    }
 
     protected static string|\BackedEnum|null $navigationIcon = 'ri-shopping-bag-4-line';
 
@@ -328,9 +340,11 @@ class OrderResource extends Resource
                     ->limit(40)
                     ->tooltip(fn (Order $record): ?string => $record->notes)
                     ->toggleable(),
-                TextColumn::make('updated_at')
-                    ->label('Updated At')
-                    ->searchable()
+                // When it was ordered, as WHMCS's list (the last change in a tooltip).
+                TextColumn::make('created_at')
+                    ->label('Date')
+                    ->dateTime()
+                    ->tooltip(fn (Order $record): ?string => $record->updated_at?->format('d/m/Y H:i'))
                     ->sortable(),
             ])
             ->defaultSort(function (Builder $query): Builder {

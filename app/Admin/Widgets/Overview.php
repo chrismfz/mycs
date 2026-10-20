@@ -4,8 +4,10 @@ namespace App\Admin\Widgets;
 
 use App\Admin\Resources\ModuleActionResource;
 use App\Admin\Resources\OrderResource;
+use App\Classes\Price;
 use App\Enums\DashboardPeriod;
 use App\Enums\InvoiceTransactionStatus;
+use App\Models\Currency;
 use App\Models\InvoiceTransaction;
 use App\Models\ModuleAction;
 use App\Models\Order;
@@ -82,7 +84,7 @@ class Overview extends BaseWidget
 
         $previous = $this->previousPeriod(clone $query)->sum('amount');
 
-        return $this->stat('Revenue', $chart, $previous);
+        return $this->stat('Revenue', $chart, $previous, money: true);
     }
 
     private function getData(string $model, string $name, bool $lowerIsBetter = false): Stat
@@ -121,7 +123,7 @@ class Overview extends BaseWidget
             ->where('created_at', '<', $start);
     }
 
-    private function stat(string $label, Collection $chart, float|int $previous, bool $lowerIsBetter = false): Stat
+    private function stat(string $label, Collection $chart, float|int $previous, bool $lowerIsBetter = false, bool $money = false): Stat
     {
         $current = $chart->sum('aggregate');
 
@@ -129,14 +131,24 @@ class Overview extends BaseWidget
 
         $percentage = $previous > 0 ? (abs($change) / $previous) * 100 : 0;
 
-        $color = ($lowerIsBetter ? $change <= 0 : $change >= 0) ? 'success' : 'danger';
+        // No change is neither good nor bad news (owner 2026-10-21: «Increased by 0.00%» in green, or red).
+        $color = $change == 0 ? 'gray' : (($lowerIsBetter ? $change < 0 : $change > 0) ? 'success' : 'danger');
+        $period = strtolower($this->period()->label());
+        $description = match (true) {
+            $change == 0 => __('No change') . " ({$period})",
+            $previous == 0 => __('New in this period') . " ({$period})",
+            default => ($change > 0 ? 'Increased by ' : 'Decreased by ') . number_format($percentage, 1) . "% ({$period})",
+        };
 
-        return Stat::make($label, $current)
+        // Revenue in the default currency, as the invoices write it.
+        $value = $money ? (new Price(['price' => $current, 'currency' => Currency::query()->find(config('settings.default_currency'))]))->formatted->price : $current;
+
+        return Stat::make($label, $value)
             // The sparkline only reads its color when Alpine initializes it, so key the stat on the
             // color to make Livewire replace the element when it changes (filamentphp/filament#13518)
             ->key("{$label}-{$color}")
-            ->description(($change >= 0 ? 'Increased by ' : 'Decreased by ') . number_format($percentage, 2) . '% (' . strtolower($this->period()->label()) . ')')
-            ->descriptionIcon($change >= 0 ? 'heroicon-m-arrow-trending-up' : 'heroicon-m-arrow-trending-down')
+            ->description($description)
+            ->descriptionIcon($change == 0 ? null : ($change > 0 ? 'heroicon-m-arrow-trending-up' : 'heroicon-m-arrow-trending-down'))
             ->chart($chart->map(fn (TrendValue $value) => $value->aggregate)->toArray())
             ->color($color);
     }

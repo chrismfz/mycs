@@ -8,6 +8,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget;
+use Illuminate\Support\HtmlString;
 
 /**
  * Services (hosting, servers, licenses) due soon (owner 2026-10-17, as myip's dashboard hack): who, what, cycle and due
@@ -48,6 +49,8 @@ class ServiceRenewals extends TableWidget
                     ->color(fn (string $state) => Service::statusColor($state)),
             ])
             ->recordUrl(fn (Service $record) => ServiceResource::canEdit($record) ? ServiceResource::getUrl('edit', ['record' => $record]) : null)
+            // Empty, one line, not a big box (owner 2026-10-21); the filter above stays to widen the window.
+            ->emptyState(fn () => new HtmlString('<p class="px-6 py-3 text-sm text-gray-500 dark:text-gray-400">' . e(__('No service renews in this window.')) . '</p>'))
             ->paginated([10, 25, 50]);
     }
 

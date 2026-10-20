@@ -3,6 +3,7 @@
 namespace App\Admin\Resources\ClientResource\Pages;
 
 use App\Admin\Actions\AuditAction;
+use App\Admin\Concerns\RemembersRecent;
 use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\UserResource\Pages\EditUser;
 use App\Models\Client;
@@ -15,6 +16,8 @@ use Illuminate\Support\Facades\Auth;
 
 class EditClient extends EditRecord
 {
+    use RemembersRecent;
+
     protected static string $resource = ClientResource::class;
 
     /** The «Details» section edits the primary contact: an account without one (legacy rows) gets it first. */

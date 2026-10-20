@@ -3,6 +3,7 @@
 namespace App\Admin\Resources\DomainResource\Pages;
 
 use App\Admin\Actions\InvoiceSelectedItemsAction;
+use App\Admin\Concerns\RemembersRecent;
 use App\Admin\Resources\DomainResource;
 use App\Enums\DomainStatus;
 use App\Exceptions\DisplayException;
@@ -42,6 +43,8 @@ use Throwable;
  */
 class ViewDomain extends ViewRecord
 {
+    use RemembersRecent;
+
     protected static string $resource = DomainResource::class;
 
     private static function can(string $permission): bool
