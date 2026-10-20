@@ -8,7 +8,6 @@ use App\Models\Currency;
 use App\Services\Reports\RevenueForecast as Forecast;
 use Carbon\CarbonImmutable;
 use Filament\Widgets\Widget;
-use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -23,7 +22,8 @@ class EstimatedIncome extends Widget
 
     protected string $view = 'admin.widgets.estimated-income';
 
-    public function render(): View
+    /** @return array<string, mixed> */
+    protected function getViewData(): array
     {
         $default = (string) config('settings.default_currency');
         $estimates = self::estimate();
@@ -48,15 +48,16 @@ class EstimatedIncome extends Widget
         $now = CarbonImmutable::now();
         $currency = Currency::query()->find($default);
         $money = fn ($amount) => (new Price(['price' => $amount, 'currency' => $currency], tax: 0))->format($amount);
-        $billing = Cache::remember('reports.billing.' . $default . '.' . $now->format('Y-m-d-H'), 300, fn () => [
+        // Keyed by the day (F3 of #278): «today», «this month» and «this year» all turn at midnight.
+        $billing = Cache::remember('reports.billing.' . $default . '.' . $now->toDateString(), 300, fn () => [
             'today' => Forecast::collected($default, $now->startOfDay(), $now->addDay()->startOfDay()),
             'month' => Forecast::collected($default, $now->startOfMonth(), $now->addMonth()->startOfMonth()),
             'year' => Forecast::collected($default, $now->startOfYear(), $now->addYear()->startOfYear()),
-            'all' => Forecast::collected($default, null, $now->addDay()->startOfDay()),
+            'all' => Forecast::collected($default, null, null),
         ]);
 
-        return view($this->view, ['currencies' => $currencies, 'url' => RevenueForecast::getUrl(),
-            'billing' => array_map($money, $billing)]);
+        return ['currencies' => $currencies, 'url' => RevenueForecast::getUrl(), 'billingCurrency' => $default,
+            'billing' => array_map($money, $billing)];
     }
 
     public static function canView(): bool

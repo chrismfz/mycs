@@ -17,6 +17,7 @@ use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Reports\RevenueForecast as Forecast;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -184,12 +185,26 @@ class RevenueForecastTest extends TestCase
 
         // What came in (net of the 24%), then what is to come.
         $this->livewireAs(Staff::factory()->withPermissions(['admin.reports.view'])->create())->test(EstimatedIncome::class)
-            ->assertSeeInOrder(['$10.00', __('Today'), '$30.00', __('This Month'), '$70.00', __('This Year'), '$150.00', __('All Time'), __('Income Forecast')]);
+            ->assertSeeInOrder(['$10.00', __('Today'), '$30.00', __('This Month'), '$70.00', __('This Year'), '$150.00', __('All Time'), __('Income Forecast')])
+            ->assertSee(RevenueForecast::getUrl(), false);
+    }
+
+    public function test_all_time_counts_a_paid_invoice_with_no_payment_date(): void
+    {
+        // An import from WHMCS with datepaid 0000-00-00 (F4 of #278): paid, so in «all time».
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $invoice->items()->create(['description' => 'x', 'quantity' => 1, 'price' => 25]);
+        DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PAID, 'paid_at' => null]);
+
+        $this->assertSame('25.00', Forecast::collected('USD', null, null));
+        $this->assertSame('0.00', Forecast::collected('USD', CarbonImmutable::parse('2026-01-01'), CarbonImmutable::parse('2027-01-01')));
     }
 
     public function test_staff_without_the_permission_get_no_widget(): void
     {
-        $this->actingAs(Staff::factory()->withPermissions(['admin.clients.viewAny'])->create());
+        $staff = Staff::factory()->withPermissions(['admin.clients.viewAny'])->create();
+        $this->actingAs($staff);
         $this->assertFalse(EstimatedIncome::canView());
+        $this->livewireAs($staff)->test(EstimatedIncome::class)->assertForbidden();
     }
 }
