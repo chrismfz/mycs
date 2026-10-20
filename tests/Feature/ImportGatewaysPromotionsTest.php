@@ -156,7 +156,7 @@ class ImportGatewaysPromotionsTest extends TestCase
         $this->import('importPromotions');
 
         foreach ([1, 3, 4] as $id) {
-            $this->assertSame('2026-10-20 10:00:00', Coupon::query()->findOrFail($id)->expires_at?->toDateTimeString(), "#{$id} closed for new orders");
+            $this->assertSame('2026-10-20 09:59:59', Coupon::query()->findOrFail($id)->expires_at?->toDateTimeString(), "#{$id} closed for new orders");
         }
         $this->assertSame('2020-01-01', Coupon::query()->findOrFail(5)->expires_at?->toDateString(), 'expired already: its own date kept');
         $out = $this->output->fetch();
@@ -189,8 +189,27 @@ class ImportGatewaysPromotionsTest extends TestCase
         $this->import('importPromotions', 'importServices');
 
         $out = $this->output->fetch();
-        $this->assertStringContainsString('Service #1700: promotion #1 recurs for 2 times: its price 0 is kept; set the full price by hand when it ends.', $out);
+        $note = 'WHMCS promotion «FREETRIAL» still running at import (up to 2 more discounted renewals): the price 0 was kept; set the full price when it ends.';
+        $this->assertStringContainsString("Service #1700: {$note}", $out);
+        $this->assertStringContainsString($note, (string) Service::query()->findOrFail(1700)->notes, 'on the service, where staff see it');
         $this->assertStringNotContainsString('Service #1701', $out, 'ended: nothing to watch');
+    }
+
+    public function test_a_promotion_that_already_recurred_all_its_times_is_not_flagged(): void
+    {
+        $this->promotion(1, 'FREETRIAL', ['type' => 'Price Override', 'value' => 0, 'recurring' => 1, 'recurfor' => 2]);
+        $this->service(1702, 1, amount: 20.00);
+        $this->service(1703, 1, amount: 0.00);
+        $this->whmcs->exec('ALTER TABLE tblhosting ADD COLUMN promocount INT'); // WHMCS counts the renewals it discounted
+        $this->whmcs->exec('UPDATE tblhosting SET promocount = 2 WHERE id = 1702');
+        $this->whmcs->exec('UPDATE tblhosting SET promocount = 1 WHERE id = 1703');
+
+        $this->import('importPromotions', 'importServices');
+
+        $out = $this->output->fetch();
+        $this->assertStringNotContainsString('Service #1702', $out, 'ended in WHMCS: its full price is the one imported');
+        $this->assertNull(Service::query()->findOrFail(1702)->notes);
+        $this->assertStringContainsString('Service #1703: WHMCS promotion «FREETRIAL» still running at import (1 more discounted renewals)', $out);
     }
 
     public function test_a_promoid_of_a_promotion_not_imported_is_none(): void

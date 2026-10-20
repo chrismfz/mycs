@@ -57,6 +57,8 @@ class ImportGatewaysPromotionsAdversarialTest extends TestCase
         // As WHMCS: a refund is its own row (amountout, refundid = the payment it gives back).
         $this->whmcs->exec('CREATE TABLE tblaccounts (id INTEGER PRIMARY KEY, userid INT, invoiceid INT, gateway TEXT, date TEXT, amountin REAL,
             amountout REAL, fees REAL, transid TEXT, refundid INT)');
+        // Every WHMCS has it: the import counts the services of a promotion.
+        $this->whmcs->exec('CREATE TABLE tblhosting (id INTEGER PRIMARY KEY, promoid INT, qty INT)');
         $this->whmcs->exec('CREATE TABLE tblpromotions (id INTEGER PRIMARY KEY, code TEXT, type TEXT, recurring INT, value REAL, cycles TEXT, appliesto TEXT,
             requires TEXT, requiresexisting INT, startdate TEXT, expirationdate TEXT, maxuses INT, uses INT, lifetimepromo INT, applyonce INT,
             newsignups INT, existingclient INT, onceperclient INT, recurfor INT, upgrades INT, notes TEXT)');

@@ -34,6 +34,10 @@ class ImportGatewaysPromotionsReviewTest extends TestCase
         User::factory()->create();
         $this->productId = $this->createProduct()->product->id;
         $this->whmcs = new PDO('sqlite::memory:');
+        // Every WHMCS has these: the import counts currencies and the services of a promotion.
+        $this->whmcs->exec('CREATE TABLE tblcurrencies (id INTEGER PRIMARY KEY, code TEXT)');
+        $this->whmcs->exec("INSERT INTO tblcurrencies VALUES (1, 'USD')");
+        $this->whmcs->exec('CREATE TABLE tblhosting (id INTEGER PRIMARY KEY, promoid INT, qty INT)');
         $this->whmcs->exec('CREATE TABLE tblpromotions (id INTEGER PRIMARY KEY, code TEXT, type TEXT, recurring INT, value REAL, cycles TEXT, appliesto TEXT,
             requires TEXT, requiresexisting INT, startdate TEXT, expirationdate TEXT, maxuses INT, uses INT, lifetimepromo INT, applyonce INT,
             newsignups INT, existingclient INT, onceperclient INT, recurfor INT, upgrades INT, notes TEXT)');
