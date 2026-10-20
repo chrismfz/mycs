@@ -116,10 +116,10 @@ class GuestNavigationHomeTest extends TestCase
         $this->get('/')->assertOk()->assertDontSee('javascript:alert(1)', false);
     }
 
-    /** A guest's Contact goes to the login first. */
-    public function test_a_guests_contact_goes_to_the_login(): void
+    /** A guest's Contact is the contact form (PR B, docs/tickets.md §3 Ζ); «New ticket» still asks for the login. */
+    public function test_a_guests_contact_goes_to_the_contact_form(): void
     {
-        $this->get('/')->assertSee(route('tickets.create'), false);
+        $this->get('/')->assertSee(route('contact'), false)->assertDontSee(route('tickets.create'), false);
         $this->get(route('tickets.create'))->assertRedirect(route('login'));
     }
 }
