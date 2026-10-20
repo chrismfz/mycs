@@ -21,7 +21,8 @@ class RecordsToCheck extends TableWidget
 {
     protected static ?int $sort = 22;
 
-    protected int|string|array $columnSpan = 'full';
+    // Two side by side, two rows (owner 2026-10-21); a hidden «to check» list leaves no hole.
+    protected int|string|array $columnSpan = ['default' => 'full', 'lg' => 1];
 
     /** Active this many days past its expiry: the sync has not moved it. */
     public const LAG_DAYS = 2;

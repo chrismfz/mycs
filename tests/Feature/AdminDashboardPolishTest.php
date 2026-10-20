@@ -4,7 +4,11 @@ namespace Tests\Feature;
 
 use App\Admin\Resources\OrderResource;
 use App\Admin\Widgets\Overview;
+use App\Admin\Widgets\Renewals\DomainRenewals;
+use App\Admin\Widgets\Renewals\RecordsToCheck;
+use App\Admin\Widgets\Renewals\ServiceRenewals;
 use App\Admin\Widgets\Renewals\ServicesToCheck;
+use App\Admin\Widgets\Revenue;
 use App\Models\Currency;
 use App\Models\Order;
 use App\Models\Role;
@@ -48,5 +52,24 @@ class AdminDashboardPolishTest extends TestCase
     public function test_a_list_of_problems_is_on_the_dashboard_only_while_there_is_one(): void
     {
         $this->assertFalse(ServicesToCheck::canView());
+    }
+
+    /** WHMCS's five cards, in its order (owner 2026-10-21), the two queues there at zero too. */
+    public function test_five_cards_pending_orders_first_module_actions_last(): void
+    {
+        $stats = (fn () => $this->getStats())->call(Livewire::test(Overview::class)->instance());
+
+        $this->assertSame(['Pending Orders', 'Revenue', 'Tickets', 'Services', 'Pending Module Actions'], array_map(fn ($stat) => $stat->getLabel(), array_values($stats)));
+        $this->assertSame('gray', $stats[0]->getColor());
+    }
+
+    /** The chart at about half its height; the four lists two by two. */
+    public function test_a_shorter_chart_and_the_lists_side_by_side(): void
+    {
+        $this->assertSame('160px', (fn () => $this->maxHeight)->call(new Revenue));
+        foreach ([DomainRenewals::class, ServiceRenewals::class,
+            RecordsToCheck::class, ServicesToCheck::class] as $widget) {
+            $this->assertSame(['default' => 'full', 'lg' => 1], (fn () => $this->columnSpan)->call(new $widget), $widget);
+        }
     }
 }

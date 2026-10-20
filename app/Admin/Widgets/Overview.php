@@ -36,17 +36,24 @@ class Overview extends BaseWidget
 
     protected function getStats(): array
     {
+        // WHMCS's order (owner 2026-10-21): Pending Orders first, Pending Module Actions last, both always there.
         return array_filter([
+            $this->pendingOrders(),
             $this->invoiceTransaction(),
             // Fewer new tickets is the good outcome, so the trend color is inverted
             $this->getData(Ticket::class, 'Tickets', lowerIsBetter: true),
             $this->getData(Service::class, 'Services'),
             $this->pendingModuleActions(),
-            $this->pendingOrders(),
         ]);
     }
 
-    /** WHMCS's «Pending Orders» counter (Σ1-b2), shown while there are any. */
+    /** Five cards in a row on a wide screen. */
+    protected function getColumns(): int|array
+    {
+        return ['default' => 1, 'md' => 3, 'xl' => 5];
+    }
+
+    /** WHMCS's «Pending Orders» counter (Σ1-b2): always there, gray at zero. */
     private function pendingOrders(): ?Stat
     {
         if (!OrderResource::canViewAny()) {
@@ -54,13 +61,13 @@ class Overview extends BaseWidget
         }
         $pending = Order::query()->where('status', Order::STATUS_PENDING)->count();
 
-        return $pending === 0 ? null : Stat::make('Pending Orders', (string) $pending)
-            ->description('Waiting to be accepted or set up')
-            ->color('warning')
+        return Stat::make('Pending Orders', (string) $pending)
+            ->description($pending === 0 ? 'Nothing waiting' : 'Waiting to be accepted or set up')
+            ->color($pending === 0 ? 'gray' : 'warning')
             ->url(OrderResource::getUrl('index', ['tab' => 'pending']));
     }
 
-    /** WHMCS's dashboard counter: failed server actions waiting for staff (Σ1), shown while there are any. */
+    /** WHMCS's dashboard counter: failed server actions waiting for staff (Σ1), always there, gray at zero. */
     private function pendingModuleActions(): ?Stat
     {
         if (!ModuleActionResource::canViewAny()) {
@@ -68,9 +75,9 @@ class Overview extends BaseWidget
         }
         $open = ModuleAction::query()->open()->count();
 
-        return $open === 0 ? null : Stat::make('Pending Module Actions', (string) $open)
-            ->description('Failed server actions: retry or resolve')
-            ->color('danger')
+        return Stat::make('Pending Module Actions', (string) $open)
+            ->description($open === 0 ? 'Nothing failed' : 'Failed server actions: retry or resolve')
+            ->color($open === 0 ? 'gray' : 'danger')
             ->url(ModuleActionResource::getUrl());
     }
 
