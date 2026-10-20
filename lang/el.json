@@ -849,5 +849,10 @@
     "Year": "Έτος",
     "By month": "Ανά μήνα",
     "Account credit": "Πίστωση λογαριασμού",
-    "Invoices paid in the year, by their payment date; refunds and credit notes taken off; credit purchases are not income.": "Τιμολόγια που πληρώθηκαν μέσα στο έτος, με βάση την ημερομηνία πληρωμής· οι επιστροφές και τα πιστωτικά αφαιρούνται· οι αγορές πίστωσης δεν είναι έσοδο."
+    "Invoice no.": "Αρ. τιμολογίου",
+    "Paid invoices": "Πληρωμένα τιμολόγια",
+    "Count": "Πλήθος",
+    "Refund or credit note": "Επιστροφή ή πιστωτικό",
+    "The first :count; the export holds them all.": "Τα πρώτα :count· το export τα περιέχει όλα.",
+    "Invoices paid in the year, by their payment date; a refund or credit note made in the year on an earlier invoice is a row of its own; credit purchases are not income.": "Τιμολόγια που πληρώθηκαν μέσα στο έτος, με βάση την ημερομηνία πληρωμής· μια επιστροφή ή ένα πιστωτικό του έτους σε παλαιότερο τιμολόγιο είναι δική του γραμμή· οι αγορές πίστωσης δεν είναι έσοδο."
 }

@@ -21,7 +21,7 @@
                 @endforeach
             </select>
         </label>
-        <p class="text-sm text-gray-500 dark:text-gray-400">{{ __('Invoices paid in the year, by their payment date; refunds and credit notes taken off; credit purchases are not income.') }}</p>
+        <p class="text-sm text-gray-500 dark:text-gray-400">{{ __('Invoices paid in the year, by their payment date; a refund or credit note made in the year on an earlier invoice is a row of its own; credit purchases are not income.') }}</p>
     </div>
 
     <x-filament::section :heading="__('By month')">
@@ -30,7 +30,7 @@
                 <thead>
                     <tr class="text-left border-b dark:border-gray-700">
                         <th class="py-2 pr-4">{{ __('Month') }}</th>
-                        <th class="py-2 pr-4 text-right">{{ __('Invoices') }}</th>
+                        <th class="py-2 pr-4 text-right">{{ __('Count') }}</th>
                         <th class="py-2 pr-4 text-right">{{ __('Net') }}</th>
                         <th class="py-2 pr-4 text-right">{{ __('Tax') }}</th>
                         <th class="py-2 text-right">{{ __('Total') }}</th>
@@ -60,13 +60,16 @@
         </div>
     </x-filament::section>
 
-    <x-filament::section :heading="__('Invoices') . ' (' . count($report['invoices']) . ')'" collapsible collapsed>
+    <x-filament::section :heading="__('Paid invoices') . ' (' . count($report['invoices']) . ')'" collapsible collapsed>
+        @if (count($report['invoices']) > \App\Services\Reports\IncomeReport::SHOWN)
+            <p class="mb-2 text-sm text-gray-500 dark:text-gray-400">{{ __('The first :count; the export holds them all.', ['count' => \App\Services\Reports\IncomeReport::SHOWN]) }}</p>
+        @endif
         <div class="overflow-x-auto">
             <table class="w-full text-sm">
                 <thead>
                     <tr class="text-left border-b dark:border-gray-700">
                         <th class="py-2 pr-4">{{ __('Paid on') }}</th>
-                        <th class="py-2 pr-4">{{ __('Invoice') }}</th>
+                        <th class="py-2 pr-4">{{ __('Invoice no.') }}</th>
                         <th class="py-2 pr-4">{{ __('Client') }}</th>
                         <th class="py-2 pr-4">{{ __('Country') }}</th>
                         <th class="py-2 pr-4">{{ __('VAT number') }}</th>
@@ -77,7 +80,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach ($report['invoices'] as $row)
+                    @foreach (array_slice($report['invoices'], 0, \App\Services\Reports\IncomeReport::SHOWN) as $row)
                         <tr class="border-b dark:border-gray-800">
                             <td class="py-2 pr-4 whitespace-nowrap">{{ $row['paid_at']->format('d/m/Y') }}</td>
                             <td class="py-2 pr-4">{{ $row['number'] }}</td>
