@@ -1,14 +1,17 @@
 # MyCS: Handoff
 
-> Για όποιον (άνθρωπο ή agent) πιάνει τη δουλειά. Ενημερώνεται σε κάθε βήμα· τελευταία 2026-10-11.
+> Για όποιον (άνθρωπο ή agent) πιάνει τη δουλειά. Ενημερώνεται σε κάθε βήμα· τελευταία 2026-10-20.
 
 ## Κατάσταση
-- **Repo:** `chrismfz/mycs`, hard fork του upstream στο `5b69d45` (v1.5.8+41), χωρίς ιστορικό upstream.
-  Αλλαγές μέχρι τώρα: αφαίρεση όσων «τηλεφωνούν σπίτι» (Φάση 0, `ROADMAP.md`).
-- **Φάση:** 0 σε εξέλιξη (`ROADMAP.md`). Το devbox είναι το VM `devbox` (το dev του Ekdosi: MariaDB, PHP, git, gh),
-  στο `mycs.myip.gr` (+ wildcard `*.mycs.myip.gr` για δοκιμές).
+- **Repo:** `chrismfz/mycs`, hard fork που πήρε τον δικό του δρόμο (`../CLAUDE.md`). **Δημόσιο** ως τώρα· γίνεται
+  private «όταν ηρεμήσουμε» (ο υπεύθυνος). Ως τότε τα έγγραφα με σήμανση εμπιστευτικού δεν μπαίνουν στο repo.
+- **Πού είμαστε και τι ακολουθεί:** `ROADMAP.md`, «Πού είμαστε» και «Επόμενα» (2026-10-20: main στο #232). Καμία
+  εταιρεία δεν δουλεύει ακόμα στο MyCS· pilot η nixpal.
 - **Αποφάσεις:** όλες στο `decisions.md` και στο `README.md` (γιατί fork, γιατί όχι Blesta/FOSSBilling, Ekdosi μόνο
   τιμολόγηση).
+- **Τρόπος δουλειάς:** ένα θέμα ανά PR· code review σε κάθε PR, και adversarial review (με failing tests που μένουν
+  στο PR) όπου υπάρχουν χρήματα, lifecycle ή ασφάλεια· το PR μένει draft ώσπου να ανέβουν οι διορθώσεις (`../CLAUDE.md`,
+  «Git»).
 - **Το παλιό σχέδιο (Blesta):** εγκαταλείφθηκε 2026-10-11. Το staging `cs.nixpal.com` μένει ανέγγιχτο. Ό,τι αξίζει
   (το `lib/`) μεταφέρεται εδώ ως `packages/`. Ιστορικό στο `history/blesta-modules/`.
 
@@ -61,15 +64,16 @@
 - **Ενημέρωση:** `su - mycs -c 'cd /var/www/mycs && deploy/update.sh'` (χωρίς `git pull` πριν· το script κάνει fetch/checkout) (το `main`· ή `deploy/update.sh <branch|tag>`).
   Snapshot της βάσης στο `storage/app/db-snapshots/` πριν από κάθε αλλαγή, maintenance mode, queue drain, migrate, build,
   optimize, smoke check. Στο devbox το `.env` έχει `DEPLOY_COMPOSER_DEV=1`, για να μένουν tests/Pint. Δοκιμασμένο 2026-10-11 (10d69f0 → d56adcc).
-- **Πρόσβαση στο repo (private από 2026-10-11):** ο `mycs` κάνει fetch μέσω `gh` (`gh auth setup-git`, token στο
-  `~/.config/gh/hosts.yml`, 600). Αν λήξει το token: `su - mycs -c 'gh auth login'` και ξανά `gh auth setup-git`.
+- **Πρόσβαση στο repo:** ο `mycs` κάνει fetch μέσω `gh` (`gh auth setup-git`, token στο `~/.config/gh/hosts.yml`,
+  600)· χρειάζεται όταν το repo γίνει private. Αν λήξει το token: `su - mycs -c 'gh auth login'` και ξανά
+  `gh auth setup-git`.
 - **CI (GitHub Actions):** σε κάθε PR τρέχουν `Test` (sqlite + MariaDB 10.11, PHP 8.4) και `Lint` (`pint --test` και
   `phpstan analyse`). Το phpstan έχει baseline (`phpstan-baseline.neon`) με τα σφάλματα του upstream: νέο σφάλμα σπάει το
   CI. Τοπικά: `vendor/bin/phpstan analyse --memory-limit=2G`· μετά από καθάρισμα, `--generate-baseline`.
   Τα tests τρέχουν και στο devbox (παραπάνω).
 - `.git/info/exclude` κρύβει τα αρχεία του home (`.db-credentials`, `.config/`, `.bash*`, caches).
 - **Admin:** ο πρώτος λογαριασμός δημιουργήθηκε (`app:user:create`, 2026-10-11).
-- **Δεν έχει γίνει:** mail (SMTP).
+- **Δεν έχει γίνει:** mail (SMTP) της παραγωγής (`ROADMAP.md`, «Επόμενα» 6).
 
 Λεπτομέρειες (servers, crons, μεγέθη, inventory του WHMCS): `history/blesta-modules/HANDOFF.md` §1, §4.
 
@@ -79,11 +83,11 @@ Fixtures του zlic και η λογική του: `history/blesta-modules/lice
 (blesta-modules `lib/nixpal-licensing`, `tests/fixtures/zlic/`).
 
 ## Γνωστά ρίσκα
-- Κόστος port domains/tickets από Ekdosi: άγνωστο μέχρι το spike της Φάσης 0.
-- .gr EPP: δεν έχει γραφτεί· χρειάζεται whitelist στο UAT του Μητρώου.
-- Hard fork: τα upgrades του Laravel/Filament/Livewire είναι πλέον δική μας ευθύνη. Το Laravel 13 μπήκε στο upstream
-  3 ημέρες πριν το fork.
-- Φάση 1: η εκτίμηση ανέβηκε σε 3–5 εβδομάδες μετά την απογραφή (EU VAT, mass pay, promotions/ομάδες, αλλαγή κύκλου).
+- Hard fork: τα upgrades του Laravel/Filament/Livewire είναι πλέον δική μας ευθύνη.
+- Ο importer του νέου σχήματος δεν έχει γραφτεί ακόμα: η πρώτη πραγματική μεταφορά θα δείξει ό,τι δεν πιάνουν τα tests
+  (`ROADMAP.md`, «Επόμενα» 4).
+- Τα τοπικά tests τρέχουν σε SQLite: ό,τι εξαρτάται από τη MariaDB (row locks, ελληνικά χωρίς διάκριση πεζών/κεφαλαίων
+  στο `LIKE`) το ελέγχει μόνο το job της MariaDB στο CI (`../CLAUDE.md`, «Tests»).
 
 ## Ημερολόγιο
 - **2026-10-10:** audits του upstream (χρέωση, ασφάλεια, importer, υγεία)· σύγκριση με Blesta.
@@ -99,6 +103,10 @@ Fixtures του zlic και η λογική του: `history/blesta-modules/lice
   Στο deploy του: άδειασμα της ουράς με τον παλιό κώδικα (`queue:work --stop-when-empty`), όλοι κάνουν ξανά login
   (νέα cookies), και το `company_name` πρέπει να είναι αποθηκευμένο (αλλιώς φαίνεται το default «MyCS»).
 
+
+- **2026-10-15…20:** το sweep χρέωσης A–H, τα domains και το .gr EPP (grepp, DNSSEC δοκιμασμένο ζωντανά στο cdnet.gr
+  2026-10-18), το portal του πελάτη P1–P4, el/en παντού, παράλληλα tests (`bin/test`). Σύνοψη στο `ROADMAP.md`,
+  «Έγινε»· το roadmap ξαναγράφτηκε 2026-10-20 (το παλιό στο `history/roadmap-2026-10-11-to-20.md`).
 
 ### PR #32 — διορθώσεις δεύτερου εξωτερικού review (2026-10-12)
 
