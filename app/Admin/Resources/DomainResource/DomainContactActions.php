@@ -36,7 +36,7 @@ final class DomainContactActions
                 // Only the domain's own account's contact (review: bad data after an account move).
                 ->visible(fn (Domain $record) => self::can('admin.clients.update') && $record->{"{$role}Contact"} !== null
                     && (int) $record->{"{$role}Contact"}->client_id === (int) $record->client_id)
-                ->modalDescription(__('The contact of the account, wherever it is used. Changes here are not sent to the registrar: WHOIS keeps the registrar\'s record.'))
+                ->modalDescription(__('The contact of the account, wherever it is used. Its address, phone and email are sent to the registrars of the domains that use it; its name and company stay as the registrars hold them.'))
                 ->fillForm(fn (Domain $record) => $record->{"{$role}Contact"}->attributesToArray())
                 ->schema(ContactForm::fields())->modalWidth('3xl')
                 ->action(function (Domain $record, array $data) use ($role) {

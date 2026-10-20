@@ -8,6 +8,7 @@ use App\Jobs\Server\TerminateJob;
 use App\Jobs\Server\UnsuspendJob;
 use App\Jobs\Server\UpgradeJob;
 use App\Models\ModuleAction;
+use App\Services\Domains\ContactPush;
 use App\Services\Domains\DomainRenewalService;
 use App\Services\Domains\Ordering\DomainOrderFulfilment;
 
@@ -35,6 +36,10 @@ final class RetryModuleAction
             $action->refresh();
 
             return $outcome === DomainOrderFulfilment::SENT || ($outcome === DomainOrderFulfilment::STAFF && $action->attempts > $attempts);
+        }
+        // A contact push (P1b-2): queued again, as the admin's Retry; the row closes when it succeeds.
+        if ($action->action === ModuleAction::DOMAIN_CONTACT) {
+            return ContactPush::retryDomain((int) $action->domain_id) > 0;
         }
         $service = $action->service;
         $job = match ($action->action) {
