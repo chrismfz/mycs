@@ -12,7 +12,7 @@ class TicketReferenceMask implements ValidationRule
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {
         if (!is_string($value) || !TicketReference::validMask($value)) {
-            $fail('Use %n, %A, %a, %y, %m, %d, letters, digits, - and _, with at least four of %n, %A, %a, and at most 64 characters once filled.');
+            $fail('Use %n, %A, %a, %y, %m, %d, letters, digits, - and _, with at least five %n (or four %A, %a), and at most 64 characters once filled.');
         }
     }
 }

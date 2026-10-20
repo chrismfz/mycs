@@ -13,7 +13,7 @@
         </div>
         <p class="text-base text-sm">
             {{ __('ticket.last_activity') }}
-            {{ $ticket->messages()->orderBy('created_at', 'desc')->first()?->created_at->diffForHumans() }}
+            {{ $ticket->publicMessages()->orderBy('created_at', 'desc')->first()?->created_at->diffForHumans() }}
             {{ $ticket->department ? ' - ' . $ticket->department->name : '' }}
         </p>
         </div>

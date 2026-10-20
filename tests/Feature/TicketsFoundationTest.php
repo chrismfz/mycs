@@ -120,7 +120,7 @@ class TicketsFoundationTest extends TestCase
         $this->assertMatchesRegularExpression('/^\d{6}$/', $this->guestTicket()->reference);
 
         $this->assertFalse(TicketReference::validMask(''), 'empty: the setting is required, the rule skips empty values');
-        foreach (['%n%n%n%n%n%n' => true, 'T-%A%A%n%n' => true, '%n%n%n' => false, '<script>%n%n%n%n' => false] as $mask => $ok) {
+        foreach (['%n%n%n%n%n%n' => true, 'T-%A%A%n%n%n' => true, '%n%n%n%n' => false, '<script>%n%n%n%n' => false] as $mask => $ok) {
             $this->assertSame($ok, Validator::make(['m' => $mask], ['m' => [new TicketReferenceMask]])->passes(), $mask);
         }
         $this->assertNotSame(TicketReference::generate('%n%n%n%n%n%n%n%n'), TicketReference::generate('%n%n%n%n%n%n%n%n'));
