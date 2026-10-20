@@ -249,7 +249,8 @@ class CouponRulesAdversarialTest extends TestCase
     public function test_holds_cancel_and_reorder_once_per_customer(): void
     {
         $product = $this->product();
-        $coupon = $this->coupon(['value' => 0, 'once_per_client' => true, 'recurring' => 1]);
+        // Author (#274 fixes, C2): an override names its products; without them it discounts nothing.
+        $coupon = $this->coupon(['value' => 0, 'once_per_client' => true, 'recurring' => 1], [$product]);
         $client = $this->client();
         $this->order($client, [$product], $coupon);
         Service::query()->where('client_id', $client->id)->update(['status' => Service::STATUS_CANCELLED]);
@@ -261,7 +262,8 @@ class CouponRulesAdversarialTest extends TestCase
     public function test_holds_once_per_customer_after_the_trial_ended(): void
     {
         $product = $this->product();
-        $coupon = $this->coupon(['value' => 0, 'once_per_client' => true, 'recurring' => 2]);
+        // Author (#274 fixes, C2): an override names its products; without them it discounts nothing.
+        $coupon = $this->coupon(['value' => 0, 'once_per_client' => true, 'recurring' => 2], [$product]);
         $client = $this->client();
         $this->order($client, [$product], $coupon);
         Service::query()->where('client_id', $client->id)->update(['coupon_expired_at' => now(), 'status' => Service::STATUS_TERMINATED]);
@@ -327,7 +329,8 @@ class CouponRulesAdversarialTest extends TestCase
     {
         $cheap = $this->product(1.00, name: 'Cheap', setupFee: 0.50);
         $dear = $this->product(20.00, name: 'Dear', setupFee: 10.00);
-        $coupon = $this->coupon(['value' => 1.50, 'max_uses' => 3, 'recurring' => 0]);
+        // Author (#274 fixes, C2): an override names its products; without them it discounts nothing.
+        $coupon = $this->coupon(['value' => 1.50, 'max_uses' => 3, 'recurring' => 0], [$cheap, $dear]);
         $placed = $this->order($this->client(), [$this->line($cheap, quantity: 2), $this->line($dear, quantity: 3)], $coupon);
 
         $services = $placed->order->services()->orderBy('id')->get();

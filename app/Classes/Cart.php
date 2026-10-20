@@ -195,6 +195,17 @@ class Cart
             $item->delete(); // We also want to trigger Eloquent events
         }
         $cart->load('items.plan', 'items.product', 'items.product.configOptions.children.plans.prices');
+        // Its coupon may need what was removed (a required product; F6 of #274): checked again, dropped if no longer valid.
+        if ($cart->coupon_id) {
+            try {
+                self::validateCoupon($cart->coupon->code);
+                if ($cart->items->filter(fn ($item) => $item->price->hasDiscount())->isEmpty()) {
+                    $cart->update(['coupon_id' => null]);
+                }
+            } catch (DisplayException) {
+                $cart->update(['coupon_id' => null]);
+            }
+        }
     }
 
     public static function updateQuantity($index, $quantity)
@@ -249,7 +260,9 @@ class Cart
                 throw new DisplayException('You have already used this coupon the maximum number of times allowed');
             }
             // Its rules for this customer (a guest's are checked again at checkout, once signed up or in).
-            $refusal = $coupon->refusalFor(Auth::check() ? CurrentClient::model() : null, self::get()->items->pluck('product_id')->map(fn ($id) => (int) $id)->all());
+            // An empty cart keeps it for what comes (F7 of #274): its products are checked once there are some.
+            $items = self::get()->items;
+            $refusal = $items->isEmpty() ? null : $coupon->refusalFor(Auth::check() ? CurrentClient::model() : null, $items->pluck('product_id')->map(fn ($id) => (int) $id)->all());
             if ($refusal !== null) {
                 throw new DisplayException($refusal);
             }

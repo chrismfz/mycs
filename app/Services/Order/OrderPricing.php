@@ -30,8 +30,8 @@ final class OrderPricing
      * The catalog price and setup fee of a product's plan with its chosen options, in a currency.
      *
      * @param  array<int, array<string, mixed>>  $configOptions  the cart's shape: [['option_id' => …, 'value' => …], …]
-     * @return array{price: string, setup_fee: string}|null null when the plan or a chosen paid option has no price in
-     *                                                      that currency (it must not check out free)
+     * @return array{price: string, setup_fee: string, options: string}|null null when the plan or a chosen paid option has no price in
+     *                                                                       that currency (it must not check out free)
      */
     public static function catalog(Product $product, Plan $plan, array $configOptions, string $currency): ?array
     {
@@ -46,6 +46,7 @@ final class OrderPricing
             $setupFee = self::amount($row->setup_fee);
         }
 
+        $options = '0.00'; // their part of the price (an override is the product's alone)
         /** @var ConfigOption $option */
         foreach ($product->configOptions as $option) {
             $value = self::chosen($configOptions, $option);
@@ -66,16 +67,17 @@ final class OrderPricing
                 return null;
             }
             $price = (string) BigDecimal::of($price)->plus(self::amount($childPrice->price));
+            $options = (string) BigDecimal::of($options)->plus(self::amount($childPrice->price));
             $setupFee = (string) BigDecimal::of($setupFee)->plus(self::amount($childPrice->setup_fee));
         }
 
-        return ['price' => $price, 'setup_fee' => $setupFee];
+        return ['price' => $price, 'setup_fee' => $setupFee, 'options' => $options];
     }
 
     /** The coupon's discount for a product (on a plan's cycle when given), or null when it does not cover it (CART-2). */
-    public static function discount(?Coupon $coupon, int $productId, ?Plan $plan = null): ?Discount
+    public static function discount(?Coupon $coupon, int $productId, ?Plan $plan = null, ?string $currency = null): ?Discount
     {
-        if ($coupon === null || !$coupon->covers($productId, $plan)) {
+        if ($coupon === null || !$coupon->covers($productId, $plan, $currency)) {
             return null;
         }
 
@@ -87,11 +89,15 @@ final class OrderPricing
      * too (ROADMAP 5, as WHMCS: after the coupon); a line without one (a domain, an amount) never does. $groupPercent:
      * that discount as given (a recalculation at another one), else the account's.
      *
-     * @param  array{price: string, setup_fee: string}  $catalog
+     * @param  array{price: string, setup_fee: string, options?: string}  $catalog
      */
     public static function line(array $catalog, ?Discount $discount, ?Client $client, ?Product $product = null, ?string $groupPercent = null): LinePrice
     {
         $group = $product === null ? null : ($groupPercent ?? $client?->groupPercent());
+        // An override is the product's own price (C7 of #274): its options are charged on top, as an upgrade adds them.
+        if ($discount !== null && $discount->type === 'override' && isset($catalog['options'])) {
+            $discount = new Discount('override', (string) BigDecimal::of($discount->value)->plus($catalog['options']), $discount->appliesTo);
+        }
 
         return LinePricer::price($catalog['price'], $catalog['setup_fee'], $discount, self::taxRate($client, $product), self::taxMode(), $group);
     }

@@ -168,6 +168,11 @@ final class RenewalBilling
             }
             $service->coupon_expired_at = CarbonImmutable::now();
         }
+        // Its required product gone (cancelled, terminated; C4 of #274): the discount ends with it, as for its cycles.
+        if ($service->coupon && $service->coupon_expired_at === null && !$service->coupon->requirementHeldBy($service->client)) {
+            $service->price = $service->calculatePrice(applyCoupon: false);
+            $service->coupon_expired_at = CarbonImmutable::now();
+        }
         if ($service->isDirty(['price', 'coupon_started_at', 'coupon_expired_at'])) {
             $service->save();
         }

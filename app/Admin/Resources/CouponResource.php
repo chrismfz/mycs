@@ -57,7 +57,7 @@ class CouponResource extends Resource
                         JS
                     ))
                     ->suffix(fn (Get $get) => $get('type') === 'percentage' ? '%' : config('settings.default_currency'))
-                    ->helperText(fn (Get $get) => $get('type') === 'override' ? __('The price it applies to becomes this amount (0 = free).') : null)
+                    ->helperText(fn (Get $get) => $get('type') === 'override' ? __('The product\'s price becomes this amount (0 = free), in the default currency, for the products below only (required); options are charged on top. The same amount for every billing cycle: choose them below.') : null)
                     ->placeholder('Enter the value of the coupon'),
 
                 Select::make('type')
@@ -120,13 +120,15 @@ class CouponResource extends Resource
                     ->multiple()
                     ->preload()
                     ->placeholder('Select the products that this coupon applies to')
+                    // An override is a price: for named products only (C2 of #274).
+                    ->required(fn (Get $get) => $get('type') === 'override')
                     ->hint('Leave empty to apply the coupon to all products'),
 
                 // WHMCS's promotion rules (ROADMAP 5): checked in the cart, and again under the coupon's lock at checkout.
                 Select::make('billing_cycles')
                     ->label(__('Billing cycles'))
                     ->multiple()
-                    ->options(fn () => Plan::query()->where('type', 'recurring')->get(['billing_unit', 'billing_period', 'type'])
+                    ->options(fn () => Plan::query()->where('type', 'recurring')->where('priceable_type', Product::class)->get(['billing_unit', 'billing_period', 'type'])
                         ->unique(fn (Plan $plan) => Coupon::cycleKey($plan))
                         ->mapWithKeys(fn (Plan $plan) => [Coupon::cycleKey($plan) => ucfirst($plan->cycle())])
                         ->put('one_time', __('product.one_time'))->all())

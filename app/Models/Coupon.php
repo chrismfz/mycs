@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Exceptions\DisplayException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -29,6 +30,21 @@ class Coupon extends Model implements Auditable
     ];
 
     public const CUSTOMERS = ['all', 'new', 'existing'];
+
+    /** Its rules kept to their values however it is saved (the form, an import; F9 of #274). */
+    protected static function booted(): void
+    {
+        static::saving(function (Coupon $coupon) {
+            if (!in_array($coupon->customers ?? 'all', self::CUSTOMERS, true)) {
+                throw new DisplayException(__('Unknown customers rule.'));
+            }
+            foreach ((array) ($coupon->billing_cycles ?? []) as $cycle) {
+                if (!is_string($cycle) || preg_match('/^((day|week|month|year):[1-9][0-9]*|one_time)$/', $cycle) !== 1) {
+                    throw new DisplayException(__('Unknown billing cycle.'));
+                }
+            }
+        });
+    }
 
     protected $casts = [
         'starts_at' => 'datetime',
@@ -87,13 +103,34 @@ class Coupon extends Model implements Auditable
      * Whether it discounts this product, on this plan's billing cycle when given: a coupon without products is for all of
      * them; one without cycles for every cycle (WHMCS «Billing Cycles»).
      */
-    public function covers(int $productId, ?Plan $plan = null): bool
+    public function covers(int $productId, ?Plan $plan = null, ?string $currency = null): bool
     {
         if ($this->products->isNotEmpty() && !$this->products->contains($productId)) {
             return false;
         }
+        // An override is a price (reviews of #274): for the products it names only (never one an upgrade changes to,
+        // C2), in the default currency only (its value is that currency's, C3).
+        if ($this->type === 'override' && ($this->products->isEmpty()
+            || ($currency !== null && $currency !== config('settings.default_currency')))) {
+            return false;
+        }
 
         return $plan === null || empty($this->billing_cycles) || in_array(self::cycleKey($plan), $this->billing_cycles, true);
+    }
+
+    /**
+     * Whether the account still holds what it requires (C4 of #274): one of its required products, ordered, running or
+     * suspended. None required: yes.
+     */
+    public function requirementHeldBy(?Client $client): bool
+    {
+        $required = $this->requiredProducts->pluck('id');
+        if ($required->isEmpty()) {
+            return true;
+        }
+
+        return $client !== null && Service::query()->where('client_id', $client->id)->whereIn('product_id', $required)
+            ->whereIn('status', [Service::STATUS_PENDING, Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])->exists();
     }
 
     /** A plan's billing cycle as the coupon lists it: «month:1», «year:2», «one_time». */
@@ -113,7 +150,9 @@ class Coupon extends Model implements Auditable
     {
         if ($client !== null) {
             $services = Service::query()->where('client_id', $client->id);
-            if ($this->customers === 'new' && (clone $services)->exists()) {
+            // New: nothing ordered before, a service, a domain or an order (C6 of #274, as WHMCS's «New Signups»).
+            if ($this->customers === 'new' && ((clone $services)->exists() || Domain::query()->where('client_id', $client->id)->exists()
+                || Order::query()->where('client_id', $client->id)->exists())) {
                 return __('This promotion is for new customers only.');
             }
             if ($this->customers === 'existing' && !(clone $services)->where('status', Service::STATUS_ACTIVE)->exists()) {

@@ -79,7 +79,7 @@ final class PlaceOrderService
                 if ($catalog === null) {
                     throw new DisplayException(__('product.not_available', ['product' => $line->product->name]));
                 }
-                $discount = OrderPricing::discount($coupon, $line->product->id, $line->plan);
+                $discount = OrderPricing::discount($coupon, $line->product->id, $line->plan, $currency);
                 $withCoupon = OrderPricing::line($catalog, $discount, $client, $line->product);
                 $priced[] = [$line, $withCoupon, $discount !== null && $withCoupon->hasDiscount() ? OrderPricing::line($catalog, null, $client, $line->product) : null];
             }
@@ -95,6 +95,7 @@ final class PlaceOrderService
             $order = Order::query()->forceCreate(['client_id' => $client->id, 'currency_code' => $currency, 'notes' => $notes,
                 'ip_address' => $ip === null ? null : mb_substr($ip, 0, 45)]);
             $invoice = null;
+            $waiting = [];
 
             foreach ($priced as [$line, $price, $fullPrice]) {
                 $service = $this->createService($order, $client, $currency, $line, $price, $fullPrice, $coupon);
@@ -126,6 +127,13 @@ final class PlaceOrderService
                     continue;
                 }
 
+                // Free by a promotion that requires another product (C5 of #274): it waits for the order's invoice, if one
+                // is due, and starts when that is paid, never before what made it free.
+                if ($coupon !== null && $coupon->requiredProducts->isNotEmpty() && $price->hasDiscount()) {
+                    $waiting[] = [$service, $line, $period];
+
+                    continue;
+                }
                 // Nothing to pay: started now, the way a payment starts it (one activation path for Σ1: the period
                 // from the billing cursor, the server job after commit).
                 (new RenewServiceService)->handle($service);
@@ -137,6 +145,26 @@ final class PlaceOrderService
 
             foreach ($domains as $line) {
                 $invoice = $this->placeDomain($order, $client, $currency, $line, $invoice, $dueAt, $invoiceStatus);
+            }
+            foreach ($waiting as [$service, $line, $period]) {
+                if ($invoice === null) {
+                    (new RenewServiceService)->handle($service); // nothing due at all: as any free line
+                    if ($period !== null) {
+                        $service->forceFill(['expires_at' => $period['end']])->save();
+                    }
+
+                    continue;
+                }
+                $invoice->items()->create([
+                    'reference_id' => $service->id,
+                    'reference_type' => Service::class,
+                    'price' => '0.00',
+                    'quantity' => $line->quantity,
+                ] + ($period === null ? ['description' => $service->description] : [
+                    'description' => $service->describeLine($period['start'], $period['end']),
+                    'period_start' => $period['start'],
+                    'period_end' => $period['end'],
+                ]));
             }
 
             if ($invoice !== null) {

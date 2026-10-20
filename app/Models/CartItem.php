@@ -106,7 +106,7 @@ class CartItem extends Model
                 $currencyModel = Currency::query()->find($currency);
                 $client = Auth::guard('web')->check() ? CurrentClient::model() : null;
 
-                $discount = $this->cart->coupon_id ? OrderPricing::discount($this->cart->coupon, $this->product_id, $this->plan) : null;
+                $discount = $this->cart->coupon_id ? OrderPricing::discount($this->cart->coupon, $this->product_id, $this->plan, $currency) : null;
                 $line = OrderPricing::line($catalog, $discount, $client, $this->product);
                 $full = $discount !== null && $line->hasDiscount() ? OrderPricing::line($catalog, null, $client, $this->product) : null;
 

@@ -791,9 +791,11 @@
     "One of these in the order": "Ένα από αυτά στην παραγγελία",
     "Or held already": "Ή να το έχει ήδη",
     "A customer with one of the required products active may use it without ordering one.": "Ένας πελάτης που έχει ήδη ενεργό ένα από τα απαιτούμενα προϊόντα μπορεί να το χρησιμοποιήσει χωρίς να το παραγγείλει.",
-    "The price it applies to becomes this amount (0 = free).": "Η τιμή γίνεται αυτό το ποσό (0 = δωρεάν).",
     "This promotion is for new customers only.": "Η προσφορά είναι μόνο για νέους πελάτες.",
     "This promotion is for existing customers only.": "Η προσφορά είναι μόνο για υπάρχοντες πελάτες.",
     "You have already used this promotion.": "Έχετε ήδη χρησιμοποιήσει αυτή την προσφορά.",
-    "This promotion requires another product.": "Η προσφορά απαιτεί και άλλο προϊόν."
+    "This promotion requires another product.": "Η προσφορά απαιτεί και άλλο προϊόν.",
+    "The product's price becomes this amount (0 = free), in the default currency, for the products below only (required); options are charged on top. The same amount for every billing cycle: choose them below.": "Η τιμή του προϊόντος γίνεται αυτό το ποσό (0 = δωρεάν), στο προεπιλεγμένο νόμισμα, μόνο για τα προϊόντα παρακάτω (υποχρεωτικά)· οι επιλογές χρεώνονται από πάνω. Ίδιο ποσό για κάθε κύκλο χρέωσης: διάλεξε τους κύκλους παρακάτω.",
+    "Unknown customers rule.": "Άγνωστος κανόνας πελατών.",
+    "Unknown billing cycle.": "Άγνωστος κύκλος χρέωσης."
 }
