@@ -28,6 +28,11 @@ return new class extends Migration
             $table->timestamp('created_at')->nullable();
         });
 
+        Schema::table('tickets', function (Blueprint $table) {
+            // Opened by a mail: whether our server vouched for its From (false: it may be forged, §3 Β).
+            $table->boolean('sender_vouched')->nullable()->after('opened_via');
+        });
+
         Schema::create('ticket_department_staff', function (Blueprint $table) {
             $table->foreignId('ticket_department_id')->constrained()->cascadeOnDelete();
             $table->foreignId('staff_id')->constrained('staff')->cascadeOnDelete();
@@ -43,24 +48,28 @@ return new class extends Migration
                 ]));
             }
         }
-        $this->replace('{{ ticketMessage.user.name }}', '{{ author_name }}');
+        $this->replace('/\{\{\s*ticketMessage\.user\.name\s*\}\}/', '{{ author_name }}');
     }
 
     public function down(): void
     {
-        $this->replace('{{ author_name }}', '{{ ticketMessage.user.name }}');
+        $this->replace('/\{\{\s*author_name\s*\}\}/', '{{ ticketMessage.user.name }}');
         DB::table('notification_templates')->whereIn('key', self::KEYS)->delete();
         Schema::dropIfExists('ticket_department_staff');
+        Schema::table('tickets', function (Blueprint $table) {
+            $table->dropColumn('sender_vouched');
+        });
         Schema::dropIfExists('ticket_mail_ids');
     }
 
-    private function replace(string $from, string $to): void
+    /** A pattern in the ticket reply's texts, as staff spaced it ({{x}} or {{ x }}), in every language. */
+    private function replace(string $pattern, string $to): void
     {
         foreach (DB::table('notification_templates')->where('key', 'new_ticket_message')->get() as $template) {
             $changes = [];
             foreach (['subject', 'body', 'in_app_title', 'in_app_body', 'translations'] as $column) {
-                if (is_string($template->{$column}) && str_contains($template->{$column}, $from)) {
-                    $changes[$column] = str_replace($from, $to, $template->{$column});
+                if (is_string($template->{$column}) && preg_match($pattern, $template->{$column}) === 1) {
+                    $changes[$column] = preg_replace($pattern, $to, $template->{$column});
                 }
             }
             if ($changes !== []) {

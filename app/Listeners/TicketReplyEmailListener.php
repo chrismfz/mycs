@@ -18,6 +18,16 @@ class TicketReplyEmailListener
 {
     public function handle(MessageSending $event): void
     {
+        // Never a reason for the mail not to go: a header we cannot write is left out, and logged.
+        try {
+            $this->headers($event);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
+
+    private function headers(MessageSending $event): void
+    {
         $id = $event->data['threadMessageId'] ?? null;
         if (!is_string($id) || !MessageId::isOurs($id)) {
             return;
@@ -34,7 +44,8 @@ class TicketReplyEmailListener
         // What it answers: the customer's last mail (by email, its own id), else our mail before it.
         $inbound = TicketMessage::query()->where('ticket_id', $ticket->id)->where('via', TicketMessage::VIA_EMAIL)
             ->where('email_message_id', 'not like', 'gen.%')->whereNotNull('email_message_id')->latest('id')->value('email_message_id');
-        $inbound = MessageId::normalise($inbound) !== null && str_contains((string) $inbound, '@') ? (string) $inbound : null;
+        // The customer's id is theirs: in the headers only when it is one a mail may carry (RFC 5322 msg-id).
+        $inbound = self::valid($inbound) ? (string) $inbound : null;
         $ours = TicketMailId::query()->where('ticket_id', $ticket->id)->where('id', '<', $key->id)->latest('id')->limit(10)
             ->pluck('message_id')->reverse()->values()->all();
         $parent = $inbound ?? ($ours !== [] ? $ours[count($ours) - 1] : null);
@@ -48,13 +59,10 @@ class TicketReplyEmailListener
             $headers->addIdHeader('References', $references);
         }
 
+        // Replies go to the department's mailbox; the From stays ours (a submission server refuses another sender).
         $department = $ticket->department;
-        if (filled($department?->email)) {
+        if (filled($department?->email) && filter_var($department->email, FILTER_VALIDATE_EMAIL)) {
             $event->message->replyTo($department->email);
-            // From the department's address when it is of the domain our mail is sent for (its SPF and DKIM).
-            if (self::domain((string) config('settings.mail_from_address')) === self::domain($department->email)) {
-                $event->message->from(new Address($department->email, (string) config('settings.mail_from_name', config('app.name'))));
-            }
         }
         $headers->remove('X-MyCS-Ticket');
         $headers->addTextHeader('X-MyCS-Ticket', (string) $ticket->reference);
@@ -64,8 +72,17 @@ class TicketReplyEmailListener
         }
     }
 
-    private static function domain(string $email): ?string
+    private static function valid(?string $id): bool
     {
-        return str_contains($email, '@') ? strtolower(substr($email, strrpos($email, '@') + 1)) : null;
+        if ($id === null || MessageId::normalise($id) === null || !str_contains($id, '@')) {
+            return false;
+        }
+        try {
+            new Address($id);
+
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
     }
 }

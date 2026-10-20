@@ -38,6 +38,9 @@ class InboundRouter
     /** New tickets by mail from one sender in an hour (§3 Ε). */
     public const NEW_TICKETS_PER_HOUR = 10;
 
+    /** Replies by mail from one sender in an hour. */
+    public const REPLIES_PER_HOUR = 30;
+
     /** The bytes of a message's text (the column is TEXT); the whole mail stays in body_original. */
     private const MAX_MESSAGE_BYTES = 60_000;
 
@@ -85,6 +88,13 @@ class InboundRouter
                 return $this->quarantine($department, $email, $raw, 'not_authenticated', $messageId, $verdict, $threaded);
             }
 
+            // A thread key in hand is no licence to flood: REPLIES_PER_HOUR from one sender, then the quarantine.
+            $replies = 'ticket-mail-reply:' . TicketBlockedSender::base($from);
+            if (RateLimiter::tooManyAttempts($replies, self::REPLIES_PER_HOUR)) {
+                return $this->quarantine($department, $email, $raw, 'rate_limited', $messageId, $verdict, $threaded);
+            }
+            RateLimiter::hit($replies, 3600);
+
             return $this->reply($threaded, $email, $messageId, $author);
         }
 
@@ -105,7 +115,7 @@ class InboundRouter
         if (RateLimiter::tooManyAttempts($limit, self::NEW_TICKETS_PER_HOUR)) {
             return $this->quarantine($department, $email, $raw, 'rate_limited', $messageId, $verdict);
         }
-        $outcome = $this->open($department, $email, $messageId, $account);
+        $outcome = $this->open($department, $email, $messageId, $account, $verdict->authenticated);
         if ($outcome->kind === InboundOutcome::OPENED) {
             RateLimiter::hit($limit, 3600);
             // «We received it», only to an address our server vouched for: never mail to a forged From (backscatter).
@@ -180,15 +190,16 @@ class InboundRouter
     }
 
     /** @param  array{client_id: int, user: User}|null  $account */
-    private function open(TicketDepartment $department, InboundEmail $email, string $messageId, ?array $account): InboundOutcome
+    private function open(TicketDepartment $department, InboundEmail $email, string $messageId, ?array $account, bool $vouched): InboundOutcome
     {
-        return $this->unique(fn () => TicketFiles::transaction(function () use ($department, $email, $messageId, $account) {
+        return $this->unique(fn () => TicketFiles::transaction(function () use ($department, $email, $messageId, $account, $vouched) {
             $ticket = Ticket::query()->create([
                 'subject' => $this->subject($email->subject),
                 'status' => Ticket::STATUS_OPEN,
                 'priority' => 'medium',
                 'department_id' => $department->id,
                 'opened_via' => 'email',
+                'sender_vouched' => $vouched,
                 'client_id' => $account['client_id'] ?? null,
                 'guest_name' => $account === null ? ($email->fromName ?? $email->fromEmail) : null,
                 'guest_email' => $account === null ? $email->fromEmail : null,

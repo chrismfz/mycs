@@ -22,6 +22,9 @@ class SystemMail extends Mailable implements ShouldBeEncrypted
 
     public $email_log_id;
 
+    /** Sent by no person (RFC 3834): a vacation responder or a helpdesk does not answer it (MarkAutomaticMail). */
+    public string $autoSubmitted = 'auto-generated';
+
     public $mail;
 
     /**

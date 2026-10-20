@@ -7,6 +7,7 @@ use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\TicketMailId;
 use App\Models\TicketMessage;
+use Illuminate\Support\Facades\Cache;
 use MyCS\TicketMail\MessageId;
 
 /**
@@ -17,6 +18,9 @@ use MyCS\TicketMail\MessageId;
  */
 final class TicketMailer
 {
+    /** Staff are told of a ticket's replies at most once in this many minutes. */
+    public const NOTICE_MINUTES = 10;
+
     /** A staff reply (not a note): to the owner. */
     public function reply(TicketMessage $message): void
     {
@@ -29,7 +33,13 @@ final class TicketMailer
                 return;
             }
             $id = $this->newId($ticket, $message, TicketMailId::REPLY, (string) $ticket->guest_email);
-            NotificationHelper::guestTicketNotification($ticket, 'guest_ticket_message', ['ticketMessage' => $message], $id);
+            // A From our server did not vouch for may be forged: the mail to it carries nothing the sender wrote (their
+            // subject, their name), only our words (no spam relayed by us, signed as ours).
+            $data = ['ticketMessage' => $message];
+            if ($ticket->sender_vouched === false) {
+                $data['ticket'] = ['reference' => $ticket->reference, 'subject' => __('Your message'), 'guest_name' => __('customer')];
+            }
+            NotificationHelper::guestTicketNotification($ticket, 'guest_ticket_message', $data, $id);
 
             return;
         }
@@ -62,9 +72,15 @@ final class TicketMailer
         if ($message->is_internal || $message->isFromStaff() || $ticket === null) {
             return;
         }
-        $staff = $ticket->assignedTo !== null ? collect([$ticket->assignedTo]) : ($ticket->department?->notifyStaff()->get() ?? collect());
-        $staff = $staff->filter(fn (Staff $member) => filled($member->email) && $member->hasPermission('admin.tickets.viewAny'));
+        $can = fn (Staff $member) => filled($member->email) && $member->hasPermission('admin.tickets.viewAny');
+        $assignee = $ticket->assignedTo;
+        $staff = collect($assignee instanceof Staff && $can($assignee) ? [$assignee] : []);
+        // An assignee who cannot be told (no tickets permission, no address): the department's, not no one.
         if ($staff->isEmpty()) {
+            $staff = ($ticket->department?->notifyStaff()->get() ?? collect())->filter($can);
+        }
+        // A new ticket is always told; its replies at most once in NOTICE_MINUTES: a flood is one mail to look at.
+        if ($staff->isEmpty() || (!$new && !Cache::add('ticket-notice:' . $ticket->id, true, now()->addMinutes(self::NOTICE_MINUTES)))) {
             return;
         }
         $subject = ($new ? 'New ticket' : 'Reply') . " [#{$ticket->reference}] " . mb_substr((string) $ticket->subject, 0, 150);
@@ -90,8 +106,14 @@ final class TicketMailer
     public static function domain(Ticket $ticket): string
     {
         $email = (string) $ticket->department?->email;
-        $domain = str_contains($email, '@') ? substr($email, strrpos($email, '@') + 1) : (string) parse_url((string) config('app.url'), PHP_URL_HOST);
+        foreach ([str_contains($email, '@') ? substr($email, strrpos($email, '@') + 1) : '', (string) parse_url((string) config('app.url'), PHP_URL_HOST)] as $domain) {
+            // An IDN as its ASCII form (xn--): an id of ours is ASCII, or it would not be ours (MessageId::isOurs).
+            $ascii = $domain !== '' ? strtolower((string) (idn_to_ascii($domain, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46) ?: '')) : '';
+            if (preg_match('/^[a-z0-9-]+(\.[a-z0-9-]+)+$/', $ascii) === 1) {
+                return $ascii;
+            }
+        }
 
-        return strtolower($domain !== '' ? $domain : 'localhost');
+        return 'localhost.localdomain';
     }
 }

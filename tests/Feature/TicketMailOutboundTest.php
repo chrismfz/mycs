@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\TicketResource\Pages\EditTicket;
 use App\Mail\Mail;
 use App\Models\NotificationTemplate;
 use App\Models\Role;
@@ -10,9 +11,15 @@ use App\Models\Ticket;
 use App\Models\TicketDepartment;
 use App\Models\TicketMailId;
 use App\Models\TicketMessage;
+use App\Models\TicketQuarantine;
 use App\Models\User;
+use App\Support\Tickets\InboundRouter;
+use App\Support\Tickets\TicketMailer;
+use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\RateLimiter;
+use Livewire\Livewire;
 use MyCS\TicketMail\Imap\Mailbox;
 use MyCS\TicketMail\MessageId;
 use MyCS\TicketMail\Tests\Eml;
@@ -80,7 +87,7 @@ class TicketMailOutboundTest extends TestCase
         $this->assertSame("<{$key->message_id}>", $headers->get('Message-ID')->getBodyAsString());
         $this->assertSame('<orig@example.com>', $headers->get('In-Reply-To')->getBodyAsString(), 'it answers the customer\'s mail');
         $this->assertSame(['support@myip.test'], array_map(fn ($address) => $address->getAddress(), $mail->getReplyTo()));
-        $this->assertSame('support@myip.test', $mail->getFrom()[0]->getAddress(), 'the department\'s address, of the domain we send for');
+        $this->assertNotSame('support@myip.test', $mail->getFrom()[0]->getAddress(), 'ours: a submission server refuses another sender (review of #249)');
         $this->assertSame($ticket->reference, $headers->get('X-MyCS-Ticket')->getBodyAsString());
         $this->assertNull($headers->get('Auto-Submitted'), 'a person wrote it');
         $this->assertStringContainsString('Nikos Staff', (string) $mail->getHtmlBody(), 'the author by name');
@@ -178,15 +185,24 @@ class TicketMailOutboundTest extends TestCase
         $this->staffReply($ticket);
         TicketMessage::query()->create(['ticket_id' => $ticket->id, 'message' => 'Customer again <script>x</script>', 'via' => TicketMessage::VIA_EMAIL]);
 
-        $toStaff = $this->sent()->filter(fn (Email $email) => str_ends_with($email->getTo()[0]->getAddress(), '@myip.test'));
-        $this->assertSame(['agent@myip.test', 'agent@myip.test'], $toStaff->map(fn (Email $email) => $email->getTo()[0]->getAddress())->values()->all(),
+        $toStaff = fn () => $this->sent()->filter(fn (Email $email) => str_ends_with($email->getTo()[0]->getAddress(), '@myip.test'))->values();
+        $this->assertSame(['agent@myip.test', 'agent@myip.test'], $toStaff()->map(fn (Email $email) => $email->getTo()[0]->getAddress())->all(),
             'the new ticket and the reply; not the staff reply; not to staff without the tickets permission');
-        $this->assertStringStartsWith('New ticket', (string) $toStaff->first()->getSubject());
-        $this->assertStringNotContainsString('<script>', (string) $toStaff->last()->getHtmlBody());
+        $this->assertStringStartsWith('New ticket', (string) $toStaff()->first()->getSubject());
+        $this->assertSame('auto-generated', $toStaff()->first()->getHeaders()->get('Auto-Submitted')?->getBodyAsString());
+        $this->assertStringNotContainsString('<script>', (string) $toStaff()->last()->getHtmlBody());
+
+        // Another reply within 10 minutes is the same notice; after them, a new one.
+        TicketMessage::query()->create(['ticket_id' => $ticket->id, 'message' => 'Again', 'via' => TicketMessage::VIA_EMAIL]);
+        $this->assertCount(2, $toStaff());
+        $this->travel(TicketMailer::NOTICE_MINUTES + 1)->minutes();
+        TicketMessage::query()->create(['ticket_id' => $ticket->id, 'message' => 'Later', 'via' => TicketMessage::VIA_EMAIL]);
+        $this->assertCount(3, $toStaff());
 
         // Assigned: only to whom it is assigned.
         $other = Staff::factory()->create(['email' => 'other@myip.test', 'role_id' => $role->id]);
         $ticket->update(['assigned_to' => $other->id]);
+        $this->travel(TicketMailer::NOTICE_MINUTES + 1)->minutes();
         TicketMessage::query()->create(['ticket_id' => $ticket->id, 'message' => 'Third', 'via' => TicketMessage::VIA_EMAIL]);
         $this->assertSame('other@myip.test', $this->sent()->last()->getTo()[0]->getAddress());
     }
@@ -202,5 +218,59 @@ class TicketMailOutboundTest extends TestCase
         $this->assertStringContainsString('{{ author_name }}', (string) \DB::table('notification_templates')->where('key', 'new_ticket_message')->value('body'));
         $this->assertStringContainsString('{{ author_name }}', (string) \DB::table('notification_templates')->where('key', 'new_ticket_message')->value('translations'));
         $this->assertTrue(\DB::table('notification_templates')->whereIn('key', ['guest_ticket_message', 'ticket_received'])->count() === 2);
+    }
+
+    /** Reviews of #249: the template's Cc and Bcc never get a ticket's mail (its Message-ID is a key). */
+    public function test_a_ticket_mail_is_copied_to_no_one(): void
+    {
+        NotificationTemplate::query()->where('key', 'guest_ticket_message')->update(['cc' => ['boss@myip.test'], 'bcc' => ['audit@myip.test']]);
+        $this->staffReply($this->guestTicket());
+
+        $mail = $this->sent()->sole();
+        $this->assertSame([[], []], [$mail->getCc(), $mail->getBcc()]);
+    }
+
+    /** One sender, one key: at most REPLIES_PER_HOUR replies an hour join; the rest wait for staff. */
+    public function test_replies_by_mail_are_limited_per_sender(): void
+    {
+        RateLimiter::clear('ticket-mail-reply:maria@example.com');
+        $ticket = $this->guestTicket();
+        $this->staffReply($ticket);
+        $key = TicketMailId::query()->sole()->message_id;
+        for ($i = 0; $i <= InboundRouter::REPLIES_PER_HOUR; $i++) {
+            $this->mailbox->unseen[] = Eml::make(['From' => 'maria@example.com', 'Message-ID' => "<r{$i}@example.com>", 'In-Reply-To' => "<{$key}>",
+                'Authentication-Results: mymail.myip.test; dmarc=pass header.from=example.com'], "Reply {$i}");
+        }
+        $this->artisan('app:fetch-emails')->assertSuccessful();
+
+        $this->assertSame(InboundRouter::REPLIES_PER_HOUR, $ticket->messages()->where('via', TicketMessage::VIA_EMAIL)->count() - 1);
+        $this->assertSame('rate_limited', TicketQuarantine::query()->sole()->reason);
+    }
+
+    /** A guest ticket opened by a mail our server did not vouch for says so to staff. */
+    public function test_an_unvouched_sender_is_told_to_staff(): void
+    {
+        $this->mailbox->unseen[] = Eml::make(['From' => 'maria@example.com', 'Message-ID' => '<u1@example.com>',
+            'Authentication-Results: mymail.myip.test; dmarc=fail header.from=example.com']);
+        $this->artisan('app:fetch-emails')->assertSuccessful();
+        $ticket = Ticket::query()->sole();
+        $this->assertFalse($ticket->sender_vouched);
+
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $this->actingAs(Staff::factory()->create(['role_id' => Role::create(['name' => 'All', 'permissions' => ['*']])->id]), 'staff');
+        Livewire::test(EditTicket::class, ['record' => $ticket->getRouteKey()])
+            ->assertSee('it may be forged');
+    }
+
+    /** The migration also finds the author's old name as staff spaced it. */
+    public function test_the_author_is_named_also_in_a_template_spaced_otherwise(): void
+    {
+        $migration = require database_path('migrations/2026_12_07_000001_tickets_outbound_mail.php');
+        \DB::table('notification_templates')->where('key', 'new_ticket_message')->update(['body' => 'From {{ticketMessage.user.name}}:']);
+
+        $migration->down();
+        $migration->up();
+
+        $this->assertSame('From {{ author_name }}:', \DB::table('notification_templates')->where('key', 'new_ticket_message')->value('body'));
     }
 }

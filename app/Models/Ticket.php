@@ -52,6 +52,7 @@ class Ticket extends Model implements Auditable
         'guest_email',
         'reference',
         'opened_via',
+        'sender_vouched',
         'assigned_to',
         'service_id',
     ];
@@ -83,6 +84,9 @@ class Ticket extends Model implements Auditable
             }
         }
     }
+
+    /** Opened by a mail: whether our server vouched for its From (false: it may be forged); null otherwise. */
+    protected $casts = ['sender_vouched' => 'boolean'];
 
     /** @return array<string, string> status => label, for staff */
     public static function statusOptions(): array

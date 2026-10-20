@@ -119,9 +119,11 @@ class NotificationHelper
             $mail->attachFromStorage($attachment['path'], $attachment['name'], $attachment['options'] ?? []);
         }
 
+        // A ticket's mail goes to its owner only (docs/tickets.md §3 Γ): its Message-ID is a key, never copied to anyone.
+        $ticketMail = $mail->threadMessageId !== null;
         FacadesMail::to($user->email)
-            ->bcc($notificationTemplate->bcc)
-            ->cc($notificationTemplate->cc)
+            ->bcc($ticketMail ? [] : $notificationTemplate->bcc)
+            ->cc($ticketMail ? [] : $notificationTemplate->cc)
             ->queue($mail);
     }
 
@@ -477,7 +479,7 @@ class NotificationHelper
             $previous = self::$account;
             self::$account = $ticket->client;
             try {
-                $data = TemplateRenderer::context(['ticket' => $ticket, 'thread_message_id' => $threadMessageId] + $data, $recipient);
+                $data = TemplateRenderer::context($data + ['ticket' => $ticket, 'thread_message_id' => $threadMessageId], $recipient);
                 self::sendEmailNotification($template->inLocale($locale), $data, $recipient);
             } catch (TemplateError $e) {
                 report($e);
