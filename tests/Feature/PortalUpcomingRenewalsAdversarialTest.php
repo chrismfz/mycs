@@ -159,7 +159,11 @@ class PortalUpcomingRenewalsAdversarialTest extends TestCase
         Invoice::query()->whereKey($invoice->id)->update(['status' => Invoice::STATUS_PAID, 'apply_pending_since' => now()]);
 
         $this->assertNull($this->billed($service), 'precondition: the cron does not bill it (BIL-9)');
-        $this->assertStringNotContainsString('Paid Hosting', $this->card($user), 'paid: nothing more to pay for it');
+        // Author's note (findings of #231): the paid period (05/11) is not to come; the monthly one after it (05/12) is
+        // billed as usual, so it is forecast (the code review's per-period forecast).
+        $card = $this->card($user);
+        $this->assertStringNotContainsString('05/11/2026 · Paid Hosting', $card, 'paid: nothing more to pay for it');
+        $this->assertStringContainsString('05/12/2026 · Paid Hosting', $card, 'its next period is');
     }
 
     /** ADV-4: a change of cycle «from the next renewal» (SVC-14b, next_plan_id) is billed at the new plan's price. */

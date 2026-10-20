@@ -218,7 +218,7 @@ class PortalUpcomingRenewalsTest extends TestCase
         $this->assertStringContainsString(__('dashboard.renewals.invoiced'), $october);
         $this->assertStringNotContainsString('Already paid', $october, 'paid, waiting to be applied: not to come');
         $this->assertStringContainsString('Already paid', $this->month($html, '2026-11'), 'its next period is');
-        $this->assertStringNotContainsString('Free of charge', $html);
+        $this->assertStringNotContainsString('Free of charge', $this->card($html), 'renewed without an invoice');
     }
 
     public function test_a_cycle_change_from_the_next_renewal_is_forecast_at_the_next_plans_price(): void

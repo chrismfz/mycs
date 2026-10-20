@@ -83,11 +83,15 @@ final class UpcomingRenewals
     /** @return list<array{name: string, date: CarbonImmutable, cents: ?int, currency: ?Currency, url: string, invoiced: bool}> */
     private function services(CarbonImmutable $from, CarbonImmutable $until): array
     {
-        $services = $this->client->services()->where('status', Service::STATUS_ACTIVE)
+        $services = $this->client->services()->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
             ->whereNotNull('expires_at')->where('expires_at', '<=', $until->endOfDay())
             ->whereHas('plan', fn ($plan) => $plan->whereNotIn('type', ['one-time', 'free']))
             ->whereDoesntHave('cancellation')
             ->with(['plan', 'nextPlan', 'product', 'currency', 'coupon'])->get();
+        // A suspended one is not billed again, unless suspended for non-payment and paid since (Δ3a, RenewalBilling).
+        $services = $services->filter(fn (Service $service) => $service->status === Service::STATUS_ACTIVE || ($service->dunning_suspended_at !== null
+            && $service->invoiceItems()->whereNotNull('applied_at')->where('applied_at', '>=', $service->dunning_suspended_at)
+                ->whereHas('invoice', fn ($invoice) => $invoice->where('status', Invoice::STATUS_PAID))->exists()));
         $billed = $this->billedServicePeriods($services->modelKeys());
 
         $rows = [];
@@ -100,6 +104,10 @@ final class UpcomingRenewals
                 $priced = $this->pricedFor($service, $start, $first);
                 $end = $priced->periodEnd($start);
                 $line = $billed[$service->id][$start->toDateString()] ?? null;
+                // A period given up on (Δ3): the billing bills nothing after it.
+                if ($line?->forgone_at !== null) {
+                    break;
+                }
                 if ($start->gte($from) && $line?->invoice?->status !== Invoice::STATUS_PAID) {
                     $cents = $priced->recurringGrossCents();
                     if ($cents > 0 || $line !== null) {
@@ -150,8 +158,8 @@ final class UpcomingRenewals
     }
 
     /**
-     * The services' periods already on an invoice that is not cancelled, by their start: unpaid (to pay, marked) or paid (to
-     * be applied, BIL-9: not to come).
+     * The services' periods already on an invoice, by their start: unpaid (to pay, marked), paid (to be applied, BIL-9: not
+     * to come), or given up on (Δ3: nothing more is billed).
      *
      * @param  list<int>  $ids
      * @return array<int, array<string, InvoiceItem>>
@@ -163,8 +171,9 @@ final class UpcomingRenewals
         }
         $billed = [];
         InvoiceItem::query()->where('reference_type', Service::class)->whereIn('reference_id', $ids)->whereNull('kind')
-            ->whereNotNull('period_start')->whereNull('forgone_at')
-            ->whereHas('invoice', fn ($invoice) => $invoice->whereIn('status', [Invoice::STATUS_UNPAID, Invoice::STATUS_PAID]))
+            ->whereNotNull('period_start')
+            ->where(fn ($q) => $q->whereNotNull('forgone_at')
+                ->orWhereHas('invoice', fn ($invoice) => $invoice->whereIn('status', [Invoice::STATUS_UNPAID, Invoice::STATUS_PAID])))
             ->with('invoice')->orderBy('id')->get()
             ->each(function (InvoiceItem $line) use (&$billed) {
                 $billed[(int) $line->reference_id][$line->period_start->toDateString()] = $line;
@@ -184,9 +193,10 @@ final class UpcomingRenewals
             ->map(function (Domain $domain) use ($rate) {
                 $domain->setRelation('client', $this->client);
                 $date = CarbonImmutable::parse($domain->expires_at);
-                // Its renewal already invoiced: paid, it is waiting for its registrar (not to come); unpaid, marked.
-                $line = DomainRenewalService::billedLine($domain, Carbon::parse($domain->expires_at), payable: true);
-                if ($line?->invoice?->status === Invoice::STATUS_PAID) {
+                // Its renewal already on an invoice (the billing's own check): unpaid, marked; paid (waiting for its registrar)
+                // or given up on (Δ3), not to come.
+                $line = DomainRenewalService::billedLine($domain, Carbon::parse($domain->expires_at)->startOfDay());
+                if ($line !== null && ($line->forgone_at !== null || $line->invoice?->status !== Invoice::STATUS_UNPAID)) {
                     return null;
                 }
                 $years = $domain->nextRenewalYears();
