@@ -7,8 +7,11 @@ use App\Admin\Components\ClientComponent;
 use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\TicketResource;
+use App\Models\CannedReply;
+use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
+use App\Support\Tickets\CannedReplyExpander;
 use App\Support\Tickets\GuestLinks;
 use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
@@ -19,6 +22,7 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Schemas\Components\Actions;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Support\Enums\TextSize;
 use Illuminate\Database\Eloquent\Builder;
@@ -37,6 +41,25 @@ class EditTicket extends EditRecord
         return $schema
             ->columns(1)
             ->components([
+                // A predefined reply into the editor, its tokens filled in; added after what staff already wrote (§6ι).
+                Select::make('canned')
+                    ->label('Predefined reply')
+                    ->placeholder('Insert a predefined reply…')
+                    ->options(fn () => CannedReply::options())
+                    ->searchable()
+                    ->live()
+                    ->dehydrated(false)
+                    ->visible(fn () => CannedReply::query()->where('is_active', true)->exists())
+                    ->afterStateUpdated(function ($state, Set $set, Get $get) {
+                        $reply = filled($state) ? CannedReply::query()->where('is_active', true)->find($state) : null;
+                        if ($reply !== null && $this->record instanceof Ticket) {
+                            $staff = Auth::guard('staff')->user();
+                            $text = CannedReplyExpander::expand($reply->body, $this->record, $staff instanceof Staff ? $staff : null);
+                            $current = rtrim((string) $get('message'));
+                            $set('message', $current === '' ? $text : $current . "\n\n" . $text);
+                        }
+                        $set('canned', null);
+                    }),
                 MarkdownEditor::make('message')
                     ->label('Message')
                     ->toolbarButtons([

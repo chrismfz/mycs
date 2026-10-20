@@ -450,6 +450,25 @@ email επιβεβαίωσης στον επισκέπτη με τον αριθ�
   - στο admin ξεχωρίζει με κίτρινο πλαίσιο και badge.
 - Οι σημειώσεις του WHMCS (`tblticketnotes`) έρχονταν ήδη με τον importer (§6ζ).
 
+## 6ι. Έτοιμες απαντήσεις (predefined replies, 2026-10-20)
+- **Admin:** Tickets → Predefined Replies, με τίτλο, κατηγορία, κείμενο (Markdown), σειρά και «ενεργή». Δικαιώματα
+  `admin.canned_replies.*`. Μοντέλο το Ekdosi, χωρίς `company_id`.
+- Οι κατηγορίες έχουν δική τους σελίδα: Tickets → Reply Categories, για μετονομασία, σειρά και διαγραφή. Όταν σβήνεται μια
+  κατηγορία, οι απαντήσεις της μένουν, στο «Γενικά».
+- **Στην απάντηση:** το select «Predefined reply» βάζει το κείμενο μετά από ό,τι έχει ήδη γράψει το staff, με τα tokens
+  συμπληρωμένα:
+  - `{{client.name}}`, `{{client.first_name}}`, `{{client.email}}`: του λογαριασμού, ή του επισκέπτη·
+  - `{{ticket.reference}}`, `{{ticket.subject}}`, `{{staff.name}}`·
+  - ένα άγνωστο token μένει όπως γράφτηκε, για να φαίνεται το λάθος.
+  Το staff το διαβάζει πριν το στείλει· στέλνεται και ως σημείωση.
+- **WHMCS:** ο importer των tickets φέρνει τα `tblticketpredefinedcats` / `tblticketpredefinedreplies` (myip 9 σε 4
+  κατηγορίες, nixpal 4 σε 2· καμία δεν έχει merge fields).
+  - Τα `[NAME]`, `[FIRSTNAME]` και `[EMAIL]` γίνονται tokens.
+  - Είναι re-runnable με `whmcs_id`: μια απάντηση ακολουθεί το WHMCS όσο δεν την άλλαξε κανείς εδώ, και όποια σβήστηκε
+    εδώ δεν ξαναέρχεται (tombstone). Το «άλλαξε εδώ» κρίνεται από το `whmcs_hash` (ό,τι έγραψε τελευταία ο importer), όχι
+    από τα timestamps, για να πιάνει και αλλαγή μέσα στο ίδιο δευτερόλεπτο (adversarial review του #265).
+  - Αν οι υποκατηγορίες του WHMCS βρεθούν ποτέ, έρχονται επίπεδες.
+
 ## 7. Αποφάσεις και ανοιχτά
 Αποφασίστηκε (owner, 2026-10-20):
 - Χωρίς `mailbox+token@` (§3 Α).

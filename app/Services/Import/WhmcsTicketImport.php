@@ -2,8 +2,11 @@
 
 namespace App\Services\Import;
 
+use App\Models\CannedReply;
+use App\Models\CannedReplyCategory;
 use App\Models\Ticket;
 use App\Models\TicketDepartment;
+use App\Support\Tickets\CannedReplyExpander;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -26,6 +29,8 @@ use Throwable;
  * merged into it (to the end of a chain), internal when another requester wrote them. Files from a copy of WHMCS's
  * attachments folder under §3 ΣΤ, every one counted. No event fires (no mail, no status moved, no notice). One ticket that
  * fails is counted and skipped; the others go on. --dry-run: the same numbers, nothing kept.
+ * Predefined replies and their categories (§6ι): brought once and followed while not edited here; WHMCS's merge fields
+ * ([NAME], …) as our tokens; one deleted here stays deleted.
  */
 final class WhmcsTicketImport
 {
@@ -48,7 +53,7 @@ final class WhmcsTicketImport
 
     /** @var array<string, mixed> */
     private array $counts = ['departments' => 0, 'tickets' => 0, 'unchanged' => 0, 'guests' => 0, 'no_account' => 0, 'messages' => 0, 'notes' => 0,
-        'merged' => 0, 'files' => 0, 'files_missing' => 0, 'files_refused' => 0, 'files_removed' => 0, 'truncated' => 0, 'reference_taken' => 0,
+        'merged' => 0, 'canned_replies' => 0, 'files' => 0, 'files_missing' => 0, 'files_refused' => 0, 'files_removed' => 0, 'truncated' => 0, 'reference_taken' => 0,
         'deleted_here' => 0, 'failed' => 0, 'errors' => [], 'other_status' => []];
 
     /** @var array<int, int> WHMCS department id => ours */
@@ -85,6 +90,7 @@ final class WhmcsTicketImport
         }
         try {
             $this->departments();
+            $this->cannedReplies();
             $this->merges();
             $last = 0;
             do {
@@ -148,6 +154,61 @@ final class WhmcsTicketImport
             $this->departments[(int) $row['id']] = $department->id;
             $this->counts['departments']++;
         }
+    }
+
+    /** WHMCS's predefined replies, by category (WHMCS's sub-categories as their own, flat). */
+    private function cannedReplies(): void
+    {
+        if (!$this->hasTable('tblticketpredefinedreplies')) {
+            return;
+        }
+        $categories = [];
+        if ($this->hasTable('tblticketpredefinedcats')) {
+            foreach ($this->rows('SELECT * FROM tblticketpredefinedcats ORDER BY id') as $row) {
+                $category = $this->keep(CannedReplyCategory::class, 'canned_category:' . $row['id'], (int) $row['id'],
+                    ['name' => mb_substr($this->text((string) $row['name']) ?: 'Category ' . $row['id'], 0, 255), 'sort' => min(65535, (int) $row['id'])]);
+                $categories[(int) $row['id']] = $category?->id;
+            }
+        }
+        foreach ($this->rows('SELECT * FROM tblticketpredefinedreplies ORDER BY id') as $row) {
+            $body = strtr($this->text((string) $row['reply'], multiline: true), CannedReplyExpander::WHMCS);
+            if (strlen($body) > self::MAX_TEXT_BYTES) {
+                $body = mb_strcut($body, 0, self::MAX_TEXT_BYTES);
+                $this->counts['truncated']++;
+            }
+            $reply = $this->keep(CannedReply::class, 'canned:' . $row['id'], (int) $row['id'], [
+                'canned_reply_category_id' => $categories[(int) $row['catid']] ?? null,
+                'title' => mb_substr($this->text((string) $row['name']) ?: 'Reply ' . $row['id'], 0, 255),
+                'body' => $body,
+                'sort' => min(65535, (int) $row['id']),
+            ]);
+            $this->counts['canned_replies'] += $reply !== null ? 1 : 0;
+        }
+    }
+
+    /**
+     * One row of WHMCS's kept here by its whmcs_id: made if missing, followed while it holds what the import last wrote
+     * (`whmcs_hash`: any other value was edited here, whatever the second), never brought back once deleted here.
+     *
+     * @template T of CannedReply|CannedReplyCategory
+     *
+     * @param  class-string<T>  $model
+     * @param  array<string, mixed>  $values
+     * @return T|null
+     */
+    private function keep(string $model, string $tombstone, int $whmcsId, array $values): ?object
+    {
+        if ($this->tombstoned($tombstone)) {
+            return null;
+        }
+        $record = $model::query()->firstOrNew(['whmcs_id' => $whmcsId]);
+        $hash = fn (array $row) => hash('sha256', (string) json_encode(array_map(fn ($value) => $value === null ? null : (string) $value, $row)));
+        if ($record->exists && $record->whmcs_hash !== $hash($record->only(array_keys($values)))) {
+            return $record; // edited here: MyCS's wins
+        }
+        $record->forceFill(['whmcs_id' => $whmcsId, 'whmcs_hash' => $hash($values)] + $values)->saveQuietly();
+
+        return $record;
     }
 
     /** WHMCS's merges, each to the end of its chain (B into A, A into C: B ends in C); one whose end is gone comes as itself. */
