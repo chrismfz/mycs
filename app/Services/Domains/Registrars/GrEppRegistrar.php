@@ -324,20 +324,24 @@ class GrEppRegistrar implements ChangesOwner, DomainRegistrar, EmailsAuthCode, M
      * P1b-2: one of our contacts' address, phone and email as the contact's (contact:update; its name and company never,
      * the registry keeps them). Its Greek postal info, as made (draft()).
      */
-    public function updateContact(string $handle, Contact $contact, DomainRegistrarCredentials $credentials): void
+    public function updateContact(string $handle, Contact $contact, DomainRegistrarCredentials $credentials, bool $email = true): void
     {
+        // Only one made under our prefix: another registrar's (a domain transferred in) is not ours to change (M3 of #248).
+        if (stripos($handle, self::prefix($credentials) . '_') !== 0) {
+            throw new InvalidArgumentException("The registry contact {$handle} is not one of ours: not changed.");
+        }
         $voice = Phone::epp($contact->phone, $contact->country) ?? throw new InvalidArgumentException("The contact {$handle} has no phone: the registry needs one.");
         $changes = new ContactChanges(
             localAddress: ['street' => array_values(array_filter([trim((string) $contact->address1), trim((string) $contact->address2)])),
                 'city' => (string) $contact->city, 'province' => trim((string) $contact->state) ?: (string) $contact->city,
                 'postcode' => (string) $contact->postcode, 'country' => (string) $contact->country],
             voice: $voice,
-            email: (string) $contact->email,
+            email: $email ? (string) $contact->email : null,
         );
         try {
             $this->command($credentials, fn (string $clTRID) => ContactUpdate::request($handle, $changes, $clTRID), ContactUpdate::parse(...));
         } catch (Refused $e) {
-            throw new RuntimeException("The registry refused to update the contact {$handle}: {$e->getMessage()}");
+            throw new RegistrarRefused("The registry refused to update the contact {$handle}: {$e->getMessage()}");
         }
     }
 

@@ -89,7 +89,11 @@ class ContactPushTest extends TestCase
 
         $targets = ContactPush::targets($this->contact);
 
-        $this->assertSame([$this->gr->id . '|c60_mcs1' => [$a->id, $b->id], $this->op->id . '|OP1-GR' => [$c->id]], $targets);
+        $this->assertSame([
+            ['connection' => $this->gr->id, 'handle' => 'c60_mcs1', 'domains' => [$a->id, $b->id], 'email' => true],
+            // An Openprovider holder: its email not sent (ICANN's verification, code review of #248).
+            ['connection' => $this->op->id, 'handle' => 'OP1-GR', 'domains' => [$c->id], 'email' => false],
+        ], $targets);
     }
 
     public function test_a_changed_address_phone_or_email_is_sent_who_it_is_and_notes_are_not(): void
@@ -106,7 +110,7 @@ class ContactPushTest extends TestCase
 
     public function test_openprovider_takes_the_details_never_the_name(): void
     {
-        $domain = $this->domain('gamma.com', $this->op, ['registrant' => 'OP1-GR']);
+        $domain = $this->domain('gamma.com', $this->op, ['admin' => 'OP1-GR']);
         $sent = null;
         Http::fake(function (Request $request) use (&$sent) {
             if (str_contains($request->url(), '/auth/login')) {
@@ -152,7 +156,7 @@ class ContactPushTest extends TestCase
         $domain = $this->domain('gamma.com', $this->op, ['registrant' => 'OP1-GR']);
         Http::fake(fn (Request $request) => str_contains($request->url(), '/auth/login')
             ? Http::response(['data' => ['token' => 'tok']]) : Http::response(['code' => 399, 'desc' => 'Invalid zipcode'], 400));
-        $job = new PushContactJob($this->contact->id, 'OP1-GR', [$domain->id]);
+        $job = new PushContactJob($this->contact->id, $this->op->id, 'OP1-GR', [$domain->id]);
         $job->tries = 1; // its last attempt
 
         $job->handle(app(DomainRegistrarFactory::class));
@@ -168,12 +172,58 @@ class ContactPushTest extends TestCase
     public function test_a_success_closes_an_open_failure(): void
     {
         $domain = $this->domain('gamma.com', $this->op, ['registrant' => 'OP1-GR']);
-        ModuleAction::domainFailed($domain, null, 'openprovider', new \RuntimeException('down'), ModuleAction::DOMAIN_CONTACT);
+        ModuleAction::domainFailed($domain, null, 'openprovider', new \RuntimeException('down'), ModuleAction::DOMAIN_CONTACT, 'OP1-GR'); // a push's row names its handle
         Http::fake(fn (Request $request) => str_contains($request->url(), '/auth/login')
             ? Http::response(['data' => ['token' => 'tok']]) : Http::response(['code' => 0, 'data' => ['success' => true]]));
 
-        (new PushContactJob($this->contact->id, 'OP1-GR', [$domain->id]))->handle(app(DomainRegistrarFactory::class));
+        (new PushContactJob($this->contact->id, $this->op->id, 'OP1-GR', [$domain->id]))->handle(app(DomainRegistrarFactory::class));
 
         $this->assertSame(0, ModuleAction::query()->where('domain_id', $domain->id)->where('status', ModuleAction::STATUS_OPEN)->count());
+    }
+
+    public function test_an_openprovider_holders_email_is_not_sent_its_address_is(): void
+    {
+        $this->domain('owner.com', $this->op, ['registrant' => 'OP9-GR']);
+        $sent = null;
+        Http::fake(function (Request $request) use (&$sent) {
+            if (str_contains($request->url(), '/auth/login')) {
+                return Http::response(['data' => ['token' => 'tok']]);
+            }
+            $sent = $request->data();
+
+            return Http::response(['code' => 0, 'data' => ['success' => true]]);
+        });
+
+        $this->contact->update(['email' => 'owner-new@example.test', 'address1' => 'Odos 21']);
+
+        $this->assertArrayNotHasKey('email', $sent);
+        $this->assertSame('Odos', $sent['address']['street'] ?? null);
+    }
+
+    public function test_a_handle_another_account_also_has_is_not_sent_and_staff_are_told(): void
+    {
+        $mine = $this->domain('mine.gr', $this->gr, ['admin' => 'c60_shared']);
+        $other = User::factory()->create()->client();
+        $theirs = $other->contacts()->create(['first_name' => 'Agency', 'email' => 'a@example.test']);
+        Domain::factory()->create(['client_id' => $other->id, 'sld' => 'theirs', 'tld' => 'gr', 'fqdn' => 'theirs.gr',
+            'domain_tld_id' => $mine->domain_tld_id, 'registrar_connection_id' => $this->gr->id, 'status' => DomainStatus::Active,
+            'admin_contact_id' => $theirs->id, 'admin_handle' => 'c60_shared']);
+        Queue::fake();
+
+        $this->contact->update(['phone' => '+30.2109999999']);
+
+        Queue::assertNothingPushed();
+        $this->assertSame('c60_shared', ModuleAction::query()->where('domain_id', $mine->id)->open()->value('subject'));
+    }
+
+    public function test_a_connection_switched_off_is_never_written(): void
+    {
+        $this->domain('off.com', $this->op, ['admin' => 'OP1-GR']);
+        $this->op->update(['is_active' => false]);
+        Queue::fake();
+
+        $this->contact->update(['phone' => '+30.2109999999']);
+
+        Queue::assertNothingPushed();
     }
 }

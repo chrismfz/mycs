@@ -161,9 +161,11 @@ class ModuleActionResource extends Resource
                 Action::make('retryContact')->label('Retry')->icon('ri-loop-right-line')
                     ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && $record->action === ModuleAction::DOMAIN_CONTACT)
                     ->authorize('update')
+                    ->requiresConfirmation()
+                    ->modalDescription('Sends the contacts of this domain to its registrar again (address, phone, email; never names), as they are now. A handle another contact also has is not sent.')
                     ->action(function (ModuleAction $record) {
                         $sent = ContactPush::retryDomain((int) $record->domain_id);
-                        Notification::make()->success()->title($sent > 0 ? 'Sent again' : 'Nothing to send')->send();
+                        Notification::make()->success()->title($sent > 0 ? 'Queued: it runs in a moment' : 'Nothing to send (ended, switched off or shared): check the row')->send();
                     }),
                 Action::make('resolve')->label(fn (ModuleAction $record) => match ($record->action) {
                     ModuleAction::DOMAIN_RENEW => 'Renewed by hand',

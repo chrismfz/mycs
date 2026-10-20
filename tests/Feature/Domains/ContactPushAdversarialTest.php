@@ -149,7 +149,7 @@ class ContactPushAdversarialTest extends TestCase
     public function test_a_job_for_a_domain_that_ended_before_it_ran_sends_nothing(): void
     {
         $domain = $this->domain('gone.com', $this->op, ['registrant' => [$this->contact, 'OP1-GR']]);
-        $job = new PushContactJob($this->contact->id, 'OP1-GR', [$domain->id]);
+        $job = new PushContactJob($this->contact->id, $this->op->id, 'OP1-GR', [$domain->id]);
         $domain->forceFill(['status' => DomainStatus::TransferredAway])->save();
 
         $this->runJob($job);
@@ -162,7 +162,7 @@ class ContactPushAdversarialTest extends TestCase
     {
         $y = $this->makeContact($this->user, 'y@example.test');
         $domain = $this->domain('swap.com', $this->op, ['registrant' => [$this->contact, 'OP1-GR']]);
-        $job = new PushContactJob($this->contact->id, 'OP1-GR', [$domain->id]);
+        $job = new PushContactJob($this->contact->id, $this->op->id, 'OP1-GR', [$domain->id]);
         $domain->forceFill(['registrant_contact_id' => $y->id, 'registrant_handle' => 'OP1-GR'])->save();
 
         $this->runJob($job);
@@ -174,7 +174,7 @@ class ContactPushAdversarialTest extends TestCase
     public function test_a_job_for_a_domain_moved_to_another_account_sends_nothing(): void
     {
         $domain = $this->domain('moved.com', $this->op, ['registrant' => [$this->contact, 'OP1-GR']]);
-        $job = new PushContactJob($this->contact->id, 'OP1-GR', [$domain->id]);
+        $job = new PushContactJob($this->contact->id, $this->op->id, 'OP1-GR', [$domain->id]);
         $domain->forceFill(['client_id' => User::factory()->create()->client()->id])->save();
 
         $this->runJob($job);
@@ -216,11 +216,11 @@ class ContactPushAdversarialTest extends TestCase
         $y = $this->makeContact($this->user, 'y@example.test');
         $domain = $this->domain('mixed.com', $this->op, ['registrant' => [$this->contact, 'OP-R'], 'admin' => [$y, 'OP-A']]);
         $this->fail = true;
-        $this->runJob(new PushContactJob($this->contact->id, 'OP-R', [$domain->id]));
+        $this->runJob(new PushContactJob($this->contact->id, $this->op->id, 'OP-R', [$domain->id]));
         $this->assertSame(1, ModuleAction::query()->open()->where('domain_id', $domain->id)->count());
 
         $this->fail = false;
-        $this->runJob(new PushContactJob($y->id, 'OP-A', [$domain->id]));
+        $this->runJob(new PushContactJob($y->id, $this->op->id, 'OP-A', [$domain->id]));
 
         $this->assertSame(1, ModuleAction::query()->open()->where('domain_id', $domain->id)->where('action', ModuleAction::DOMAIN_CONTACT)->count(),
             'OP-R was never updated: its failure stays open');
@@ -233,7 +233,7 @@ class ContactPushAdversarialTest extends TestCase
     public function test_a_lock_timeout_on_the_last_attempt_is_a_pending_module_action(): void
     {
         $domain = $this->domain('locked.com', $this->op, ['registrant' => [$this->contact, 'OP1-GR']]);
-        $job = new PushContactJob($this->contact->id, 'OP1-GR', [$domain->id]);
+        $job = new PushContactJob($this->contact->id, $this->op->id, 'OP1-GR', [$domain->id]);
         $job->tries = 1;
         Cache::partialMock()->shouldReceive('lock')->andReturn(new class
         {
@@ -246,7 +246,8 @@ class ContactPushAdversarialTest extends TestCase
         try {
             $job->handle(app(DomainRegistrarFactory::class));
         } catch (Throwable $e) {
-            // What the worker does with a job that threw on its last attempt.
+            // What the worker does with a job that threw on its last attempt. (Author's note, findings of #248: the job takes
+            // its lock with get() and releases itself when busy; any other throw on the last attempt reaches failed().)
             if (method_exists($job, 'failed')) {
                 $job->failed($e);
             }
@@ -305,7 +306,8 @@ class ContactPushAdversarialTest extends TestCase
     public function test_holds_a_success_after_staff_retry_closes_the_row_and_nothing_loops(): void
     {
         $domain = $this->domain('loop.com', $this->op, ['registrant' => [$this->contact, 'OP1-GR'], 'admin' => [$this->contact, 'OP1-GR']]);
-        ModuleAction::domainFailed($domain, null, 'openprovider', new \RuntimeException('down'), ModuleAction::DOMAIN_CONTACT);
+        // Author's note (findings of #248): a push's row now names its handle (A8), as the push records it.
+        ModuleAction::domainFailed($domain, null, 'openprovider', new \RuntimeException('down'), ModuleAction::DOMAIN_CONTACT, 'OP1-GR');
 
         ContactPush::retryDomain($domain->id); // sync queue in tests: runs now
 

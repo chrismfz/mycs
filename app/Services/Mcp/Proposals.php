@@ -182,6 +182,14 @@ final class Proposals
                 ? "Send {$what} to its registrar now (charged to our account there), unless a charge is unconfirmed."
                 : "Mark {$what} done by hand at the registrar: the sync takes it on and its payment counts as used."];
         }
+        // A contact push (P1b-2): its row exists only once its own tries are over; sent again as the admin's Retry.
+        if ($action->action === ModuleAction::DOMAIN_CONTACT) {
+            $what = 'the contact details of ' . ($action->domain->fqdn ?? "domain #{$action->domain_id}") . ($action->subject ? " (registrar contact {$action->subject})" : '');
+
+            return [['module_action_id' => $action->id], $type === self::RETRY_MODULE_ACTION
+                ? "Send {$what} to its registrar again (address, phone, email; never names)."
+                : "Mark {$what} fixed at the registrar by hand, without sending anything."];
+        }
         // A retry only once the automatic ones are over, as the admin's Retry: before that it would race the queue.
         if ($type === self::RETRY_MODULE_ACTION && $action->given_up_at === null) {
             throw new InvalidArgumentException("Module action #{$action->id} is still being retried by the queue.");

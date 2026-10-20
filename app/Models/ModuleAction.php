@@ -100,10 +100,11 @@ class ModuleAction extends Model
      * A domain's renewal, registration or transfer failed, or waits for staff (D-15): one open row per domain, line (none
      * for a free transfer) and action, its attempts counted.
      */
-    public static function domainFailed(Domain $domain, ?InvoiceItem $line, ?string $module, Throwable $error, string $action = self::DOMAIN_RENEW): self
+    public static function domainFailed(Domain $domain, ?InvoiceItem $line, ?string $module, Throwable $error, string $action = self::DOMAIN_RENEW, ?string $subject = null): self
     {
-        $row = self::query()->open()->where('domain_id', $domain->id)->where('invoice_item_id', $line?->id)->where('action', $action)->latest('id')->first()
-            ?? new self(['domain_id' => $domain->id, 'invoice_item_id' => $line?->id, 'action' => $action, 'status' => self::STATUS_OPEN]);
+        $row = self::query()->open()->where('domain_id', $domain->id)->where('invoice_item_id', $line?->id)->where('action', $action)
+            ->where('subject', $subject)->latest('id')->first()
+            ?? new self(['domain_id' => $domain->id, 'invoice_item_id' => $line?->id, 'action' => $action, 'subject' => $subject, 'status' => self::STATUS_OPEN]);
         $row->fill(['module' => $module, 'attempts' => $row->attempts + 1, 'last_attempt_at' => now(),
             'last_error' => Str::limit(Redact::text($error->getMessage()), 2000)])->save();
 
@@ -111,10 +112,10 @@ class ModuleAction extends Model
     }
 
     /** Done (renewed, registered, transferred, adopted, or by hand): its open row, if any, completed. */
-    public static function domainSucceeded(Domain $domain, ?InvoiceItem $line, string $action = self::DOMAIN_RENEW): void
+    public static function domainSucceeded(Domain $domain, ?InvoiceItem $line, string $action = self::DOMAIN_RENEW, ?string $subject = null): void
     {
         $now = now();
-        self::query()->open()->where('domain_id', $domain->id)->where('invoice_item_id', $line?->id)->where('action', $action)
+        self::query()->open()->where('domain_id', $domain->id)->where('invoice_item_id', $line?->id)->where('action', $action)->where('subject', $subject)
             ->update(['status' => self::STATUS_COMPLETED, 'resolved_at' => $now, 'resolution' => 'succeeded', 'updated_at' => $now]);
     }
 
