@@ -110,4 +110,13 @@ class TicketsPolishTest extends TestCase
         $this->assertSame('Να με θυμάσαι', __('auth.remember_me'));
         $this->assertSame('Το μήνυμά σας', __('ticket.initial_message'));
     }
+
+    /** Livewire redraws nothing under wire:ignore: the file errors of the new ticket sit outside its form. */
+    public function test_the_new_tickets_file_errors_are_outside_what_livewire_ignores(): void
+    {
+        $view = (string) file_get_contents(resource_path('views/tickets/create.blade.php'));
+
+        $this->assertMatchesRegularExpression('#</form>.*\$errors->get\(\'attachments\*\'\)#s', $view);
+        $this->assertDoesNotMatchRegularExpression('#<form[^>]*wire:ignore[^>]*>(?:(?!</form>).)*\$errors->get\(\'attachments\*\'\)#s', $view);
+    }
 }

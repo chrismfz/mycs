@@ -102,15 +102,18 @@
                             wire:model.live="attachments" x-ref="fileInput"
                             @change="selectedFiles = Array.from($event.target.files)" />
                     </div>
+                    <x-button.primary class="mt-2 !w-fit float-right">
+                        {{ __('ticket.create') }}
+                    </x-button.primary>
+                </form>
+                {{-- Outside the form: Livewire never redraws what is under wire:ignore (browser test of #260). --}}
+                <div class="clear-both">
                     @foreach ($errors->get('attachments*') as $messages)
                         @foreach ((array) $messages as $message)
                             <p class="text-sm text-red-500 mt-1" role="alert">{{ is_array($message) ? implode(' ', $message) : $message }}</p>
                         @endforeach
                     @endforeach
-                    <x-button.primary class="mt-2 !w-fit float-right">
-                        {{ __('ticket.create') }}
-                    </x-button.primary>
-                </form>
+                </div>
                 <x-easymde-editor />
             </div>
         </div>
