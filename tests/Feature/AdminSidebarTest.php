@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Admin\AdminSidebar;
 use App\Admin\Resources\ClientResource;
 use App\Models\Role;
+use App\Models\Service;
 use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\User;
@@ -69,5 +70,16 @@ class AdminSidebarTest extends TestCase
         $this->withSession($this->loginUser($staff))->get('/admin')->assertOk()
             ->assertSee('mycs-work-sidebar', false)->assertSee(__('To handle'))
             ->assertSee('fi-sidebar-nav-groups', false); // hidden by CSS from lg up, where the top menu is
+    }
+
+    /** A resource in a cluster with no badge of its own (services) still has its count (review of #277's fix). */
+    public function test_pending_services_have_their_count(): void
+    {
+        $this->staff();
+        $product = $this->createProduct();
+        Service::factory()->create(['client_id' => User::factory()->create()->client()->id, 'product_id' => $product->product->id,
+            'plan_id' => $product->plan->id, 'status' => 'pending', 'currency_code' => 'USD', 'price' => 5, 'quantity' => 1]);
+
+        $this->assertSame('1', collect(AdminSidebar::queues())->firstWhere('label', 'Pending services')['badge']);
     }
 }

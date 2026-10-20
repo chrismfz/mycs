@@ -20,7 +20,7 @@ trait RemembersRecent
         $resource = static::getResource();
         $page = $resource::hasPage('view') ? 'view' : 'edit';
         try {
-            AdminSidebar::remember($resource::getModelLabel(), $record, (string) $resource::getRecordTitle($record), $resource::getUrl($page, ['record' => $record]));
+            AdminSidebar::remember($resource, $record, (string) $resource::getRecordTitle($record), $resource::getUrl($page, ['record' => $record]));
         } catch (\Throwable) {
             // A page whose URL cannot be built is just not remembered.
         }

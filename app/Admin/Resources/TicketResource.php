@@ -31,7 +31,7 @@ class TicketResource extends Resource
 {
     protected static ?string $model = Ticket::class;
 
-    /** Its name in «Recently viewed» and the breadcrumbs. */
+    /** Its name in «Recently viewed» (the sidebar shows its kind beside it). */
     public static function getRecordTitle(?Model $record): string|Htmlable|null
     {
         if (!$record instanceof Ticket) {

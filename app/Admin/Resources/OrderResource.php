@@ -47,14 +47,14 @@ class OrderResource extends Resource
 {
     protected static ?string $model = Order::class;
 
-    /** Its name in «Recently viewed» and the breadcrumbs. */
+    /** Its name in «Recently viewed» (the sidebar shows its kind beside it). */
     public static function getRecordTitle(?Model $record): string|Htmlable|null
     {
         if (!$record instanceof Order) {
             return parent::getRecordTitle($record);
         }
 
-        return 'Order #' . $record->getKey();
+        return '#' . $record->getKey();
     }
 
     protected static string|\BackedEnum|null $navigationIcon = 'ri-shopping-bag-4-line';
