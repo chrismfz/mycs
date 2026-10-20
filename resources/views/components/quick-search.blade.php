@@ -62,10 +62,12 @@
                 </div>
 
                 <div x-ref="list" class="max-h-[60vh] overflow-y-auto" aria-live="polite">
-                    @if (mb_strlen(trim($q)) < 2)
+                    @if (mb_strlen(trim((string) $q)) < 2)
                     <p class="px-4 py-6 text-sm text-base/60">{{ __('search.hint') }}</p>
+                    @elseif (mb_strlen(trim((string) $q)) > \App\Livewire\Components\QuickSearch::MAX)
+                    <p class="px-4 py-6 text-sm text-base/60">{{ __('search.too_long', ['max' => \App\Livewire\Components\QuickSearch::MAX]) }}</p>
                     @elseif (count($this->results) === 0)
-                    <p class="px-4 py-6 text-sm text-base/60">{{ __('search.none', ['q' => trim($q)]) }}</p>
+                    <p class="px-4 py-6 text-sm text-base/60">{{ __('search.none', ['q' => trim((string) $q)]) }}</p>
                     @else
                     <ul id="quick-search-results" class="py-2" role="listbox" aria-label="{{ __('search.title') }}">
                         @foreach ($this->results as $i => $result)

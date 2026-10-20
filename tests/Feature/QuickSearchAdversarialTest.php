@@ -320,8 +320,9 @@ class QuickSearchAdversarialTest extends TestCase
         $this->domain($user->client(), 'xn--hxakic4aa');
         $this->as($user);
 
-        $this->assertSame([], array_diff(['xn--hxakic4aa.gr'], $this->search('xn--hxakic4aa')), 'by punycode it is found');
-        $this->assertNotSame([], $this->search('ελλάδα.gr'));
+        // Author's note (findings of #232): found by punycode too, and shown by its Greek name, as this test's fix suggests.
+        $this->assertSame(['ελλάδα.gr'], $this->search('xn--hxakic4aa'), 'by punycode it is found');
+        $this->assertSame(['ελλάδα.gr'], $this->search('ελλάδα.gr'));
     }
 
     /** Per kind at most PER_KIND, so a common term is cheap; the newest first. */

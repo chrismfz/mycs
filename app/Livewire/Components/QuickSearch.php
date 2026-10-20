@@ -16,7 +16,11 @@ class QuickSearch extends Component
     /** Each kind's matches shown at most. */
     public const PER_KIND = 5;
 
-    public string $q = '';
+    /** Nullable: a crafted update sending null is no search, not a 500 (adversarial review of #232). */
+    public ?string $q = '';
+
+    /** Longer than this is not searched (and not echoed back). */
+    public const MAX = 100;
 
     /**
      * @return list<array{kind: string, title: string, detail: string, url: string}>
@@ -24,19 +28,26 @@ class QuickSearch extends Component
     #[Computed]
     public function results(): array
     {
-        $term = trim($this->q);
+        $term = trim((string) $this->q);
         $client = CurrentClient::model();
-        if ($client === null || mb_strlen($term) < 2 || mb_strlen($term) > 100) {
+        if ($client === null || mb_strlen($term) < 2 || mb_strlen($term) > self::MAX) {
             return [];
         }
+        // A Greek name (IDN) is stored as punycode: «ελλάδα.gr» finds «xn--…» too (adversarial review of #232).
+        $ascii = preg_match('/[^\x00-\x7F]/', $term) && function_exists('idn_to_ascii') ? idn_to_ascii(mb_strtolower($term), IDNA_NONTRANSITIONAL_TO_ASCII) : false;
+        $punycode = is_string($ascii) && $ascii !== mb_strtolower($term) ? '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $ascii) . '%' : null;
         // «!» escapes, the same on MariaDB and SQLite (neither then reads «%» or «_» typed as a wildcard).
         $like = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower($term)) . '%';
         $id = ctype_digit(ltrim($term, '#')) ? (int) ltrim($term, '#') : null;
         $results = [];
 
         if (CurrentClient::allows('domains')) {
-            foreach ($client->domains()->whereRaw("lower(fqdn) like ? escape '!'", [$like])->orderBy('fqdn')->limit(self::PER_KIND)->get() as $domain) {
-                $results[] = ['kind' => 'domain', 'title' => $domain->fqdn,
+            $domains = $client->domains()->where(fn ($q) => $q->whereRaw("lower(fqdn) like ? escape '!'", [$like])
+                ->when($punycode !== null, fn ($q) => $q->orWhereRaw("lower(fqdn) like ? escape '!'", [$punycode])))
+                ->orderBy('fqdn')->limit(self::PER_KIND)->get();
+            foreach ($domains as $domain) {
+                $unicode = function_exists('idn_to_utf8') ? idn_to_utf8($domain->fqdn, IDNA_NONTRANSITIONAL_TO_UNICODE) : false;
+                $results[] = ['kind' => 'domain', 'title' => is_string($unicode) && $unicode !== '' ? $unicode : $domain->fqdn,
                     'detail' => $domain->status->getLabel() . ($domain->expires_at ? ' · ' . __('search.expires', ['date' => $domain->expires_at->format('d/m/Y')]) : ''),
                     'url' => route('domains.show', $domain)];
             }
@@ -60,7 +71,8 @@ class QuickSearch extends Component
             foreach ($invoices as $invoice) {
                 $results[] = ['kind' => 'invoice',
                     'title' => !$invoice->number && config('settings.invoice_proforma', false) ? __('invoices.proforma_invoice', ['id' => $invoice->id]) : __('invoices.invoice', ['id' => $invoice->number]),
-                    'detail' => __('invoices.statuses.' . $invoice->status) . ' · ' . $invoice->created_at->format('d/m/Y'),
+                    // An imported row may have no date (adversarial review of #232).
+                    'detail' => __('invoices.statuses.' . $invoice->status) . ($invoice->created_at ? ' · ' . $invoice->created_at->format('d/m/Y') : ''),
                     'url' => route('invoices.show', $invoice)];
             }
         }
