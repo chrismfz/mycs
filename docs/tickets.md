@@ -170,6 +170,21 @@ email επιβεβαίωσης στον επισκέπτη με τον αριθ�
   του §5α. Πριν από το cut-over.
 - Μετά: εσωτερικές σημειώσεις, έτοιμες απαντήσεις, merge, CSAT, email ανά τμήμα (τμήματα ως πίνακας).
 
+## 6α. Α1: τι έγινε (2026-10-20)
+- `ticket_departments` (όνομα, σειρά, κρυφό, μόνο πελάτες, email, `whmcs_id`), Configuration → Ticket Departments·
+  η λίστα της ρύθμισης έγινε γραμμές (σε νέα εγκατάσταση Support και Sales, όπως το default της). Τμήμα με tickets
+  κρύβεται, δεν σβήνεται. Το API δέχεται `department_id` και, για συμβατότητα, το όνομα.
+- 5 καταστάσεις (`Ticket::STATUS_*`, `statusLabel()`/`statusColor()` σε ένα σημείο· τα `match` χωρίς default που θα
+  έσκαγαν με νέα κατάσταση έφυγαν). Μεταβάσεις στο `TicketMessageCreatedListener`· εσωτερική σημείωση: τίποτα.
+- Ticket επισκέπτη στο σχήμα (`client_id` nullable, `guest_name`, `guest_email`, `opened_via`): οι policies δεν το
+  δίνουν σε κανέναν λογαριασμό (ούτε με το ίδιο email· test με mutation)· admin: «Επισκέπτης» στη λίστα, φίλτρο,
+  «Link to client». Τίποτα δεν φτιάχνει ακόμα ticket επισκέπτη (Α2, Β). Email προς επισκέπτη: Α3.
+- `reference` με μάσκα WHMCS (`ticket_reference_mask`, `TicketReference`)· τα υπάρχοντα κρατούν το id τους· portal,
+  αναζήτηση και templates (`ticketMessage.ticket.reference`, και στα αποθηκευμένα) δείχνουν τον αριθμό.
+- `ticket_messages`: `email_message_id` (unique), `via`, `is_internal`, `body_original`, για τα Α2/Α3.
+- Ο παλιός importer προσαρμόστηκε μόνο ώστε να μη σπάσει (τμήματα με `whmcs_id`, καταστάσεις, `tid` → `reference`)·
+  ο κανονικός είναι το PR Δ.
+
 ## 7. Αποφάσεις και ανοιχτά
 Αποφασίστηκε (owner, 2026-10-20):
 - Χωρίς `mailbox+token@` (§3 Α).

@@ -91,6 +91,9 @@
                     {{ $this->form }}
                 </div>
                 <div class="flex flex-wrap gap-2 justify-end">
+                    @if ($this->linkToClient->isVisible())
+                        {{ $this->linkToClient }}
+                    @endif
                     @if ($this->closeTicket->isVisible())
                         {{ $this->closeTicket }}
                     @endif

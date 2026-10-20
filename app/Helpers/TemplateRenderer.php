@@ -80,7 +80,7 @@ class TemplateRenderer
         Order::class => ['relations' => ['services', 'client'], 'accessors' => ['formattedTotal']],
         Service::class => ['relations' => ['product', 'plan', 'client'], 'accessors' => ['formattedPrice', 'label']],
         ServiceCancellation::class => ['relations' => ['service']],
-        Ticket::class => ['relations' => ['client', 'service']],
+        Ticket::class => ['relations' => ['client', 'service', 'department']],
         TicketMessage::class => ['relations' => ['ticket', 'user']],
         User::class => ['accessors' => ['name']],
     ];

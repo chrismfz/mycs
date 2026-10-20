@@ -8,12 +8,15 @@ class TicketResource extends JsonApiResource
 {
     public $attributes = [
         'id',
+        'reference',
         'subject',
         'status',
         'priority',
         'assigned_to',
         'client_id',
-        'department',
+        'guest_name',
+        'guest_email',
+        'department_id',
         'updated_at',
         'created_at',
     ];

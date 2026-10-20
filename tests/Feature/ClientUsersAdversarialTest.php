@@ -28,6 +28,7 @@ use App\Models\Server;
 use App\Models\Service;
 use App\Models\Staff;
 use App\Models\Ticket;
+use App\Models\TicketDepartment;
 use App\Models\User;
 use App\Support\CurrentClient;
 use Database\Seeders\EmailTemplateSeeder;
@@ -518,7 +519,7 @@ class ClientUsersAdversarialTest extends TestCase
         $html = $this->workOn($member, $client)->get(route('tickets.create'))->assertOk()->getContent();
         $snapshot = $this->snapshotOf($html, 'tickets.create');
         $form = ['subject' => 'Help', 'message' => 'Text', 'priority' => 'low',
-            'department' => array_values((array) config('settings.ticket_departments'))[0] ?? ''];
+            'department' => TicketDepartment::query()->offered()->value('id')];
         $create = [['path' => '', 'method' => 'create', 'params' => []]];
 
         // Control: while allowed, the real request creates the ticket (the harness reaches the component).

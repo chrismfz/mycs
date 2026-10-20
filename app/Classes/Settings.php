@@ -10,6 +10,7 @@ use App\Models\Currency;
 use App\Models\Setting;
 use App\Models\TaxRate;
 use App\Rules\Cidr;
+use App\Rules\TicketReferenceMask;
 use App\Services\Tax\EuVat;
 use App\Support\CurrentClient;
 use DateTimeZone;
@@ -454,12 +455,15 @@ class Settings
                     'description' => 'Disable the ticket system. This will disable all client side ticket functionality, including the ability to create new tickets and view existing tickets.',
                 ],
                 [
-                    'name' => 'ticket_departments',
-                    'label' => 'Ticket Departments',
-                    'type' => 'tags',
-                    'default' => ['Support', 'Sales'],
+                    // The number customers see on a ticket, in WHMCS's mask syntax (docs/tickets.md §5): %n a digit, %A
+                    // and %a a letter, %y %m %d the date. Only for display, never a key to a ticket.
+                    'name' => 'ticket_reference_mask',
+                    'label' => 'Ticket number format',
+                    'type' => 'text',
+                    'default' => '%n%n%n%n%n%n',
                     'required' => true,
-                    'database_type' => 'array',
+                    'validation' => ['max:40', new TicketReferenceMask],
+                    'description' => 'As WHMCS «Ticket Mask»: %n a digit, %A an upper case letter, %a a lower case one, %y %m %d the date (e.g. %y-%m-%d-%n%n%n%n%n%n). At least four of %n, %A, %a. Departments are under Configuration → Ticket Departments.',
                 ],
                 [
                     'name' => 'ticket_client_closing_disabled',

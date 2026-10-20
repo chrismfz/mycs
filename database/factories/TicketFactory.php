@@ -19,9 +19,8 @@ class TicketFactory extends Factory
     {
         return [
             'subject' => $this->faker->sentence(1),
-            'status' => $this->faker->randomElement(['active', 'replied', 'closed']),
-            'priority' => $this->faker->randomElement(['low', 'medium', 'high']),
-            'department' => $this->faker->word(),
+            'status' => $this->faker->randomElement([Ticket::STATUS_OPEN, Ticket::STATUS_ANSWERED, Ticket::STATUS_CLOSED]),
+            'priority' => $this->faker->randomElement(Ticket::PRIORITIES),
         ];
     }
 }

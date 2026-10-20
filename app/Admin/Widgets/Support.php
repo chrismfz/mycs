@@ -29,14 +29,11 @@ class Support extends BaseWidget
                 TextColumn::make('status')
                     ->label('Status')
                     ->badge()
-                    ->color(fn (Ticket $record) => match ($record->status) {
-                        'open' => 'success',
-                        'closed' => 'danger',
-                        'replied' => 'warning',
-                    })
-                    ->formatStateUsing(fn (string $state) => ucfirst($state)),
+                    ->color(fn (Ticket $record) => Ticket::statusColor($record->status))
+                    ->formatStateUsing(fn (string $state) => Ticket::statusLabel($state)),
                 TextColumn::make('client.name')
-                    ->label('Client'),
+                    ->label('Client')
+                    ->state(fn (Ticket $record) => $record->requesterName()),
                 TextColumn::make('created_at')
                     ->label('Created At'),
             ])

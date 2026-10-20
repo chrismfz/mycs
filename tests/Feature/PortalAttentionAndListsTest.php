@@ -92,7 +92,7 @@ class PortalAttentionAndListsTest extends TestCase
             'external_reference' => 'pm_1', 'type' => 'card', 'expiry' => '2026-11-30']);
         BillingAgreement::query()->create(['client_id' => $client->id, 'gateway_id' => $gateway->id, 'name' => 'Visa 9999',
             'external_reference' => 'pm_2', 'type' => 'card', 'expiry' => '2027-05-31']);
-        Ticket::factory()->create(['client_id' => $client->id, 'status' => 'replied', 'subject' => 'Mail bounce']);
+        Ticket::factory()->create(['client_id' => $client->id, 'status' => 'answered', 'subject' => 'Mail bounce']);
         Ticket::factory()->create(['client_id' => $client->id, 'status' => 'open', 'subject' => 'Slow site']);
 
         $this->workOn($user)->get(route('dashboard'))->assertOk()
@@ -259,10 +259,10 @@ class PortalAttentionAndListsTest extends TestCase
     public function test_a_tickets_status_says_who_it_waits_on(): void
     {
         $user = User::factory()->create();
-        Ticket::factory()->create(['client_id' => $user->client()->id, 'status' => 'replied']);
+        Ticket::factory()->create(['client_id' => $user->client()->id, 'status' => 'answered']);
         Ticket::factory()->create(['client_id' => $user->client()->id, 'status' => 'open']);
 
         $this->workOn($user)->get(route('tickets'))->assertOk()
-            ->assertSee(__('ticket.statuses.replied'))->assertSee(__('ticket.statuses.open'));
+            ->assertSee(__('ticket.statuses.answered'))->assertSee(__('ticket.statuses.open'));
     }
 }

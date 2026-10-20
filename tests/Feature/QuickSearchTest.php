@@ -61,7 +61,7 @@ class QuickSearchTest extends TestCase
         $this->assertContains('shopmine.gr', $found);
         $this->assertContains('Shop hosting mine', $found);
         $this->assertContains(__('invoices.invoice', ['id' => 'SHOP-mine']), $found);
-        $this->assertContains('#' . Ticket::query()->where('subject', 'Shop is slow mine')->value('id') . ' · Shop is slow mine', $found);
+        $this->assertContains('#' . Ticket::query()->where('subject', 'Shop is slow mine')->value('reference') . ' · Shop is slow mine', $found);
         foreach ($found as $title) {
             $this->assertStringNotContainsString('theirs', $title);
         }
@@ -84,10 +84,12 @@ class QuickSearchTest extends TestCase
     public function test_an_invoice_or_ticket_is_found_by_its_number(): void
     {
         $user = User::factory()->create();
-        $ticket = Ticket::factory()->create(['client_id' => $user->client()->id, 'subject' => 'Mail bounce', 'status' => 'replied']);
+        $ticket = Ticket::factory()->create(['client_id' => $user->client()->id, 'subject' => 'Mail bounce', 'status' => 'answered']);
         $this->as($user);
 
-        $this->assertContains('#' . $ticket->id . ' · Mail bounce', $this->search('#' . $ticket->id));
+        // By the number the customer sees (docs/tickets.md §5), with or without «#».
+        $this->assertContains('#' . $ticket->reference . ' · Mail bounce', $this->search('#' . $ticket->reference));
+        $this->assertContains('#' . $ticket->reference . ' · Mail bounce', $this->search($ticket->reference));
     }
 
     public function test_a_member_finds_only_the_areas_of_their_grant(): void

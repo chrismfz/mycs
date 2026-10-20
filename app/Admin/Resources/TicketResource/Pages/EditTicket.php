@@ -55,6 +55,19 @@ class EditTicket extends EditRecord
             ]);
     }
 
+    /** The one way a guest's ticket reaches an account: staff, by hand, never by its email (docs/tickets.md §3 Δ). */
+    public function linkToClient(): Action
+    {
+        return Action::make('linkToClient')
+            ->label('Link to client')
+            ->icon('heroicon-o-link')
+            ->color('gray')
+            ->schema([ClientComponent::make('client_id')])
+            ->visible(fn () => $this->record instanceof Ticket && $this->record->isGuest() && auth()->user()->can('update', $this->record))
+            ->action(fn (array $data) => $this->record instanceof Ticket && $this->record->update(['client_id' => (int) $data['client_id']]))
+            ->after(fn () => $this->record->refresh());
+    }
+
     public function closeTicket(): Action
     {
         return Action::make('closeTicket')
@@ -106,35 +119,31 @@ class EditTicket extends EditRecord
             ->record($this->record)
             ->columns(['default' => 3, 'md' => 1])
             ->components([
+                // A guest's ticket names its guest; staff link it to an account by hand (docs/tickets.md §3 Δ).
                 TextEntry::make('client_id')
                     ->size(TextSize::Large)
-                    ->formatStateUsing(fn ($record) => $record->client->name)
-                    ->url(fn ($record) => ClientResource::getUrl('view', ['record' => $record->client]))
+                    ->state(fn (Ticket $record) => $record->isGuest() ? __('Guest') . ': ' . $record->guest_name . ' <' . $record->guest_email . '>' : $record->client?->name)
+                    ->url(fn (Ticket $record) => $record->client ? ClientResource::getUrl('view', ['record' => $record->client]) : null)
                     ->label('Client'),
+                TextEntry::make('reference')
+                    ->size(TextSize::Large)
+                    ->label('Number'),
                 TextEntry::make('subject')
                     ->size(TextSize::Large)
                     ->label('Subject'),
                 TextEntry::make('status')
                     ->size(TextSize::Large)
                     ->badge()
-                    ->formatStateUsing(fn ($state) => ucfirst($state))
-                    ->color(fn ($state) => match ($state) {
-                        'open' => 'success',
-                        'closed' => 'danger',
-                        'replied' => 'gray',
-                    })
+                    ->formatStateUsing(fn ($state) => Ticket::statusLabel($state))
+                    ->color(fn ($state) => Ticket::statusColor($state))
                     ->label('Status'),
                 TextEntry::make('priority')
                     ->size(TextSize::Large)
                     ->badge()
                     ->formatStateUsing(fn ($state) => ucfirst($state))
-                    ->color(fn ($state) => match ($state) {
-                        'low' => 'success',
-                        'medium' => 'gray',
-                        'high' => 'danger',
-                    })
+                    ->color(fn ($state) => Ticket::priorityColor($state))
                     ->label('Priority'),
-                TextEntry::make('department')
+                TextEntry::make('department.name')
                     ->size(TextSize::Large)
                     ->placeholder('No department')
                     ->label('Department'),
@@ -160,11 +169,7 @@ class EditTicket extends EditRecord
                                 ->components([
                                     Select::make('status')
                                         ->label('Status')
-                                        ->options([
-                                            'open' => 'Open',
-                                            'closed' => 'Closed',
-                                            'replied' => 'Replied',
-                                        ])
+                                        ->options(Ticket::statusOptions())
                                         ->default('open')
                                         ->required(),
                                     Select::make('priority')
@@ -176,10 +181,11 @@ class EditTicket extends EditRecord
                                         ])
                                         ->default('medium')
                                         ->required(),
-                                    Select::make('department')
+                                    Select::make('department_id')
                                         ->label('Department')
-                                        ->options(array_combine(config('settings.ticket_departments'), config('settings.ticket_departments'))),
-                                    ClientComponent::make('client_id'),
+                                        ->relationship('department', 'name', fn (Builder $query) => $query->orderBy('sort')),
+                                    // A guest's ticket keeps no account until staff choose one (docs/tickets.md §3 Δ).
+                                    ClientComponent::make('client_id')->required(fn (Ticket $record) => !$record->isGuest()),
                                     Select::make('assigned_to')
                                         ->label('Assigned To')
                                         ->relationship('assignedTo', 'id', fn (Builder $query) => $query->where('active', true))
@@ -198,7 +204,7 @@ class EditTicket extends EditRecord
                         ->fillForm(fn ($record) => [
                             'status' => $record->status,
                             'priority' => $record->priority,
-                            'department' => $record->department,
+                            'department_id' => $record->department_id,
                             'client_id' => $record->client_id,
                             'assigned_to' => $record->assigned_to,
                             'service_id' => $record->service_id,

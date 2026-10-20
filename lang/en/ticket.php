@@ -36,7 +36,9 @@ return [
     'title' => 'Ticket #:id',
     'statuses' => [
         'open' => 'We are looking into it',
-        'replied' => 'Waiting for your reply',
+        'customer_reply' => 'We are looking into it',
+        'answered' => 'Waiting for your reply',
+        'on_hold' => 'On hold',
         'closed' => 'Closed',
     ],
 ];

@@ -23,6 +23,14 @@ class TicketMessage extends Model implements Auditable
         'staff_id',
         'message',
         'ticket_mail_log_id',
+        'email_message_id',
+        'via',
+        'is_internal',
+        'body_original',
+    ];
+
+    protected $casts = [
+        'is_internal' => 'boolean',
     ];
 
     /** @return BelongsTo<Ticket, $this> */

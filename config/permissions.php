@@ -127,6 +127,12 @@ return [
                 'delete' => 'Delete Custom Properties',
                 'deleteAny' => 'Bulk Delete Custom Properties',
             ],
+            'ticket_departments' => [
+                'create' => 'Create Ticket Departments',
+                'update' => 'Update Ticket Departments',
+                'viewAny' => 'View Ticket Departments',
+                'delete' => 'Delete Ticket Departments',
+            ],
             'currencies' => [
                 'create' => 'Create Currencies',
                 'update' => 'Update Currencies',

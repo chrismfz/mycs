@@ -8,7 +8,7 @@
             <x-form.select wire:model="department" label="{{ __('ticket.department') }}" name="department" required>
                 <option value="">{{ __('ticket.select_department') }}</option>
                 @foreach ($departments as $department)
-                    <option value="{{ $department }}">{{ $department }}</option>
+                    <option value="{{ $department->id }}">{{ $department->name }}</option>
                 @endforeach
             </x-form.select>
         @endif

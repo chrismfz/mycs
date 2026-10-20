@@ -15,6 +15,7 @@ use App\Models\Invoice;
 use App\Models\Service;
 use App\Models\Staff;
 use App\Models\Ticket;
+use App\Models\TicketDepartment;
 use App\Models\TicketMessage;
 use App\Models\User;
 use App\Services\Money\CreditLedger;
@@ -268,13 +269,13 @@ class ClientSplitAdversarialTest extends TestCase
 
     public function test_holds_a_ticket_cannot_name_another_accounts_service(): void
     {
-        config(['settings.ticket_departments' => ['Support']]);
+        $support = TicketDepartment::query()->firstOrCreate(['name' => 'Support']);
         $foreignService = $this->recurringServiceOf(User::factory()->create()->client());
         $u = User::factory()->create();
         $this->actingAs($u);
 
         $this->livewireAs($u)->test(TicketCreate::class)
-            ->set('department', 'Support')->set('subject', 'x')->set('message', 'y')->set('priority', 'low')
+            ->set('department', $support->id)->set('subject', 'x')->set('message', 'y')->set('priority', 'low')
             ->set('service', $foreignService->id)
             ->call('create')
             ->assertHasErrors('service');

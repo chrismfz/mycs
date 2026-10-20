@@ -34,6 +34,7 @@ use App\Admin\Resources\ServerResource;
 use App\Admin\Resources\ServiceCancellationResource;
 use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\TaxRateResource;
+use App\Admin\Resources\TicketDepartmentResource;
 use App\Admin\Resources\TicketResource;
 use App\Admin\Resources\UserResource;
 use Filament\Pages\Page;
@@ -99,6 +100,7 @@ class TopMenu
             [DomainTldResource::class, 'index', 'Domain Pricing'],
             [ServerGroupResource::class, 'index', 'Server Groups'],
             [NotificationTemplateResource::class, 'index', 'Email Templates'],
+            [TicketDepartmentResource::class, 'index', 'Ticket Departments'],
             [RoleResource::class, 'index', 'Staff Roles'],
             [ExtensionResource::class, 'index', 'Extensions'],
             [Extension::class],

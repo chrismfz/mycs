@@ -35,23 +35,15 @@ class ShowTickets extends ManageRelatedRecords
                 TextColumn::make('status')
                     ->sortable()
                     ->badge()
-                    ->color(fn (Ticket $record) => match ($record->status) {
-                        'open' => 'success',
-                        'closed' => 'danger',
-                        'replied' => 'warning',
-                    })
-                    ->formatStateUsing(fn (string $state) => ucfirst($state)),
+                    ->color(fn (Ticket $record) => Ticket::statusColor($record->status))
+                    ->formatStateUsing(fn (string $state) => Ticket::statusLabel($state)),
                 TextColumn::make('priority')
                     ->sortable()
                     ->badge()
-                    ->color(fn (Ticket $record) => match ($record->priority) {
-                        'low' => 'success',
-                        'medium' => 'gray',
-                        'high' => 'danger',
-                    })
+                    ->color(fn (Ticket $record) => Ticket::priorityColor($record->priority))
                     ->formatStateUsing(fn (string $state) => ucfirst($state)),
-                TextColumn::make('department')
-                    ->sortable(),
+                TextColumn::make('department.name')
+                    ->label('Department'),
                 TextColumn::make('client.name')
                     ->searchable(['first_name', 'last_name'])
                     ->sortable(['first_name', 'last_name']),

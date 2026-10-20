@@ -28,7 +28,7 @@ class TicketStatusUpdateTest extends TestCase
         $staff = Staff::factory()->admin()->create();
         TicketMessage::factory()->create(['ticket_id' => $ticket->id, 'user_id' => null, 'staff_id' => $staff->id]);
 
-        // Assert that the ticket status is updated to 'replied'
-        $this->assertEquals('replied', $ticket->fresh()->status);
+        // A staff reply waits on the customer: 'answered' (was «replied», docs/tickets.md §5)
+        $this->assertEquals('answered', $ticket->fresh()->status);
     }
 }

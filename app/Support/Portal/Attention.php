@@ -7,6 +7,7 @@ use App\Enums\DomainStatus;
 use App\Models\BillingAgreement;
 use App\Models\Client;
 use App\Models\Invoice;
+use App\Models\Ticket;
 use App\Support\CurrentClient;
 use Carbon\CarbonImmutable;
 
@@ -124,7 +125,7 @@ final class Attention
     /** Tickets answered by us and waiting on the customer. */
     private function tickets(): array
     {
-        $replied = $this->client->tickets()->where('status', 'replied');
+        $replied = $this->client->tickets()->where('status', Ticket::STATUS_ANSWERED);
         $count = (clone $replied)->count();
         if ($count === 0) {
             return [];
@@ -134,7 +135,7 @@ final class Attention
         return [[
             'kind' => 'tickets',
             'text' => trans_choice('dashboard.attention.tickets', $count, ['count' => $count]),
-            'detail' => $count === 1 ? '#' . $ticket->id . ' · ' . $ticket->subject : '',
+            'detail' => $count === 1 ? '#' . $ticket->reference . ' · ' . $ticket->subject : '',
             'action' => __('dashboard.attention.reply'),
             'url' => $count === 1 ? route('tickets.show', $ticket) : route('tickets'),
             'urgent' => false,

@@ -3,7 +3,6 @@
 namespace App\Console\Commands;
 
 use App\Helpers\ExtensionHelper;
-use App\Models\Category;
 use App\Models\Client;
 use App\Models\ConfigOption;
 use App\Models\Extension;
@@ -13,6 +12,8 @@ use App\Models\Product;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\Setting;
+use App\Models\Ticket;
+use App\Models\TicketDepartment;
 use App\Providers\SettingsProvider;
 use App\Services\Import\WhmcsMassPay;
 use App\Services\Licensing\WhmcsLicensingImport;
@@ -800,6 +801,34 @@ class ImportFromWhmcs extends Command
         ]);
     }
 
+    /** @var array<int, int|null> WHMCS department id => ours */
+    private array $ticketDepartments = [];
+
+    /** The department of a WHMCS ticket, made once from tblticketdepartments (its name, order and email). */
+    private function ticketDepartmentId(int $whmcsId): ?int
+    {
+        if (array_key_exists($whmcsId, $this->ticketDepartments)) {
+            return $this->ticketDepartments[$whmcsId];
+        }
+        $stmt = $this->pdo->prepare('SELECT * FROM tblticketdepartments WHERE id = :id LIMIT 1');
+        $stmt->bindValue(':id', $whmcsId, PDO::PARAM_INT);
+        $stmt->execute();
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return $this->ticketDepartments[$whmcsId] = null;
+        }
+        $department = TicketDepartment::query()->firstOrNew(['whmcs_id' => $whmcsId]);
+        $department->forceFill([
+            'name' => (string) $row['name'],
+            'sort' => max(0, (int) ($row['order'] ?? 0)),
+            'hidden' => (bool) ($row['hidden'] ?? false),
+            'clients_only' => (bool) ($row['clientsonly'] ?? false),
+            'email' => ($row['email'] ?? '') !== '' ? (string) $row['email'] : null,
+        ])->save();
+
+        return $this->ticketDepartments[$whmcsId] = $department->id;
+    }
+
     private function importTickets()
     {
 
@@ -816,23 +845,20 @@ class ImportFromWhmcs extends Command
                     continue;
                 }
 
-                $departmentStmt = $this->pdo->prepare('SELECT * FROM tblticketdepartments WHERE id = :id LIMIT 1');
-                $departmentStmt->bindValue(':id', $record['did'], PDO::PARAM_INT);
-                $departmentStmt->execute();
-                $department = $departmentStmt->fetch(PDO::FETCH_ASSOC);
-                if ($department) {
-                    // You can map department to category if needed
-                    $departmentName = $department['name'];
-                }
+                $departmentId = $this->ticketDepartmentId((int) $record['did']);
 
                 $data[] = [
                     'id' => $record['id'],
                     'client_id' => $this->clientIdOfUser($user),
+                    // The number the customer knows (docs/tickets.md §5α); the full importer is PR Δ.
+                    'reference' => (string) ($record['tid'] ?? $record['id']),
                     'subject' => $record['title'],
                     'status' => match ($record['status']) {
-                        'Answered' => 'replied',
-                        'Closed' => 'closed',
-                        default => 'open',
+                        'Answered' => Ticket::STATUS_ANSWERED,
+                        'Customer-Reply' => Ticket::STATUS_CUSTOMER_REPLY,
+                        'On Hold', 'In Progress' => Ticket::STATUS_ON_HOLD,
+                        'Closed' => Ticket::STATUS_CLOSED,
+                        default => Ticket::STATUS_OPEN,
                     },
                     'priority' => match ($record['urgency']) {
                         'Low' => 'low',
@@ -840,7 +866,7 @@ class ImportFromWhmcs extends Command
                         'High' => 'high',
                         default => 'medium',
                     },
-                    'department' => $departmentName ?? null,
+                    'department_id' => $departmentId,
                     'created_at' => $this->validateDate($record['date']),
                     'updated_at' => $this->validateDate($record['lastreply']),
                 ];
