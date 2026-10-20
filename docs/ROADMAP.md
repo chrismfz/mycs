@@ -15,8 +15,10 @@
   και το runbook του cut-over. Αυτά είναι η σειρά παρακάτω· τα 1–4 έγιναν (2026-10-20).
 
 ## Επόμενα, με σειρά (εγκρίθηκε 2026-10-20)
-Η σειρά οδηγεί στο cut-over της nixpal. Ο importer και το runbook περιμένουν τα tickets, που ξαναγράφονται σε άλλη
-session για parity με το WHMCS (2026-10-20)· ως τότε, ό,τι δεν εξαρτάται από αυτά.
+Η σειρά οδηγεί στο cut-over της nixpal. Έλεγχος parity με τον κώδικα (2026-10-20): η χρέωση, οι πιστώσεις, οι
+πληρωμές, οι φόροι, οι αυτοματισμοί, το licensing και το cPanel υπάρχουν με tests· λείπουν τα 5–7, και ο importer
+έχει κενά (9). Ο importer μπαίνει τελευταίος, όταν ολοκληρωθούν τα υπόλοιπα (ο υπεύθυνος, 2026-10-20). Τα tickets
+τελειώνουν σε άλλη session. Μετά: UI/UX polishing, ώστε να μη «ξενίζει» ούτε το staff ούτε τους πελάτες.
 
 | # | Τι | Γιατί εδώ |
 |---|---|---|
@@ -24,16 +26,26 @@ session για parity με το WHMCS (2026-10-20)· ως τότε, ό,τι δε
 | 2 | ~~**Σημειώσεις λογαριασμού**~~ **έγινε (#243):** `client_notes` (staff μόνο, συντάκτης, sticky banner)· υπηρεσίας και domain υπήρχαν· τιμολογίου και tickets δεν χρειάζονται | — |
 | 3 | ~~**PayPal vault**~~ **υπάρχει (έλεγχος 2026-10-20):** το gateway PayPal κάνει Vault v3 (αποθήκευση από τον πελάτη, χρέωση με `vault_id`, idempotent, PENDING ως processing), η αυτόματη χρέωση (`AutoCharge`) το καλύπτει, και ο έλεγχος ιδιοκτησίας (PAY-8) υπάρχει. Τα 15 vault tokens της nixpal διαβάζονται με τα REST credentials του `paypal_ppcpv` (13/15, 2026-10-08, `history/blesta-modules/importer.md`). **Μένουν:** ο importer των `tblpaymethods` (στο 6)· στο cut-over τα **ίδια** credentials στο gateway PayPal, και οι παλιές συνδρομές PayPal στο vault (Π7.9, δίχτυ IPN στο H2b) | — |
 | 4 | ~~**Licensing και cPanel σε δοκιμή**~~ **έγινε:** το `zlic.php` δουλεύει live από το MyCS με client χωρίς αλλαγή (ο υπεύθυνος, 2026-10-20· shadow-run δεν χρειάζεται)· rate limit (#254)· cPanel στον orion: create/suspend/unsuspend/terminate με reseller της nixpal, και το πρόθεμα του πακέτου (#246) | — |
-| 5 | **Λειτουργία της παραγωγής:** στον orion ως `mycs.nixpal.com` όταν είμαστε σίγουροι (2026-10-20, `open-questions.md`), SMTP/SPF/DKIM, off-site backups με δοκιμή επαναφοράς, παρακολούθηση και endpoint υγείας, branding PDF της nixpal | Χωρίς αυτά δεν υπάρχει παραγωγή. |
-| 6 | **Importer του νέου σχήματος + `mycs:parity`** (μετά τα tickets): λογαριασμοί, επαφές, υπηρεσίες με τον server τους, σημειώσεις, domains (D6, 11 της nixpal), αρίθμηση· συνθετικό σύνολο «σαν nixpal» για τα tests. **Αποθηκευμένες μέθοδοι:** `tblpaymethods` → `billing_agreements` (nixpal: 15 PayPal vault `{vaultId}`, 52 κάρτες Stripe `{customer, method}`, χωρίς τις soft-deleted), και η προεπιλογή ανά πελάτη. **Αρίθμηση στο import (#238, tests incomplete στο `InvoiceNumberingAdversarialTest`):** myip με «αριθμός = id»: number = id σε κάθε εισαγόμενο τιμολόγιο· nixpal: ο μετρητής από το `SequentialInvoiceNumberValue` του WHMCS (ο τελευταίος αριθμός, 6818), όχι max(id) + 1· κανένας αριθμός να μη χάνεται σιωπηλά (διπλά `invoicenum`). **Σημειώσεις λογαριασμού:** `tblnotes` → `client_notes` (συντάκτης, sticky), `tblclients.notes` → μία σημείωση ανά λογαριασμό | Πατά στα 1–3 και στα νέα tickets. Re-runnable, με parity (`importer.md`). |
-| 7 | **Runbook cut-over με επιστροφή** (πρότυπο: `go-live-runbook.md` του Ekdosi): πάγωμα, import και parity, DNS/webhooks, ενημέρωση πελατών, links των sites, έλεγχοι πρώτης μέρας· 2–3 δοκιμαστικές μεταφορές | Τελευταίο, πάνω σε σταθερό σχήμα και δεδομένα. |
+| 5 | **Ομάδες πελατών με έκπτωση** (ο υπεύθυνος, 2026-10-20: «χρειαζόμαστε»): ομάδα με ποσοστό (nixpal: 3 ομάδες 50/10/0%), η έκπτωση σε παραγγελία **και** σε κάθε ανανέωση ως δική της γραμμή (το «GroupDiscount» του WHMCS), οθόνη στο admin, η ομάδα στον πελάτη | Λείπει εντελώς (έλεγχος 2026-10-20)· αλλιώς οι πελάτες της ομάδας χρεώνονται ολόκληρο. |
+| 6 | **Reports και έσοδα, όπως τα δουλεύουμε στο WHMCS** (ο υπεύθυνος, 2026-10-20: «έσοδα καιγόμαστε»· έξοδα λίγο): καρτέλα εσόδων ανά πελάτη και export ανά έτος (CSV/XLSX) για τον λογιστή· reports: daily performance, income forecast, annual income report, new customers· widget «εκτιμώμενα έσοδα ανά κύκλο» (Monthly/Quarterly/…/Est. Annual, ανά νόμισμα, με πλήθος υπηρεσιών). Πρώτα να δούμε τι δανειζόμαστε από το Ekdosi (καρτέλα, reports) | Λείπει εντελώς. |
+| 7 | **Παλιές συνδρομές PayPal** (nixpal: 5 συνδρομές, 77 υπηρεσίες, ~21% των πληρωμών): σήμερα κάθε IPN επαληθεύεται, γράφεται και πάει στο staff (H2b), που την περνά με το χέρι· σχέδιο μετάβασης στο vault (ειδοποίηση των πελατών, νέα έγκριση) ή καταγραφή της πληρωμής από το IPN | Αλλιώς ένα πέμπτο των πληρωμών με το χέρι. |
+| 8 | **Λειτουργία της παραγωγής:** στον orion ως `mycs.nixpal.com` όταν είμαστε σίγουροι (2026-10-20, `open-questions.md`): SMTP ίδιο με το WHMCS, backups με JetBackup στον rosso και δοκιμή επαναφοράς· ~~παρακολούθηση και endpoint υγείας~~ έγινε (#258 Automation Status, #259 `/health`)· logo και στοιχεία της εταιρείας στα Settings (το PDF τα παίρνει από εκεί, #264) | Χωρίς αυτά δεν υπάρχει παραγωγή. |
+| 9 | **Importer του νέου σχήματος + `mycs:parity`** (στο τέλος, όταν ολοκληρωθεί το parity· ο υπεύθυνος, 2026-10-20): λογαριασμοί, επαφές, υπηρεσίες με τον server τους, σημειώσεις, domains (D6, 11 της nixpal), αρίθμηση· **και ό,τι βρήκε ο έλεγχος της 2026-10-20 ότι λείπει:** το «suspend until» (14 υπηρεσίες), οι επιλογές config options κάθε υπηρεσίας (`tblhostingconfigoptions`), ο server κάθε υπηρεσίας, οι κανόνες VAT (`tbltax`, 27), το ιστορικό πιστώσεων (`tblcredit`, όχι μόνο το υπόλοιπο), οι επαφές (`tblcontacts`), η γλώσσα κάθε πελάτη, οι ομάδες (`tblclientgroups`), οι ρυθμίσεις αυτοματισμών (`tblconfiguration`), το `subscriptionid` (7), οι κωδικοί υπηρεσιών· συνθετικό σύνολο «σαν nixpal» για τα tests. **Αποθηκευμένες μέθοδοι:** `tblpaymethods` → `billing_agreements` (nixpal: 15 PayPal vault `{vaultId}`, 52 κάρτες Stripe `{customer, method}`, χωρίς τις soft-deleted), και η προεπιλογή ανά πελάτη. **Αρίθμηση στο import (#238, tests incomplete στο `InvoiceNumberingAdversarialTest`):** myip με «αριθμός = id»: number = id σε κάθε εισαγόμενο τιμολόγιο· nixpal: ο μετρητής από το `SequentialInvoiceNumberValue` του WHMCS (ο τελευταίος αριθμός, 6818), όχι max(id) + 1· κανένας αριθμός να μη χάνεται σιωπηλά (διπλά `invoicenum`). **Σημειώσεις λογαριασμού:** `tblnotes` → `client_notes` (συντάκτης, sticky), `tblclients.notes` → μία σημείωση ανά λογαριασμό | Πατά στα 1–3 και στα νέα tickets. Re-runnable, με parity (`importer.md`). |
+| 10 | **Runbook cut-over με επιστροφή** (πρότυπο: `go-live-runbook.md` του Ekdosi): πάγωμα, import και parity, DNS/webhooks, ενημέρωση πελατών, links των sites, έλεγχοι πρώτης μέρας· 2–3 δοκιμαστικές μεταφορές | Τελευταίο, πάνω σε σταθερό σχήμα και δεδομένα. |
 
 Μικρά που χωράνε ανάμεσα (domains, portal): ~~P1b~~, ~~P5~~ έγιναν (#247, #253, #250).
 
 ## Ανοιχτά, ανά θέμα
 
 ### Χρέωση και τιμολόγια
-- [ ] Ομάδες πελατών με έκπτωση· έλεγχος ότι οι recurring promotions δουλεύουν από άκρη σε άκρη.
+- [ ] Έλεγχος ότι οι recurring promotions δουλεύουν από άκρη σε άκρη (ανανέωση με κουπόνι, χωρίς ειδικό test σήμερα).
+- [ ] Γλώσσα ανά πελάτη (στήλη, import από `tblclients.language`, templates ανά γλώσσα): σήμερα τα PDF και τα emails
+      βγαίνουν στη γλώσσα της εταιρείας (#264). Η nixpal: 6 πελάτες σε άλλη γλώσσα από αγγλικά ή την προεπιλογή.
+- [ ] Το «Total» του PDF είναι μετά την πίστωση (όπως το WHMCS), του portal και του email το πλήρες (#264)· ενιαία
+      διατύπωση. Η περιγραφή του αυτόματου πιστωτικού της ακύρωσης είναι αποθηκευμένη στα αγγλικά.
+- [ ] `APP_TIMEZONE=UTC`: μια πληρωμή αργά το βράδυ ώρα Ελλάδας φαίνεται με την προηγούμενη μέρα.
+- [x] Ακυρωμένο τιμολόγιο **δεν** ακυρώνει την υπηρεσία (ο υπεύθυνος, 2026-10-20: «όταν κάνουμε λάθη βοηθάει»).
+      Έλεγχος: στη nixpal κανένα τέτοιο hook· στο myip το `CancelProductOnCancelInvoice.php` είναι ολόκληρο σε σχόλιο.
 - [ ] Τιμολόγιο: Paid/Balance στο PDF (INV-8), INV-10, INV-17 (`sweeps/billing.md`)· «Group Similar Line Items».
 - [ ] Ένα πακέτο που γίνεται free ή one-time (`billing-cursor.md`, §5)· ημέρες πριν τη λήξη ανά κύκλο.
 - [ ] Ανανεώσεις υπηρεσιών on demand από τον πελάτη (ρύθμιση του WHMCS, `settings-map.md`).
@@ -79,6 +91,8 @@ session για parity με το WHMCS (2026-10-20)· ως τότε, ό,τι δε
         `zlic_limits` του #254)· λείπουν η άθροιση ανά IP χωρίς άδεια και η οθόνη.
 
 ### Domains (`domains.md`, `domains/grepp.md`)
+- [ ] Domain που παραγγέλνεται μαζί με VPS ή hosting: να πέφτει στους προεπιλεγμένους nameservers όταν ο server του
+      δεν έχει δικούς του (το WHMCS του myip σταματά με «No nameservers are defined…», 2026-10-20, Pegasus).
 - [ ] Μαζικές ενέργειες στη λίστα του portal· απόδοση με πολλά domains.
 - [ ] Μικρά του P1b (#248): πεδίο διεύθυνσης που αδειάζει ίσως μένει παλιό στο Openprovider· η `int` διεύθυνση του .gr
       δεν ενημερώνεται.
@@ -101,7 +115,7 @@ session για parity με το WHMCS (2026-10-20)· ως τότε, ό,τι δε
       (είναι στα sites των εταιρειών).
 
 ### Ασφάλεια και ποιότητα
-- [ ] Endpoint υγείας.
+- [x] Endpoint υγείας (#259) και Automation Status (#258).
 - [ ] phpstan baseline: 339 σφάλματα του upstream (σε 270 εγγραφές)· μειώνεται όπου περνάμε.
 - [ ] Το repo γίνεται private «όταν ηρεμήσουμε» (ο υπεύθυνος). Ως τότε: έγγραφα με σήμανση εμπιστευτικού δεν
       μπαίνουν στο repo, μόνο παράφραση.
