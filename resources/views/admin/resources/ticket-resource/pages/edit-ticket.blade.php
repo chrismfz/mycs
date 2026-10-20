@@ -4,7 +4,13 @@
             <div class="flex flex-col gap-4 max-h-[60vh] overflow-y-auto pr-4">
                 @foreach ($this->record->messages()->with(['user', 'staff', 'attachments'])->get() as $index => $message)
                     <div
-                        class="border border-gray-100 dark:border-gray-600 p-4 rounded-lg w-full max-w-[80%]  {{ $message->isFromStaff() ? 'mr-auto' : 'ml-auto' }}"
+                        @class([
+                            'border p-4 rounded-lg w-full max-w-[80%]',
+                            $message->isFromStaff() ? 'mr-auto' : 'ml-auto',
+                            // A note stands apart from what the customer sees, not only by its badge.
+                            'border-warning-300 bg-warning-50 dark:border-warning-600 dark:bg-warning-950/40' => $message->is_internal,
+                            'border-gray-100 dark:border-gray-600' => !$message->is_internal,
+                        ])
                         @if ($loop->last) x-data x-init="$el.scrollIntoView()" @endif>
                         <div class="flex justify-between gap-4">
                             <div class="flex items-center gap-4">
@@ -108,6 +114,9 @@
                         {{ $this->closeTicket }}
                     @endif
                     
+                    <x-filament::button color="warning" outlined icon="heroicon-o-lock-closed" wire:click="note" wire:target="note">
+                        {{ __('Add internal note') }}
+                    </x-filament::button>
                     <x-filament::button type="submit" target="send">
                         Send Message
                     </x-filament::button>
