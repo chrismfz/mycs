@@ -29,12 +29,20 @@ the last minute's (`Health::cached()`: one reader at a time under a lock, the ot
 failure is no badge, never an error page). The details are English, as in `mycs:health`.
 
 ## GET /health (for a monitor)
-`https://<instance>/health`, no session or cookie: `ok` or `warn` with **200**, `fail` with **503** (`text/plain`,
-`Cache-Control: no-store`), nothing more to anyone. «warn» is 200 so that something worth a look never pages anyone.
-With `Authorization: Bearer <MYCS_HEALTH_TOKEN>` (`.env`; unset, never) the full report as JSON (the same as
-`mycs:health`), never through a query string. The checks are the last minute's (`Health::cached()`): any number of
-calls runs them at most once a minute. A report that cannot be read is `fail` (503), never an error page. During a
-deploy the maintenance mode answers 503 as well (the instance is down then).
+`https://<instance>/health`, no session or cookie, `text/plain`, `Cache-Control: no-store`:
+- **the status code is whether the instance works:** 503 when a critical check fails (`Health::CRITICAL`: the database
+  and its migrations, the scheduler) or the report cannot be read; 200 otherwise. For an uptime monitor. Not for a
+  load balancer either way (one instance);
+- **the body is the whole state in one word:** `ok`, `warn` or `fail` (the worst check). A keyword monitor on «fail»
+  also sees what needs staff without the instance being down (a ticket mailbox not read, a stuck mail, a queue backlog).
+
+With `Authorization: Bearer <MYCS_HEALTH_TOKEN>` (`.env`, 32 characters or more; shorter or unset, never) the full
+report as JSON, the same as `mycs:health`, never through a query string. It holds the build, PHP version, department
+names and business counts: the token is for our own tools; an external monitor gets the plain URL only. The checks are
+the last minute's (`Health::cached()`, one reader at a time): any number of calls runs them at most once a minute. A
+cache that fails is `fail`/503 (said in the log once a minute). A database that cannot be reached at boot answers
+Laravel's 500 before this runs: a 5xx all the same; `APP_DEBUG` stays off in production (its error page would show
+the request's headers). During a deploy the maintenance mode answers 503 (the instance is down then).
 
 ## Rules
 - **Read-only.** Nothing here writes: the zlic probe runs the real `Zlic` over a repository that only reads.

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\CronStat;
 use App\Models\Setting;
 use App\Services\Ops\Health;
+use Illuminate\Contracts\Cache\Store;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -12,12 +13,14 @@ use RuntimeException;
 use Tests\TestCase;
 
 /**
- * GET /health (ROADMAP 5, 2026-10-20): ok / warn / fail for a monitor, the full report only with the token, the checks
- * at most once a minute, never an error page.
+ * GET /health (ROADMAP 5, 2026-10-20): 503 only when the instance does not work, the whole state in one word, the full
+ * report only with a token, the checks at most once a minute, never an error page.
  */
 class HealthEndpointTest extends TestCase
 {
     use RefreshDatabase;
+
+    private const TOKEN = 'monitor-token-for-tests-0123456789abcdef';
 
     protected function setUp(): void
     {
@@ -30,7 +33,13 @@ class HealthEndpointTest extends TestCase
         Setting::query()->updateOrCreate(['key' => $key, 'settingable_type' => CronStat::class], ['value' => $when]);
     }
 
-    public function test_a_failing_check_is_503_and_said_in_one_word(): void
+    private function working(): void
+    {
+        $this->ran('last_scheduler_run', now()->toDateTimeString());
+        $this->ran('last_cron_run', now()->toDateTimeString());
+    }
+
+    public function test_a_critical_check_failing_is_503_in_one_word(): void
     {
         $this->ran('last_scheduler_run', now()->subHour()->toDateTimeString()); // the scheduler stopped
 
@@ -40,28 +49,48 @@ class HealthEndpointTest extends TestCase
         $this->assertSame([], $response->headers->getCookies(), 'a session for a monitor');
     }
 
-    public function test_ok_or_warn_is_200(): void
+    public function test_working_is_200_and_the_body_still_says_what_needs_staff(): void
     {
-        $this->ran('last_scheduler_run', now()->toDateTimeString());
-        $this->ran('last_cron_run', now()->toDateTimeString());
+        $this->working();
         $status = Health::report()['status'];
         $this->assertNotSame(Health::FAIL, $status, json_encode(Health::report()));
+        $response = $this->get('/health')->assertOk();
+        $this->assertSame($status, $response->getContent());
+        $this->assertSame([], $response->headers->getCookies());
 
-        $this->assertSame($status, $this->get('/health')->assertOk()->getContent());
+        // A queue stuck for an hour: staff must look (fail), the instance still answers (200, not «down»).
+        DB::table('jobs')->insert(['queue' => 'default', 'payload' => '{}', 'attempts' => 0, 'available_at' => now()->subHour()->getTimestamp(), 'created_at' => now()->subHour()->getTimestamp()]);
+        Cache::flush();
+        $this->assertSame('fail', $this->get('/health')->assertOk()->getContent());
+        $this->head('/health')->assertOk();
     }
 
     public function test_the_full_report_only_with_the_token(): void
     {
-        config(['services.health.token' => 'monitor-token-for-tests']);
-        $this->ran('last_scheduler_run', now()->toDateTimeString());
+        config(['services.health.token' => self::TOKEN]);
+        $this->working();
+        $word = Health::report()['status'];
 
-        $this->assertSame('{', substr((string) $this->withToken('monitor-token-for-tests')->get('/health')->getContent(), 0, 1));
-        $this->assertArrayHasKey('scheduler', json_decode((string) $this->withToken('monitor-token-for-tests')->get('/health')->getContent(), true)['checks']);
-        $this->assertStringNotContainsString('checks', (string) $this->withToken('wrong')->get('/health')->getContent());
-        $this->assertStringNotContainsString('checks', (string) $this->get('/health?token=monitor-token-for-tests')->getContent());
+        $full = json_decode((string) $this->withToken(self::TOKEN)->get('/health')->assertOk()->assertHeader('Content-Type', 'application/json')->getContent(), true);
+        $this->assertArrayHasKey('scheduler', $full['checks']);
+        $this->assertSame($word, $this->withToken('wrong')->get('/health')->getContent());
+        $this->assertSame($word, $this->withToken('')->get('/health?token=' . self::TOKEN)->getContent());
 
-        config(['services.health.token' => '']); // unset: never the report, an empty token included
-        $this->assertStringNotContainsString('checks', (string) $this->withHeaders(['Authorization' => 'Bearer '])->get('/health')->getContent());
+        // A failing instance: the report still says why, with the 503.
+        $this->ran('last_scheduler_run', now()->subHour()->toDateTimeString());
+        Cache::flush();
+        $failing = json_decode((string) $this->withToken(self::TOKEN)->get('/health')->assertStatus(503)->getContent(), true);
+        $this->assertSame(Health::FAIL, $failing['checks']['scheduler']['status']);
+    }
+
+    public function test_an_unset_or_short_token_never_gives_the_report(): void
+    {
+        $this->working();
+        $word = Health::report()['status'];
+        foreach ([null, '', 'short-token'] as $token) {
+            config(['services.health.token' => $token]);
+            $this->assertSame($word, $this->withToken((string) ($token ?: 'x'))->get('/health')->getContent(), var_export($token, true));
+        }
     }
 
     public function test_many_calls_run_the_checks_once_a_minute(): void
@@ -75,9 +104,67 @@ class HealthEndpointTest extends TestCase
         $this->assertSame([], array_values($checks), 'the checks ran again within the minute');
     }
 
-    public function test_a_report_that_cannot_be_read_is_a_failure_not_an_error_page(): void
+    public function test_a_cache_that_fails_is_503_fail_not_an_error_page(): void
     {
-        Cache::shouldReceive('get')->andThrow(new RuntimeException('cache unavailable'));
+        Cache::extend('broken', fn () => Cache::repository(new class implements Store
+        {
+            public function get($key)
+            {
+                throw new RuntimeException('cache unavailable');
+            }
+
+            public function many(array $keys)
+            {
+                throw new RuntimeException('cache unavailable');
+            }
+
+            public function put($key, $value, $seconds)
+            {
+                throw new RuntimeException('cache unavailable');
+            }
+
+            public function putMany(array $values, $seconds)
+            {
+                throw new RuntimeException('cache unavailable');
+            }
+
+            public function increment($key, $value = 1)
+            {
+                throw new RuntimeException('cache unavailable');
+            }
+
+            public function decrement($key, $value = 1)
+            {
+                throw new RuntimeException('cache unavailable');
+            }
+
+            public function forever($key, $value)
+            {
+                throw new RuntimeException('cache unavailable');
+            }
+
+            public function forget($key)
+            {
+                throw new RuntimeException('cache unavailable');
+            }
+
+            public function flush()
+            {
+                throw new RuntimeException('cache unavailable');
+            }
+
+            public function getPrefix()
+            {
+                return '';
+            }
+
+            public function touch($key, $seconds)
+            {
+                throw new RuntimeException('cache unavailable');
+            }
+        }));
+        config(['cache.default' => 'broken', 'cache.stores.broken' => ['driver' => 'broken']]);
+        Cache::forgetDriver('broken');
 
         $this->assertSame('fail', $this->get('/health')->assertStatus(503)->getContent());
     }

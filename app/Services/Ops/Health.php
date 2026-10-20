@@ -13,6 +13,7 @@ use App\Models\ModuleAction;
 use App\Models\Setting;
 use App\Models\TicketDepartment;
 use App\Models\TicketQuarantine;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -32,6 +33,9 @@ final class Health
 
     public const FAIL = 'fail';
 
+    /** The checks without which the instance does not work (GET /health's 503, review H1 of #259); the rest need staff. */
+    public const CRITICAL = ['database', 'scheduler'];
+
     /**
      * For a menu badge on every admin page: the report of the last minute, never read by two at once (one reads it
      * again, the others keep the last one meanwhile; review R2 of #258).
@@ -46,7 +50,21 @@ final class Health
         }
         $lock = Cache::lock('ops.health:reading', 30);
         if (!$lock->get()) {
-            return is_array($last) ? $last['report'] : self::report(); // a first read with another under way: rare
+            if (is_array($last)) {
+                return $last['report'];
+            }
+            // None yet (a flushed cache) and another reading it: wait for that one, never all at once (review H2 of #259).
+            try {
+                $lock->block(5);
+            } catch (LockTimeoutException) {
+                return self::report();
+            }
+            $last = Cache::get('ops.health');
+            if (is_array($last)) {
+                $lock->release();
+
+                return $last['report'];
+            }
         }
         try {
             return self::keep(self::report());
