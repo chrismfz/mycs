@@ -145,6 +145,53 @@
             @endif
         </div>
 
+        {{-- Child nameservers (P5): ns1.example.gr with its IPs, kept at the registry as its own object --}}
+        @if ($glue)
+        <div class="mt-6">
+            <div class="flex flex-wrap items-center gap-3 mb-2">
+                <h4 class="text-lg font-semibold">{{ __('domains.portal.glue') }}</h4>
+                <button type="button" class="text-sm underline" wire:click="readChildHosts" wire:loading.attr="disabled">{{ __('domains.portal.glue_read_now') }}</button>
+                @if ($childHostsReadAt !== null && $glueEditing === null)
+                <button type="button" class="text-sm underline" wire:click="startChildHost('')">{{ __('domains.portal.glue_add') }}</button>
+                @endif
+            </div>
+            <p class="text-sm text-base/60 mb-2">{{ __('domains.portal.glue_help', ['domain' => $domain->fqdn]) }}</p>
+            @if ($childHostsReadAt === null)
+            <p class="text-sm text-base/60">{{ __('domains.portal.glue_not_read') }}</p>
+            @else
+            <p class="text-xs text-base/50 mb-2">{{ __('domains.portal.glue_read_at', ['at' => $childHostsReadAt]) }}@if ($childHostsStale) · <span class="text-warning">{{ __('domains.portal.glue_stale') }}</span>@endif</p>
+            <ul class="text-sm space-y-1">
+                @forelse ($childHosts as $host)
+                <li class="flex flex-wrap items-center gap-x-3" wire:key="glue-{{ $host['name'] }}">
+                    <span class="font-mono break-all">{{ $host['name'] }}</span>
+                    <span class="font-mono break-all text-base/60">{{ implode(', ', (array) ($host['addresses'] ?? [])) ?: '—' }}</span>
+                    @if ($glueEditing === null && ($host['read'] ?? true))
+                    <button type="button" class="underline" wire:click="startChildHost(@js($host['name']))">{{ __('domains.portal.change') }}</button>
+                    @endif
+                    @if ($glueEditing === null && !($host['linked'] ?? true))
+                    <button type="button" class="underline text-error" wire:click="deleteChildHost(@js($host['name']))"
+                        wire:confirm="{{ __('domains.portal.glue_delete_confirm', ['host' => $host['name']]) }}">{{ __('domains.portal.remove') }}</button>
+                    @endif
+                </li>
+                @empty
+                <li class="text-base/60">{{ __('domains.portal.glue_none') }}</li>
+                @endforelse
+            </ul>
+            @endif
+            @if ($glueEditing !== null)
+            <form wire:submit="saveChildHost" class="space-y-2 max-w-md mt-3">
+                <x-form.input name="glueHost" wire:model="glueHost" :label="__('domains.portal.glue_host')" :placeholder="'ns1.' . $domain->fqdn" :disabled="$glueEditing !== ''" />
+                <x-form.textarea name="glueAddresses" wire:model="glueAddresses" :label="__('domains.portal.glue_addresses')" rows="3" />
+                <p class="text-xs text-base/60">{{ __('domains.portal.glue_addresses_help') }}</p>
+                <div class="flex gap-3">
+                    <x-button.primary class="!w-fit" type="submit" wire:loading.attr="disabled">{{ __('domains.portal.save') }}</x-button.primary>
+                    <button type="button" class="text-sm underline" wire:click="cancelChildHost">{{ __('domains.portal.cancel') }}</button>
+                </div>
+            </form>
+            @endif
+        </div>
+        @endif
+
         {{-- At the .gr registry (P2): its statuses and the EETT's in words, as the sync last read them; nothing internal. --}}
         @if ($registry)
         <div class="mt-6">
