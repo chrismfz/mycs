@@ -1,14 +1,18 @@
-@props(['prefix' => 'contact', 'emails' => true, 'identity' => true])
+@props(['prefix' => 'contact', 'emails' => true, 'identity' => true, 'locked' => false])
 {{-- A contact's fields (docs/accounts.md, PR 3a): the account's details or another contact of it. --}}
 <div class="grid md:grid-cols-2 gap-3">
-    <x-form.select name="{{ $prefix }}.type" :label="__('account.contact_type.label')" wire:model.live="{{ $prefix }}.type">
+    @if ($locked)
+    {{-- A domain uses it (P1b): who it is stays as its registrars hold it --}}
+    <p class="md:col-span-2 text-sm text-base/70">{{ __('domains.contact_identity_locked') }}</p>
+    @endif
+    <x-form.select name="{{ $prefix }}.type" :label="__('account.contact_type.label')" wire:model.live="{{ $prefix }}.type" :disabled="$locked">
         <option value="individual">{{ __('account.contact_type.individual') }}</option>
         <option value="business">{{ __('account.contact_type.business') }}</option>
     </x-form.select>
-    <x-form.input name="{{ $prefix }}.company_name" type="text" :label="__('account.contact.company_name')" wire:model="{{ $prefix }}.company_name" />
+    <x-form.input name="{{ $prefix }}.company_name" type="text" :label="__('account.contact.company_name')" wire:model="{{ $prefix }}.company_name" :disabled="$locked" />
     @if ($identity)
-    <x-form.input name="{{ $prefix }}.first_name" type="text" :label="__('general.input.first_name')" wire:model="{{ $prefix }}.first_name" />
-    <x-form.input name="{{ $prefix }}.last_name" type="text" :label="__('general.input.last_name')" wire:model="{{ $prefix }}.last_name" />
+    <x-form.input name="{{ $prefix }}.first_name" type="text" :label="__('general.input.first_name')" wire:model="{{ $prefix }}.first_name" :disabled="$locked" />
+    <x-form.input name="{{ $prefix }}.last_name" type="text" :label="__('general.input.last_name')" wire:model="{{ $prefix }}.last_name" :disabled="$locked" />
     <x-form.input name="{{ $prefix }}.email" type="email" :label="__('general.input.email')" wire:model="{{ $prefix }}.email" />
     @endif
     <x-form.input name="{{ $prefix }}.phone" type="text" :label="__('account.contact.phone')" wire:model="{{ $prefix }}.phone" />

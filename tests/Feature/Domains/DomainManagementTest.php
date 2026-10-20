@@ -446,10 +446,11 @@ class DomainManagementTest extends TestCase
 
         $page(['admin.domains.viewAny'])->assertDontSee(__('Edit contact'));
         $page(['admin.domains.viewAny', 'admin.clients.update'])
-            ->callAction(TestAction::make('editContact_registrant')->schemaComponent('contacts_registrant_actions', 'infolist'), ['first_name' => 'New'])
+            ->callAction(TestAction::make('editContact_registrant')->schemaComponent('contacts_registrant_actions', 'infolist'), ['first_name' => 'New', 'address1' => 'Odos 9'])
             ->assertHasNoActionErrors();
 
-        $this->assertSame('New', $owner->fresh()->first_name);
+        // P1b-1: its details change; who it is stays as its registrar holds it (the name field is locked, not sent).
+        $this->assertSame(['Old', 'Odos 9'], [$owner->fresh()->first_name, $owner->fresh()->address1]);
     }
 
     /** D4c: the full administrators' role is not offered for editing (it was a bare 403). */

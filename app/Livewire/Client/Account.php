@@ -11,6 +11,7 @@ use App\Services\Tax\EuVat;
 use App\Support\CurrentClient;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
 class Account extends ComponentWithProperties
 {
@@ -65,24 +66,34 @@ class Account extends ComponentWithProperties
 
         /** @var User $user */
         $user = Auth::user();
-        $user->update(array_intersect_key($validatedData, array_flip(['first_name', 'last_name', 'email'])));
+        $client = CurrentClient::allows('profile') ? CurrentClient::model() : null;
+        // All of it or nothing (code review of #247): the account's details refused (a domain's contact, P1b-1) leave the
+        // login's name as it was too.
+        $emailChanged = DB::transaction(function () use ($user, $client, $validatedData) {
+            $user->update(array_intersect_key($validatedData, array_flip(['first_name', 'last_name', 'email'])));
+            $emailChanged = $user->wasChanged('email');
+            if ($emailChanged) {
+                $user->email_verified_at = null;
+                $user->save();
+            }
+            if ($client !== null) {
+                $this->identityLocked = (bool) $client->primaryContact?->identityLocked();
+                $client->primaryContact?->update($this->contactValues());
+                if (array_key_exists('properties', $validatedData)) {
+                    $this->updateProperties($client, $validatedData['properties']);
+                }
+            }
+
+            return $emailChanged;
+        });
 
         // If email was changed, we should mark it as unverified and send a new verification email
-        if ($user->wasChanged('email')) {
-            $user->email_verified_at = null;
-            $user->save();
+        if ($emailChanged) {
             NotificationHelper::emailVerificationNotification($user);
         }
 
-        $pending = false;
-        if (CurrentClient::allows('profile') && ($client = CurrentClient::model()) !== null) {
-            $client->primaryContact?->update($this->contactValues());
-            if (array_key_exists('properties', $validatedData)) {
-                $this->updateProperties($client, $validatedData['properties']);
-            }
-            // A new EU VAT number is charged VAT until VIES finds it valid (PR G): the customer is told.
-            $pending = EuVat::enabled() && $client->primaryContact?->fresh()?->vat_status === EuVat::STATUS_PENDING;
-        }
+        // A new EU VAT number is charged VAT until VIES finds it valid (PR G): the customer is told.
+        $pending = $client !== null && EuVat::enabled() && $client->primaryContact?->fresh()?->vat_status === EuVat::STATUS_PENDING;
 
         $this->notify(__('Account updated successfully.') . ($pending ? ' ' . __('vat.saved_pending') : ''));
     }

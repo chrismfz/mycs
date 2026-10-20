@@ -392,12 +392,13 @@ class DomainsD4cAdversarialTest extends TestCase
 
         $this->page($this->staff(['admin.domains.viewAny', 'admin.clients.update']), $domain)
             ->callAction(TestAction::make('editContact_registrant')->schemaComponent('contacts_registrant_actions', 'infolist'), [
-                'first_name' => 'New', 'client_id' => $other->id, 'primary_of_client_id' => null, 'vat_status' => 'valid',
+                'first_name' => 'New', 'address1' => 'Odos 9', 'client_id' => $other->id, 'primary_of_client_id' => null, 'vat_status' => 'valid',
                 'archived_at' => now()->toDateTimeString(), 'id' => 999999,
             ]);
 
         $fresh = $owner->fresh();
-        $this->assertSame('New', $fresh->first_name);
+        // P1b-1: the details change, the name is locked while the domain uses the contact.
+        $this->assertSame(['Old', 'Odos 9'], [$fresh->first_name, $fresh->address1]);
         $this->assertSame($before, $fresh->only(['client_id', 'primary_of_client_id', 'vat_status', 'archived_at']));
     }
 
