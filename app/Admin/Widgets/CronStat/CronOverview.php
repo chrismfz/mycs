@@ -3,6 +3,7 @@
 namespace App\Admin\Widgets\CronStat;
 
 use App\Models\Setting;
+use App\Services\Ops\Health;
 use Carbon\Carbon;
 use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
@@ -26,7 +27,11 @@ class CronOverview extends StatsOverviewWidget
             $nextRun->addDay();
         }
 
+        $health = Health::cached()['status'];
+
         return [
+            // The whole, as WHMCS's «Ok» (the worst of the checks below).
+            Stat::make(__('Status'), HealthChecks::label($health))->color(HealthChecks::color($health)),
             Stat::make('Last scheduler run', $lastRun ? Carbon::parse($lastRun)->diffForHumans() : 'Never')
                 ->extraAttributes([
                     'class' => $lastRun && Carbon::parse($lastRun)->gt(Carbon::now()->subMinutes(5)) ? 'success' : 'error',

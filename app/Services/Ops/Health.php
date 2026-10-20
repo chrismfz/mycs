@@ -14,6 +14,7 @@ use App\Models\Setting;
 use App\Models\TicketDepartment;
 use App\Models\TicketQuarantine;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Throwable;
@@ -30,6 +31,17 @@ final class Health
     public const WARN = 'warn';
 
     public const FAIL = 'fail';
+
+    /**
+     * The report as a page shows it (Automation Status, its menu badge): read at most once a minute, so a badge on every
+     * admin page costs no checks.
+     *
+     * @return array{status: string, checks: array<string, array{status: string, detail: string, data?: array<string, mixed>}>}
+     */
+    public static function cached(): array
+    {
+        return Cache::remember('ops.health', 60, fn () => self::report());
+    }
 
     /** @return array{status: string, checks: array<string, array{status: string, detail: string, data?: array<string, mixed>}>} */
     public static function report(): array

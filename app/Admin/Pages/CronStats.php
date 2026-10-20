@@ -5,6 +5,8 @@ namespace App\Admin\Pages;
 use App\Admin\Widgets\CronStat\CronOverview;
 use App\Admin\Widgets\CronStat\CronStat;
 use App\Admin\Widgets\CronStat\CronTable;
+use App\Admin\Widgets\CronStat\HealthChecks;
+use App\Services\Ops\Health;
 use Filament\Forms\Components\DatePicker;
 use Filament\Pages\Dashboard;
 use Filament\Pages\Dashboard\Actions\FilterAction;
@@ -17,7 +19,7 @@ class CronStats extends Dashboard
 
     protected static string|\UnitEnum|null $navigationGroup = 'System';
 
-    protected static ?string $title = 'Cron Statistics';
+    protected static ?string $title = 'Automation Status';
 
     protected static string|\BackedEnum|null $navigationIcon = 'ri-time-line';
 
@@ -46,9 +48,23 @@ class CronStats extends Dashboard
         // but filter out
         return [
             CronOverview::class,
+            HealthChecks::class,
             CronTable::class,
             CronStat::class,
         ];
+    }
+
+    /** Something failing or needing a look, on every admin page (as the checks were read in the last minute). */
+    public static function getNavigationBadge(): ?string
+    {
+        $status = Health::cached()['status'];
+
+        return $status === Health::OK ? null : HealthChecks::label($status);
+    }
+
+    public static function getNavigationBadgeColor(): ?string
+    {
+        return HealthChecks::color(Health::cached()['status']);
     }
 
     public static function canAccess(): bool
