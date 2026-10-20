@@ -110,6 +110,8 @@ class TicketsFoundationReviewTest extends TestCase
         ApiKey::create(['staff_id' => Staff::factory()->admin()->create()->id, 'name' => 't', 'type' => 'admin', 'enabled' => true,
             'token' => hash('sha256', $token), 'permissions' => ['admin.tickets.create']]);
         $client = User::factory()->create()->client();
+        // Not the migration's row: a truncating test of the same process removes it (TicketsFoundationTest::department).
+        TicketDepartment::query()->firstOrCreate(['name' => 'Sales']);
 
         $this->withToken($token)->postJson(route('api.v1.admin.tickets.store'), ['subject' => 'A', 'client_id' => $client->id,
             'department' => 'Sales', 'status' => 'replied', 'priority' => 'normal'])
