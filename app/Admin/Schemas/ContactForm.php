@@ -3,6 +3,7 @@
 namespace App\Admin\Schemas;
 
 use App\Models\Contact;
+use App\Models\Domain;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -19,14 +20,19 @@ class ContactForm
     /** @return array<int, mixed> */
     public static function fields(): array
     {
+        // Who the contact is stays as its registrars hold it while a domain uses it (P1b, Contact::IDENTITY): the
+        // contact on its own form, or a domain's contact edited from the domain's page.
+        $inUse = fn ($record): bool => $record instanceof Domain || ($record instanceof Contact && $record->domainRoles()->isNotEmpty());
+
         return [
             Select::make('type')->label(__('Type'))->options([
                 'individual' => __('account.contact_type.individual'),
                 'business' => __('account.contact_type.business'),
-            ])->default('individual')->required(),
-            TextInput::make('first_name')->label(__('First name'))->maxLength(255),
-            TextInput::make('last_name')->label(__('Last name'))->maxLength(255),
-            TextInput::make('company_name')->label(__('Company name'))->maxLength(255),
+            ])->default('individual')->required()->disabled($inUse)->dehydrated(fn ($record) => !$inUse($record))
+                ->helperText(fn ($record) => $inUse($record) ? __('domains.contact_identity_locked') : null),
+            TextInput::make('first_name')->label(__('First name'))->maxLength(255)->disabled($inUse)->dehydrated(fn ($record) => !$inUse($record)),
+            TextInput::make('last_name')->label(__('Last name'))->maxLength(255)->disabled($inUse)->dehydrated(fn ($record) => !$inUse($record)),
+            TextInput::make('company_name')->label(__('Company name'))->maxLength(255)->disabled($inUse)->dehydrated(fn ($record) => !$inUse($record)),
             TextInput::make('email')->label(__('Email'))->email()->maxLength(255),
             TextInput::make('phone')->label(__('Phone'))->tel()->maxLength(50),
             Fieldset::make(__('Tax details'))->schema([

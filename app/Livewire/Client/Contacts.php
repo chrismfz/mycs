@@ -81,8 +81,12 @@ class Contacts extends Component
 
     public function render()
     {
+        $contacts = $this->account()->contacts()->whereNull('primary_of_client_id')->active()->orderBy('id')->get();
+
         return view('client.account.contacts', [
-            'contacts' => $this->account()->contacts()->whereNull('primary_of_client_id')->active()->orderBy('id')->get(),
+            'contacts' => $contacts,
+            // Where each is a domain's contact (P1b): its name stays as its registrars hold it, it is not archived.
+            'uses' => $contacts->mapWithKeys(fn (Contact $contact) => [$contact->id => $contact->domainRoles()]),
         ])->layoutData([
             'sidebar' => true,
             'title' => __('account.contacts'),

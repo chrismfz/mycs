@@ -11,7 +11,7 @@
 
         @if($showForm)
         <div class="bg-background-secondary border border-neutral rounded-lg p-4 space-y-3">
-            <x-contact-fields />
+            <x-contact-fields :locked="$identityLocked" />
             <x-button.primary class="w-full" wire:click="save">{{ __('general.update') }}</x-button.primary>
         </div>
         @endif
@@ -22,6 +22,12 @@
                 <div class="font-semibold">{{ $contact->displayName() }}</div>
                 <div class="text-sm text-base/70">{{ $contact->email }}</div>
                 <div class="text-xs text-base/50">{{ implode(', ', $contact->addressLines()) }}</div>
+                @if ($uses[$contact->id]->isNotEmpty())
+                <div class="text-xs text-base/70 mt-1">
+                    {{ __('domains.contact_used_by') }}:
+                    {{ $uses[$contact->id]->map(fn ($use) => $use['fqdn'] . ' (' . __('domains.role.' . $use['role']) . ')')->implode(', ') }}
+                </div>
+                @endif
             </div>
             <div class="flex gap-2">
                 <x-button.secondary class="h-fit !w-fit" wire:click="edit({{ $contact->id }})">{{ __('account.edit') }}</x-button.secondary>

@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use OwenIt\Auditing\Contracts\Auditable;
 
@@ -82,8 +83,20 @@ class Contact extends Model implements Auditable
     /** A new VAT number was saved: VIES checks it after the commit (PR G). Not a column. */
     public bool $vatCheckDue = false;
 
+    /**
+     * Who the contact is, as its registrars hold it (P1b, owner 2026-10-20): never changed while a domain uses it in any
+     * role. The .gr registry never changes a contact's name, and a holder's is an owner change (charged); at Openprovider
+     * often a trade. A new contact, given the role, is the way; for the holder, the owner change.
+     */
+    public const IDENTITY = ['type', 'first_name', 'last_name', 'company_name'];
+
     protected static function booted(): void
     {
+        static::updating(function (self $contact) {
+            if ($contact->isDirty(self::IDENTITY) && ($use = $contact->domainRoles()->first()) !== null) {
+                throw new DisplayException(__('domains.contact_identity_in_use', ['role' => __('domains.role.' . $use['role']), 'domain' => $use['fqdn']]));
+            }
+        });
         // A new VAT number is not known yet (PR G): VAT is charged until VIES says it is valid (fail closed). A new
         // country is one too when the number has no prefix: it is read with the contact's country (review CR-1).
         static::saving(function (self $contact) {
@@ -202,6 +215,28 @@ class Contact extends Model implements Auditable
         });
     }
 
+    /**
+     * The domains it is a contact of, by role (P1b): those still held (a deleted one too: a restore brings it back), as
+     * archive() counts them.
+     *
+     * @return Collection<int, array{fqdn: string, role: string, domain_id: int}>
+     */
+    public function domainRoles(): Collection
+    {
+        if (!$this->exists) {
+            return collect();
+        }
+        $roles = collect();
+        foreach (Domain::ROLES as $role) {
+            Domain::query()->where("{$role}_contact_id", $this->id)
+                ->whereNotIn('status', [DomainStatus::TransferredAway->value, DomainStatus::Cancelled->value])
+                ->orderBy('fqdn')->get(['id', 'fqdn'])
+                ->each(fn (Domain $domain) => $roles->push(['fqdn' => $domain->fqdn, 'role' => $role, 'domain_id' => $domain->id]));
+        }
+
+        return $roles->sortBy(fn (array $use) => $use['fqdn'] . '|' . array_search($use['role'], Domain::ROLES, true))->values();
+    }
+
     /** Archived, not deleted (it may be on documents or domains). The primary contact stays. */
     public function archive(): void
     {
@@ -210,13 +245,8 @@ class Contact extends Model implements Auditable
         }
         // A contact role of a domain still held (docs/domains.md D-3): its registrar data is this contact. A deleted
         // domain counts: a restore can bring it back (review G).
-        foreach (Domain::ROLES as $role) {
-            $domain = Domain::query()->where("{$role}_contact_id", $this->id)
-                ->whereNotIn('status', [DomainStatus::TransferredAway->value, DomainStatus::Cancelled->value])
-                ->first();
-            if ($domain !== null) {
-                throw new DisplayException(__('domains.contact_in_use', ['role' => __('domains.role.' . $role), 'domain' => $domain->fqdn]));
-            }
+        if (($use = $this->domainRoles()->first()) !== null) {
+            throw new DisplayException(__('domains.contact_in_use', ['role' => __('domains.role.' . $use['role']), 'domain' => $use['fqdn']]));
         }
         $this->forceFill(['archived_at' => now()])->save();
     }

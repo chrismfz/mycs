@@ -4,6 +4,7 @@ namespace App\Livewire\Traits;
 
 use App\Models\Contact;
 use Illuminate\Validation\Rule;
+use Livewire\Attributes\Locked;
 
 /**
  * A contact's fields in a client-area form (docs/accounts.md, PR 3a): the account's details (its primary contact)
@@ -19,8 +20,16 @@ trait EditsContact
     public const CONTACT_FIELDS = ['type', 'first_name', 'last_name', 'company_name', 'tax_id', 'vat_number', 'tax_office', 'activity',
         'address1', 'address2', 'city', 'state', 'postcode', 'country', 'email', 'phone', 'document_type', 'email_preferences'];
 
+    /**
+     * Who the contact is cannot change: a domain uses it (P1b, Contact::IDENTITY). Shown as such, and not sent; set by the
+     * server only.
+     */
+    #[Locked]
+    public bool $identityLocked = false;
+
     protected function fillContact(?Contact $contact): void
     {
+        $this->identityLocked = $contact !== null && $contact->domainRoles()->isNotEmpty();
         $this->contact = [];
         foreach (self::CONTACT_FIELDS as $field) {
             $this->contact[$field] = $contact->{$field} ?? match ($field) {
@@ -71,6 +80,9 @@ trait EditsContact
         $values['country'] = $values['country'] !== null ? strtoupper((string) $values['country']) : null;
         $values['vat_number'] = $values['vat_number'] !== null ? strtoupper(preg_replace('/[\s.\-]/', '', (string) $values['vat_number'])) : null;
         $values['email_preferences'] = array_values((array) ($values['email_preferences'] ?? []));
+        if ($this->identityLocked) {
+            $values = array_diff_key($values, array_flip(Contact::IDENTITY));
+        }
 
         return $values;
     }
