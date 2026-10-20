@@ -32,7 +32,17 @@
                     <label for="website">Website</label>
                     <input type="text" id="website" name="website" wire:model="website" tabindex="-1" autocomplete="off" />
                 </div>
-                <x-captcha :form="'contact'" />
+                {{-- The chosen captcha, or ours when none is (App\Livewire\Contact::requireCaptcha). --}}
+                @if (\App\Livewire\Contact::captchaKind() === 'altcha' && config('settings.captcha') !== 'altcha')
+                    <div class="flex flex-col justify-center mt-2">
+                        <div wire:ignore><x-captcha.altcha /></div>
+                        @error('captcha')
+                            <p class="text-red-500 text-xs mt-1">{{ $message }}</p>
+                        @enderror
+                    </div>
+                @else
+                    <x-captcha :form="'contact'" />
+                @endif
                 <x-button.primary type="submit" class="w-full md:w-auto md:self-end" wire:loading.attr="disabled">{{ __('ticket.contact_send') }}</x-button.primary>
             </form>
         @endif

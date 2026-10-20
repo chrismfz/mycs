@@ -6,6 +6,7 @@ use App\Livewire\Contact;
 use App\Models\Setting;
 use App\Models\Ticket;
 use App\Models\TicketDepartment;
+use App\Services\Captcha\Altcha;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
 use Livewire\Features\SupportTesting\Testable;
@@ -28,6 +29,14 @@ class ContactFormAdversarialTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // The form always asks for a captcha (ours when none is chosen, review of #251): «solved» is a solution here.
+        $this->app->instance(Altcha::class, new class extends Altcha
+        {
+            public function verify(string $payload): bool
+            {
+                return $payload === 'solved';
+            }
+        });
         config(['mail.default' => 'array', 'settings.default_currency' => 'USD']);
         Setting::query()->updateOrCreate(['key' => 'captcha', 'settingable_type' => null], ['value' => 'disabled']);
         Setting::query()->updateOrCreate(['key' => 'mail_disable', 'settingable_type' => null], ['value' => '0']);
@@ -49,7 +58,7 @@ class ContactFormAdversarialTest extends TestCase
     {
         $this->ip = $ip;
         $test = Livewire::test(Contact::class);
-        foreach ($values + ['name' => 'Maria', 'email' => 'maria@example.com', 'subject' => 'Hello', 'message' => 'Hello'] as $field => $value) {
+        foreach ($values + ['captcha' => 'solved', 'name' => 'Maria', 'email' => 'maria@example.com', 'subject' => 'Hello', 'message' => 'Hello'] as $field => $value) {
             $test->set($field, $value);
         }
 
@@ -141,7 +150,7 @@ class ContactFormAdversarialTest extends TestCase
      */
     public function test_the_public_form_does_not_take_tickets_without_a_captcha(): void
     {
-        $this->form()->call('submit');
+        $this->form(['captcha' => ''])->call('submit');
 
         $this->assertSame(0, Ticket::query()->count());
         $this->assertCount(0, $this->sent());

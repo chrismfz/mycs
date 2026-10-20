@@ -51,4 +51,5 @@ return [
     'contact_login' => 'Already a customer? :login to see your tickets.',
     'contact_too_many' => 'Too many messages in a short time. Please try again later.',
     'contact_unavailable' => 'The contact form is not open. Customers can :login and open a ticket.',
+    'contact_our_address' => 'This is one of our own addresses: please give yours.',
 ];

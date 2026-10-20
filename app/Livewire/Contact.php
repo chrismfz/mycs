@@ -14,7 +14,9 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
+use Symfony\Component\Mime\Address;
 
 /**
  * «Contact» without a login (docs/tickets.md §3 Ζ, PR B): a guest's ticket from a name, an address, a subject, a
@@ -33,6 +35,9 @@ class Contact extends Component
 
     /** Tickets for one email address in an hour. */
     public const PER_EMAIL = 3;
+
+    /** Tickets from the form in an hour, from everyone: whatever addresses and networks, our mail stays bounded. */
+    public const PER_HOUR = 30;
 
     public string $name = '';
 
@@ -85,24 +90,26 @@ class Contact extends Component
         $this->subject = $this->line($this->subject, 1000);
         $this->validate([
             'name' => 'required|string|max:100',
-            'email' => 'required|email:rfc|max:191',
+            'email' => ['required', 'string', 'max:191', fn (string $attribute, mixed $value, \Closure $fail) => self::mailable((string) $value) ?: $fail(__('validation.email', ['attribute' => __('general.input.email')])),
+                fn (string $attribute, mixed $value, \Closure $fail) => self::ours((string) $value) ? $fail(__('ticket.contact_our_address')) : null],
             'subject' => 'required|string|max:200',
             'department' => ['required', 'integer', Rule::in($departments->pluck('id')->all())],
             'message' => 'required|string|max:10000',
         ]);
-        $this->captcha();
+        $this->requireCaptcha();
 
         $email = strtolower(trim($this->email));
-        $limits = ['contact-ip:' . request()->ip() => self::PER_IP, 'contact-email:' . TicketBlockedSender::base($email) => self::PER_EMAIL];
+        // Counted as they are taken (increment, not check-then-hit): two at once never both slip under a limit.
+        $limits = ['contact-ip:' . self::network((string) request()->ip()) => self::PER_IP,
+            'contact-email:' . TicketBlockedSender::base($email) => self::PER_EMAIL, 'contact-all' => self::PER_HOUR];
+        $over = false;
         foreach ($limits as $key => $max) {
-            if (RateLimiter::tooManyAttempts($key, $max)) {
-                $this->addError('email', __('ticket.contact_too_many'));
-
-                return;
-            }
+            $over = RateLimiter::increment($key, 3600) > $max || $over;
         }
-        foreach ($limits as $key => $max) {
-            RateLimiter::hit($key, 3600);
+        if ($over) {
+            $this->addError('email', __('ticket.contact_too_many'));
+
+            return;
         }
 
         // A bot (the honeypot) or a blocked sender: told it went, given nothing to learn from.
@@ -131,10 +138,76 @@ class Contact extends Component
         $this->sent = true;
     }
 
-    /** One line: no control characters, single spaces. */
+    /**
+     * The captcha: the one chosen in Settings, and our ALTCHA when none is (it needs no keys): a public form that mails
+     * any address typed in never opens without one (review of #251).
+     */
+    private function requireCaptcha(): void
+    {
+        if (in_array(config('settings.captcha'), [null, '', 'disabled'], true)) {
+            if ($this->captcha === '') {
+                throw ValidationException::withMessages(['captcha' => __('auth.captcha_invalid')]);
+            }
+            $this->altcha($this->captcha);
+
+            return;
+        }
+        $this->captcha();
+    }
+
+    /** The captcha this page shows: the chosen one, or ours. */
+    public static function captchaKind(): string
+    {
+        $kind = (string) config('settings.captcha');
+
+        return in_array($kind, ['', 'disabled'], true) ? 'altcha' : $kind;
+    }
+
+    /** An address we may mail: one mailbox at a host with a dot, no comment, no address literal, as Symfony will send it. */
+    public static function mailable(string $email): bool
+    {
+        $email = trim($email);
+        $at = strrpos($email, '@');
+        if ($at === false || str_contains($email, '(') || str_contains($email, '[')) {
+            return false;
+        }
+        $domain = (string) (idn_to_ascii(substr($email, $at + 1), IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46) ?: '');
+        if (preg_match('/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i', $domain) !== 1) {
+            return false;
+        }
+        try {
+            new Address(substr($email, 0, $at) . '@' . $domain);
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return filter_var(substr($email, 0, $at) . '@' . $domain, FILTER_VALIDATE_EMAIL) !== false;
+    }
+
+    /** One of our own addresses (a department's): the form would have us mail ourselves. */
+    public static function ours(string $email): bool
+    {
+        $base = TicketBlockedSender::base($email);
+
+        return TicketDepartment::query()->get()->flatMap(fn (TicketDepartment $department) => $department->ownAddresses())
+            ->map(fn (string $address) => TicketBlockedSender::base($address))->contains($base);
+    }
+
+    /** A network for the limit: an IPv4 address, or an IPv6 /64 (one subscriber's LAN, 2^64 addresses). */
+    private static function network(string $ip): string
+    {
+        $packed = @inet_pton($ip);
+        if ($packed !== false && strlen($packed) === 16) {
+            return bin2hex(substr($packed, 0, 8)) . '::/64';
+        }
+
+        return $ip;
+    }
+
+    /** One line: no control or format characters (bidi, zero-width), single spaces. */
     private function line(string $value, int $max): string
     {
-        $value = trim((string) preg_replace('/\s+/u', ' ', (string) preg_replace('/[\x00-\x1F\x7F]/u', ' ', $value)));
+        $value = trim((string) preg_replace('/\s+/u', ' ', (string) preg_replace('/[\x00-\x1F\x7F\p{Cf}]/u', ' ', $value)));
 
         return mb_substr($value, 0, $max);
     }

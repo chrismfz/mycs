@@ -19,7 +19,13 @@ class TicketBlockedSender extends Model
     {
         $value = strtolower(trim($value));
 
-        return str_contains($value, '@') ? $value : '@' . $value;
+        // An address as its mailbox (base), a domain as its ASCII form: a block holds however either is spelled.
+        if (str_contains(ltrim($value, '@'), '@')) {
+            return self::base($value);
+        }
+        $domain = ltrim($value, '@');
+
+        return '@' . (idn_to_ascii($domain, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46) ?: $domain);
     }
 
     public static function blocks(string $email): bool
@@ -29,10 +35,16 @@ class TicketBlockedSender extends Model
             return false;
         }
 
-        return self::query()->whereIn('value', array_unique([$email, self::base($email), '@' . substr($email, strrpos($email, '@') + 1)]))->exists();
+        $base = self::base($email);
+
+        return self::query()->whereIn('value', array_unique([$email, $base, '@' . substr($email, strrpos($email, '@') + 1), '@' . substr($base, strrpos($base, '@') + 1)]))->exists();
     }
 
-    /** The mailbox behind an address: without its «+tag» (spammer+1@example.com is spammer@example.com). */
+    /**
+     * The mailbox behind an address, however it is spelled (review of #251): lower case, without quotes around the local
+     * part, without its «+tag», the domain in ASCII (an IDN's xn-- form), and for Gmail without the dots it ignores.
+     * spammer+1@example.com, "spammer"@example.com and s.pammer@gmail.com are spammer@… .
+     */
     public static function base(string $email): string
     {
         $email = strtolower(trim($email));
@@ -40,9 +52,15 @@ class TicketBlockedSender extends Model
         if ($at === false) {
             return $email;
         }
-        $local = substr($email, 0, $at);
+        $local = trim(substr($email, 0, $at), '"');
+        $domain = rtrim(substr($email, $at + 1), '.');
+        $domain = (string) (idn_to_ascii($domain, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46) ?: $domain);
         $plus = strpos($local, '+');
+        $local = $plus !== false && $plus > 0 ? substr($local, 0, $plus) : $local;
+        if (in_array($domain, ['gmail.com', 'googlemail.com'], true)) {
+            [$local, $domain] = [str_replace('.', '', $local), 'gmail.com'];
+        }
 
-        return ($plus !== false && $plus > 0 ? substr($local, 0, $plus) : $local) . substr($email, $at);
+        return $local . '@' . $domain;
     }
 }

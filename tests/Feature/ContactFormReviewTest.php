@@ -8,6 +8,7 @@ use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\TicketDepartment;
 use App\Models\User;
+use App\Services\Captcha\Altcha;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
@@ -25,6 +26,14 @@ class ContactFormReviewTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // The form always asks for a captcha (ours when none is chosen, review of #251): «solved» is a solution here.
+        $this->app->instance(Altcha::class, new class extends Altcha
+        {
+            public function verify(string $payload): bool
+            {
+                return $payload === 'solved';
+            }
+        });
         config(['mail.default' => 'array', 'settings.default_currency' => 'USD']);
         Setting::query()->updateOrCreate(['key' => 'captcha', 'settingable_type' => null], ['value' => 'disabled']);
         Setting::query()->updateOrCreate(['key' => 'mail_disable', 'settingable_type' => null], ['value' => '0']);
@@ -38,7 +47,7 @@ class ContactFormReviewTest extends TestCase
     private function form(array $values = []): Testable
     {
         $test = Livewire::test(Contact::class);
-        foreach ($values + ['name' => 'Maria', 'email' => 'maria@example.com', 'subject' => 'My site is down', 'message' => 'Please help'] as $field => $value) {
+        foreach ($values + ['captcha' => 'solved', 'name' => 'Maria', 'email' => 'maria@example.com', 'subject' => 'My site is down', 'message' => 'Please help'] as $field => $value) {
             $test->set($field, $value);
         }
 

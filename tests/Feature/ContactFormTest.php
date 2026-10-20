@@ -11,6 +11,7 @@ use App\Models\TicketDepartment;
 use App\Models\TicketMailId;
 use App\Models\TicketMessage;
 use App\Models\User;
+use App\Services\Captcha\Altcha;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\RateLimiter;
@@ -29,6 +30,14 @@ class ContactFormTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // The form always asks for a captcha (ours when none is chosen, review of #251): «solved» is a solution here.
+        $this->app->instance(Altcha::class, new class extends Altcha
+        {
+            public function verify(string $payload): bool
+            {
+                return $payload === 'solved';
+            }
+        });
         config(['mail.default' => 'array', 'settings.default_currency' => 'USD']);
         Setting::query()->updateOrCreate(['key' => 'captcha', 'settingable_type' => null], ['value' => 'disabled']);
         // Livewire and requests read the settings again from the database: mail on there.
@@ -50,7 +59,7 @@ class ContactFormTest extends TestCase
     private function form(array $values = []): Testable
     {
         $test = Livewire::test(Contact::class);
-        foreach ($values + ['name' => 'Maria', 'email' => 'Maria@Example.com', 'subject' => 'My site is down', 'message' => 'Please help'] as $field => $value) {
+        foreach ($values + ['captcha' => 'solved', 'name' => 'Maria', 'email' => 'Maria@Example.com', 'subject' => 'My site is down', 'message' => 'Please help'] as $field => $value) {
             $test->set($field, $value);
         }
 
@@ -158,5 +167,26 @@ class ContactFormTest extends TestCase
         Setting::query()->updateOrCreate(['key' => 'tickets_disabled', 'settingable_type' => null], ['value' => '1']);
 
         $this->get(route('contact'))->assertNotFound();
+    }
+
+    /** With no captcha chosen the form uses ours (review of #251): its widget is there and its challenge is served. */
+    public function test_with_no_captcha_chosen_the_form_has_ours(): void
+    {
+        $this->get(route('contact'))->assertOk()->assertSee('altcha-widget', false);
+        $this->assertNotEmpty($this->getJson(route('captcha.altcha'))->assertOk()->json());
+
+        $this->form(['captcha' => ''])->call('submit')->assertHasErrors('captcha');
+        $this->assertSame(0, Ticket::query()->count());
+    }
+
+    /** A block holds however the address is spelled: Gmail's dots, quotes, a +tag, the domain's case. */
+    public function test_a_block_holds_for_every_spelling(): void
+    {
+        TicketBlockedSender::query()->create(['value' => 'V.ictim@Gmail.com']);
+
+        foreach (['victim@gmail.com', 'vic.tim+x@googlemail.com', '"victim"@GMAIL.com'] as $spelling) {
+            $this->assertTrue(TicketBlockedSender::blocks($spelling), $spelling);
+        }
+        $this->assertFalse(TicketBlockedSender::blocks('victor@gmail.com'));
     }
 }

@@ -189,7 +189,7 @@ final class Parser
     /** A header value as one line: valid UTF-8, no control characters, single spaces. */
     private static function line(string $value): string
     {
-        $value = (string) preg_replace('/[\x00-\x1F\x7F]+/u', ' ', mb_scrub($value, 'UTF-8'));
+        $value = (string) preg_replace('/[\x00-\x1F\x7F\p{Cf}]+/u', ' ', mb_scrub($value, 'UTF-8'));
 
         return trim((string) preg_replace('/\s+/u', ' ', $value));
     }

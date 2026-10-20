@@ -28,8 +28,9 @@ Route::get('/whois', DomainShop\Whois::class)->name('domain.whois');
 Route::get('/contact', Contact::class)->name('contact');
 Route::get('/domain-pricing', DomainShop\Pricing::class)->name('domain.pricing');
 
-// Our captcha's challenges (docs/captcha.md): only while it is the chosen captcha; a few a minute per address.
-Route::get('/captcha/altcha', fn (Altcha $altcha) => config('settings.captcha') === 'altcha'
+// Our captcha's challenges (docs/captcha.md): while it is the chosen captcha, or none is (the contact form uses ours
+// then); a few a minute per address.
+Route::get('/captcha/altcha', fn (Altcha $altcha) => Contact::captchaKind() === 'altcha'
     ? response()->json($altcha->challenge())->header('Cache-Control', 'no-store')
     : abort(404))->name('captcha.altcha')->middleware('throttle:altcha');
 
