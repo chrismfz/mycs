@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Admin\Pages\RevenueForecast;
+use App\Admin\Widgets\EstimatedIncome;
 use App\Enums\DomainStatus;
 use App\Models\Credit;
 use App\Models\Domain;
@@ -16,8 +17,10 @@ use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Reports\RevenueForecast as Forecast;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
@@ -151,5 +154,57 @@ class RevenueForecastTest extends TestCase
         $this->actingAs($staff)->get(RevenueForecast::getUrl())->assertOk()->assertSee(__('Same month last year'));
 
         $this->livewireAs($staff)->test(RevenueForecast::class)->callAction('csv')->assertFileDownloaded('revenue-forecast-USD-2026-10-21.csv');
+    }
+
+    public function test_the_widget_reads_as_whmcs_zero_cycles_included(): void
+    {
+        Cache::flush();
+        config(['settings.default_currency' => 'USD']);
+        $staff = Staff::factory()->withPermissions(['admin.reports.view'])->create();
+        $this->service(548.70, 'month', 1, '2026-11-01');
+        $this->service(1116.00, 'year', 3, '2027-01-01');
+
+        $this->livewireAs($staff)->test(EstimatedIncome::class)
+            ->assertSee(__(':code Currency', ['code' => 'USD']))
+            ->assertSee(__('Monthly') . ': $548.70 (1)')
+            ->assertSee(__('Quarterly') . ': $0.00 (0)')
+            ->assertSee(__('Triennially') . ': $1,116.00 (1)')
+            ->assertSee(__('Est. Annual') . ': $6,956.40'); // 548.70 × 12 + 1,116 / 3
+
+    }
+
+    public function test_the_widgets_billing_is_what_came_in_net_today_this_month_this_year_and_ever(): void
+    {
+        Cache::flush();
+        config(['settings.default_currency' => 'USD', 'settings.tax_enabled' => true, 'settings.tax_type' => 'exclusive']);
+        foreach (['2026-10-21 09:00:00' => 10, '2026-10-02 09:00:00' => 20, '2026-03-01 09:00:00' => 40, '2024-05-05 09:00:00' => 80] as $when => $net) {
+            $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+            $invoice->items()->create(['description' => 'x', 'quantity' => 1, 'price' => $net, 'tax_rate' => '24']);
+            DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PAID, 'paid_at' => $when]);
+        }
+
+        // What came in (net of the 24%), then what is to come.
+        $this->livewireAs(Staff::factory()->withPermissions(['admin.reports.view'])->create())->test(EstimatedIncome::class)
+            ->assertSeeInOrder(['$10.00', __('Today'), '$30.00', __('This Month'), '$70.00', __('This Year'), '$150.00', __('All Time'), __('Income Forecast')])
+            ->assertSee(RevenueForecast::getUrl(), false);
+    }
+
+    public function test_all_time_counts_a_paid_invoice_with_no_payment_date(): void
+    {
+        // An import from WHMCS with datepaid 0000-00-00 (F4 of #278): paid, so in «all time».
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $invoice->items()->create(['description' => 'x', 'quantity' => 1, 'price' => 25]);
+        DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PAID, 'paid_at' => null]);
+
+        $this->assertSame('25.00', Forecast::collected('USD', null, null));
+        $this->assertSame('0.00', Forecast::collected('USD', CarbonImmutable::parse('2026-01-01'), CarbonImmutable::parse('2027-01-01')));
+    }
+
+    public function test_staff_without_the_permission_get_no_widget(): void
+    {
+        $staff = Staff::factory()->withPermissions(['admin.clients.viewAny'])->create();
+        $this->actingAs($staff);
+        $this->assertFalse(EstimatedIncome::canView());
+        $this->livewireAs($staff)->test(EstimatedIncome::class)->assertForbidden();
     }
 }

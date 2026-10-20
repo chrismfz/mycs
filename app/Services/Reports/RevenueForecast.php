@@ -176,11 +176,24 @@ final class RevenueForecast
         return $keys;
     }
 
-    /** What the invoices paid in [from, until) brought in, net, in cents (by paid_at, WHMCS datepaid). */
-    private static function paidNet(string $currency, CarbonImmutable $from, CarbonImmutable $until): int
+    /**
+     * What came in, net, in [from, until) (null: since ever), by when invoices were paid: the dashboard's Billing (Today,
+     * This Month, This Year, All Time, as WHMCS's, net), the forecast's «collected» and «last year».
+     */
+    public static function collected(string $currency, ?CarbonImmutable $from, ?CarbonImmutable $until): string
+    {
+        return self::money(self::paidNet($currency, $from, $until));
+    }
+
+    /**
+     * What the invoices paid in [from, until) brought in, net, in cents (by paid_at, WHMCS datepaid). No bounds: every
+     * paid invoice, one imported without a payment date too (F4 of #278).
+     */
+    private static function paidNet(string $currency, ?CarbonImmutable $from, ?CarbonImmutable $until): int
     {
         return self::netOf(Invoice::query()->where('status', Invoice::STATUS_PAID)->where('currency_code', $currency)
-            ->where('paid_at', '>=', $from)->where('paid_at', '<', $until));
+            ->when($from !== null, fn ($query) => $query->where('paid_at', '>=', $from))
+            ->when($until !== null, fn ($query) => $query->where('paid_at', '<', $until)));
     }
 
     /** What the invoices due in [from, until) bill, net, open or paid (not drafts, cancelled or refunded), in cents. */
@@ -210,17 +223,25 @@ final class RevenueForecast
      */
     private static function netOf(Builder $invoices): int
     {
+        // Summed in the database per invoice (F2 of #278: 30k invoices in one read, not each one's lines loaded).
+        $ids = $invoices->select('invoices.id');
+        $lines = DB::table('invoice_items')->whereIn('invoice_id', $ids)
+            ->where(fn ($query) => $query->whereNull('reference_type')->orWhere('reference_type', '!=', Credit::class))
+            ->groupBy('invoice_id')
+            ->selectRaw('invoice_id, SUM(line_total - tax_amount) AS net, SUM(line_total) AS gross')
+            ->get()->keyBy('invoice_id');
+        $notes = DB::table('adjustment_notes')->whereIn('invoice_id', $lines->keys()->all() === [] ? [0] : $ids)
+            ->where('status', AdjustmentNoteStatus::Active->value)
+            ->groupBy('invoice_id')->selectRaw('invoice_id, SUM(amount) AS amount')->pluck('amount', 'invoice_id');
+
         $sum = 0;
-        $invoices->with(['items', 'adjustmentNotes'])->chunkById(200, function ($chunk) use (&$sum) {
-            foreach ($chunk as $invoice) {
-                $lines = $invoice->items->reject(fn ($item) => $item->reference_type === Credit::class);
-                $gross = (int) $lines->sum(fn ($item) => $item->totalCents());
-                $net = (int) $lines->sum(fn ($item) => self::cents(number_format($item->net(), 2, '.', '')));
-                $notes = self::cents(number_format((float) $invoice->adjustmentNotes->where('status', AdjustmentNoteStatus::Active->value)->sum('amount'), 2, '.', ''));
-                // The notes are gross amounts on its total: their net part in the lines' proportion.
-                $sum += $gross === 0 ? $net : $net + (int) round($notes * $net / $gross);
-            }
-        });
+        foreach ($lines as $id => $row) {
+            $net = self::cents(number_format((float) $row->net, 2, '.', ''));
+            $gross = self::cents(number_format((float) $row->gross, 2, '.', ''));
+            $note = self::cents(number_format((float) ($notes[$id] ?? 0), 2, '.', ''));
+            // The notes are gross amounts on its total: their net part in the lines' proportion.
+            $sum += $gross === 0 ? $net : $net + (int) round($note * $net / $gross);
+        }
 
         return $sum;
     }

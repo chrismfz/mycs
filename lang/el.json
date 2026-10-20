@@ -825,10 +825,17 @@
     "Domains": "Domains",
     "Expected": "Αναμενόμενα",
     "Same month last year": "Ίδιος μήνας πέρσι",
-    "Estimated income": "Εκτιμώμενα έσοδα",
-    "Est. annual": "Εκτίμηση έτους",
     "Collected this month": "Εισπραγμένα αυτόν τον μήνα",
     "Due this month": "Οφείλονται αυτόν τον μήνα",
     "Already invoiced, due this month": "Ήδη τιμολογημένα, με λήξη αυτόν τον μήνα",
-    "Net amounts, without tax. Every active service and auto-renewing domain renews at its price on its due date, as the billing renews it.": "Καθαρά ποσά, χωρίς φόρο. Κάθε ενεργή υπηρεσία και κάθε domain με αυτόματη ανανέωση ανανεώνεται στην τιμή του, την ημερομηνία λήξης του, όπως το ανανεώνει η χρέωση."
+    "Net amounts, without tax. Every active service and auto-renewing domain renews at its price on its due date, as the billing renews it.": "Καθαρά ποσά, χωρίς φόρο. Κάθε ενεργή υπηρεσία και κάθε domain με αυτόματη ανανέωση ανανεώνεται στην τιμή του, την ημερομηνία λήξης του, όπως το ανανεώνει η χρέωση.",
+    "Income Forecast": "Πρόβλεψη εσόδων",
+    "Est. Annual": "Εκτίμηση έτους",
+    ":code Currency": "Νόμισμα :code",
+    "Today": "Σήμερα",
+    "This Month": "Αυτόν τον μήνα",
+    "This Year": "Φέτος",
+    "All Time": "Συνολικά",
+    "Net amounts, without tax.": "Καθαρά ποσά, χωρίς φόρο.",
+    "Income": "Έσοδα"
 }
