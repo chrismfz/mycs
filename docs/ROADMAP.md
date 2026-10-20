@@ -11,7 +11,7 @@
 - **Έτοιμα:** η χρέωση και οι ροές χρημάτων, οι λογαριασμοί, οι παραγγελίες, το provisioning, το licensing της nixpal,
   τα domains (Openprovider και Μητρώο .gr με δικό μας EPP), το portal του πελάτη, η μετάφραση el/en, τα παράλληλα tests.
   Σύνοψη στο «Έγινε», παρακάτω.
-- **Τι λείπει για να μπει η nixpal:** αρίθμηση τιμολογίων, σημειώσεις του WHMCS, PayPal vault, importer με parity,
+- **Τι λείπει για να μπει η nixpal:** αρίθμηση τιμολογίων, σημειώσεις λογαριασμού, PayPal vault, importer με parity,
   δοκιμή licensing και cPanel, η λειτουργία της παραγωγής (mail, backups, παρακολούθηση) και το runbook του cut-over.
   Αυτά είναι η σειρά παρακάτω.
 
