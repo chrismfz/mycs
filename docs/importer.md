@@ -140,6 +140,25 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
   φτιάχτηκε στον host του MyCS, ο οποίος μόνο τα αποκρυπτογραφεί σε αρχείο root-only, το εισάγει και το σβήνει μαζί με
   το κλειδί. Ούτε η εντολή ούτε το audit τυπώνουν hash.
 
+## Πύλες πληρωμών και promotions (2026-10-20)
+- **Πύλη κάθε πληρωμής** (`tblaccounts.gateway` → `invoice_transactions.gateway_id`, για το «Payment Method» της
+  παραγγελίας και το money trail): `stripe*` → Stripe, `paypal`/`paypal_ppcpv`/`paypalcheckout` → PayPal, `mollie*` →
+  Mollie, `cardlink*`/`eurobank` → Cardlink (`ImportFromWhmcs::GATEWAYS`). Αν η βάση (μετά το `migrate:fresh`) δεν έχει
+  το extension, ο importer το εγκαθιστά όπως το «Install» του admin, **απενεργοποιημένο**: το staff βάζει τα κλειδιά και
+  το ενεργοποιεί. Έμβασμα (`banktransfer`) και ό,τι άλλο: χωρίς πύλη (χειροκίνητη πληρωμή), με πλήθος ανά module στην
+  έξοδο. Nixpal (2026-10-20): `stripe`, `paypal`, `paypal_ppcpv`. Myip: έμβασμα, Eurobank vPOS, Stripe SEPA
+  (`whmcs-usage.md`)· **να επιβεβαιωθεί το όνομα του module της Eurobank** στο `tblaccounts` της myip πριν το cut-over.
+- **Promotions** (`tblpromotions` → `coupons`, ίδια ids· `appliesto` → `coupon_products`): Percentage → percentage,
+  Fixed Amount → fixed, Free Setup → 100% στο setup fee· `recurring` 0 → μόνο η πρώτη πληρωμή, 1 με `recurfor` 0 → κάθε
+  κύκλος· `maxuses`, `onceperclient` → ανά πελάτη 1, ημερομηνίες. Όποιο το MyCS θα εφάρμοζε **αλλιώς** από το WHMCS
+  (Price Override, ορισμένοι κύκλοι μόνο, νέοι/υπάρχοντες πελάτες, «requires», once per order, upgrades, lifetime,
+  `recurfor` > 0, addons/domains) έρχεται **κλειστό για νέες παραγγελίες** (`expires_at` = η ώρα του import) και
+  αναφέρεται: το staff το ξαναφτιάχνει αν προσφέρεται ακόμα. Nixpal: και τα 4 (FREETRIAL, 25OffAgentNode, MOBIAN10/25).
+- **Υπηρεσίες** (`tblhosting.promoid` → `coupon_id`, `coupon_started_at` = `regdate`): η τιμή μένει το recurring amount
+  του WHMCS, που έχει ήδη την έκπτωση, και το κουπόνι μπαίνει **used up** (`coupon_expired_at`), ώστε ούτε να
+  ξαναεφαρμοστεί ούτε να ξαναϋπολογιστεί η τιμή από τον κατάλογο (ο importer δεν αλλάζει ποσά). Promotion με `recurfor`
+  > 0 σε ζωντανή υπηρεσία μπορεί να μην έχει τελειώσει: αναφέρεται, και το staff βάζει την πλήρη τιμή όταν τελειώσει.
+
 ## Γραμμές domain (D6): απαίτηση για όταν γραφτεί
 - Σήμερα ο importer γράφει τις γραμμές `Domain` του WHMCS **χωρίς** `reference_type` (μόνο Hosting αντιστοιχίζεται) και
   με `DB::table()->insert`, χωρίς observers.
