@@ -52,12 +52,16 @@ class RevenueForecast extends Page
         return Currency::query()->orderBy('code')->pluck('code', 'code')->all();
     }
 
+    /** The currency shown: the one chosen when it exists, else the default (one place for the figures, the file, the format). */
+    public function code(): string
+    {
+        return array_key_exists($this->currency, $this->currencies()) ? $this->currency : (string) config('settings.default_currency');
+    }
+
     /** @return array<string, mixed> */
     public function forecast(): array
     {
-        $currency = array_key_exists($this->currency, $this->currencies()) ? $this->currency : (string) config('settings.default_currency');
-
-        return Forecast::for($currency);
+        return Forecast::for($this->code());
     }
 
     /** @return array<int|string, string> the cycle columns' titles, as WHMCS's */
@@ -87,6 +91,6 @@ class RevenueForecast extends Page
                 fputcsv($out, [$row['month']->format('Y-m'), ...array_values($row['cycles']), $row['domains'], $row['total'], $row['last_year']], escape: '\\');
             }
             fclose($out);
-        }, 'revenue-forecast-' . $this->currency . '-' . now()->format('Y-m-d') . '.csv', ['Content-Type' => 'text/csv']);
+        }, 'revenue-forecast-' . $this->code() . '-' . now()->format('Y-m-d') . '.csv', ['Content-Type' => 'text/csv']);
     }
 }

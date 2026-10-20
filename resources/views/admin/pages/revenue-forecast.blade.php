@@ -1,7 +1,8 @@
 @php
     $forecast = $this->forecast();
     $titles = \App\Admin\Pages\RevenueForecast::cycleTitles();
-    $money = fn ($amount) => (new \App\Classes\Price(['price' => $amount, 'currency' => \App\Models\Currency::query()->find($this->currency)], tax: 0))->format($amount);
+    $currencyModel = \App\Models\Currency::query()->find($this->code());
+    $money = fn ($amount) => (new \App\Classes\Price(['price' => $amount, 'currency' => $currencyModel], tax: 0))->format($amount);
     $diff = fn ($now, $then) => (float) $then > 0 ? round(((float) $now - (float) $then) / (float) $then * 100) : null;
 @endphp
 <x-filament-panels::page>
@@ -14,11 +15,11 @@
                 @endforeach
             </select>
         </label>
-        <p class="text-sm text-gray-500">{{ __('Net amounts, without tax. Every active service and auto-renewing domain renews at its price on its due date.') }}</p>
+        <p class="text-sm text-gray-500">{{ __('Net amounts, without tax. Every active service and auto-renewing domain renews at its price on its due date, as the billing renews it.') }}</p>
     </div>
 
     <div class="grid gap-4 md:grid-cols-3">
-        @foreach (['expected' => __('Expected this month'), 'invoiced' => __('Invoiced this month'), 'collected' => __('Collected this month')] as $key => $label)
+        @foreach (['expected' => __('Due this month'), 'invoiced' => __('Already invoiced, due this month'), 'collected' => __('Collected this month')] as $key => $label)
             <x-filament::section>
                 <div class="text-sm text-gray-500">{{ $label }}</div>
                 <div class="text-2xl font-semibold">{{ $money($forecast['current'][$key]) }}</div>

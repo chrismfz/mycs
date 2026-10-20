@@ -2,11 +2,13 @@
 
 namespace App\Services\Reports;
 
-use App\Enums\DomainStatus;
+use App\Enums\AdjustmentNoteStatus;
 use App\Models\Credit;
 use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\Service;
+use App\Services\Billing\RenewalBilling;
+use App\Services\Billing\RenewalPrice;
 use App\Services\Order\OrderPricing;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
@@ -16,9 +18,10 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * What is coming in (ROADMAP 6, owner 2026-10-20: «how much we expect this month from renewals, and what we made last
- * year the same period, without taxes»; the tax figures are Ekdosi's). As WHMCS's Income Forecast: every active service
- * and domain renews at its price on its next due date, then every cycle after, within the months shown; by cycle. Beside
- * it, the same month a year before: what the invoices paid then billed, net. All amounts net (Δ1), in one currency.
+ * year the same period, without taxes»; the tax figures are Ekdosi's). As WHMCS's Income Forecast, by the billing's rules
+ * (RenewalBilling): every active service not to be cancelled, and every domain the cron renews, renews on its due date,
+ * then every cycle after, within the months shown; by cycle. Beside it, the same month a year before: what the invoices
+ * paid then brought in (refunds and notes off). All amounts net (Δ1), in one currency.
  */
 final class RevenueForecast
 {
@@ -35,27 +38,44 @@ final class RevenueForecast
         $until = $from->addMonths($months);
         $cells = []; // 'Y-m' => ['cycles' => [months => cents], 'domains' => cents]
 
-        $services = Service::query()->with(['plan', 'client'])->where('status', Service::STATUS_ACTIVE)
-            ->where('currency_code', $currency)->whereNotNull('expires_at')->get();
+        // As the billing renews them (reviews of #275): active, not to be cancelled; each renewal on the plan and at the
+        // price the billing will use (a cycle change at the next renewal, a coupon that ends: RenewalPrice).
+        $services = Service::query()->with(['plan', 'nextPlan', 'coupon', 'product'])->where('status', Service::STATUS_ACTIVE)
+            ->whereDoesntHave('cancellation')->where('currency_code', $currency)->whereNotNull('expires_at')->get();
         foreach ($services as $service) {
-            $every = self::months($service->plan?->billing_unit, (int) $service->plan?->billing_period, $service->plan?->type);
-            if ($every === null) {
-                continue; // free, one time, no plan
-            }
-            $amount = self::cents(BigDecimal::of(number_format((float) $service->price, 2, '.', ''))->multipliedBy(max(1, (int) $service->quantity)));
-            $column = in_array($every, self::CYCLES, true) ? $every : 'other';
-            foreach (self::dates(CarbonImmutable::instance($service->expires_at), $every, $from, $until) as $key) {
-                $cells[$key]['cycles'][$column] = ($cells[$key]['cycles'][$column] ?? 0) + $amount;
+            $month = CarbonImmutable::instance($service->expires_at)->startOfMonth();
+            $first = true;
+            while ($month->lessThan($until)) {
+                $priced = RenewalPrice::for($service, $month, $first);
+                $every = self::months($priced->plan?->billing_unit, (int) $priced->plan?->billing_period, $priced->plan?->type);
+                if ($every === null) {
+                    break; // free, one time, no plan
+                }
+                if ($month->greaterThanOrEqualTo($from)) {
+                    $amount = self::cents(BigDecimal::of(number_format((float) $priced->price, 2, '.', ''))->multipliedBy(max(1, (int) $priced->quantity)));
+                    $column = in_array($every, self::CYCLES, true) ? $every : 'other';
+                    $key = $month->format('Y-m');
+                    $cells[$key]['cycles'][$column] = ($cells[$key]['cycles'][$column] ?? 0) + $amount;
+                }
+                $service = $priced; // on its next plan from here on
+                $first = false;
+                $month = $month->addMonths($every);
             }
         }
 
-        $domains = Domain::query()->with('client')->where('status', DomainStatus::Active->value)->where('currency_code', $currency)
-            ->whereNotNull('expires_at')->where('auto_renew', true)->get();
+        // The domains the cron renews (RenewalBilling::BILLED_DOMAINS, automatic renewal), at the price it bills: its own
+        // or its TLD's for its next period (renewalPriceFor; R1 of #275), net of the account's tax.
+        $domains = Domain::query()->with(['client', 'domainTld.prices'])
+            ->whereIn('status', array_map(fn ($status) => $status->value, RenewalBilling::BILLED_DOMAINS))
+            ->where('currency_code', $currency)->whereNotNull('expires_at')->where('auto_renew', true)->get();
         foreach ($domains as $domain) {
-            $every = 12 * max(1, (int) $domain->years);
-            // Its renewal as a line bills it: the catalog amount, net of the account's tax (OrderPricing::toNet).
-            $amount = self::cents(OrderPricing::toNet(number_format((float) $domain->recurring_amount, 2, '.', ''), $domain->client, null));
-            foreach (self::dates(CarbonImmutable::instance($domain->expires_at), $every, $from, $until) as $key) {
+            $years = $domain->nextRenewalYears();
+            $price = $domain->renewalPriceFor($years);
+            if ($price === null) {
+                continue; // the billing does not bill it either (no renew price)
+            }
+            $amount = self::cents(OrderPricing::toNet(number_format((float) $price, 2, '.', ''), $domain->client, null));
+            foreach (self::dates(CarbonImmutable::instance($domain->expires_at), 12 * max(1, $years), $from, $until) as $key) {
                 $cells[$key]['domains'] = ($cells[$key]['domains'] ?? 0) + $amount;
             }
         }
@@ -77,26 +97,26 @@ final class RevenueForecast
                 'total' => self::money($sum), 'last_year' => self::money($lastYear)];
         }
 
+        // This month (F6 of #275), all by the month things fall due in: what is invoiced already (open or paid), what is
+        // still to be invoiced (the forecast's month, less the renewals already on open invoices: a paid one has moved on),
+        // their sum; and what came in this month.
         $now = CarbonImmutable::now()->startOfMonth();
+        $invoiced = self::invoicedNet($currency, $now, $now->addMonth());
+        $toInvoice = $from->equalTo($now) ? max(0, array_sum($cells[$now->format('Y-m')]['cycles'] ?? []) + ($cells[$now->format('Y-m')]['domains'] ?? 0)
+            - self::openRenewalNet($currency, $now, $now->addMonth())) : 0;
 
         return [
             'months' => $rows,
             'total' => self::money($total),
             'last_year' => self::money($lastYearTotal),
             'current' => [
-                'expected' => $rows[0]['total'] ?? '0.00',
-                'invoiced' => self::money(self::invoicedNet($currency, $now, $now->addMonth())),
+                'expected' => self::money($invoiced + $toInvoice),
+                'invoiced' => self::money($invoiced),
                 'collected' => self::money(self::paidNet($currency, $now, $now->addMonth())),
             ],
         ];
     }
 
-    /**
-     * The estimated annual income of the active services, by cycle (WHMCS's billing widget: monthly × 12 + quarterly × 4
-     * + semi-annually × 2 + annually + biennially / 2 + triennially / 3), net.
-     *
-     * @return array<string, array{cycles: array<int|string, array{amount: string, count: int}>, annual: string}> by currency
-     */
     public static function annualEstimate(): array
     {
         $out = [];
@@ -156,29 +176,53 @@ final class RevenueForecast
         return $keys;
     }
 
-    /** What the invoices paid in [from, until) billed, net (their lines without tax), in cents. */
+    /** What the invoices paid in [from, until) brought in, net, in cents (by paid_at, WHMCS datepaid). */
     private static function paidNet(string $currency, CarbonImmutable $from, CarbonImmutable $until): int
     {
         return self::netOf(Invoice::query()->where('status', Invoice::STATUS_PAID)->where('currency_code', $currency)
             ->where('paid_at', '>=', $from)->where('paid_at', '<', $until));
     }
 
-    /** What the invoices made in [from, until) bill, net, but drafts and cancelled ones, in cents. */
+    /** What the invoices due in [from, until) bill, net, open or paid (not drafts, cancelled or refunded), in cents. */
     private static function invoicedNet(string $currency, CarbonImmutable $from, CarbonImmutable $until): int
     {
         return self::netOf(Invoice::query()->whereIn('status', [Invoice::STATUS_UNPAID, Invoice::STATUS_PAID])->where('currency_code', $currency)
-            ->where('created_at', '>=', $from)->where('created_at', '<', $until));
+            ->where('due_at', '>=', $from)->where('due_at', '<', $until));
     }
 
-    /** @param  Builder<Invoice>  $invoices */
-    private static function netOf($invoices): int
+    /** The services' renewal lines on open invoices due in [from, until), net: in the forecast's month as well. */
+    private static function openRenewalNet(string $currency, CarbonImmutable $from, CarbonImmutable $until): int
     {
-        // A credit purchase (add funds) is not income: the credit is, when it pays an invoice (counted there).
-        $sum = DB::table('invoice_items')->whereIn('invoice_id', $invoices->select('id'))
-            ->where(fn ($query) => $query->whereNull('reference_type')->orWhere('reference_type', '!=', Credit::class))
+        $sum = DB::table('invoice_items')->where('reference_type', Service::class)
+            ->whereIn('invoice_id', Invoice::query()->where('status', Invoice::STATUS_UNPAID)->where('currency_code', $currency)
+                ->where('due_at', '>=', $from)->where('due_at', '<', $until)->select('id'))
             ->selectRaw('COALESCE(SUM(line_total - tax_amount), 0) AS net')->value('net');
 
         return self::cents((string) $sum);
+    }
+
+    /**
+     * What these invoices are worth, net, in cents: their lines' net with their active adjustment notes (a refund, a
+     * credit or a debit note: R8–R10 of #275) in the lines' net share; never a credit purchase (add funds: the credit is
+     * income when it pays an invoice, counted there).
+     *
+     * @param  Builder<Invoice>  $invoices
+     */
+    private static function netOf(Builder $invoices): int
+    {
+        $sum = 0;
+        $invoices->with(['items', 'adjustmentNotes'])->chunkById(200, function ($chunk) use (&$sum) {
+            foreach ($chunk as $invoice) {
+                $lines = $invoice->items->reject(fn ($item) => $item->reference_type === Credit::class);
+                $gross = (int) $lines->sum(fn ($item) => $item->totalCents());
+                $net = (int) $lines->sum(fn ($item) => self::cents(number_format($item->net(), 2, '.', '')));
+                $notes = self::cents(number_format((float) $invoice->adjustmentNotes->where('status', AdjustmentNoteStatus::Active->value)->sum('amount'), 2, '.', ''));
+                // The notes are gross amounts on its total: their net part in the lines' proportion.
+                $sum += $gross === 0 ? $net : $net + (int) round($notes * $net / $gross);
+            }
+        });
+
+        return $sum;
     }
 
     private static function cents(BigDecimal|string $amount): int

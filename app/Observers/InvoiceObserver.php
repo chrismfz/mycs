@@ -128,8 +128,10 @@ class InvoiceObserver
             if ($remaining < 0 && !RecordPaymentService::settling()) {
                 throw new DisplayException(__('More was paid than it bills: close it with «Close as paid», which gives the part over as account credit.'));
             }
-            // When (WHMCS `datepaid`, ROADMAP 6): the revenue reports count by it. Paid again after a reopening: again.
-            $invoice->paid_at = CarbonImmutable::now();
+            // When (WHMCS `datepaid`, ROADMAP 6): the date of its last payment, as staff gave it (a transfer recorded
+            // later; R7 of #275), else now (closed by a note). Paid again after a reopening: again.
+            $last = $invoice->transactions()->where('status', InvoiceTransactionStatus::Succeeded)->max('created_at');
+            $invoice->paid_at = $last !== null ? CarbonImmutable::parse($last) : CarbonImmutable::now();
             // Its lines are applied after commit; until then (and after a failure there) the cron sees it (BIL-9).
             $invoice->apply_pending_since = now()->toImmutable();
             // The credit it sells is given on paid: only for money that arrived, whatever discount (a note, a negative

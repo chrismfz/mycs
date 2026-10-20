@@ -9,8 +9,8 @@ use App\Models\Currency;
 use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
-use App\Models\Product;
 use App\Models\Service;
+use App\Services\Billing\RenewalPrice;
 use App\Services\Domains\DomainRenewalService;
 use App\Services\Order\OrderPricing;
 use App\Support\CurrentClient;
@@ -101,7 +101,7 @@ final class UpcomingRenewals
             $first = true;
             // Every period that starts in the window (its billing day kept, as the billing steps them).
             for ($guard = 0; $start->lte($until) && $guard < 100; $guard++) {
-                $priced = $this->pricedFor($service, $start, $first);
+                $priced = RenewalPrice::for($service, $start, $first);
                 $end = $priced->periodEnd($start);
                 $line = $billed[$service->id][$start->toDateString()] ?? null;
                 // A period given up on (Δ3): the billing bills nothing after it.
@@ -131,30 +131,6 @@ final class UpcomingRenewals
         }
 
         return $rows;
-    }
-
-    /**
-     * The service as the billing prices the period starting on $start: on its next plan from a cycle change «from the next
-     * renewal» (SVC-14b), at the full price once a coupon «for N cycles» is past (the billing's rules, not saved here).
-     */
-    private function pricedFor(Service $service, CarbonImmutable $start, bool $first): Service
-    {
-        $next = $service->nextPlan;
-        if ($first && $service->next_plan_id !== null && $next !== null && $next->priceable_type === Product::class
-            && (int) $next->priceable_id === (int) $service->product_id) {
-            $service = clone $service;
-            $service->setRelation('plan', $next);
-            $service->plan_id = $next->id;
-            $service->price = (float) $service->calculatePrice();
-        }
-        if ($service->coupon && $service->coupon->cycles() > 1 && $service->coupon_expired_at === null
-            && $service->cycleNumber($start) > $service->coupon->cycles()) {
-            $service = clone $service;
-            $service->price = (float) $service->calculatePrice(applyCoupon: false);
-            $service->coupon_expired_at = CarbonImmutable::now();
-        }
-
-        return $service;
     }
 
     /**

@@ -118,13 +118,14 @@ class RevenueForecastTest extends TestCase
     public function test_this_month_expected_invoiced_and_collected(): void
     {
         $this->service(10.00, 'month', 1, '2026-10-25');
-        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => '2026-10-28']);
         $invoice->items()->create(['description' => 'x', 'quantity' => 1, 'price' => 30]);
         (new RecordPaymentService)->handle($invoice->fresh(), null, 30.0, transactionId: 'wire-1');
 
         $current = Forecast::for('USD')['current'];
 
-        $this->assertSame(['10.00', '30.00', '30.00'], [$current['expected'], $current['invoiced'], $current['collected']]);
+        // Due this month: the 30 invoiced (and paid) and the 10 renewal still to invoice; collected: the 30.
+        $this->assertSame(['40.00', '30.00', '30.00'], [$current['expected'], $current['invoiced'], $current['collected']]);
         $this->assertSame('2026-10-21 10:00:00', $invoice->fresh()->paid_at?->format('Y-m-d H:i:s'), 'paid_at set when it became paid');
     }
 

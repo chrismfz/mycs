@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Helpers\ExtensionHelper;
 use App\Models\Client;
 use App\Models\ConfigOption;
+use App\Models\Credit;
 use App\Models\Extension;
 use App\Models\Order;
 use App\Models\PaymentGroup;
@@ -945,6 +946,8 @@ class ImportFromWhmcs extends Command
                         default => 'unpaid',
                     },
                     'currency_code' => $user['code'],
+                    // When it was paid (WHMCS datepaid): the revenue reports count by it (#275).
+                    'paid_at' => $record['status'] === 'Paid' ? $this->validateDate($record['datepaid'] ?? null) : null,
                     'created_at' => $this->validateDate($record['date']),
                     'updated_at' => $this->validateDate($record['date']),
                 ];
@@ -995,12 +998,14 @@ class ImportFromWhmcs extends Command
                     'updated_at' => now(),
                     'reference_type' => match ($record['type']) {
                         'Hosting' => Service::class,
+                        // A credit purchase (add funds), as MyCS's own: never income (the credit is, when it pays; #275).
+                        'AddFunds' => Credit::class,
                         'Domain' => null,
                         'Addon' => null,
                         'Upgrade' => null,
                         default => null,
                     },
-                    'reference_id' => $record['relid'],
+                    'reference_id' => $record['type'] === 'AddFunds' ? null : $record['relid'],
                 ];
             }
 

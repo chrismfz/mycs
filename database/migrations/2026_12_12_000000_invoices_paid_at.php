@@ -14,12 +14,10 @@ return new class extends Migration
         Schema::table('invoices', function (Blueprint $table) {
             $table->timestamp('paid_at')->nullable()->index()->after('due_at');
         });
-        DB::table('invoices')->where('status', 'paid')->orderBy('id')->chunkById(500, function ($invoices) {
-            foreach ($invoices as $invoice) {
-                $last = DB::table('invoice_transactions')->where('invoice_id', $invoice->id)->where('status', 'succeeded')->max('created_at');
-                DB::table('invoices')->where('id', $invoice->id)->update(['paid_at' => $last ?? $invoice->updated_at]);
-            }
-        });
+        // One statement (review F12 of #275): the last succeeded payment's date; an invoice closed without one (a note,
+        // nothing due) its last change, the best there is.
+        DB::statement("UPDATE invoices SET paid_at = COALESCE((SELECT MAX(t.created_at) FROM invoice_transactions t
+            WHERE t.invoice_id = invoices.id AND t.status = 'succeeded'), updated_at) WHERE status = 'paid'");
     }
 
     public function down(): void
