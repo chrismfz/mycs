@@ -85,6 +85,7 @@
                 <div class="flex flex-wrap gap-2 justify-end">
                     @if ($this->linkToClient->isVisible())
                         {{ $this->linkToClient }}
+                        {{ $this->revokeGuestLinks }}
                     @endif
                     @if ($this->closeTicket->isVisible())
                         {{ $this->closeTicket }}

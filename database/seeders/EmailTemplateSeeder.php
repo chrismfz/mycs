@@ -408,7 +408,7 @@ class EmailTemplateSeeder extends Seeder
 
                 {{ message_html }}
 
-                To answer, reply to this email.
+                To answer, reply to this email or [open your ticket]({{ ticket_url }}).
                 HTML,
             'in_app_title' => 'A reply to ticket #{{ ticket.reference }}',
             'in_app_body' => 'A reply to ticket #{{ ticket.reference }}.',
@@ -424,10 +424,31 @@ class EmailTemplateSeeder extends Seeder
                 Thank you for writing to {{ app.name }}. Your message is ticket **#{{ ticket.reference }}**, and we will
                 answer as soon as we can.
 
-                To add anything, reply to this email.
+                To add anything, reply to this email or [open your ticket]({{ ticket_url }}).
                 HTML,
             'in_app_title' => 'Ticket #{{ ticket.reference }} received',
             'in_app_body' => 'Ticket #{{ ticket.reference }} received.',
+            'mail_enabled' => 'force',
+            'in_app_enabled' => 'never',
+            'edit_preference_message' => '',
+        ],
+        'ticket_link' => [
+            'subject' => '[Ticket #{{ ticket.reference }}] A new link to your ticket',
+            'body' => <<<'HTML'
+                # A new link to your ticket
+
+                You asked for a new link to ticket **#{{ ticket.reference }}**. It is good for 30 days:
+
+                <div class="action">
+                	<a class="button button-blue" href="{{ ticket_url }}">
+                		Open your ticket
+                	</a>
+                </div>
+
+                If you did not ask for it, you can ignore this email: the link reaches only this inbox.
+                HTML,
+            'in_app_title' => 'A new link to ticket #{{ ticket.reference }}',
+            'in_app_body' => 'A new link to ticket #{{ ticket.reference }}.',
             'mail_enabled' => 'force',
             'in_app_enabled' => 'never',
             'edit_preference_message' => '',
@@ -1287,7 +1308,7 @@ class EmailTemplateSeeder extends Seeder
 
                     {{ message_html }}
 
-                    Για να απαντήσετε, απαντήστε σε αυτό το email.
+                    Για να απαντήσετε, απαντήστε σε αυτό το email ή [ανοίξτε το αίτημά σας]({{ ticket_url }}).
                     HTML,
                 'in_app_title' => 'Απάντηση στο αίτημα #{{ ticket.reference }}',
                 'in_app_body' => 'Απάντηση στο αίτημα #{{ ticket.reference }}.',
@@ -1302,10 +1323,30 @@ class EmailTemplateSeeder extends Seeder
                     Ευχαριστούμε που γράψατε στην {{ app.name }}. Το μήνυμά σας είναι το αίτημα **#{{ ticket.reference }}**
                     και θα απαντήσουμε το συντομότερο.
 
-                    Για να προσθέσετε κάτι, απαντήστε σε αυτό το email.
+                    Για να προσθέσετε κάτι, απαντήστε σε αυτό το email ή [ανοίξτε το αίτημά σας]({{ ticket_url }}).
                     HTML,
                 'in_app_title' => 'Το αίτημα #{{ ticket.reference }} ελήφθη',
                 'in_app_body' => 'Το αίτημα #{{ ticket.reference }} ελήφθη.',
+            ],
+        ],
+        'ticket_link' => [
+            'el' => [
+                'subject' => '[Ticket #{{ ticket.reference }}] Νέος σύνδεσμος για το αίτημά σας',
+                'body' => <<<'HTML'
+                    # Νέος σύνδεσμος για το αίτημά σας
+
+                    Ζητήσατε νέο σύνδεσμο για το αίτημα **#{{ ticket.reference }}**. Ισχύει για 30 μέρες:
+
+                    <div class="action">
+                    	<a class="button button-blue" href="{{ ticket_url }}">
+                    		Άνοιγμα του αιτήματος
+                    	</a>
+                    </div>
+
+                    Αν δεν τον ζητήσατε, αγνοήστε αυτό το email: ο σύνδεσμος φτάνει μόνο σε αυτό το inbox.
+                    HTML,
+                'in_app_title' => 'Νέος σύνδεσμος για το αίτημα #{{ ticket.reference }}',
+                'in_app_body' => 'Νέος σύνδεσμος για το αίτημα #{{ ticket.reference }}.',
             ],
         ],
         'email_verification' => [

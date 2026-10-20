@@ -37,7 +37,10 @@
     @if (filled(theme('custom_css')))
     <style>{!! str_ireplace('</style', '<\\/style', theme('custom_css')) !!}</style>
     @endif
-    {!! theme('custom_head') !!}
+    {{-- Staff's site-wide scripts (analytics, chat) never on a page whose URL is a secret: they read location.href (docs/tickets.md §3 Δ). --}}
+    @unless (request()->routeIs(...\App\Http\Middleware\StartSessionWithoutPrivateLinks::PRIVATE_ROUTES))
+        {!! theme('custom_head') !!}
+    @endunless
     {!! hook('head') !!}
 </head>
 
@@ -58,7 +61,9 @@
     :class="{'dark': isDark}"
 >
     {!! hook('body') !!}
-    {!! theme('custom_header') !!}
+    @unless (request()->routeIs(...\App\Http\Middleware\StartSessionWithoutPrivateLinks::PRIVATE_ROUTES))
+        {!! theme('custom_header') !!}
+    @endunless
     <x-navigation />
     <div class="w-full flex flex-grow">
         @if (isset($sidebar) && $sidebar)
