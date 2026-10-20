@@ -43,7 +43,7 @@ final class PlaceOrderService
      * @throws DisplayException when a product cannot be ordered (no price in the currency, out of stock, over its
      *                          per-account limit) or the coupon cannot be used ({@see CouponUnusableException})
      */
-    public function place(Client $client, string $currency, array $lines, ?Coupon $coupon = null, ?CarbonInterface $dueAt = null, string $invoiceStatus = Invoice::STATUS_UNPAID, ?string $notes = null, array $domains = []): PlacedOrder
+    public function place(Client $client, string $currency, array $lines, ?Coupon $coupon = null, ?CarbonInterface $dueAt = null, string $invoiceStatus = Invoice::STATUS_UNPAID, ?string $notes = null, array $domains = [], ?string $ip = null): PlacedOrder
     {
         if ($lines === [] && $domains === []) {
             throw new DisplayException(__('Your cart is empty'));
@@ -63,7 +63,7 @@ final class PlaceOrderService
 
         $notes = $notes === null ? null : (trim($notes) === '' ? null : trim($notes));
 
-        return DB::transaction(function () use ($client, $currency, $lines, $coupon, $dueAt, $invoiceStatus, $notes, $domains) {
+        return DB::transaction(function () use ($client, $currency, $lines, $coupon, $dueAt, $invoiceStatus, $notes, $domains, $ip) {
             // The account's row first, as every payment path locks it (no lock-order deadlock).
             Client::lock($client->id);
             $couponGiven = $coupon !== null;
@@ -90,7 +90,9 @@ final class PlaceOrderService
                 $this->checkCoupon($client, $coupon, array_sum(array_map(fn ($p) => $p[2] !== null ? $p[0]->quantity : 0, $priced)));
             }
 
-            $order = Order::query()->create(['client_id' => $client->id, 'currency_code' => $currency, 'notes' => $notes]);
+            // Its IP: the customer's checkout only (WHMCS `ipaddress`), never from a form: not fillable.
+            $order = Order::query()->forceCreate(['client_id' => $client->id, 'currency_code' => $currency, 'notes' => $notes,
+                'ip_address' => $ip === null ? null : mb_substr($ip, 0, 45)]);
             $invoice = null;
 
             foreach ($priced as [$line, $price, $fullPrice]) {

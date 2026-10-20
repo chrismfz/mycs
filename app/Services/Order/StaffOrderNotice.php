@@ -19,7 +19,7 @@ use App\Models\Service;
  */
 class StaffOrderNotice
 {
-    public static function send(Order $order, ?string $ip = null): void
+    public static function send(Order $order): void
     {
         if (!config('settings.mail_staff_new_order', true)) {
             return;
@@ -45,8 +45,8 @@ class StaffOrderNotice
             'Invoice' => $invoice === null ? 'none (nothing to pay)'
                 : "<a href=\"{$admin(InvoiceResource::class, 'view', $invoice->id)}\">#" . e((string) ($invoice->number ?? $invoice->id)) . '</a> ' . e((string) $invoice->formattedTotal),
         ];
-        if ($ip !== null) {
-            $rows['IP address'] = e($ip);
+        if ($order->ip_address !== null) {
+            $rows['IP address'] = e($order->ip_address);
         }
         $table = collect($rows)->map(fn (string $value, string $label) => "<tr><th align=\"left\">{$label}</th><td>{$value}</td></tr>")->implode("\n");
 

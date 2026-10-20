@@ -11,22 +11,22 @@
 - **Έτοιμα:** η χρέωση και οι ροές χρημάτων, οι λογαριασμοί, οι παραγγελίες, το provisioning, το licensing της nixpal,
   τα domains (Openprovider και Μητρώο .gr με δικό μας EPP), το portal του πελάτη, η μετάφραση el/en, τα παράλληλα tests.
   Σύνοψη στο «Έγινε», παρακάτω.
-- **Τι λείπει για να μπει η nixpal:** αρίθμηση τιμολογίων, σημειώσεις του WHMCS, PayPal vault, importer με parity,
+- **Τι λείπει για να μπει η nixpal:** αρίθμηση τιμολογίων, σημειώσεις λογαριασμού, PayPal vault, importer με parity,
   δοκιμή licensing και cPanel, η λειτουργία της παραγωγής (mail, backups, παρακολούθηση) και το runbook του cut-over.
   Αυτά είναι η σειρά παρακάτω.
 
-## Επόμενα, με σειρά (πρόταση 2026-10-20, προς έγκριση)
-Η σειρά οδηγεί στο cut-over της nixpal. Ό,τι αλλάζει σχήμα μπαίνει πριν τον importer· ο importer πριν τη δοκιμαστική
-μεταφορά· η λειτουργία της παραγωγής πριν το cut-over.
+## Επόμενα, με σειρά (εγκρίθηκε 2026-10-20)
+Η σειρά οδηγεί στο cut-over της nixpal. Ο importer και το runbook περιμένουν τα tickets, που ξαναγράφονται σε άλλη
+session για parity με το WHMCS (2026-10-20)· ως τότε, ό,τι δεν εξαρτάται από αυτά.
 
 | # | Τι | Γιατί εδώ |
 |---|---|---|
-| 1 | **Αρίθμηση της nixpal** `{YEAR}-{NUMBER}` με proforma (Δ2: πίνακας `sequences`, αριθμός μόνο όταν πληρωθεί)· στο myip αριθμός = id | Contract του `CLAUDE.md`. Αλλάζει κάθε τιμολόγιο από εδώ και πέρα· ο importer πρέπει να το βρει έτοιμο. |
-| 2 | **Σημειώσεις του WHMCS:** τιμολογίου (`invoices.notes`, στη σελίδα και στο PDF), λογαριασμού (staff μόνο, με συντάκτη και sticky), εσωτερικές των tickets | Σχήμα που χρειάζεται ο importer (nixpal: 66 τιμολόγια, 3 + 2 σημειώσεις λογαριασμού, 7 tickets). |
-| 3 | **PayPal vault** ως gateway (το package υπάρχει) και οι legacy συνδρομές PayPal στη μεταβατική περίοδο (Π7.9, PAY-10/11) | Gateway της nixpal· χωρίς αυτό μένει μόνο το Stripe. |
-| 4 | **Importer του νέου σχήματος + `mycs:parity`**: λογαριασμοί, επαφές, υπηρεσίες με τον server τους, σημειώσεις, domains (D6, 11 της nixpal), αρίθμηση· συνθετικό σύνολο «σαν nixpal» για τα tests | Πατά στα 1–3. Re-runnable, με parity (`importer.md`). |
-| 5 | **Licensing και cPanel σε δοκιμή:** shadow-run του `zlic.php` απέναντι στο WHMCS, rate limit στο `zlic.php`· cPanel/WHM της nixpal από το devbox (create/suspend/terminate, δύο WHM servers) | Contracts και provisioning με πραγματικούς servers πριν τη μεταφορά. |
-| 6 | **Λειτουργία της παραγωγής:** πού ζει το instance (`open-questions.md`), SMTP/SPF/DKIM, off-site backups με δοκιμή επαναφοράς, παρακολούθηση και endpoint υγείας, branding PDF της nixpal | Χωρίς αυτά δεν υπάρχει παραγωγή. |
+| 1 | **Αρίθμηση:** υπάρχει ήδη ως ρύθμιση ανά εταιρεία (`invoice_number_format` με `{year}-{number}`, `invoice_proforma`, padding). Μένουν τα κενά του Δ2: αριθμός μόνο όταν πληρωθεί (σήμερα και στο draft → unpaid), μετρητές σε `sequences` (μια αποθήκευση ρυθμίσεων δεν τους γυρίζει πίσω), «αριθμός = id» του myip | Contract του `CLAUDE.md`· χρήματα. Ο importer πρέπει να το βρει έτοιμο. |
+| 2 | **Σημειώσεις λογαριασμού** (staff μόνο, με συντάκτη και sticky, όπως `tblclients.notes` και `tblnotes`). Υπηρεσίας και domain υπάρχουν· τιμολογίου και tickets δεν χρειάζονται (2026-10-20) | Σχήμα που χρειάζεται ο importer. |
+| 3 | **PayPal vault** ως gateway (το package υπάρχει, από το Blesta). Nixpal (read-only, 2026-10-20): `paypal_ppcpv` 56 υπηρεσίες με **15** αποθηκευμένους λογαριασμούς, `paypal` (παλιές συνδρομές, IPN) 79, `stripe` 211 με 52 κάρτες. Έλεγχος αν τα vault tokens του «PayPal Payments» του WHMCS (partner) διαβάζονται από το δικό μας REST app (GET, χωρίς χρέωση)· αλλιώς οι 15 ξανασυνδέουν το PayPal μία φορά | Gateway της nixpal· οι παλιές συνδρομές συνεχίζουν μέσω IPN (H2b). |
+| 4 | **Licensing και cPanel σε δοκιμή:** shadow-run του `zlic.php` απέναντι στο WHMCS, rate limit στο `zlic.php`· cPanel/WHM της nixpal από το devbox (create/suspend/terminate, δύο WHM servers) | Contracts και provisioning με πραγματικούς servers πριν τη μεταφορά. |
+| 5 | **Λειτουργία της παραγωγής:** πού ζει το instance (`open-questions.md`), SMTP/SPF/DKIM, off-site backups με δοκιμή επαναφοράς, παρακολούθηση και endpoint υγείας, branding PDF της nixpal | Χωρίς αυτά δεν υπάρχει παραγωγή. |
+| 6 | **Importer του νέου σχήματος + `mycs:parity`** (μετά τα tickets): λογαριασμοί, επαφές, υπηρεσίες με τον server τους, σημειώσεις, domains (D6, 11 της nixpal), αρίθμηση· συνθετικό σύνολο «σαν nixpal» για τα tests | Πατά στα 1–3 και στα νέα tickets. Re-runnable, με parity (`importer.md`). |
 | 7 | **Runbook cut-over με επιστροφή** (πρότυπο: `go-live-runbook.md` του Ekdosi): πάγωμα, import και parity, DNS/webhooks, ενημέρωση πελατών, links των sites, έλεγχοι πρώτης μέρας· 2–3 δοκιμαστικές μεταφορές | Τελευταίο, πάνω σε σταθερό σχήμα και δεδομένα. |
 
 Μικρά που χωράνε ανάμεσα (domains, portal): **P1b** (τα στοιχεία μιας επαφής που άλλαξε ο πελάτης στέλνονται στους
@@ -60,6 +60,10 @@ registrars), **P5** (child nameservers/glue από τον πελάτη· για 
 - [ ] Έλεγχος σε πραγματικό browser (`audit-browser.md`, δεν έχει γραφτεί).
 
 ### Provisioning
+- [ ] **WHM reseller accounts** στο cPanel extension (`setupreseller`, ACLs, όρια, suspend/terminate): σήμερα μόνο απλοί
+      λογαριασμοί. Μόνο το myip τα έχει (read-only 2026-10-20): **22 ενεργοί** + 1 suspended, 6 πακέτα (Reseller 70: 9,
+      Reseller 120: 6, Reseller 30: 3, …), στους Virgo 5, Earth 5, Mars 4, Orion 3, Titan 3, Rigel 2· η nixpal κανέναν.
+      Πριν το cut-over του myip.
 - [ ] Συμφιλίωση της κατάστασης μετά από job του server (το create υπάρχει, #114)· συγχρονισμός χρήσης cPanel.
 - [ ] Modules του myip: Proxmox, Centova, mailcow (το package `mailcow` υπάρχει χωρίς extension).
 
@@ -76,8 +80,12 @@ registrars), **P5** (child nameservers/glue από τον πελάτη· για 
 - [ ] Driver CNIC (αν χρειαστεί).
 
 ### Support (`tickets.md`)
-- [ ] Port των tickets (σχέδιο στο `tickets.md`, #224, προς έγκριση)· επαφή χωρίς login και tickets από email (το
-      FetchEmails μένει κλειστό: ευάλωτο)· knowledgebase.
+- [ ] Port των tickets (σχέδιο και μοντέλο ασφάλειας στο `tickets.md`, #224 και #234, **αποφάσεις owner 2026-10-20**):
+      PRs Α1 (τμήματα ως πίνακας, 5 καταστάσεις, tickets επισκέπτη, αριθμός με μάσκα), Α2 (εισερχόμενα από το Ekdosi,
+      σκληρυμένα, καραντίνα), Α3 (εξερχόμενα με τυχαίο Message-ID, ειδοποιήσεις staff), Β (φόρμα επικοινωνίας με
+      ALTCHA), Γ (σελίδα επισκέπτη με υπογεγραμμένο link), Δ (νέος importer tickets: επισκέπτες ως επισκέπτες, `tid`,
+      σημειώσεις, συνημμένα). Το FetchEmails μένει κλειστό ώσπου να μπουν τα Α: είναι ευάλωτο. Knowledgebase όχι
+      (είναι στα sites των εταιρειών).
 
 ### Ασφάλεια και ποιότητα
 - [ ] Rate limit στο `zlic.php`· endpoint υγείας.
@@ -95,7 +103,6 @@ registrars), **P5** (child nameservers/glue από τον πελάτη· για 
       το `settings-map.md` περνούν πριν το cut-over.
 
 ### Εκκρεμότητες του υπεύθυνου (όχι κώδικας)
-- [ ] Έγκριση της σειράς «Επόμενα» παραπάνω.
 - [ ] cdnet.gr: auto renew off στο WHMCS (ανανεώνεται πια από το MyCS· δοκιμή DNSSEC 2026-10-18).
 - [ ] Σβήσιμο των branches που έχουν γίνει merge (`adv/*`, `fix/upgrade-test-date`, `spike/domains`).
 
