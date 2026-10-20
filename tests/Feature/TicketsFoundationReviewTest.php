@@ -152,7 +152,8 @@ class TicketsFoundationReviewTest extends TestCase
 
         $guest = Ticket::query()->findOrFail(7);
         $this->assertSame([null, 'Guest', 'same@guest.example', '481516'], [$guest->client_id, $guest->guest_name, $guest->guest_email, $guest->reference]);
-        $this->assertNull($guest->messages()->sole()->user_id, 'the guest\'s reply is no login\'s');
+        // Its opening and its reply (the old importer left the opening out): neither is a login's.
+        $this->assertSame([null, null], $guest->messages()->orderBy('id')->pluck('user_id')->all(), 'the guest\'s messages are no login\'s');
         $this->assertFalse($customer->can('view', $guest));
         $this->assertSame($users, User::query()->count(), 'no login made for a guest');
         $this->assertSame($customer->client()->id, Ticket::query()->findOrFail(8)->client_id);
