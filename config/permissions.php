@@ -136,6 +136,12 @@ return [
                 'create' => 'Block Senders',
                 'delete' => 'Unblock Senders',
             ],
+            'canned_replies' => [
+                'viewAny' => 'View Predefined Replies',
+                'create' => 'Create Predefined Replies',
+                'update' => 'Update Predefined Replies',
+                'delete' => 'Delete Predefined Replies',
+            ],
             'ticket_departments' => [
                 'create' => 'Create Ticket Departments',
                 'update' => 'Update Ticket Departments',

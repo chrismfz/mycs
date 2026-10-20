@@ -47,9 +47,9 @@ class ImportWhmcsTickets extends Command
     /** What the import did, and its parity; FAILURE when WHMCS and MyCS disagree. @param  array<string, mixed>  $counts */
     public static function report(Command $command, array $counts): int
     {
-        $command->table(['Departments', 'Tickets', 'Unchanged', 'Guests', 'Clients not imported', 'Messages', 'Notes', 'Merged', 'Deleted here'],
+        $command->table(['Departments', 'Tickets', 'Unchanged', 'Guests', 'Clients not imported', 'Messages', 'Notes', 'Merged', 'Deleted here', 'Predefined replies'],
             [[$counts['departments'], $counts['tickets'], $counts['unchanged'], $counts['guests'], $counts['no_account'], $counts['messages'], $counts['notes'],
-                $counts['merged'], $counts['deleted_here']]]);
+                $counts['merged'], $counts['deleted_here'], $counts['canned_replies'] ?? 0]]);
         $command->table(['Files', 'Missing', 'Refused', 'Removed in WHMCS', 'Texts cut', 'Number taken', 'Failed'],
             [[$counts['files'], $counts['files_missing'], $counts['files_refused'], $counts['files_removed'], $counts['truncated'], $counts['reference_taken'], $counts['failed']]]);
         foreach ($counts['errors'] as $error) {
