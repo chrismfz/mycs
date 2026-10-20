@@ -82,7 +82,7 @@
                         </a>
                         @endif
                         {{-- A quiet way out of the cart, not the page's loudest button (UI polish of 2026-10-20). --}}
-                        <button type="button" wire:click="removeProduct({{ $item->id }})" wire:loading.attr="disabled"
+                        <button type="button" wire:click="removeProduct({{ $item->id }})" wire:loading.attr="disabled" wire:target="removeProduct({{ $item->id }})"
                             class="h-fit text-sm text-base/60 hover:text-error underline-offset-2 hover:underline">
                             <x-loading target="removeProduct({{ $item->id }})" />
                             <span wire:loading.remove wire:target="removeProduct({{ $item->id }})">{{ __('product.remove') }}</span>
