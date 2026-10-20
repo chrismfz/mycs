@@ -7,14 +7,13 @@ use App\Livewire\Component;
 use App\Models\Staff;
 use App\Models\Ticket;
 use App\Support\Actor;
+use App\Support\Tickets\TicketFiles;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\RateLimiter;
-use Illuminate\Support\Str;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Rule;
-use Livewire\Attributes\Validate;
 use Livewire\Features\SupportFileUploads\WithFileUploads;
+use MyCS\TicketMail\Attachments;
 
 #[DisabledIf('tickets_disabled')]
 class Show extends Component
@@ -24,8 +23,16 @@ class Show extends Component
     #[Locked]
     public Ticket $ticket;
 
-    #[Validate(['attachments.*' => 'file|max:10240'])]
     public array $attachments = [];
+
+    /** @return array<string, mixed> the files: the same rules as by email (docs/tickets.md §3 ΣΤ) */
+    protected function rules(): array
+    {
+        return [
+            'attachments' => 'array|max:' . Attachments::MAX_COUNT,
+            'attachments.*' => ['file', 'max:' . (Attachments::MAX_BYTES / 1024), TicketFiles::rule()],
+        ];
+    }
 
     #[Rule('required', 'string')]
     public string $message;
@@ -51,17 +58,9 @@ class Show extends Component
             'message' => $this->message,
         ]);
 
-        foreach ($this->attachments as $attachment) {
-            $newName = Str::ulid() . '.' . $attachment->getClientOriginalExtension();
-            $path = 'tickets/uploads/' . $newName;
-            $attachment->storeAs('tickets/uploads', $newName);
-
-            $message->attachments()->create([
-                'path' => $path,
-                'filename' => $attachment->getClientOriginalName(),
-                'mime_type' => File::mimeType(storage_path('app/' . $path)),
-                'filesize' => File::size(storage_path('app/' . $path)),
-            ]);
+        // The same rules as by email (docs/tickets.md §3 ΣΤ): a type judged by its bytes, a name of ours.
+        foreach (array_slice($this->attachments, 0, Attachments::MAX_COUNT) as $attachment) {
+            TicketFiles::storeUpload($message, $attachment);
         }
 
         $this->notify(__('Message sent successfully'));

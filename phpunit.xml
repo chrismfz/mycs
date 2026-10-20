@@ -23,6 +23,7 @@
             <directory>packages/nixpal-licensing/tests</directory>
             <directory>packages/paypal-vault/tests</directory>
             <directory>packages/vies/tests</directory>
+            <directory>packages/ticket-mail/tests</directory>
         </testsuite>
     </testsuites>
     <source>

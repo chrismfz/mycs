@@ -1,6 +1,5 @@
 <?php
 
-use App\Models\TicketMailLog;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -13,7 +12,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('ticket_messages', function (Blueprint $table) {
-            $table->foreignIdFor(TicketMailLog::class)->nullable()->after('message')->constrained()->cascadeOnDelete();
+            // By name: the model went with the old piping (docs/tickets.md, A2).
+            $table->foreignId('ticket_mail_log_id')->nullable()->after('message')->constrained('ticket_mail_logs')->cascadeOnDelete();
         });
     }
 

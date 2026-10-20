@@ -39,12 +39,16 @@ class Mail extends Mailable implements ShouldBeEncrypted
     /** For a ticket reply: its message, to thread the mail (TicketReplyEmailListener). */
     public ?int $ticketMessageId = null;
 
+    /** A ticket's mail: the Message-ID of ours it goes out with (TicketMailId, docs/tickets.md A3), the same on a retry. */
+    public ?string $threadMessageId = null;
+
     public function __construct(NotificationTemplate $emailTemplate, array $data = [])
     {
         $this->templateKey = $emailTemplate->key;
         $this->renderedSubject = TemplateRenderer::render($emailTemplate->subject, $data, escape: false);
         $this->renderedHtml = TemplateRenderer::render($emailTemplate->body, $data);
         $this->ticketMessageId = isset($data['ticketMessage']) ? $data['ticketMessage']->id : null;
+        $this->threadMessageId = isset($data['thread_message_id']) && is_string($data['thread_message_id']) ? $data['thread_message_id'] : null;
     }
 
     public function envelope(): Envelope

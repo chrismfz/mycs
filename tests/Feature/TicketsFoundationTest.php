@@ -64,6 +64,11 @@ class TicketsFoundationTest extends TestCase
     public function test_the_migration_moves_departments_statuses_numbers_and_mail_templates(): void
     {
         $migration = require database_path('migrations/2026_12_05_000001_tickets_departments_guests_statuses.php');
+        // A2's and A3's tables point at the departments and tickets: down first, up again after (as a rollback would).
+        $mailboxes = require database_path('migrations/2026_12_06_000001_tickets_mailboxes_quarantine.php');
+        $outbound = require database_path('migrations/2026_12_07_000001_tickets_outbound_mail.php');
+        $outbound->down();
+        $mailboxes->down();
         $migration->down();
         DB::table('settings')->updateOrInsert(['key' => 'ticket_departments', 'settingable_type' => null], ['value' => json_encode(['Support', 'Sales']), 'type' => 'array']);
         $client = User::factory()->create()->client();
@@ -75,6 +80,8 @@ class TicketsFoundationTest extends TestCase
         DB::table('notification_templates')->where('key', 'new_ticket_message')->update(['subject' => '[Ticket #{{ ticketMessage.ticket_id }}] x']);
 
         $migration->up();
+        $mailboxes->up();
+        $outbound->up();
 
         $this->assertSame(['Support', 'Sales', 'Billing'], TicketDepartment::query()->orderBy('sort')->pluck('name')->all(), 'the setting first, then names tickets carried');
         $this->assertNull(DB::table('settings')->where('key', 'ticket_departments')->value('value'));

@@ -49,6 +49,8 @@ use Illuminate\Support\Str;
 use Laravel\Passport\Passport;
 use League\CommonMark\Extension\Table\TableExtension;
 use Livewire\Livewire;
+use MyCS\TicketMail\Imap\ImapEngineMailbox;
+use MyCS\TicketMail\Imap\Mailbox;
 use MyCS\Vies\CurlTransport;
 use MyCS\Vies\Vies;
 use Nixpal\DomainTools\Whois\SocketConnector;
@@ -160,6 +162,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->scoped(GatewayLog::class);
         $this->app->scoped(CurrentClient::class);
         // VIES (PR G): with the instance's own VAT number as requester, VIES gives the consultation number.
+        $this->app->bind(Mailbox::class, ImapEngineMailbox::class);
         $this->app->bind(Vies::class, fn () => new Vies(new CurlTransport, config('settings.eu_vat_requester')));
     }
 

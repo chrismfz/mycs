@@ -380,7 +380,7 @@ class EmailTemplateSeeder extends Seeder
             'body' => <<<'HTML'
                 # New reply to your ticket
 
-                {{ ticketMessage.user.name }} replied to your ticket **#{{ ticketMessage.ticket.reference }}**:
+                {{ author_name }} replied to your ticket **#{{ ticketMessage.ticket.reference }}**:
 
                 {{ message_html }}
 
@@ -396,6 +396,41 @@ class EmailTemplateSeeder extends Seeder
             'in_app_enabled' => 'choice_on',
             'edit_preference_message' => 'Notify me about ticket replies',
             'in_app_url' => '{{ urls.ticket }}',
+        ],
+        'guest_ticket_message' => [
+            'subject' => '[Ticket #{{ ticket.reference }}] {{ ticket.subject }}',
+            'body' => <<<'HTML'
+                # A reply to your ticket
+
+                Dear {{ ticket.guest_name }},
+
+                {{ author_name }} replied to your ticket **#{{ ticket.reference }}**:
+
+                {{ message_html }}
+
+                To answer, reply to this email.
+                HTML,
+            'in_app_title' => 'A reply to ticket #{{ ticket.reference }}',
+            'in_app_body' => 'A reply to ticket #{{ ticket.reference }}.',
+            'mail_enabled' => 'force',
+            'in_app_enabled' => 'never',
+            'edit_preference_message' => '',
+        ],
+        'ticket_received' => [
+            'subject' => '[Ticket #{{ ticket.reference }}] We received your message',
+            'body' => <<<'HTML'
+                # We received your message
+
+                Thank you for writing to {{ app.name }}. Your message is ticket **#{{ ticket.reference }}**, and we will
+                answer as soon as we can.
+
+                To add anything, reply to this email.
+                HTML,
+            'in_app_title' => 'Ticket #{{ ticket.reference }} received',
+            'in_app_body' => 'Ticket #{{ ticket.reference }} received.',
+            'mail_enabled' => 'force',
+            'in_app_enabled' => 'never',
+            'edit_preference_message' => '',
         ],
         'email_verification' => [
             'subject' => 'Welcome to {{ app.name }}: please verify your email',
@@ -1226,7 +1261,7 @@ class EmailTemplateSeeder extends Seeder
                 'body' => <<<'HTML'
                     # Νέα απάντηση στο αίτημά σας
 
-                    {{ ticketMessage.user.name }} απάντησε στο αίτημά σας **#{{ ticketMessage.ticket.reference }}**:
+                    {{ author_name }} απάντησε στο αίτημά σας **#{{ ticketMessage.ticket.reference }}**:
 
                     {{ message_html }}
 
@@ -1238,6 +1273,39 @@ class EmailTemplateSeeder extends Seeder
                     HTML,
                 'in_app_title' => 'Νέα απάντηση στο αίτημα #{{ ticketMessage.ticket.reference }}',
                 'in_app_body' => 'Έχετε νέα απάντηση στο αίτημά σας #{{ ticketMessage.ticket.reference }}.',
+            ],
+        ],
+        'guest_ticket_message' => [
+            'el' => [
+                'subject' => '[Ticket #{{ ticket.reference }}] {{ ticket.subject }}',
+                'body' => <<<'HTML'
+                    # Απάντηση στο αίτημά σας
+
+                    Αγαπητέ/ή {{ ticket.guest_name }},
+
+                    {{ author_name }} απάντησε στο αίτημά σας **#{{ ticket.reference }}**:
+
+                    {{ message_html }}
+
+                    Για να απαντήσετε, απαντήστε σε αυτό το email.
+                    HTML,
+                'in_app_title' => 'Απάντηση στο αίτημα #{{ ticket.reference }}',
+                'in_app_body' => 'Απάντηση στο αίτημα #{{ ticket.reference }}.',
+            ],
+        ],
+        'ticket_received' => [
+            'el' => [
+                'subject' => '[Ticket #{{ ticket.reference }}] Λάβαμε το μήνυμά σας',
+                'body' => <<<'HTML'
+                    # Λάβαμε το μήνυμά σας
+
+                    Ευχαριστούμε που γράψατε στην {{ app.name }}. Το μήνυμά σας είναι το αίτημα **#{{ ticket.reference }}**
+                    και θα απαντήσουμε το συντομότερο.
+
+                    Για να προσθέσετε κάτι, απαντήστε σε αυτό το email.
+                    HTML,
+                'in_app_title' => 'Το αίτημα #{{ ticket.reference }} ελήφθη',
+                'in_app_body' => 'Το αίτημα #{{ ticket.reference }} ελήφθη.',
             ],
         ],
         'email_verification' => [

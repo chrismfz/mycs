@@ -127,6 +127,15 @@ return [
                 'delete' => 'Delete Custom Properties',
                 'deleteAny' => 'Bulk Delete Custom Properties',
             ],
+            'ticket_quarantine' => [
+                'viewAny' => 'View the Mail Quarantine',
+                'update' => 'Handle Quarantined Mail (attach, open, dismiss, block)',
+            ],
+            'ticket_blocked_senders' => [
+                'viewAny' => 'View Blocked Senders',
+                'create' => 'Block Senders',
+                'delete' => 'Unblock Senders',
+            ],
             'ticket_departments' => [
                 'create' => 'Create Ticket Departments',
                 'update' => 'Update Ticket Departments',

@@ -23,6 +23,7 @@ use Filament\Support\Enums\TextSize;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\File;
+use MyCS\TicketMail\Attachments;
 
 class EditTicket extends EditRecord
 {
@@ -50,6 +51,10 @@ class EditTicket extends EditRecord
                     ->visibility('private')
                     ->directory('tickets/uploads')
                     ->multiple()
+                    // The same types and sizes as customers' (docs/tickets.md §3 ΣΤ).
+                    ->acceptedFileTypes(array_values(array_unique(array_merge(...array_values(Attachments::TYPES)))))
+                    ->maxSize(Attachments::MAX_BYTES / 1024)
+                    ->maxFiles(Attachments::MAX_COUNT)
                     ->storeFileNamesIn('attachment_names')
                     ->reorderable(),
             ]);
@@ -124,6 +129,9 @@ class EditTicket extends EditRecord
                     ->size(TextSize::Large)
                     ->state(fn (Ticket $record) => $record->isGuest() ? __('Guest') . ': ' . $record->guest_name . ' <' . $record->guest_email . '>' : $record->client?->name)
                     ->url(fn (Ticket $record) => $record->client ? ClientResource::getUrl('view', ['record' => $record->client]) : null)
+                    // Opened by a mail our server did not vouch for: the address may be forged (our replies to it say
+                    // nothing of what the sender wrote).
+                    ->helperText(fn (Ticket $record) => $record->sender_vouched === false ? '⚠ ' . __('Our mail server did not vouch for this address: it may be forged.') : null)
                     ->label('Client'),
                 TextEntry::make('reference')
                     ->size(TextSize::Large)

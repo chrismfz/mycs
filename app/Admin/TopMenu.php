@@ -34,7 +34,9 @@ use App\Admin\Resources\ServerResource;
 use App\Admin\Resources\ServiceCancellationResource;
 use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\TaxRateResource;
+use App\Admin\Resources\TicketBlockedSenderResource;
 use App\Admin\Resources\TicketDepartmentResource;
+use App\Admin\Resources\TicketQuarantineResource;
 use App\Admin\Resources\TicketResource;
 use App\Admin\Resources\UserResource;
 use Filament\Pages\Page;
@@ -78,6 +80,8 @@ class TopMenu
         'Support' => [
             [TicketResource::class, 'index', 'Support Tickets'],
             [TicketResource::class, 'create', 'Open New Ticket'],
+            [TicketQuarantineResource::class, 'index', 'Mail Quarantine'],
+            [TicketBlockedSenderResource::class, 'index', 'Blocked Senders'],
         ],
         'Utilities' => [
             [EmailLogResource::class, 'index', 'Email Message Log'],

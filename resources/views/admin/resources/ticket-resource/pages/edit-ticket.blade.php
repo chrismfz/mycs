@@ -2,7 +2,7 @@
     <div class="md:grid grid-cols-4 flex flex-col gap-4" wire:poll.10s>
         <div class="md:col-span-3">
             <div class="flex flex-col gap-4 max-h-[60vh] overflow-y-auto pr-4">
-                @foreach ($this->record->messages()->with(['user', 'staff', 'ticketMailLog', 'attachments'])->get() as $index => $message)
+                @foreach ($this->record->messages()->with(['user', 'staff', 'attachments'])->get() as $index => $message)
                     <div
                         class="border border-gray-100 dark:border-gray-600 p-4 rounded-lg w-full max-w-[80%]  {{ $message->isFromStaff() ? 'mr-auto' : 'ml-auto' }}"
                         @if ($loop->last) x-data x-init="$el.scrollIntoView()" @endif>
@@ -30,22 +30,14 @@
                                     <p class="text-sm text-gray-500">
                                         {{ $message->created_at->diffForHumans() }}
                                     </p>
-                                    @if($message->ticketMailLog)
+                                    @if($message->via === \App\Models\TicketMessage::VIA_EMAIL && filled($message->body_original))
                                         <x-filament::modal width="4xl">
                                             <x-slot name="trigger">
                                                 <span class="text-sm text-gray-500 cursor-pointer hover:underline">
-                                                    — Imported from email 
+                                                    — {{ __('By email: the whole mail') }}
                                                 </span>
                                             </x-slot>
-                                            <x-slot name="heading">
-                                                {{ $message->ticketMailLog->subject }}
-                                            </x-slot>
-                                            {!! Str::markdown(e($message->ticketMailLog->body), [
-                                                'allow_unsafe_links' => false,
-                                                'renderer' => [
-                                                    'soft_break' => "<br>"
-                                                ]
-                                            ]) !!}
+                                            <pre class="whitespace-pre-wrap text-sm">{{ $message->body_original }}</pre>
                                         </x-filament::modal>
                                     @endif
                                 </div>
