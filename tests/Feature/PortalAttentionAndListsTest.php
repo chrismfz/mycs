@@ -101,10 +101,16 @@ class PortalAttentionAndListsTest extends TestCase
             ->assertSee(__('dashboard.attention.unpaid_overdue', ['date' => '01/10/2026']))
             ->assertSee(route('invoices', ['status' => 'unpaid']), false)
             ->assertSee(__('dashboard.attention.domain_ends', ['domain' => 'ending.gr', 'date' => '05/11/2026']))
-            ->assertDontSee('renewing.gr')->assertDontSee('later.gr')->assertDontSee('gone.gr')
+            ->assertDontSee('gone.gr')
             ->assertSee(__('dashboard.attention.card_expires', ['name' => 'Visa 4242', 'date' => '11/2026']))
             ->assertDontSee('Visa 9999')
             ->assertSee(trans_choice('dashboard.attention.tickets', 1))->assertSee('Mail bounce');
+
+        // A domain that renews, or ends later, is not in the box (P4d lists the renewing ones under «Upcoming renewals»).
+        $html = $this->workOn($user)->get(route('dashboard'))->getContent();
+        $box = substr($html, $start = (int) strpos($html, 'id="attention-title"'), (int) strpos($html, '</section>', $start) - $start);
+        $this->assertStringNotContainsString('renewing.gr', $box);
+        $this->assertStringNotContainsString('later.gr', $box);
     }
 
     public function test_a_member_sees_only_the_areas_of_their_grant(): void

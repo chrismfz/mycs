@@ -29,4 +29,10 @@ return [
         'tickets' => '{1} We answered your ticket|[2,*] We answered :count of your tickets',
         'reply' => 'See the reply',
     ],
+    'renewals' => [
+        'title' => 'Upcoming renewals',
+        'hint' => 'What renews in the next three months and what it will cost, with VAT. Domains with auto renew off are not included.',
+        'count' => '{0} No renewals|{1} 1 renewal|[2,*] :count renewals',
+        'priced_by_us' => 'priced by us',
+    ],
 ];
