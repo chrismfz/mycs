@@ -90,9 +90,8 @@ class ContactPushTest extends TestCase
         $targets = ContactPush::targets($this->contact);
 
         $this->assertSame([
-            ['connection' => $this->gr->id, 'handle' => 'c60_mcs1', 'domains' => [$a->id, $b->id], 'email' => true],
-            // An Openprovider holder: its email not sent (ICANN's verification, code review of #248).
-            ['connection' => $this->op->id, 'handle' => 'OP1-GR', 'domains' => [$c->id], 'email' => false],
+            ['connection' => $this->gr->id, 'handle' => 'c60_mcs1', 'domains' => [$a->id, $b->id]],
+            ['connection' => $this->op->id, 'handle' => 'OP1-GR', 'domains' => [$c->id]],
         ], $targets);
     }
 
@@ -181,7 +180,7 @@ class ContactPushTest extends TestCase
         $this->assertSame(0, ModuleAction::query()->where('domain_id', $domain->id)->where('status', ModuleAction::STATUS_OPEN)->count());
     }
 
-    public function test_an_openprovider_holders_email_is_not_sent_its_address_is(): void
+    public function test_an_openprovider_holders_email_is_sent_too(): void
     {
         $this->domain('owner.com', $this->op, ['registrant' => 'OP9-GR']);
         $sent = null;
@@ -196,7 +195,8 @@ class ContactPushTest extends TestCase
 
         $this->contact->update(['email' => 'owner-new@example.test', 'address1' => 'Odos 21']);
 
-        $this->assertArrayNotHasKey('email', $sent);
+        // Owner 2026-10-20: one who lost the old address changes it for this; its registrar asks the new one to confirm.
+        $this->assertSame('owner-new@example.test', $sent['email'] ?? null);
         $this->assertSame('Odos', $sent['address']['street'] ?? null);
     }
 

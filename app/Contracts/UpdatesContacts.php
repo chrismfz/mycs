@@ -12,6 +12,5 @@ use App\Support\Domains\DomainRegistrarCredentials;
  */
 interface UpdatesContacts
 {
-    /** $email false: its email left as the registrar has it (an Openprovider holder's: ICANN's verification, #248). */
-    public function updateContact(string $handle, Contact $contact, DomainRegistrarCredentials $credentials, bool $email = true): void;
+    public function updateContact(string $handle, Contact $contact, DomainRegistrarCredentials $credentials): void;
 }

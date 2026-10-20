@@ -15,9 +15,9 @@ use RuntimeException;
  * alone is set to the same, once per handle, off the request, after it commits. Never (reviews of #248):
  * - a handle another contact also has, in any account (a .gr contact or an agency's handle linked by staff or the sync):
  *   its other owners' WHOIS would change; staff are told (a Pending Module Action) and update it by hand;
- * - through a connection switched off, or the .gr registry for a contact not made under our prefix;
- * - the email of an Openprovider holder (a gTLD's registrant email change starts ICANN's verification and may lock
- *   transfers): its address and phone only.
+ * - through a connection switched off, or the .gr registry for a contact not made under our prefix.
+ * A holder's email too (owner 2026-10-20): one who lost the old address is the reason to change it; the form says that a
+ * gTLD's registrar asks the new address to confirm it.
  * The job checks it all again when it runs.
  */
 final class ContactPush
@@ -26,10 +26,10 @@ final class ContactPush
     public const DETAILS = ['address1', 'address2', 'city', 'state', 'postcode', 'country', 'email', 'phone'];
 
     /**
-     * The handles to update now, each with its connection, its domains and whether its email is sent.
+     * The handles to update now, each with its connection and its domains.
      *
      * @param  list<int>|null  $onlyDomains  only these domains (a staff retry)
-     * @return list<array{connection: int, handle: string, domains: list<int>, email: bool}>
+     * @return list<array{connection: int, handle: string, domains: list<int>}>
      */
     public static function targets(Contact $contact, ?array $onlyDomains = null, bool $flagShared = true): array
     {
@@ -45,11 +45,8 @@ final class ContactPush
                 continue;
             }
             $key = $connection->id . '|' . $handle;
-            $targets[$key] ??= ['connection' => $connection->id, 'handle' => $handle, 'domains' => [], 'email' => true];
+            $targets[$key] ??= ['connection' => $connection->id, 'handle' => $handle, 'domains' => []];
             $targets[$key]['domains'] = array_values(array_unique([...$targets[$key]['domains'], (int) $domain->id]));
-            if ($use['role'] === 'registrant' && $connection->registrar === 'openprovider') {
-                $targets[$key]['email'] = false;
-            }
         }
 
         $sendable = [];
@@ -90,7 +87,7 @@ final class ContactPush
     {
         $targets = self::targets($contact);
         foreach ($targets as $target) {
-            PushContactJob::dispatch($contact->id, $target['connection'], $target['handle'], $target['domains'], $target['email'])->afterCommit();
+            PushContactJob::dispatch($contact->id, $target['connection'], $target['handle'], $target['domains'])->afterCommit();
         }
 
         return count($targets);
@@ -107,7 +104,7 @@ final class ContactPush
         $contacts = collect(Domain::ROLES)->map(fn (string $role) => $domain->{"{$role}Contact"})->filter()->unique('id');
         foreach ($contacts as $contact) {
             foreach (self::targets($contact, [$domain->id]) as $target) {
-                PushContactJob::dispatch($contact->id, $target['connection'], $target['handle'], [$domain->id], $target['email']);
+                PushContactJob::dispatch($contact->id, $target['connection'], $target['handle'], [$domain->id]);
                 $sent++;
             }
         }

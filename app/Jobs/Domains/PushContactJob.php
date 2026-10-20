@@ -39,7 +39,7 @@ class PushContactJob implements ShouldQueue
     public int $timeout = 120;
 
     /** @param  list<int>  $domainIds */
-    public function __construct(public int $contactId, public int $connectionId, public string $handle, public array $domainIds, public bool $email = true) {}
+    public function __construct(public int $contactId, public int $connectionId, public string $handle, public array $domainIds) {}
 
     public function handle(DomainRegistrarFactory $factory): void
     {
@@ -66,7 +66,7 @@ class PushContactJob implements ShouldQueue
                 if (!$registrar instanceof UpdatesContacts) {
                     return; // a registrar that keeps no contacts of ours
                 }
-                $registrar->updateContact($this->handle, $contact, $factory->credentialsFor($connection), $this->email);
+                $registrar->updateContact($this->handle, $contact, $factory->credentialsFor($connection));
             } catch (RegistrarRefused|InvalidArgumentException $e) {
                 $this->record($domains, $e); // the same request would be refused again: staff now
 

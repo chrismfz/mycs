@@ -22,7 +22,7 @@ return [
     ],
     'contact_identity_in_use' => 'This contact is the «:role» contact of :domain: its name and company are kept as its registrar holds them. To change them, make a new contact and choose it for that role (for the holder, ask for an owner change).',
     'contact_used_by' => 'Used by',
-    'contact_details_sent' => 'Its address, phone and email are sent to the registrars of its domains when saved.',
+    'contact_details_sent' => 'Its address, phone and email are sent to the registrars of its domains when saved. If it holds a domain other than .gr and its email changes, the registrar emails the new address to confirm it: confirm it within 15 days, or the domain may be suspended.',
     'contact_identity_locked' => 'Kept as its registrars hold it while a domain uses this contact: to change it, make a new contact and choose it for the role (for the holder, an owner change).',
     'contact_in_use' => 'This contact is the «:role» contact of :domain: choose another contact for it first.',
     'tld_in_use' => 'The TLD .:tld has domains: it is kept with them.',

@@ -583,13 +583,9 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
     }
 
     /** P1b-2: the customer's email, phone and address as the contact's (its name never: OP keeps a handle's owner). */
-    public function updateContact(string $handle, Contact $contact, DomainRegistrarCredentials $credentials, bool $email = true): void
+    public function updateContact(string $handle, Contact $contact, DomainRegistrarCredentials $credentials): void
     {
-        $details = self::customerDetails($contact);
-        if (!$email) {
-            unset($details['email']);
-        }
-        $this->request($credentials, 'PUT', '/v1/customers/' . rawurlencode($handle), $details);
+        $this->request($credentials, 'PUT', '/v1/customers/' . rawurlencode($handle), self::customerDetails($contact));
     }
 
     /** The customer this domain made at OP for a contact, if any (`meta.contact_handles`, contact id => handle). */

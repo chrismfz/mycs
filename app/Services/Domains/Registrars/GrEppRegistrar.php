@@ -324,7 +324,7 @@ class GrEppRegistrar implements ChangesOwner, DomainRegistrar, EmailsAuthCode, M
      * P1b-2: one of our contacts' address, phone and email as the contact's (contact:update; its name and company never,
      * the registry keeps them). Its Greek postal info, as made (draft()).
      */
-    public function updateContact(string $handle, Contact $contact, DomainRegistrarCredentials $credentials, bool $email = true): void
+    public function updateContact(string $handle, Contact $contact, DomainRegistrarCredentials $credentials): void
     {
         // Only one made under our prefix: another registrar's (a domain transferred in) is not ours to change (M3 of #248).
         if (stripos($handle, self::prefix($credentials) . '_') !== 0) {
@@ -336,7 +336,7 @@ class GrEppRegistrar implements ChangesOwner, DomainRegistrar, EmailsAuthCode, M
                 'city' => (string) $contact->city, 'province' => trim((string) $contact->state) ?: (string) $contact->city,
                 'postcode' => (string) $contact->postcode, 'country' => (string) $contact->country],
             voice: $voice,
-            email: $email ? (string) $contact->email : null,
+            email: (string) $contact->email,
         );
         try {
             $this->command($credentials, fn (string $clTRID) => ContactUpdate::request($handle, $changes, $clTRID), ContactUpdate::parse(...));
