@@ -20,7 +20,7 @@ use Throwable;
 
 /**
  * Cancel open invoices the app gives up on (the cron, a cancellation request), each through the model under the
- * payment locks (MT-2b): it gets its cancellation credit note and an audit row, and a payment landing at the same
+ * payment locks (MT-2b): it gets its cancellation credit note (when it was issued, #241) and an audit row, and a payment landing at the same
  * moment is seen. Account credit paid on it goes back to the customer first (MT-1e: credit is also applied in part).
  *
  * With $onlyFor (a service, one upgrade, or a domain that is lost: D7, its renewal and stage fee lines), line by line (audit sweep SVC-4): an invoice that also bills other services

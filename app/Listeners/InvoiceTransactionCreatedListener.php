@@ -23,7 +23,7 @@ class InvoiceTransactionCreatedListener
             return;
         }
         // Only an open invoice becomes paid (docs/payments.md): a cancelled one has nothing left to pay
-        // (its credit note covers it), so any transaction, even 0.00, would turn it paid and renew.
+        // (its credit note covers it, or it was never issued), so any transaction, even 0.00, would turn it paid and renew.
         // Locking reads only: inside a payment's transaction a plain read returns the snapshot of the
         // transaction's first read and may miss a payment or a cancellation committed meanwhile.
         // Customer, then invoice (RecordPaymentService::lockInvoice): settle() below takes them in that order too.

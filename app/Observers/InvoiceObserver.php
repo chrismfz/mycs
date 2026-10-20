@@ -67,7 +67,8 @@ class InvoiceObserver
             throw new DisplayException(__('An invoice keeps the number it was given.'));
         }
         // A cancelled invoice is never marked paid directly, by anyone (docs/payments.md): it renews nothing
-        // and its credit note already covers it. Staff reopen it (unpaid) and record the payment.
+        // and it is settled (its credit note, or never issued: a proforma, a draft). Staff reopen it (unpaid) and record the
+        // payment.
         if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_CANCELLED
             && $invoice->status === Invoice::STATUS_PAID) {
             throw new DisplayException(__('A cancelled invoice cannot be marked paid: reopen it (unpaid) and record the payment.'));
@@ -241,15 +242,29 @@ class InvoiceObserver
             ->whereNotNull('period_start')->whereNotNull('period_end');
     }
 
+    /** A draft cancelled, or a proforma cancelled before it was paid (it never took a number): never an invoice. */
+    private static function neverIssued(Invoice $invoice): bool
+    {
+        if ($invoice->getOriginal('status') === Invoice::STATUS_DRAFT) {
+            return true;
+        }
+        $number = Invoice::query()->whereKey($invoice->getKey())->value('number');
+
+        return config('settings.invoice_proforma', false) && !config('settings.invoice_number_is_id', false)
+            && (string) $number === '' && (string) $invoice->number === '';
+    }
+
     /**
      * Handle the Invoice "updated" event.
      */
     public function updated(Invoice $invoice): void
     {
         // Merged (PR E): it bills nothing any more, so no credit note (which would also spend a credit note number).
-        // Never numbered (a proforma or a draft, Δ2): it was never an invoice, so nothing to credit (owner 2026-10-20).
+        // Never issued (owner 2026-10-20, Δ2): a draft, or a proforma still without its number; nothing to credit. An
+        // issued one keeps its note, numbered or not (number = id with the column empty, an import; its number read from
+        // the database, not from a copy loaded before it was given: adversarial ADV-1/2 of #241).
         if ($invoice->status === Invoice::STATUS_CANCELLED && $invoice->getOriginal('status') !== Invoice::STATUS_CANCELLED
-            && $invoice->merged_into_id === null && (string) $invoice->number !== '') {
+            && $invoice->merged_into_id === null && !self::neverIssued($invoice)) {
             $invoice->createCancellationCreditNote($invoice->cancellation_reason);
         }
 
