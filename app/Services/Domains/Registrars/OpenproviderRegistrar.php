@@ -7,6 +7,7 @@ use App\Contracts\ManagesDnssec;
 use App\Contracts\ReadsAccountBalance;
 use App\Contracts\UpdatesContacts;
 use App\Enums\DomainStatus;
+use App\Models\Contact;
 use App\Models\Domain;
 use App\Services\Domains\DnssecChangedSinceRead;
 use App\Services\Domains\DomainNotFoundAtRegistrar;

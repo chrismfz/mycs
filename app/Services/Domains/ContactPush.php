@@ -24,7 +24,7 @@ final class ContactPush
     public static function targets(Contact $contact): array
     {
         $targets = [];
-        foreach ($contact->domainRoles() as $use) {
+        foreach ($contact->domainRoles(atRegistrar: true) as $use) {
             $domain = Domain::query()->find($use['domain_id']);
             $handle = trim((string) $domain?->{"{$use['role']}_handle"});
             $connection = $domain?->effectiveRegistrarConnection();
