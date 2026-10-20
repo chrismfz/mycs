@@ -66,6 +66,7 @@ class EditClient extends EditRecord
                 'credits',
                 'orders',
                 'billingAgreements',
+                'notes',
                 'properties',
             ]),
         ];

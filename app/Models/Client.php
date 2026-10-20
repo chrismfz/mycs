@@ -223,6 +223,12 @@ class Client extends Model implements Auditable
         return $this->hasOne(Cart::class);
     }
 
+    /** @return HasMany<ClientNote, $this> staff's notes on the account (never the client area's) */
+    public function notes(): HasMany
+    {
+        return $this->hasMany(ClientNote::class);
+    }
+
     /** @return HasMany<BillingAgreement, $this> */
     public function billingAgreements(): HasMany
     {
