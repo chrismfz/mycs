@@ -1,7 +1,7 @@
 <div class="container mt-14">
     <x-navigation.breadcrumb :trail="[['name' => __('navigation.tickets'), 'url' => route('tickets')], ['name' => '#' . $ticket->id . ' · ' . $ticket->subject]]" />
     <div class="bg-primary-800 p-6 rounded-lg mt-2">
-        <h1 class="text-2xl font-semibold">{{ __('ticket.title', ['id' => $ticket->id]) }} · {{ $ticket->subject }}</h1>
+        <h1 class="text-2xl font-semibold">{{ __('ticket.title', ['id' => $ticket->reference]) }} · {{ $ticket->subject }}</h1>
 
         <div class="md:grid grid-cols-4 flex flex-col gap-4">
             <div class="md:col-span-3">
@@ -178,7 +178,7 @@
                     @if ($ticket->department)
                     <div class="font-semibold flex md:flex-col justify-between bg-primary-800 p-2 px-4 rounded-md">
                         <h4>{{ __('ticket.department') }}:</h4>
-                        {{ $ticket->department }}
+                        {{ $ticket->department->name }}
                     </div>
                     @endif
                 </div>

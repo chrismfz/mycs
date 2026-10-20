@@ -131,12 +131,13 @@ class StaffSplitTest extends TestCase
         $this->assertSame($staff->id, $reply->staff_id);
         $this->assertNull($reply->user_id);
         $this->assertTrue($reply->isFromStaff());
-        $this->assertSame('replied', $ticket->fresh()->status);
+        $this->assertSame('answered', $ticket->fresh()->status);
 
         // The customer's own reply, with the same id, is the customer's.
         $own = $ticket->messages()->create(['user_id' => $customer->id, 'message' => 'Thanks']);
         $this->assertFalse($own->isFromStaff());
-        $this->assertSame('open', $ticket->fresh()->status);
+        // The customer's answer to ours: back with us as «customer reply» (five statuses, docs/tickets.md §5).
+        $this->assertSame('customer_reply', $ticket->fresh()->status);
     }
 
     public function test_a_ticket_is_assigned_to_staff(): void

@@ -78,11 +78,12 @@ class QuickSearch extends Component
         }
         if (!config('settings.tickets_disabled', false) && CurrentClient::allows('tickets')) {
             $tickets = $client->tickets()
-                ->where(fn ($q) => $q->whereRaw("lower(subject) like ? escape '!'", [$like])->when($id !== null, fn ($q) => $q->orWhere('id', $id)))
+                // Its number as the customer reads it (docs/tickets.md §5), not the id behind it.
+                ->where(fn ($q) => $q->whereRaw("lower(subject) like ? escape '!'", [$like])->orWhere('reference', ltrim($term, '#')))
                 ->orderByDesc('id')->limit(self::PER_KIND)->get();
             foreach ($tickets as $ticket) {
-                $results[] = ['kind' => 'ticket', 'title' => '#' . $ticket->id . ' · ' . $ticket->subject,
-                    'detail' => in_array($ticket->status, ['open', 'replied', 'closed'], true) ? __('ticket.statuses.' . $ticket->status) : (string) $ticket->status,
+                $results[] = ['kind' => 'ticket', 'title' => '#' . $ticket->reference . ' · ' . $ticket->subject,
+                    'detail' => __('ticket.statuses.' . $ticket->status) !== 'ticket.statuses.' . $ticket->status ? __('ticket.statuses.' . $ticket->status) : (string) $ticket->status,
                     'url' => route('tickets.show', $ticket)];
             }
         }

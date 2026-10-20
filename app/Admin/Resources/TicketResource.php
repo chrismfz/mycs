@@ -20,6 +20,7 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Contracts\Support\Htmlable;
@@ -38,7 +39,8 @@ class TicketResource extends Resource
 
     public static function getNavigationBadge(): ?string
     {
-        return static::getModel()::where('status', 'open')->count() ?: null;
+        // Waiting on us: new tickets and the customers' answers (docs/tickets.md §5).
+        return Ticket::whereIn('status', Ticket::AWAITING_STAFF)->count() ?: null;
     }
 
     public static function getNavigationBadgeColor(): ?string
@@ -68,11 +70,7 @@ class TicketResource extends Resource
                     ->required(),
                 Select::make('status')
                     ->label('Status')
-                    ->options([
-                        'open' => 'Open',
-                        'closed' => 'Closed',
-                        'replied' => 'Replied',
-                    ])
+                    ->options(Ticket::statusOptions())
                     ->columnSpan(function ($record) {
                         return $record ? 2 : 1;
                     })
@@ -90,9 +88,9 @@ class TicketResource extends Resource
                     })
                     ->default('medium')
                     ->required(),
-                Select::make('department')
+                Select::make('department_id')
                     ->label('Department')
-                    ->options(array_combine(config('settings.ticket_departments'), config('settings.ticket_departments')))
+                    ->relationship('department', 'name', fn (Builder $query) => $query->orderBy('sort'))
                     ->columnSpan(function ($record) {
                         return $record ? 2 : 1;
                     }),
@@ -134,37 +132,38 @@ class TicketResource extends Resource
     {
         return $table
             // The account's name is its owner's (until the contacts, PR 3): loaded with the rows, not per row.
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user']))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user', 'department']))
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
                     ->sortable(),
+                // The number the customer sees (docs/tickets.md §5).
+                TextColumn::make('reference')
+                    ->label('Number')
+                    ->searchable()
+                    ->toggleable(),
                 TextColumn::make('subject')
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('status')
                     ->sortable()
                     ->badge()
-                    ->color(fn (Ticket $record) => match ($record->status) {
-                        'open' => 'success',
-                        'closed' => 'danger',
-                        'replied' => 'warning',
-                    })
-                    ->formatStateUsing(fn (string $state) => ucfirst($state)),
+                    ->color(fn (Ticket $record) => Ticket::statusColor($record->status))
+                    ->formatStateUsing(fn (string $state) => Ticket::statusLabel($state)),
                 TextColumn::make('priority')
                     ->sortable()
                     ->badge()
-                    ->color(fn (Ticket $record) => match ($record->priority) {
-                        'low' => 'success',
-                        'medium' => 'gray',
-                        'high' => 'danger',
-                    })
+                    ->color(fn (Ticket $record) => Ticket::priorityColor($record->priority))
                     ->formatStateUsing(fn (string $state) => ucfirst($state)),
-                TextColumn::make('department')
-                    ->sortable(),
+                TextColumn::make('department.name')
+                    ->label('Department'),
+                // A guest's ticket names its guest (docs/tickets.md §3 Δ): no account behind it.
                 TextColumn::make('client.name')
                     ->label('Client')
-                    ->searchable(query: fn (Builder $query, string $search) => ClientComponent::search($query, $search)),
+                    ->state(fn (Ticket $record) => $record->isGuest() ? __('Guest') . ': ' . $record->guest_name . ' <' . $record->guest_email . '>' : $record->client?->name)
+                    ->searchable(query: fn (Builder $query, string $search) => $query->where(fn (Builder $query) => ClientComponent::search($query, $search)
+                        ->orWhere('guest_email', 'like', '%' . str_replace(['%', '_'], ['\\%', '\\_'], $search) . '%')
+                        ->orWhere('guest_name', 'like', '%' . str_replace(['%', '_'], ['\\%', '\\_'], $search) . '%'))),
             ])
             ->filters([
                 SelectFilter::make('client')
@@ -178,8 +177,13 @@ class TicketResource extends Resource
                         'medium' => 'Medium',
                         'high' => 'High',
                     ]),
-                SelectFilter::make('department')
-                    ->options(array_combine(config('settings.ticket_departments'), config('settings.ticket_departments'))),
+                SelectFilter::make('department_id')
+                    ->label('Department')
+                    ->relationship('department', 'name'),
+                // Tickets without an account (docs/tickets.md §3 Δ).
+                Filter::make('guest')
+                    ->label('Guests')
+                    ->query(fn (Builder $query) => $query->whereNull('client_id')),
                 SelectFilter::make('assigned_to')
                     ->label('Assigned To')
                     // It filters by the staff member assigned, not by the customer (AUTH-14).

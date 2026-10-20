@@ -500,10 +500,11 @@ class CronJob extends Command
                 if ($days <= 0) {
                     return 0;
                 }
-                Ticket::where('status', 'replied')->each(function ($ticket) use (&$number, $days) {
+                // Answered by us and silent since: WHMCS «Close Inactive Tickets».
+                Ticket::where('status', Ticket::STATUS_ANSWERED)->each(function ($ticket) use (&$number, $days) {
                     $lastMessage = $ticket->messages()->latest('created_at')->first();
                     if ($lastMessage && $lastMessage->created_at < now()->subDays($days)) {
-                        $ticket->update(['status' => 'closed']);
+                        $ticket->update(['status' => Ticket::STATUS_CLOSED]);
                         $number++;
                     }
                 });

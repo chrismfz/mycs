@@ -376,11 +376,11 @@ class EmailTemplateSeeder extends Seeder
             'in_app_url' => '{{ urls.service }}',
         ],
         'new_ticket_message' => [
-            'subject' => '[Ticket #{{ ticketMessage.ticket_id }}] {{ ticketMessage.ticket.subject }}',
+            'subject' => '[Ticket #{{ ticketMessage.ticket.reference }}] {{ ticketMessage.ticket.subject }}',
             'body' => <<<'HTML'
                 # New reply to your ticket
 
-                {{ ticketMessage.user.name }} replied to your ticket **#{{ ticketMessage.ticket_id }}**:
+                {{ ticketMessage.user.name }} replied to your ticket **#{{ ticketMessage.ticket.reference }}**:
 
                 {{ message_html }}
 
@@ -390,8 +390,8 @@ class EmailTemplateSeeder extends Seeder
                 	</a>
                 </div>
                 HTML,
-            'in_app_title' => 'New reply to ticket #{{ ticketMessage.ticket_id }}',
-            'in_app_body' => 'You have a new reply on your ticket #{{ ticketMessage.ticket_id }}.',
+            'in_app_title' => 'New reply to ticket #{{ ticketMessage.ticket.reference }}',
+            'in_app_body' => 'You have a new reply on your ticket #{{ ticketMessage.ticket.reference }}.',
             'mail_enabled' => 'choice_on',
             'in_app_enabled' => 'choice_on',
             'edit_preference_message' => 'Notify me about ticket replies',
@@ -1222,11 +1222,11 @@ class EmailTemplateSeeder extends Seeder
         ],
         'new_ticket_message' => [
             'el' => [
-                'subject' => '[Ticket #{{ ticketMessage.ticket_id }}] {{ ticketMessage.ticket.subject }}',
+                'subject' => '[Ticket #{{ ticketMessage.ticket.reference }}] {{ ticketMessage.ticket.subject }}',
                 'body' => <<<'HTML'
                     # Νέα απάντηση στο αίτημά σας
 
-                    {{ ticketMessage.user.name }} απάντησε στο αίτημά σας **#{{ ticketMessage.ticket_id }}**:
+                    {{ ticketMessage.user.name }} απάντησε στο αίτημά σας **#{{ ticketMessage.ticket.reference }}**:
 
                     {{ message_html }}
 
@@ -1236,8 +1236,8 @@ class EmailTemplateSeeder extends Seeder
                     	</a>
                     </div>
                     HTML,
-                'in_app_title' => 'Νέα απάντηση στο αίτημα #{{ ticketMessage.ticket_id }}',
-                'in_app_body' => 'Έχετε νέα απάντηση στο αίτημά σας #{{ ticketMessage.ticket_id }}.',
+                'in_app_title' => 'Νέα απάντηση στο αίτημα #{{ ticketMessage.ticket.reference }}',
+                'in_app_body' => 'Έχετε νέα απάντηση στο αίτημά σας #{{ ticketMessage.ticket.reference }}.',
             ],
         ],
         'email_verification' => [

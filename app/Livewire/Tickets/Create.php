@@ -5,11 +5,13 @@ namespace App\Livewire\Tickets;
 use App\Attributes\DisabledIf;
 use App\Livewire\Component;
 use App\Models\Ticket;
+use App\Models\TicketDepartment;
 use App\Support\CurrentClient;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Livewire\Features\SupportFileUploads\WithFileUploads;
 
 #[DisabledIf('tickets_disabled')]
@@ -23,7 +25,7 @@ class Create extends Component
 
     public string $subject;
 
-    public string $department;
+    public ?int $department = null;
 
     public ?int $service = null;
 
@@ -33,7 +35,9 @@ class Create extends Component
     {
         // Add rules for the department
         $this->validate([
-            'department' => count((array) config('settings.ticket_departments')) > 0 ? 'required|in:' . implode(',', array_values((array) config('settings.ticket_departments'))) : '',
+            // One the customer is offered (not hidden), when there are any (docs/tickets.md §5).
+            'department' => TicketDepartment::query()->offered()->exists()
+                ? ['required', 'integer', Rule::in(TicketDepartment::query()->offered()->pluck('id')->all())] : 'prohibited',
             // A service of the account, named only by a login that may see the services (`products`, PR 2b).
             'service' => CurrentClient::allows('products') ? 'nullable|exists:services,id,client_id,' . CurrentClient::id() : 'prohibited',
             'subject' => 'required|string',
@@ -53,7 +57,8 @@ class Create extends Component
 
         $ticket = Ticket::create([
             'client_id' => CurrentClient::id(),
-            'department' => $this->department,
+            'department_id' => $this->department,
+            'opened_via' => 'portal',
             'service_id' => $this->service,
             'subject' => $this->subject,
             'priority' => $this->priority,
@@ -88,7 +93,7 @@ class Create extends Component
     public function render()
     {
         return view('tickets.create', [
-            'departments' => (array) config('settings.ticket_departments'),
+            'departments' => TicketDepartment::query()->offered()->get(['id', 'name']),
             'services' => CurrentClient::allows('products') ? CurrentClient::model()->services()->orderBy('id', 'desc')->get() : collect(),
         ])->layoutData([
             'title' => __('ticket.create_ticket'),

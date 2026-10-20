@@ -711,5 +711,10 @@
     "Only a pending order can be accepted.": "Μόνο μια παραγγελία σε εκκρεμότητα μπορεί να γίνει δεκτή.",
     "Every service of this order has ended: there is nothing to accept.": "Όλες οι υπηρεσίες αυτής της παραγγελίας έχουν λήξει: δεν υπάρχει τίποτα να γίνει δεκτό.",
     "© :year :app_name. | All rights reserved.": "© :year :app_name. | Με την επιφύλαξη παντός δικαιώματος.",
-    "Announcements": "Ανακοινώσεις"
+    "Announcements": "Ανακοινώσεις",
+    "Guest": "Επισκέπτης",
+    "Answered": "Απαντήθηκε",
+    "Customer reply": "Απάντηση πελάτη",
+    "On hold": "Σε αναμονή",
+    "Closed": "Κλειστό"
 }
