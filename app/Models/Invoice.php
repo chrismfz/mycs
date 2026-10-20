@@ -133,6 +133,7 @@ class Invoice extends Model implements Auditable
 
     protected $casts = [
         'due_at' => 'date',
+        'paid_at' => 'immutable_datetime',
         'merged_into_id' => 'integer',
         'split_from_id' => 'integer',
         'apply_pending_since' => 'immutable_datetime',

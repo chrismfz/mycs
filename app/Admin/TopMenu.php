@@ -8,6 +8,7 @@ use App\Admin\Clusters\Services;
 use App\Admin\Pages\CronStats;
 use App\Admin\Pages\Dashboard;
 use App\Admin\Pages\Extension;
+use App\Admin\Pages\RevenueForecast;
 use App\Admin\Pages\Settings;
 use App\Admin\Resources\AdjustmentNoteResource;
 use App\Admin\Resources\ApiResource;
@@ -103,6 +104,9 @@ class TopMenu
             [TicketBlockedSenderResource::class, 'index', 'Blocked Senders'],
             [CannedReplyResource::class, 'index', 'Predefined Replies'],
             [CannedReplyCategoryResource::class, 'index', 'Reply Categories'],
+        ],
+        'Reports' => [
+            [RevenueForecast::class],
         ],
         'Utilities' => [
             [EmailLogResource::class, 'index', 'Email Message Log'],

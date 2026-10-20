@@ -797,5 +797,18 @@
     "This promotion requires another product.": "Η προσφορά απαιτεί και άλλο προϊόν.",
     "The product's price becomes this amount (0 = free), in the default currency, for the products below only (required); options are charged on top. The same amount for every billing cycle: choose them below.": "Η τιμή του προϊόντος γίνεται αυτό το ποσό (0 = δωρεάν), στο προεπιλεγμένο νόμισμα, μόνο για τα προϊόντα παρακάτω (υποχρεωτικά)· οι επιλογές χρεώνονται από πάνω. Ίδιο ποσό για κάθε κύκλο χρέωσης: διάλεξε τους κύκλους παρακάτω.",
     "Unknown customers rule.": "Άγνωστος κανόνας πελατών.",
-    "Unknown billing cycle.": "Άγνωστος κύκλος χρέωσης."
+    "Unknown billing cycle.": "Άγνωστος κύκλος χρέωσης.",
+    "Revenue forecast": "Πρόβλεψη εσόδων",
+    "Other": "Άλλο",
+    "Export CSV": "Εξαγωγή CSV",
+    "Month": "Μήνας",
+    "Domains": "Domains",
+    "Expected": "Αναμενόμενα",
+    "Same month last year": "Ίδιος μήνας πέρσι",
+    "Estimated income": "Εκτιμώμενα έσοδα",
+    "Est. annual": "Εκτίμηση έτους",
+    "Collected this month": "Εισπραγμένα αυτόν τον μήνα",
+    "Due this month": "Οφείλονται αυτόν τον μήνα",
+    "Already invoiced, due this month": "Ήδη τιμολογημένα, με λήξη αυτόν τον μήνα",
+    "Net amounts, without tax. Every active service and auto-renewing domain renews at its price on its due date, as the billing renews it.": "Καθαρά ποσά, χωρίς φόρο. Κάθε ενεργή υπηρεσία και κάθε domain με αυτόματη ανανέωση ανανεώνεται στην τιμή του, την ημερομηνία λήξης του, όπως το ανανεώνει η χρέωση."
 }

@@ -34,7 +34,7 @@ class AdminTopMenuTest extends TestCase
 
         $menu = $this->menuFor($owner);
 
-        $this->assertSame(['Clients', 'Orders', 'Billing', 'Support', 'Utilities', 'Setup'], array_keys($menu));
+        $this->assertSame(['Clients', 'Orders', 'Billing', 'Support', 'Reports', 'Utilities', 'Setup'], array_keys($menu));
         $this->assertContains('Add New Client', $menu['Clients']);
         $this->assertContains('Create Invoice', $menu['Billing']);
         $this->assertContains('Open New Ticket', $menu['Support']);
