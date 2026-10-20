@@ -28,6 +28,13 @@ class NotificationTemplateResource extends Resource
 {
     protected static ?string $model = NotificationTemplate::class;
 
+    // One name for the page, WHMCS's, in the top menu, the sidebar and its title (owner 2026-10-21).
+    protected static ?string $navigationLabel = 'Email Templates';
+
+    protected static ?string $pluralModelLabel = 'Email Templates';
+
+    protected static ?string $modelLabel = 'Email Template';
+
     protected static string|\BackedEnum|null $navigationIcon = 'ri-mail-settings-line';
 
     protected static string|\BackedEnum|null $activeNavigationIcon = 'ri-mail-settings-fill';

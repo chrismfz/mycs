@@ -16,6 +16,13 @@ class AuditResource extends Resource
 {
     protected static ?string $model = Audit::class;
 
+    // One name for the page, WHMCS's, in the top menu, the sidebar and its title (owner 2026-10-21).
+    protected static ?string $navigationLabel = 'Activity Log';
+
+    protected static ?string $pluralModelLabel = 'Activity Log';
+
+    protected static ?string $modelLabel = 'Activity';
+
     protected static string|BackedEnum|null $navigationIcon = 'ri-file-copy-2-line';
 
     protected static string|BackedEnum|null $activeNavigationIcon = 'ri-file-copy-2-fill';

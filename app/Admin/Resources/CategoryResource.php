@@ -30,6 +30,13 @@ class CategoryResource extends Resource
 {
     protected static ?string $model = Category::class;
 
+    // One name for the page, WHMCS's, in the top menu, the sidebar and its title (owner 2026-10-21).
+    protected static ?string $navigationLabel = 'Product Groups';
+
+    protected static ?string $pluralModelLabel = 'Product Groups';
+
+    protected static ?string $modelLabel = 'Product Group';
+
     protected static string|\UnitEnum|null $navigationGroup = 'Administration';
 
     protected static string|\BackedEnum|null $navigationIcon = 'ri-folder-6-line';

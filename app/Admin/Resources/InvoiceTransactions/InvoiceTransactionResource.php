@@ -14,6 +14,13 @@ class InvoiceTransactionResource extends Resource
 {
     protected static ?string $model = InvoiceTransaction::class;
 
+    // One name for the page, WHMCS's, in the top menu, the sidebar and its title (owner 2026-10-21).
+    protected static ?string $navigationLabel = 'Transactions';
+
+    protected static ?string $pluralModelLabel = 'Transactions';
+
+    protected static ?string $modelLabel = 'Transaction';
+
     protected static ?string $cluster = InvoiceCluster::class;
 
     protected static string|BackedEnum|null $navigationIcon = 'ri-wallet-2-line';

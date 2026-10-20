@@ -25,6 +25,13 @@ class ApiResource extends Resource
 {
     protected static ?string $model = ApiKey::class;
 
+    // One name for the page, WHMCS's, in the top menu, the sidebar and its title (owner 2026-10-21).
+    protected static ?string $navigationLabel = 'API Credentials';
+
+    protected static ?string $pluralModelLabel = 'API Credentials';
+
+    protected static ?string $modelLabel = 'API Credential';
+
     protected static string|\BackedEnum|null $navigationIcon = 'ri-key-2-line';
 
     protected static string|\UnitEnum|null $navigationGroup = 'Other';

@@ -23,6 +23,13 @@ class ServiceCancellationResource extends Resource
 {
     protected static ?string $model = ServiceCancellation::class;
 
+    // One name for the page, WHMCS's, in the top menu, the sidebar and its title (owner 2026-10-21).
+    protected static ?string $navigationLabel = 'Cancellation Requests';
+
+    protected static ?string $pluralModelLabel = 'Cancellation Requests';
+
+    protected static ?string $modelLabel = 'Cancellation Request';
+
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-rectangle-stack';
 
     protected static ?string $cluster = Services::class;

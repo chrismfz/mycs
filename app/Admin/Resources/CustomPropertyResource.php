@@ -27,6 +27,13 @@ class CustomPropertyResource extends Resource
 {
     protected static ?string $model = CustomProperty::class;
 
+    // One name for the page, WHMCS's, in the top menu, the sidebar and its title (owner 2026-10-21).
+    protected static ?string $navigationLabel = 'Custom Client Fields';
+
+    protected static ?string $pluralModelLabel = 'Custom Client Fields';
+
+    protected static ?string $modelLabel = 'Custom Client Field';
+
     protected static string|\UnitEnum|null $navigationGroup = 'Configuration';
 
     protected static string|\BackedEnum|null $navigationIcon = 'ri-list-settings-line';

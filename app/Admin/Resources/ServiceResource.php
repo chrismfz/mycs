@@ -54,6 +54,13 @@ class ServiceResource extends Resource
 {
     protected static ?string $model = Service::class;
 
+    // One name for the page, WHMCS's, in the top menu, the sidebar and its title (owner 2026-10-21).
+    protected static ?string $navigationLabel = 'Products/Services';
+
+    protected static ?string $pluralModelLabel = 'Products/Services';
+
+    protected static ?string $modelLabel = 'Product/Service';
+
     protected static string|\BackedEnum|null $navigationIcon = 'ri-function-line';
 
     protected static string|\BackedEnum|null $activeNavigationIcon = 'ri-function-fill';

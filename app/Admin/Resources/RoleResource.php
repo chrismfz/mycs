@@ -22,6 +22,13 @@ class RoleResource extends Resource
 {
     protected static ?string $model = Role::class;
 
+    // One name for the page, WHMCS's, in the top menu, the sidebar and its title (owner 2026-10-21).
+    protected static ?string $navigationLabel = 'Staff Roles';
+
+    protected static ?string $pluralModelLabel = 'Staff Roles';
+
+    protected static ?string $modelLabel = 'Staff Role';
+
     protected static string|\UnitEnum|null $navigationGroup = 'Configuration';
 
     protected static string|\BackedEnum|null $navigationIcon = 'ri-shield-user-line';
