@@ -9,6 +9,7 @@ use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\TicketResource;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
+use App\Support\Tickets\GuestLinks;
 use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\MarkdownEditor;
@@ -71,6 +72,19 @@ class EditTicket extends EditRecord
             ->visible(fn () => $this->record instanceof Ticket && $this->record->isGuest() && auth()->user()->can('update', $this->record))
             ->action(fn (array $data) => $this->record instanceof Ticket && $this->record->update(['client_id' => (int) $data['client_id']]))
             ->after(fn () => $this->record->refresh());
+    }
+
+    /** The guest's links stop working (a mail reached someone else): the next reply mails a new one (docs/tickets.md §3 Δ). */
+    public function revokeGuestLinks(): Action
+    {
+        return Action::make('revokeGuestLinks')
+            ->label('Revoke guest links')
+            ->icon('heroicon-o-no-symbol')
+            ->color('gray')
+            ->requiresConfirmation()
+            ->modalDescription('Every link mailed to the guest stops opening this ticket. The next reply mails a new one.')
+            ->visible(fn () => $this->record instanceof Ticket && $this->record->isGuest() && auth()->user()->can('update', $this->record))
+            ->action(fn () => $this->record instanceof Ticket && GuestLinks::revoke($this->record));
     }
 
     public function closeTicket(): Action

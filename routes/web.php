@@ -1,9 +1,11 @@
 <?php
 
+use App\Http\Controllers\GuestTicketAttachmentController;
 use App\Http\Controllers\InvoicePdfController;
 use App\Http\Controllers\SocialLoginController;
 use App\Http\Controllers\TicketAttachmentController;
 use App\Http\Middleware\MustVerfiyEmail;
+use App\Http\Middleware\PrivateLinkHeaders;
 use App\Livewire\Auth;
 use App\Livewire\Cart;
 use App\Livewire\Client;
@@ -26,6 +28,12 @@ Route::get('/domain-search', DomainShop\Search::class)->name('domain.search');
 Route::get('/whois', DomainShop\Whois::class)->name('domain.whois');
 // «Contact» without a login (docs/tickets.md §3 Ζ): a guest's ticket; a login is sent to «New ticket».
 Route::get('/contact', Contact::class)->name('contact');
+// A guest's ticket by the link mailed to them (docs/tickets.md §3 Δ, PR Γ): a guessed token is met by the throttle.
+Route::middleware([PrivateLinkHeaders::class, 'throttle:30,1'])->group(function () {
+    Route::get('/t/{token}', Tickets\Guest::class)->name('tickets.guest')->where('token', '[A-Za-z0-9_-]{1,64}');
+    Route::get('/t/{token}/files/{attachment}', [GuestTicketAttachmentController::class, 'download'])
+        ->name('tickets.guest.attachment')->where(['token' => '[A-Za-z0-9_-]{1,64}', 'attachment' => '[0-9a-f-]{36}']);
+});
 Route::get('/domain-pricing', DomainShop\Pricing::class)->name('domain.pricing');
 
 // Our captcha's challenges (docs/captcha.md): while it is the chosen captcha, or none is (the contact form uses ours

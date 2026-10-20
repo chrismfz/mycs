@@ -35,7 +35,8 @@ final class TicketMailer
             $id = $this->newId($ticket, $message, TicketMailId::REPLY, (string) $ticket->guest_email);
             // A From our server did not vouch for may be forged: the mail to it carries nothing the sender wrote (their
             // subject, their name), only our words (no spam relayed by us, signed as ours).
-            $data = ['ticketMessage' => $message];
+            // Their way to the ticket (PR Γ): a new link in every mail, to this address only.
+            $data = ['ticketMessage' => $message, 'ticket_url' => GuestLinks::issue($ticket)];
             if ($ticket->sender_vouched === false) {
                 $data['ticket'] = ['reference' => $ticket->reference, 'subject' => __('Your message'), 'guest_name' => __('customer')];
             }
@@ -59,7 +60,19 @@ final class TicketMailer
             return;
         }
         $id = $this->newId($ticket, null, TicketMailId::RECEIVED, $to);
-        NotificationHelper::guestTicketNotification($ticket, 'ticket_received', [], $id, $to);
+        // A guest's link only to the ticket's own address; an account's ticket is seen in the client area.
+        $url = $ticket->isGuest() && strcasecmp($to, (string) $ticket->guest_email) === 0 ? GuestLinks::issue($ticket) : route('tickets.show', $ticket);
+        NotificationHelper::guestTicketNotification($ticket, 'ticket_received', ['ticket_url' => $url], $id, $to);
+    }
+
+    /** A new link to a guest's ticket, to its own address (an expired link asked for again, PR Γ). */
+    public function link(Ticket $ticket): void
+    {
+        if (!$ticket->isGuest() || blank($ticket->guest_email)) {
+            return;
+        }
+        $id = $this->newId($ticket, null, TicketMailId::RECEIVED, (string) $ticket->guest_email);
+        NotificationHelper::guestTicketNotification($ticket, 'ticket_link', ['ticket_url' => GuestLinks::issue($ticket)], $id);
     }
 
     /**
