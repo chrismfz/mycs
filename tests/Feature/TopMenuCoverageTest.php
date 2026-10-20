@@ -34,7 +34,7 @@ class TopMenuCoverageTest extends TestCase
 
     public function test_every_line_of_the_menu_opens_for_staff_who_may_see_everything(): void
     {
-        config(['settings.debug' => true, 'settings.tax_enabled' => true]); // pages that show only with these on
+        config(['settings.debug' => true, 'settings.tax_enabled' => true, 'settings.immutable_invoices_enabled' => true]); // pages shown only with these on
         $urls = collect(TopMenu::groups())->flatMap(fn (array $group) => array_column($group['items'], 'url'));
         $lines = collect(TopMenu::MENU)->flatten(1)->count();
 

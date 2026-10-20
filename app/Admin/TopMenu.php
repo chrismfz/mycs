@@ -61,7 +61,7 @@ use Illuminate\Support\Str;
 
 /**
  * The WHMCS-like top menu of the admin (docs/admin-ux.md): the whole map of the admin, every page of it (an
- * extension's under «Addons»); the sidebar is for what needs staff today (AdminSidebar). An item shows only when its
+ * extension's under «Addons»); the sidebar is for what needs staff today. An item shows only when its
  * own canAccess()/canCreate() lets the staff member in.
  */
 class TopMenu
@@ -140,8 +140,11 @@ class TopMenu
         ],
     ];
 
-    /** Shown only while debugging is on (Settings → Other → Debug), as in the sidebar. */
-    public const DEBUG_ONLY = [ErrorLogResource::class, HttpLogResource::class];
+    /**
+     * Pages that hide themselves while a setting is off (debugging; immutable invoices): their own
+     * shouldRegisterNavigation() decides here too, as in the sidebar (review of #276).
+     */
+    public const CONDITIONAL = [ErrorLogResource::class, HttpLogResource::class, AdjustmentNoteResource::class];
 
     /**
      * What the panel registers but needs no line here, and why. Anything else not in MENU (an extension's page) goes to
@@ -184,6 +187,10 @@ class TopMenu
         // An extension's page (or one added without a line above): under «Addons», as in WHMCS.
         $addons = [];
         foreach (self::unlisted() as $class) {
+            // A page its extension keeps out of the menus (a wizard, one reached from a record) stays out of this one.
+            if (!$class::shouldRegisterNavigation()) {
+                continue;
+            }
             if ($item = self::item($class)) {
                 $item['active'] = self::isCurrent($item['url']);
                 $addons[] = $item;
@@ -232,7 +239,7 @@ class TopMenu
      */
     private static function item(string $class, string $page = 'index', ?string $label = null, array $query = []): ?array
     {
-        if (in_array($class, self::DEBUG_ONLY, true) && !config('settings.debug', false)) {
+        if (in_array($class, self::CONDITIONAL, true) && !$class::shouldRegisterNavigation()) {
             return null;
         }
         try {
