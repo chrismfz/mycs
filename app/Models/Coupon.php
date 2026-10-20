@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Exceptions\DisplayException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -22,7 +23,28 @@ class Coupon extends Model implements Auditable
         'starts_at',
         'expires_at',
         'recurring',
+        'customers',
+        'once_per_client',
+        'requires_existing',
+        'billing_cycles',
     ];
+
+    public const CUSTOMERS = ['all', 'new', 'existing'];
+
+    /** Its rules kept to their values however it is saved (the form, an import; F9 of #274). */
+    protected static function booted(): void
+    {
+        static::saving(function (Coupon $coupon) {
+            if (!in_array($coupon->customers ?? 'all', self::CUSTOMERS, true)) {
+                throw new DisplayException(__('Unknown customers rule.'));
+            }
+            foreach ((array) ($coupon->billing_cycles ?? []) as $cycle) {
+                if (!is_string($cycle) || preg_match('/^((day|week|month|year):[1-9][0-9]*|one_time)$/', $cycle) !== 1) {
+                    throw new DisplayException(__('Unknown billing cycle.'));
+                }
+            }
+        });
+    }
 
     protected $casts = [
         'starts_at' => 'datetime',
@@ -30,6 +52,9 @@ class Coupon extends Model implements Auditable
         'max_uses' => 'integer',
         'max_uses_per_user' => 'integer',
         'value' => 'float',
+        'once_per_client' => 'boolean',
+        'requires_existing' => 'boolean',
+        'billing_cycles' => 'array',
     ];
 
     /**
@@ -64,10 +89,87 @@ class Coupon extends Model implements Auditable
             ->count() >= $this->max_uses_per_user;
     }
 
-    /** Whether it discounts this product: a coupon without products is for all of them. */
-    public function covers(int $productId): bool
+    /**
+     * The products it requires (WHMCS «Requires»): one of them in the order, or held already when requires_existing.
+     *
+     * @return BelongsToMany<Product, $this>
+     */
+    public function requiredProducts(): BelongsToMany
     {
-        return $this->products->isEmpty() || $this->products->contains($productId);
+        return $this->belongsToMany(Product::class, 'coupon_required_products');
+    }
+
+    /**
+     * Whether it discounts this product, on this plan's billing cycle when given: a coupon without products is for all of
+     * them; one without cycles for every cycle (WHMCS «Billing Cycles»).
+     */
+    public function covers(int $productId, ?Plan $plan = null, ?string $currency = null): bool
+    {
+        if ($this->products->isNotEmpty() && !$this->products->contains($productId)) {
+            return false;
+        }
+        // An override is a price (reviews of #274): for the products it names only (never one an upgrade changes to,
+        // C2), in the default currency only (its value is that currency's, C3).
+        if ($this->type === 'override' && ($this->products->isEmpty()
+            || ($currency !== null && $currency !== config('settings.default_currency')))) {
+            return false;
+        }
+
+        return $plan === null || empty($this->billing_cycles) || in_array(self::cycleKey($plan), $this->billing_cycles, true);
+    }
+
+    /**
+     * Whether the account still holds what it requires (C4 of #274): one of its required products, ordered, running or
+     * suspended. None required: yes.
+     */
+    public function requirementHeldBy(?Client $client): bool
+    {
+        $required = $this->requiredProducts->pluck('id');
+        if ($required->isEmpty()) {
+            return true;
+        }
+
+        return $client !== null && Service::query()->where('client_id', $client->id)->whereIn('product_id', $required)
+            ->whereIn('status', [Service::STATUS_PENDING, Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])->exists();
+    }
+
+    /** A plan's billing cycle as the coupon lists it: «month:1», «year:2», «one_time». */
+    public static function cycleKey(Plan $plan): string
+    {
+        return $plan->type === 'recurring' ? $plan->billing_unit . ':' . (int) $plan->billing_period : 'one_time';
+    }
+
+    /**
+     * Why this account cannot use it for these products (WHMCS «New Signups», «Existing Client», «Once Per Client»,
+     * «Requires»), or null. The services of the order being placed are not made yet. A guest's (null) is checked on
+     * its cart's products only: who it is, at checkout (PlaceOrderService), once signed up or in.
+     *
+     * @param  list<int>  $productIds  the products of the order
+     */
+    public function refusalFor(?Client $client, array $productIds): ?string
+    {
+        if ($client !== null) {
+            $services = Service::query()->where('client_id', $client->id);
+            // New: nothing ordered before, a service, a domain or an order (C6 of #274, as WHMCS's «New Signups»).
+            if ($this->customers === 'new' && ((clone $services)->exists() || Domain::query()->where('client_id', $client->id)->exists()
+                || Order::query()->where('client_id', $client->id)->exists())) {
+                return __('This promotion is for new customers only.');
+            }
+            if ($this->customers === 'existing' && !(clone $services)->where('status', Service::STATUS_ACTIVE)->exists()) {
+                return __('This promotion is for existing customers only.');
+            }
+            if ($this->once_per_client && (clone $services)->where('coupon_id', $this->id)->exists()) {
+                return __('You have already used this promotion.');
+            }
+        }
+        $required = $this->requiredProducts->pluck('id')->map(fn ($id) => (int) $id);
+        if ($required->isNotEmpty() && $required->intersect($productIds)->isEmpty()
+            && !($this->requires_existing && ($client === null || Service::query()->where('client_id', $client->id)
+                ->where('status', Service::STATUS_ACTIVE)->whereIn('product_id', $required)->exists()))) {
+            return __('This promotion requires another product.');
+        }
+
+        return null;
     }
 
     /**

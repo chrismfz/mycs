@@ -7,11 +7,12 @@ use InvalidArgumentException;
 
 /**
  * A coupon's discount on one line. A percentage is taken from each amount it applies to; a fixed amount is one amount
- * per line (CART-8): from the recurring price first, what is left from the setup fee, never below zero.
+ * per line (CART-8): from the recurring price first, what is left from the setup fee, never below zero; an override
+ * (WHMCS «Price Override») makes each amount it applies to its value, never more than it was.
  */
 final class Discount
 {
-    public const TYPES = ['percentage', 'fixed'];
+    public const TYPES = ['percentage', 'fixed', 'override'];
 
     public const APPLIES_TO = ['all', 'price', 'setup_fee'];
 

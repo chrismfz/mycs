@@ -985,9 +985,12 @@ class Service extends Model implements Auditable
             return number_format((float) $this->price, 2, '.', '');
         }
         $price = BigDecimal::of(number_format((float) $this->plan->price($this->currency_code)->price, 2, '.', ''));
+        $options = BigDecimal::zero();
         foreach ($this->configs as $config) {
             if ($config->configValue) {
-                $price = $price->plus(number_format((float) $config->configValue->price(null, $this->plan->billing_period, $this->plan->billing_unit, $this->currency_code)->price, 2, '.', ''));
+                $option = number_format((float) $config->configValue->price(null, $this->plan->billing_period, $this->plan->billing_unit, $this->currency_code)->price, 2, '.', '');
+                $price = $price->plus($option);
+                $options = $options->plus($option);
             }
         }
 
@@ -996,14 +999,15 @@ class Service extends Model implements Auditable
             // The cycle this price is for: the next renewal, after those already paid, and never the first (its
             // invoice was made with the order): a first-cycle coupon is never in it, even before the first payment (ADV-4).
             $cycle ??= max($this->invoices()->where('status', 'paid')->count(), 1) + 1;
-            if ($this->coupon->cycles() === 0 || $cycle <= $this->coupon->cycles()) {
-                $discount = OrderPricing::discount($this->coupon, (int) $this->product_id);
+            // Only while its account holds the product it requires (C4 of #274).
+            if (($this->coupon->cycles() === 0 || $cycle <= $this->coupon->cycles()) && $this->coupon->requirementHeldBy($this->client)) {
+                $discount = OrderPricing::discount($this->coupon, (int) $this->product_id, $this->plan, $this->currency_code);
             }
         }
 
         // Net (Δ1): the tax is the invoice line's, decided when it is made.
         // With its account's group discount (ROADMAP 5), or the one given ('0': none; ClientGroupPricing's «before»).
-        return OrderPricing::line(['price' => (string) $price, 'setup_fee' => '0.00'], $discount, $this->client, $this->product, $groupPercent)->netPrice;
+        return OrderPricing::line(['price' => (string) $price, 'setup_fee' => '0.00', 'options' => (string) $options], $discount, $this->client, $this->product, $groupPercent)->netPrice;
     }
 
     /** @return HasMany<ServiceUpgrade, $this> */

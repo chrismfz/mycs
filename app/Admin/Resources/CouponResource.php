@@ -7,6 +7,7 @@ use App\Admin\Resources\CouponResource\Pages\EditCoupon;
 use App\Admin\Resources\CouponResource\Pages\ListCoupons;
 use App\Admin\Resources\CouponResource\RelationManagers\ServicesRelationManager;
 use App\Models\Coupon;
+use App\Models\Plan;
 use App\Models\Product;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
@@ -14,6 +15,7 @@ use Filament\Actions\EditAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
@@ -55,6 +57,7 @@ class CouponResource extends Resource
                         JS
                     ))
                     ->suffix(fn (Get $get) => $get('type') === 'percentage' ? '%' : config('settings.default_currency'))
+                    ->helperText(fn (Get $get) => $get('type') === 'override' ? __('The product\'s price becomes this amount (0 = free), in the default currency, for the products below only (required); options are charged on top. The same amount for every billing cycle: choose them below.') : null)
                     ->placeholder('Enter the value of the coupon'),
 
                 Select::make('type')
@@ -65,6 +68,8 @@ class CouponResource extends Resource
                     ->options([
                         'percentage' => 'Percentage',
                         'fixed' => 'Fixed amount',
+                        // WHMCS «Price Override» (nixpal FREETRIAL 0.00, 25OffAgentNode 1.50).
+                        'override' => 'Price override',
                     ])
                     ->placeholder('Select the type of the coupon'),
                 Select::make('applies_to')
@@ -115,7 +120,36 @@ class CouponResource extends Resource
                     ->multiple()
                     ->preload()
                     ->placeholder('Select the products that this coupon applies to')
+                    // An override is a price: for named products only (C2 of #274).
+                    ->required(fn (Get $get) => $get('type') === 'override')
                     ->hint('Leave empty to apply the coupon to all products'),
+
+                // WHMCS's promotion rules (ROADMAP 5): checked in the cart, and again under the coupon's lock at checkout.
+                Select::make('billing_cycles')
+                    ->label(__('Billing cycles'))
+                    ->multiple()
+                    ->options(fn () => Plan::query()->where('type', 'recurring')->where('priceable_type', Product::class)->get(['billing_unit', 'billing_period', 'type'])
+                        ->unique(fn (Plan $plan) => Coupon::cycleKey($plan))
+                        ->mapWithKeys(fn (Plan $plan) => [Coupon::cycleKey($plan) => ucfirst($plan->cycle())])
+                        ->put('one_time', __('product.one_time'))->all())
+                    ->hint(__('Leave empty for every billing cycle')),
+                Select::make('customers')
+                    ->label(__('Customers'))
+                    ->required()
+                    ->default('all')
+                    ->options(['all' => __('Everyone'), 'new' => __('New customers only'), 'existing' => __('Existing customers only (with an active service)')]),
+                Toggle::make('once_per_client')
+                    ->label(__('Once per customer'))
+                    ->helperText(__('A customer who used it once, in any order, cannot use it again.')),
+                Select::make('requiredProducts')
+                    ->label(__('Requires'))
+                    ->relationship(name: 'requiredProducts', titleAttribute: 'name')
+                    ->multiple()
+                    ->preload()
+                    ->hint(__('One of these in the order')),
+                Toggle::make('requires_existing')
+                    ->label(__('Or held already'))
+                    ->helperText(__('A customer with one of the required products active may use it without ordering one.')),
             ]);
     }
 
@@ -124,7 +158,7 @@ class CouponResource extends Resource
         return $table
             ->columns([
                 TextColumn::make('code')->searchable(),
-                TextColumn::make('value')->searchable()->formatStateUsing(fn ($record) => $record->value . ($record->type === 'percentage' ? '%' : config('settings.default_currency'))),
+                TextColumn::make('value')->searchable()->formatStateUsing(fn ($record) => ($record->type === 'override' ? '= ' : '') . $record->value . ($record->type === 'percentage' ? '%' : config('settings.default_currency'))),
             ])
             ->filters([
                 //
