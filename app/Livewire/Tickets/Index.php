@@ -16,7 +16,7 @@ class Index extends Component
     public function render()
     {
         return view('tickets.index', [
-            'tickets' => Ticket::where('client_id', CurrentClient::id())->latest()->paginate(config('settings.pagination')),
+            'tickets' => Ticket::where('client_id', CurrentClient::id())->whereNull('merged_into_id')->latest()->paginate(config('settings.pagination')),
         ])->layoutData([
             'title' => __('navigation.tickets'),
             'sidebar' => true,

@@ -37,6 +37,14 @@ class Show extends Component
     #[Rule('required', 'string')]
     public string $message;
 
+    /** A merged ticket's page leads to the one it was merged into (same owner: docs/tickets.md §6κ). */
+    public function mount(): void
+    {
+        if ($this->ticket->isMerged()) {
+            $this->redirectRoute('tickets.show', $this->ticket->survivor());
+        }
+    }
+
     public function save()
     {
         $this->authorize('update', $this->ticket);

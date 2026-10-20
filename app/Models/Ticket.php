@@ -177,6 +177,49 @@ class Ticket extends Model implements Auditable
         return $this->belongsTo(Service::class);
     }
 
+    /** @return BelongsTo<Ticket, $this> where staff merged this one (docs/tickets.md §6κ) */
+    public function mergedInto(): BelongsTo
+    {
+        return $this->belongsTo(Ticket::class, 'merged_into_id');
+    }
+
+    public function isMerged(): bool
+    {
+        return $this->merged_into_id !== null;
+    }
+
+    /** Where a merged ticket's mail and links lead now: the end of its chain (itself when not merged). */
+    public function survivor(): Ticket
+    {
+        $ticket = $this;
+        for ($hops = 0; $ticket->merged_into_id !== null && $hops < 20; $hops++) {
+            $next = $ticket->mergedInto;
+            if ($next === null) {
+                break;
+            }
+            $ticket = $next;
+        }
+
+        return $ticket;
+    }
+
+    /**
+     * May this ticket be merged into $target? Not itself, neither merged, and the same owner: the same account, or two
+     * guests' with the same address. Another owner's would show one customer's thread to the other.
+     */
+    public function canMergeInto(Ticket $target): bool
+    {
+        if ($this->id === $target->id || $this->isMerged() || $target->isMerged()) {
+            return false;
+        }
+        if ($this->client_id !== null || $target->client_id !== null) {
+            return $this->client_id === $target->client_id;
+        }
+        $a = mb_strtolower(trim((string) $this->guest_email));
+
+        return $a !== '' && $a === mb_strtolower(trim((string) $target->guest_email));
+    }
+
     /** @return HasMany<TicketMessage, $this> */
     public function messages(): HasMany
     {
