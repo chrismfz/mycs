@@ -10,6 +10,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class TicketCc extends Model
 {
+    /** At most this many a ticket: each is a mail of ours with every staff reply (review of #267). */
+    public const MAX = 20;
+
     protected $fillable = ['ticket_id', 'email', 'added_by'];
 
     protected static function booted(): void

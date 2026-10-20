@@ -10,6 +10,7 @@ use App\Admin\Resources\TicketResource;
 use App\Models\CannedReply;
 use App\Models\Staff;
 use App\Models\Ticket;
+use App\Models\TicketBlockedSender;
 use App\Models\TicketCc;
 use App\Models\TicketDepartment;
 use App\Models\TicketMessage;
@@ -306,9 +307,15 @@ class EditTicket extends EditRecord
                         ->fillForm(fn (Ticket $record) => ['emails' => $record->ccs()->orderBy('id')->pluck('email')->all()])
                         ->action(function (array $data, Ticket $record, Action $action) {
                             $emails = array_values(array_unique(array_map(fn ($email) => TicketCc::normalise((string) $email), $data['emails'] ?? [])));
-                            // Copying an address of ours would have us mail, and thread, ourselves.
-                            if (array_intersect($emails, $this->ourAddresses()) !== []) {
+                            // Copying an address of ours would have us mail, and thread, ourselves: an address as the router
+                            // tells ours (a department's email or IMAP login, plus-tags and case folded).
+                            $ours = $this->ourAddresses();
+                            if (array_filter($emails, fn ($email) => in_array(TicketBlockedSender::base($email), $ours, true)) !== []) {
                                 Notification::make()->title(__('An address of ours cannot be copied.'))->danger()->send();
+                                $action->halt();
+                            }
+                            if (count($emails) > TicketCc::MAX) {
+                                Notification::make()->title(__('At most :count copied addresses.', ['count' => TicketCc::MAX]))->danger()->send();
                                 $action->halt();
                             }
                             $record->ccs()->whereNotIn('email', $emails)->delete();
@@ -367,10 +374,11 @@ class EditTicket extends EditRecord
             ]);
     }
 
-    /** @return list<string> the departments' addresses: copying one would mail ourselves */
+    /** @return list<string> our addresses as InboundRouter tells them (their base): copying one would mail ourselves */
     private function ourAddresses(): array
     {
-        return TicketDepartment::query()->whereNotNull('email')->pluck('email')->map(fn ($email) => TicketCc::normalise((string) $email))->all();
+        return TicketDepartment::query()->get()->flatMap(fn (TicketDepartment $department) => $department->ownAddresses())
+            ->map(fn ($email) => TicketBlockedSender::base((string) $email))->unique()->values()->all();
     }
 
     /** @return array<int, string> the tickets this one may be merged into, newest first, by number or subject */

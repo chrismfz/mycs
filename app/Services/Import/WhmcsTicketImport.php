@@ -5,6 +5,7 @@ namespace App\Services\Import;
 use App\Models\CannedReply;
 use App\Models\CannedReplyCategory;
 use App\Models\Ticket;
+use App\Models\TicketCc;
 use App\Models\TicketDepartment;
 use App\Support\Tickets\CannedReplyExpander;
 use Illuminate\Support\Carbon;
@@ -329,7 +330,7 @@ final class WhmcsTicketImport
         $ours = array_filter(array_map(fn ($email) => mb_strtolower((string) $email), DB::table('ticket_departments')->pluck('email')->all()));
         $skip = array_merge($ours, [mb_strtolower((string) ($owner['guest_email'] ?? ''))]);
         $emails = array_unique(array_filter(array_map(fn ($email) => $this->email($email), preg_split('/[,;\s]+/', $list) ?: [])));
-        foreach (array_slice(array_values(array_diff($emails, $skip)), 0, 20) as $email) {
+        foreach (array_slice(array_values(array_diff($emails, $skip)), 0, TicketCc::MAX) as $email) {
             DB::table('ticket_ccs')->insertOrIgnore(['ticket_id' => $ticketId, 'email' => $email, 'created_at' => now(), 'updated_at' => now()]);
             $this->counts['ccs']++;
         }

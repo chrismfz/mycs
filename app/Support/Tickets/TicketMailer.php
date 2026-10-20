@@ -124,7 +124,10 @@ final class TicketMailer
             return;
         }
         $subject = ($new ? 'New ticket' : 'Reply') . " [#{$ticket->reference}] " . mb_substr((string) $ticket->subject, 0, 150);
-        $who = e($ticket->requesterName()) . ($ticket->isGuest() ? ' (' . e((string) $ticket->guest_email) . ', ' . e(__('guest')) . ')' : '');
+        // Who wrote it: a copied address is named as itself, never as the owner (review of #267).
+        $who = $message->sender_email !== null
+            ? e($message->sender_email) . ' (CC)'
+            : e($ticket->requesterName()) . ($ticket->isGuest() ? ' (' . e((string) $ticket->guest_email) . ', ' . e(__('guest')) . ')' : '');
         $body = '<p><strong>' . $who . '</strong> · ' . e((string) $ticket->department?->name) . '</p>'
             . '<pre style="white-space:pre-wrap">' . e(mb_substr((string) $message->message, 0, 3000)) . '</pre>'
             . '<p><a href="' . e(route('filament.admin.resources.tickets.edit', $ticket)) . '">' . e(__('Open the ticket')) . '</a></p>';
