@@ -52,4 +52,10 @@ return [
     'contact_too_many' => 'Too many messages in a short time. Please try again later.',
     'contact_unavailable' => 'The contact form is not open. Customers can :login and open a ticket.',
     'contact_our_address' => 'This is one of our own addresses: please give yours.',
+    'guest_link_invalid' => 'This link does not open a ticket',
+    'guest_link_expired' => 'It has expired. We can mail a new one to the address the ticket was opened with.',
+    'guest_link_gone' => 'It may have been replaced, or the ticket moved to a customer account: use the link in our latest email, or sign in.',
+    'guest_link_resend' => 'Mail me a new link',
+    'guest_link_resent' => 'If the ticket is still open to its address, a new link is on its way there.',
+    'guest_message_hidden' => 'The message this ticket was opened with is not shown here: we could not verify who sent it.',
 ];

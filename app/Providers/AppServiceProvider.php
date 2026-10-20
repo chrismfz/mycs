@@ -7,6 +7,7 @@ use App\Console\Commands\MailSweep;
 use App\Exceptions\ErrorHandler;
 use App\Helpers\ExtensionHelper;
 use App\Http\Middleware\EnsureClientPermission;
+use App\Http\Middleware\StartSessionWithoutPrivateLinks;
 use App\Mail\Mail;
 use App\Mail\ResentMail;
 use App\Mail\SystemMail;
@@ -39,6 +40,7 @@ use Illuminate\Queue\Events\JobAttempted;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Routing\Events\RouteMatched;
 use Illuminate\Routing\UrlGenerator;
+use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Queue;
@@ -163,6 +165,8 @@ class AppServiceProvider extends ServiceProvider
         $this->app->scoped(CurrentClient::class);
         // VIES (PR G): with the instance's own VAT number as requester, VIES gives the consultation number.
         $this->app->bind(Mailbox::class, ImapEngineMailbox::class);
+        // The session never keeps a private link's URL (docs/tickets.md §3 Δ).
+        $this->app->bind(StartSession::class, StartSessionWithoutPrivateLinks::class);
         $this->app->bind(Vies::class, fn () => new Vies(new CurlTransport, config('settings.eu_vat_requester')));
     }
 

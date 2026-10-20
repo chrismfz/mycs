@@ -47,6 +47,8 @@ final class QuarantineActions
                 'priority' => 'medium',
                 'department_id' => $quarantine->department_id,
                 'opened_via' => 'email',
+                // As our server judged the mail: a guest's link and our mail to it then show nothing it said (§3 Β).
+                'sender_vouched' => $quarantine->authenticated,
                 'client_id' => $clientId,
                 'guest_name' => $clientId === null ? ($email->fromName ?? $email->fromEmail) : null,
                 'guest_email' => $clientId === null ? ($email->fromEmail ?: null) : null,

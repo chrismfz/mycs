@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Observers\TicketObserver;
+use App\Support\Tickets\GuestLinks;
 use App\Support\Tickets\TicketReference;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Builder;
@@ -66,6 +67,12 @@ class Ticket extends Model implements Auditable
             if ($ticket->reference === null) {
                 $ticket->reference = TicketReference::generate();
                 $ticket->referenceDrawn = true;
+            }
+        });
+        // Linked to an account, or its address changed: the guest's links lead nowhere (docs/tickets.md §3 Δ).
+        static::updated(function (Ticket $ticket) {
+            if (($ticket->wasChanged('client_id') && $ticket->client_id !== null) || $ticket->wasChanged('guest_email')) {
+                GuestLinks::revoke($ticket);
             }
         });
     }

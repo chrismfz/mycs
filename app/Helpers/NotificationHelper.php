@@ -76,6 +76,10 @@ class NotificationHelper
         if (in_array($template->key, self::TOKEN_LINK_TEMPLATES, true) && is_string($data['url'] ?? null) && $data['url'] !== '') {
             $secrets['url'] = $data['url'];
         }
+        // A guest's link to their ticket is their key to it (docs/tickets.md §3 Δ): never in the log, never resent.
+        if (is_string($data['ticket_url'] ?? null) && str_contains($data['ticket_url'], '/t/')) {
+            $secrets['ticket_url'] = $data['ticket_url'];
+        }
         if ($secrets === []) {
             return $mail->render();
         }
