@@ -13,7 +13,8 @@ use MyCS\TicketMail\MessageId;
 /**
  * The mail about a ticket (docs/tickets.md §3, A3). Each gets a Message-ID of ours, kept (TicketMailId) before it is
  * queued, so a retry sends the same one and the answer to it joins the ticket. Only the new reply, never the history;
- * only to the ticket's owner (the account's owner, or the guest's address), never to anyone in To or Cc (§3 Γ).
+ * only to the ticket's owner (the account's owner, or the guest's address) and the addresses staff copied on it (§6λ),
+ * never to anyone in a mail's To or Cc (§3 Γ).
  * Headers in TicketReplyEmailListener.
  */
 final class TicketMailer
@@ -21,13 +22,19 @@ final class TicketMailer
     /** Staff are told of a ticket's replies at most once in this many minutes. */
     public const NOTICE_MINUTES = 10;
 
-    /** A staff reply (not a note): to the owner. */
+    /** A staff reply (not a note): to the owner, and to each address staff copied on the ticket. */
     public function reply(TicketMessage $message): void
     {
         $ticket = $message->ticket;
         if ($message->is_internal || !$message->isFromStaff() || $ticket === null) {
             return;
         }
+        $this->owner($ticket, $message);
+        $this->copies($ticket, $message);
+    }
+
+    private function owner(Ticket $ticket, TicketMessage $message): void
+    {
         if ($ticket->isGuest()) {
             if (blank($ticket->guest_email)) {
                 return;
@@ -47,6 +54,26 @@ final class TicketMailer
         if ($ticket->client !== null) {
             $id = $this->newId($ticket, $message, TicketMailId::REPLY, $ticket->client->owner()?->email);
             NotificationHelper::ticketMessageNotification($ticket->client, $message, ['thread_message_id' => $id]);
+        }
+    }
+
+    /**
+     * Each copied address its own mail, with a Message-ID of its own (its answer joins the ticket as its): the new reply,
+     * never a link to the ticket (a guest's link is the guest's), never to the owner's own address twice.
+     */
+    private function copies(Ticket $ticket, TicketMessage $message): void
+    {
+        $owner = mb_strtolower(trim((string) ($ticket->isGuest() ? $ticket->guest_email : $ticket->client?->owner()?->email)));
+        foreach ($ticket->ccs()->orderBy('id')->pluck('email') as $email) {
+            if ($email === $owner) {
+                continue;
+            }
+            $id = $this->newId($ticket, $message, TicketMailId::REPLY, $email);
+            $data = ['ticketMessage' => $message];
+            if ($ticket->sender_vouched === false) {
+                $data['ticket'] = ['reference' => $ticket->reference, 'subject' => __('Your message'), 'guest_name' => __('customer')];
+            }
+            NotificationHelper::guestTicketNotification($ticket, 'ticket_cc_message', $data, $id, $email);
         }
     }
 
@@ -97,7 +124,10 @@ final class TicketMailer
             return;
         }
         $subject = ($new ? 'New ticket' : 'Reply') . " [#{$ticket->reference}] " . mb_substr((string) $ticket->subject, 0, 150);
-        $who = e($ticket->requesterName()) . ($ticket->isGuest() ? ' (' . e((string) $ticket->guest_email) . ', ' . e(__('guest')) . ')' : '');
+        // Who wrote it: a copied address is named as itself, never as the owner (review of #267).
+        $who = $message->sender_email !== null
+            ? e($message->sender_email) . ' (CC)'
+            : e($ticket->requesterName()) . ($ticket->isGuest() ? ' (' . e((string) $ticket->guest_email) . ', ' . e(__('guest')) . ')' : '');
         $body = '<p><strong>' . $who . '</strong> · ' . e((string) $ticket->department?->name) . '</p>'
             . '<pre style="white-space:pre-wrap">' . e(mb_substr((string) $message->message, 0, 3000)) . '</pre>'
             . '<p><a href="' . e(route('filament.admin.resources.tickets.edit', $ticket)) . '">' . e(__('Open the ticket')) . '</a></p>';

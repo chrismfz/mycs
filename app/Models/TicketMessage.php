@@ -27,6 +27,7 @@ class TicketMessage extends Model implements Auditable
         'email_message_id',
         'via',
         'is_internal',
+        'sender_email',
         'body_original',
     ];
 
@@ -89,6 +90,14 @@ class TicketMessage extends Model implements Auditable
         $author = $this->isFromStaff() ? $this->staff : $this->user;
 
         return $author;
+    }
+
+    /** Who wrote it, as a name to show: the login or staff, else the address it came from (a CC, §6λ), else none. */
+    public function authorName(): ?string
+    {
+        $author = $this->author();
+
+        return $author !== null ? $author->name : $this->sender_email;
     }
 
     /** @return HasMany<TicketMessageAttachment, $this> */

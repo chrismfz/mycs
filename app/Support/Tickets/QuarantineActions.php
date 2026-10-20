@@ -5,6 +5,7 @@ namespace App\Support\Tickets;
 use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\TicketBlockedSender;
+use App\Models\TicketCc;
 use App\Models\TicketMessage;
 use App\Models\TicketQuarantine;
 use App\Models\User;
@@ -27,10 +28,12 @@ final class QuarantineActions
         return $this->handle($quarantine, $staff, function (TicketQuarantine $quarantine, InboundEmail $email) use ($ticket) {
             $author = $this->router->owner($ticket, $email->fromEmail);
             $text = ReplyText::clean($email->body);
-            if ($author === false) {
+            // Not the owner's: kept as its address (shown as its author, §6λ), a stranger's also said in the text.
+            $sender = $author === false ? TicketCc::normalise((string) $email->fromEmail) : null;
+            if ($author === false && !$ticket->ccs()->where('email', $sender)->exists()) {
                 $text = '(' . __('From') . ' ' . $email->fromEmail . ")\n\n" . $text;
             }
-            $message = $ticket->messages()->create($this->messageData($quarantine, $email, $author ?: null, $text));
+            $message = $ticket->messages()->create(['sender_email' => $sender ?: null] + $this->messageData($quarantine, $email, $author ?: null, $text));
             TicketFiles::storeInbound($message, $email->attachments);
 
             return [TicketQuarantine::ATTACHED, $ticket, $message];

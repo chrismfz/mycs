@@ -37,6 +37,10 @@
                                             href="{{ App\Admin\Resources\UserResource::getUrl('edit', ['record' => $message->user]) }}">
                                             {{ $message->user->name }}
                                         </a>
+                                        @elseif ($message->sender_email)
+                                            {{-- An address staff copied on the ticket (docs/tickets.md §6λ). --}}
+                                            <span class="text-lg font-semibold">{{ $message->sender_email }}</span>
+                                            <x-filament::badge color="gray" size="sm">CC</x-filament::badge>
                                         @elseif ($this->record->isGuest())
                                             {{-- A guest's, by the form, a mail or their link: no login to name (docs/tickets.md §3 Δ). --}}
                                             <span class="text-lg font-semibold">{{ $this->record->guest_name }}</span>

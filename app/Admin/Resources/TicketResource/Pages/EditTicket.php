@@ -10,6 +10,9 @@ use App\Admin\Resources\TicketResource;
 use App\Models\CannedReply;
 use App\Models\Staff;
 use App\Models\Ticket;
+use App\Models\TicketBlockedSender;
+use App\Models\TicketCc;
+use App\Models\TicketDepartment;
 use App\Models\TicketMessage;
 use App\Support\Tickets\CannedReplyExpander;
 use App\Support\Tickets\GuestLinks;
@@ -18,6 +21,7 @@ use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\MarkdownEditor;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TagsInput;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
@@ -220,6 +224,13 @@ class EditTicket extends EditRecord
                     ->placeholder('No assigned user')
                     ->formatStateUsing(fn ($record) => $record->assignedTo->name),
 
+                TextEntry::make('ccs')
+                    ->size(TextSize::Large)
+                    ->label('CC')
+                    ->state(fn (Ticket $record) => $record->ccs()->orderBy('id')->pluck('email')->all())
+                    ->listWithLineBreaks()
+                    ->placeholder('No one copied'),
+
                 TextEntry::make('service_id')
                     ->size(TextSize::Large)
                     ->label('Service')
@@ -281,6 +292,38 @@ class EditTicket extends EditRecord
                         // A merged ticket stays closed: reopened, it would wait on a reply it cannot take (review of #266).
                         ->hidden(!auth()->user()->can('update', $this->record) || ($this->record instanceof Ticket && $this->record->isMerged()))
                         ->icon('heroicon-o-pencil'),
+                    // Addresses that get staff's replies and whose replies join the ticket (docs/tickets.md §6λ).
+                    Action::make('cc')
+                        ->label('CC')
+                        ->icon('heroicon-o-users')
+                        ->color('gray')
+                        ->schema([
+                            TagsInput::make('emails')
+                                ->label('Copied addresses')
+                                ->placeholder('name@example.com')
+                                ->nestedRecursiveRules(['email:rfc', 'max:255'])
+                                ->helperText('They get staff\'s replies (not notes), each its own mail without a link to the ticket; their replies join it.'),
+                        ])
+                        ->fillForm(fn (Ticket $record) => ['emails' => $record->ccs()->orderBy('id')->pluck('email')->all()])
+                        ->action(function (array $data, Ticket $record, Action $action) {
+                            $emails = array_values(array_unique(array_map(fn ($email) => TicketCc::normalise((string) $email), $data['emails'] ?? [])));
+                            // Copying an address of ours would have us mail, and thread, ourselves: an address as the router
+                            // tells ours (a department's email or IMAP login, plus-tags and case folded).
+                            $ours = $this->ourAddresses();
+                            if (array_filter($emails, fn ($email) => in_array(TicketBlockedSender::base($email), $ours, true)) !== []) {
+                                Notification::make()->title(__('An address of ours cannot be copied.'))->danger()->send();
+                                $action->halt();
+                            }
+                            if (count($emails) > TicketCc::MAX) {
+                                Notification::make()->title(__('At most :count copied addresses.', ['count' => TicketCc::MAX]))->danger()->send();
+                                $action->halt();
+                            }
+                            $record->ccs()->whereNotIn('email', $emails)->delete();
+                            foreach ($emails as $email) {
+                                $record->ccs()->firstOrCreate(['email' => $email], ['added_by' => Auth::guard('staff')->id()]);
+                            }
+                        })
+                        ->hidden(!auth()->user()->can('update', $this->record) || ($this->record instanceof Ticket && $this->record->isMerged())),
                     // A duplicate into another ticket of the same owner (docs/tickets.md §6κ).
                     Action::make('merge')
                         ->label('Merge into…')
@@ -329,6 +372,13 @@ class EditTicket extends EditRecord
                     ]),
                 ])->key('ticketActions')->columnSpan(['default' => 'full', 'md' => 1]),
             ]);
+    }
+
+    /** @return list<string> our addresses as InboundRouter tells them (their base): copying one would mail ourselves */
+    private function ourAddresses(): array
+    {
+        return TicketDepartment::query()->get()->flatMap(fn (TicketDepartment $department) => $department->ownAddresses())
+            ->map(fn ($email) => TicketBlockedSender::base((string) $email))->unique()->values()->all();
     }
 
     /** @return array<int, string> the tickets this one may be merged into, newest first, by number or subject */

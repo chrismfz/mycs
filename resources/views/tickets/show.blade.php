@@ -13,7 +13,7 @@
                             <div class="flex items-center gap-3">
                                 <img src="{{ $message->author()?->avatar }}" class="size-8 rounded-full border border-neutral bg-background" alt="{{ $message->author()?->name }} avatar" />
                                 <div class="flex flex-col">
-                                    <h2 class="text-lg font-semibold">{{ $message->author()?->name }}</h2>
+                                    <h2 class="text-lg font-semibold">{{ $message->authorName() }}</h2>
                                     <p class="text-sm text-gray-500">{{ $message->created_at->diffForHumans() }}</p>
                                 </div>
                             </div>

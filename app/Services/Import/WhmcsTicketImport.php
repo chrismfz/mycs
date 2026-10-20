@@ -5,6 +5,7 @@ namespace App\Services\Import;
 use App\Models\CannedReply;
 use App\Models\CannedReplyCategory;
 use App\Models\Ticket;
+use App\Models\TicketCc;
 use App\Models\TicketDepartment;
 use App\Support\Tickets\CannedReplyExpander;
 use Illuminate\Support\Carbon;
@@ -29,6 +30,7 @@ use Throwable;
  * merged into it (to the end of a chain), internal when another requester wrote them. Files from a copy of WHMCS's
  * attachments folder under §3 ΣΤ, every one counted. No event fires (no mail, no status moved, no notice). One ticket that
  * fails is counted and skipped; the others go on. --dry-run: the same numbers, nothing kept.
+ * WHMCS's CC of a ticket as staff's copied addresses, when the ticket is first brought (§6λ).
  * Predefined replies and their categories (§6ι): brought once and followed while not edited here; WHMCS's merge fields
  * ([NAME], …) as our tokens; one deleted here stays deleted.
  */
@@ -53,7 +55,7 @@ final class WhmcsTicketImport
 
     /** @var array<string, mixed> */
     private array $counts = ['departments' => 0, 'tickets' => 0, 'unchanged' => 0, 'guests' => 0, 'no_account' => 0, 'messages' => 0, 'notes' => 0,
-        'merged' => 0, 'canned_replies' => 0, 'files' => 0, 'files_missing' => 0, 'files_refused' => 0, 'files_removed' => 0, 'truncated' => 0, 'reference_taken' => 0,
+        'merged' => 0, 'canned_replies' => 0, 'ccs' => 0, 'files' => 0, 'files_missing' => 0, 'files_refused' => 0, 'files_removed' => 0, 'truncated' => 0, 'reference_taken' => 0,
         'deleted_here' => 0, 'failed' => 0, 'errors' => [], 'other_status' => []];
 
     /** @var array<int, int> WHMCS department id => ours */
@@ -277,6 +279,7 @@ final class WhmcsTicketImport
                 $attributes['id'] = $whmcsId;
             }
             $ticketId = (int) DB::table('tickets')->insertGetId($attributes);
+            $this->copies($ticketId, (string) ($row['cc'] ?? ''), $owner);
             $clientId = $owner['client_id'];
             if ($clientId === null) {
                 $this->counts[(int) $row['userid'] > 0 ? 'no_account' : 'guests']++;
@@ -313,6 +316,23 @@ final class WhmcsTicketImport
         usort($items, fn (array $a, array $b) => [$this->date($a['date'])?->getTimestamp() ?? 0, $a['order']] <=> [$this->date($b['date'])?->getTimestamp() ?? 0, $b['order']]);
         foreach ($items as $item) {
             $this->message($ticketId, $clientId, $item);
+        }
+    }
+
+    /**
+     * WHMCS's CC of a ticket (comma separated), when it is first brought: staff's copied addresses here (§6λ), so a
+     * re-run never brings back one removed here. Valid addresses only, never the owner's or one of our departments'.
+     *
+     * @param  array<string, mixed>  $owner
+     */
+    private function copies(int $ticketId, string $list, array $owner): void
+    {
+        $ours = array_filter(array_map(fn ($email) => mb_strtolower((string) $email), DB::table('ticket_departments')->pluck('email')->all()));
+        $skip = array_merge($ours, [mb_strtolower((string) ($owner['guest_email'] ?? ''))]);
+        $emails = array_unique(array_filter(array_map(fn ($email) => $this->email($email), preg_split('/[,;\s]+/', $list) ?: [])));
+        foreach (array_slice(array_values(array_diff($emails, $skip)), 0, TicketCc::MAX) as $email) {
+            DB::table('ticket_ccs')->insertOrIgnore(['ticket_id' => $ticketId, 'email' => $email, 'created_at' => now(), 'updated_at' => now()]);
+            $this->counts['ccs']++;
         }
     }
 

@@ -62,6 +62,7 @@ class NotificationTemplateTextsTest extends TestCase
             'guest_ticket_message' => ['ticket' => $ticket, 'ticketMessage' => $ticket->messages()->create(['message' => 'Reply']), 'ticket_url' => 'https://mycs.test/t/' . str_repeat('a', 43)],
             'ticket_received' => ['ticket' => $ticket, 'ticket_url' => 'https://mycs.test/t/' . str_repeat('a', 43)],
             'ticket_link' => ['ticket' => $ticket, 'ticket_url' => 'https://mycs.test/t/' . str_repeat('a', 43)],
+            'ticket_cc_message' => ['ticket' => $ticket, 'ticketMessage' => $ticket->messages()->create(['message' => 'Reply'])],
             'email_verification', 'password_reset' => ['url' => 'https://example.test/link'],
             'client_invite' => ['account' => ['name' => 'Acme'], 'invite' => ['url' => 'https://example.test/invite/x', 'by' => 'Maria', 'expires_at' => now()->addWeek()]],
             // D7-1: the domain expiry notices, as DomainReminders sends them.
