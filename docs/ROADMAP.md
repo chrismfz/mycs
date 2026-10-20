@@ -80,8 +80,12 @@ registrars), **P5** (child nameservers/glue από τον πελάτη· για 
 - [ ] Driver CNIC (αν χρειαστεί).
 
 ### Support (`tickets.md`)
-- [ ] Port των tickets (σχέδιο στο `tickets.md`, #224, προς έγκριση)· επαφή χωρίς login και tickets από email (το
-      FetchEmails μένει κλειστό: ευάλωτο)· knowledgebase.
+- [ ] Port των tickets (σχέδιο και μοντέλο ασφάλειας στο `tickets.md`, #224 και #234, **αποφάσεις owner 2026-10-20**):
+      PRs Α1 (τμήματα ως πίνακας, 5 καταστάσεις, tickets επισκέπτη, αριθμός με μάσκα), Α2 (εισερχόμενα από το Ekdosi,
+      σκληρυμένα, καραντίνα), Α3 (εξερχόμενα με τυχαίο Message-ID, ειδοποιήσεις staff), Β (φόρμα επικοινωνίας με
+      ALTCHA), Γ (σελίδα επισκέπτη με υπογεγραμμένο link), Δ (νέος importer tickets: επισκέπτες ως επισκέπτες, `tid`,
+      σημειώσεις, συνημμένα). Το FetchEmails μένει κλειστό ώσπου να μπουν τα Α: είναι ευάλωτο. Knowledgebase όχι
+      (είναι στα sites των εταιρειών).
 
 ### Ασφάλεια και ποιότητα
 - [ ] Rate limit στο `zlic.php`· endpoint υγείας.
