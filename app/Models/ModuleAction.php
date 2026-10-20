@@ -60,6 +60,12 @@ class ModuleAction extends Model
 
     public const DOMAIN_ACTIONS = [self::DOMAIN_RENEW, self::DOMAIN_REGISTER, self::DOMAIN_TRANSFER];
 
+    /**
+     * A contact's details sent to the registrar of a domain that uses it (P1b-2): retried by sending them again; resolved
+     * by hand when fixed at the registrar. Not a DOMAIN_ACTION: nothing paid, nothing put on hold.
+     */
+    public const DOMAIN_CONTACT = 'domain_contact';
+
     protected $guarded = [];
 
     protected function casts(): array

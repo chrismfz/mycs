@@ -3,7 +3,7 @@
 <div class="grid md:grid-cols-2 gap-3">
     @if ($locked)
     {{-- A domain uses it (P1b): who it is stays as its registrars hold it --}}
-    <p class="md:col-span-2 text-sm text-base/70">{{ __('domains.contact_identity_locked') }}</p>
+    <p class="md:col-span-2 text-sm text-base/70">{{ __('domains.contact_identity_locked') }} {{ __('domains.contact_details_sent') }}</p>
     @endif
     <x-form.select name="{{ $prefix }}.type" :label="__('account.contact_type.label')" wire:model.live="{{ $prefix }}.type" :disabled="$locked">
         <option value="individual">{{ __('account.contact_type.individual') }}</option>

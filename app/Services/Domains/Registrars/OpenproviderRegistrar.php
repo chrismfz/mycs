@@ -5,6 +5,7 @@ namespace App\Services\Domains\Registrars;
 use App\Contracts\DomainRegistrar;
 use App\Contracts\ManagesDnssec;
 use App\Contracts\ReadsAccountBalance;
+use App\Contracts\UpdatesContacts;
 use App\Enums\DomainStatus;
 use App\Models\Domain;
 use App\Services\Domains\DnssecChangedSinceRead;
@@ -47,7 +48,7 @@ use Throwable;
  * variant is legacy XML-RPC) → bearer, ~24h TTL. We cache it for 6h keyed by
  * (endpoint × username) and re-login ONCE on a 401 mid-flight.
  */
-class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAccountBalance
+class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAccountBalance, UpdatesContacts
 {
     private const PRODUCTION_URL = 'https://api.openprovider.eu';
 
@@ -513,49 +514,13 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
                 continue;
             }
 
-            // Best-effort split of «Οδός 12» into the street and number OP requires; OP's own validation errors (400 +
-            // desc) surface verbatim.
-            $street = trim((string) $contact->address1);
-            $number = '';
-            if (preg_match('/^(.*?)\s+(\S*\d\S*)$/u', $street, $m) === 1) {
-                [, $street, $number] = $m;
-            } elseif (preg_match('/^(\d\S*)\s+(.+)$/u', $street, $m) === 1) {
-                [, $number, $street] = $m; // «12 Main St»
-            }
-            // Registrant phone is WHOIS data: digits only (and a leading +), split on real ITU country-code lengths; a
-            // local number under its contact's country's code (code review 6 of #205), +30 when not known.
-            $phonePayload = null;
-            if (($parts = Phone::split($contact->phone, $contact->country)) !== null) {
-                [$cc, $subscriber] = $parts;
-                // OP rejects an empty area_code («Invalid telephone region code», live finding) and only re-joins the
-                // parts: a head of up to 3 digits, never all of them.
-                $len = strlen($subscriber);
-                $area = substr($subscriber, 0, $len > 6 ? 3 : max(1, min(2, $len - 1)));
-                $phonePayload = [
-                    'country_code' => $cc,
-                    'area_code' => $area,
-                    'subscriber_number' => substr($subscriber, strlen($area)),
-                ];
-            }
-
             $payload = array_filter([
                 'name' => [
                     'first_name' => (string) $contact->first_name,
                     'last_name' => (string) ($contact->last_name ?: $contact->first_name),
                 ],
                 'company_name' => trim((string) $contact->company_name) !== '' ? trim((string) $contact->company_name) : null,
-                'email' => $contact->email,
-                'phone' => $phonePayload,
-                'address' => array_filter([
-                    'street' => $street,
-                    'number' => $number,
-                    'suffix' => trim((string) $contact->address2) !== '' ? trim((string) $contact->address2) : null,
-                    'zipcode' => (string) $contact->postcode,
-                    'city' => (string) $contact->city,
-                    'state' => trim((string) $contact->state) !== '' ? trim((string) $contact->state) : null,
-                    'country' => strtoupper((string) $contact->country),
-                ], fn ($v) => $v !== null),
-            ], fn ($v) => $v !== null);
+            ], fn ($v) => $v !== null) + self::customerDetails($contact);
 
             $handle = $this->request($credentials, 'POST', '/v1/customers', $payload)->json('data.handle');
             if (!is_string($handle) || $handle === '') {
@@ -567,6 +532,59 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
         }
 
         return $handles;
+    }
+
+    /**
+     * A customer's details as OP takes them (its email, phone, address), for one made and for one updated (P1b-2).
+     *
+     * @return array<string, mixed>
+     */
+    private static function customerDetails(Contact $contact): array
+    {
+        // Best-effort split of «Οδός 12» into the street and number OP requires; OP's own validation errors (400 +
+        // desc) surface verbatim.
+        $street = trim((string) $contact->address1);
+        $number = '';
+        if (preg_match('/^(.*?)\s+(\S*\d\S*)$/u', $street, $m) === 1) {
+            [, $street, $number] = $m;
+        } elseif (preg_match('/^(\d\S*)\s+(.+)$/u', $street, $m) === 1) {
+            [, $number, $street] = $m; // «12 Main St»
+        }
+        // Registrant phone is WHOIS data: digits only (and a leading +), split on real ITU country-code lengths; a
+        // local number under its contact's country's code (code review 6 of #205), +30 when not known.
+        $phonePayload = null;
+        if (($parts = Phone::split($contact->phone, $contact->country)) !== null) {
+            [$cc, $subscriber] = $parts;
+            // OP rejects an empty area_code («Invalid telephone region code», live finding) and only re-joins the
+            // parts: a head of up to 3 digits, never all of them.
+            $len = strlen($subscriber);
+            $area = substr($subscriber, 0, $len > 6 ? 3 : max(1, min(2, $len - 1)));
+            $phonePayload = [
+                'country_code' => $cc,
+                'area_code' => $area,
+                'subscriber_number' => substr($subscriber, strlen($area)),
+            ];
+        }
+
+        return array_filter([
+            'email' => $contact->email,
+            'phone' => $phonePayload,
+            'address' => array_filter([
+                'street' => $street,
+                'number' => $number,
+                'suffix' => trim((string) $contact->address2) !== '' ? trim((string) $contact->address2) : null,
+                'zipcode' => (string) $contact->postcode,
+                'city' => (string) $contact->city,
+                'state' => trim((string) $contact->state) !== '' ? trim((string) $contact->state) : null,
+                'country' => strtoupper((string) $contact->country),
+            ], fn ($v) => $v !== null),
+        ], fn ($v) => $v !== null);
+    }
+
+    /** P1b-2: the customer's email, phone and address as the contact's (its name never: OP keeps a handle's owner). */
+    public function updateContact(string $handle, Contact $contact, DomainRegistrarCredentials $credentials): void
+    {
+        $this->request($credentials, 'PUT', '/v1/customers/' . rawurlencode($handle), self::customerDetails($contact));
     }
 
     /** The customer this domain made at OP for a contact, if any (`meta.contact_handles`, contact id => handle). */

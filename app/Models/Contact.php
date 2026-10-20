@@ -6,6 +6,7 @@ use App\Enums\DomainStatus;
 use App\Events\Service\RenewalTaxChanged;
 use App\Exceptions\DisplayException;
 use App\Jobs\CheckVatNumber;
+use App\Services\Domains\ContactPush;
 use App\Services\Tax\EuVat;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -121,6 +122,12 @@ class Contact extends Model implements Auditable
         });
         // The account's country is its primary contact's (PR 3a): a new country, or another contact made primary,
         // changes what its subscriptions bill (Δ1).
+        // Its address, phone or email changed: sent to the registrars of the domains that use it (P1b-2), once committed.
+        static::updated(function (self $contact) {
+            if ($contact->wasChanged(ContactPush::DETAILS)) {
+                ContactPush::dispatch($contact);
+            }
+        });
         static::updated(function (self $contact) {
             if ($contact->wasChanged('primary_of_client_id') || ($contact->isPrimary() && $contact->wasChanged(['country', 'vat_number', 'vat_status']))) {
                 RenewalTaxChanged::forSubscribed(Service::query()->where('client_id', $contact->client_id));

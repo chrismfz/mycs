@@ -10,6 +10,7 @@ use App\Contracts\ManagesDnssec;
 use App\Contracts\ReadsAccountBalance;
 use App\Contracts\RecallsRegistration;
 use App\Contracts\StaffPricedNames;
+use App\Contracts\UpdatesContacts;
 use App\Enums\DomainStatus;
 use App\Models\Contact;
 use App\Models\Domain;
@@ -43,6 +44,7 @@ use MyCS\GrEpp\Command\ContactCheck;
 use MyCS\GrEpp\Command\ContactCreate;
 use MyCS\GrEpp\Command\ContactDelete;
 use MyCS\GrEpp\Command\ContactInfo;
+use MyCS\GrEpp\Command\ContactUpdate;
 use MyCS\GrEpp\Command\DacorIssueToken;
 use MyCS\GrEpp\Command\DomainCheck;
 use MyCS\GrEpp\Command\DomainCreate;
@@ -60,6 +62,7 @@ use MyCS\GrEpp\Command\HostUpdate;
 use MyCS\GrEpp\Command\OwnerChange;
 use MyCS\GrEpp\Command\Rules;
 use MyCS\GrEpp\Config;
+use MyCS\GrEpp\Data\ContactChanges;
 use MyCS\GrEpp\Data\ContactDraft;
 use MyCS\GrEpp\Data\DomainInfo as Info;
 use MyCS\GrEpp\Data\DsRecord;
@@ -86,7 +89,7 @@ use Throwable;
  * One session per account and process, kept for the process (a worker reuses it; the registry ends one idle for 15
  * minutes and Session logs in again); commands one at a time per account, across processes (a cache lock).
  */
-class GrEppRegistrar implements ChangesOwner, DomainRegistrar, EmailsAuthCode, ManagesChildHosts, ManagesDnssec, ReadsAccountBalance, RecallsRegistration, StaffPricedNames
+class GrEppRegistrar implements ChangesOwner, DomainRegistrar, EmailsAuthCode, ManagesChildHosts, ManagesDnssec, ReadsAccountBalance, RecallsRegistration, StaffPricedNames, UpdatesContacts
 {
     /** The registry's grace after expiry (pendingDelete: renewable only, D-8; its FAQ). */
     public const GRACE_DAYS = 15;
@@ -315,6 +318,27 @@ class GrEppRegistrar implements ChangesOwner, DomainRegistrar, EmailsAuthCode, M
         }
 
         return [DomainStatus::Active, null];
+    }
+
+    /**
+     * P1b-2: one of our contacts' address, phone and email as the contact's (contact:update; its name and company never,
+     * the registry keeps them). Its Greek postal info, as made (draft()).
+     */
+    public function updateContact(string $handle, Contact $contact, DomainRegistrarCredentials $credentials): void
+    {
+        $voice = Phone::epp($contact->phone, $contact->country) ?? throw new InvalidArgumentException("The contact {$handle} has no phone: the registry needs one.");
+        $changes = new ContactChanges(
+            localAddress: ['street' => array_values(array_filter([trim((string) $contact->address1), trim((string) $contact->address2)])),
+                'city' => (string) $contact->city, 'province' => trim((string) $contact->state) ?: (string) $contact->city,
+                'postcode' => (string) $contact->postcode, 'country' => (string) $contact->country],
+            voice: $voice,
+            email: (string) $contact->email,
+        );
+        try {
+            $this->command($credentials, fn (string $clTRID) => ContactUpdate::request($handle, $changes, $clTRID), ContactUpdate::parse(...));
+        } catch (Refused $e) {
+            throw new RuntimeException("The registry refused to update the contact {$handle}: {$e->getMessage()}");
+        }
     }
 
     /** One of our contacts (contact:info); null for one the registry does not have, or another registrar's. */
