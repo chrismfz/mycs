@@ -117,6 +117,10 @@ class Guest extends Component
             return $staff instanceof Staff ? (string) $staff->name : (string) config('app.name');
         }
 
+        if ($message->sender_email !== null) {
+            return $message->sender_email; // an address staff copied on it (§6λ)
+        }
+
         return $ticket->sender_vouched === false ? __('You') : (string) $ticket->guest_name;
     }
 }

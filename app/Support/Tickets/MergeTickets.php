@@ -4,6 +4,7 @@ namespace App\Support\Tickets;
 
 use App\Models\Staff;
 use App\Models\Ticket;
+use App\Models\TicketCc;
 use App\Models\TicketGuestLink;
 use App\Models\TicketMailId;
 use App\Models\TicketMessage;
@@ -39,6 +40,11 @@ final class MergeTickets
             TicketMessage::query()->where('ticket_id', $source->id)->update(['ticket_id' => $target->id]);
             TicketMailId::query()->where('ticket_id', $source->id)->update(['ticket_id' => $target->id]);
             TicketGuestLink::query()->where('ticket_id', $source->id)->update(['ticket_id' => $target->id]);
+            // Its copied addresses, once each (§6λ).
+            foreach (TicketCc::query()->where('ticket_id', $source->id)->get() as $cc) {
+                TicketCc::query()->firstOrCreate(['ticket_id' => $target->id, 'email' => $cc->email], ['added_by' => $cc->added_by]);
+                $cc->delete();
+            }
 
             if (in_array($source->status, self::WAITING, true) && !in_array($target->status, self::WAITING, true)) {
                 $answered = $target->messages()->whereNotNull('staff_id')->where('is_internal', false)->exists();

@@ -478,8 +478,10 @@ class NotificationHelper
             return;
         }
         $locale = self::localeFor($ticket->client);
-        // A guest's name only when our server vouched for the address: a typed-in one may be anyone's (review of #251).
-        $recipient = new User(['email' => $to, 'first_name' => $ticket->sender_vouched === false ? null : $ticket->guest_name]);
+        // A guest's name only when our server vouched for the address: a typed-in one may be anyone's (review of #251);
+        // and only on the guest's own address, never a copied one's (§6λ).
+        $theGuest = strcasecmp((string) $to, (string) $ticket->guest_email) === 0;
+        $recipient = new User(['email' => $to, 'first_name' => $ticket->sender_vouched === false || !$theGuest ? null : $ticket->guest_name]);
         self::withLocale($locale, function () use ($template, $locale, $ticket, $data, $recipient, $threadMessageId) {
             $previous = self::$account;
             self::$account = $ticket->client;

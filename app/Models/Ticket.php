@@ -177,6 +177,12 @@ class Ticket extends Model implements Auditable
         return $this->belongsTo(Service::class);
     }
 
+    /** @return HasMany<TicketCc, $this> the addresses staff copied on it (docs/tickets.md §6λ) */
+    public function ccs(): HasMany
+    {
+        return $this->hasMany(TicketCc::class);
+    }
+
     /** @return BelongsTo<Ticket, $this> where staff merged this one (docs/tickets.md §6κ) */
     public function mergedInto(): BelongsTo
     {

@@ -453,6 +453,23 @@ class EmailTemplateSeeder extends Seeder
             'in_app_enabled' => 'never',
             'edit_preference_message' => '',
         ],
+        'ticket_cc_message' => [
+            'subject' => '[Ticket #{{ ticket.reference }}] {{ ticket.subject }}',
+            'body' => <<<'HTML'
+                # A reply on a ticket you are copied on
+
+                {{ author_name }} replied on ticket **#{{ ticket.reference }}**, on which you are in copy:
+
+                {{ message_html }}
+
+                To answer, reply to this email: your reply joins the ticket.
+                HTML,
+            'in_app_title' => 'A reply on ticket #{{ ticket.reference }}',
+            'in_app_body' => 'A reply on ticket #{{ ticket.reference }}.',
+            'mail_enabled' => 'force',
+            'in_app_enabled' => 'never',
+            'edit_preference_message' => '',
+        ],
         'email_verification' => [
             'subject' => 'Welcome to {{ app.name }}: please verify your email',
             'body' => <<<'HTML'
@@ -1347,6 +1364,22 @@ class EmailTemplateSeeder extends Seeder
                     HTML,
                 'in_app_title' => 'Νέος σύνδεσμος για το αίτημα #{{ ticket.reference }}',
                 'in_app_body' => 'Νέος σύνδεσμος για το αίτημα #{{ ticket.reference }}.',
+            ],
+        ],
+        'ticket_cc_message' => [
+            'el' => [
+                'subject' => '[Ticket #{{ ticket.reference }}] {{ ticket.subject }}',
+                'body' => <<<'HTML'
+                    # Απάντηση σε αίτημα όπου είστε σε κοινοποίηση
+
+                    {{ author_name }} απάντησε στο αίτημα **#{{ ticket.reference }}**, όπου είστε σε κοινοποίηση:
+
+                    {{ message_html }}
+
+                    Για να απαντήσετε, απαντήστε σε αυτό το email: η απάντησή σας μπαίνει στο αίτημα.
+                    HTML,
+                'in_app_title' => 'Απάντηση στο αίτημα #{{ ticket.reference }}',
+                'in_app_body' => 'Απάντηση στο αίτημα #{{ ticket.reference }}.',
             ],
         ],
         'email_verification' => [

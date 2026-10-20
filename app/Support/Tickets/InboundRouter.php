@@ -5,6 +5,7 @@ namespace App\Support\Tickets;
 use App\Models\ClientUser;
 use App\Models\Ticket;
 use App\Models\TicketBlockedSender;
+use App\Models\TicketCc;
 use App\Models\TicketDepartment;
 use App\Models\TicketMailId;
 use App\Models\TicketMessage;
@@ -81,6 +82,11 @@ class InboundRouter
         $threaded = $this->threadedTicket($email);
         if ($threaded !== null) {
             $author = $this->owner($threaded, $from);
+            // An address staff copied on the ticket answers as itself (§6λ); a mail's own To or Cc never adds one (§3 Γ).
+            $copied = $author === false && $threaded->ccs()->where('email', TicketCc::normalise($from))->exists();
+            if ($copied) {
+                $author = null;
+            }
             if ($author === false) {
                 return $this->quarantine($department, $email, $raw, 'not_owner', $messageId, $verdict, $threaded);
             }
@@ -95,7 +101,7 @@ class InboundRouter
             }
             RateLimiter::hit($replies, 3600);
 
-            return $this->reply($threaded, $email, $messageId, $author);
+            return $this->reply($threaded, $email, $messageId, $author, $copied ? TicketCc::normalise($from) : null);
         }
 
         // 4. Names a ticket, but is no reply to a mail of ours (an old WHMCS one): staff decide.
@@ -180,10 +186,10 @@ class InboundRouter
         return $grants->count() === 1 ? ['client_id' => (int) $grants->first()->client_id, 'user' => $user] : null;
     }
 
-    private function reply(Ticket $ticket, InboundEmail $email, string $messageId, ?User $author): InboundOutcome
+    private function reply(Ticket $ticket, InboundEmail $email, string $messageId, ?User $author, ?string $copied = null): InboundOutcome
     {
-        return $this->unique(fn () => TicketFiles::transaction(function () use ($ticket, $email, $messageId, $author) {
-            $message = $ticket->messages()->create($this->messageData($email, $messageId, $author, ReplyText::clean($email->body)));
+        return $this->unique(fn () => TicketFiles::transaction(function () use ($ticket, $email, $messageId, $author, $copied) {
+            $message = $ticket->messages()->create(['sender_email' => $copied] + $this->messageData($email, $messageId, $author, ReplyText::clean($email->body)));
             TicketFiles::storeInbound($message, $email->attachments);
 
             return new InboundOutcome(InboundOutcome::THREADED, $ticket);
