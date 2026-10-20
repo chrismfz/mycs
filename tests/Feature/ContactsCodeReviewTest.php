@@ -4,15 +4,15 @@ namespace Tests\Feature;
 
 use App\Admin\Components\ClientComponent;
 use App\Admin\Resources\ClientResource\Pages\EditClient;
-use App\Console\Commands\ImportFromWhmcs;
 use App\Models\Client;
 use App\Models\Invoice;
 use App\Models\Staff;
+use App\Models\Ticket;
 use App\Models\User;
+use App\Services\Import\WhmcsTicketImport;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
-use ReflectionMethod;
 use Tests\TestCase;
 
 /** Code review of PR 3a (contacts): the findings' tests stay as regression coverage. */
@@ -20,14 +20,25 @@ class ContactsCodeReviewTest extends TestCase
 {
     use RefreshDatabase;
 
-    /** C1: the importer's ticket-guest path opened an account with no primary contact. */
-    public function test_every_account_opened_by_the_importer_has_a_primary_contact(): void
+    /**
+     * C1: the importer's ticket-guest path opened an account with no primary contact. Since PR Δ (docs/tickets.md §6ζ)
+     * the ticket import opens no account at all: a WHMCS client's ticket goes to the account its login owns, anything
+     * else is a guest's.
+     */
+    public function test_the_ticket_import_opens_no_account(): void
     {
         $user = User::factory()->withoutClient()->create();
-        $method = new ReflectionMethod(ImportFromWhmcs::class, 'clientIdOfUser');
-        $clientId = $method->invoke(app(ImportFromWhmcs::class), $user->id);
+        $whmcs = new \PDO('sqlite::memory:');
+        $whmcs->exec('CREATE TABLE tbltickets (id INTEGER PRIMARY KEY, tid TEXT, did INT, userid INT, name TEXT, email TEXT, title TEXT, message TEXT, status TEXT,
+            urgency TEXT, date TEXT, lastreply TEXT, admin TEXT, attachment TEXT)');
+        $whmcs->exec("INSERT INTO tbltickets VALUES (1, '111111', 0, {$user->id}, '', '', 'Hi', 'Hello', 'Open', 'Medium', '2026-01-01 10:00:00', '', '', '')");
+        $whmcs->exec('CREATE TABLE tblticketreplies (id INTEGER PRIMARY KEY, tid INT, userid INT, admin TEXT, message TEXT, date TEXT, attachment TEXT)');
+        $clients = Client::query()->count();
 
-        $this->assertNotNull(Client::query()->findOrFail($clientId)->primaryContact, 'an account without its primary contact');
+        (new WhmcsTicketImport($whmcs))->run();
+
+        $this->assertSame($clients, Client::query()->count());
+        $this->assertNull(Ticket::query()->sole()->client_id, 'a login that owns no account: a guest\'s ticket');
     }
 
     /** C3: saving the details of an account without a primary contact crashed (client_id NOT NULL). */

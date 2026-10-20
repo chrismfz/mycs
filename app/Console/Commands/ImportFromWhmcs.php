@@ -12,10 +12,9 @@ use App\Models\Product;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\Setting;
-use App\Models\Ticket;
-use App\Models\TicketDepartment;
 use App\Providers\SettingsProvider;
 use App\Services\Import\WhmcsMassPay;
+use App\Services\Import\WhmcsTicketImport;
 use App\Services\Licensing\WhmcsLicensingImport;
 use App\Services\Money\MoneyTrail;
 use Brick\Math\BigDecimal;
@@ -42,7 +41,7 @@ class ImportFromWhmcs extends Command
      *
      * @var string
      */
-    protected $signature = 'app:import-from-whmcs {dbname} {username?} {host?} {port?}';
+    protected $signature = 'app:import-from-whmcs {dbname} {username?} {host?} {port?} {--ticket-attachments= : A copy of WHMCS\'s attachments folder, for the tickets\' files}';
 
     /**
      * The console command description.
@@ -731,145 +730,18 @@ class ImportFromWhmcs extends Command
         });
     }
 
-    /** The account of a login: the one it owns, or a new one (a guest of a WHMCS ticket). */
-    private function clientIdOfUser(int $userId): int
-    {
-        $owned = DB::table('client_user')->where('user_id', $userId)->whereNotNull('owner_of_client_id')->value('client_id');
-        if ($owned !== null) {
-            return (int) $owned;
-        }
-        $clientId = DB::table('clients')->insertGetId(['created_at' => now(), 'updated_at' => now()]);
-        DB::table('client_user')->insert(['client_id' => $clientId, 'user_id' => $userId, 'owner' => true, 'owner_of_client_id' => $clientId,
-            'granted_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
-        // Every account has its primary contact (its details, PR 3a): from the login here.
-        $user = DB::table('users')->where('id', $userId)->first(['first_name', 'last_name', 'email']);
-        DB::table('contacts')->insert(['client_id' => $clientId, 'primary_of_client_id' => $clientId, 'type' => 'individual',
-            'first_name' => $user?->first_name, 'last_name' => $user?->last_name, 'email' => $user?->email,
-            'created_at' => now(), 'updated_at' => now()]);
-
-        return $clientId;
-    }
-
-    /**
-     * A reply by a WHMCS admin (its `admin` column, a name) → the staff member of that name; one no longer there → a
-     * disabled member of that name, so the reply keeps its author and is never taken for the customer's.
-     */
-    private function staffIdOfReply(array $message): ?int
-    {
-        $name = trim((string) ($message['admin'] ?? ''));
-        if ($name === '') {
-            return null;
-        }
-        $staff = DB::table('staff')->where(DB::raw("CONCAT(first_name, ' ', last_name)"), $name)
-            ->orWhere('first_name', $name)->first();
-        if ($staff) {
-            return $staff->id;
-        }
-
-        return DB::table('staff')->insertGetId([
-            'first_name' => $name,
-            'last_name' => '',
-            'email' => 'whmcs-admin-' . \Str::slug($name) . '-' . \Str::random(6) . '@invalid.example',
-            'password' => bcrypt(\Str::random(32)),
-            'active' => false,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-    }
-
-    /** @var array<int, int|null> WHMCS department id => ours */
-    private array $ticketDepartments = [];
-
-    /** The department of a WHMCS ticket, made once from tblticketdepartments (its name, order and email). */
-    private function ticketDepartmentId(int $whmcsId): ?int
-    {
-        if (array_key_exists($whmcsId, $this->ticketDepartments)) {
-            return $this->ticketDepartments[$whmcsId];
-        }
-        $stmt = $this->pdo->prepare('SELECT * FROM tblticketdepartments WHERE id = :id LIMIT 1');
-        $stmt->bindValue(':id', $whmcsId, PDO::PARAM_INT);
-        $stmt->execute();
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$row) {
-            return $this->ticketDepartments[$whmcsId] = null;
-        }
-        $department = TicketDepartment::query()->firstOrNew(['whmcs_id' => $whmcsId]);
-        $department->forceFill([
-            'name' => (string) $row['name'],
-            'sort' => max(0, (int) ($row['order'] ?? 0)),
-            'hidden' => (bool) ($row['hidden'] ?? false),
-            'clients_only' => (bool) ($row['clientsonly'] ?? false),
-            'email' => ($row['email'] ?? '') !== '' ? (string) $row['email'] : null,
-        ])->save();
-
-        return $this->ticketDepartments[$whmcsId] = $department->id;
-    }
-
+    /** The tickets (docs/tickets.md §5α, PR Δ); also on its own: app:import-whmcs-tickets. */
     private function importTickets()
     {
-
         $this->info('Importing tickets... (' . $this->count('tbltickets') . ' records)');
-
-        $this->migrateInBatch('tbltickets', 'SELECT * FROM tbltickets LIMIT :limit OFFSET :offset', function ($records) {
-            $data = [];
-            $messages = [];
-            foreach ($records as $record) {
-                // No account in WHMCS (userid 0): a guest's ticket, never the account of the same email (docs/tickets.md §3 Δ).
-                $user = (int) $record['userid'] ?: null;
-
-                $departmentId = $this->ticketDepartmentId((int) $record['did']);
-
-                $data[] = [
-                    'id' => $record['id'],
-                    'client_id' => $user === null ? null : $this->clientIdOfUser($user),
-                    'guest_name' => $user === null ? (string) $record['name'] : null,
-                    'guest_email' => $user === null ? (string) $record['email'] : null,
-                    // The number the customer knows (docs/tickets.md §5α); the full importer is PR Δ.
-                    'reference' => (string) ($record['tid'] ?? $record['id']),
-                    'subject' => $record['title'],
-                    'status' => match ($record['status']) {
-                        'Answered' => Ticket::STATUS_ANSWERED,
-                        'Customer-Reply' => Ticket::STATUS_CUSTOMER_REPLY,
-                        'On Hold', 'In Progress' => Ticket::STATUS_ON_HOLD,
-                        'Closed' => Ticket::STATUS_CLOSED,
-                        default => Ticket::STATUS_OPEN,
-                    },
-                    'priority' => match ($record['urgency']) {
-                        'Low' => 'low',
-                        'Medium' => 'medium',
-                        'High' => 'high',
-                        default => 'medium',
-                    },
-                    'department_id' => $departmentId,
-                    'created_at' => $this->validateDate($record['date']),
-                    'updated_at' => $this->validateDate($record['lastreply']),
-                ];
-
-                // Get ticket messages
-                $stmt = $this->pdo->prepare('SELECT * FROM tblticketreplies WHERE tid = :tid ORDER BY date ASC');
-                $stmt->bindValue(':tid', $record['id'], PDO::PARAM_INT);
-                $stmt->execute();
-                $messageRecords = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                foreach ($messageRecords as $message) {
-                    // A reply by staff or by the customer (docs/accounts.md, PR 1).
-                    $staffId = $this->staffIdOfReply($message);
-                    $messages[] = [
-                        'ticket_id' => $record['id'],
-                        // A reply without an account (a guest's, or one copied in) is nobody's login.
-                        'user_id' => $staffId === null ? ((int) $message['userid'] ?: null) : null,
-                        'staff_id' => $staffId,
-                        'message' => $message['message'],
-                        'created_at' => $this->validateDate($message['date']),
-                        'updated_at' => $this->validateDate($message['date']),
-                    ];
-                }
-            }
-
-            DB::table('tickets')->insert($data);
-            if (count($messages) > 0) {
-                DB::table('ticket_messages')->insert($messages);
-            }
-        });
+        try {
+            $folder = $this->option('ticket-attachments');
+        } catch (Throwable) {
+            $folder = null; // called without the command's input (the tests' reflection)
+        }
+        if (ImportWhmcsTickets::report($this, (new WhmcsTicketImport($this->pdo, is_string($folder) && $folder !== '' ? $folder : null))->run()) !== self::SUCCESS) {
+            $this->warn('Tickets: see above; app:import-whmcs-tickets can be run again on its own.');
+        }
     }
 
     private function importOrders()

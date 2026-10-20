@@ -751,5 +751,6 @@
     "Last scheduler run": "Τελευταία εκτέλεση του scheduler",
     "Last cron run": "Τελευταία εκτέλεση του cron",
     "Next cron run": "Επόμενη εκτέλεση του cron",
-    "Select Date": "Επιλογή ημερομηνίας"
+    "Select Date": "Επιλογή ημερομηνίας",
+    "no subject": "χωρίς θέμα"
 }
