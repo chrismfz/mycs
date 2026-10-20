@@ -2,14 +2,18 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\ClientResource\Pages\EditClient;
+use App\Admin\Resources\ClientResource\RelationManagers\ContactsRelationManager;
 use App\Enums\DomainStatus;
 use App\Exceptions\DisplayException;
 use App\Livewire\Client\Contacts;
 use App\Models\Contact;
 use App\Models\Domain;
 use App\Models\DomainTld;
+use App\Models\Staff;
 use App\Models\User;
 use App\Support\CurrentClient;
+use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
@@ -101,5 +105,20 @@ class ContactIdentityLockTest extends TestCase
 
         $this->expectException(DisplayException::class);
         $this->contact->archive();
+    }
+
+    public function test_staff_edit_a_contact_in_use_its_details_not_who_it_is(): void
+    {
+        // Code review of #247: the client's contacts in the admin, the name locked and not sent, the address saved.
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $this->useIn('example.gr', 'registrant');
+        $staff = Staff::factory()->withPermissions(['admin.clients.viewAny', 'admin.clients.view', 'admin.clients.update'])->create();
+
+        $this->livewireAs($staff)->test(ContactsRelationManager::class,
+            ['ownerRecord' => $this->user->client()->fresh(), 'pageClass' => EditClient::class])
+            ->callTableAction('edit', $this->contact, data: ['first_name' => 'Hacked', 'address1' => 'Odos 7'])
+            ->assertHasNoTableActionErrors();
+
+        $this->assertSame(['Maria', 'Odos 7'], [$this->contact->fresh()->first_name, $this->contact->fresh()->address1]);
     }
 }

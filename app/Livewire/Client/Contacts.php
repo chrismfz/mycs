@@ -91,7 +91,7 @@ class Contacts extends Component
         return view('client.account.contacts', [
             'contacts' => $contacts,
             // Where each is a domain's contact (P1b): its name stays as its registrars hold it, it is not archived.
-            'uses' => $contacts->mapWithKeys(fn (Contact $contact) => [$contact->id => $contact->domainRoles()]),
+            'uses' => Contact::domainRolesFor($contacts),
         ])->layoutData([
             'sidebar' => true,
             'title' => __('account.contacts'),
