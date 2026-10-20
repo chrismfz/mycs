@@ -71,6 +71,9 @@ return [
     // Περιοχή πελάτη (D7-2).
     'portal' => [
         'glue_outside' => 'Ένας child nameserver είναι κάτω από το :domain (ns1, ή ns1.:domain).',
+        'glue_not_public' => 'Η :ip δεν είναι δημόσια διεύθυνση: ένας nameserver πρέπει να είναι προσβάσιμος από το internet.',
+        'glue_not_done' => 'Το μητρώο δεν το δέχτηκε: το domain δεν αλλάζει εκεί αυτή τη στιγμή, ή ο nameserver χρησιμοποιείται. Διαβάστε ξανά, ή επικοινωνήστε μαζί μας.',
+        'glue_maybe' => 'Το μητρώο δεν απάντησε αν έγινε: δείτε τη λίστα, διαβάστε ξανά.',
         'glue' => 'Child nameservers',
         'glue_help' => 'Οι nameservers μέσα στο :domain (π.χ. ns1.:domain) χρειάζονται τις διευθύνσεις IP τους στο μητρώο (glue).',
         'glue_read_now' => 'Ανάγνωση από το μητρώο',

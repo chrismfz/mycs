@@ -10,6 +10,11 @@ use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainTld;
 use App\Models\User;
+use App\Services\Domains\DomainLifecycle;
+use App\Services\Domains\DomainManagementService;
+use App\Services\Domains\DomainRegistrarFactory;
+use App\Services\Domains\DomainSyncService;
+use App\Services\Domains\RegistrarOutcomeUnknown;
 use App\Services\Domains\Registrars\GrEppRegistrar;
 use App\Support\CurrentClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -198,5 +203,59 @@ class PortalGlueTest extends TestCase
         $this->transport->queue(new HttpResponse(200, 'not epp'));
         $page->call('startChildHost', '')->set('glueHost', 'ns2')->set('glueAddresses', '84.54.49.7')->call('saveChildHost');
         $this->assertSame(__('domains.portal.registrar_failed'), $page->effects['dispatches'][0]['params'][0]['message'] ?? null);
+    }
+
+    /** The real service (what the page shows), its glue calls answered here. */
+    private function service(\Closure $expect): void
+    {
+        $mock = \Mockery::mock(DomainManagementService::class, [app(DomainRegistrarFactory::class),
+            app(DomainSyncService::class), app(DomainLifecycle::class)])->makePartial();
+        $mock->shouldReceive('managesChildHosts')->andReturnTrue();
+        $expect($mock);
+        $this->instance(DomainManagementService::class, $mock);
+    }
+
+    public function test_a_greek_name_is_sent_in_punycode_and_one_not_read_is_never_edited(): void
+    {
+        // Reviews of #250: an IDN host under an IDN domain, checked and sent as the registry knows it.
+        $tld = DomainTld::query()->firstOrCreate(['tld' => 'gr'], ['is_active' => true, 'registrar_connection_id' => $this->gr->id, 'grace_days' => 15, 'redemption_days' => 0]);
+        $fqdn = (string) idn_to_ascii('παράδειγμα.gr', IDNA_NONTRANSITIONAL_TO_ASCII);
+        $domain = Domain::factory()->create(['client_id' => $this->user->client()->id, 'sld' => explode('.', $fqdn)[0], 'tld' => 'gr', 'fqdn' => $fqdn,
+            'domain_tld_id' => $tld->id, 'registrar_connection_id' => $this->gr->id, 'status' => DomainStatus::Active, 'expires_at' => '2029-03-01',
+            'currency_code' => 'EUR', 'years' => 2]);
+        $domain->forceFill(['meta' => ['child_hosts' => ['read_at' => now()->toIso8601String(), 'hosts' => [
+            ['name' => 'ns5.' . $fqdn, 'addresses' => [], 'linked' => false, 'read' => false],
+        ]]]])->save();
+        $this->as($this->user);
+        $sent = null;
+        $this->service(function ($mock) use (&$sent) {
+            $mock->shouldReceive('createChildHost')->once()->andReturnUsing(function ($domain, string $host) use (&$sent) {
+                $sent = $host;
+            });
+            $mock->shouldReceive('readChildHosts')->andReturn([]);
+        });
+
+        $page = Livewire::test(Show::class, ['domain' => $domain])
+            ->call('startChildHost', 'ns5.' . $fqdn)->assertSet('glueEditing', null) // listed, its details never read: no form
+            ->call('startChildHost', '')->set('glueHost', 'NS1.Παράδειγμα.gr.')->set('glueAddresses', '84.54.49.7')->call('saveChildHost')
+            ->assertHasNoErrors();
+
+        $this->assertSame('ns1.' . $fqdn, $sent);
+        $page->call('startChildHost', '')->set('glueHost', 'ns1.-bad-.gr')->set('glueAddresses', '84.54.49.7')->call('saveChildHost')->assertHasErrors('glueHost');
+    }
+
+    public function test_an_answer_never_received_is_said_as_maybe_done(): void
+    {
+        $domain = $this->domain();
+        $domain->forceFill(['meta' => ['child_hosts' => ['read_at' => now()->toIso8601String(), 'hosts' => []]]])->save();
+        $this->as($this->user);
+        $this->service(function ($mock) {
+            $mock->shouldReceive('createChildHost')->andThrow(new RegistrarOutcomeUnknown('timed out after host:create sent to epp.example.test'));
+        });
+
+        $page = Livewire::test(Show::class, ['domain' => $domain])
+            ->call('startChildHost', '')->set('glueHost', 'ns2')->set('glueAddresses', '84.54.49.7')->call('saveChildHost');
+
+        $this->assertSame(__('domains.portal.glue_maybe'), $page->effects['dispatches'][0]['params'][0]['message'] ?? null);
     }
 }

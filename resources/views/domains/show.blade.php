@@ -163,8 +163,8 @@
             <ul class="text-sm space-y-1">
                 @forelse ($childHosts as $host)
                 <li class="flex flex-wrap items-center gap-x-3" wire:key="glue-{{ $host['name'] }}">
-                    <span class="font-mono">{{ $host['name'] }}</span>
-                    <span class="font-mono text-base/60">{{ implode(', ', (array) ($host['addresses'] ?? [])) ?: '—' }}</span>
+                    <span class="font-mono break-all">{{ $host['name'] }}</span>
+                    <span class="font-mono break-all text-base/60">{{ implode(', ', (array) ($host['addresses'] ?? [])) ?: '—' }}</span>
                     @if ($glueEditing === null && ($host['read'] ?? true))
                     <button type="button" class="underline" wire:click="startChildHost(@js($host['name']))">{{ __('domains.portal.change') }}</button>
                     @endif

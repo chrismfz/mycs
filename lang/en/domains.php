@@ -71,6 +71,9 @@ return [
     // The client area (D7-2).
     'portal' => [
         'glue_outside' => 'A child nameserver is under :domain (ns1, or ns1.:domain).',
+        'glue_not_public' => ':ip is not a public address: a nameserver must be reachable from the internet.',
+        'glue_not_done' => 'The registry did not accept it: the domain cannot be changed there now, or the nameserver is in use. Read them again, or contact us.',
+        'glue_maybe' => 'The registry did not answer whether it was done: see the list, read again.',
         'glue' => 'Child nameservers',
         'glue_help' => 'Nameservers inside :domain (e.g. ns1.:domain) need their IP addresses at the registry (glue).',
         'glue_read_now' => 'Read from the registry',
