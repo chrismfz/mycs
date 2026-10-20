@@ -23,7 +23,7 @@
             @foreach ($paymentGroup->invoices as $invoice)
             <div class="flex justify-between py-2">
                 <a href="{{ route('invoices.show', $invoice) }}" wire:navigate class="underline">
-                    {{ !$invoice->number && config('settings.invoice_proforma', false) ? __('invoices.proforma_invoice', ['id' => $invoice->id]) : __('invoices.invoice', ['id' => $invoice->number]) }}
+                    {{ $invoice->displayTitle() }}
                     @if ($invoice->due_at)
                     <span class="text-base/50 text-sm">({{ __('invoices.due_date') }}: {{ $invoice->due_at->format('d M Y') }})</span>
                     @endif

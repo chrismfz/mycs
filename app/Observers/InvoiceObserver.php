@@ -62,6 +62,10 @@ class InvoiceObserver
     public function updating(Invoice $invoice): void
     {
         self::refuseUnknownStatus($invoice);
+        // A number given is the invoice's for good (Δ2; adversarial ADV-10 of #238). The importer writes rows directly.
+        if ($invoice->isDirty('number') && $invoice->getOriginal('number') !== null && $invoice->getOriginal('number') !== '') {
+            throw new DisplayException(__('An invoice keeps the number it was given.'));
+        }
         // A cancelled invoice is never marked paid directly, by anyone (docs/payments.md): it renews nothing
         // and its credit note already covers it. Staff reopen it (unpaid) and record the payment.
         if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_CANCELLED

@@ -1,4 +1,4 @@
-<x-modal :title="config('settings.invoice_proforma', false) ? __('invoices.payment_for_proforma_invoice', ['id' => $invoice->id]) : __('invoices.payment_for_invoice', ['number' => $invoice->number])" open>
+<x-modal :title="!$invoice->number && config('settings.invoice_proforma', false) && !config('settings.invoice_number_is_id', false) ? __('invoices.payment_for_proforma_invoice', ['id' => $invoice->id]) : __('invoices.payment_for_invoice', ['number' => $invoice->number ?: $invoice->id])" open>
     <x-slot name="closeTrigger">
         <div class="flex gap-4">
             {{ __('invoices.amount_due', ['amount' => $invoice->formattedRemaining]) }}

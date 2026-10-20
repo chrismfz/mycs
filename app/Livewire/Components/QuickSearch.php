@@ -70,7 +70,7 @@ class QuickSearch extends Component
                 ->orderByDesc('id')->limit(self::PER_KIND)->get();
             foreach ($invoices as $invoice) {
                 $results[] = ['kind' => 'invoice',
-                    'title' => !$invoice->number && config('settings.invoice_proforma', false) ? __('invoices.proforma_invoice', ['id' => $invoice->id]) : __('invoices.invoice', ['id' => $invoice->number]),
+                    'title' => $invoice->displayTitle(),
                     // An imported row may have no date (adversarial review of #232).
                     'detail' => __('invoices.statuses.' . $invoice->status) . ($invoice->created_at ? ' · ' . $invoice->created_at->format('d/m/Y') : ''),
                     'url' => route('invoices.show', $invoice)];

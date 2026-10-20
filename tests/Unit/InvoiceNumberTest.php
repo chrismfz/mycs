@@ -24,7 +24,7 @@ class InvoiceNumberTest extends TestCase
 
         $invoice = new Invoice;
         $invoice->client_id = $user->client()->id;
-        $invoice->status = Invoice::STATUS_DRAFT;
+        $invoice->status = Invoice::STATUS_UNPAID; // issued: a draft takes its number once issued (Δ2, InvoiceNumberingTest)
         $invoice->currency_code = 'USD';
         $invoice->save();
 
@@ -38,7 +38,7 @@ class InvoiceNumberTest extends TestCase
         // Do it once more for good measure
         $invoice2 = new Invoice;
         $invoice2->client_id = $user->client()->id;
-        $invoice2->status = Invoice::STATUS_DRAFT;
+        $invoice2->status = Invoice::STATUS_UNPAID;
         $invoice2->currency_code = 'USD';
         $invoice2->save();
 

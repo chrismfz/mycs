@@ -24,7 +24,7 @@
 
     @forelse ($invoices as $invoice)
     @php
-        $title = !$invoice->number && config('settings.invoice_proforma', false) ? __('invoices.proforma_invoice', ['id' => $invoice->id]) : __('invoices.invoice', ['id' => $invoice->number]);
+        $title = $invoice->displayTitle();
         $lines = \App\Livewire\Invoices\Index::lines($invoice);
         $more = count($lines) - \App\Livewire\Invoices\Index::LINES;
         $overdue = $invoice->status === 'unpaid' && $invoice->due_at?->lt(today());

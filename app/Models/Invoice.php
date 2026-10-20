@@ -554,6 +554,17 @@ class Invoice extends Model implements Auditable
         return $this->hasOne(InvoiceSnapshot::class);
     }
 
+    /**
+     * How it is called on pages, PDFs and lists: «Proforma #id» while a proforma has no number, else «Invoice #number»,
+     * its id when it has no number yet (a draft, since Δ2; code review of #238).
+     */
+    public function displayTitle(): string
+    {
+        return !$this->number && config('settings.invoice_proforma', false) && !config('settings.invoice_number_is_id', false)
+            ? __('invoices.proforma_invoice', ['id' => $this->id])
+            : __('invoices.invoice', ['id' => $this->number ?: $this->id]);
+    }
+
     /** Its PDF's file name: a number is free text («INV/2026/15»), and a download's name may hold no slash (review of #230). */
     public function pdfFileName(): string
     {

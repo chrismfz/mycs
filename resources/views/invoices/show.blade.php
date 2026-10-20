@@ -1,7 +1,6 @@
 @php
     // A proforma has no number yet (nixpal): its id, as its heading says (code review 1 of #226).
-    $invoiceTitle = !$invoice->number && config('settings.invoice_proforma', false)
-        ? __('invoices.proforma_invoice', ['id' => $invoice->id]) : __('invoices.invoice', ['id' => $invoice->number]);
+    $invoiceTitle = $invoice->displayTitle();
 @endphp
 <div class="container mt-14">
     <x-navigation.breadcrumb :trail="[['name' => __('navigation.invoices'), 'url' => route('invoices')], ['name' => $invoiceTitle]]" />
