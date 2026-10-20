@@ -31,4 +31,9 @@ return [
         ],
     ],
 
+    // GET /health (docs/ops.md): a monitor's token for the full report; unset, only ok / warn / fail is said.
+    'health' => [
+        'token' => env('MYCS_HEALTH_TOKEN'),
+    ],
+
 ];
