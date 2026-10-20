@@ -54,6 +54,8 @@ class Guest extends Component
         if ($ticket === null) {
             return;
         }
+        // No control or format characters (bidi, zero-width): an answer of them only is no answer (as the contact form).
+        $this->message = trim((string) preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\p{Cf}]/u', '', $this->message));
         $this->validate(['message' => 'required|string|max:10000']);
         $key = 'ticket-guest-reply:' . $ticket->id;
         if (RateLimiter::tooManyAttempts($key, self::REPLIES_PER_HOUR)) {
@@ -93,7 +95,18 @@ class Guest extends Component
             'messages' => $ticket?->publicMessages()->with(['staff', 'attachments'])->oldest('id')->get() ?? collect(),
             // Expired (not revoked): a new link can be asked for; anything else is just «not valid».
             'expired' => $known !== null && $known->revoked_at === null && $known->ticket?->isGuest() === true,
+            'subject' => $ticket === null ? '' : ($ticket->sender_vouched === false ? __('Your message') : (string) $ticket->subject),
         ])->layoutData(['title' => $ticket !== null ? __('ticket.title', ['id' => $ticket->reference]) : __('ticket.guest_link_invalid')]);
+    }
+
+    /**
+     * Shown to whoever has the link: what came from that inbox. On a ticket whose address no server vouched for (a form,
+     * a forged From), what came in with it may be a stranger's, so it is not served on our domain (review of #252): only
+     * staff's answers and what was written here, by whoever reads the inbox the link went to.
+     */
+    public static function shown(TicketMessage $message, Ticket $ticket): bool
+    {
+        return $ticket->sender_vouched !== false || $message->isFromStaff() || $message->via === 'link';
     }
 
     /** Who wrote a message, as the guest sees it. */
@@ -101,6 +114,10 @@ class Guest extends Component
     {
         $staff = $message->staff;
 
-        return $message->isFromStaff() ? ($staff instanceof Staff ? (string) $staff->name : (string) config('app.name')) : (string) $ticket->guest_name;
+        if ($message->isFromStaff()) {
+            return $staff instanceof Staff ? (string) $staff->name : (string) config('app.name');
+        }
+
+        return $ticket->sender_vouched === false ? __('You') : (string) $ticket->guest_name;
     }
 }

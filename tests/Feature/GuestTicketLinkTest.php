@@ -200,6 +200,9 @@ class GuestTicketLinkTest extends TestCase
         }
         $test->set('department', $this->support->id)->call('submit')->assertHasNoErrors();
 
-        $this->get(route('tickets.guest', $this->mailedLink()))->assertSee('Hello')->assertSee('Hi');
+        // The address was typed in, so what came with it is not served by the link (review of #252): only the number.
+        $ticket = Ticket::query()->sole();
+        $this->get(route('tickets.guest', $this->mailedLink()))->assertOk()->assertSee($ticket->reference)
+            ->assertDontSee('Hello')->assertSee(__('ticket.guest_message_hidden'));
     }
 }

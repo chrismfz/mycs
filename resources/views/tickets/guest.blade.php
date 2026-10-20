@@ -14,19 +14,23 @@
                 <p class="mt-2">{{ __('ticket.guest_link_gone') }}</p>
             @endif
         @else
-            <h1 class="text-2xl font-semibold">{{ __('ticket.title', ['id' => $ticket->reference]) }} · {{ $ticket->subject }}</h1>
+            <h1 class="text-2xl font-semibold">{{ __('ticket.title', ['id' => $ticket->reference]) }} · {{ $subject }}</h1>
             <p class="mt-1 text-sm text-base/70">{{ $ticket->department?->name }} · <x-ticket.status :status="$ticket->status" /></p>
             <div class="flex flex-col gap-4 mt-6">
                 @foreach ($messages as $message)
+                    @if (!\App\Livewire\Tickets\Guest::shown($message, $ticket))
+                        <p class="text-sm text-base/60 ml-auto max-w-[85%]">{{ __('ticket.guest_message_hidden') }}</p>
+                        @continue
+                    @endif
                     <article class="bg-background-secondary border border-neutral p-4 rounded-lg w-full max-w-[85%] {{ $message->isFromStaff() ? 'mr-auto' : 'ml-auto' }}">
                         <header class="flex justify-between gap-4 text-sm">
                             <span class="font-semibold">{{ \App\Livewire\Tickets\Guest::author($message, $ticket) }}</span>
                             <time datetime="{{ $message->created_at->toIso8601String() }}" class="text-base/60">{{ $message->created_at->diffForHumans() }}</time>
                         </header>
                         <div class="prose dark:prose-invert max-w-none mt-2">
-                            {!! Str::markdown(e($message->message), ['html_input' => 'strip', 'allow_unsafe_links' => false, 'renderer' => ['soft_break' => '<br>']]) !!}
+                            {!! Str::markdown((string) $message->message, ['html_input' => 'escape', 'allow_unsafe_links' => false, 'renderer' => ['soft_break' => '<br>']]) !!}
                         </div>
-                        @if ($message->attachments->isNotEmpty())
+                        @if ($message->attachments->isNotEmpty() && \App\Livewire\Tickets\Guest::shown($message, $ticket))
                             <ul class="mt-2 text-sm">
                                 @foreach ($message->attachments as $attachment)
                                     <li><a class="underline" href="{{ route('tickets.guest.attachment', ['token' => $token, 'attachment' => $attachment->uuid]) }}" rel="nofollow">{{ $attachment->filename }}</a></li>
