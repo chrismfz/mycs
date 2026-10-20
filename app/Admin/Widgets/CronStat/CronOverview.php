@@ -27,20 +27,20 @@ class CronOverview extends StatsOverviewWidget
             $nextRun->addDay();
         }
 
-        $health = Health::cached()['status'];
+        $health = Health::fresh()['status'];
 
         return [
             // The whole, as WHMCS's «Ok» (the worst of the checks below).
             Stat::make(__('Status'), HealthChecks::label($health))->color(HealthChecks::color($health)),
-            Stat::make('Last scheduler run', $lastRun ? Carbon::parse($lastRun)->diffForHumans() : 'Never')
+            Stat::make(__('Last scheduler run'), $lastRun ? Carbon::parse($lastRun)->diffForHumans() : __('Never'))
                 ->extraAttributes([
                     'class' => $lastRun && Carbon::parse($lastRun)->gt(Carbon::now()->subMinutes(5)) ? 'success' : 'error',
                 ]),
-            Stat::make('Last cron run', $lastCronRun ? Carbon::parse($lastCronRun)->diffForHumans() : 'Never')
+            Stat::make(__('Last cron run'), $lastCronRun ? Carbon::parse($lastCronRun)->diffForHumans() : __('Never'))
                 ->extraAttributes([
                     'class' => $lastCronRun && Carbon::parse($lastCronRun)->gt(Carbon::now()->subHours(24)) ? 'success' : 'error',
                 ]),
-            Stat::make('Next cron run', $nextRun->diffForHumans()),
+            Stat::make(__('Next cron run'), $nextRun->diffForHumans()),
         ];
     }
 }

@@ -33,14 +33,55 @@ final class Health
     public const FAIL = 'fail';
 
     /**
-     * The report as a page shows it (Automation Status, its menu badge): read at most once a minute, so a badge on every
-     * admin page costs no checks.
+     * For a menu badge on every admin page: the report of the last minute, never read by two at once (one reads it
+     * again, the others keep the last one meanwhile; review R2 of #258).
      *
      * @return array{status: string, checks: array<string, array{status: string, detail: string, data?: array<string, mixed>}>}
      */
     public static function cached(): array
     {
-        return Cache::remember('ops.health', 60, fn () => self::report());
+        $last = Cache::get('ops.health');
+        if (is_array($last) && ($last['at'] ?? 0) > now()->getTimestamp() - 60) {
+            return $last['report'];
+        }
+        $lock = Cache::lock('ops.health:reading', 30);
+        if (!$lock->get()) {
+            return is_array($last) ? $last['report'] : self::report(); // a first read with another under way: rare
+        }
+        try {
+            return self::keep(self::report());
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * For the Automation Status page: read now (staff opened it to see it, review R1 of #258), once per request for its
+     * widgets, and kept for the badge.
+     *
+     * @return array{status: string, checks: array<string, array{status: string, detail: string, data?: array<string, mixed>}>}
+     */
+    public static function fresh(): array
+    {
+        $memo = request()->attributes->get('ops.health');
+        if (is_array($memo)) {
+            return $memo;
+        }
+        $report = self::keep(self::report());
+        request()->attributes->set('ops.health', $report);
+
+        return $report;
+    }
+
+    /**
+     * @param  array{status: string, checks: array<string, array{status: string, detail: string, data?: array<string, mixed>}>}  $report
+     * @return array{status: string, checks: array<string, array{status: string, detail: string, data?: array<string, mixed>}>}
+     */
+    private static function keep(array $report): array
+    {
+        Cache::put('ops.health', ['at' => now()->getTimestamp(), 'report' => $report], 600);
+
+        return $report;
     }
 
     /** @return array{status: string, checks: array<string, array{status: string, detail: string, data?: array<string, mixed>}>} */

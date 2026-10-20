@@ -21,6 +21,13 @@ Every command takes `--json` (for scripts and agents).
 | `mycs:zlic {key} [--ip=]` | what zlic.php would answer that license's own client from that address, writing nothing: its status or message, whether it would bind, what it would log. The PSK, md5hash and localkey never leave. |
 | `mycs:logs [--limit=20, ≤200] [--level=error] [--channel=laravel\|payments]` | the latest log entries, newest first, with the head of their stack, through `Redact`. |
 
+## Automation Status (admin, #258)
+The cron page («Automation Status», as WHMCS's): the whole state (the worst check) beside the scheduler and cron runs,
+a card per check with a link (only for staff who may open it), then the daily actions. The page reads the checks now
+(`Health::fresh()`, once per request); the menu badge («Attention»/«Failing», only for `admin.cron_stats.view`) reads
+the last minute's (`Health::cached()`: one reader at a time under a lock, the others keep the last report; a cache
+failure is no badge, never an error page). The details are English, as in `mycs:health`.
+
 ## Rules
 - **Read-only.** Nothing here writes: the zlic probe runs the real `Zlic` over a repository that only reads.
 - **No secrets.** No passwords and no PSK. A license key shows as its prefix and last 4 characters (the full key is a

@@ -746,5 +746,10 @@
     "Checks": "Έλεγχοι",
     "Ok": "Εντάξει",
     "Attention": "Προσοχή",
-    "Failing": "Αποτυγχάνει"
+    "Failing": "Αποτυγχάνει",
+    "Automation Status": "Κατάσταση αυτοματισμών",
+    "Last scheduler run": "Τελευταία εκτέλεση του scheduler",
+    "Last cron run": "Τελευταία εκτέλεση του cron",
+    "Next cron run": "Επόμενη εκτέλεση του cron",
+    "Select Date": "Επιλογή ημερομηνίας"
 }

@@ -13,7 +13,8 @@ use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
 
 /**
- * Automation Status (as WHMCS's): each of Health's checks (docs/ops.md), its state and why, and where to look.
+ * Automation Status (as WHMCS's): each of Health's checks (docs/ops.md), its state and why, and where to look (a link
+ * only for staff who may open it). The details stay in English: the same text as `mycs:health` and the MCP.
  */
 class HealthChecks extends StatsOverviewWidget
 {
@@ -39,7 +40,7 @@ class HealthChecks extends StatsOverviewWidget
     protected function getStats(): array
     {
         $stats = [];
-        foreach (Health::cached()['checks'] as $name => $check) {
+        foreach (Health::fresh()['checks'] as $name => $check) {
             $resource = self::LINKS[$name] ?? null;
             $stats[] = Stat::make(__('health.' . $name), self::label($check['status']))
                 ->description($check['detail'])
