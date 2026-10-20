@@ -1,6 +1,14 @@
 <?php
 
 return [
+    // Το PDF, όπως του WHMCS (υπεύθυνος, 2026-10-20).
+    'invoiced_to' => 'Τιμολογείται σε',
+    'credit_applied' => 'Πίστωση',
+    'balance' => 'Υπόλοιπο',
+    'gateway' => 'Τρόπος πληρωμής',
+    'transaction_date' => 'Ημερομηνία συναλλαγής',
+    'no_transactions' => 'Δεν υπάρχουν συναλλαγές',
+    'generated_on' => 'Το PDF δημιουργήθηκε στις :date',
     'invoices' => 'Τιμολόγια',
     'product' => 'Προϊόν',
     'price' => 'Τιμή',

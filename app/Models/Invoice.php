@@ -393,6 +393,29 @@ class Invoice extends Model implements Auditable
     }
 
     /**
+     * What the PDF shows below its lines, as WHMCS's (owner 2026-10-20), in cents so it adds up: the account credit
+     * applied (credit transactions) apart from the payments; «total» what was due after it; «balance» what is left,
+     * always this invoice's remaining (total − payments, each net of refunds and of what became credit again).
+     *
+     * @return array{credit: float, total: float, payments: list<InvoiceTransaction>, balance: float}
+     */
+    public function statement(): array
+    {
+        $succeeded = $this->transactions->where('status', InvoiceTransactionStatus::Succeeded);
+        $net = fn (InvoiceTransaction $transaction) => $this->moneyToCents($transaction->amount)
+            - $this->moneyToCents($transaction->refunded_amount) - $this->moneyToCents($transaction->credited_amount);
+        $credit = $succeeded->filter(fn (InvoiceTransaction $transaction) => (bool) $transaction->is_credit_transaction)->sum($net);
+        $payments = $succeeded->reject(fn (InvoiceTransaction $transaction) => (bool) $transaction->is_credit_transaction);
+
+        return [
+            'credit' => $credit / 100.0,
+            'total' => ($this->moneyToCents($this->total) - $credit) / 100.0,
+            'payments' => $payments->sortBy('created_at')->values()->all(),
+            'balance' => ($this->moneyToCents($this->total) - $credit - $payments->sum($net)) / 100.0,
+        ];
+    }
+
+    /**
      * Reload what the balance is computed from (lines, transactions, adjustment notes) with locking reads,
      * inside a transaction. Under REPEATABLE READ a plain read returns the snapshot of the transaction's
      * first read, even after waiting for a lock, and would miss a payment committed meanwhile

@@ -5,12 +5,29 @@ namespace App\Classes;
 use App\Classes\Pdf\ContentPdfWrapper;
 use App\Classes\Pdf\FilePdfWrapper;
 use App\Events\Invoice\GeneratePdf;
+use App\Helpers\NotificationHelper;
 use App\Models\Invoice;
 use Barryvdh\DomPDF\Facade\Pdf as DomPDF;
+use Illuminate\Support\Facades\App;
 
 class PDF
 {
+    /**
+     * In the customer's language wherever it is made (portal, admin, mail; owner 2026-10-20): the same invoice reads the
+     * same for everyone. Until a customer has a language of their own, the company's.
+     */
     public static function generateInvoice(Invoice $invoice)
+    {
+        $previous = App::getLocale();
+        App::setLocale(NotificationHelper::localeFor($invoice->client));
+        try {
+            return self::render($invoice);
+        } finally {
+            App::setLocale($previous);
+        }
+    }
+
+    private static function render(Invoice $invoice)
     {
         // Dispatch event to see if any extension wants to handle PDF generation
         $event = new GeneratePdf($invoice);
@@ -22,7 +39,7 @@ class PDF
         }
 
         // Fall back to default PDF generation
-        return DomPDF::loadView('pdf.invoice', ['invoice' => $invoice]);
+        return self::dompdf()->loadView('pdf.invoice', ['invoice' => $invoice]);
     }
 
     private static function processPdfFromEvent(GeneratePdf $event)
@@ -43,6 +60,12 @@ class PDF
         }
 
         // This shouldn't happen, but fallback just in case
-        return DomPDF::loadView('pdf.invoice', ['invoice' => $event->invoice]);
+        return self::dompdf()->loadView('pdf.invoice', ['invoice' => $event->invoice]);
+    }
+
+    /** Only the letters used of DejaVu Sans (its Greek): a whole font in every PDF is ~900 KB. */
+    private static function dompdf()
+    {
+        return DomPDF::setOption('isFontSubsettingEnabled', true);
     }
 }
