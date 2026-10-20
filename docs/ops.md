@@ -28,6 +28,14 @@ a card per check with a link (only for staff who may open it), then the daily ac
 the last minute's (`Health::cached()`: one reader at a time under a lock, the others keep the last report; a cache
 failure is no badge, never an error page). The details are English, as in `mycs:health`.
 
+## GET /health (for a monitor)
+`https://<instance>/health`, no session or cookie: `ok` or `warn` with **200**, `fail` with **503** (`text/plain`,
+`Cache-Control: no-store`), nothing more to anyone. «warn» is 200 so that something worth a look never pages anyone.
+With `Authorization: Bearer <MYCS_HEALTH_TOKEN>` (`.env`; unset, never) the full report as JSON (the same as
+`mycs:health`), never through a query string. The checks are the last minute's (`Health::cached()`): any number of
+calls runs them at most once a minute. A report that cannot be read is `fail` (503), never an error page. During a
+deploy the maintenance mode answers 503 as well (the instance is down then).
+
 ## Rules
 - **Read-only.** Nothing here writes: the zlic probe runs the real `Zlic` over a repository that only reads.
 - **No secrets.** No passwords and no PSK. A license key shows as its prefix and last 4 characters (the full key is a

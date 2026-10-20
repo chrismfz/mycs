@@ -26,6 +26,7 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__ . '/../routes/console.php',
         then: function () {
             Route::group([], __DIR__ . '/../routes/zlic.php');
+            Route::group([], __DIR__ . '/../routes/health.php');
             Route::group([], __DIR__ . '/../routes/legacy.php');
         },
         // channels: __DIR__.'/../routes/channels.php',
