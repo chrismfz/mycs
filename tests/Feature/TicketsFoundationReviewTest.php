@@ -141,7 +141,7 @@ class TicketsFoundationReviewTest extends TestCase
         $whmcs->exec('CREATE TABLE tblticketdepartments (id INTEGER PRIMARY KEY, name TEXT, "order" INT, hidden INT, clientsonly INT, email TEXT)');
         $whmcs->exec("INSERT INTO tblticketdepartments VALUES (1, 'Support', 1, 0, 0, '')");
         $whmcs->exec("INSERT INTO tbltickets VALUES (7, '481516', 1, 0, 'Guest', 'same@guest.example', 'Hi', 'Open', 'Medium', '2026-09-01 10:00:00', '2026-09-01 10:00:00')");
-        $whmcs->exec("INSERT INTO tbltickets VALUES (8, '234200', 1, {$customer->id}, '', '', 'Mine', 'Answered', 'Low', '2026-09-01 10:00:00', '2026-09-01 10:00:00')");
+        $whmcs->exec("INSERT INTO tbltickets VALUES (8, '234200', 1, {$customer->client()->id}, '', '', 'Mine', 'Answered', 'Low', '2026-09-01 10:00:00', '2026-09-01 10:00:00')");
         $whmcs->exec("INSERT INTO tblticketreplies VALUES (1, 7, 0, 'Guest', 'same@guest.example', '', 'more', '2026-09-01 11:00:00')");
         $users = User::query()->count();
 
@@ -152,7 +152,8 @@ class TicketsFoundationReviewTest extends TestCase
 
         $guest = Ticket::query()->findOrFail(7);
         $this->assertSame([null, 'Guest', 'same@guest.example', '481516'], [$guest->client_id, $guest->guest_name, $guest->guest_email, $guest->reference]);
-        $this->assertNull($guest->messages()->sole()->user_id, 'the guest\'s reply is no login\'s');
+        // Its opening and its reply (the old importer left the opening out): neither is a login's.
+        $this->assertSame([null, null], $guest->messages()->orderBy('id')->pluck('user_id')->all(), 'the guest\'s messages are no login\'s');
         $this->assertFalse($customer->can('view', $guest));
         $this->assertSame($users, User::query()->count(), 'no login made for a guest');
         $this->assertSame($customer->client()->id, Ticket::query()->findOrFail(8)->client_id);

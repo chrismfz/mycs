@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\DB;
 use OwenIt\Auditing\Contracts\Auditable;
 
 /**
@@ -45,6 +46,16 @@ class TicketMessage extends Model implements Auditable
     public function scopeThreadKeys(Builder $query): void
     {
         $query->where('is_internal', false)->whereIn('id', TicketMailId::query()->whereNotNull('ticket_message_id')->select('ticket_message_id'));
+    }
+
+    protected static function booted(): void
+    {
+        // Imported from WHMCS and deleted here: a re-run never brings it back (docs/tickets.md §6ζ).
+        static::deleted(function (TicketMessage $message) {
+            if ($message->whmcs_ref !== null) {
+                DB::table('ticket_whmcs_tombstones')->insertOrIgnore(['ref' => $message->whmcs_ref, 'created_at' => now()]);
+            }
+        });
     }
 
     /** @return BelongsTo<Ticket, $this> */

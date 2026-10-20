@@ -742,5 +742,6 @@
     "Open the ticket": "Άνοιγμα του ticket",
     "Your message": "Το μήνυμά σας",
     "The contact of the account, wherever it is used. Its address, phone and email are sent to the registrars of the domains that use it; its name and company stay as the registrars hold them.": "Η επαφή του λογαριασμού, όπου κι αν χρησιμοποιείται. Η διεύθυνση, το τηλέφωνο και το email της στέλνονται στους registrars των domains που τη χρησιμοποιούν· το όνομα και η επωνυμία μένουν όπως τα έχουν οι registrars.",
-    "You": "Εσείς"
+    "You": "Εσείς",
+    "no subject": "χωρίς θέμα"
 }
