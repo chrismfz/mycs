@@ -69,7 +69,7 @@ class AdminDashboardPolishTest extends TestCase
         $this->assertSame('160px', (fn () => $this->maxHeight)->call(new Revenue));
         foreach ([DomainRenewals::class, ServiceRenewals::class,
             RecordsToCheck::class, ServicesToCheck::class] as $widget) {
-            $this->assertSame(['default' => 'full', 'lg' => 1], (fn () => $this->columnSpan)->call(new $widget), $widget);
+            $this->assertSame(1, (fn () => $this->columnSpan)->call(new $widget), $widget);
         }
     }
 }
