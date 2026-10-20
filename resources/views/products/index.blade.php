@@ -109,9 +109,20 @@
                     @endif
 
                     @if (filled(strip_tags((string) $product->description)))
-                    <article class="mt-4 prose prose-sm dark:prose-invert">
-                        {!! $product->description !!}
-                    </article>
+                    {{-- A long list of features: its first 6, the rest a click away (UI polish of 2026-10-20). --}}
+                    @php
+                        $features = substr_count(strtolower((string) $product->description), '<li');
+                    @endphp
+                    <div x-data="{ all: false }" class="mt-4">
+                        <article x-ref="list" class="prose prose-sm dark:prose-invert {{ $features > 6 ? '[&_li:nth-of-type(n+7)]:hidden' : '' }}">
+                            {!! $product->description !!}
+                        </article>
+                        @if ($features > 6)
+                        <button type="button" x-show="!all" x-on:click="all = true; $refs.list.classList.remove('[&_li:nth-of-type(n+7)]:hidden')" class="mt-1 text-sm text-secondary hover:underline">
+                            {{ __('product.more_features', ['count' => $features - 6]) }}
+                        </button>
+                        @endif
+                    </div>
                     @endif
 
                     <div class="mt-auto pt-5 flex flex-col gap-2">

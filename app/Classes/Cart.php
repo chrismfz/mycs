@@ -221,7 +221,7 @@ class Cart
         $existingItem = $key ? $cart->items()->where('id', $key)->exists() : false;
 
         if (!$existingItem && $cart->items()->count() >= self::DEFAULT_MAX_ITEMS) {
-            throw new DisplayException('Your cart cannot contain more than ' . self::DEFAULT_MAX_ITEMS . ' items.');
+            throw new DisplayException(__('product.cart_full', ['count' => self::DEFAULT_MAX_ITEMS]));
         }
     }
 
@@ -232,7 +232,7 @@ class Cart
         $decayMinutes = self::DEFAULT_RATE_LIMIT_DECAY_MINUTES;
 
         if (RateLimiter::tooManyAttempts($key, $maxAttempts)) {
-            throw new DisplayException('You are adding items too quickly. Please wait a moment and try again.');
+            throw new DisplayException(__('product.too_fast'));
         }
 
         RateLimiter::hit($key, $decayMinutes * 60);

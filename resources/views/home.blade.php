@@ -36,7 +36,7 @@
                     <span class="font-medium">{{ $category->name }}</span>
                     <span class="flex items-center gap-1 text-sm text-base/70 text-right">
                         @if ($from)
-                        {{ __('home.from', ['price' => $from['price']]) }}@if ($from['cycle']) · {{ $from['cycle'] }}@endif
+                        {{ __('home.from', ['price' => $from['price']]) }}@if ($from['cycle']) {{ $from['cycle'] }}@endif
                         @if ($from['monthly'])<span class="hidden sm:inline">({{ __('home.per_month', ['price' => $from['monthly']]) }})</span>@endif
                         @endif
                         <x-ri-arrow-right-s-line class="size-5" />

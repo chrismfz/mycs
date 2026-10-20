@@ -43,4 +43,10 @@ return [
     'coupon' => 'Coupon',
     'each' => ':price each',
     'billed' => 'Billed :cycle',
+    'free' => 'Free',
+    'not_in_currency' => 'Not available in your currency',
+    'cart_full' => 'Your cart cannot contain more than :count items.',
+    'too_fast' => 'You are adding items too quickly. Please wait a moment and try again.',
+    'have_coupon' => 'Have a coupon?',
+    'more_features' => '+:count more',
 ];

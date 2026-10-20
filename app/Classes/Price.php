@@ -152,14 +152,14 @@ class Price
     public function format($price)
     {
         if ($this->is_free) {
-            return 'Free';
+            return __('product.free');
         }
         if (!$this->currency) {
             if ($this->dontShowUnavailablePrice) {
                 return '';
             }
 
-            return 'Not available in your currency';
+            return __('product.not_in_currency');
         }
         // Get the format
         $format = $this->currency->format;

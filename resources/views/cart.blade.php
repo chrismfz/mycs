@@ -33,9 +33,9 @@
                         </label>
                         @endif
                         @if ($item->domain['operation'] === 'transfer')
-                        <label class="flex items-center gap-1">{{ __('domains.order.epp_code') }}
+                        <label class="flex flex-wrap items-center gap-1 w-full sm:w-auto">{{ __('domains.order.epp_code') }}
                             <input type="text" wire:model.blur="epp.{{ $item->id }}" autocomplete="off" maxlength="255"
-                                placeholder="{{ filled($item->epp_code) ? __('domains.order.epp_saved') : '' }}" class="bg-background border border-neutral rounded px-2 py-1 font-mono" />
+                                placeholder="{{ filled($item->epp_code) ? __('domains.order.epp_saved') : '' }}" class="w-full sm:w-72 bg-background border border-neutral rounded px-2 py-1 font-mono" />
                         </label>
                         <p class="text-xs text-base/60 w-full">{{ __('domains.order.epp_help') }}</p>
                         @endif
@@ -81,12 +81,12 @@
                             </x-button.primary>
                         </a>
                         @endif
-                        <x-button.danger wire:click="removeProduct({{ $item->id }})" class="h-fit !w-fit">
+                        {{-- A quiet way out of the cart, not the page's loudest button (UI polish of 2026-10-20). --}}
+                        <button type="button" wire:click="removeProduct({{ $item->id }})" wire:loading.attr="disabled"
+                            class="h-fit text-sm text-base/60 hover:text-error underline-offset-2 hover:underline">
                             <x-loading target="removeProduct({{ $item->id }})" />
-                            <div wire:loading.remove wire:target="removeProduct({{ $item->id }})">
-                                {{ __('product.remove') }}
-                            </div>
-                        </x-button.danger>
+                            <span wire:loading.remove wire:target="removeProduct({{ $item->id }})">{{ __('product.remove') }}</span>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -111,13 +111,21 @@
                 @endif
                 <div class="font-semibold flex items-end gap-2">
                     @if(!$coupon)
-                    <x-form.input wire:model="coupon" name="coupon" :label="__('product.coupon')" />
-                    <x-button.primary wire:click="applyCoupon" class="h-fit !w-fit mb-0.5" wire:loading.attr="disabled">
-                        <x-loading target="applyCoupon" />
-                        <div wire:loading.remove wire:target="applyCoupon">
-                            {{ __('product.apply') }}
+                    {{-- Behind a link: most orders have none (UI polish of 2026-10-20); open when it was refused. --}}
+                    <div class="w-full" x-data="{ open: {{ $errors->has('coupon') ? 'true' : 'false' }} }">
+                        <button type="button" x-show="!open" x-on:click="open = true" class="text-sm font-normal text-secondary hover:underline">
+                            {{ __('product.have_coupon') }}
+                        </button>
+                        <div x-show="open" x-cloak class="flex items-end gap-2">
+                            <x-form.input wire:model="coupon" name="coupon" :label="__('product.coupon')" />
+                            <x-button.primary wire:click="applyCoupon" class="h-fit !w-fit mb-0.5" wire:loading.attr="disabled">
+                                <x-loading target="applyCoupon" />
+                                <div wire:loading.remove wire:target="applyCoupon">
+                                    {{ __('product.apply') }}
+                                </div>
+                            </x-button.primary>
                         </div>
-                    </x-button.primary>
+                    </div>
                     @else
                     <div class="flex justify-between items-center w-full">
                         <h4 class="text-center w-full">{{ $coupon->code }}</h4>
