@@ -14,6 +14,7 @@ return new class extends Migration
             $table->string('name');
             $table->unsignedSmallInteger('sort')->default(0);
             $table->unsignedInteger('whmcs_id')->nullable()->unique();
+            $table->char('whmcs_hash', 64)->nullable(); // what the import last wrote: anything else was edited here
             $table->timestamps();
         });
         Schema::create('canned_replies', function (Blueprint $table) {
@@ -24,6 +25,7 @@ return new class extends Migration
             $table->unsignedSmallInteger('sort')->default(0);
             $table->boolean('is_active')->default(true);
             $table->unsignedInteger('whmcs_id')->nullable()->unique();
+            $table->char('whmcs_hash', 64)->nullable();
             $table->timestamps();
         });
     }

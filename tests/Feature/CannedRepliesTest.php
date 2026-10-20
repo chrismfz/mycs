@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\CannedReplyCategoryResource\Pages\ManageCannedReplyCategories;
 use App\Admin\Resources\CannedReplyResource;
 use App\Admin\Resources\CannedReplyResource\Pages\ManageCannedReplies;
 use App\Admin\Resources\TicketResource\Pages\EditTicket;
@@ -14,6 +15,7 @@ use App\Models\TicketMessage;
 use App\Models\User;
 use App\Services\Import\WhmcsTicketImport;
 use App\Support\Tickets\CannedReplyExpander;
+use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
@@ -145,5 +147,20 @@ class CannedRepliesTest extends TestCase
 
         (new WhmcsTicketImport($whmcs))->run();
         $this->assertSame('Changed in WHMCS', CannedReply::query()->where('whmcs_id', 2)->sole()->body, 'and on the next run still followed');
+    }
+
+    public function test_staff_rename_order_and_delete_a_category_its_replies_kept_under_general(): void
+    {
+        $category = CannedReplyCategory::query()->create(['name' => 'Invoces']);
+        $reply = CannedReply::query()->create(['title' => 'A', 'body' => 'a', 'canned_reply_category_id' => $category->id]);
+
+        Livewire::test(ManageCannedReplyCategories::class)->assertSee('Invoces')
+            ->callAction(TestAction::make('edit')->table($category), ['name' => 'Invoices', 'sort' => 3])->assertHasNoActionErrors();
+        $this->assertSame(['Invoices', 3], [$category->fresh()->name, $category->fresh()->sort]);
+
+        Livewire::test(ManageCannedReplyCategories::class)->callAction(TestAction::make('delete')->table($category));
+        $this->assertNull($category->fresh());
+        $this->assertNull($reply->fresh()->canned_reply_category_id);
+        $this->assertSame([__('General') => [$reply->id => 'A']], CannedReply::options());
     }
 }

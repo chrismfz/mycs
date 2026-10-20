@@ -187,8 +187,8 @@ final class WhmcsTicketImport
     }
 
     /**
-     * One row of WHMCS's kept here by its whmcs_id: made if missing, followed while staff have not edited it here, never
-     * brought back once deleted here.
+     * One row of WHMCS's kept here by its whmcs_id: made if missing, followed while it holds what the import last wrote
+     * (`whmcs_hash`: any other value was edited here, whatever the second), never brought back once deleted here.
      *
      * @template T of CannedReply|CannedReplyCategory
      *
@@ -202,16 +202,11 @@ final class WhmcsTicketImport
             return null;
         }
         $record = $model::query()->firstOrNew(['whmcs_id' => $whmcsId]);
-        if ($record->exists && $record->updated_at?->ne($record->created_at)) {
-            return $record; // edited here: MyCS's text wins
+        $hash = fn (array $row) => hash('sha256', (string) json_encode(array_map(fn ($value) => $value === null ? null : (string) $value, $row)));
+        if ($record->exists && $record->whmcs_hash !== $hash($record->only(array_keys($values)))) {
+            return $record; // edited here: MyCS's wins
         }
-        $record->forceFill(['whmcs_id' => $whmcsId] + $values);
-        if ($record->exists && $record->isDirty()) {
-            $record->updated_at = $record->created_at; // followed WHMCS, not edited here
-            $record->timestamps = false;
-        }
-        $record->saveQuietly();
-        $record->timestamps = true;
+        $record->forceFill(['whmcs_id' => $whmcsId, 'whmcs_hash' => $hash($values)] + $values)->saveQuietly();
 
         return $record;
     }
