@@ -43,9 +43,9 @@ class Navigation
                     'icon' => 'ri-global',
                 ],
                 [
-                    // A ticket to support; until it can be opened without logging in, after the login.
+                    // A ticket to support: a guest's by the contact form (docs/tickets.md §3 Ζ), a login's as «New ticket».
                     'name' => __('navigation.contact'),
-                    'url' => route('tickets.create'),
+                    'url' => Auth::guard('web')->check() ? route('tickets.create') : route('contact'),
                     'icon' => 'ri-customer-service-2',
                     // A login whose account does not allow tickets would get a 403 (code review of #217); a guest
                     // goes to the login.

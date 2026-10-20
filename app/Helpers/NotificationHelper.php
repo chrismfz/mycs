@@ -474,7 +474,8 @@ class NotificationHelper
             return;
         }
         $locale = self::localeFor($ticket->client);
-        $recipient = new User(['email' => $to, 'first_name' => $ticket->guest_name]);
+        // A guest's name only when our server vouched for the address: a typed-in one may be anyone's (review of #251).
+        $recipient = new User(['email' => $to, 'first_name' => $ticket->sender_vouched === false ? null : $ticket->guest_name]);
         self::withLocale($locale, function () use ($template, $locale, $ticket, $data, $recipient, $threadMessageId) {
             $previous = self::$account;
             self::$account = $ticket->client;
