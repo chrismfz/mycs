@@ -30,7 +30,7 @@ use Throwable;
  * merged into it (to the end of a chain), internal when another requester wrote them. Files from a copy of WHMCS's
  * attachments folder under §3 ΣΤ, every one counted. No event fires (no mail, no status moved, no notice). One ticket that
  * fails is counted and skipped; the others go on. --dry-run: the same numbers, nothing kept.
- * WHMCS's CC of a ticket as staff's copied addresses, when the ticket is first brought (§6λ).
+ * WHMCS's CC of a ticket not closed as staff's copied addresses, when the ticket is first brought (§6λ).
  * Predefined replies and their categories (§6ι): brought once and followed while not edited here; WHMCS's merge fields
  * ([NAME], …) as our tokens; one deleted here stays deleted.
  */
@@ -279,7 +279,10 @@ final class WhmcsTicketImport
                 $attributes['id'] = $whmcsId;
             }
             $ticketId = (int) DB::table('tickets')->insertGetId($attributes);
-            $this->copies($ticketId, (string) ($row['cc'] ?? ''), $owner);
+            // Only an open ticket's (owner, 2026-10-20): WHMCS also filled its CC from incoming mail's Cc (§3 Γ).
+            if ($fields['status'] !== Ticket::STATUS_CLOSED) {
+                $this->copies($ticketId, (string) ($row['cc'] ?? ''), $owner);
+            }
             $clientId = $owner['client_id'];
             if ($clientId === null) {
                 $this->counts[(int) $row['userid'] > 0 ? 'no_account' : 'guests']++;
@@ -320,7 +323,7 @@ final class WhmcsTicketImport
     }
 
     /**
-     * WHMCS's CC of a ticket (comma separated), when it is first brought: staff's copied addresses here (§6λ), so a
+     * WHMCS's CC of an open ticket (comma separated), when it is first brought: staff's copied addresses here (§6λ), so a
      * re-run never brings back one removed here. Valid addresses only, never the owner's or one of our departments'.
      *
      * @param  array<string, mixed>  $owner
