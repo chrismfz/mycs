@@ -135,4 +135,102 @@ class CPanelProvisioningTest extends TestCase
         $this->assertSame('abcdefgh', $this->service->properties()->where('key', 'cpanel_username')->value('value'));
         $this->assertNull($this->service->properties()->where('key', 'cpanel_pending_username')->value('value'));
     }
+
+    /** The server's WHM login (root in setUp; a reseller's token here). */
+    private function reseller(string $username): void
+    {
+        $this->service->server->settings()->where('key', 'username')->update(['value' => $username]);
+    }
+
+    /** WHM's listpkgs for the login: its own packages (prefixed) and the global ones it may use. */
+    private static function packages(string ...$names): array
+    {
+        return ['package' => array_map(fn (string $name) => ['name' => $name], $names)];
+    }
+
+    /** @param  list<string>  $listed */
+    private function createsWithPlan(array $listed = []): ?string
+    {
+        $plan = null;
+        Http::fake([
+            self::WHM . '/listpkgs*' => Http::response(self::packages(...$listed)),
+            self::WHM . '/createacct*' => function (Request $request) use (&$plan) {
+                $plan = $request['plan'];
+
+                return Http::response(['metadata' => ['result' => 1, 'reason' => 'Account Creation Ok', 'command' => 'createacct']]);
+            },
+        ]);
+        ExtensionHelper::createServer($this->service->fresh());
+
+        return $plan;
+    }
+
+    public function test_a_resellers_short_package_name_takes_its_prefix_as_whm_knows_it(): void
+    {
+        // A reseller of nixpal (2026-10-20): WHMCS stores «V16», WHM knows the reseller's «…_V16».
+        $this->reseller('reseller1');
+
+        $this->assertSame('reseller1_Business20', $this->createsWithPlan(['reseller1_Business20', 'reseller1_V16', 'default']));
+    }
+
+    public function test_a_global_package_a_reseller_may_use_is_not_prefixed(): void
+    {
+        // Code review of the prefix: root's packages (no prefix) listed for a reseller with the right ACL.
+        $this->reseller('reseller1');
+
+        $this->assertSame('Business20', $this->createsWithPlan(['Business20', 'reseller1_V16']));
+    }
+
+    public function test_a_package_already_prefixed_is_as_it_is_and_the_login_is_read_lowercase(): void
+    {
+        $this->reseller('Reseller1');
+        $this->service->product->settings()->where('key', 'package')->update(['value' => 'reseller1_V16']);
+
+        $this->assertSame('reseller1_V16', $this->createsWithPlan(['reseller1_V16']));
+    }
+
+    public function test_a_package_the_login_may_not_use_is_refused_with_why(): void
+    {
+        $this->reseller('reseller1');
+
+        $this->expectExceptionMessage('is not one this server\'s login (reseller1) may use');
+        $this->createsWithPlan(['reseller1_V16']);
+    }
+
+    public function test_root_creates_with_the_package_as_stored(): void
+    {
+        $this->assertSame('Business20', $this->createsWithPlan());
+    }
+
+    public function test_a_resellers_change_of_package_is_resolved_too(): void
+    {
+        $this->reseller('reseller1');
+        $this->service->properties()->create(['key' => 'cpanel_username', 'name' => 'cPanel username', 'value' => 'exampleuser']);
+        Http::fake([self::WHM . '/listpkgs*' => Http::response(self::packages('reseller1_Business10', 'reseller1_Business20')),
+            self::WHM . '/changepackage*' => Http::response(self::changed()), self::WHM . '/accountsummary*' => Http::response(self::summary('reseller1_Business10'))]);
+
+        ExtensionHelper::upgradeServer($this->service->fresh());
+
+        Http::assertSent(fn (Request $request) => str_contains($request->url(), '/changepackage') && $request['pkg'] === 'reseller1_Business20');
+    }
+
+    public function test_a_resellers_unchanged_package_is_not_applied_again(): void
+    {
+        $this->reseller('reseller1');
+        $this->service->properties()->create(['key' => 'cpanel_username', 'name' => 'cPanel username', 'value' => 'exampleuser']);
+        Http::fake([self::WHM . '/listpkgs*' => Http::response(self::packages('reseller1_Business20')),
+            self::WHM . '/accountsummary*' => Http::response(self::summary('reseller1_Business20'))]);
+
+        ExtensionHelper::upgradeServer($this->service->fresh());
+
+        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '/changepackage'));
+    }
+
+    public function test_a_resellers_config_option_package_is_resolved_as_the_products(): void
+    {
+        $this->reseller('reseller1');
+        $this->service->properties()->create(['key' => 'package', 'name' => 'Package', 'value' => 'V16']);
+
+        $this->assertSame('reseller1_V16', $this->createsWithPlan(['reseller1_V16', 'reseller1_Business20']));
+    }
 }
