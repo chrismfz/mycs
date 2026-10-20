@@ -42,7 +42,7 @@
                     </div>
                     @else
                     @if ($item->plan && filled($item->plan->cycle()))
-                    <p class="text-sm text-base/70">{{ __('product.billed', ['cycle' => __('product.per_cycle', ['cycle' => $item->plan->cycle()])]) }}</p>
+                    <p class="text-sm text-base/70">{{ __('product.billed', ['cycle' => $item->plan->type === 'recurring' ? __('product.per_cycle', ['cycle' => $item->plan->cycle()]) : $item->plan->cycle()]) }}</p>
                     @endif
                     <p class="text-sm">
                         @foreach ($item->config_options as $option)

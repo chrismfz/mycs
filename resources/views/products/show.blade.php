@@ -27,8 +27,8 @@
             <h1 class="text-3xl font-bold">{{ $product->name }}</h1>
             <div class="mt-3">
                 <span class="text-2xl font-bold">{{ $price->formatted->price }}</span>
-                @if ($plan !== null && $price->available && filled($plan->cycle()))
-                <span class="text-base/60">/ {{ $plan->cycle() }}</span>
+                @if ($plan !== null && $price->available && !$price->is_free && filled($plan->perCycle()))
+                <span class="text-base/60">{{ $plan->perCycle() }}</span>
                 @endif
             </div>
             @if ($price->has_setup_fee)

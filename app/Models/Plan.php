@@ -95,6 +95,12 @@ class Plan extends Model implements Auditable
         return $this->billing_period > 1 ? $this->billing_period . ' ' . $unit : $unit;
     }
 
+    /** After a price: «/ έτος» for a recurring plan, «εφάπαξ» for a one-time one, «» for a free one (review of #268). */
+    public function perCycle(): string
+    {
+        return $this->type === 'recurring' ? '/ ' . $this->cycle() : $this->cycle();
+    }
+
     /** WHMCS's names of its cycles: a plan named so is shown by its cycle, in the customer's language. */
     private const CYCLE_NAMES = ['monthly', 'quarterly', 'semi-annually', 'semiannually', 'annually', 'biennially', 'triennially',
         'one time', 'onetime', 'one-time', 'free'];

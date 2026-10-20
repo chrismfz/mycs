@@ -9,6 +9,11 @@
         array_unshift($trail, ['name' => $parent->name, 'url' => route('category.show', ['category' => $parent->slug])]);
     }
     $trail[] = ['name' => $category->name];
+    // The open category and every one above it: a subcategory's page marks its root in the menu (review of #268).
+    $chain = [$category->id];
+    for ($parent = $category->parent; $parent !== null && count($chain) < 6; $parent = $parent->parent) {
+        $chain[] = $parent->id;
+    }
 @endphp
 <div class="container mt-10 mb-16">
     <x-navigation.breadcrumb :trail="$trail" />
@@ -29,11 +34,11 @@
             <ul class="flex lg:flex-col gap-2 lg:gap-1 overflow-x-auto pb-2 lg:pb-0 -mx-1 px-1">
                 @foreach ($categories as $ccategory)
                 @php
-                    $open = $category->id == $ccategory->id || $category->parent_id == $ccategory->id;
+                    $open = in_array($ccategory->id, $chain);
                 @endphp
                 <li class="shrink-0">
                     <a href="{{ route('category.show', ['category' => $ccategory->slug]) }}" wire:navigate
-                        @if ($open) aria-current="page" @endif
+                        @if ($open) aria-current="{{ $ccategory->id == $category->id ? 'page' : 'true' }}" @endif
                         @class([
                             'block whitespace-nowrap rounded-md border px-3 py-2 text-sm transition-colors',
                             'border-secondary bg-secondary/10 text-secondary font-semibold' => $open,
@@ -55,7 +60,7 @@
                     class="group flex flex-col bg-background-secondary border border-neutral hover:border-secondary p-5 rounded-lg transition-colors">
                     @if ($childCategory->image)
                     <img src="{{ Storage::url($childCategory->image) }}" alt="{{ $childCategory->name }}"
-                        class="mb-3 aspect-video w-full rounded-md object-cover object-center">
+                        class="mb-3 rounded-md {{ theme('small_images', false) ? 'w-14 h-fit' : 'aspect-video w-full object-cover object-center' }}">
                     @endif
                     <h2 class="text-lg font-bold group-hover:text-secondary">{{ $childCategory->name }}</h2>
                     @if (theme('show_category_description', true) && filled(strip_tags((string) $childCategory->description)))
@@ -91,8 +96,9 @@
 
                     <div class="mt-3">
                         <span class="text-2xl font-bold">{{ $price->formatted->price }}</span>
-                        @if ($plan !== null && $price->available && filled($plan->cycle()))
-                        <span class="text-sm text-base/60">/ {{ $plan->cycle() }}</span>
+                        {{-- A free price has no cycle (Product::price() is free when any plan is). --}}
+                        @if ($plan !== null && $price->available && !$price->is_free && filled($plan->perCycle()))
+                        <span class="text-sm text-base/60">{{ $plan->perCycle() }}</span>
                         @endif
                     </div>
                     @if ($price->has_setup_fee)
