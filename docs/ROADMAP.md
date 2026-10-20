@@ -5,15 +5,14 @@
 > κ.λπ.)· εδώ μόνο ο χάρτης. Η παλιά μορφή, με τις φάσεις 0–5 και όλο το ιστορικό ως το #232:
 > `history/roadmap-2026-10-11-to-20.md`.
 
-## Πού είμαστε (2026-10-20, main στο #232)
+## Πού είμαστε (2026-10-20, main στο #253)
 - Το MyCS τρέχει στο devbox (`https://mycs.myip.gr`)· **καμία εταιρεία δεν δουλεύει ακόμα σε αυτό**. Pilot είναι η
   nixpal, μετά το myip.gr (`../CLAUDE.md`).
 - **Έτοιμα:** η χρέωση και οι ροές χρημάτων, οι λογαριασμοί, οι παραγγελίες, το provisioning, το licensing της nixpal,
   τα domains (Openprovider και Μητρώο .gr με δικό μας EPP), το portal του πελάτη, η μετάφραση el/en, τα παράλληλα tests.
   Σύνοψη στο «Έγινε», παρακάτω.
-- **Τι λείπει για να μπει η nixpal:** αρίθμηση τιμολογίων, σημειώσεις λογαριασμού, PayPal vault, importer με parity,
-  δοκιμή licensing και cPanel, η λειτουργία της παραγωγής (mail, backups, παρακολούθηση) και το runbook του cut-over.
-  Αυτά είναι η σειρά παρακάτω.
+- **Τι λείπει για να μπει η nixpal:** importer με parity, η λειτουργία της παραγωγής (mail, backups, παρακολούθηση)
+  και το runbook του cut-over. Αυτά είναι η σειρά παρακάτω· τα 1–4 έγιναν (2026-10-20).
 
 ## Επόμενα, με σειρά (εγκρίθηκε 2026-10-20)
 Η σειρά οδηγεί στο cut-over της nixpal. Ο importer και το runbook περιμένουν τα tickets, που ξαναγράφονται σε άλλη
@@ -21,16 +20,15 @@ session για parity με το WHMCS (2026-10-20)· ως τότε, ό,τι δε
 
 | # | Τι | Γιατί εδώ |
 |---|---|---|
-| 1 | **Αρίθμηση:** υπάρχει ήδη ως ρύθμιση ανά εταιρεία (`invoice_number_format` με `{year}-{number}`, `invoice_proforma`, padding). Μένουν τα κενά του Δ2: αριθμός μόνο όταν πληρωθεί (σήμερα και στο draft → unpaid), μετρητές σε `sequences` (μια αποθήκευση ρυθμίσεων δεν τους γυρίζει πίσω), «αριθμός = id» του myip | Contract του `CLAUDE.md`· χρήματα. Ο importer πρέπει να το βρει έτοιμο. |
-| 2 | **Σημειώσεις λογαριασμού** (staff μόνο, με συντάκτη και sticky, όπως `tblclients.notes` και `tblnotes`). Υπηρεσίας και domain υπάρχουν· τιμολογίου και tickets δεν χρειάζονται (2026-10-20) | Σχήμα που χρειάζεται ο importer. |
+| 1 | ~~**Αρίθμηση**~~ **έγινε (#238, #241):** τρεις τρόποι ως ρύθμιση (μετρητής, proforma με αριθμό στην πληρωμή και έτος πληρωμής, «αριθμός = id» του myip)· ένα τιμολόγιο που δεν εκδόθηκε ποτέ ακυρώνεται χωρίς πιστωτικό. Η nixpal μένει proforma (2026-10-20). Για το import: στο 6 | — |
+| 2 | ~~**Σημειώσεις λογαριασμού**~~ **έγινε (#243):** `client_notes` (staff μόνο, συντάκτης, sticky banner)· υπηρεσίας και domain υπήρχαν· τιμολογίου και tickets δεν χρειάζονται | — |
 | 3 | ~~**PayPal vault**~~ **υπάρχει (έλεγχος 2026-10-20):** το gateway PayPal κάνει Vault v3 (αποθήκευση από τον πελάτη, χρέωση με `vault_id`, idempotent, PENDING ως processing), η αυτόματη χρέωση (`AutoCharge`) το καλύπτει, και ο έλεγχος ιδιοκτησίας (PAY-8) υπάρχει. Τα 15 vault tokens της nixpal διαβάζονται με τα REST credentials του `paypal_ppcpv` (13/15, 2026-10-08, `history/blesta-modules/importer.md`). **Μένουν:** ο importer των `tblpaymethods` (στο 6)· στο cut-over τα **ίδια** credentials στο gateway PayPal, και οι παλιές συνδρομές PayPal στο vault (Π7.9, δίχτυ IPN στο H2b) | — |
-| 4 | **Licensing και cPanel σε δοκιμή:** shadow-run του `zlic.php` απέναντι στο WHMCS, rate limit στο `zlic.php`· cPanel/WHM της nixpal από το devbox (create/suspend/terminate, δύο WHM servers) | Contracts και provisioning με πραγματικούς servers πριν τη μεταφορά. |
+| 4 | ~~**Licensing και cPanel σε δοκιμή**~~ **έγινε:** το `zlic.php` δουλεύει live από το MyCS με client χωρίς αλλαγή (ο υπεύθυνος, 2026-10-20· shadow-run δεν χρειάζεται)· rate limit (#254)· cPanel στον orion: create/suspend/unsuspend/terminate με reseller της nixpal, και το πρόθεμα του πακέτου (#246) | — |
 | 5 | **Λειτουργία της παραγωγής:** πού ζει το instance (`open-questions.md`), SMTP/SPF/DKIM, off-site backups με δοκιμή επαναφοράς, παρακολούθηση και endpoint υγείας, branding PDF της nixpal | Χωρίς αυτά δεν υπάρχει παραγωγή. |
 | 6 | **Importer του νέου σχήματος + `mycs:parity`** (μετά τα tickets): λογαριασμοί, επαφές, υπηρεσίες με τον server τους, σημειώσεις, domains (D6, 11 της nixpal), αρίθμηση· συνθετικό σύνολο «σαν nixpal» για τα tests. **Αποθηκευμένες μέθοδοι:** `tblpaymethods` → `billing_agreements` (nixpal: 15 PayPal vault `{vaultId}`, 52 κάρτες Stripe `{customer, method}`, χωρίς τις soft-deleted), και η προεπιλογή ανά πελάτη. **Αρίθμηση στο import (#238, tests incomplete στο `InvoiceNumberingAdversarialTest`):** myip με «αριθμός = id»: number = id σε κάθε εισαγόμενο τιμολόγιο· nixpal: ο μετρητής από το `SequentialInvoiceNumberValue` του WHMCS (ο τελευταίος αριθμός, 6818), όχι max(id) + 1· κανένας αριθμός να μη χάνεται σιωπηλά (διπλά `invoicenum`). **Σημειώσεις λογαριασμού:** `tblnotes` → `client_notes` (συντάκτης, sticky), `tblclients.notes` → μία σημείωση ανά λογαριασμό | Πατά στα 1–3 και στα νέα tickets. Re-runnable, με parity (`importer.md`). |
 | 7 | **Runbook cut-over με επιστροφή** (πρότυπο: `go-live-runbook.md` του Ekdosi): πάγωμα, import και parity, DNS/webhooks, ενημέρωση πελατών, links των sites, έλεγχοι πρώτης μέρας· 2–3 δοκιμαστικές μεταφορές | Τελευταίο, πάνω σε σταθερό σχήμα και δεδομένα. |
 
-Μικρά που χωράνε ανάμεσα (domains, portal): **P1b** (τα στοιχεία μιας επαφής που άλλαξε ο πελάτης στέλνονται στους
-registrars), **P5** (child nameservers/glue από τον πελάτη· για το staff υπάρχει, #196).
+Μικρά που χωράνε ανάμεσα (domains, portal): ~~P1b~~, ~~P5~~ έγιναν (#247, #253, #250).
 
 ## Ανοιχτά, ανά θέμα
 
@@ -71,8 +69,19 @@ registrars), **P5** (child nameservers/glue από τον πελάτη· για 
 - [ ] Συμφιλίωση της κατάστασης μετά από job του server (το create υπάρχει, #114)· συγχρονισμός χρήσης cPanel.
 - [ ] Modules του myip: Proxmox, Centova, mailcow (το package `mailcow` υπάρχει χωρίς extension).
 
+### Licensing (`licensing.md`)
+- [ ] **Ποιοι χτυπάνε χωρίς να πρέπει** (ο υπεύθυνος, 2026-10-20): οθόνη του staff με
+      - άδειες terminated/suspended/expired που ακόμα ελέγχουν (πόσοι έλεγχοι, από πού, πότε τελευταία)· στις 90 ημέρες
+        της nixpal στο WHMCS ήταν 535 χιλ. «Expired» και 44 χιλ. «Suspended»·
+      - IPs που χτυπάνε χωρίς να είχαν ποτέ άδεια (άγνωστα κλειδιά, IP mismatch)·
+      - ενέργειες: block IP (στο edge/angie ή στο zlic.php), ειδοποίηση του πελάτη ότι έχει ανοιχτά binaries χωρίς άδεια
+        (template email). Τα δεδομένα υπάρχουν ήδη σε μεγάλο μέρος (`license_check_days`, `last_failure`, access log,
+        `zlic_limits` του #254)· λείπουν η άθροιση ανά IP χωρίς άδεια και η οθόνη.
+
 ### Domains (`domains.md`, `domains/grepp.md`)
-- [ ] **P1b**, **P5** (παραπάνω)· μαζικές ενέργειες στη λίστα του portal· απόδοση με πολλά domains.
+- [ ] Μαζικές ενέργειες στη λίστα του portal· απόδοση με πολλά domains.
+- [ ] Μικρά του P1b (#248): πεδίο διεύθυνσης που αδειάζει ίσως μένει παλιό στο Openprovider· η `int` διεύθυνση του .gr
+      δεν ενημερώνεται.
 - [ ] Απόφαση: ανανέωση από το portal ως `invoices` ή ως `orders` (`domains.md`, D7-2 «Ανοιχτό»)· ανανέωση στην
       έκδοση ανά πελάτη· additional fields ανά TLD.
 - [ ] Ο κατάλογος .gr στο MyCS: τιμές και ΦΠΑ πριν πουληθεί από εδώ· ο importer φέρνει το `recurring_amount` των .gr
@@ -92,7 +101,7 @@ registrars), **P5** (child nameservers/glue από τον πελάτη· για 
       (είναι στα sites των εταιρειών).
 
 ### Ασφάλεια και ποιότητα
-- [ ] Rate limit στο `zlic.php`· endpoint υγείας.
+- [ ] Endpoint υγείας.
 - [ ] phpstan baseline: 339 σφάλματα του upstream (σε 270 εγγραφές)· μειώνεται όπου περνάμε.
 - [ ] Το repo γίνεται private «όταν ηρεμήσουμε» (ο υπεύθυνος). Ως τότε: έγγραφα με σήμανση εμπιστευτικού δεν
       μπαίνουν στο repo, μόνο παράφραση.
@@ -111,6 +120,10 @@ registrars), **P5** (child nameservers/glue από τον πελάτη· για 
 - [ ] Σβήσιμο των branches που έχουν γίνει merge (`adv/*`, `fix/upgrade-test-date`, `spike/domains`).
 
 ## Έγινε (σύνοψη· λεπτομέρειες στα PRs και στα docs)
+- **Πριν το cut-over της nixpal (2026-10-20):** αρίθμηση σε τρεις τρόπους (#238), χωρίς πιστωτικό για τιμολόγιο που δεν
+  εκδόθηκε (#241), σημειώσεις λογαριασμού (#243), πακέτο reseller στο cPanel (#246), rate limit στο `zlic.php` (#254)·
+  επαφές: όσο ένα domain τις χρησιμοποιεί, το όνομα μένει και η διεύθυνση, το τηλέφωνο και το email πάνε στους
+  registrars (P1b, #247, #253)· glue .gr από τον πελάτη (P5, #250).
 - **Καθάρισμα και βάσεις:** χωρίς telemetry/updater/marketplace, CI με Pint και phpstan, εγκατάσταση και deploy στο
   devbox (Φάση 0)· audit sweep του κληρονομημένου κώδικα και σταθεροποίηση (Φάση 1a, `audit-sweep.md`).
 - **Χρήματα:** ενιαίο σημείο τιμολόγησης σε decimal (Σ7, #107, #109)· αλλαγή πακέτου/κύκλου με αναλογική χρέωση
