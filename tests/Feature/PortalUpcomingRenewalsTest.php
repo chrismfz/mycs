@@ -9,7 +9,10 @@ use App\Models\ClientUser;
 use App\Models\Currency;
 use App\Models\Domain;
 use App\Models\DomainTld;
+use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\Plan;
+use App\Models\Price as PlanPrice;
 use App\Models\Service;
 use App\Models\ServiceCancellation;
 use App\Models\Setting;
@@ -158,5 +161,77 @@ class PortalUpcomingRenewalsTest extends TestCase
         $this->assertStringContainsString($this->money('12.40'), $card, 'the service: 10.00 + 24%');
         $this->assertStringContainsString($this->money('18.60'), $card, 'the domain: 15.00 + 24%');
         $this->assertStringContainsString($this->money('31.00'), $card, 'the month');
+    }
+
+    /** The items of a month's box, as the page lists them. */
+    private function month(string $html, string $month): string
+    {
+        $start = (int) strpos($html, 'wire:key="renewals-' . $month . '"');
+
+        return substr($html, $start, (int) strpos($html, '</details>', $start) - $start);
+    }
+
+    public function test_a_monthly_service_renews_every_month_a_yearly_one_once(): void
+    {
+        // Code review of #231: a monthly service is billed each month of the three, not once.
+        $user = User::factory()->create();
+        $client = $user->client();
+        $this->service($client, 'Monthly hosting', '2026-10-25', '10.00');
+        $yearly = $this->service($client, 'Yearly backup', '2026-11-03', '50.00');
+        Plan::query()->whereKey($yearly->plan_id)->update(['billing_unit' => 'year']);
+
+        $html = $this->workOn($user)->get(route('dashboard'))->assertOk()->getContent();
+        foreach (['2026-10' => '25/10/2026', '2026-11' => '25/11/2026', '2026-12' => '25/12/2026'] as $month => $date) {
+            $this->assertStringContainsString($date . ' · Monthly hosting', $this->month($html, $month));
+        }
+        $this->assertStringContainsString('Yearly backup', $this->month($html, '2026-11'));
+        $this->assertStringNotContainsString('Yearly backup', $this->month($html, '2026-12'));
+        $this->assertStringContainsString($this->money('60.00'), $this->month($html, '2026-11'));
+    }
+
+    public function test_the_last_day_of_the_window_counts(): void
+    {
+        $user = User::factory()->create();
+        $this->service($user->client(), 'New year eve', '2026-12-31 00:00:00');
+
+        $html = $this->workOn($user)->get(route('dashboard'))->assertOk()->getContent();
+        $this->assertStringContainsString('New year eve', $this->month($html, '2026-12'));
+    }
+
+    public function test_an_invoiced_renewal_is_marked_a_paid_one_is_not_to_come_a_free_one_is_not_listed(): void
+    {
+        $user = User::factory()->create();
+        $client = $user->client();
+        $invoiced = $this->service($client, 'Already invoiced', '2026-10-27', '10.00');
+        $paid = $this->service($client, 'Already paid', '2026-10-27', '10.00');
+        $this->service($client, 'Free of charge', '2026-10-27', '0.00');
+        foreach ([[$invoiced, Invoice::STATUS_UNPAID], [$paid, Invoice::STATUS_PAID]] as [$service, $status]) {
+            $invoice = Invoice::factory()->create(['client_id' => $client->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+            InvoiceItem::query()->create(['invoice_id' => $invoice->id, 'reference_type' => Service::class, 'reference_id' => $service->id,
+                'price' => 10, 'quantity' => 1, 'description' => 'Renewal', 'period_start' => '2026-10-27', 'period_end' => '2026-11-27']);
+            Invoice::query()->whereKey($invoice->id)->update(['status' => $status]);
+        }
+
+        $html = $this->workOn($user)->get(route('dashboard'))->assertOk()->getContent();
+        $october = $this->month($html, '2026-10');
+        $this->assertStringContainsString('Already invoiced', $october);
+        $this->assertStringContainsString(__('dashboard.renewals.invoiced'), $october);
+        $this->assertStringNotContainsString('Already paid', $october, 'paid, waiting to be applied: not to come');
+        $this->assertStringContainsString('Already paid', $this->month($html, '2026-11'), 'its next period is');
+        $this->assertStringNotContainsString('Free of charge', $html);
+    }
+
+    public function test_a_cycle_change_from_the_next_renewal_is_forecast_at_the_next_plans_price(): void
+    {
+        $user = User::factory()->create();
+        $service = $this->service($user->client(), 'Changing cycle', '2026-11-10', '10.00');
+        $yearly = Plan::factory()->create(['priceable_id' => $service->product_id, 'priceable_type' => $service->plan->priceable_type,
+            'name' => 'Yearly', 'billing_unit' => 'year', 'billing_period' => 1, 'type' => 'recurring']);
+        PlanPrice::factory()->create(['plan_id' => $yearly->id, 'price' => 100.00, 'currency_code' => 'USD']);
+        Service::query()->whereKey($service->id)->update(['next_plan_id' => $yearly->id]);
+
+        $html = $this->workOn($user)->get(route('dashboard'))->assertOk()->getContent();
+        $this->assertStringContainsString($this->money('100.00'), $this->month($html, '2026-11'));
+        $this->assertStringNotContainsString('Changing cycle', $this->month($html, '2026-12'), 'yearly from then on');
     }
 }

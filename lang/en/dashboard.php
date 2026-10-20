@@ -31,7 +31,8 @@ return [
     ],
     'renewals' => [
         'title' => 'Upcoming renewals',
-        'hint' => 'What renews in the next three months and what it will cost, with VAT. Domains with auto renew off are not included.',
+        'hint' => 'What renews from today to the end of the second month after this one, and what it will cost with VAT. Domains with auto renew off are not included.',
+        'invoiced' => 'invoiced ·',
         'count' => '{0} No renewals|{1} 1 renewal|[2,*] :count renewals',
         'priced_by_us' => 'priced by us',
     ],
