@@ -13,6 +13,7 @@ use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Support\Tickets\CannedReplyExpander;
 use App\Support\Tickets\GuestLinks;
+use App\Support\Tickets\MergeTickets;
 use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\MarkdownEditor;
@@ -143,6 +144,12 @@ class EditTicket extends EditRecord
 
     private function store(bool $internal): void
     {
+        // A merged ticket takes nothing more: its thread went on in the one it was merged into (§6κ).
+        if ($this->record instanceof Ticket && $this->record->fresh()?->isMerged()) {
+            Notification::make()->title(__('This ticket was merged into another: write there.'))->warning()->send();
+
+            return;
+        }
         $data = $this->form->getState();
 
         $message = $this->record->messages()->create([
@@ -271,8 +278,38 @@ class EditTicket extends EditRecord
                         ->action(function (array $data, Ticket $record): void {
                             $record->update($data);
                         })
-                        ->hidden(!auth()->user()->can('update', $this->record))
+                        // A merged ticket stays closed: reopened, it would wait on a reply it cannot take (review of #266).
+                        ->hidden(!auth()->user()->can('update', $this->record) || ($this->record instanceof Ticket && $this->record->isMerged()))
                         ->icon('heroicon-o-pencil'),
+                    // A duplicate into another ticket of the same owner (docs/tickets.md §6κ).
+                    Action::make('merge')
+                        ->label('Merge into…')
+                        ->icon('heroicon-o-arrows-pointing-in')
+                        ->color('gray')
+                        ->schema([
+                            Select::make('target_id')
+                                ->label('Ticket to keep')
+                                ->required()
+                                ->searchable()
+                                ->options(fn (Ticket $record) => $this->mergeTargets($record))
+                                ->getSearchResultsUsing(fn (string $search, Ticket $record) => $this->mergeTargets($record, $search))
+                                ->helperText('Only tickets of the same customer (or guest address). This ticket\'s messages move there and it is closed.'),
+                        ])
+                        ->requiresConfirmation()
+                        ->modalDescription('Nothing is mailed. The customer\'s replies to this ticket\'s mails and its links lead to the ticket kept.')
+                        ->action(function (array $data, Ticket $record) {
+                            $target = Ticket::query()->find($data['target_id']);
+                            $staff = Auth::guard('staff')->user();
+                            if ($target === null || !$record->canMergeInto($target) || !auth()->user()->can('update', $target)) {
+                                Notification::make()->title(__('These tickets cannot be merged: another owner, or one already merged.'))->danger()->send();
+
+                                return;
+                            }
+                            app(MergeTickets::class)->handle($record, $target, $staff instanceof Staff ? $staff : null);
+                            Notification::make()->title(__('Merged into ticket #:reference.', ['reference' => $target->reference]))->success()->send();
+                            $this->redirect(TicketResource::getUrl('edit', ['record' => $target]));
+                        })
+                        ->hidden(!auth()->user()->can('update', $this->record) || ($this->record instanceof Ticket && $this->record->isMerged())),
                     Action::make('Delete')
                         ->color('danger')
                         ->icon('heroicon-o-trash')
@@ -290,8 +327,24 @@ class EditTicket extends EditRecord
                     AuditAction::make()->auditChildren([
                         'messages',
                     ]),
-                ])->columnSpan(['default' => 'full', 'md' => 1]),
+                ])->key('ticketActions')->columnSpan(['default' => 'full', 'md' => 1]),
             ]);
+    }
+
+    /** @return array<int, string> the tickets this one may be merged into, newest first, by number or subject */
+    private function mergeTargets(Ticket $record, ?string $search = null): array
+    {
+        $query = Ticket::query()->whereKeyNot($record->id)->whereNull('merged_into_id');
+        $record->client_id !== null
+            ? $query->where('client_id', $record->client_id)
+            : $query->whereNull('client_id')->whereRaw('LOWER(guest_email) = ?', [mb_strtolower(trim((string) $record->guest_email))]);
+        if (filled($search)) {
+            $like = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower(trim($search))) . '%';
+            $query->where(fn ($q) => $q->where('reference', ltrim(trim($search), '#'))->orWhereRaw("LOWER(subject) LIKE ? ESCAPE '!'", [$like]));
+        }
+
+        return $query->latest('id')->limit(50)->get()
+            ->mapWithKeys(fn (Ticket $ticket) => [$ticket->id => '#' . $ticket->reference . ' · ' . $ticket->subject . ' (' . Ticket::statusLabel($ticket->status) . ')'])->all();
     }
 
     private function formatServiceOptionLabel($record): string

@@ -1,4 +1,11 @@
 <x-filament-panels::page>
+    @if ($this->record->isMerged() && $this->record->mergedInto)
+        {{-- Merged by staff (docs/tickets.md §6κ): its thread goes on in the other. --}}
+        <div class="rounded-lg border border-warning-300 bg-warning-50 p-3 text-sm dark:border-warning-600 dark:bg-warning-950/40">
+            {{ __('Merged into ticket') }}
+            <a class="font-semibold underline" href="{{ App\Admin\Resources\TicketResource::getUrl('edit', ['record' => $this->record->mergedInto]) }}">#{{ $this->record->mergedInto->reference }}</a>.
+        </div>
+    @endif
     <div class="md:grid grid-cols-4 flex flex-col gap-4" wire:poll.10s>
         <div class="md:col-span-3">
             <div class="flex flex-col gap-4 max-h-[60vh] overflow-y-auto pr-4">

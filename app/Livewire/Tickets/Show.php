@@ -37,9 +37,32 @@ class Show extends Component
     #[Rule('required', 'string')]
     public string $message;
 
+    /** A merged ticket's page leads to the one it was merged into (same owner: docs/tickets.md §6κ). */
+    public function mount(): void
+    {
+        if ($this->ticket->isMerged()) {
+            $this->redirectRoute('tickets.show', $this->ticket->survivor());
+        }
+    }
+
+    /** A page opened before the merge writes nothing into the merged ticket: it goes to the one kept (review of #266). */
+    private function merged(): bool
+    {
+        $ticket = $this->ticket->fresh();
+        if ($ticket === null || !$ticket->isMerged()) {
+            return false;
+        }
+        $this->redirectRoute('tickets.show', $ticket->survivor());
+
+        return true;
+    }
+
     public function save()
     {
         $this->authorize('update', $this->ticket);
+        if ($this->merged()) {
+            return;
+        }
         $this->validate();
 
         $rateLimitKey = 'ticket-message:' . $this->ticket->id . ':' . Auth::id();
@@ -73,6 +96,9 @@ class Show extends Component
     public function closeTicket()
     {
         $this->authorize('update', $this->ticket);
+        if ($this->merged()) {
+            return;
+        }
         if (config('settings.ticket_client_closing_disabled', false)) {
             abort(403, 'Closing tickets is disabled.');
         }

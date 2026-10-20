@@ -281,6 +281,12 @@ final class WhmcsTicketImport
             if ($clientId === null) {
                 $this->counts[(int) $row['userid'] > 0 ? 'no_account' : 'guests']++;
             }
+        } elseif ($existing->merged_into_id !== null) {
+            // Merged here (§6κ): left closed; what WHMCS gets since goes to the ticket it was merged into.
+            $survivor = Ticket::query()->findOrFail($existing->id)->survivor();
+            $ticketId = $survivor->id;
+            $clientId = $survivor->client_id;
+            $this->counts['unchanged']++;
         } else {
             $ticketId = (int) $existing->id;
             $clientId = $existing->client_id !== null ? (int) $existing->client_id : null;

@@ -154,7 +154,7 @@ class InboundRouter
         // Only the Message-IDs we gave our own mails (TicketMailId, A3): never one that came in.
         $key = TicketMailId::query()->whereIn('message_id', $email->references)->latest('id')->first();
 
-        return $key?->ticket;
+        return $key?->ticket?->survivor();
     }
 
     /** A ticket named in a subject as WHMCS and we write it: «[Ticket ID: 123456]», «[#123456]». */
@@ -164,7 +164,8 @@ class InboundRouter
             return null;
         }
 
-        return Ticket::query()->where('reference', $m[1])->first();
+        // A merged ticket's number leads to the one it was merged into (§6κ).
+        return Ticket::query()->where('reference', $m[1])->first()?->survivor();
     }
 
     /** The account of a login, when it is exactly one that lets it see tickets; otherwise none (staff link it). */

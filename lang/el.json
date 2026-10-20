@@ -759,6 +759,11 @@
     "Internal note added.": "Η εσωτερική σημείωση προστέθηκε.",
     "General": "Γενικά",
     "Reply Categories": "Κατηγορίες απαντήσεων",
+    "These tickets cannot be merged: another owner, or one already merged.": "Τα tickets δεν συγχωνεύονται: άλλος κάτοχος, ή ένα ήδη συγχωνευμένο.",
+    "Ticket #:reference was merged into this one.": "Το ticket #:reference συγχωνεύθηκε σε αυτό.",
+    "Merged into ticket #:reference.": "Συγχωνεύθηκε στο ticket #:reference.",
+    "This ticket was merged into another: write there.": "Αυτό το ticket συγχωνεύθηκε σε άλλο: γράψτε εκεί.",
+    "Merged into ticket": "Συγχωνεύθηκε στο ticket",
     "Contact form": "Φόρμα επικοινωνίας",
     "Guest page": "Σελίδα επισκέπτη"
 }

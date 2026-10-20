@@ -8,6 +8,7 @@ use App\Http\Requests\Api\Admin\TicketMessages\DeleteTicketMessageRequest;
 use App\Http\Requests\Api\Admin\TicketMessages\GetTicketMessageRequest;
 use App\Http\Requests\Api\Admin\TicketMessages\GetTicketMessagesRequest;
 use App\Http\Resources\TicketMessageResource;
+use App\Models\Ticket;
 use App\Models\TicketMessage;
 use Dedoc\Scramble\Attributes\Group;
 use Dedoc\Scramble\Attributes\QueryParameter;
@@ -46,6 +47,10 @@ class TicketMessageController extends ApiController
      */
     public function store(CreateTicketMessageRequest $request)
     {
+        // A merged ticket takes nothing more: its thread goes on in the one it was merged into (docs/tickets.md §6κ).
+        $merged = Ticket::query()->find($request->validated('ticket_id'))?->mergedInto;
+        abort_if($merged !== null, 422, 'This ticket was merged into ticket #' . $merged?->reference . '.');
+
         // Validate and create the ticketMessage
         $ticketMessage = TicketMessage::create($request->validated());
 
