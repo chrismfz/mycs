@@ -10,6 +10,9 @@ use Filament\Widgets\TableWidget as BaseWidget;
 
 class Support extends BaseWidget
 {
+    // The dashboard's order (owner 2026-10-21): cards, registrar credit, revenue | support, income | renewals.
+    protected static ?int $sort = 3;
+
     protected static ?string $pollingInterval = '30s';
 
     public function table(Table $table): Table

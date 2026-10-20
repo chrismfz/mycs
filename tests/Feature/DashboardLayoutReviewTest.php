@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Admin\Pages\Dashboard;
+use App\Admin\Widgets\ActiveUsers;
+use App\Admin\Widgets\EstimatedIncome;
 use App\Admin\Widgets\Overview;
 use App\Admin\Widgets\Renewals\DomainRenewals;
 use App\Models\Currency;
@@ -42,6 +44,29 @@ class DashboardLayoutReviewTest extends TestCase
         $this->actAs(['admin.widgets.revenue', 'admin.widgets.overview', 'admin.widgets.support', 'admin.widgets.active_users',
             'admin.widgets.renewals', 'admin.domains.viewAny', 'admin.services.viewAny']);
 
+        $placed = $this->placed();
+
+        $this->assertSame(0, $placed[DomainRenewals::class], 'Domain renewals starts its row, not beside the widget before it: ' . json_encode($placed));
+    }
+
+    /**
+     * R2. Staff without the orders' or the services' permission get 3 cards; the grid stays 5 wide at xl, so the row
+     * is 60% filled and 40% empty (Filament's own getColumns() follows the count).
+     */
+    public function test_three_cards_do_not_sit_in_a_five_column_row(): void
+    {
+        $this->actAs(['admin.widgets.overview']);
+        $widget = Livewire::test(Overview::class)->instance();
+        $stats = (fn () => $this->getStats())->call($widget);
+        $columns = (fn () => $this->getColumns())->call($widget);
+
+        $this->assertCount(3, $stats);
+        $this->assertLessThanOrEqual(count($stats), is_array($columns) ? max($columns) : $columns, 'as many columns as cards');
+    }
+
+    /** @return array<class-string, int> each visible widget's column at lg, as CSS grid places them (row by row). */
+    private function placed(): array
+    {
         // CSS grid auto-placement at lg, as Filament's Grid::make(2) lays the widgets out.
         $columns = (new Dashboard)->getColumns();
         $this->assertSame(2, $columns);
@@ -70,21 +95,20 @@ class DashboardLayoutReviewTest extends TestCase
             $column = ($column + 1) % $columns;
         }
 
-        $this->assertSame(0, $placed[DomainRenewals::class], 'Domain renewals starts its row, not beside the widget before it: ' . json_encode($placed));
+        return $placed;
     }
 
-    /**
-     * R2. Staff without the orders' or the services' permission get 3 cards; the grid stays 5 wide at xl, so the row
-     * is 60% filled and 40% empty (Filament's own getColumns() follows the count).
-     */
-    public function test_three_cards_do_not_sit_in_a_five_column_row(): void
+    /** Everything seen (income too): domain renewals fill the room beside Income (owner 2026-10-21). */
+    public function test_domain_renewals_sit_beside_income(): void
     {
-        $this->actAs(['admin.widgets.overview']);
-        $widget = Livewire::test(Overview::class)->instance();
-        $stats = (fn () => $this->getStats())->call($widget);
-        $columns = (fn () => $this->getColumns())->call($widget);
+        $this->actAs(['*']);
+        if (!EstimatedIncome::canView()) {
+            $this->markTestSkipped('no income widget for this role');
+        }
+        $placed = $this->placed();
 
-        $this->assertCount(3, $stats);
-        $this->assertLessThanOrEqual(count($stats), is_array($columns) ? max($columns) : $columns, 'as many columns as cards');
+        $this->assertSame(0, $placed[EstimatedIncome::class], json_encode($placed));
+        $this->assertSame(1, $placed[DomainRenewals::class], json_encode($placed));
+        $this->assertSame(array_key_last($placed), ActiveUsers::class, 'Active users last, the width of the page');
     }
 }
