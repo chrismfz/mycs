@@ -59,6 +59,13 @@ class DashboardLayoutReviewTest extends TestCase
 
                 continue;
             }
+            // A widget told to start at column 1 (columnStart, the fix) goes to the next row when the cursor is past it,
+            // as CSS grid's auto-placement does.
+            $start = (fn () => $this->columnStart)->call(new $widget);
+            $start = is_array($start) ? ($start['lg'] ?? $start['md'] ?? $start['default'] ?? null) : $start;
+            if ($start === 1 && $column !== 0) {
+                $column = 0;
+            }
             $placed[$widget] = $column;
             $column = ($column + 1) % $columns;
         }

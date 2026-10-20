@@ -47,10 +47,12 @@ class Overview extends BaseWidget
         ]);
     }
 
-    /** Five cards in a row on a wide screen. */
+    /** All the cards in one row on a wide screen: five, or as many as this staff member may see (review of #279). */
     protected function getColumns(): int|array
     {
-        return ['default' => 1, 'md' => 3, 'xl' => 5];
+        $count = max(1, count($this->getCachedStats()));
+
+        return ['default' => 1, 'md' => min(3, $count), 'xl' => $count];
     }
 
     /** WHMCS's «Pending Orders» counter (Σ1-b2): always there, gray at zero. */
