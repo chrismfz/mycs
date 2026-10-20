@@ -63,7 +63,7 @@ class CannedRepliesAdversarialTest extends TestCase
         // Categories are made from the reply form (createOptionForm) or by the import, but nothing in the admin renames,
         // re-sorts or deletes one: a typo stays for good, and CannedReplyCategory's tombstone is unreachable.
         if (Filament::getPanel('admin')->getModelResource(CannedReplyCategory::class) !== null) {
-            $this->assertTrue(true);
+            $this->addToAssertionCount(1);
 
             return;
         }
