@@ -17,7 +17,14 @@
 ## Ανοιχτά
 - **CNIC της nixpal (4 domains):** driver CNIC πριν το cut-over ή μεταφορά τους στο Openprovider; Ο driver
   χρειάζεται ούτως ή άλλως για το myip (209).
-- **Παραγωγή της nixpal:** σε ποιον server και σε ποιο domain ζει το instance.
+- ~~**Παραγωγή της nixpal**~~ **απαντήθηκε (2026-10-20):** όταν είμαστε σίγουροι, στον **orion**, δίπλα στο WHMCS, ως
+  `mycs.nixpal.com`· στο migration το `clients.nixpal.com` περνά στο MyCS (στον ίδιο server: αλλαγή vhost, όχι IP· το
+  `zlic.php` μένει στο ίδιο URL). Mail: **ακριβώς τα ίδια** με το WHMCS (SMTP, `support@nixpal.com`, «NixPal», και τα ίδια
+  τμήματα των tickets), για να μη φανεί η αλλαγή· τα στοιχεία από τη nixpal όταν έρθει η ώρα, στο `.env`. Backups: το
+  JetBackup του cPanel, off-site στον rosso (ο λογαριασμός του MyCS είναι cPanel λογαριασμός, άρα βάση και αρχεία
+  μαζί)· μένει μία δοκιμή επαναφοράς πριν το cut-over. Έλεγχος του orion
+  (μόνο αναγνώσεις): CloudLinux 8, `ea-php84` με τα extensions του MyCS, MariaDB 11.4, ο λογαριασμός `clnixpal` με
+  CageFS πίσω από angie, χωρίς composer. Τίποτα δεν στήνεται εκεί πριν το πει ο υπεύθυνος.
 - **Ρόλοι staff (για αργότερα):** στο WHMCS του myip υπάρχουν 5 ρόλοι, ενεργοί admins μόνο σε 2: Full Administrator (3)
   και Support Operator (1)· Sales Operator χωρίς ενεργό admin (2026-10-11). Ένας ρόλος ανά χρήστη αρκεί, άρα κρατάμε το
   σύστημα του upstream (ρόλος με λίστα δικαιωμάτων) και όχι `spatie/laravel-permission` όπως στο Ekdosi.
