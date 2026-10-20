@@ -369,7 +369,7 @@ importer):
       (όπως το clientarea του WHMCS). **Αποφασίστηκε 2026-10-19:** κατευθείαν στο Dashboard· μενού επισκέπτη και αρχική
       στο `admin-ux.md` («Μενού επισκέπτη»).
 - [ ] **Επικοινωνία χωρίς login και tickets με email** (2026-10-19): σχέδιο και μοντέλο ασφάλειας στο
-      [`tickets.md`](tickets.md) (προς έγκριση)· PRs Α (πυρήνας email από το Ekdosi, σκληρυμένος, tickets επισκέπτη),
+      [`tickets.md`](tickets.md) (αποφάσεις 2026-10-20)· PRs Α (πυρήνας email από το Ekdosi, σκληρυμένος, tickets επισκέπτη),
       Β (φόρμα), Γ (σελίδα επισκέπτη), Δ (νέος importer tickets του WHMCS: επισκέπτες ως επισκέπτες, `tid`, σημειώσεις,
       συνημμένα). Το σημερινό piping μένει κλειστό: είναι ευπαθές (§1).
 - [ ] Shadow-run του licensing → cut-over της nixpal, **μετά τα domains της Φάσης 2** (Openprovider, CNIC).
