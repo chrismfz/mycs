@@ -31,11 +31,8 @@ class TicketReplyEmailListener
                 $message->getHeaders()->addHeader('In-Reply-To', $previousReply->id . '@' . $host);
             }
             $message->getHeaders()->addHeader('References', $ticket->id . '@' . $host);
-
-            // Update reply to
-            if (config('settings.ticket_mail_piping', false)) {
-                $message->replyTo(config('settings.ticket_mail_email'));
-            }
+            // Never a thread key (docs/tickets.md §3 Α, these ids are guessable): our random ones and the department's
+            // Reply-To come with PR A3.
         }
     }
 }

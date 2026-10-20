@@ -472,41 +472,7 @@ class Settings
                     'database_type' => 'boolean',
                     'default' => false,
                 ],
-                // Email piping
-                [
-                    'name' => 'ticket_mail_piping',
-                    'label' => 'Email Piping',
-                    'type' => 'checkbox',
-                    'database_type' => 'boolean',
-                    'default' => false,
-                    'live' => true,
-                ],
-                [
-                    'name' => 'ticket_mail_host',
-                    'label' => 'Email Host',
-                    'type' => 'text',
-                    'required' => fn (Get $get) => $get('ticket_mail_piping'),
-                ],
-                [
-                    'name' => 'ticket_mail_port',
-                    'label' => 'Email Port',
-                    'type' => 'number',
-                    'required' => fn (Get $get) => $get('ticket_mail_piping'),
-                    'default' => 993,
-                ],
-                [
-                    'name' => 'ticket_mail_email',
-                    'label' => 'Email Address',
-                    'type' => 'email',
-                    'required' => fn (Get $get) => $get('ticket_mail_piping'),
-                ],
-                [
-                    'name' => 'ticket_mail_password',
-                    'label' => 'Email Password',
-                    'type' => 'password',
-                    'required' => fn (Get $get) => $get('ticket_mail_piping'),
-                    'encrypted' => true,
-                ],
+                // Mail to tickets: a mailbox per department, under Configuration → Ticket Departments (docs/tickets.md, A2).
             ],
 
             // The Automation tab: WHMCS's Automation Settings, its sections and wording (docs/settings-map.md). The

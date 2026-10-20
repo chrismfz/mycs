@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "0425c02c7daab61b6a9847e2b5c61563",
+    "content-hash": "8becbb39a4de50467755c9e3a45c6d29",
     "packages": [
         {
             "name": "altcha-org/altcha",
@@ -5177,6 +5177,44 @@
                 "MIT"
             ],
             "description": "Prices one order line in decimal: coupon discount, tax inclusive or exclusive, rounded to cents. Framework-free.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "mycs/ticket-mail",
+            "version": "1.0.0",
+            "dist": {
+                "type": "path",
+                "url": "packages/ticket-mail",
+                "reference": "caf2ed73fe64559e43da7bf8c65a71316b0cbb11"
+            },
+            "require": {
+                "directorytree/imapengine": "^1.25",
+                "ext-fileinfo": "*",
+                "php": "^8.3",
+                "willdurand/email-reply-parser": "^2.10",
+                "zbateson/mail-mime-parser": "^3.0|^4.0"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^11.5|^12.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "MyCS\\TicketMail\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "MyCS\\TicketMail\\Tests\\": "tests/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Inbound ticket email: parses raw RFC 822, trusts only our own server's Authentication-Results, tells automated mail, our 128-bit Message-IDs, safe attachments, an IMAP poller. Framework-free (docs/tickets.md §3).",
             "transport-options": {
                 "symlink": true,
                 "relative": true

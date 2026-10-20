@@ -23,6 +23,7 @@ use Filament\Support\Enums\TextSize;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\File;
+use MyCS\TicketMail\Attachments;
 
 class EditTicket extends EditRecord
 {
@@ -50,6 +51,10 @@ class EditTicket extends EditRecord
                     ->visibility('private')
                     ->directory('tickets/uploads')
                     ->multiple()
+                    // The same types and sizes as customers' (docs/tickets.md §3 ΣΤ).
+                    ->acceptedFileTypes(array_values(array_unique(array_merge(...array_values(Attachments::TYPES)))))
+                    ->maxSize(Attachments::MAX_BYTES / 1024)
+                    ->maxFiles(Attachments::MAX_COUNT)
                     ->storeFileNamesIn('attachment_names')
                     ->reorderable(),
             ]);

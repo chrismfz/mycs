@@ -7,12 +7,12 @@ use App\Livewire\Component;
 use App\Models\Ticket;
 use App\Models\TicketDepartment;
 use App\Support\CurrentClient;
+use App\Support\Tickets\TicketFiles;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\RateLimiter;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Livewire\Features\SupportFileUploads\WithFileUploads;
+use MyCS\TicketMail\Attachments;
 
 #[DisabledIf('tickets_disabled')]
 class Create extends Component
@@ -43,7 +43,8 @@ class Create extends Component
             'subject' => 'required|string',
             'message' => 'required|string',
             'priority' => 'required|in:low,medium,high',
-            'attachments.*' => 'file|max:10240',
+            'attachments' => 'array|max:' . Attachments::MAX_COUNT,
+            'attachments.*' => ['file', 'max:' . (Attachments::MAX_BYTES / 1024), TicketFiles::rule()],
         ]);
 
         $rateLimitKey = 'create-ticket:' . Auth::id();
@@ -69,17 +70,9 @@ class Create extends Component
             'message' => $this->message,
         ]);
 
-        foreach ($this->attachments as $attachment) {
-            $newName = Str::ulid() . '.' . $attachment->getClientOriginalExtension();
-            $path = 'tickets/uploads/' . $newName;
-            $attachment->storeAs('tickets/uploads', $newName);
-
-            $message->attachments()->create([
-                'path' => $path,
-                'filename' => $attachment->getClientOriginalName(),
-                'mime_type' => File::mimeType(storage_path('app/' . $path)),
-                'filesize' => File::size(storage_path('app/' . $path)),
-            ]);
+        // The same rules as by email (docs/tickets.md §3 ΣΤ): a type judged by its bytes, a name of ours.
+        foreach (array_slice($this->attachments, 0, Attachments::MAX_COUNT) as $attachment) {
+            TicketFiles::storeUpload($message, $attachment);
         }
 
         $this->notify(__('Message sent successfully'), redirect: true);

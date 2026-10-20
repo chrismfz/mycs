@@ -1,6 +1,6 @@
 # Tickets: επικοινωνία χωρίς login, email και μοντέλο ασφάλειας (σχέδιο, 2026-10-19)
 
-> Κατάσταση: **αποφάσεις owner 2026-10-20 (§7)**. Τίποτα από εδώ δεν έχει υλοποιηθεί ακόμα. Σχετικά: `admin-ux.md` («Μενού επισκέπτη»),
+> Κατάσταση: **αποφάσεις owner 2026-10-20 (§7)**. Έγιναν το Α1 (§6α) και το Α2 (§6β). Σχετικά: `admin-ux.md` («Μενού επισκέπτη»),
 > `captcha.md` (ALTCHA), `mail.md`.
 
 ## 0. Γιατί
@@ -86,7 +86,7 @@ email επιβεβαίωσης στον επισκέπτη με τον αριθ�
 ## 4. Τι παίρνουμε από το Ekdosi
 | Από το Ekdosi | Πώς |
 |---|---|
-| `ImapMailbox` + `WebklexImapMailbox` + DTOs (`ParsedInboundEmail`, `InboundEmailAttachment`, `MailboxPollSummary`, `MailboxTestResult`) | σε `packages/ticket-mail` (χωρίς Laravel, CLAUDE.md), με το `webklex/php-imap`· αντικαθιστά το `directorytree/imapengine` του `FetchEmails` |
+| `ImapMailbox` + `WebklexImapMailbox` + DTOs (`ParsedInboundEmail`, `InboundEmailAttachment`, `MailboxPollSummary`, `MailboxTestResult`) | σε `packages/ticket-mail` (χωρίς Laravel, CLAUDE.md)· τελικά με το `directorytree/imapengine` και όχι το webklex (§6β) |
 | `InboundTicketRouter` | λογική (blocklist, dedup, νήμα μόνο από κάτοχο), **συν** τα Α, Β, Γ, Ε του §3· χωρίς `company_id`/`Customer`, με τους πελάτες και τα logins του MyCS |
 | Σχήμα εξερχόμενων (σταθερό Message-ID, References, retry με ίδιο ID) | με τυχαίο 128-bit αντί για `tk-{ref}-{id}-{rand}` |
 | `TicketAttachments` (λίστα τύπων, όρια) | ως έχει, και για τα συνημμένα του portal που σήμερα δεν έχουν λίστα |
@@ -189,6 +189,69 @@ email επιβεβαίωσης στον επισκέπτη με τον αριθ�
   Ticket του WHMCS χωρίς λογαριασμό έρχεται ως επισκέπτη, ποτέ στον λογαριασμό με το ίδιο email (§3 Δ). Αριθμός που
   πιάστηκε ταυτόχρονα ξανατραβιέται· μάσκα με ≥ 100.000 αριθμούς. Το API δέχεται ακόμα `replied`, `normal` και όνομα
   τμήματος, και δίνει ξανά το όνομα. Ανοιχτό για το Δ: `tid` του WHMCS που συμπίπτει με υπάρχοντα αριθμό.
+
+## 6β. Α2: τι έγινε (2026-10-20)
+- **`packages/ticket-mail`** (χωρίς Laravel, 30 tests): `Parser` (raw RFC 822 → `InboundEmail`, ένας parser για IMAP,
+  καραντίνα και tests), `AuthenticationResults`, `Automation` (§3 Ε), `MessageId` (`tk.{128 bit}@domain`),
+  `Attachments` (λίστα τύπων με έλεγχο **και του περιεχομένου** με libmagic, 20 MB/αρχείο, 5/μήνυμα, 25 MB/email),
+  `HtmlToText`, `ReplyText`, και το `Imap\ImapEngineMailbox`.
+- **Απόφαση: `directorytree/imapengine` + `zbateson/mail-mime-parser`** (ήταν ήδη εξαρτήσεις) αντί για το webklex του
+  Ekdosi: ένα λιγότερο πακέτο, και το routing ελέγχεται με `.eml` χωρίς το αντικείμενο του IMAP client. Πρώτα headers
+  και μέγεθος, μετά κάθε σώμα χωριστά (`BODY.PEEK`)· πάνω από 40 MB μόνο τα headers, στην καραντίνα.
+- **Απόφαση: μετρά μόνο το πρώτο (επάνω) `Authentication-Results`** και μόνο αν έχει το `authserv_id` του τμήματος. Ο
+  server μας γράφει το δικό του πάνω από ό,τι έστειλε ο αποστολέας, άρα ένα πλαστό με το ίδιο id είναι από κάτω και
+  αγνοείται. Προϋπόθεση: ο server γράφει το header σε **κάθε** μήνυμα (mailcow/rspamd ναι). Αν όχι, το «Απαιτείται
+  DMARC» μένει ναι και οι απαντήσεις πάνε στην καραντίνα (κλείνει με ασφάλεια). **Πριν ανοίξει το polling:** ένα
+  πραγματικό email στο mailbox, και έλεγχος ότι το επάνω header είναι του mailcow.
+- Τμήμα: IMAP host/port/SSL ή STARTTLS (ποτέ χωρίς κρυπτογράφηση)/login/κωδικός (`encrypted`, εκτός audit, δεν
+  ξαναδείχνεται)/φάκελος, `authserv_id`, «Απαιτείται DMARC» (default ναι), «Διάβασε το mailbox» (default όχι),
+  «Test connection». `app:fetch-emails` κάθε 5' για όσα έχουν polling.
+- `InboundRouter` (σειρά στο docblock): dedup με Message-ID, blocklist, καραντίνα για χωρίς/πολλούς αποστολείς, δική
+  μας διεύθυνση, αυτοματισμούς, γίγαντες· απάντηση μόνο με δικό μας Message-ID **σε μήνυμα που στείλαμε** (το
+  Message-ID ενός εισερχόμενου είναι επιλογή του αποστολέα, ποτέ κλειδί), μόνο από τον κάτοχο (email επισκέπτη ή
+  login του λογαριασμού με δικαίωμα tickets), και με DMARC όπου απαιτείται· αριθμός ticket στο θέμα χωρίς κλειδί →
+  καραντίνα με πρόταση μόνο για τον κάτοχο· νέο ticket σε λογαριασμό μόνο με DMARC και login ενός λογαριασμού, αλλιώς
+  επισκέπτη· 10 νέα/ώρα ανά αποστολέα.
+- Καραντίνα (Support → Mail Quarantine, δικαίωμα `ticket_quarantine`): ανάγνωση ως κείμενο, «Attach to a ticket»
+  (ξένος αποστολέας → «(Από x@y)» μπροστά), «Open a new ticket» (επισκέπτη ή σε λογαριασμό), «Dismiss», «Block the
+  sender». Μία φορά η καθεμία (κλείδωμα γραμμής). Το raw στον ιδιωτικό δίσκο· τα χειρισμένα σβήνονται σε 90 μέρες.
+  Blocked Senders: διεύθυνση ή `@domain`.
+- Ίδιοι κανόνες αρχείων στο portal και στο admin· τα αρχεία κατεβαίνουν πάντα ως `attachment` με `nosniff` και
+  sandbox CSP· προεπισκόπηση μόνο jpeg/png/gif/webp.
+- Health `ticket_mail` (και στο MCP): FAIL αν mailbox με polling δεν διαβάστηκε 30' ή δεν συνδέθηκε· WARN για
+  καραντίνα που περιμένει πάνω από μέρα. `ticket_poll_runs` 30 μέρες.
+- **Reviews (#244):**
+  - Το `Authentication-Results` διαβάζεται με quotes και σχόλια: ένα `;` ή ένα `dmarc=pass` μέσα σε quoted envelope
+    sender του επιτιθέμενου μένει μέσα του. Ένα `dmarc=pass` χωρίς `header.from` δεν μετρά.
+  - Εικόνες επικολλημένες στο κείμενο (inline) κρατιούνται, μετά τα αρχεία. Ένα προωθημένο email κρατιέται ως `.eml`.
+  - Άγνωστο charset: το κείμενο δεν χάνεται (`mb_scrub`).
+  - Ένα email που αποτυγχάνει 3 φορές πάει στην καραντίνα (`failed`, με το σφάλμα), ώστε 50 τέτοια να μη μπλοκάρουν
+    το mailbox.
+  - Date εκτός 1970–2038: χωρίς `sent_at`. Πριν, στη MariaDB, το insert έσκαγε κάθε φορά και άφηνε ορφανό `.eml`.
+  - Αρχεία που γράφτηκαν σε transaction που αναιρέθηκε σβήνονται.
+  - Το όριο ανά ώρα μετρά χωριστά τα επιβεβαιωμένα από τα πλαστά, και μόνο tickets που άνοιξαν.
+  - `+tag` στη blocklist και στις δικές μας διευθύνσεις.
+  - Εσωτερική σημείωση δεν είναι ποτέ κλειδί νήματος.
+  - Νέος host ή login ζητά ξανά τον κωδικό.
+  - Health WARN για σφάλματα του τελευταίου read.
+  - Attach και open ζητούν και τα δικαιώματα tickets. Η αναζήτηση λογαριασμών ζητά και το δικαίωμα clients.
+  - `memory_limit` 512M στο poller.
+  - phpstan και στο πακέτο.
+- **Ο server πρέπει να γράφει `Authentication-Results` σε κάθε email που παραδίδει στο mailbox**, και για όσα στέλνει
+  ένας πελάτης του ίδιου server με login (SMTP AUTH) ή παραδίδονται τοπικά. Αλλιώς το επάνω header είναι του
+  αποστολέα, ακόμα κι αν γράφει το δικό μας `authserv_id`. Εναλλακτικά, ο server να σβήνει τα εισερχόμενα με το
+  `authserv_id` του (RFC 8601 §5). Ελέγχεται πριν ανοίξει το polling: email από login του ίδιου mailcow, και τι γράφει
+  το επάνω header.
+- Ανοιχτά (δεν διορθώθηκαν):
+  - Το portal δέχεται έως 12 MB/αρχείο, το γενικό όριο του Livewire για τα προσωρινά uploads. Το email δέχεται 20 MB.
+    Δεν το ανεβάσαμε για όλα τα uploads της εφαρμογής.
+  - Email με λάθος δηλωμένο charset (π.χ. UTF-8 ενώ είναι ISO-8859-7) βγαίνει με «?».
+  - Το dedup με Message-ID είναι κοινό για όλους τους αποστολείς: όποιος ξέρει το Message-ID ενός email πριν φτάσει
+    μπορεί να το κάνει να αγνοηθεί. Δύσκολο στην πράξη.
+- Έφυγαν: το `FetchEmails` (αριθμητικό `In-Reply-To`, εμπιστοσύνη στο `From`), οι ρυθμίσεις `ticket_mail_*`, ο
+  `ticket_mail_logs`. Τα εξερχόμενα έχουν ακόμα τα παλιά Message-ID, που **δεν** νηματοποιούν: τα τυχαία, το Reply-To
+  του τμήματος και ειδοποιήσεις staff είναι το Α3. Γι' αυτό **το polling μένει κλειστό ως το Α3** (μια απάντηση σε
+  email μας δεν θα έβρισκε κλειδί και θα γινόταν νέο ticket).
 
 ## 7. Αποφάσεις και ανοιχτά
 Αποφασίστηκε (owner, 2026-10-20):
