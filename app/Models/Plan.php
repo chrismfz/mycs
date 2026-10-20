@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Support\Str;
 use OwenIt\Auditing\Contracts\Auditable;
 
 /**
@@ -75,6 +76,39 @@ class Plan extends Model implements Auditable
             'setup_fee' => $price->setup_fee,
             'currency' => $price->currency,
         ]);
+    }
+
+    /**
+     * Its cycle as the customer reads it, after a price: «έτος», «2 έτη», «εφάπαξ», «» for a free plan (the shop polish
+     * of 2026-10-20: a price without its cycle said nothing).
+     */
+    public function cycle(): string
+    {
+        if ($this->type === 'free') {
+            return '';
+        }
+        if ($this->type !== 'recurring') {
+            return __('product.one_time');
+        }
+        $unit = trans_choice('services.billing_cycles.' . $this->billing_unit, (int) $this->billing_period);
+
+        return $this->billing_period > 1 ? $this->billing_period . ' ' . $unit : $unit;
+    }
+
+    /** WHMCS's names of its cycles: a plan named so is shown by its cycle, in the customer's language. */
+    private const CYCLE_NAMES = ['monthly', 'quarterly', 'semi-annually', 'semiannually', 'annually', 'biennially', 'triennially',
+        'one time', 'onetime', 'one-time', 'free'];
+
+    /** The plan as a customer reads it: its cycle, or a name of staff's own with its cycle. */
+    public function label(): string
+    {
+        $cycle = Str::ucfirst($this->cycle());
+        $name = trim((string) $this->name);
+        if ($name === '' || in_array(mb_strtolower($name), self::CYCLE_NAMES, true)) {
+            return $cycle !== '' ? $cycle : $name;
+        }
+
+        return $cycle !== '' ? "{$name} ({$this->cycle()})" : $name;
     }
 
     // Time between billing periods

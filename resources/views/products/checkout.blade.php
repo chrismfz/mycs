@@ -12,10 +12,11 @@
             </div>
         </div>
         @if ($product->availablePlans()->count() > 1)
-            <x-form.select wire:model.live="plan_id" name="plan_id" label="Select a plan">
+            <x-form.select wire:model.live="plan_id" name="plan_id" :label="__('product.select_plan')">
                 @foreach ($product->availablePlans() as $availablePlan)
                     <option value="{{ $availablePlan->id }}">
-                        {{ $availablePlan->name }} -
+                        {{-- Its cycle in the customer's language (WHMCS's plans are named «Annually», …). --}}
+                        {{ $availablePlan->label() }} -
                         {{ $availablePlan->price()->formatted->price }}
                         @if ($availablePlan->price()->has_setup_fee)
                             + {{ $availablePlan->price()->formatted->setup_fee }} {{ __('product.setup_fee') }}

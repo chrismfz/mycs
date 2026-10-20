@@ -2,9 +2,15 @@
     <div class="flex flex-col md:grid md:grid-cols-4 gap-8">
         <div class="flex flex-col col-span-3 gap-4">
             @if (Cart::items()->count() === 0)
-            <h1 class="text-2xl font-semibold">
-                {{ __('product.empty_cart') }}
-            </h1>
+            {{-- Not a dead end (shop polish of 2026-10-20): the way back to the products. --}}
+            <div class="flex flex-col items-start gap-3 bg-background-secondary border border-neutral p-6 rounded-lg">
+                <h1 class="text-2xl font-semibold">{{ __('product.empty_cart') }}</h1>
+                <p class="text-base/70">{{ __('product.empty_cart_text') }}</p>
+                @php($first = \App\Models\Category::query()->inMenu()->first())
+                <a href="{{ $first ? route('category.show', ['category' => $first->slug]) : route('home') }}" wire:navigate>
+                    <x-button.primary class="w-fit">{{ __('product.continue_shopping') }}</x-button.primary>
+                </a>
+            </div>
             @endif
             @foreach (Cart::items() as $item)
             <div class="flex flex-row justify-between w-full bg-background-secondary p-3 rounded-md border border-neutral">
@@ -35,6 +41,9 @@
                         @endif
                     </div>
                     @else
+                    @if ($item->plan && filled($item->plan->cycle()))
+                    <p class="text-sm text-base/70">{{ __('product.billed', ['cycle' => __('product.per_cycle', ['cycle' => $item->plan->cycle()])]) }}</p>
+                    @endif
                     <p class="text-sm">
                         @foreach ($item->config_options as $option)
                         {{ $option['option_name'] }}: {{ $option['value_name'] }}<br>
@@ -45,7 +54,7 @@
                 <div class="flex flex-col justify-between items-end gap-4">
                     <h3 class="text-xl font-semibold p-1">
                         {{ $item->price->format($item->lineTotal()) }} @if ($item->quantity > 1)
-                        ({{ $item->price }} each)
+                        ({{ __('product.each', ['price' => $item->price]) }})
                         @endif
                     </h3>
                     <div class="flex flex-row gap-2">
@@ -102,7 +111,7 @@
                 @endif
                 <div class="font-semibold flex items-end gap-2">
                     @if(!$coupon)
-                    <x-form.input wire:model="coupon" name="coupon" label="Coupon" />
+                    <x-form.input wire:model="coupon" name="coupon" :label="__('product.coupon')" />
                     <x-button.primary wire:click="applyCoupon" class="h-fit !w-fit mb-0.5" wire:loading.attr="disabled">
                         <x-loading target="applyCoupon" />
                         <div wire:loading.remove wire:target="applyCoupon">
