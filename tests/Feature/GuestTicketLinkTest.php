@@ -16,11 +16,15 @@ use App\Models\TicketMessage;
 use App\Models\User;
 use App\Services\Captcha\Altcha;
 use App\Support\Tickets\GuestLinks;
+use App\Support\Tickets\InboundRouter;
+use App\Support\Tickets\QuarantineActions;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\File;
 use Livewire\Livewire;
+use MyCS\TicketMail\Parser;
+use MyCS\TicketMail\Tests\Eml;
 use Symfony\Component\Mime\Email;
 use Tests\TestCase;
 
@@ -204,5 +208,28 @@ class GuestTicketLinkTest extends TestCase
         $ticket = Ticket::query()->sole();
         $this->get(route('tickets.guest', $this->mailedLink()))->assertOk()->assertSee($ticket->reference)
             ->assertDontSee('Hello')->assertSee(__('ticket.guest_message_hidden'));
+    }
+
+    /** On an unvouched ticket, what the inbox's reader writes by the link is shown; what came in with it is not. */
+    public function test_on_an_unvouched_ticket_the_answers_by_the_link_are_shown(): void
+    {
+        $ticket = $this->guestTicket();
+        $ticket->update(['sender_vouched' => false]);
+        $token = basename(parse_url(GuestLinks::issue($ticket), PHP_URL_PATH));
+
+        Livewire::test(Guest::class, ['token' => $token])->set('message', 'Written by the inbox owner')->call('reply')->assertHasNoErrors();
+
+        $this->get(route('tickets.guest', $token))->assertSee('Written by the inbox owner')->assertDontSee('Help me')->assertDontSee('Site down');
+    }
+
+    /** A guest's ticket opened from the quarantine keeps what our server said of the mail (adversarial review of #252). */
+    public function test_a_ticket_opened_from_the_quarantine_keeps_whether_it_was_vouched_for(): void
+    {
+        $raw = Eml::make(['From' => 'eve@example.com', 'List-Id' => '<x>', 'Message-ID' => '<q1@example.com>']);
+        $quarantine = app(InboundRouter::class)->route($this->support, Parser::parse($raw), $raw)->quarantine;
+
+        $ticket = app(QuarantineActions::class)->open($quarantine, Staff::factory()->admin()->create());
+
+        $this->assertFalse($ticket->sender_vouched);
     }
 }

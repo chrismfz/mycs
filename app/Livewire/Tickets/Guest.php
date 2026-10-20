@@ -57,13 +57,12 @@ class Guest extends Component
         // No control or format characters (bidi, zero-width): an answer of them only is no answer (as the contact form).
         $this->message = trim((string) preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\p{Cf}]/u', '', $this->message));
         $this->validate(['message' => 'required|string|max:10000']);
-        $key = 'ticket-guest-reply:' . $ticket->id;
-        if (RateLimiter::tooManyAttempts($key, self::REPLIES_PER_HOUR)) {
+        // Counted as taken (increment): two at once never both slip under the limit.
+        if (RateLimiter::increment('ticket-guest-reply:' . $ticket->id, 3600) > self::REPLIES_PER_HOUR) {
             $this->addError('message', __('ticket.contact_too_many'));
 
             return;
         }
-        RateLimiter::hit($key, 3600);
         $ticket->messages()->create(['message' => trim($this->message), 'via' => 'link']);
         $this->message = '';
         $this->notify(__('Message sent successfully'));
@@ -79,7 +78,7 @@ class Guest extends Component
 
             return;
         }
-        if (RateLimiter::attempt('ticket-guest-resend:' . $ticket->id, 3, fn () => true, 3600)) {
+        if (RateLimiter::increment('ticket-guest-resend:' . $ticket->id, 3600) <= 3) {
             app(TicketMailer::class)->link($ticket);
         }
         $this->resent = true;
