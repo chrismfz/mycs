@@ -74,7 +74,7 @@
 | Stripe με αποθηκευμένες κάρτες, auto-charge· PayPal ppcpv vault | P (+ L `paypal-vault`) | 1 | Fix `round()` (`history/upstream-triage.md`) |
 | PayPal legacy subscriptions (nixpal 77 υπηρεσίες, 5 subs) | Ν | 1 | Μετάβαση σε vault ή forwarder IPN |
 | Licensing + `zlic.php` (588k checks/έτος) | L `nixpal-licensing` | 1 | Contract byte-for-byte· cache/rate-limit |
-| Ακυρώσεις (immediate / end of period) με αυτόματη επεξεργασία· ακύρωση προϊόντος όταν ακυρώνεται το τιμολόγιο | P + Ν | 1 | Ο κανόνας του hook `CancelProductOnCancelInvoice` |
+| Ακυρώσεις (immediate / end of period) με αυτόματη επεξεργασία | P + Ν | 1 | Το hook `CancelProductOnCancelInvoice` του myip είναι σε σχόλιο, η nixpal δεν το έχει: ένα ακυρωμένο τιμολόγιο δεν ακυρώνει την υπηρεσία (2026-10-20) |
 | Upgrade/downgrade πακέτου με pro-rata | P | 1 | + #1266 |
 | Config options | P | 1 | |
 | Export εσόδων/εξόδων ανά έτος (λογιστής nixpal) | Ν | 1 | |
