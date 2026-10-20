@@ -19,8 +19,10 @@
   χρειάζεται ούτως ή άλλως για το myip (209).
 - ~~**Παραγωγή της nixpal**~~ **απαντήθηκε (2026-10-20):** όταν είμαστε σίγουροι, στον **orion**, δίπλα στο WHMCS, ως
   `mycs.nixpal.com`· στο migration το `clients.nixpal.com` περνά στο MyCS (στον ίδιο server: αλλαγή vhost, όχι IP· το
-  `zlic.php` μένει στο ίδιο URL). Mail από το SMTP που χρησιμοποιεί σήμερα το WHMCS (`support@nixpal.com`, «NixPal»· τα
-  στοιχεία τα βάζει ο υπεύθυνος στο `.env`). Off-site backups σε δικό μας server (ποιος: ανοιχτό). Έλεγχος του orion
+  `zlic.php` μένει στο ίδιο URL). Mail: **ακριβώς τα ίδια** με το WHMCS (SMTP, `support@nixpal.com`, «NixPal», και τα ίδια
+  τμήματα των tickets), για να μη φανεί η αλλαγή· τα στοιχεία από τη nixpal όταν έρθει η ώρα, στο `.env`. Backups: το
+  JetBackup του cPanel, off-site στον rosso (ο λογαριασμός του MyCS είναι cPanel λογαριασμός, άρα βάση και αρχεία
+  μαζί)· μένει μία δοκιμή επαναφοράς πριν το cut-over. Έλεγχος του orion
   (μόνο αναγνώσεις): CloudLinux 8, `ea-php84` με τα extensions του MyCS, MariaDB 11.4, ο λογαριασμός `clnixpal` με
   CageFS πίσω από angie, χωρίς composer. Τίποτα δεν στήνεται εκεί πριν το πει ο υπεύθυνος.
 - **Ρόλοι staff (για αργότερα):** στο WHMCS του myip υπάρχουν 5 ρόλοι, ενεργοί admins μόνο σε 2: Full Administrator (3)
