@@ -6,7 +6,9 @@ use App\Events\Service\RenewalTaxChanged;
 use App\Exceptions\DisplayException;
 use App\Models\BillingAgreement;
 use App\Models\Client;
+use App\Models\ClientGroup;
 use App\Models\Service;
+use App\Services\Billing\ClientGroupPricing;
 
 class ClientObserver
 {
@@ -24,6 +26,12 @@ class ClientObserver
     {
         if ($client->wasChanged('tax_exempt')) {
             RenewalTaxChanged::forSubscribed(Service::query()->where('client_id', $client->id));
+        }
+        // Moved group (ROADMAP 5): its services' computed prices take the new discount.
+        if ($client->wasChanged('client_group_id')) {
+            $before = ClientGroup::query()->find($client->getOriginal('client_group_id'))?->percent();
+            $client->unsetRelation('group');
+            ClientGroupPricing::reprice($client, $before);
         }
     }
 

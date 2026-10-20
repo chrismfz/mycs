@@ -102,6 +102,12 @@ class ClientResource extends Resource
                             ->label(__('Credit pays open invoices automatically'))
                             ->helperText(__('Off: the credit is kept until the customer or staff use it.'))
                             ->default(true),
+                        // WHMCS «Client Group» (ROADMAP 5): its discount goes into its services' computed prices.
+                        Select::make('client_group_id')
+                            ->label(__('Client group'))
+                            ->relationship('group', 'name')
+                            ->placeholder(__('None'))
+                            ->helperText(__('Its discount applies to the services\' prices from their next renewal; a price set by hand is kept.')),
                         // WHMCS «Tax Exempt» (Δ1): its new invoice lines get no tax.
                         Toggle::make('tax_exempt')
                             ->label(__('Tax exempt'))

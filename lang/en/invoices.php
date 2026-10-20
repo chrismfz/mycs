@@ -9,6 +9,7 @@ return [
     'transaction_date' => 'Transaction Date',
     'no_transactions' => 'No related transactions found',
     'generated_on' => 'PDF generated on :date',
+    'group_discount_note' => '(−:percent% client discount)',
     'moved_to_credit' => 'Moved to account credit',
     'transaction_processing' => 'Processing',
     'note_statuses' => ['active' => 'Active', 'voided' => 'Voided'],

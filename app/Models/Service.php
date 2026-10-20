@@ -975,7 +975,7 @@ class Service extends Model implements Auditable
      * stores. The coupon counts only for a product it covers (CART-2) and for its cycles (CART-1: empty = the first),
      * those of $cycle when given (else of the next renewal).
      */
-    public function calculatePrice(bool $applyCoupon = true, ?int $cycle = null)
+    public function calculatePrice(bool $applyCoupon = true, ?int $cycle = null, ?string $groupPercent = null)
     {
         // No plan: the price it has (nothing to compute it from until staff set one).
         if ($this->plan === null) {
@@ -999,7 +999,8 @@ class Service extends Model implements Auditable
         }
 
         // Net (Δ1): the tax is the invoice line's, decided when it is made.
-        return OrderPricing::line(['price' => (string) $price, 'setup_fee' => '0.00'], $discount, $this->client, $this->product)->netPrice;
+        // With its account's group discount (ROADMAP 5), or the one given ('0': none; ClientGroupPricing's «before»).
+        return OrderPricing::line(['price' => (string) $price, 'setup_fee' => '0.00'], $discount, $this->client, $this->product, $groupPercent)->netPrice;
     }
 
     /** @return HasMany<ServiceUpgrade, $this> */

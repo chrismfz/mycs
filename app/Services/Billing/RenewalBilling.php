@@ -5,6 +5,7 @@ namespace App\Services\Billing;
 use App\Enums\DomainStatus;
 use App\Events\Invoice as InvoiceEvent;
 use App\Exceptions\DisplayException;
+use App\Helpers\NotificationHelper;
 use App\Models\Domain;
 use App\Models\Invoice;
 use App\Models\Product;
@@ -232,7 +233,7 @@ final class RenewalBilling
             'price' => $price,
             'quantity' => $service->quantity,
             // With its options (PR C, as WHMCS): one invoice can bill several services of the same product.
-            'description' => $service->describeLine($periodStart, $periodEnd),
+            'description' => $service->describeLine($periodStart, $periodEnd) . self::groupNote($service),
             'period_start' => $periodStart,
             'period_end' => $periodEnd,
         ]);
@@ -504,5 +505,21 @@ final class RenewalBilling
             return;
         }
         (new CreditAutoApply)->toInvoice($invoice, notify: $notify);
+    }
+
+    /**
+     * The group discount its price holds, said on its line (ROADMAP 5: in the price, not a line of its own): only when
+     * the price is the one computed with it (not staff's), and never when there is none.
+     */
+    private static function groupNote(Service $service): string
+    {
+        $percent = $service->client?->groupPercent();
+        if ($percent === null || $service->plan === null
+            || bccomp(number_format((float) $service->price, 2, '.', ''), $service->calculatePrice(), 2) !== 0) {
+            return '';
+        }
+
+        // In the customer's language, as its PDF (#264): the cron runs in the system's.
+        return ' ' . __('invoices.group_discount_note', ['percent' => rtrim(rtrim($percent, '0'), '.')], NotificationHelper::localeFor($service->client));
     }
 }

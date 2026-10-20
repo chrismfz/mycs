@@ -22,6 +22,8 @@ final class LinePrice
         public readonly string $grossSetupFee,
         public readonly string $netPrice,
         public readonly string $netSetupFee,
+        public readonly string $priceGroupDiscount = '0.00',
+        public readonly string $setupFeeGroupDiscount = '0.00',
     ) {}
 
     /** The first invoice's net unit amount: the (discounted) price and setup fee without tax. */
@@ -36,8 +38,14 @@ final class LinePrice
         return (string) BigDecimal::of($this->grossPrice)->plus($this->grossSetupFee);
     }
 
+    /** A coupon's discount (the group's is apart: hasGroupDiscount()). */
     public function hasDiscount(): bool
     {
         return BigDecimal::of($this->priceDiscount)->plus($this->setupFeeDiscount)->isPositive();
+    }
+
+    public function hasGroupDiscount(): bool
+    {
+        return BigDecimal::of($this->priceGroupDiscount)->plus($this->setupFeeGroupDiscount)->isPositive();
     }
 }

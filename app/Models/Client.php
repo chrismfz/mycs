@@ -41,6 +41,7 @@ class Client extends Model implements Auditable
         'separate_invoices',
         'default_billing_agreement_id',
         'auto_charge',
+        'client_group_id',
     ];
 
     protected function casts(): array
@@ -175,6 +176,18 @@ class Client extends Model implements Auditable
     public function orders(): HasMany
     {
         return $this->hasMany(Order::class);
+    }
+
+    /** @return BelongsTo<ClientGroup, $this> */
+    public function group(): BelongsTo
+    {
+        return $this->belongsTo(ClientGroup::class, 'client_group_id');
+    }
+
+    /** Its group's discount for pricing: null when none. */
+    public function groupPercent(): ?string
+    {
+        return $this->group?->percent();
     }
 
     /** @return HasMany<Service, $this> */
