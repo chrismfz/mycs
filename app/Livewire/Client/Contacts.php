@@ -8,6 +8,7 @@ use App\Models\Client;
 use App\Models\Contact;
 use App\Services\Tax\EuVat;
 use App\Support\CurrentClient;
+use Livewire\Attributes\Locked;
 
 /**
  * The account's other contacts (docs/accounts.md, PR 3a; WHMCS «Contacts», permission `contacts`): mail recipients,
@@ -19,6 +20,7 @@ class Contacts extends Component
     use EditsContact;
 
     /** The contact being edited; null with the form open = a new one. */
+    #[Locked]
     public ?int $editing = null;
 
     public bool $showForm = false;
@@ -59,10 +61,13 @@ class Contacts extends Component
         $client = $this->account();
         $this->validate($this->contactRules());
 
+        // The lock as the contact saved has it now, not as the form kept it (adversarial F4 of #247): a new one has none.
         if ($this->editing !== null) {
             $contact = $this->contactOf($this->editing);
+            $this->identityLocked = $contact->identityLocked();
             $contact->update($this->contactValues());
         } else {
+            $this->identityLocked = false;
             $contact = $client->contacts()->create($this->contactValues());
         }
 

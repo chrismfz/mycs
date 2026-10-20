@@ -22,7 +22,7 @@ class ContactForm
     {
         // Who the contact is stays as its registrars hold it while a domain uses it (P1b, Contact::IDENTITY): the
         // contact on its own form, or a domain's contact edited from the domain's page.
-        $inUse = fn ($record): bool => $record instanceof Domain || ($record instanceof Contact && $record->domainRoles()->isNotEmpty());
+        $inUse = fn ($record): bool => $record instanceof Domain || ($record instanceof Contact && $record->identityLocked());
 
         return [
             Select::make('type')->label(__('Type'))->options([

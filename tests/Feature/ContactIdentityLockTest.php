@@ -42,7 +42,8 @@ class ContactIdentityLockTest extends TestCase
         $domainTld = DomainTld::query()->firstOrCreate(['tld' => $tld], ['grace_days' => 15, 'redemption_days' => 0, 'is_active' => true]);
 
         return Domain::factory()->create(['client_id' => $this->user->client()->id, 'sld' => $sld, 'tld' => $tld, 'fqdn' => $fqdn,
-            'domain_tld_id' => $domainTld->id, 'status' => $status, "{$role}_contact_id" => $this->contact->id]);
+            'domain_tld_id' => $domainTld->id, 'status' => $status, "{$role}_contact_id" => $this->contact->id,
+            "{$role}_handle" => 'H-' . strtoupper($sld)]); // held by its registrar: what locks (findings of #247)
     }
 
     public function test_a_contact_in_use_keeps_who_it_is_and_changes_its_details(): void

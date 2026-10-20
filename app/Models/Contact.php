@@ -93,7 +93,7 @@ class Contact extends Model implements Auditable
     protected static function booted(): void
     {
         static::updating(function (self $contact) {
-            if ($contact->isDirty(self::IDENTITY) && ($use = $contact->domainRoles()->first()) !== null) {
+            if ($contact->isDirty(self::IDENTITY) && ($use = $contact->domainRoles(atRegistrar: true)->first()) !== null) {
                 throw new DisplayException(__('domains.contact_identity_in_use', ['role' => __('domains.role.' . $use['role']), 'domain' => $use['fqdn']]));
             }
         });
@@ -216,25 +216,35 @@ class Contact extends Model implements Auditable
     }
 
     /**
-     * The domains it is a contact of, by role (P1b): those still held (a deleted one too: a restore brings it back), as
-     * archive() counts them.
+     * The domains of its own account it is a contact of, by role (P1b): those still held (a deleted one too: archive()
+     * keeps it, a restore could bring it back; not for the lock). $atRegistrar: only the roles its registrar holds it in
+     * (the role has a handle), not ended: what locks who it is (adversarial F1 of #247: an order sets the account's
+     * contact on a domain long before any registrar has it, and an unpaid one never sends it).
      *
      * @return Collection<int, array{fqdn: string, role: string, domain_id: int}>
      */
-    public function domainRoles(): Collection
+    public function domainRoles(bool $atRegistrar = false): Collection
     {
         if (!$this->exists) {
             return collect();
         }
+        $ended = $atRegistrar ? DomainStatus::terminalValues() : [DomainStatus::TransferredAway->value, DomainStatus::Cancelled->value];
         $roles = collect();
         foreach (Domain::ROLES as $role) {
-            Domain::query()->where("{$role}_contact_id", $this->id)
-                ->whereNotIn('status', [DomainStatus::TransferredAway->value, DomainStatus::Cancelled->value])
+            Domain::query()->where("{$role}_contact_id", $this->id)->where('client_id', $this->client_id)
+                ->whereNotIn('status', $ended)
+                ->when($atRegistrar, fn ($q) => $q->whereNotNull("{$role}_handle")->where("{$role}_handle", '!=', ''))
                 ->orderBy('fqdn')->get(['id', 'fqdn'])
                 ->each(fn (Domain $domain) => $roles->push(['fqdn' => $domain->fqdn, 'role' => $role, 'domain_id' => $domain->id]));
         }
 
         return $roles->sortBy(fn (array $use) => $use['fqdn'] . '|' . array_search($use['role'], Domain::ROLES, true))->values();
+    }
+
+    /** Who it is cannot change: a registrar holds it as a domain's contact (P1b-1). */
+    public function identityLocked(): bool
+    {
+        return $this->domainRoles(atRegistrar: true)->isNotEmpty();
     }
 
     /** Archived, not deleted (it may be on documents or domains). The primary contact stays. */

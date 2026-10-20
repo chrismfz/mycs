@@ -47,7 +47,10 @@ class ContactIdentityLockAdversarialTest extends TestCase
         $domainTld = DomainTld::query()->firstOrCreate(['tld' => $tld], ['grace_days' => 15, 'redemption_days' => 0, 'is_active' => true]);
 
         return Domain::factory()->create(['client_id' => $clientId ?? $this->user->client()->id, 'sld' => $sld, 'tld' => $tld, 'fqdn' => $fqdn,
-            'domain_tld_id' => $domainTld->id, 'status' => $status, "{$role}_contact_id" => ($contact ?? $this->contact)->id]);
+            'domain_tld_id' => $domainTld->id, 'status' => $status, "{$role}_contact_id" => ($contact ?? $this->contact)->id,
+            // Author's note (findings of #247): the lock is the registrar's holding (the role's handle, F1); one never sent
+            // (pending registration) has none.
+            "{$role}_handle" => $status === DomainStatus::PendingRegister ? null : 'H-' . strtoupper($sld)]);
     }
 
     private function portal(): void
@@ -64,10 +67,15 @@ class ContactIdentityLockAdversarialTest extends TestCase
         $this->useIn('example.gr', 'registrant');
         $this->portal();
 
-        Livewire::test(Contacts::class)->call('edit', $free->id)->assertSet('identityLocked', false)
-            ->set('editing', $this->contact->id)
-            ->set('contact.first_name', 'Hacked')->set('contact.last_name', 'Hacker')->set('contact.type', 'business')
-            ->call('save');
+        // Author's note (findings of #247): `editing` is #[Locked] now (F4): the swap itself is refused.
+        try {
+            Livewire::test(Contacts::class)->call('edit', $free->id)->assertSet('identityLocked', false)
+                ->set('editing', $this->contact->id)
+                ->set('contact.first_name', 'Hacked')->set('contact.last_name', 'Hacker')->set('contact.type', 'business')
+                ->call('save');
+        } catch (CannotUpdateLockedPropertyException) {
+            // refused: fine
+        }
 
         $this->assertSame(['individual', 'Maria', 'Papadopoulou'],
             [$this->contact->fresh()->type, $this->contact->fresh()->first_name, $this->contact->fresh()->last_name]);
@@ -85,6 +93,9 @@ class ContactIdentityLockAdversarialTest extends TestCase
                 ->set('editing', null)
                 ->set('contact.first_name', 'Nikos')->set('contact.last_name', 'Neos')->set('contact.type', 'individual')
                 ->call('save');
+        } catch (CannotUpdateLockedPropertyException) {
+            // Author's note (findings of #247): `editing` is #[Locked] (F4): refused (a 4xx in a browser, not a 500),
+            // and save() takes the lock from the contact it saves.
         } catch (Throwable $e) {
             $this->fail('the portal threw (a 500): ' . $e::class . ': ' . $e->getMessage());
         }

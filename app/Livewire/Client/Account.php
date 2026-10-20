@@ -76,6 +76,7 @@ class Account extends ComponentWithProperties
 
         $pending = false;
         if (CurrentClient::allows('profile') && ($client = CurrentClient::model()) !== null) {
+            $this->identityLocked = (bool) $client->primaryContact?->identityLocked();
             $client->primaryContact?->update($this->contactValues());
             if (array_key_exists('properties', $validatedData)) {
                 $this->updateProperties($client, $validatedData['properties']);
