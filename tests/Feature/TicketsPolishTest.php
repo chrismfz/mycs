@@ -60,7 +60,7 @@ class TicketsPolishTest extends TestCase
         $php = fn (string $setting) => (int) ini_get($setting); // «2M» → 2, «8M» → 8 (M on the servers we run)
         $expected = fn (int $livewire) => min(20, $livewire, $php('upload_max_filesize') ?: PHP_INT_MAX, $php('post_max_size') ?: PHP_INT_MAX);
 
-        $this->assertSame($expected(12), TicketFiles::maxUploadMegabytes());
+        $this->assertSame($expected(20), TicketFiles::maxUploadMegabytes()); // Livewire's ceiling raised to ours (2026-10-20)
         config(['livewire.temporary_file_upload.rules' => 'required|file|max:5120']);
         $this->assertSame($expected(5), TicketFiles::maxUploadMegabytes(), 'rules as a pipe string too');
     }

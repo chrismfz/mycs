@@ -3,6 +3,10 @@
     <div class="text-center space-y-2">
         <h1 class="text-3xl font-semibold">{{ __('domains.shop.title') }}</h1>
         <p class="text-base/60">{{ __('domains.shop.lead') }}</p>
+        @if (\App\Services\Domains\Ordering\DomainOffer::allowed('transfer'))
+        <p class="text-sm">{{ __('domains.transfer.have_one') }}
+            <a href="{{ route('domain.transfer') }}" wire:navigate class="font-semibold text-secondary hover:underline">{{ __('navigation.domain_transfer') }}</a></p>
+        @endif
     </div>
 
     <form wire:submit="search" class="flex gap-2">
@@ -52,7 +56,7 @@
                 @endif
             </div>
             @elseif ($row['status'] === \App\Services\Domains\DomainSearch::TAKEN && ($row['transferable'] ?? true) && \App\Services\Domains\Ordering\DomainOffer::allowed('transfer'))
-            <button type="button" class="text-sm underline" wire:click="transfer('{{ $row['fqdn'] }}')">{{ __('domains.order.transfer_it') }}</button>
+            <x-button.secondary class="!w-fit text-sm" wire:click="transfer('{{ $row['fqdn'] }}')" wire:loading.attr="disabled">{{ __('domains.order.transfer_it') }}</x-button.secondary>
             @endif
         </div>
         @endforeach

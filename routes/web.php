@@ -25,6 +25,7 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', Home::class)->name('home');
 // The shop's domains (D8a): search, whois and price list, public.
 Route::get('/domain-search', DomainShop\Search::class)->name('domain.search');
+Route::get('/domain-transfer', DomainShop\Transfer::class)->name('domain.transfer');
 Route::get('/whois', DomainShop\Whois::class)->name('domain.whois');
 // «Contact» without a login (docs/tickets.md §3 Ζ): a guest's ticket; a login is sent to «New ticket».
 Route::get('/contact', Contact::class)->name('contact');

@@ -6,6 +6,7 @@ use App\Helpers\EventHelper;
 use App\Models\Category;
 use App\Models\DomainTld;
 use App\Models\User;
+use App\Services\Domains\Ordering\DomainOffer;
 use App\Support\Actor;
 use App\Support\CurrentClient;
 use Illuminate\Support\Facades\Auth;
@@ -36,6 +37,8 @@ class Navigation
                     'name' => __('navigation.domains'),
                     'children' => [
                         ['name' => __('navigation.domain_search'), 'url' => route('domain.search')],
+                        // Its own page (owner 2026-10-20): inside the search, few would find it.
+                        ...(DomainOffer::allowed('transfer') ? [['name' => __('navigation.domain_transfer'), 'url' => route('domain.transfer')]] : []),
                         ['name' => __('navigation.domain_pricing'), 'url' => route('domain.pricing')],
                         ['name' => __('navigation.whois'), 'url' => route('domain.whois')],
                     ],
