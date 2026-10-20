@@ -69,6 +69,15 @@ session για parity με το WHMCS (2026-10-20)· ως τότε, ό,τι δε
 - [ ] Συμφιλίωση της κατάστασης μετά από job του server (το create υπάρχει, #114)· συγχρονισμός χρήσης cPanel.
 - [ ] Modules του myip: Proxmox, Centova, mailcow (το package `mailcow` υπάρχει χωρίς extension).
 
+### Licensing (`licensing.md`)
+- [ ] **Ποιοι χτυπάνε χωρίς να πρέπει** (ο υπεύθυνος, 2026-10-20): οθόνη του staff με
+      - άδειες terminated/suspended/expired που ακόμα ελέγχουν (πόσοι έλεγχοι, από πού, πότε τελευταία)· στις 90 ημέρες
+        της nixpal στο WHMCS ήταν 535 χιλ. «Expired» και 44 χιλ. «Suspended»·
+      - IPs που χτυπάνε χωρίς να είχαν ποτέ άδεια (άγνωστα κλειδιά, IP mismatch)·
+      - ενέργειες: block IP (στο edge/angie ή στο zlic.php), ειδοποίηση του πελάτη ότι έχει ανοιχτά binaries χωρίς άδεια
+        (template email). Τα δεδομένα υπάρχουν ήδη σε μεγάλο μέρος (`license_check_days`, `last_failure`, access log,
+        `zlic_limits` του #254)· λείπουν η άθροιση ανά IP χωρίς άδεια και η οθόνη.
+
 ### Domains (`domains.md`, `domains/grepp.md`)
 - [ ] Μαζικές ενέργειες στη λίστα του portal· απόδοση με πολλά domains.
 - [ ] Μικρά του P1b (#248): πεδίο διεύθυνσης που αδειάζει ίσως μένει παλιό στο Openprovider· η `int` διεύθυνση του .gr
