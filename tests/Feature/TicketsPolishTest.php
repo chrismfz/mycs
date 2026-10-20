@@ -110,4 +110,26 @@ class TicketsPolishTest extends TestCase
         $this->assertSame('Να με θυμάσαι', __('auth.remember_me'));
         $this->assertSame('Το μήνυμά σας', __('ticket.initial_message'));
     }
+
+    /**
+     * Livewire redraws nothing under wire:ignore: on the new ticket only the editor is ignored (as on the reply page),
+     * so a refused file or an empty message is told (browser test of #260; a Livewire test sees the server's HTML only).
+     */
+    public function test_on_the_new_ticket_only_the_editor_is_left_alone(): void
+    {
+        $view = (string) file_get_contents(resource_path('views/tickets/create.blade.php'));
+
+        $this->assertDoesNotMatchRegularExpression('#<form[^>]*wire:ignore#', $view);
+        $this->assertMatchesRegularExpression('#<div wire:ignore>\s*<textarea id="editor"#', $view);
+        $this->assertSame(1, substr_count($view, 'wire:ignore'), 'nothing else is ignored');
+    }
+
+    public function test_an_empty_message_is_told_on_the_new_ticket(): void
+    {
+        $user = User::factory()->create();
+        $support = TicketDepartment::query()->firstOrCreate(['name' => 'Support']);
+
+        $this->livewireAs($user)->test(TicketCreate::class)->set('department', $support->id)->set('subject', 'x')->set('priority', 'low')
+            ->call('create')->assertHasErrors('message')->assertSee(__('validation.required', ['attribute' => __('validation.attributes.message') !== 'validation.attributes.message' ? __('validation.attributes.message') : 'message']));
+    }
 }

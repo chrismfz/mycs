@@ -32,11 +32,17 @@
         <div class="col-span-2">
 
             <div class="mt-4">
-                <form wire:submit.prevent="create" wire:ignore>
+                <form wire:submit.prevent="create">
                     <label for="editor" class="block text-sm font-medium text-primary-100">
                         {{ __('ticket.reply') }}
                     </label>
-                    <textarea id="editor" placeholder="{{ __('ticket.initial_message') }}"></textarea>
+                    {{-- Only the editor is Livewire's to leave alone (as on the reply page): the errors around it are redrawn. --}}
+                    <div wire:ignore>
+                        <textarea id="editor" placeholder="{{ __('ticket.initial_message') }}"></textarea>
+                    </div>
+                    @error('message')
+                        <p class="text-sm text-red-500 mt-1" role="alert">{{ $message }}</p>
+                    @enderror
                     
                     <label for="attachments" class="block text-sm font-medium text-primary-100 mt-2">
                         {{ __('ticket.attachments') }}
