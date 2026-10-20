@@ -101,6 +101,49 @@
     </x-filament::section>
 </div>
 
+{{-- All time and yearly, net (the owner, 2026-10-21; ClientTotals: the reports' rules). --}}
+@if (!empty($yearlyTotals))
+    <x-filament::section :heading="__('Totals by year')" class="mt-6" collapsible>
+        @foreach ($yearlyTotals as $currency => $totals)
+            @php
+                $currencyModel = \App\Models\Currency::query()->find($currency);
+                $money = fn ($amount) => (new \App\Classes\Price(['price' => $amount, 'currency' => $currencyModel], tax: 0))->format($amount);
+            @endphp
+            <div class="overflow-x-auto {{ $loop->first ? '' : 'mt-4' }}">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="text-left border-b border-gray-100 dark:border-white/5 {{ $label }}">
+                            <th class="py-2 pr-3">{{ count($yearlyTotals) > 1 ? $currency : __('Year') }}</th>
+                            <th class="py-2 pr-3 text-right">{{ __('Invoiced') }}</th>
+                            <th class="py-2 pr-3 text-right">{{ __('Paid') }}</th>
+                            <th class="py-2 text-right">{{ __('Open') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($totals['years'] as $year)
+                            <tr class="border-b border-gray-100 dark:border-white/5">
+                                <td class="py-2 pr-3">{{ $year['year'] }}</td>
+                                <td class="py-2 pr-3 text-right whitespace-nowrap">{{ $money($year['invoiced']) }}</td>
+                                <td class="py-2 pr-3 text-right whitespace-nowrap">{{ $money($year['paid']) }}</td>
+                                <td class="py-2 text-right whitespace-nowrap">{{ $money($year['open']) }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                    <tfoot>
+                        <tr class="font-semibold">
+                            <td class="py-2 pr-3">{{ __('All Time') }}</td>
+                            <td class="py-2 pr-3 text-right whitespace-nowrap">{{ $money($totals['total']['invoiced']) }}</td>
+                            <td class="py-2 pr-3 text-right whitespace-nowrap">{{ $money($totals['total']['paid']) }}</td>
+                            <td class="py-2 text-right whitespace-nowrap">{{ $money($totals['total']['open']) }}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        @endforeach
+        <p class="mt-2 text-xs {{ $label }}">{{ __('Net amounts, without tax.') }}</p>
+    </x-filament::section>
+@endif
+
 @if ($svc !== null)
     <x-filament::section :heading="__('Products/Services')" class="mt-6">
         <div class="overflow-x-auto">

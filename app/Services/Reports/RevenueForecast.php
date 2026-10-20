@@ -221,7 +221,7 @@ final class RevenueForecast
      *
      * @param  Builder<Invoice>  $invoices
      */
-    private static function netOf(Builder $invoices): int
+    public static function netOf(Builder $invoices): int
     {
         // Summed in the database per invoice (F2 of #278: 30k invoices in one read, not each one's lines loaded).
         $ids = $invoices->select('invoices.id');

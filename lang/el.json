@@ -837,5 +837,8 @@
     "This Year": "Φέτος",
     "All Time": "Συνολικά",
     "Net amounts, without tax.": "Καθαρά ποσά, χωρίς φόρο.",
-    "Income": "Έσοδα"
+    "Income": "Έσοδα",
+    "Totals by year": "Σύνολα ανά έτος",
+    "Invoiced": "Τιμολογημένα",
+    "Year": "Έτος"
 }
