@@ -122,6 +122,8 @@ class Licenses
             LicenseAccessLog::query()->create(['license_id' => $locked->id, 'ip' => $ip, 'message' => 'License Reissued', 'created_at' => now()]);
             $license->setRawAttributes($locked->getAttributes(), true);
         });
+        // Its failures from where it ran before (an IP mismatch in a loop) never hold back the bind that follows (#254).
+        app(ZlicLimiter::class)->forgetKey((string) $license->license_key);
     }
 
     /** prefix + lowercase hex, as every key today (ZCAgent-, ZCNode-, ZCWeb-, ZCFirewall- + 16 hex), unique. */

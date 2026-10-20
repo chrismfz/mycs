@@ -17,4 +17,14 @@ final class CallerIp
 
         return in_array('*', $proxies, true) ? (string) $request->server('REMOTE_ADDR') : (string) $request->ip();
     }
+
+    /** One caller for a limit: an IPv4 address, or an IPv6 one's /64 (one customer's network: else 2^64 callers). */
+    public static function bucket(string $ip): string
+    {
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false) {
+            return bin2hex(substr((string) inet_pton($ip), 0, 8)) . '::/64';
+        }
+
+        return $ip;
+    }
 }

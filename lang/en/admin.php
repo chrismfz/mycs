@@ -17,6 +17,7 @@ return [
         'domain_epp_codes_cleared' => 'Transfer EPP codes cleared',
         'domain_reminders' => 'Domain expiry notices sent',
         'license_logs_pruned' => 'License access logs pruned',
+        'zlic_limits_pruned' => 'zlic.php counters pruned',
         'mcp_calls_pruned' => 'MCP calls pruned',
         'mcp_proposals_expired' => 'MCP proposals expired',
         'services_suspended' => 'Services suspended',
