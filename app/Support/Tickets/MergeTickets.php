@@ -44,6 +44,10 @@ final class MergeTickets
                 $answered = $target->messages()->whereNotNull('staff_id')->where('is_internal', false)->exists();
                 $target->status = $answered ? Ticket::STATUS_CUSTOMER_REPLY : Ticket::STATUS_OPEN;
             }
+            // Mail no server vouched for stays hidden on the guest page wherever it moves (§3 Β, review of #266).
+            if ($source->sender_vouched === false) {
+                $target->sender_vouched = false;
+            }
             $target->save();
 
             $this->note($target, $staff, __('Ticket #:reference was merged into this one.', ['reference' => $source->reference]));

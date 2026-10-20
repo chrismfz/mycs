@@ -278,7 +278,8 @@ class EditTicket extends EditRecord
                         ->action(function (array $data, Ticket $record): void {
                             $record->update($data);
                         })
-                        ->hidden(!auth()->user()->can('update', $this->record))
+                        // A merged ticket stays closed: reopened, it would wait on a reply it cannot take (review of #266).
+                        ->hidden(!auth()->user()->can('update', $this->record) || ($this->record instanceof Ticket && $this->record->isMerged()))
                         ->icon('heroicon-o-pencil'),
                     // A duplicate into another ticket of the same owner (docs/tickets.md §6κ).
                     Action::make('merge')

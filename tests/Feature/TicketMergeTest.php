@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Admin\Resources\TicketResource\Pages\EditTicket;
 use App\Livewire\Tickets\Guest;
 use App\Livewire\Tickets\Index as TicketIndex;
+use App\Models\ApiKey;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Models\Ticket;
@@ -15,6 +16,7 @@ use App\Models\TicketQuarantine;
 use App\Models\User;
 use App\Support\Tickets\GuestLinks;
 use App\Support\Tickets\MergeTickets;
+use Filament\Actions\Exceptions\ActionNotResolvableException;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -183,6 +185,35 @@ class TicketMergeTest extends TestCase
         Livewire::test(EditTicket::class, ['record' => $duplicate->getRouteKey()])->assertSee(__('Merged into ticket'))
             ->fillForm(['message' => 'Late reply'])->call('send')->call('note');
 
+        $this->assertSame($before, $duplicate->messages()->count());
+    }
+
+    /** Review of #266: a merged ticket cannot be reopened in the admin, nor written to by the API. */
+    public function test_a_merged_ticket_is_not_reopened_in_the_admin_nor_written_by_the_api(): void
+    {
+        $owner = User::factory()->create();
+        $kept = $this->ticket(['client_id' => $owner->client()->id]);
+        $duplicate = $this->ticket(['client_id' => $owner->client()->id]);
+        app(MergeTickets::class)->handle($duplicate, $kept, $this->staff);
+
+        Livewire::test(EditTicket::class, ['record' => $kept->getRouteKey()])->assertActionVisible(TestAction::make('Edit')->schemaComponent('ticketActions', 'infolist'));
+        foreach (['Edit', 'merge'] as $name) {
+            try {
+                Livewire::test(EditTicket::class, ['record' => $duplicate->getRouteKey()])->callAction(TestAction::make($name)->schemaComponent('ticketActions', 'infolist'), ['status' => 'open']);
+                $offered = true;
+            } catch (ActionNotResolvableException) {
+                $offered = false;
+            }
+            $this->assertNotTrue($offered, "{$name} on a merged ticket");
+        }
+        $this->assertSame(Ticket::STATUS_CLOSED, $duplicate->fresh()->status);
+
+        $token = 'PAYM' . bin2hex(random_bytes(8));
+        ApiKey::create(['name' => 'k', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
+            'staff_id' => $this->staff->id, 'permissions' => ['admin.ticket_messages.create']]);
+        $before = $duplicate->messages()->count();
+        $this->postJson('/api/v1/admin/ticket-messages', ['ticket_id' => $duplicate->id, 'message' => 'Late', 'staff_id' => $this->staff->id],
+            ['Authorization' => 'Bearer ' . $token, 'Accept' => 'application/json'])->assertUnprocessable();
         $this->assertSame($before, $duplicate->messages()->count());
     }
 }
