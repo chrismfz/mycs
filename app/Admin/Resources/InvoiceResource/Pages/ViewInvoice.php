@@ -78,6 +78,12 @@ class ViewInvoice extends ViewRecord
                             ->label('Total'),
                         TextEntry::make('formattedCurrentBalance')
                             ->label('Remaining'),
+                        // Why it was cancelled: a proforma or a draft gets no credit note to say it (#241).
+                        TextEntry::make('cancellation_reason')
+                            ->label('Cancellation reason')
+                            ->placeholder('—')
+                            ->columnSpanFull()
+                            ->visible(fn (Invoice $record): bool => $record->status === Invoice::STATUS_CANCELLED),
                     ])
                     ->columns(3),
                 Section::make('Items')
