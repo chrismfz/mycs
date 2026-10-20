@@ -73,6 +73,9 @@
                 </div>
 
                 @if(auth('web')->check())
+                @if (\App\Support\CurrentClient::model() !== null)
+                <livewire:components.quick-search />
+                @endif
                 <livewire:components.notifications />
                 <div class="hidden lg:flex">
                     <x-dropdown :showArrow="false">
