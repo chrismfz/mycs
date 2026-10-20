@@ -204,7 +204,7 @@ class Cart extends Component
                     }
                 }
                 // Priced and invoiced here, from the lines as they are now (CART-7), not from the total on the page.
-                $placed = (new PlaceOrderService)->place($client, $cart->currency_code, $lines, $cart->coupon, notes: $this->notes, domains: $domains);
+                $placed = (new PlaceOrderService)->place($client, $cart->currency_code, $lines, $cart->coupon, notes: $this->notes, domains: $domains, ip: request()->ip());
                 $cart->delete();
 
                 return $placed;
@@ -229,7 +229,7 @@ class Cart extends Component
 
         // Staff are told (WHMCS «New Order Notification»), after the commit. A mail that fails never fails the order.
         try {
-            StaffOrderNotice::send($placed->order, request()->ip());
+            StaffOrderNotice::send($placed->order);
         } catch (Throwable $e) {
             report($e);
         }
