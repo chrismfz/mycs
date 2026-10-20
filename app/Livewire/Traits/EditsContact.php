@@ -29,7 +29,7 @@ trait EditsContact
 
     protected function fillContact(?Contact $contact): void
     {
-        $this->identityLocked = $contact !== null && $contact->domainRoles()->isNotEmpty();
+        $this->identityLocked = $contact !== null && $contact->identityLocked();
         $this->contact = [];
         foreach (self::CONTACT_FIELDS as $field) {
             $this->contact[$field] = $contact->{$field} ?? match ($field) {
