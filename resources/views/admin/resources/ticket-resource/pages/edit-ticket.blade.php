@@ -29,7 +29,7 @@
                                             <span class="text-lg font-semibold">{{ $this->record->guest_name }}</span>
                                             <x-filament::badge color="gray" size="sm">{{ __('Guest') }}</x-filament::badge>
                                         @else
-                                            <span class="text-lg font-semibold text-gray-500">{{ __('Customer') }}</span>
+                                            <span class="text-lg font-semibold text-gray-500">{{ $this->record->client?->name ?? __('Customer') }}</span>
                                         @endif
                                         @if ($message->is_internal)
                                             <x-filament::badge color="warning" size="sm">{{ __('Internal note') }}</x-filament::badge>

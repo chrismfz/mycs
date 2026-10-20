@@ -7,6 +7,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
+use Livewire\Features\SupportFileUploads\FileUploadConfiguration;
 use MyCS\TicketMail\Attachments;
 use MyCS\TicketMail\InboundAttachment;
 
@@ -35,19 +36,42 @@ final class TicketFiles
     }
 
     /**
-     * The size a file can have in the portal, in MB: the smaller of the ticket rule and Livewire's temporary upload limit
-     * (its rules, 12 MB by default), so the text says what is really taken.
+     * The size a file can have in the portal, in MB: the smallest of the ticket rule, Livewire's temporary upload limit
+     * (12 MB by default) and PHP's own (upload_max_filesize, post_max_size), so the text says what is really taken.
      */
     public static function maxUploadMegabytes(): int
     {
-        $livewire = 12288;
-        foreach ((array) (config('livewire.temporary_file_upload.rules') ?? []) as $rule) {
+        $kilobytes = [Attachments::MAX_BYTES / 1024, 12288];
+        foreach (FileUploadConfiguration::rules() as $rule) {
             if (is_string($rule) && preg_match('/^max:(\d+)$/', $rule, $m) === 1) {
-                $livewire = (int) $m[1];
+                $kilobytes[1] = (int) $m[1];
+            }
+        }
+        foreach (['upload_max_filesize', 'post_max_size'] as $setting) {
+            $bytes = self::iniBytes((string) ini_get($setting));
+            if ($bytes > 0) {
+                $kilobytes[] = $bytes / 1024;
             }
         }
 
-        return (int) floor(min(Attachments::MAX_BYTES / 1024, $livewire) / 1024);
+        return max(1, (int) floor(min($kilobytes) / 1024));
+    }
+
+    /** A php.ini size («2M», «8M», «1G», bytes) in bytes; 0 for none or unlimited. */
+    private static function iniBytes(string $value): int
+    {
+        $value = trim($value);
+        if ($value === '' || $value === '-1') {
+            return 0;
+        }
+        $number = (int) $value;
+
+        return match (strtolower(substr($value, -1))) {
+            'g' => $number * 1024 ** 3,
+            'm' => $number * 1024 ** 2,
+            'k' => $number * 1024,
+            default => $number,
+        };
     }
 
     /** The validation of an upload: the same types (by name and by bytes) and size as by email. */
