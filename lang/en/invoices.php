@@ -1,6 +1,17 @@
 <?php
 
 return [
+    // The PDF, as WHMCS's (owner 2026-10-20).
+    'invoiced_to' => 'Invoiced To',
+    'credit_applied' => 'Credit',
+    'balance' => 'Balance',
+    'gateway' => 'Gateway',
+    'transaction_date' => 'Transaction Date',
+    'no_transactions' => 'No related transactions found',
+    'generated_on' => 'PDF generated on :date',
+    'moved_to_credit' => 'Moved to account credit',
+    'transaction_processing' => 'Processing',
+    'note_statuses' => ['active' => 'Active', 'voided' => 'Voided'],
     'invoices' => 'Invoices',
     'product' => 'Product',
     'price' => 'Price',

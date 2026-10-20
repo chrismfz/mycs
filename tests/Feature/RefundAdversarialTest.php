@@ -233,7 +233,8 @@ class RefundAdversarialTest extends TestCase
 
         $html = view('pdf.invoice', ['invoice' => $invoice])->render();
 
-        $this->assertStringContainsString(Invoice::statusLabel(Invoice::STATUS_UNPAID), $html);
+        // #264: the stamp is the label in capitals (UNPAID), still WHMCS's word and not the raw code.
+        $this->assertStringContainsString(mb_strtoupper(Invoice::statusLabel(Invoice::STATUS_UNPAID)), $html);
     }
 
     // ================================================================== guards (must keep holding)

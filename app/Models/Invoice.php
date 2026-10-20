@@ -393,6 +393,37 @@ class Invoice extends Model implements Auditable
     }
 
     /**
+     * What the PDF shows below its lines, as WHMCS's (owner 2026-10-20), in cents so it adds up: the account credit
+     * applied (credit transactions) apart from the payments; «total» what was due after it; «balance» what is left,
+     * always this invoice's remaining (total − payments, each net of refunds and of what became credit again).
+     *
+     * Also (reviews of #264): the active adjustment notes in cents (a sum of floats is never quite 0); the payments still
+     * processing listed apart, never counted; a cancelled or refunded invoice owes nothing, whatever is left.
+     *
+     * @return array{adjustments: float, credit: float, total: float, payments: list<InvoiceTransaction>, processing: list<InvoiceTransaction>, balance: float}
+     */
+    public function statement(): array
+    {
+        $adjustments = $this->adjustmentNotes->where('status', AdjustmentNoteStatus::Active->value)->sum(fn ($note) => $this->moneyToCents($note->amount));
+        $succeeded = $this->transactions->where('status', InvoiceTransactionStatus::Succeeded);
+        $net = fn (InvoiceTransaction $transaction) => $this->moneyToCents($transaction->amount)
+            - $this->moneyToCents($transaction->refunded_amount) - $this->moneyToCents($transaction->credited_amount);
+        $credit = $succeeded->filter(fn (InvoiceTransaction $transaction) => (bool) $transaction->is_credit_transaction)->sum($net);
+        $payments = $succeeded->reject(fn (InvoiceTransaction $transaction) => (bool) $transaction->is_credit_transaction);
+
+        $closed = in_array($this->status, [self::STATUS_CANCELLED, self::STATUS_REFUNDED], true);
+
+        return [
+            'adjustments' => $adjustments / 100.0,
+            'credit' => $credit / 100.0,
+            'total' => ($this->moneyToCents($this->total) - $credit) / 100.0,
+            'payments' => $payments->sortBy('created_at')->values()->all(),
+            'processing' => $this->transactions->where('status', InvoiceTransactionStatus::Processing)->sortBy('created_at')->values()->all(),
+            'balance' => $closed ? 0.0 : ($this->moneyToCents($this->total) - $credit - $payments->sum($net)) / 100.0,
+        ];
+    }
+
+    /**
      * Reload what the balance is computed from (lines, transactions, adjustment notes) with locking reads,
      * inside a transaction. Under REPEATABLE READ a plain read returns the snapshot of the transaction's
      * first read, even after waiting for a lock, and would miss a payment committed meanwhile
@@ -558,9 +589,15 @@ class Invoice extends Model implements Auditable
      * How it is called on pages, PDFs and lists: «Proforma #id» while a proforma has no number, else «Invoice #number»,
      * its id when it has no number yet (a draft, since Δ2; code review of #238).
      */
+    /** Not numbered yet in proforma mode (and its number not its id): its title and dates say so (review F5 of #264). */
+    public function isProforma(): bool
+    {
+        return !$this->number && config('settings.invoice_proforma', false) && !config('settings.invoice_number_is_id', false);
+    }
+
     public function displayTitle(): string
     {
-        return !$this->number && config('settings.invoice_proforma', false) && !config('settings.invoice_number_is_id', false)
+        return $this->isProforma()
             ? __('invoices.proforma_invoice', ['id' => $this->id])
             : __('invoices.invoice', ['id' => $this->number ?: $this->id]);
     }
