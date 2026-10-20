@@ -6,6 +6,7 @@ use App\Admin\Resources\ClientResource;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
+use Filament\Facades\Filament;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Pages\ManageRelatedRecords;
@@ -31,11 +32,6 @@ class ShowNotes extends ManageRelatedRecords
         return __('Notes');
     }
 
-    private function mayWrite(): bool
-    {
-        return (bool) auth()->user()?->hasPermission('admin.clients.update');
-    }
-
     public function form(Schema $schema): Schema
     {
         return $schema->components([
@@ -55,15 +51,18 @@ class ShowNotes extends ManageRelatedRecords
                 TextColumn::make('body')->label(__('Note'))->wrap()->formatStateUsing(fn (string $state) => nl2br(e($state)))->html(),
                 TextColumn::make('staff.name')->label(__('Author'))->placeholder('—'),
                 TextColumn::make('created_at')->label(__('Created'))->dateTime(),
-                TextColumn::make('updated_at')->label(__('Modified'))->dateTime()->toggleable(isToggledHiddenByDefault: true),
+                // Changed since (perhaps by someone else: the audit says who): shown, the author stays the writer's.
+                TextColumn::make('updated_at')->label(__('Modified'))->dateTime()
+                    ->formatStateUsing(fn ($state, $record) => $record->updated_at?->gt($record->created_at) ? $record->updated_at->format('d/m/Y H:i') : '—'),
             ])
             ->headerActions([
-                CreateAction::make()->label(__('Add Note'))->visible(fn () => $this->mayWrite())
-                    ->mutateDataUsing(fn (array $data) => [...$data, 'staff_id' => auth()->id()]),
+                // Authorized by ClientNotePolicy (admin.clients.update); the author is the staff member, by the panel's guard.
+                CreateAction::make()->label(__('Add Note'))
+                    ->mutateDataUsing(fn (array $data) => [...$data, 'staff_id' => Filament::auth()->id()]),
             ])
             ->recordActions([
-                EditAction::make()->visible(fn () => $this->mayWrite()),
-                DeleteAction::make()->visible(fn () => $this->mayWrite()),
+                EditAction::make(),
+                DeleteAction::make(),
             ])
             ->emptyStateHeading(__('No notes'));
     }

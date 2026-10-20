@@ -17,7 +17,7 @@
         <x-filament::icon icon="heroicon-s-bookmark" class="mt-0.5 h-4 w-4 shrink-0 text-warning-600 dark:text-warning-400" />
         <div class="min-w-0">
             <div class="whitespace-pre-line break-words text-gray-950 dark:text-white">{{ $note->body }}</div>
-            <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ $note->staff?->name ?? '—' }} · {{ $note->created_at?->format('d/m/Y H:i') }}@if ($notesUrl) · <a href="{{ $notesUrl }}" class="underline">{{ __('All notes') }}</a>@endif</div>
+            <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ $note->staff?->name ?? '—' }} · {{ $note->created_at?->format('d/m/Y H:i') }}@if ($note->updated_at?->gt($note->created_at)) · {{ __('edited :date', ['date' => $note->updated_at->format('d/m/Y H:i')]) }}@endif · <a href="{{ \App\Admin\Resources\ClientResource::getUrl('notes', ['record' => $client]) }}" class="underline">{{ __('All notes') }}</a></div>
         </div>
     </div>
 </div>

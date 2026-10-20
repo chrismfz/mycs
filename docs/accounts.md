@@ -530,3 +530,12 @@ tickets, affiliates, emails, orders`. Στην πράξη: «όλα» ή μικ�
 - Impersonation → «Login as client», με τον staff ως causer στα audits και καταγραφή της ενέργειας. AUTH-19
 - Back-off στις αποτυχίες 2FA (και του staff, με το δικό του guard). AUTH-20
 - Διαγραφή μέλους staff που σβήνει τις απαντήσεις του σε tickets· πελάτης με υπηρεσίες ή κινήσεις χρημάτων. DATA-3, AUTH-7
+
+## Σημειώσεις λογαριασμού (#243)
+- `client_notes`: μόνο του staff (WHMCS «Notes»): συντάκτης, κείμενο, sticky. Τις βλέπει όποιος βλέπει πελάτες
+  (`admin.clients.viewAny`), τις γράφει όποιος τους ενημερώνει (`admin.clients.update`, `ClientNotePolicy`). Τα sticky στην
+  κορυφή της Σύνοψης. Ποτέ στο client area, στο API, στο MCP ή σε template (όχι στα READS του `TemplateRenderer`).
+- Μια αλλαγή κρατά τον αρχικό συντάκτη· ποιος την άλλαξε το λέει το audit (και η «Σύνοψη» γράφει «άλλαξε …»).
+- **Το audit κρατά το κείμενο** κάθε εκδοχής (`audits.old_values/new_values`), και το βλέπει όποιος έχει
+  `admin.audit.viewAny`. Η διαγραφή πελάτη σβήνει τις σημειώσεις με cascade (όπως το WHMCS), χωρίς γραμμή audit, και το
+  κείμενό τους μένει στο audit: μια μελλοντική ροή διαγραφής/ανωνυμοποίησης (GDPR, ROADMAP) πρέπει να καθαρίζει και αυτό.
