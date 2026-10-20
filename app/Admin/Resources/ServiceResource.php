@@ -54,6 +54,16 @@ class ServiceResource extends Resource
 {
     protected static ?string $model = Service::class;
 
+    /** Its name in «Recently viewed» and the breadcrumbs. */
+    public static function getRecordTitle(?Model $record): string|Htmlable|null
+    {
+        if (!$record instanceof Service) {
+            return parent::getRecordTitle($record);
+        }
+
+        return trim(($record->product !== null ? $record->product->name : 'Service') . ' · ' . $record->label, ' ·');
+    }
+
     // One name for the page, WHMCS's, in the top menu, the sidebar and its title (owner 2026-10-21).
     protected static ?string $navigationLabel = 'Products/Services';
 

@@ -43,11 +43,23 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 
 class InvoiceResource extends Resource
 {
     protected static ?string $model = Invoice::class;
+
+    /** Its name in «Recently viewed» and the breadcrumbs. */
+    public static function getRecordTitle(?Model $record): string|Htmlable|null
+    {
+        if (!$record instanceof Invoice) {
+            return parent::getRecordTitle($record);
+        }
+
+        return 'Invoice ' . ($record->number ?: '#' . $record->getKey());
+    }
 
     // By id, as its URLs ({record:id}): Filament finds the record again on every request by this key, and the model's
     // own route key is the number when it is not numeric (Invoice::getRouteKey).

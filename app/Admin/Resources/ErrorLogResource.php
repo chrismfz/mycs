@@ -50,6 +50,7 @@ class ErrorLogResource extends Resource
                     })
                     ->toggleable(),
                 TextColumn::make('created_at')
+                    ->dateTime()
                     ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true)
                     ->sortable(),

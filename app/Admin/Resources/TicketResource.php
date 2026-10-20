@@ -31,6 +31,16 @@ class TicketResource extends Resource
 {
     protected static ?string $model = Ticket::class;
 
+    /** Its name in «Recently viewed» and the breadcrumbs. */
+    public static function getRecordTitle(?Model $record): string|Htmlable|null
+    {
+        if (!$record instanceof Ticket) {
+            return parent::getRecordTitle($record);
+        }
+
+        return '#' . $record->reference . ' ' . $record->subject;
+    }
+
     protected static string|\BackedEnum|null $navigationIcon = 'ri-customer-service-line';
 
     protected static string|\BackedEnum|null $activeNavigationIcon = 'ri-customer-service-fill';

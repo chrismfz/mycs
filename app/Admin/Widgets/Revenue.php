@@ -83,6 +83,8 @@ class Revenue extends ChartWidget
                 ],
                 [
                     'label' => 'New Orders',
+                    // A count, not money: its own axis on the right (owner 2026-10-21).
+                    'yAxisID' => 'orders',
                     'data' => $newOrders->map(fn (TrendValue $value) => $value->aggregate)->toArray(),
                     'backgroundColor' => '#e3342f',
                     'borderColor' => '#e3342f',
@@ -98,6 +100,12 @@ class Revenue extends ChartWidget
             'scales' => [
                 'y' => [
                     'beginAtZero' => true,
+                ],
+                'orders' => [
+                    'position' => 'right',
+                    'beginAtZero' => true,
+                    'ticks' => ['precision' => 0],
+                    'grid' => ['drawOnChartArea' => false],
                 ],
             ],
         ];

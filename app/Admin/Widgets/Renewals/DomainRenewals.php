@@ -12,6 +12,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget;
+use Illuminate\Support\HtmlString;
 
 /**
  * Domains expiring soon (owner 2026-10-17, as myip's dashboard hack and its .eu hook, for every TLD): who, where, when,
@@ -57,6 +58,8 @@ class DomainRenewals extends TableWidget
                     ->color(fn (string $state) => self::STATES[$state][1]),
             ])
             ->recordUrl(fn (Domain $record) => DomainResource::canView($record) ? DomainResource::getUrl('view', ['record' => $record]) : null)
+            // Empty, one line, not a big box (owner 2026-10-21); the filter above stays to widen the window.
+            ->emptyState(fn () => new HtmlString('<p class="px-6 py-3 text-sm text-gray-500 dark:text-gray-400">' . e(__('No domain renews in this window.')) . '</p>'))
             ->paginated([10, 25, 50]);
     }
 

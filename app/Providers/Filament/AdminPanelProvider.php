@@ -20,6 +20,7 @@ use Filament\Http\Middleware\DispatchServingFilamentEvent;
 use Filament\Notifications\Livewire\Notifications;
 use Filament\Panel;
 use Filament\PanelProvider;
+use Filament\Schemas\Schema;
 use Filament\Support\Colors\Color;
 use Filament\Support\Enums\Alignment;
 use Filament\Support\Enums\Width;
@@ -64,9 +65,15 @@ class AdminPanelProvider extends PanelProvider
             ->maxContentWidth(Width::Full)
             ->sidebarCollapsibleOnDesktop()
             // 50 rows a page. A table that chooses its own options (widgets, logs under a record) keeps its default.
-            ->bootUsing(fn () => Table::configureUsing(fn (Table $table) => $table
-                ->paginationPageOptions(self::PAGE_OPTIONS)
-                ->defaultPaginationPageOption(fn () => $table->getPaginationPageOptions() === self::PAGE_OPTIONS ? 50 : null)))
+            // One way to write a date in the whole admin, as in Greece (owner 2026-10-21: lists said «Oct 20, 2026», orders
+            // «2026-10-18 21:01:40», a client's page «15/10/2026»), in the timezone of Settings → General.
+            ->bootUsing(function () {
+                Table::configureUsing(fn (Table $table) => $table
+                    ->paginationPageOptions(self::PAGE_OPTIONS)
+                    ->defaultPaginationPageOption(fn () => $table->getPaginationPageOptions() === self::PAGE_OPTIONS ? 50 : null)
+                    ->defaultDateDisplayFormat('d/m/Y')->defaultDateTimeDisplayFormat('d/m/Y H:i'));
+                Schema::configureUsing(fn (Schema $schema) => $schema->defaultDateDisplayFormat('d/m/Y')->defaultDateTimeDisplayFormat('d/m/Y H:i'));
+            })
             ->colors([
                 'primary' => Color::Blue,
             ])
@@ -90,6 +97,11 @@ class AdminPanelProvider extends PanelProvider
             ->renderHook(
                 PanelsRenderHook::TOPBAR_LOGO_AFTER,
                 fn (): string => view('filament.admin.top-menu')->render(),
+            )
+            // The sidebar for the day's work (AdminSidebar); the full menu stays below it for a phone (docs/admin-ux.md).
+            ->renderHook(
+                PanelsRenderHook::SIDEBAR_NAV_START,
+                fn (): string => view('filament.admin.sidebar-work')->render(),
             )
             ->renderHook(
                 PanelsRenderHook::SIDEBAR_NAV_END,

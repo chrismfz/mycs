@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\OrderResource\Pages;
 
+use App\Admin\Concerns\RemembersRecent;
 use App\Admin\Resources\OrderResource;
 use App\Exceptions\DisplayException;
 use App\Models\Order;
@@ -21,6 +22,8 @@ use Throwable;
 /** WHMCS's order page buttons (Σ1-b2): Accept, Cancel, Cancel & Refund, Set as Fraud, Set back to Pending, Delete. */
 class EditOrder extends EditRecord
 {
+    use RemembersRecent;
+
     protected static string $resource = OrderResource::class;
 
     protected function getHeaderActions(): array

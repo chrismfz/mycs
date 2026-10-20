@@ -69,6 +69,7 @@ class RecordsToCheck extends TableWidget
 
     public static function canView(): bool
     {
-        return (bool) auth()->user()?->hasPermission('admin.widgets.renewals') && DomainResource::canViewAny();
+        // A list of problems: on the dashboard only while there is one (owner 2026-10-21: empty boxes take the page).
+        return (bool) auth()->user()?->hasPermission('admin.widgets.renewals') && DomainResource::canViewAny() && self::query()->exists();
     }
 }

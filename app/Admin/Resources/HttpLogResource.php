@@ -54,6 +54,7 @@ class HttpLogResource extends Resource
                     ->searchable(query: fn (Builder $query, string $search): Builder => $query->where('context->response_status', 'like', "%{$search}%"))
                     ->toggleable(),
                 TextColumn::make('created_at')
+                    ->dateTime()
                     ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true)
                     ->sortable(),

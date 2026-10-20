@@ -7,7 +7,9 @@ use App\Admin\Widgets\Renewals\DomainRenewals;
 use App\Admin\Widgets\Renewals\ServicesToCheck;
 use App\Models\Client;
 use App\Models\Role;
+use App\Models\Service;
 use App\Models\Staff;
+use App\Models\User;
 use Filament\Facades\Filament;
 use Filament\Support\Components\ComponentManager;
 use Filament\Support\Enums\Width;
@@ -51,6 +53,10 @@ class AdminDensityTest extends TestCase
     /** A table with its own options keeps its own default, never 50 where 50 is not offered. */
     public function test_a_table_with_its_own_options_keeps_its_default(): void
     {
+        // A list of problems mounts only while there is one: a service with no due date is one.
+        $product = $this->createProduct();
+        Service::factory()->create(['client_id' => User::factory()->create()->client()->id, 'product_id' => $product->product->id,
+            'plan_id' => $product->plan->id, 'status' => 'active', 'expires_at' => null, 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1]);
         foreach ([ServicesToCheck::class => [10, 25], DomainRenewals::class => [10, 25, 50]] as $widget => $options) {
             $table = $this->tableOf($widget);
 

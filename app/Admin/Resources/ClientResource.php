@@ -48,6 +48,16 @@ class ClientResource extends Resource
 {
     protected static ?string $model = Client::class;
 
+    /** Its name in «Recently viewed» and the breadcrumbs. */
+    public static function getRecordTitle(?Model $record): string|Htmlable|null
+    {
+        if (!$record instanceof Client) {
+            return parent::getRecordTitle($record);
+        }
+
+        return (string) $record->name;
+    }
+
     protected static string|\UnitEnum|null $navigationGroup = 'Administration';
 
     protected static string|\BackedEnum|null $navigationIcon = 'ri-building-line';
