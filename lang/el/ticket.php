@@ -12,7 +12,7 @@ return [
     'attachments' => 'Συνημμένα',
     'upload_attachments' => 'Επισύναψη αρχείων',
     'or_drag_and_drop' => 'ή σύρετε και αφήστε εδώ',
-    'files_max' => 'Αρχεία έως 10MB',
+    'files_max' => 'Έως :count αρχεία των :size MB το καθένα: :types',
     'selected_files' => 'Επιλεγμένα αρχεία',
     'uploading_files' => 'Ανέβασμα αρχείων',
     'close_ticket' => 'Κλείσιμο ticket',
@@ -58,4 +58,5 @@ return [
     'guest_link_resend' => 'Στείλτε μου νέο σύνδεσμο',
     'guest_link_resent' => 'Αν το αίτημα είναι ακόμα ανοιχτό στη διεύθυνσή του, ένας νέος σύνδεσμος έρχεται εκεί.',
     'guest_message_hidden' => 'Το μήνυμα με το οποίο άνοιξε το αίτημα δεν εμφανίζεται εδώ: δεν μπορέσαμε να επιβεβαιώσουμε ποιος το έστειλε.',
+    'initial_message' => 'Το μήνυμά σας',
 ];

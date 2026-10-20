@@ -162,6 +162,8 @@ return [
 
     // Ελληνικά ονόματα πεδίων στα μηνύματα (αλλιώς θα έγραφε «Το πεδίο first_name»).
     'attributes' => [
+        'attachments' => 'συνημμένα',
+        'attachments.*' => 'συνημμένο',
         'first_name' => 'όνομα',
         'last_name' => 'επώνυμο',
         'email' => 'email',

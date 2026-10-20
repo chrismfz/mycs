@@ -3,6 +3,7 @@
 namespace App\Admin\Resources;
 
 use App\Admin\Resources\TicketBlockedSenderResource\Pages\ManageTicketBlockedSenders;
+use App\Models\Ticket;
 use App\Models\TicketBlockedSender;
 use Filament\Actions\DeleteAction;
 use Filament\Forms\Components\TextInput;
@@ -16,7 +17,14 @@ class TicketBlockedSenderResource extends Resource
 {
     protected static ?string $model = TicketBlockedSender::class;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Support';
+    // Under Tickets, where staff work on them.
+    protected static string|\UnitEnum|null $navigationGroup = 'Administration';
+
+    /** Under Tickets for staff who see them; else on its own (Filament drops a child whose parent is not there). */
+    public static function getNavigationParentItem(): ?string
+    {
+        return auth('staff')->user()?->can('viewAny', Ticket::class) ? 'Tickets' : null;
+    }
 
     protected static string|\BackedEnum|null $navigationIcon = 'ri-mail-forbid-line';
 

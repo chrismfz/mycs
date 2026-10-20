@@ -188,6 +188,9 @@ return [
     |
     */
 
-    'attributes' => [],
+    'attributes' => [
+        'attachments' => 'attachments',
+        'attachments.*' => 'attachment',
+    ],
 
 ];

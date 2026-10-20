@@ -12,7 +12,7 @@ return [
     'attachments' => 'Attachments',
     'upload_attachments' => 'Upload Attachments',
     'or_drag_and_drop' => 'or drag and drop',
-    'files_max' => 'Files up to 10MB',
+    'files_max' => 'Up to :count files of :size MB each: :types',
     'selected_files' => 'Selected Files',
     'uploading_files' => 'Uploading files',
     'close_ticket' => 'Close Ticket',
@@ -58,4 +58,5 @@ return [
     'guest_link_resend' => 'Mail me a new link',
     'guest_link_resent' => 'If the ticket is still open to its address, a new link is on its way there.',
     'guest_message_hidden' => 'The message this ticket was opened with is not shown here: we could not verify who sent it.',
+    'initial_message' => 'Your message',
 ];
