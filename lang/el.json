@@ -837,5 +837,17 @@
     "This Year": "Φέτος",
     "All Time": "Συνολικά",
     "Net amounts, without tax.": "Καθαρά ποσά, χωρίς φόρο.",
-    "Income": "Έσοδα"
+    "Income": "Έσοδα",
+    "Income of the year": "Έσοδα έτους",
+    "Export XLSX": "Εξαγωγή XLSX",
+    "Paid on": "Πληρώθηκε",
+    "VAT number": "ΑΦΜ/VAT",
+    "Net": "Καθαρά",
+    "Tax": "Φόρος",
+    "Paid with": "Τρόπος πληρωμής",
+    "Months": "Μήνες",
+    "Year": "Έτος",
+    "By month": "Ανά μήνα",
+    "Account credit": "Πίστωση λογαριασμού",
+    "Invoices paid in the year, by their payment date; refunds and credit notes taken off; credit purchases are not income.": "Τιμολόγια που πληρώθηκαν μέσα στο έτος, με βάση την ημερομηνία πληρωμής· οι επιστροφές και τα πιστωτικά αφαιρούνται· οι αγορές πίστωσης δεν είναι έσοδο."
 }
