@@ -25,12 +25,12 @@ class PaymentGatewayEventResource extends Resource
 
     public static function getNavigationLabel(): string
     {
-        return __('Gateway log');
+        return __('Gateway Log');
     }
 
     public static function getModelLabel(): string
     {
-        return __('Gateway log');
+        return __('Gateway Log');
     }
 
     public static function canCreate(): bool

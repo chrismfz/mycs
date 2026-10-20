@@ -27,6 +27,13 @@ class GatewayResource extends Resource
 {
     protected static ?string $model = Gateway::class;
 
+    // One name for the page, WHMCS's, in the top menu, the sidebar and its title (owner 2026-10-21).
+    protected static ?string $navigationLabel = 'Payment Gateways';
+
+    protected static ?string $pluralModelLabel = 'Payment Gateways';
+
+    protected static ?string $modelLabel = 'Payment Gateway';
+
     protected static string|\UnitEnum|null $navigationGroup = 'Extensions';
 
     protected static string|\BackedEnum|null $navigationIcon = 'ri-secure-payment-line';

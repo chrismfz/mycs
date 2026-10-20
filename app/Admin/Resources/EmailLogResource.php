@@ -39,6 +39,13 @@ class EmailLogResource extends Resource
 {
     protected static ?string $model = EmailLog::class;
 
+    // One name for the page, WHMCS's, in the top menu, the sidebar and its title (owner 2026-10-21).
+    protected static ?string $navigationLabel = 'Email Message Log';
+
+    protected static ?string $pluralModelLabel = 'Email Message Log';
+
+    protected static ?string $modelLabel = 'Email';
+
     protected static string|\BackedEnum|null $navigationIcon = 'ri-mail-send-line';
 
     protected static string|\BackedEnum|null $activeNavigationIcon = 'ri-mail-send-fill';

@@ -28,6 +28,24 @@
 
 Νέα σελίδα (domains, reports): μία γραμμή στο `TopMenu::MENU`.
 
+**Όλες οι σελίδες στο πάνω μενού (owner 2026-10-21: «αρκεί να μην ξεχάσουμε κάποια σελίδα ή endpoint απ' έξω»):**
+- Το πάνω μενού είναι ο πλήρης χάρτης του admin· το sidebar θα κρατήσει ό,τι θέλει δουλειά σήμερα.
+- Το `TopMenuCoverageTest` αποτυγχάνει αν κάποιο resource ή page του `App\` δεν έχει γραμμή στο `MENU` ή λόγο στο
+  `NOT_IN_MENU` (Dashboard, clusters). Ελέγχει επίσης ότι κάθε γραμμή ανοίγει (200) για staff με όλα τα δικαιώματα.
+- Ό,τι φορτώνει το panel χωρίς γραμμή (η σελίδα ενός extension) μπαίνει μόνο του στο «Addons», όπως στο WHMCS.
+- Τα Error/HTTP Logs φαίνονται μόνο όταν είναι ανοιχτό το debug.
+- Προστέθηκαν όσα έλειπαν: Manage Users, Gateway Log, Predefined Replies, Reply Categories, MCP Proposals/Calls/
+  Authorizations, Staff, Error/HTTP Logs. Το «View/Search Clients» οδηγούσε στους Users (τα logins)· τώρα οδηγεί στους
+  Clients.
+- **Ένα όνομα ανά σελίδα**, του WHMCS, στο μενού, στο sidebar και στον τίτλο:
+  - Product Groups, Configurable Options, Custom Client Fields, Tax Rules, Payment Gateways, Email Templates, Staff Roles,
+    API Credentials·
+  - Promotions, Cancellation Requests, Products/Services (οι υπηρεσίες των πελατών), Transactions, Email Message Log,
+    Activity Log, Gateway Log.
+  Ο κατάλογος λέγεται «Products», για να μη μοιράζεται όνομα με τις υπηρεσίες των πελατών.
+- Τα Reports θα είναι δική τους ομάδα, ανάμεσα στο Support και στο Utilities (σειρά του WHMCS).
+
+
 ## Πυκνότητα (2026-10-19)
 Το Filament είναι «αέρινο» και το πλήρωμα συνηθισμένο στο WHMCS. Μετρήσεις στο ίδιο παράθυρο (2147px): γραμμή πίνακα
 WHMCS 29px, Filament 57px· πλάτος πίνακα WHMCS 1906px, Filament ~1030px (όριο 1280px). Τα γράμματα είναι ίδια (14px):
