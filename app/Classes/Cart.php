@@ -8,6 +8,7 @@ use App\Models\Coupon;
 use App\Models\DomainTld;
 use App\Models\Plan;
 use App\Models\Product;
+use App\Services\Domains\DomainSearch;
 use App\Services\Domains\Ordering\DomainOffer;
 use App\Services\Domains\Ordering\DomainOrderLine;
 use App\Support\CurrentClient;
@@ -131,6 +132,65 @@ class Cart
         $cart->load('items');
 
         return $item->id;
+    }
+
+    /**
+     * Several domains at once (the bulk transfer, owner 2026-10-20): one hit of the add limit, their registrar checked
+     * together, each added at its shortest term with its EPP code, or refused with why. Never more than the cart holds.
+     *
+     * @param  array<string, string|null>  $names  fqdn => its EPP code (a transfer's), as typed
+     * @return array<string, true|string> fqdn as typed => true (added) or why not
+     */
+    public static function addDomains(array $names, string $operation): array
+    {
+        self::checkRateLimit();
+        $currency = self::getOnce()->currency_code ?? session('currency', config('settings.default_currency'));
+        $offer = app(DomainOffer::class);
+        $results = [];
+        $valid = [];
+        foreach ($names as $typed => $epp) {
+            try {
+                $tld = $offer->tldFor((string) $typed, $currency);
+                $years = $tld === null ? 1 : ($offer->years($tld, $operation, $currency)->first() ?? 1);
+                [$fqdn, $tld] = $offer->check((string) $typed, $operation, $years, $currency, availability: false);
+                $valid[(string) $typed] = [$fqdn, $tld, $years, $epp];
+            } catch (DisplayException $e) {
+                $results[(string) $typed] = $e->getMessage();
+            }
+        }
+        $statuses = $valid === [] ? [] : app(DomainSearch::class)->statuses(collect($valid)->mapWithKeys(fn ($row) => [$row[0] => $row[1]])->all());
+        // One cart for them all, made once: a new cart's cookie reaches only the next request, so createCart() inside the
+        // loop would make a cart a name (review of #271).
+        $cart = null;
+        foreach ($valid as $typed => [$fqdn, $tld, $years, $epp]) {
+            $error = DomainOffer::availabilityError($statuses[$fqdn] ?? DomainSearch::UNKNOWN, $operation, $fqdn);
+            if ($error !== null) {
+                $results[$typed] = $error;
+
+                continue;
+            }
+            $cart ??= self::createCart();
+            $existing = $cart->items->first(fn (CartItem $item) => $item->isDomain() && $item->domain['fqdn'] === $fqdn);
+            try {
+                self::ensureCartItemLimit($cart, $existing?->id);
+            } catch (DisplayException $e) {
+                $results[$typed] = $e->getMessage();
+
+                continue;
+            }
+            $item = $cart->items()->updateOrCreate(['id' => $existing?->id], [
+                'product_id' => null, 'plan_id' => null, 'config_options' => null, 'checkout_config' => null, 'quantity' => 1,
+                'domain' => ['fqdn' => $fqdn, 'tld_id' => $tld->id, 'operation' => $operation, 'years' => $years],
+            ]);
+            if ($operation === DomainOrderLine::TRANSFER && filled($epp)) {
+                $item->epp_code = mb_substr(trim((string) $epp), 0, 255);
+                $item->save();
+            }
+            $cart->load('items');
+            $results[$typed] = true;
+        }
+
+        return array_replace(array_fill_keys(array_map('strval', array_keys($names)), ''), $results);
     }
 
     /** A domain item's years (priced for its operation) and, for a transfer, its EPP code (D8b). */

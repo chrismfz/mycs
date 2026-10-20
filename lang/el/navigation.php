@@ -11,6 +11,7 @@ return [
     'register' => 'Εγγραφή',
     'services' => 'Υπηρεσίες',
     'domain_search' => 'Αναζήτηση domain',
+    'domain_transfer' => 'Μεταφορά domain',
     'domains' => 'Domains',
     'invoices' => 'Τιμολόγια',
     'account' => 'Λογαριασμός',

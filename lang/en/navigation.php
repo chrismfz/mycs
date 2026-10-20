@@ -11,6 +11,7 @@ return [
     'register' => 'Register',
     'services' => 'Services',
     'domain_search' => 'Domain search',
+    'domain_transfer' => 'Transfer a domain',
     'domains' => 'Domains',
     'invoices' => 'Invoices',
     'account' => 'Account',

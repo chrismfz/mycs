@@ -55,20 +55,29 @@ class DomainOffer
             throw new DisplayException(__('domains.order.already_here', ['domain' => $fqdn]));
         }
         if ($availability) {
-            $status = $this->search->statuses([$fqdn => $tld])[$fqdn] ?? DomainSearch::UNKNOWN;
-            $expected = $operation === DomainOrderLine::REGISTER ? DomainSearch::FREE : DomainSearch::TAKEN;
-            if ($status !== $expected) {
-                throw new DisplayException(match (true) {
-                    $status === DomainSearch::PREMIUM => __('domains.shop.premium'),
-                    $status === DomainSearch::RESTRICTED => __('domains.shop.restricted'),
-                    $status === DomainSearch::UNKNOWN => __('domains.shop.unknown'),
-                    $operation === DomainOrderLine::REGISTER => __('domains.order.taken', ['domain' => $fqdn]),
-                    default => __('domains.order.not_registered', ['domain' => $fqdn]),
-                });
+            $error = self::availabilityError($this->search->statuses([$fqdn => $tld])[$fqdn] ?? DomainSearch::UNKNOWN, $operation, $fqdn);
+            if ($error !== null) {
+                throw new DisplayException($error);
             }
         }
 
         return [$fqdn, $tld];
+    }
+
+    /** Why a name in $status cannot be ordered for $operation (free to register, taken to transfer); null when it can. */
+    public static function availabilityError(string $status, string $operation, string $fqdn): ?string
+    {
+        if ($status === ($operation === DomainOrderLine::REGISTER ? DomainSearch::FREE : DomainSearch::TAKEN)) {
+            return null;
+        }
+
+        return match (true) {
+            $status === DomainSearch::PREMIUM => __('domains.shop.premium'),
+            $status === DomainSearch::RESTRICTED => __('domains.shop.restricted'),
+            $status === DomainSearch::UNKNOWN => __('domains.shop.unknown'),
+            $operation === DomainOrderLine::REGISTER => __('domains.order.taken', ['domain' => $fqdn]),
+            default => __('domains.order.not_registered', ['domain' => $fqdn]),
+        };
     }
 
     /** The TLD we sell that $fqdn ends with, or null. */
