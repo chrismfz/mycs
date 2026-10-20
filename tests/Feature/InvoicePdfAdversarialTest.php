@@ -71,6 +71,7 @@ class InvoicePdfAdversarialTest extends TestCase
         return $this->pay($invoice, $amount, $extra + ['is_credit_transaction' => true, 'gateway_id' => null, 'transaction_id' => 'credit-' . uniqid()]);
     }
 
+    // Author (#264 fixes): the stamp is in capitals now, without Greek accents (review F6); the labels below are upper-cased.
     private function html(Invoice $invoice): string
     {
         return view('pdf.invoice', ['invoice' => $invoice->fresh()])->render();
@@ -233,7 +234,7 @@ class InvoicePdfAdversarialTest extends TestCase
         $html = $this->html($invoice);
         $this->assertStringContainsString(e(__('invoices.refunded_amount')) . ': 30,00 EUR', $html);
         $this->assertStringContainsString('-30,00 EUR', $html); // the adjustments row
-        $this->assertStringContainsString(e(Invoice::statusLabel('paid')), $html);
+        $this->assertStringContainsString(e(mb_strtoupper(Invoice::statusLabel('paid'))), $html);
     }
 
     /** A wholly refunded invoice: Total 0, Balance 0, the «Refunded» stamp; nothing reads as owed. */
@@ -245,7 +246,7 @@ class InvoicePdfAdversarialTest extends TestCase
         $invoice = $invoice->fresh();
 
         $this->assertSame([0.0, 0.0], [$invoice->statement()['total'], $invoice->statement()['balance']]);
-        $this->assertStringContainsString(e(Invoice::statusLabel('refunded')), $this->html($invoice));
+        $this->assertStringContainsString(e(mb_strtoupper(Invoice::statusLabel('refunded'))), $this->html($invoice));
     }
 
     /** A cancelled invoice: its cancellation note takes the whole total, Balance 0, grey «Cancelled» stamp. */
@@ -258,7 +259,7 @@ class InvoicePdfAdversarialTest extends TestCase
 
         $this->assertSame([0.0, 0.0], [$invoice->statement()['total'], $invoice->statement()['balance']]);
         $html = $this->html($invoice);
-        $this->assertStringContainsString(e(Invoice::statusLabel('cancelled')), $html);
+        $this->assertStringContainsString(e(mb_strtoupper(Invoice::statusLabel('cancelled'))), $html);
         $this->assertStringContainsString('#999999', $html);
     }
 

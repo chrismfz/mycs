@@ -5,12 +5,13 @@
     $statement = $invoice->statement();
     $money = fn ($amount) => (new \App\Classes\Price(['price' => $amount, 'currency' => $invoice->currency], tax: 0))->format($amount);
     $withQuantity = $invoice->items->contains(fn ($item) => (float) $item->quantity != 1.0);
-    $adjustmentsTotal = $invoice->adjustmentNotes->filter(fn ($note) => $note->status === \App\Enums\AdjustmentNoteStatus::Active)->sum('amount');
     $stamp = match ($invoice->status) {
         'paid' => '#5cb85c',
-        'unpaid', 'overdue', 'payment_pending' => '#d9534f',
+        'unpaid' => '#d9534f',
         default => '#999999',
     };
+    // Capitals without accents, as Greek writes them («ΑΠΛΗΡΩΤΟ», review F6 of #264).
+    $stampText = strtr(mb_strtoupper(\App\Models\Invoice::statusLabel($invoice->status)), ['Ά' => 'Α', 'Έ' => 'Ε', 'Ή' => 'Η', 'Ί' => 'Ι', 'Ό' => 'Ο', 'Ύ' => 'Υ', 'Ώ' => 'Ω', 'ΐ' => 'Ϊ', 'ΰ' => 'Ϋ']);
 @endphp
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 
@@ -25,13 +26,16 @@
         /* In its own line above the company's details, never over them (owner 2026-10-20). */
         .stamp-line { text-align: right; margin-bottom: 14px; }
         .stamp { display: inline-block; padding: 4px 12px; color: #fff; font-size: 12px; font-weight: bold;
-            text-transform: uppercase; letter-spacing: 1px; }
+            letter-spacing: 1px; }
         .header td { vertical-align: top; }
         .company { text-align: right; font-size: 11px; line-height: 1.45; }
         .title { background: #efefef; padding: 8px 10px; margin: 25px 0; }
         .title h1 { font-size: 18px; margin: 0 0 4px 0; }
         .title p { margin: 2px 0; }
         .to { margin-bottom: 25px; line-height: 1.45; }
+        /* Fixed columns: a long word (a URL, a domain) wraps, never pushes the amounts off the page (review F1 of #264). */
+        .grid { table-layout: fixed; }
+        .grid td { word-wrap: break-word; }
         .grid th { background: #efefef; border: 1px solid #ccc; padding: 5px; font-weight: bold; text-align: center; }
         .grid td { border: 1px solid #ccc; padding: 5px; vertical-align: top; }
         .grid .num { text-align: right; white-space: nowrap; width: 110px; }
@@ -44,7 +48,7 @@
 </head>
 
 <body>
-    <div class="stamp-line"><span class="stamp" style="background: {{ $stamp }};">{{ \App\Models\Invoice::statusLabel($invoice->status) }}</span></div>
+    <div class="stamp-line"><span class="stamp" style="background: {{ $stamp }};">{{ $stampText }}</span></div>
 
     <table class="header">
         <tr>
@@ -59,7 +63,7 @@
 
     <div class="title">
         <h1>{{ $invoice->displayTitle() }}</h1>
-        <p>{{ !$invoice->number && config('settings.invoice_proforma', false) ? __('invoices.proforma_invoice_date') : __('invoices.invoice_date') }}: {{ $invoice->created_at->translatedFormat('l, j F Y') }}</p>
+        <p>{{ $invoice->isProforma() ? __('invoices.proforma_invoice_date') : __('invoices.invoice_date') }}: {{ $invoice->created_at->translatedFormat('l, j F Y') }}</p>
         @if ($invoice->due_at)
             <p>{{ __('invoices.due_date') }}: {{ $invoice->due_at->translatedFormat('l, j F Y') }}</p>
         @endif
@@ -69,7 +73,7 @@
         <strong>{{ __('invoices.invoiced_to') }}</strong><br>
         {{ $invoice->user_name }}<br>
         @foreach ($invoice->user_properties as $property)
-            {{ $property }}<br>
+            {!! nl2br(e($property)) !!}<br>
         @endforeach
     </div>
 
@@ -108,8 +112,8 @@
                     <td class="num">{{ $money($taxLine['amount']) }}</td>
                 </tr>
             @endforeach
-            @if ($adjustmentsTotal != 0)
-                <tr class="sum"><td colspan="{{ $span }}">{{ __('invoices.ledger_adjustments') }}</td><td class="num">{{ $money($adjustmentsTotal) }}</td></tr>
+            @if ($statement['adjustments'] != 0)
+                <tr class="sum"><td colspan="{{ $span }}">{{ __('invoices.ledger_adjustments') }}</td><td class="num">{{ $money($statement['adjustments']) }}</td></tr>
             @endif
             <tr class="sum"><td colspan="{{ $span }}">{{ __('invoices.credit_applied') }}</td><td class="num">{{ $money($statement['credit']) }}</td></tr>
             <tr class="sum"><td colspan="{{ $span }}">{{ __('invoices.total') }}</td><td class="num">{{ $money($statement['total']) }}</td></tr>
@@ -138,7 +142,8 @@
                     <tr>
                         <td>{{ $note->created_at->format('d/m/Y') }}</td>
                         <td>{{ $note->type === \App\Enums\AdjustmentNoteType::Credit->value ? __('invoices.credit_note') : __('invoices.debit_note') }}</td>
-                        <td>{{ ucfirst($note->status instanceof \App\Enums\AdjustmentNoteStatus ? $note->status->value : $note->status) }}</td>
+                        @php $noteStatus = $note->status instanceof \App\Enums\AdjustmentNoteStatus ? $note->status->value : (string) $note->status; @endphp
+                        <td style="{{ $noteStatus === 'voided' ? 'color: #d9534f; text-decoration: line-through;' : '' }}">{{ __('invoices.note_statuses.' . $noteStatus) }}</td>
                         <td>{{ $note->description }}</td>
                         <td class="num">{{ $note->formattedAmount }}</td>
                     </tr>
@@ -168,11 +173,26 @@
                         @if ($transaction->refunded_amount > 0)
                             <br><span class="muted">{{ __('invoices.refunded_amount') }}: {{ $transaction->formattedRefundedAmount }}</span>
                         @endif
+                        {{-- What of it went to the account's credit (an overpayment, a refund to credit): the rows add up. --}}
+                        @if ($transaction->credited_amount > 0)
+                            <br><span class="muted">{{ __('invoices.moved_to_credit') }}: {{ $money($transaction->credited_amount) }}</span>
+                        @endif
                     </td>
                 </tr>
             @empty
-                <tr><td colspan="4" class="empty">{{ __('invoices.no_transactions') }}</td></tr>
+                @if ($statement['processing'] === [])
+                    <tr><td colspan="4" class="empty">{{ __('invoices.no_transactions') }}</td></tr>
+                @endif
             @endforelse
+            {{-- On its way (a SEPA debit, a transfer to confirm): listed, never in the balance (review P2 of #264). --}}
+            @foreach ($statement['processing'] as $transaction)
+                <tr>
+                    <td style="text-align: center;">{{ $transaction->created_at->translatedFormat('d/m/Y') }}</td>
+                    <td style="text-align: center;">{{ $transaction->gateway?->name ?? '' }}</td>
+                    <td style="text-align: center;">{{ $transaction->transaction_id }}</td>
+                    <td class="num">{{ $transaction->formattedAmount }}<br><span class="muted">{{ __('invoices.transaction_processing') }}</span></td>
+                </tr>
+            @endforeach
             <tr class="sum"><td colspan="3">{{ __('invoices.balance') }}</td><td class="num">{{ $money($statement['balance']) }}</td></tr>
         </tbody>
     </table>

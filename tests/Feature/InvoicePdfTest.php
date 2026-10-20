@@ -96,7 +96,7 @@ class InvoicePdfTest extends TestCase
         $html = view('pdf.invoice', ['invoice' => $invoice->fresh()])->render();
 
         foreach (['Example Company OÜ', 'VAT EE000000000', __('invoices.invoiced_to'), __('invoices.due_date'), __('invoices.credit_applied'),
-            __('invoices.no_transactions'), __('invoices.balance'), __('invoices.statuses.unpaid')] as $text) {
+            __('invoices.no_transactions'), __('invoices.balance'), mb_strtoupper(__('invoices.statuses.unpaid'))] as $text) {
             $this->assertStringContainsString(e($text), $html, $text);
         }
         $this->assertStringNotContainsString(__('invoices.unit_price'), $html, 'quantities of 1 need no columns');
@@ -117,5 +117,45 @@ class InvoicePdfTest extends TestCase
         $this->assertSame(['el'], array_values(array_unique($seen)));
         $this->assertSame('en', App::getLocale(), 'the page language was left changed');
         $this->assertStringStartsWith('%PDF', $pdf);
+    }
+
+    public function test_every_status_renders_and_a_closed_invoice_owes_nothing(): void
+    {
+        foreach ([Invoice::STATUS_DRAFT, Invoice::STATUS_UNPAID, Invoice::STATUS_PAID, Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED] as $status) {
+            $invoice = $this->invoice();
+            Invoice::query()->whereKey($invoice->id)->update(['status' => $status]);
+            $invoice = $invoice->fresh();
+
+            $this->assertStringStartsWith('%PDF', PDF::generateInvoice($invoice)->output(), $status);
+            if (in_array($status, [Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED], true)) {
+                $this->assertSame(0.0, $invoice->statement()['balance'], "a {$status} invoice read as owed (review F2 of #264)");
+            }
+        }
+    }
+
+    public function test_the_title_and_dates_agree_and_greek_capitals_carry_no_accents(): void
+    {
+        $this->setting('invoice_proforma', '1');
+        $html = view('pdf.invoice', ['invoice' => $this->invoice()])->render();
+        $this->assertStringContainsString(e(__('invoices.proforma_invoice_date')), $html);
+
+        $this->setting('invoice_number_is_id', '1'); // myip: the number is the id, never «proforma» (review F5 of #264)
+        $html = view('pdf.invoice', ['invoice' => $this->invoice()])->render();
+        $this->assertStringNotContainsString(e(__('invoices.proforma_invoice_date')), $html);
+
+        App::setLocale('el');
+        $html = view('pdf.invoice', ['invoice' => $this->invoice()])->render();
+        $this->assertStringContainsString('ΑΠΛΗΡΩΤΟ', $html);
+        $this->assertStringNotContainsString('ΑΠΛΉΡΩΤΟ', $html);
+    }
+
+    public function test_a_long_word_wraps_and_multi_line_details_keep_their_lines(): void
+    {
+        $invoice = $this->invoice([['https://example.test/' . str_repeat('a', 260), 1, 10]]);
+
+        $html = view('pdf.invoice', ['invoice' => $invoice])->render();
+
+        $this->assertStringContainsString('table-layout: fixed', $html, 'a long word pushes the amounts off the page (review F1 of #264)');
+        $this->assertStringContainsString('word-wrap: break-word', $html);
     }
 }
