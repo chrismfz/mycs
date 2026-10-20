@@ -32,6 +32,9 @@ class TicketsFoundationReviewTest extends TestCase
     public function test_the_migration_keeps_a_department_written_with_spaces_or_another_case(): void
     {
         $migration = require database_path('migrations/2026_12_05_000001_tickets_departments_guests_statuses.php');
+        // A2's tables point at the departments: down first, up again after (as a rollback of both would).
+        $mailboxes = require database_path('migrations/2026_12_06_000001_tickets_mailboxes_quarantine.php');
+        $mailboxes->down();
         $migration->down();
         $client = User::factory()->create()->client();
         $ids = [];
@@ -41,6 +44,7 @@ class TicketsFoundationReviewTest extends TestCase
         }
 
         $migration->up();
+        $mailboxes->up();
 
         $support = TicketDepartment::query()->whereRaw('LOWER(name) = ?', ['support'])->sole()->id; // one, not one per spelling
         $this->assertSame([$support, $support, $support], array_map(fn (int $id) => Ticket::query()->find($id)->department_id, $ids));

@@ -11,6 +11,8 @@ use App\Models\EmailLog;
 use App\Models\License;
 use App\Models\ModuleAction;
 use App\Models\Setting;
+use App\Models\TicketDepartment;
+use App\Models\TicketQuarantine;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -33,7 +35,7 @@ final class Health
     public static function report(): array
     {
         $checks = [];
-        foreach (['build', 'database', 'scheduler', 'cron', 'queue', 'mail', 'module_actions', 'licenses', 'domains'] as $name) {
+        foreach (['build', 'database', 'scheduler', 'cron', 'queue', 'mail', 'module_actions', 'licenses', 'domains', 'ticket_mail'] as $name) {
             try {
                 $checks[$name] = call_user_func([self::class, $name]);
             } catch (Throwable $e) {
@@ -157,5 +159,31 @@ final class Health
         return ['status' => $status, 'detail' => $detail,
             'data' => ['live' => (clone $live)->count(), 'sync_errors' => $errors, 'stale_transfers' => $stale, 'oldest_sync' => $oldest,
                 'sync_paused' => $paused, 'not_synced_3_days' => $unsynced]];
+    }
+
+    /** Mail to tickets (docs/tickets.md A2): each mailbox read in the last half hour, and the quarantine kept up with. */
+    private static function ticket_mail(): array
+    {
+        if (!Schema::hasTable('ticket_poll_runs')) {
+            return ['status' => self::OK, 'detail' => 'No ticket mail'];
+        }
+        $departments = TicketDepartment::query()->where('polling', true)->get();
+        if ($departments->isEmpty()) {
+            return ['status' => self::OK, 'detail' => 'No mailbox is read', 'data' => ['mailboxes' => 0]];
+        }
+        $failing = [];
+        foreach ($departments as $department) {
+            $run = $department->pollRuns()->latest('started_at')->first();
+            if ($run === null || $run->started_at->lt(now()->subMinutes(30)) || !$run->connected) {
+                $failing[] = $department->name;
+            }
+        }
+        $waiting = TicketQuarantine::query()->where('status', TicketQuarantine::PENDING)->where('reason', '!=', 'automated')
+            ->where('created_at', '<', now()->subDay())->count();
+        $status = $failing !== [] ? self::FAIL : ($waiting > 0 ? self::WARN : self::OK);
+
+        return ['status' => $status, 'detail' => ($failing !== [] ? 'Not read in 30 minutes: ' . implode(', ', $failing) . '. ' : '')
+            . "{$departments->count()} mailboxes read, {$waiting} quarantined mails waiting over a day",
+            'data' => ['mailboxes' => $departments->count(), 'not_read' => $failing, 'quarantine_waiting' => $waiting]];
     }
 }

@@ -41,4 +41,5 @@ return [
         'on_hold' => 'On hold',
         'closed' => 'Closed',
     ],
+    'file_refused' => ':name was not accepted: only :types files, judged by their content, up to 20 MB.',
 ];

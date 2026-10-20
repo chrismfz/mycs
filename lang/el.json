@@ -716,5 +716,18 @@
     "Answered": "Απαντήθηκε",
     "Customer reply": "Απάντηση πελάτη",
     "On hold": "Σε αναμονή",
-    "Closed": "Κλειστό"
+    "Closed": "Κλειστό",
+    "From": "Από",
+    "Files not kept": "Αρχεία που δεν κρατήθηκαν",
+    "no text": "χωρίς κείμενο",
+    "(no subject)": "(χωρίς θέμα)",
+    "Subject": "Θέμα",
+    "By email: the whole mail": "Με email: όλο το μήνυμα",
+    "(The mail was too large to fetch: ask the sender for it.)": "(Το email ήταν πολύ μεγάλο για να ληφθεί: ζητήστε το από τον αποστολέα.)",
+    "Department": "Τμήμα",
+    "Mailbox": "Γραμματοκιβώτιο",
+    "file": "αρχείο",
+    "From the quarantine": "Από την καραντίνα",
+    "Vouched for by our server": "Επιβεβαιωμένο από τον server μας",
+    "Suggested ticket": "Προτεινόμενο ticket"
 }

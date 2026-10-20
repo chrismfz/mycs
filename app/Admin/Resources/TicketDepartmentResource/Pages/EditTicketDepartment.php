@@ -12,6 +12,6 @@ class EditTicketDepartment extends EditRecord
 
     protected function getHeaderActions(): array
     {
-        return [DeleteAction::make()];
+        return [TicketDepartmentResource::testAction(), DeleteAction::make()];
     }
 }

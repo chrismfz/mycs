@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Observers\TicketMessageObserver;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -22,16 +23,30 @@ class TicketMessage extends Model implements Auditable
         'user_id',
         'staff_id',
         'message',
-        'ticket_mail_log_id',
         'email_message_id',
         'via',
         'is_internal',
         'body_original',
     ];
 
+    /** Came in by email (docs/tickets.md A2): its email_message_id is the sender's, never a thread key. */
+    public const VIA_EMAIL = 'email';
+
     protected $casts = [
         'is_internal' => 'boolean',
     ];
+
+    /**
+     * The messages whose Message-ID is a thread key (§3 Α): one of ours (`tk.` and 128 random bits), on a message we
+     * sent. An id that came in by email is the sender's choice, so it never threads, also when it looks like ours.
+     *
+     * @param  Builder<TicketMessage>  $query
+     */
+    public function scopeThreadKeys(Builder $query): void
+    {
+        $query->where('email_message_id', 'like', 'tk.%')
+            ->where(fn (Builder $query) => $query->whereNull('via')->orWhere('via', '!=', self::VIA_EMAIL));
+    }
 
     /** @return BelongsTo<Ticket, $this> */
     public function ticket(): BelongsTo
@@ -70,11 +85,5 @@ class TicketMessage extends Model implements Auditable
     public function attachments(): HasMany
     {
         return $this->hasMany(TicketMessageAttachment::class);
-    }
-
-    /** @return BelongsTo<TicketMailLog, $this> */
-    public function ticketMailLog(): BelongsTo
-    {
-        return $this->belongsTo(TicketMailLog::class);
     }
 }

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
+use MyCS\TicketMail\Attachments;
 
 class TicketMessageAttachment extends Model
 {
@@ -33,9 +34,9 @@ class TicketMessageAttachment extends Model
         return storage_path("app/{$this->path}");
     }
 
-    // Function to check if attachment can be previewed
+    /** An image a page may show (never SVG: it can carry script). */
     public function canPreview(): bool
     {
-        return Str::startsWith($this->mime_type, ['image/']);
+        return in_array($this->mime_type, Attachments::PREVIEWABLE, true);
     }
 }
