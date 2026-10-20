@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Admin\Pages\RevenueForecast;
+use App\Admin\Widgets\EstimatedIncome;
 use App\Enums\DomainStatus;
 use App\Models\Credit;
 use App\Models\Domain;
@@ -18,6 +19,7 @@ use App\Services\Invoice\RecordPaymentService;
 use App\Services\Reports\RevenueForecast as Forecast;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
@@ -151,5 +153,16 @@ class RevenueForecastTest extends TestCase
         $this->actingAs($staff)->get(RevenueForecast::getUrl())->assertOk()->assertSee(__('Same month last year'));
 
         $this->livewireAs($staff)->test(RevenueForecast::class)->callAction('csv')->assertFileDownloaded('revenue-forecast-USD-2026-10-21.csv');
+    }
+
+    public function test_the_widget_hides_with_nothing_to_show(): void
+    {
+        Cache::flush();
+        $this->actingAs(Staff::factory()->withPermissions(['admin.reports.view'])->create());
+        $this->assertFalse(EstimatedIncome::canView(), 'an empty heading with no recurring service');
+
+        $this->service(10.00, 'month', 1, '2026-11-01');
+        Cache::flush();
+        $this->assertTrue(EstimatedIncome::canView());
     }
 }

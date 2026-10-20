@@ -28,8 +28,7 @@ class EstimatedIncome extends StatsOverviewWidget
     protected function getStats(): array
     {
         $stats = [];
-        // Read at most every 5 minutes (F10 of #275): the dashboard opens often, the services change seldom.
-        foreach (Cache::remember('reports.annual_estimate', 300, fn () => Forecast::annualEstimate()) as $code => $estimate) {
+        foreach (self::estimate() as $code => $estimate) {
             $currency = Currency::query()->find($code);
             $money = fn ($amount) => (new Price(['price' => $amount, 'currency' => $currency], tax: 0))->format($amount);
             $lines = [];
@@ -46,8 +45,19 @@ class EstimatedIncome extends StatsOverviewWidget
         return $stats;
     }
 
+    /** Shown with something to show (the owner, 2026-10-21: not an empty heading when no service recurs). */
     public static function canView(): bool
     {
-        return RevenueForecast::canAccess();
+        return RevenueForecast::canAccess() && self::estimate() !== [];
+    }
+
+    /**
+     * Read at most every 5 minutes (F10 of #275): the dashboard opens often, the services change seldom.
+     *
+     * @return array<string, array{cycles: array<int|string, array{amount: string, count: int}>, annual: string}>
+     */
+    private static function estimate(): array
+    {
+        return Cache::remember('reports.annual_estimate', 300, fn () => Forecast::annualEstimate());
     }
 }
