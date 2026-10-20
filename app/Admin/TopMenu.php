@@ -4,6 +4,7 @@ namespace App\Admin;
 
 use App\Admin\Pages\CronStats;
 use App\Admin\Pages\Extension;
+use App\Admin\Pages\RevenueForecast;
 use App\Admin\Pages\Settings;
 use App\Admin\Resources\AdjustmentNoteResource;
 use App\Admin\Resources\ApiResource;
@@ -84,6 +85,9 @@ class TopMenu
             [TicketResource::class, 'create', 'Open New Ticket'],
             [TicketQuarantineResource::class, 'index', 'Mail Quarantine'],
             [TicketBlockedSenderResource::class, 'index', 'Blocked Senders'],
+        ],
+        'Reports' => [
+            [RevenueForecast::class],
         ],
         'Utilities' => [
             [EmailLogResource::class, 'index', 'Email Message Log'],

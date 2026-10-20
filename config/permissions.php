@@ -182,6 +182,9 @@ return [
                 'delete' => 'Delete Coupons',
                 'deleteAny' => 'Bulk Delete Coupons',
             ],
+            'reports' => [
+                'view' => 'View Reports',
+            ],
             'client_groups' => [
                 'create' => 'Create Client Groups',
                 'update' => 'Update Client Groups',
