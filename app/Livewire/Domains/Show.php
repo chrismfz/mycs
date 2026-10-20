@@ -212,6 +212,104 @@ class Show extends Component
         return !Actor::impersonating() || ($actor instanceof Staff && $actor->hasPermission($permission));
     }
 
+    /** P5: the child nameserver being changed (its name), or a new one (''); null: no form. Set by the server only. */
+    #[Locked]
+    public ?string $glueEditing = null;
+
+    public string $glueHost = '';
+
+    public string $glueAddresses = '';
+
+    /**
+     * Child nameservers (P5, glue; staff have had them since #196): read from the registrar when asked, kept for the page.
+     * Only a registrar that keeps them as objects (the .gr registry); Openprovider takes a nameserver's IP with the
+     * nameservers themselves.
+     */
+    public function readChildHosts(): void
+    {
+        if ($this->mayCallRegistrar() && $this->management()->managesChildHosts($this->domain)) {
+            $this->atRegistrar(fn () => $this->management()->readChildHosts($this->domain, $this->actor()), __('domains.portal.glue_read'));
+            $this->glueEditing = null;
+        }
+    }
+
+    /** The form: a new child nameserver (''), or one as last read (its addresses). */
+    public function startChildHost(string $host = ''): void
+    {
+        $this->authorize('update', $this->domain);
+        abort_unless($this->staffMay('admin.domains.manage'), 404);
+        $known = collect($this->childHostsRead())->firstWhere('name', $host);
+        if ($host !== '' && $known === null) {
+            return; // only one the last read showed
+        }
+        $this->glueEditing = $host;
+        $this->glueHost = $host;
+        $this->glueAddresses = $known !== null ? implode("\n", (array) ($known['addresses'] ?? [])) : '';
+        $this->resetErrorBag();
+    }
+
+    public function cancelChildHost(): void
+    {
+        $this->glueEditing = null;
+    }
+
+    public function saveChildHost(): void
+    {
+        // A change only of one the last read showed (never another name sent in its place).
+        if ($this->glueEditing === null || ($this->glueEditing !== '' && collect($this->childHostsRead())->firstWhere('name', $this->glueEditing) === null)) {
+            return;
+        }
+        $this->validate([
+            'glueHost' => ['required', 'string', 'max:253', 'regex:/^[A-Za-z0-9.\-]+$/u'],
+            'glueAddresses' => ['required', 'string', 'max:1000'],
+        ], [], ['glueHost' => __('domains.portal.glue_host'), 'glueAddresses' => __('domains.portal.glue_addresses')]);
+        // Under this domain only (ns1, or ns1.example.gr): said here, before the registry is asked.
+        $host = strtolower(rtrim(trim($this->glueHost), '.'));
+        if ($this->glueEditing === '' && str_contains($host, '.') && !str_ends_with($host, '.' . $this->domain->fqdn)) {
+            $this->addError('glueHost', __('domains.portal.glue_outside', ['domain' => $this->domain->fqdn]));
+
+            return;
+        }
+        $addresses = array_values(array_filter(array_map('trim', preg_split('/[\s,]+/', $this->glueAddresses) ?: []), fn (string $a) => $a !== ''));
+        foreach ($addresses as $address) {
+            if (filter_var($address, FILTER_VALIDATE_IP) === false) {
+                $this->addError('glueAddresses', __('domains.portal.glue_bad_ip', ['ip' => $address]));
+
+                return;
+            }
+        }
+        if (!$this->mayCallRegistrar() || !$this->management()->managesChildHosts($this->domain)) {
+            return;
+        }
+        $editing = $this->glueEditing;
+        $done = $editing === ''
+            ? $this->atRegistrar(fn () => $this->management()->createChildHost($this->domain, $this->glueHost, $addresses, $this->actor()), __('domains.portal.glue_created'))
+            : $this->atRegistrar(fn () => $this->management()->updateChildHost($this->domain, $editing, $addresses, $this->actor()), __('domains.portal.glue_updated'));
+        if ($done) {
+            $this->glueEditing = null;
+        }
+    }
+
+    /** Only one no domain uses (the registry refuses a linked one; the page offers only those). */
+    public function deleteChildHost(string $host): void
+    {
+        $known = collect($this->childHostsRead())->firstWhere('name', $host);
+        if ($known === null || ($known['linked'] ?? true)) {
+            return;
+        }
+        if ($this->mayCallRegistrar() && $this->management()->managesChildHosts($this->domain)) {
+            $this->atRegistrar(fn () => $this->management()->deleteChildHost($this->domain, $host, $this->actor()), __('domains.portal.glue_deleted'));
+        }
+    }
+
+    /** @return list<array<string, mixed>> as last read (meta.child_hosts; stored data, each entry checked) */
+    private function childHostsRead(): array
+    {
+        $hosts = $this->domain->meta['child_hosts']['hosts'] ?? [];
+
+        return is_array($hosts) ? array_values(array_filter($hosts, fn ($h) => is_array($h) && is_string($h['name'] ?? null))) : [];
+    }
+
     /** DNSSEC (P3): read from its registrar when asked (never on each view), kept for the page; logged with the login. */
     public function readDnssec(): void
     {
@@ -374,6 +472,10 @@ class Show extends Component
             return true;
         } catch (DisplayException|InvalidArgumentException $e) {
             $this->notify($e->getMessage(), 'error');
+        } catch (RegistrarNotAsked $e) {
+            // Nothing sent. Our own check (a name not under the domain, a private IP: P5) said as it is; a connection that
+            // failed or a busy account in the general words (never the transport's text to a customer).
+            $this->notify($e->getPrevious() instanceof InvalidArgumentException ? $e->getMessage() : __('domains.portal.registrar_failed'), 'error');
         } catch (RegistrarRefused) {
             $this->notify(__('domains.portal.registrar_refused'), 'error');
         } catch (RuntimeException $e) {
@@ -611,6 +713,10 @@ class Show extends Component
             'registrantLocked' => __($this->atGrRegistry() ? 'domains.portal.registrant_locked' : 'domains.portal.registrant_locked_here'),
             'seesContacts' => $this->seesContacts(),
             'registry' => RegistryStatuses::forCustomer($this->domain),
+            'glue' => $manageable && $this->management()->managesChildHosts($this->domain),
+            'childHosts' => $this->childHostsRead(),
+            'childHostsReadAt' => is_string($at = $this->domain->meta['child_hosts']['read_at'] ?? null) ? Carbon::parse($at)->timezone(config('app.timezone'))->format('d/m/Y H:i') : null,
+            'childHostsStale' => (bool) ($this->domain->meta['child_hosts']['stale'] ?? false),
             'dnssecKind' => $manageable ? $this->management()->dnssecKind($this->domain) : null,
             'dnssec' => $manageable ? $this->management()->dnssecRead($this->domain) : null,
             // The registry's check under way: its note while it may be (an hour), with its time; never another kind's (M1).
