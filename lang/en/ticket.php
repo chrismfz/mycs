@@ -41,7 +41,7 @@ return [
         'on_hold' => 'On hold',
         'closed' => 'Closed',
     ],
-    'file_refused' => ':name was not accepted: only :types files, judged by their content, up to 20 MB.',
+    'file_refused' => ':name was not accepted: only :types files, judged by their content, up to :size MB.',
     'contact_intro' => 'Write to us and we will answer by email. Already a customer? :login to see your tickets.',
     'contact_name' => 'Your name',
     'contact_message' => 'Your message',

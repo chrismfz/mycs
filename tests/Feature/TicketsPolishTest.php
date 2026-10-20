@@ -18,6 +18,7 @@ use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Livewire\Livewire;
+use MyCS\TicketMail\Attachments;
 use Tests\TestCase;
 
 /** What the browser test of 2026-10-20 found (docs/tickets.md §6η). */
@@ -131,5 +132,30 @@ class TicketsPolishTest extends TestCase
 
         $this->livewireAs($user)->test(TicketCreate::class)->set('department', $support->id)->set('subject', 'x')->set('priority', 'low')
             ->call('create')->assertHasErrors('message')->assertSee(__('validation.required', ['attribute' => __('validation.attributes.message') !== 'validation.attributes.message' ? __('validation.attributes.message') : 'message']));
+    }
+
+    /** The select shows «Low» first: the ticket goes with it, not «priority is required» (browser test of #261). */
+    public function test_the_priority_shown_is_the_one_sent(): void
+    {
+        $user = User::factory()->create();
+        $support = TicketDepartment::query()->firstOrCreate(['name' => 'Support']);
+
+        $this->livewireAs($user)->test(TicketCreate::class)->assertSet('priority', 'low')
+            ->set('department', $support->id)->set('subject', 'x')->set('message', 'y')->call('create')->assertHasNoErrors();
+        $this->assertSame('low', Ticket::query()->sole()->priority);
+    }
+
+    /** A refused file names the limit this server takes, not ours (browser test of #261: «up to 20 MB» on a 2 MB server). */
+    public function test_a_refused_file_names_the_limit_taken(): void
+    {
+        $user = User::factory()->create();
+        $fake = UploadedFile::fake()->createWithContent('invoice.pdf', '<html><script>x</script></html>');
+        config(['livewire.temporary_file_upload.rules' => 'required|file|max:5120']); // 5 MB, under ours whatever this PHP takes
+        $this->assertLessThan(20, TicketFiles::maxUploadMegabytes());
+
+        $this->livewireAs($user)->test(TicketCreate::class)->set('attachments', [$fake])->call('create')
+            ->assertSee(__('ticket.file_refused', ['name' => 'invoice.pdf', 'types' => implode(', ', array_keys(Attachments::TYPES)),
+                'size' => TicketFiles::maxUploadMegabytes()]), false)
+            ->assertSee(TicketFiles::maxUploadMegabytes() . ' MB')->assertDontSee('20 MB');
     }
 }

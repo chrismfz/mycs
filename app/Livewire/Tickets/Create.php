@@ -29,7 +29,7 @@ class Create extends Component
 
     public ?int $service = null;
 
-    public string $priority;
+    public string $priority = 'low'; // what the select shows first: unset, Livewire empties the select and «required» refuses it
 
     public function create()
     {
