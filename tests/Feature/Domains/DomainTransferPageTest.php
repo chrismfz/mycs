@@ -121,6 +121,6 @@ class DomainTransferPageTest extends TestCase
 
         $domains = collect(Navigation::getLinks())->firstWhere('name', __('navigation.domains'));
         $this->assertNotContains(route('domain.transfer'), array_column($domains['children'], 'url'));
-        Livewire::test(Transfer::class)->set('query', 'nixpal.com')->call('check')->assertDontSee(__('domains.transfer.can'));
+        $this->get(route('domain.transfer'))->assertNotFound();
     }
 }

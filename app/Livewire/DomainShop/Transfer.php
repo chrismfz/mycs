@@ -10,6 +10,7 @@ use App\Models\Currency;
 use App\Models\DomainTld;
 use App\Services\Domains\DomainSearch;
 use App\Services\Domains\Lookup\VisitorKey;
+use App\Services\Domains\Ordering\DomainOffer;
 use Illuminate\Support\Facades\RateLimiter;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
@@ -54,6 +55,8 @@ class Transfer extends Component
 
     public function mount(): void
     {
+        // No transfers sold: no page for them (the menu has no link either).
+        abort_unless(DomainOffer::allowed('transfer'), 404);
         if (trim($this->query) !== '') {
             $this->check();
         }
@@ -166,6 +169,16 @@ class Transfer extends Component
             $this->error = __('domains.transfer.too_many_lines', ['count' => self::BULK_MAX]);
 
             return;
+        }
+        // Each name a search of the visitor's (review of #271): the bulk is no way around the search's limit.
+        $key = 'domain-search-hits:' . VisitorKey::of(request());
+        if (RateLimiter::remaining($key, Search::LIMIT) < count($names)) {
+            $this->error = __('domains.shop.too_many');
+
+            return;
+        }
+        foreach ($names as $ignored) {
+            RateLimiter::hit($key, 600);
         }
         try {
             $this->bulk = Cart::addDomains($names, 'transfer');

@@ -159,6 +159,9 @@ class Cart
             }
         }
         $statuses = $valid === [] ? [] : app(DomainSearch::class)->statuses(collect($valid)->mapWithKeys(fn ($row) => [$row[0] => $row[1]])->all());
+        // One cart for them all, made once: a new cart's cookie reaches only the next request, so createCart() inside the
+        // loop would make a cart a name (review of #271).
+        $cart = null;
         foreach ($valid as $typed => [$fqdn, $tld, $years, $epp]) {
             $error = DomainOffer::availabilityError($statuses[$fqdn] ?? DomainSearch::UNKNOWN, $operation, $fqdn);
             if ($error !== null) {
@@ -166,7 +169,7 @@ class Cart
 
                 continue;
             }
-            $cart = self::createCart();
+            $cart ??= self::createCart();
             $existing = $cart->items->first(fn (CartItem $item) => $item->isDomain() && $item->domain['fqdn'] === $fqdn);
             try {
                 self::ensureCartItemLimit($cart, $existing?->id);
