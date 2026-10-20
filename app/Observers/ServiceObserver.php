@@ -44,6 +44,11 @@ class ServiceObserver
             $service->activated_at = now(); // its first start (Σ1-b1): the only one that moves its dates
         }
         self::keepContactInAccount($service);
+        // A price saved holds its account's group discount as it is now (reviews of #272): a recalculation, an order, an
+        // upgrade, staff's edit. Group repricing sets its own (ClientGroupPricing).
+        if ($service->isDirty('price') && !$service->isDirty('group_percent')) {
+            $service->group_percent = $service->client?->groupPercent() ?? '0';
+        }
     }
 
     /**

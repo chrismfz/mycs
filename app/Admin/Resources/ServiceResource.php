@@ -30,6 +30,7 @@ use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
@@ -155,6 +156,11 @@ class ServiceResource extends Resource
                     ->live()
                     ->default(config('settings.default_currency'))
                     ->required(),
+                // Never follows the account's group discount (ROADMAP 5, reviews of #272): staff's price stays.
+                Toggle::make('price_locked')
+                    ->label(__('Keep this price'))
+                    ->helperText(__('A change of the customer\'s group never reprices it.'))
+                    ->default(false),
                 TextInput::make('price')
                     ->required()
                     ->label('Price')

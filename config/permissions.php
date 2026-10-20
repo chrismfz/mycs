@@ -182,6 +182,13 @@ return [
                 'delete' => 'Delete Coupons',
                 'deleteAny' => 'Bulk Delete Coupons',
             ],
+            'client_groups' => [
+                'create' => 'Create Client Groups',
+                'update' => 'Update Client Groups',
+                'viewAny' => 'View Client Groups',
+                'delete' => 'Delete Client Groups',
+                'deleteAny' => 'Bulk Delete Client Groups',
+            ],
             'config_options' => [
                 'create' => 'Create Config Options',
                 'update' => 'Update Config Options',

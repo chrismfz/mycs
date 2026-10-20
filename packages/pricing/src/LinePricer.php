@@ -7,7 +7,8 @@ use Brick\Math\RoundingMode;
 use InvalidArgumentException;
 
 /**
- * Prices one unit of an order line (MyCS docs/orders.md): the catalog price and setup fee, less a coupon, then tax.
+ * Prices one unit of an order line (MyCS docs/orders.md): the catalog price and setup fee, less a coupon, less the
+ * customer's group discount (a percentage of what the coupon left, as WHMCS), then tax.
  * Everything in decimal, each amount rounded half-up to cents once. The discount is taken from the catalog amounts,
  * so it is the same whether the line is priced at checkout, on a recalculation or on an upgrade (CART-8).
  */
@@ -20,8 +21,9 @@ final class LinePricer
     /**
      * @param  string|null  $taxRate  percent (e.g. "24"); null or zero for no tax
      * @param  string  $taxMode  inclusive: the catalog amounts already contain the tax; exclusive: it is added
+     * @param  string|null  $groupPercent  the customer group's discount, percent (e.g. "10"); null or zero for none
      */
-    public static function price(string $price, string $setupFee, ?Discount $discount = null, ?string $taxRate = null, string $taxMode = self::TAX_EXCLUSIVE): LinePrice
+    public static function price(string $price, string $setupFee, ?Discount $discount = null, ?string $taxRate = null, string $taxMode = self::TAX_EXCLUSIVE, ?string $groupPercent = null): LinePrice
     {
         if (!in_array($taxMode, [self::TAX_INCLUSIVE, self::TAX_EXCLUSIVE], true)) {
             throw new InvalidArgumentException("Unknown tax mode «{$taxMode}».");
@@ -36,6 +38,16 @@ final class LinePricer
         $price = $price->minus($priceDiscount);
         $setupFee = $setupFee->minus($setupFeeDiscount);
 
+        // The group's percentage of what the coupon left, each amount rounded half-up once (0 to 100).
+        $group = $groupPercent === null ? BigDecimal::zero() : BigDecimal::of($groupPercent);
+        if ($group->isNegative() || $group->isGreaterThan(100)) {
+            throw new InvalidArgumentException('A group discount is a percentage from 0 to 100.');
+        }
+        $priceGroupDiscount = $price->multipliedBy($group)->dividedBy(100, 2, RoundingMode::HalfUp);
+        $setupFeeGroupDiscount = $setupFee->multipliedBy($group)->dividedBy(100, 2, RoundingMode::HalfUp);
+        $price = $price->minus($priceGroupDiscount);
+        $setupFee = $setupFee->minus($setupFeeGroupDiscount);
+
         $rate = $taxRate === null ? BigDecimal::zero() : BigDecimal::of($taxRate);
         if ($rate->isNegative()) {
             throw new InvalidArgumentException('A tax rate cannot be negative.');
@@ -47,6 +59,7 @@ final class LinePricer
             (string) $price, (string) $setupFee, (string) $priceDiscount, (string) $setupFeeDiscount,
             (string) $priceTax, (string) $setupFeeTax, (string) $grossPrice, (string) $grossSetupFee,
             (string) $grossPrice->minus($priceTax), (string) $grossSetupFee->minus($setupFeeTax),
+            (string) $priceGroupDiscount, (string) $setupFeeGroupDiscount,
         );
     }
 

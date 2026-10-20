@@ -83,13 +83,17 @@ final class OrderPricing
     }
 
     /**
-     * Price a line for an account (its country decides the tax rate).
+     * Price a line for an account (its country decides the tax rate). A product's line takes the account's group discount
+     * too (ROADMAP 5, as WHMCS: after the coupon); a line without one (a domain, an amount) never does. $groupPercent:
+     * that discount as given (a recalculation at another one), else the account's.
      *
      * @param  array{price: string, setup_fee: string}  $catalog
      */
-    public static function line(array $catalog, ?Discount $discount, ?Client $client, ?Product $product = null): LinePrice
+    public static function line(array $catalog, ?Discount $discount, ?Client $client, ?Product $product = null, ?string $groupPercent = null): LinePrice
     {
-        return LinePricer::price($catalog['price'], $catalog['setup_fee'], $discount, self::taxRate($client, $product), self::taxMode());
+        $group = $product === null ? null : ($groupPercent ?? $client?->groupPercent());
+
+        return LinePricer::price($catalog['price'], $catalog['setup_fee'], $discount, self::taxRate($client, $product), self::taxMode(), $group);
     }
 
     /**

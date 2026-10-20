@@ -132,4 +132,42 @@ final class LinePricerTest extends TestCase
             }
         }
     }
+
+    public function test_a_group_discount_takes_its_percentage_of_what_the_coupon_left(): void
+    {
+        // 20.00 less a 25% coupon = 15.00; a 10% group = 1.50 off: 13.50; the setup fee 5.00 less 10% = 4.50.
+        $line = LinePricer::price('20', '5', new Discount('percentage', '25', 'price'), groupPercent: '10');
+
+        $this->assertSame(['13.50', '4.50', '1.50', '0.50'], [$line->price, $line->setupFee, $line->priceGroupDiscount, $line->setupFeeGroupDiscount]);
+        $this->assertTrue($line->hasDiscount());
+        $this->assertTrue($line->hasGroupDiscount());
+    }
+
+    public function test_a_group_discount_rounds_half_up_once_and_comes_before_tax(): void
+    {
+        // 0.35 × 10% = 0.035 → 0.04 off: 0.31; then 24% tax = 0.0744 → 0.07.
+        $line = LinePricer::price('0.35', '0', taxRate: '24', taxMode: LinePricer::TAX_EXCLUSIVE, groupPercent: '10');
+
+        $this->assertSame(['0.31', '0.04', '0.07', '0.38'], [$line->price, $line->priceGroupDiscount, $line->priceTax, $line->grossPrice]);
+        $this->assertFalse($line->hasDiscount(), 'a group discount is not a coupon');
+    }
+
+    public function test_no_group_or_zero_is_no_discount_and_a_bad_percentage_is_refused(): void
+    {
+        foreach ([null, '0', '0.00'] as $none) {
+            $line = LinePricer::price('9.99', '0', groupPercent: $none);
+            $this->assertSame(['9.99', '0.00'], [$line->price, $line->priceGroupDiscount]);
+            $this->assertFalse($line->hasGroupDiscount());
+        }
+        $this->assertSame('0.00', LinePricer::price('9.99', '0', groupPercent: '100')->price);
+
+        foreach (['-1', '100.01'] as $bad) {
+            try {
+                LinePricer::price('9.99', '0', groupPercent: $bad);
+                $this->fail("{$bad} accepted");
+            } catch (InvalidArgumentException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+    }
 }

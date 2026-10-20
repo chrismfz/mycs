@@ -767,5 +767,16 @@
     "An address of ours cannot be copied.": "Μια δική μας διεύθυνση δεν μπαίνει σε κοινοποίηση.",
     "At most :count copied addresses.": "Το πολύ :count διευθύνσεις σε κοινοποίηση.",
     "Contact form": "Φόρμα επικοινωνίας",
-    "Guest page": "Σελίδα επισκέπτη"
+    "Guest page": "Σελίδα επισκέπτη",
+    "Client group": "Ομάδα πελατών",
+    "Client groups": "Ομάδες πελατών",
+    "Colour": "Χρώμα",
+    "Discount (%)": "Έκπτωση (%)",
+    "Clients": "Πελάτες",
+    "No group": "Καμία ομάδα",
+    "Keep this price": "Κλείδωμα τιμής",
+    "A change of the customer's group never reprices it.": "Μια αλλαγή της ομάδας του πελάτη δεν αλλάζει αυτή την τιμή.",
+    "Its discount applies to the services' prices from their next renewal, except a price kept by hand.": "Η έκπτωσή της ισχύει στις τιμές των υπηρεσιών από την επόμενη ανανέωση, εκτός από κλειδωμένες τιμές.",
+    "Off its members' services, after a coupon, from their next renewal. Never on domains, nor on a price kept by hand.": "Στις υπηρεσίες των μελών της, μετά από κουπόνι, από την επόμενη ανανέωση. Ποτέ στα domains ούτε σε κλειδωμένες τιμές.",
+    "A group discount is a percentage from 0 to 100.": "Η έκπτωση ομάδας είναι ποσοστό από 0 έως 100."
 }

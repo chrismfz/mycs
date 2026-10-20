@@ -18,6 +18,7 @@ return [
         'domain_reminders' => 'Ειδοποιήσεις λήξης domains',
         'license_logs_pruned' => 'Καθαρισμός log αδειών',
         'zlic_limits_pruned' => 'Καθαρισμός μετρητών του zlic.php',
+        'group_prices_reconciled' => 'Ενημέρωση τιμών ομάδων',
         'mcp_calls_pruned' => 'Καθαρισμός κλήσεων MCP',
         'mcp_proposals_expired' => 'Λήξη προτάσεων MCP',
         'services_suspended' => 'Υπηρεσίες σε αναστολή',

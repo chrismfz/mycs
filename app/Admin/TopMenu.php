@@ -9,6 +9,7 @@ use App\Admin\Resources\AdjustmentNoteResource;
 use App\Admin\Resources\ApiResource;
 use App\Admin\Resources\Audits\AuditResource;
 use App\Admin\Resources\CategoryResource;
+use App\Admin\Resources\ClientGroupResource;
 use App\Admin\Resources\ConfigOptionResource;
 use App\Admin\Resources\CouponResource;
 use App\Admin\Resources\CurrencyResource;
@@ -64,6 +65,7 @@ class TopMenu
             [DomainResource::class, 'index', 'Domains'],
             [ServiceCancellationResource::class, 'index', 'Cancellation Requests'],
             [LicenseResource::class, 'index', 'Licenses'],
+            [ClientGroupResource::class, 'index', 'Client Groups'],
         ],
         'Orders' => [
             [OrderResource::class, 'index', 'List All Orders'],
