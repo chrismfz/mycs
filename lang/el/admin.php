@@ -17,6 +17,7 @@ return [
         'domain_epp_codes_cleared' => 'Διαγραφή EPP codes μεταφορών',
         'domain_reminders' => 'Ειδοποιήσεις λήξης domains',
         'license_logs_pruned' => 'Καθαρισμός log αδειών',
+        'zlic_limits_pruned' => 'Καθαρισμός μετρητών του zlic.php',
         'mcp_calls_pruned' => 'Καθαρισμός κλήσεων MCP',
         'mcp_proposals_expired' => 'Λήξη προτάσεων MCP',
         'services_suspended' => 'Υπηρεσίες σε αναστολή',

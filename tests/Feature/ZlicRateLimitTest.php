@@ -9,6 +9,7 @@ use App\Models\Server;
 use App\Models\Service;
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\Licensing\Licenses;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -77,13 +78,42 @@ class ZlicRateLimitTest extends TestCase
         $this->assertSame('Active', $this->check($this->key, '198.51.100.7')['status']);
     }
 
-    public function test_a_wrong_psk_counts_as_a_wrong_answer(): void
+    public function test_a_wrong_psk_counts_on_its_key_and_another_license_there_is_not_held_back(): void
     {
-        $this->check($this->key, '198.51.100.7'); // binds it
-        for ($i = 0; $i < ZlicController::FAILURES_PER_HOUR; $i++) {
-            $this->check($this->key, '198.51.100.7', 'Guess' . $i);
+        $other = $this->secondLicense();
+        $this->assertSame('Active', $this->check($other, '198.51.100.7')['status']); // a working neighbour, known there
+        for ($i = 0; $i < ZlicController::KEY_FAILURES_PER_HOUR; $i++) {
+            $this->check($this->key, '198.51.100.7', 'Stale-psk'); // an agent with an old PSK, in a loop
         }
 
         $this->assertSame('Remote Check Failed', $this->check($this->key, '198.51.100.7')['description'] ?? null);
+        $this->assertSame('Active', $this->check($other, '198.51.100.7')['status'], 'its neighbour was held back');
+        // Said on the license once (review F5), not on every refused check.
+        $this->check($this->key, '198.51.100.7');
+        $this->assertStringStartsWith('Rate limited', (string) License::query()->where('license_key', $this->key)->value('last_failure'));
+        $failed = (int) DB::table('license_check_days')->where('license_id', License::query()->where('license_key', $this->key)->value('id'))->value('failed');
+        $this->assertSame(ZlicController::KEY_FAILURES_PER_HOUR + 1, $failed, 'the stale checks and one «Rate limited»');
+    }
+
+    public function test_a_reissue_lets_the_license_bind_at_once(): void
+    {
+        $this->assertSame('Active', $this->check($this->key, '198.51.100.7')['status']);
+        for ($i = 0; $i <= ZlicController::KEY_FAILURES_PER_HOUR; $i++) {
+            $this->check($this->key, '198.51.100.8'); // moved: «IP Address Invalid» in a loop
+        }
+        $this->assertSame('Remote Check Failed', $this->check($this->key, '198.51.100.8')['description'] ?? null);
+
+        Licenses::reissue(License::query()->sole(), '192.0.2.1', byStaff: true);
+
+        $this->assertSame('Active', $this->check($this->key, '198.51.100.8')['status']);
+    }
+
+    private function secondLicense(): string
+    {
+        $service = Service::query()->sole()->replicate();
+        $service->save();
+        ExtensionHelper::createServer($service);
+
+        return (string) License::query()->where('service_id', $service->id)->value('license_key');
     }
 }

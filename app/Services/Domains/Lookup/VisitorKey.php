@@ -13,13 +13,6 @@ final class VisitorKey
 {
     public static function of(Request $request): string
     {
-        $ip = CallerIp::of($request);
-        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false) {
-            $bytes = (string) inet_pton($ip);
-
-            return bin2hex(substr($bytes, 0, 8)) . '::/64';
-        }
-
-        return $ip;
+        return CallerIp::bucket(CallerIp::of($request));
     }
 }

@@ -9,11 +9,11 @@ use App\Models\Server;
 use App\Models\Service;
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\Licensing\ZlicLimiter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Testing\TestResponse;
 use RuntimeException;
 use Tests\TestCase;
@@ -146,8 +146,11 @@ class ZlicRateLimitAdversarialTest extends TestCase
      */
     public function test_a4_a_cache_failure_is_still_a_json_answer(): void
     {
-        RateLimiter::shouldReceive('tooManyAttempts')->andThrow(new RuntimeException('cache unavailable'));
-        RateLimiter::shouldReceive('hit')->andThrow(new RuntimeException('cache unavailable'));
+        // Author (#254 fixes): the counters moved from the cache (RateLimiter) to their own table (ZlicLimiter, review F2);
+        // the same failure, at its new place.
+        $this->mock(ZlicLimiter::class, function ($mock) {
+            $mock->shouldReceive('marked', 'hit', 'giveBack', 'mark')->andThrow(new RuntimeException('cache unavailable'));
+        });
 
         $response = $this->zlic('198.51.100.7', ['license' => $this->key, 'license_PSK' => 'TestSecret']);
 
@@ -256,7 +259,11 @@ class ZlicRateLimitAdversarialTest extends TestCase
         $this->assertSame($before, License::query()->sole()->getAttributes(), 'the limited check changed the license');
     }
 
-    /** Counters are per exact address (203.0.113.9 is not 203.0.113.90) and expire: an hour, a minute. */
+    /**
+     * Counters are per exact address (203.0.113.9 is not 203.0.113.90) and expire: an hour, a minute.
+     * Author (#254 fixes): the minute's limit is gone (a caller not yet known meets the hour's two first; a known one is
+     * never limited, A2/A3); its part here now holds that a bound license checking far past any client's rate is answered.
+     */
     public function test_holds_counters_are_per_address_and_expire(): void
     {
         $this->burn('203.0.113.9');
@@ -266,11 +273,9 @@ class ZlicRateLimitAdversarialTest extends TestCase
         $this->travel(3601)->seconds();
         $this->assertSame('IP Address Invalid', $this->check($this->key, '203.0.113.9')['message'] ?? null, 'the hour never ended');
 
-        for ($i = 0; $i < ZlicController::CHECKS_PER_MINUTE; $i++) {
+        for ($i = 0; $i < 150; $i++) {
             $this->check($this->key, '203.0.113.90');
         }
-        $this->assertTrue($this->isLimited($this->check($this->key, '203.0.113.90')));
-        $this->travel(61)->seconds();
-        $this->assertSame('Active', $this->check($this->key, '203.0.113.90')['status'], 'the minute never ended');
+        $this->assertSame('Active', $this->check($this->key, '203.0.113.90')['status'], 'a known caller was limited');
     }
 }
