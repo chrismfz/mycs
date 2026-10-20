@@ -3,6 +3,7 @@
 namespace App\Listeners;
 
 use App\Events\AdjustmentNote\Creating as AdjustmentNoteCreating;
+use App\Events\Invoice\Created;
 use App\Events\Invoice\Creating;
 use App\Events\Invoice\Updating;
 use App\Models\AdjustmentNote;
@@ -10,24 +11,54 @@ use App\Models\Invoice;
 use App\Models\Setting;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * An invoice's number (Δ2, a setting per company, `settings-map.md`):
+ * - by its counter, `invoice_number_format` (e.g. `{year}-{number}`): on creation, a draft once it is issued;
+ * - proforma (`invoice_proforma`, nixpal): **only when paid**, so that a proforma cancelled unpaid leaves no gap in the
+ *   real invoices (it used to take one on draft → unpaid too); the year is the payment's;
+ * - the number is its id (`invoice_number_is_id`, myip as WHMCS): written once it has an id, the counter untouched.
+ * A number given is never taken back or given again; a cancelled or refunded invoice never takes one.
+ */
 class InvoiceNumberListener
 {
     /**
      * Handle the event.
      */
-    public function handle(Creating|Updating|AdjustmentNoteCreating $event): void
+    public function handle(Creating|Created|Updating|AdjustmentNoteCreating $event): void
     {
-        if ($event instanceof Updating) {
-            $isChangingToPendingOrPaid = $event->invoice->isDirty('status') &&
-                in_array($event->invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_PAID]);
-
-            if ($isChangingToPendingOrPaid && !$event->invoice->number) {
-                $this->setNumber($event->invoice, 'invoice');
-            }
-        } elseif ($event instanceof Creating && !config('settings.invoice_proforma', false)) {
-            $this->setNumber($event->invoice, 'invoice');
-        } elseif ($event instanceof AdjustmentNoteCreating) {
+        if ($event instanceof AdjustmentNoteCreating) {
             $this->setNumber($event->adjustmentNote, 'credit_note');
+
+            return;
+        }
+        $invoice = $event->invoice;
+        if ($invoice->number) {
+            return;
+        }
+        $isId = (bool) config('settings.invoice_number_is_id', false);
+        $proforma = !$isId && (bool) config('settings.invoice_proforma', false);
+
+        if ($event instanceof Creating) {
+            if (!$isId && !$proforma && $invoice->status !== Invoice::STATUS_DRAFT) {
+                $this->setNumber($invoice, 'invoice');
+            }
+        } elseif ($event instanceof Created) {
+            if ($isId && $invoice->status !== Invoice::STATUS_DRAFT) {
+                // Saved already: written straight after the insert, without another round of events. Should it not be, the
+                // next status change gives it (below).
+                Invoice::query()->whereKey($invoice->getKey())->whereNull('number')->update(['number' => (string) $invoice->getKey()]);
+                $invoice->number = (string) $invoice->getKey();
+                $invoice->syncOriginalAttribute('number');
+            }
+        } elseif ($invoice->isDirty('status')) {
+            $numbered = $proforma ? [Invoice::STATUS_PAID] : [Invoice::STATUS_UNPAID, Invoice::STATUS_PAID];
+            if (in_array($invoice->status, $numbered, true)) {
+                if ($isId) {
+                    $invoice->number = (string) $invoice->getKey();
+                } else {
+                    $this->setNumber($invoice, 'invoice');
+                }
+            }
         }
     }
 

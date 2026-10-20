@@ -1213,6 +1213,14 @@ class Settings
                     'description' => 'Proforma invoices will not be assigned an official invoice number until payment is received and will be marked as "Proforma".',
                 ],
                 [
+                    'name' => 'invoice_number_is_id',
+                    'label' => 'Invoice number = invoice ID',
+                    'type' => 'checkbox',
+                    'database_type' => 'boolean',
+                    'default' => false,
+                    'description' => 'The number of an invoice is its ID (as WHMCS without sequential numbering). The format, padding and counter above are not used, nor is proforma numbering.',
+                ],
+                [
                     'name' => 'mass_pay_enabled',
                     'label' => 'Mass Payment',
                     'type' => 'checkbox',
