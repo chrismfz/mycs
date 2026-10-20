@@ -50,4 +50,5 @@ return [
     'contact_sent_body' => 'We have mailed its number to the address you gave, and we will answer you there. If it does not arrive, look in your spam folder.',
     'contact_login' => 'Already a customer? :login to see your tickets.',
     'contact_too_many' => 'Too many messages in a short time. Please try again later.',
+    'contact_unavailable' => 'The contact form is not open. Customers can :login and open a ticket.',
 ];

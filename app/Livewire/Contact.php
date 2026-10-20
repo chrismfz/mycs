@@ -69,12 +69,25 @@ class Contact extends Component
         if ($this->sent) {
             return;
         }
+        // Logged in since the form opened (another tab): theirs is «New ticket», never a guest's ticket.
+        if (Auth::guard('web')->check()) {
+            $this->redirect(CurrentClient::allows('tickets') ? route('tickets.create') : route('dashboard'), true);
+
+            return;
+        }
+        // No department takes guests: no form (a ticket of no department would reach no one, review of #251).
         $departments = $this->departments();
+        if ($departments->isEmpty()) {
+            return;
+        }
+        // Validated as kept: a name of control characters only is no name.
+        $this->name = $this->line($this->name, 1000);
+        $this->subject = $this->line($this->subject, 1000);
         $this->validate([
             'name' => 'required|string|max:100',
             'email' => 'required|email:rfc|max:191',
             'subject' => 'required|string|max:200',
-            'department' => $departments->isNotEmpty() ? ['required', 'integer', Rule::in($departments->pluck('id')->all())] : 'prohibited',
+            'department' => ['required', 'integer', Rule::in($departments->pluck('id')->all())],
             'message' => 'required|string|max:10000',
         ]);
         $this->captcha();
@@ -96,14 +109,14 @@ class Contact extends Component
         if ($this->website === '' && !TicketBlockedSender::blocks($email)) {
             $ticket = DB::transaction(function () use ($email) {
                 $ticket = Ticket::query()->create([
-                    'subject' => $this->line($this->subject, 200),
+                    'subject' => $this->subject,
                     'status' => Ticket::STATUS_OPEN,
                     'priority' => 'medium',
                     'department_id' => $this->department,
                     'opened_via' => 'form',
                     // Typed in, never proven: our answers to it carry nothing the visitor wrote (§3 Β, review of #249).
                     'sender_vouched' => false,
-                    'guest_name' => $this->line($this->name, 100),
+                    'guest_name' => $this->name,
                     'guest_email' => $email,
                 ]);
                 $ticket->messages()->create(['message' => trim($this->message), 'via' => 'form']);

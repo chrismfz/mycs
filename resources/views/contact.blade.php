@@ -8,6 +8,8 @@
                 <p class="mt-2 text-base/80">{{ __('ticket.contact_sent_body') }}</p>
                 <p class="mt-4 text-sm">{!! __('ticket.contact_login', ['login' => '<a class="underline" href="' . e(route('login')) . '">' . e(__('auth.sign_in')) . '</a>']) !!}</p>
             </div>
+        @elseif (count($departments) === 0)
+            <p class="py-6">{!! __('ticket.contact_unavailable', ['login' => '<a class="underline" href="' . e(route('login')) . '">' . e(__('auth.sign_in')) . '</a>']) !!}</p>
         @else
             <p class="mb-4 text-sm text-base/80">{!! __('ticket.contact_intro', ['login' => '<a class="underline" href="' . e(route('login')) . '">' . e(__('auth.sign_in')) . '</a>']) !!}</p>
             <form wire:submit="submit" id="contact" class="flex flex-col gap-4">
