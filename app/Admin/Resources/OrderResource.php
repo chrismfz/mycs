@@ -5,6 +5,7 @@ namespace App\Admin\Resources;
 use App\Admin\Actions\CancelSubscriptionAction;
 use App\Admin\Actions\OrderBulkActions;
 use App\Admin\Components\ClientComponent;
+use App\Admin\Resources\OrderResource\OrderSummary;
 use App\Admin\Resources\OrderResource\Pages\CreateOrder;
 use App\Admin\Resources\OrderResource\Pages\EditOrder;
 use App\Admin\Resources\OrderResource\Pages\ListOrders;
@@ -26,10 +27,13 @@ use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Infolists\Components\TextEntry;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Component;
+use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
+use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
 use Filament\Support\RawJs;
 use Filament\Tables\Columns\TextColumn;
@@ -51,6 +55,46 @@ class OrderResource extends Resource
     {
         return $schema
             ->components([
+                // WHMCS's order view (owner 2026-10-19): what came in, at a glance, above what staff may change.
+                Section::make('Order')->visibleOn('edit')->columns(2)->columnSpanFull()->schema([
+                    TextEntry::make('created_at')->label('Date')->dateTime(),
+                    TextEntry::make('amount')->label('Amount')
+                        ->state(fn (Order $record) => (string) (OrderSummary::invoice($record)->formattedTotal ?? $record->formattedTotal)),
+                    TextEntry::make('id')->label('Order #'),
+                    TextEntry::make('invoice')->label('Invoice #')
+                        ->state(fn (Order $record) => $record->invoice_id === null ? '—' : '#' . (OrderSummary::invoice($record)->number ?? $record->invoice_id))
+                        ->url(fn (Order $record) => $record->invoice_id === null ? null : InvoiceResource::getUrl('view', ['record' => $record->invoice_id])),
+                    TextEntry::make('client_summary')->label('Client')
+                        ->state(fn (Order $record) => self::clientSummary($record))
+                        ->url(fn (Order $record) => ClientResource::getUrl('view', ['record' => $record->client_id]))
+                        ->extraAttributes(['class' => 'whitespace-pre-line']),
+                    TextEntry::make('status')->label('Status')->badge()
+                        ->formatStateUsing(fn (string $state) => ucfirst($state))
+                        ->color(fn (string $state) => match ($state) {
+                            Order::STATUS_PENDING => 'warning',
+                            Order::STATUS_ACTIVE => 'success',
+                            Order::STATUS_FRAUD => 'danger',
+                            default => 'gray',
+                        }),
+                    TextEntry::make('payment_method')->label('Payment Method')
+                        ->state(fn (Order $record) => OrderSummary::paymentMethod(OrderSummary::invoice($record))),
+                    TextEntry::make('payment_status')->label('Payment Status')->badge()
+                        ->state(fn (Order $record) => OrderSummary::paymentStatus(OrderSummary::invoice($record)))
+                        ->color(fn (string $state) => match ($state) {
+                            'Paid' => 'success',
+                            'Unpaid' => 'danger',
+                            default => 'gray',
+                        }),
+                    TextEntry::make('ip_address')->label('IP Address')->placeholder('—')->copyable(),
+                    TextEntry::make('promotion_code')->label('Promotion Code')
+                        ->state(fn (Order $record) => OrderSummary::promotionCode($record)),
+                    TextEntry::make('accepted')->label('Accepted')
+                        ->state(fn (Order $record) => $record->accepted_at === null ? '—'
+                            : $record->accepted_at->toDateTimeString() . ($record->acceptedBy ? ' · ' . $record->acceptedBy->name : '')),
+                ]),
+                Section::make('Order Items')->visibleOn('edit')->columnSpanFull()->schema([
+                    View::make('admin.orders.items'),
+                ]),
                 ClientComponent::make('client_id')
                     ->afterStateUpdated(function (Set $set, Get $get) {
                         // the services are the order's account's
@@ -186,6 +230,19 @@ class OrderResource extends Resource
             ]);
     }
 
+    /** WHMCS's «Client» on the order: the account's name and its primary contact's address. */
+    private static function clientSummary(Order $order): string
+    {
+        $contact = $order->client?->primaryContact;
+        $place = trim(implode(' ', array_filter([$contact?->postcode, $contact?->city])));
+
+        return implode("\n", array_filter([
+            ($order->client->name ?? '') . ' (#' . $order->client_id . ')',
+            trim(implode(' ', array_filter([$contact?->address1, $contact?->address2]))),
+            implode(', ', array_filter([$place, $contact?->state, $contact?->country])),
+        ]));
+    }
+
     /** The line's price as checkout would charge it, for the form's placeholder. */
     private static function catalogPrice(Get $get): ?string
     {
@@ -260,6 +317,7 @@ class OrderResource extends Resource
                         'Unpaid' => 'danger',
                         default => 'gray',
                     }),
+                TextColumn::make('ip_address')->label('IP Address')->searchable()->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('notes')
                     ->label('Notes')
                     ->limit(40)
