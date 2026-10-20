@@ -59,6 +59,8 @@ class NotificationTemplateTextsTest extends TestCase
             'new_order_created' => ['order' => $order, 'items' => collect([$service]), 'total' => '$10.00'],
             'new_server_created', 'server_suspended', 'server_unsuspended', 'server_terminated', 'service_cancelled' => ['service' => $service],
             'new_ticket_message' => ['ticketMessage' => $ticket->messages()->create(['user_id' => $user->id, 'message' => 'Hello **there**'])],
+            'guest_ticket_message' => ['ticket' => $ticket, 'ticketMessage' => $ticket->messages()->create(['message' => 'Reply'])],
+            'ticket_received' => ['ticket' => $ticket],
             'email_verification', 'password_reset' => ['url' => 'https://example.test/link'],
             'client_invite' => ['account' => ['name' => 'Acme'], 'invite' => ['url' => 'https://example.test/invite/x', 'by' => 'Maria', 'expires_at' => now()->addWeek()]],
             // D7-1: the domain expiry notices, as DomainReminders sends them.

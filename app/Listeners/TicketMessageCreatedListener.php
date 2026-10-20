@@ -3,8 +3,8 @@
 namespace App\Listeners;
 
 use App\Events\TicketMessage\Created;
-use App\Helpers\NotificationHelper;
 use App\Models\Ticket;
+use App\Support\Tickets\TicketMailer;
 
 class TicketMessageCreatedListener
 {
@@ -21,15 +21,14 @@ class TicketMessageCreatedListener
         }
         if ($message->isFromStaff()) {
             $ticket->update(['status' => Ticket::STATUS_ANSWERED]);
-            // The account is told; a guest's ticket is told by its own email (PR A3), not through an account.
-            if ($ticket->client !== null) {
-                NotificationHelper::ticketMessageNotification($ticket->client, $message);
-            }
+            // To the owner, by mail with a Message-ID of ours (A3): the account's owner, or the guest's address.
+            app(TicketMailer::class)->reply($message);
 
             return;
         }
         // Still waiting on our first reply: open; otherwise the customer's answer, also on a closed ticket.
         $answered = $ticket->messages()->whereNotNull('staff_id')->where('is_internal', false)->exists();
         $ticket->update(['status' => $answered ? Ticket::STATUS_CUSTOMER_REPLY : Ticket::STATUS_OPEN]);
+        app(TicketMailer::class)->notifyStaff($message, new: $ticket->messages()->count() === 1);
     }
 }

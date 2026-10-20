@@ -18,6 +18,7 @@ use App\Models\NotificationTemplate;
 use App\Models\Order;
 use App\Models\Service;
 use App\Models\ServiceCancellation;
+use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
 use App\Services\Invoice\PaymentReminders;
@@ -118,9 +119,11 @@ class NotificationHelper
             $mail->attachFromStorage($attachment['path'], $attachment['name'], $attachment['options'] ?? []);
         }
 
+        // A ticket's mail goes to its owner only (docs/tickets.md §3 Γ): its Message-ID is a key, never copied to anyone.
+        $ticketMail = $mail->threadMessageId !== null;
         FacadesMail::to($user->email)
-            ->bcc($notificationTemplate->bcc)
-            ->cc($notificationTemplate->cc)
+            ->bcc($ticketMail ? [] : $notificationTemplate->bcc)
+            ->cc($ticketMail ? [] : $notificationTemplate->cc)
             ->queue($mail);
     }
 
@@ -455,6 +458,35 @@ class NotificationHelper
     {
         $data['ticketMessage'] = $ticketMessage;
         self::toAccount($client, 'new_ticket_message', $data);
+    }
+
+    /**
+     * A mail about a ticket to an address with no login (docs/tickets.md A3): a guest's, or whoever opened it by mail.
+     * No preferences, no in-app; its Message-ID is the one TicketMailer kept.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public static function guestTicketNotification(Ticket $ticket, string $key, array $data, string $threadMessageId, ?string $to = null): void
+    {
+        $template = NotificationTemplate::where('key', $key)->first();
+        $to ??= $ticket->guest_email;
+        if (!$template || !$template->enabled || config('settings.mail_disable') || blank($to)) {
+            return;
+        }
+        $locale = self::localeFor($ticket->client);
+        $recipient = new User(['email' => $to, 'first_name' => $ticket->guest_name]);
+        self::withLocale($locale, function () use ($template, $locale, $ticket, $data, $recipient, $threadMessageId) {
+            $previous = self::$account;
+            self::$account = $ticket->client;
+            try {
+                $data = TemplateRenderer::context($data + ['ticket' => $ticket, 'thread_message_id' => $threadMessageId], $recipient);
+                self::sendEmailNotification($template->inLocale($locale), $data, $recipient);
+            } catch (TemplateError $e) {
+                report($e);
+            } finally {
+                self::$account = $previous;
+            }
+        });
     }
 
     public static function emailVerificationNotification(User $user, array $data = []): void

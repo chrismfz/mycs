@@ -153,6 +153,8 @@ class TemplateRenderer
         ]);
 
         if ($ticketMessage instanceof TicketMessage) {
+            // Who wrote it, by name: the staff member or the customer (the login was blank for staff).
+            $data['author_name'] ??= (string) $ticketMessage->author()?->name;
             $data['message_html'] = new Html(Str::markdown((string) $ticketMessage->message, [
                 'html_input' => 'strip',
                 'allow_unsafe_links' => false,

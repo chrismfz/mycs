@@ -5,6 +5,7 @@ namespace App\Admin\Resources;
 use App\Admin\Resources\TicketDepartmentResource\Pages\CreateTicketDepartment;
 use App\Admin\Resources\TicketDepartmentResource\Pages\EditTicketDepartment;
 use App\Admin\Resources\TicketDepartmentResource\Pages\ListTicketDepartments;
+use App\Models\Staff;
 use App\Models\TicketDepartment;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
@@ -51,6 +52,9 @@ class TicketDepartmentResource extends Resource
                     Toggle::make('hidden')->label('Hidden')->helperText('Not offered to customers; staff still use it.'),
                     Toggle::make('clients_only')->label('Clients only')
                         ->helperText('No tickets from guests (the contact form, mail from unknown senders).'),
+                    Select::make('notifyStaff')->label('Notify')->multiple()->relationship('notifyStaff', 'email')->preload()
+                        ->getOptionLabelFromRecordUsing(fn (Staff $staff) => "{$staff->name} <{$staff->email}>")
+                        ->helperText('Staff mailed of its new tickets and customers\' replies, when the ticket is assigned to no one (then its staff member is). Only staff who may see tickets.'),
                 ]),
                 Section::make(__('Mailbox'))->columns(2)
                     ->description('Read every 5 minutes when «Read the mailbox» is on. A reply joins a ticket only by our mail\'s Message-ID and only from the ticket\'s owner (docs/tickets.md §3); anything else waits in Support → Mail Quarantine.')

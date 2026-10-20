@@ -561,7 +561,7 @@
     "A line keeps what it is (a renewal, a fee, a charge): make a new line.": "Μια γραμμή κρατά ό,τι είναι (ανανέωση, τέλος, χρέωση): φτιάξτε νέα γραμμή.",
     "A domain line keeps its domain: make a new line.": "Μια γραμμή domain κρατά το domain της: φτιάξτε νέα γραμμή.",
     "Only a domain line takes a kind.": "Μόνο μια γραμμή domain δέχεται είδος.",
-    "customer": "πελάτης",
+    "customer": "πελάτη",
     "Upcoming domain renewals": "Επερχόμενες ανανεώσεις domains",
     "Upcoming service renewals": "Επερχόμενες ανανεώσεις υπηρεσιών",
     "Within": "Εντός",
@@ -737,5 +737,8 @@
     "file": "αρχείο",
     "From the quarantine": "Από την καραντίνα",
     "Vouched for by our server": "Επιβεβαιωμένο από τον server μας",
-    "Suggested ticket": "Προτεινόμενο ticket"
+    "Suggested ticket": "Προτεινόμενο ticket",
+    "guest": "επισκέπτης",
+    "Open the ticket": "Άνοιγμα του ticket",
+    "Your message": "Το μήνυμά σας"
 }
