@@ -100,6 +100,7 @@ class Service extends Model implements Auditable
         'plan_id',
         'quantity',
         'price',
+        'price_locked',
         'expires_at',
         'subscription_id',
         'status',
@@ -131,6 +132,8 @@ class Service extends Model implements Auditable
     ];
 
     protected $casts = [
+        'group_percent' => 'decimal:2',
+        'price_locked' => 'boolean',
         'expires_at' => 'date',
         'activated_at' => 'datetime',
         'suspend_hold_until' => 'date',

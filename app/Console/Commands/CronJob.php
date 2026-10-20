@@ -27,6 +27,7 @@ use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Models\Setting;
 use App\Models\Ticket;
+use App\Services\Billing\ClientGroupPricing;
 use App\Services\Billing\RenewalBilling;
 use App\Services\Domains\DomainReminders;
 use App\Services\Domains\DomainRenewalService;
@@ -529,6 +530,8 @@ class CronJob extends Command
             // nixpal licensing: the access log kept 90 days (WHMCS addon «logprune»).
             $this->runCronJob('license_logs_pruned', fn () => Licenses::pruneLog());
             $this->runCronJob('zlic_limits_pruned', fn () => ZlicLimiter::prune());
+            // An account's services left at another group discount (a lock, a timeout when it moved; #272).
+            $this->runCronJob('group_prices_reconciled', fn () => ClientGroupPricing::reconcile(), transaction: false);
 
             $this->runCronJob('email_logs_deleted', function ($number = 0) {
                 // Delete email logs older than x days; 0 keeps them (it would wipe the whole log).

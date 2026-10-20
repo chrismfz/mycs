@@ -103,11 +103,14 @@ class ClientResource extends Resource
                             ->helperText(__('Off: the credit is kept until the customer or staff use it.'))
                             ->default(true),
                         // WHMCS «Client Group» (ROADMAP 5): its discount goes into its services' computed prices.
+                        // A group is a discount: staff who may manage groups choose it (review F5 of #272).
                         Select::make('client_group_id')
                             ->label(__('Client group'))
                             ->relationship('group', 'name')
-                            ->placeholder(__('None'))
-                            ->helperText(__('Its discount applies to the services\' prices from their next renewal; a price set by hand is kept.')),
+                            ->placeholder(__('No group'))
+                            ->disabled(fn () => !(auth()->user()?->hasPermission('admin.client_groups.update') ?? false))
+                            ->dehydrated(fn () => auth()->user()?->hasPermission('admin.client_groups.update') ?? false)
+                            ->helperText(__('Its discount applies to the services\' prices from their next renewal, except a price kept by hand.')),
                         // WHMCS «Tax Exempt» (Δ1): its new invoice lines get no tax.
                         Toggle::make('tax_exempt')
                             ->label(__('Tax exempt'))

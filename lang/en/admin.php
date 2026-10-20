@@ -18,6 +18,7 @@ return [
         'domain_reminders' => 'Domain expiry notices sent',
         'license_logs_pruned' => 'License access logs pruned',
         'zlic_limits_pruned' => 'zlic.php counters pruned',
+        'group_prices_reconciled' => 'Group prices brought up to date',
         'mcp_calls_pruned' => 'MCP calls pruned',
         'mcp_proposals_expired' => 'MCP proposals expired',
         'services_suspended' => 'Services suspended',

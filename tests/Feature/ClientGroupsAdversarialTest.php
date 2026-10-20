@@ -276,7 +276,8 @@ class ClientGroupsAdversarialTest extends TestCase
         $user = $this->user($group);
         $product = $this->product(20.00, 'month');
         $computed = $this->service($user, $product, 18.00);
-        $byHand = $this->service($user, $product, 7.77);
+        // Author (#272 fixes, owner 2026-10-20): every live price follows the group but a locked one («Keep this price»).
+        $byHand = $this->service($user, $product, 7.77, ['price_locked' => true]);
 
         $group->delete();
 
@@ -311,7 +312,8 @@ class ClientGroupsAdversarialTest extends TestCase
         Carbon::setTestNow('2026-10-20 10:00:00');
         $this->settings(['cronjob_invoice' => [7, 'integer']]);
         $user = $this->user($this->group('10'));
-        $service = $this->service($user, $this->product(20.00, 'month'), 15.00, ['expires_at' => '2026-10-25']);
+        // Author (#272 fixes): staff keep a price by locking it; a locked price holds no group discount, nor says one.
+        $service = $this->service($user, $this->product(20.00, 'month'), 15.00, ['expires_at' => '2026-10-25', 'price_locked' => true]);
 
         $this->artisan('app:cron-job')->assertExitCode(0);
 

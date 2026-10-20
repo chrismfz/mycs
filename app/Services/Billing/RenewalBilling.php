@@ -507,19 +507,15 @@ final class RenewalBilling
         (new CreditAutoApply)->toInvoice($invoice, notify: $notify);
     }
 
-    /**
-     * The group discount its price holds, said on its line (ROADMAP 5: in the price, not a line of its own): only when
-     * the price is the one computed with it (not staff's), and never when there is none.
-     */
+    /** The group discount its price holds (services.group_percent), said on its line (ROADMAP 5: in the price). */
     private static function groupNote(Service $service): string
     {
-        $percent = $service->client?->groupPercent();
-        if ($percent === null || $service->plan === null
-            || bccomp(number_format((float) $service->price, 2, '.', ''), $service->calculatePrice(), 2) !== 0) {
+        if ($service->price_locked || (float) $service->group_percent <= 0) {
             return '';
         }
 
         // In the customer's language, as its PDF (#264): the cron runs in the system's.
-        return ' ' . __('invoices.group_discount_note', ['percent' => rtrim(rtrim($percent, '0'), '.')], NotificationHelper::localeFor($service->client));
+        return ' ' . __('invoices.group_discount_note', ['percent' => rtrim(rtrim(number_format((float) $service->group_percent, 2, '.', ''), '0'), '.')],
+            NotificationHelper::localeFor($service->client));
     }
 }

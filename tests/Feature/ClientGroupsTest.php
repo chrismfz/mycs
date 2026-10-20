@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Admin\Resources\ClientGroupResource;
+use App\Exceptions\DisplayException;
 use App\Models\Client;
 use App\Models\ClientGroup;
 use App\Models\Coupon;
@@ -15,12 +16,14 @@ use App\Models\Setting;
 use App\Models\Staff;
 use App\Models\TaxRate;
 use App\Models\User;
+use App\Services\Billing\ClientGroupPricing;
 use App\Services\Order\OrderLine;
 use App\Services\Order\OrderPricing;
 use App\Services\Order\PlaceOrderService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
@@ -113,29 +116,49 @@ class ClientGroupsTest extends TestCase
         $this->assertSame('15.00', OrderPricing::line(['price' => '15.00', 'setup_fee' => '0.00'], null, $client)->netPrice);
     }
 
-    public function test_a_move_or_a_new_percentage_reprices_computed_prices_never_staffs(): void
+    public function test_a_move_or_a_new_percentage_reprices_every_live_price_but_a_locked_one(): void
     {
         $client = $this->client();
         $product = $this->product(20.00);
         $computed = (new PlaceOrderService)->place($client, 'USD', [$this->line($product)])->order->services()->sole();
-        $byHand = (new PlaceOrderService)->place($client, 'USD', [$this->line($product)])->order->services()->sole();
-        $byHand->update(['price' => 12.34]);
+        $old = (new PlaceOrderService)->place($client, 'USD', [$this->line($product)])->order->services()->sole();
+        $old->update(['price' => 16.00]); // an older catalog's, an import's
+        $locked = (new PlaceOrderService)->place($client, 'USD', [$this->line($product)])->order->services()->sole();
+        $locked->update(['price' => 12.34, 'price_locked' => true]);
         $ended = (new PlaceOrderService)->place($client, 'USD', [$this->line($product)])->order->services()->sole();
         $ended->update(['status' => Service::STATUS_TERMINATED]);
 
         $group = $this->group('10');
         $client->update(['client_group_id' => $group->id]);
-        $this->assertSame(['18.00', '12.34', '20.00'], [$this->money($computed->fresh()->price), $this->money($byHand->fresh()->price), $this->money($ended->fresh()->price)]);
+        $this->assertSame(['18.00', '14.40', '12.34', '20.00'], [$this->money($computed->fresh()->price), $this->money($old->fresh()->price),
+            $this->money($locked->fresh()->price), $this->money($ended->fresh()->price)]);
 
         $group->update(['discount_percent' => 25]);
-        $this->assertSame(['15.00', '12.34'], [$this->money($computed->fresh()->price), $this->money($byHand->fresh()->price)]);
+        $this->assertSame(['15.00', '12.00', '12.34'], [$this->money($computed->fresh()->price), $this->money($old->fresh()->price), $this->money($locked->fresh()->price)]);
+        $this->assertSame(0, ClientGroupPricing::reprice($client->fresh()), 'run again: nothing');
 
         $client->fresh()->update(['client_group_id' => null]);
-        $this->assertSame('20.00', $this->money($computed->fresh()->price), 'leaving the group: the full price again');
+        $this->assertSame(['20.00', '16.00'], [$this->money($computed->fresh()->price), $this->money($old->fresh()->price)], 'leaving the group: back');
 
         $client->fresh()->update(['client_group_id' => $group->id]);
         $group->delete();
         $this->assertSame([null, '20.00'], [$client->fresh()->client_group_id, $this->money($computed->fresh()->price)], 'a deleted group: as a move');
+    }
+
+    public function test_the_cron_brings_a_service_left_behind_up_to_date(): void
+    {
+        $client = $this->client($this->group('10'));
+        $service = (new PlaceOrderService)->place($client, 'USD', [$this->line($this->product(20.00))])->order->services()->sole();
+        DB::table('services')->where('id', $service->id)->update(['price' => 20.00, 'group_percent' => 0]); // a lock timed out
+
+        $this->assertSame(1, ClientGroupPricing::reconcile());
+        $this->assertSame(['18.00', '10.00'], [$this->money($service->fresh()->price), $this->money($service->fresh()->group_percent)]);
+    }
+
+    public function test_a_percentage_outside_0_to_100_is_refused_however_saved(): void
+    {
+        $this->expectException(DisplayException::class);
+        ClientGroup::query()->create(['name' => 'Bad', 'discount_percent' => 150]);
     }
 
     public function test_the_renewal_line_says_the_discount_it_holds(): void

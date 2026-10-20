@@ -184,7 +184,13 @@ class ServiceUpgrade extends Model implements Auditable
         if ($this->changesOptionsOnly()) {
             $change = BigDecimal::of($this->optionsPrice($this->resultingOptions()))
                 ->minus($this->optionsPrice($service->configs->pluck('config_value_id', 'config_option_id')->all()));
-            $net = OrderPricing::toNet((string) $change, $service->client, $service->product);
+            $net = BigDecimal::of(OrderPricing::toNet((string) $change, $service->client, $service->product));
+            // The options' difference at the group discount its price holds (G1/F1 of #272): an option added is not
+            // full price for a group's member; a price staff locked follows no group.
+            if (!$service->price_locked && (float) $service->group_percent > 0) {
+                $net = $net->multipliedBy(BigDecimal::of('100')->minus(number_format((float) $service->group_percent, 2, '.', '')))
+                    ->dividedBy(100, 2, RoundingMode::HalfUp);
+            }
 
             return (string) BigDecimal::of(number_format((float) $service->price, 2, '.', ''))->plus($net)->toScale(2);
         }

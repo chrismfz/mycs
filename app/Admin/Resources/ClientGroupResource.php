@@ -47,7 +47,7 @@ class ClientGroupResource extends Resource
                 ColorPicker::make('colour')->label(__('Colour')),
                 TextInput::make('discount_percent')->label(__('Discount (%)'))
                     ->numeric()->minValue(0)->maxValue(100)->step('0.01')->default(0)->required()
-                    ->helperText(__('Off its members\' services, after a coupon, from their next renewal. Never on domains. A price set by hand is kept.')),
+                    ->helperText(__('Off its members\' services, after a coupon, from their next renewal. Never on domains, nor on a price kept by hand.')),
             ]);
     }
 

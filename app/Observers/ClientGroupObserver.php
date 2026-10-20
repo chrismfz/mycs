@@ -11,9 +11,8 @@ class ClientGroupObserver
     public function updated(ClientGroup $group): void
     {
         if ($group->wasChanged('discount_percent')) {
-            $before = (float) $group->getOriginal('discount_percent') > 0 ? (string) $group->getOriginal('discount_percent') : null;
             foreach ($group->clients()->get() as $client) {
-                ClientGroupPricing::reprice($client->setRelation('group', $group), $before);
+                ClientGroupPricing::reprice($client);
             }
         }
     }
