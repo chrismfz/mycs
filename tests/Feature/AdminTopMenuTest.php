@@ -43,13 +43,14 @@ class AdminTopMenuTest extends TestCase
     public function test_a_support_role_sees_only_what_it_may_open(): void
     {
         $support = Staff::factory()->create(['role_id' => Role::create(['name' => 'Support', 'permissions' => [
-            'admin.tickets.viewAny', 'admin.tickets.create', 'admin.users.viewAny',
+            'admin.tickets.viewAny', 'admin.tickets.create', 'admin.clients.viewAny', 'admin.users.viewAny',
         ]])->id]);
 
         $menu = $this->menuFor($support);
 
         $this->assertSame(['Support Tickets', 'Open New Ticket'], $menu['Support']);
-        $this->assertSame(['View/Search Clients'], $menu['Clients']);
+        // The accounts (Clients) and their logins (Users) apart since the split; each by its own permission.
+        $this->assertSame(['View/Search Clients', 'Manage Users'], $menu['Clients']);
         $this->assertArrayNotHasKey('Billing', $menu);
         $this->assertArrayNotHasKey('Setup', $menu);
     }

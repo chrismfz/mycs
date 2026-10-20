@@ -28,6 +28,13 @@ class CouponResource extends Resource
 {
     protected static ?string $model = Coupon::class;
 
+    // One name for the page, WHMCS's, in the top menu, the sidebar and its title (owner 2026-10-21).
+    protected static ?string $navigationLabel = 'Promotions';
+
+    protected static ?string $pluralModelLabel = 'Promotions';
+
+    protected static ?string $modelLabel = 'Promotion';
+
     protected static string|\BackedEnum|null $navigationIcon = 'ri-coupon-line';
 
     protected static string|\BackedEnum|null $activeNavigationIcon = 'ri-coupon-fill';

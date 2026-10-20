@@ -2,14 +2,21 @@
 
 namespace App\Admin;
 
+use App\Admin\Clusters\Extensions;
+use App\Admin\Clusters\InvoiceCluster;
+use App\Admin\Clusters\Services;
 use App\Admin\Pages\CronStats;
+use App\Admin\Pages\Dashboard;
 use App\Admin\Pages\Extension;
 use App\Admin\Pages\Settings;
 use App\Admin\Resources\AdjustmentNoteResource;
 use App\Admin\Resources\ApiResource;
 use App\Admin\Resources\Audits\AuditResource;
+use App\Admin\Resources\CannedReplyCategoryResource;
+use App\Admin\Resources\CannedReplyResource;
 use App\Admin\Resources\CategoryResource;
 use App\Admin\Resources\ClientGroupResource;
+use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ConfigOptionResource;
 use App\Admin\Resources\CouponResource;
 use App\Admin\Resources\CurrencyResource;
@@ -18,36 +25,44 @@ use App\Admin\Resources\DomainRegistrarConnectionResource;
 use App\Admin\Resources\DomainResource;
 use App\Admin\Resources\DomainTldResource;
 use App\Admin\Resources\EmailLogResource;
+use App\Admin\Resources\ErrorLogResource;
 use App\Admin\Resources\ExtensionResource;
 use App\Admin\Resources\FailedJobResource;
 use App\Admin\Resources\GatewayResource;
+use App\Admin\Resources\HttpLogResource;
 use App\Admin\Resources\InvoiceResource;
 use App\Admin\Resources\InvoiceTransactions\InvoiceTransactionResource;
 use App\Admin\Resources\LicenseResource;
+use App\Admin\Resources\McpCallResource;
+use App\Admin\Resources\McpOauthGrantResource;
+use App\Admin\Resources\McpProposalResource;
 use App\Admin\Resources\ModuleActionResource;
 use App\Admin\Resources\NotificationTemplateResource;
 use App\Admin\Resources\OauthClientResource;
 use App\Admin\Resources\OrderResource;
+use App\Admin\Resources\PaymentGatewayEventResource;
 use App\Admin\Resources\ProductResource;
 use App\Admin\Resources\RoleResource;
 use App\Admin\Resources\ServerGroupResource;
 use App\Admin\Resources\ServerResource;
 use App\Admin\Resources\ServiceCancellationResource;
 use App\Admin\Resources\ServiceResource;
+use App\Admin\Resources\StaffResource;
 use App\Admin\Resources\TaxRateResource;
 use App\Admin\Resources\TicketBlockedSenderResource;
 use App\Admin\Resources\TicketDepartmentResource;
 use App\Admin\Resources\TicketQuarantineResource;
 use App\Admin\Resources\TicketResource;
 use App\Admin\Resources\UserResource;
+use Filament\Facades\Filament;
 use Filament\Pages\Page;
 use Filament\Resources\Resource;
 use Illuminate\Support\Str;
 
 /**
- * The WHMCS-like top menu of the admin (docs/admin-ux.md). The sidebar stays as it is; the
- * top menu points at the same pages, so a page can be in both, and an item shows only when
- * its own canAccess()/canCreate() lets the staff member in (same permissions as the sidebar).
+ * The WHMCS-like top menu of the admin (docs/admin-ux.md): the whole map of the admin, every page of it (an
+ * extension's under «Addons»); the sidebar is for what needs staff today (AdminSidebar). An item shows only when its
+ * own canAccess()/canCreate() lets the staff member in.
  */
 class TopMenu
 {
@@ -59,8 +74,9 @@ class TopMenu
      */
     public const MENU = [
         'Clients' => [
-            [UserResource::class, 'index', 'View/Search Clients'],
-            [UserResource::class, 'create', 'Add New Client'],
+            [ClientResource::class, 'index', 'View/Search Clients'],
+            [ClientResource::class, 'create', 'Add New Client'],
+            [UserResource::class, 'index', 'Manage Users'],
             [ServiceResource::class, 'index', 'Products/Services'],
             [DomainResource::class, 'index', 'Domains'],
             [ServiceCancellationResource::class, 'index', 'Cancellation Requests'],
@@ -78,12 +94,15 @@ class TopMenu
             [InvoiceResource::class, 'create', 'Create Invoice'],
             [InvoiceTransactionResource::class, 'index', 'Transactions List'],
             [AdjustmentNoteResource::class, 'index', 'Adjustment Notes'],
+            [PaymentGatewayEventResource::class, 'index', 'Gateway Log'],
         ],
         'Support' => [
             [TicketResource::class, 'index', 'Support Tickets'],
             [TicketResource::class, 'create', 'Open New Ticket'],
             [TicketQuarantineResource::class, 'index', 'Mail Quarantine'],
             [TicketBlockedSenderResource::class, 'index', 'Blocked Senders'],
+            [CannedReplyResource::class, 'index', 'Predefined Replies'],
+            [CannedReplyCategoryResource::class, 'index', 'Reply Categories'],
         ],
         'Utilities' => [
             [EmailLogResource::class, 'index', 'Email Message Log'],
@@ -91,11 +110,15 @@ class TopMenu
             [CronStats::class],
             [ModuleActionResource::class, 'index', 'Pending Module Actions'],
             [FailedJobResource::class, 'index', 'Failed Jobs'],
+            [McpProposalResource::class, 'index', 'MCP Proposals'],
+            [McpCallResource::class, 'index', 'MCP Calls'],
+            [ErrorLogResource::class, 'index', 'Error Logs'],
+            [HttpLogResource::class, 'index', 'HTTP Logs'],
         ],
         'Setup' => [
             [Settings::class],
             [CategoryResource::class, 'index', 'Product Groups'],
-            [ProductResource::class, 'index', 'Products/Services'],
+            [ProductResource::class, 'index', 'Products'],
             [ConfigOptionResource::class, 'index', 'Configurable Options'],
             [CustomPropertyResource::class, 'index', 'Custom Client Fields'],
             [CurrencyResource::class, 'index', 'Currencies'],
@@ -107,12 +130,30 @@ class TopMenu
             [ServerGroupResource::class, 'index', 'Server Groups'],
             [NotificationTemplateResource::class, 'index', 'Email Templates'],
             [TicketDepartmentResource::class, 'index', 'Ticket Departments'],
+            [StaffResource::class, 'index', 'Staff'],
             [RoleResource::class, 'index', 'Staff Roles'],
             [ExtensionResource::class, 'index', 'Extensions'],
             [Extension::class],
             [ApiResource::class, 'index', 'API Credentials'],
             [OauthClientResource::class, 'index', 'OAuth Clients'],
+            [McpOauthGrantResource::class, 'index', 'MCP Authorizations'],
         ],
+    ];
+
+    /** Shown only while debugging is on (Settings → Other → Debug), as in the sidebar. */
+    public const DEBUG_ONLY = [ErrorLogResource::class, HttpLogResource::class];
+
+    /**
+     * What the panel registers but needs no line here, and why. Anything else not in MENU (an extension's page) goes to
+     * «Addons», so no page is ever left without a way to it (owner 2026-10-21; TopMenuCoverageTest).
+     *
+     * @var array<class-string, string>
+     */
+    public const NOT_IN_MENU = [
+        Dashboard::class => 'the logo and the sidebar lead to it',
+        InvoiceCluster::class => 'a cluster: its pages are under Billing',
+        Services::class => 'a cluster: its pages are under Clients',
+        Extensions::class => 'a cluster: its pages are under Setup',
     ];
 
     /**
@@ -140,7 +181,28 @@ class TopMenu
             }
         }
 
+        // An extension's page (or one added without a line above): under «Addons», as in WHMCS.
+        $addons = [];
+        foreach (self::unlisted() as $class) {
+            if ($item = self::item($class)) {
+                $item['active'] = self::isCurrent($item['url']);
+                $addons[] = $item;
+            }
+        }
+        if ($addons !== []) {
+            $groups[] = ['label' => 'Addons', 'active' => collect($addons)->contains('active', true), 'items' => $addons];
+        }
+
         return $groups;
+    }
+
+    /** @return list<class-string> the panel's resources and pages with neither a line in MENU nor a reason in NOT_IN_MENU */
+    public static function unlisted(): array
+    {
+        $listed = collect(self::MENU)->flatten(1)->map(fn (array $entry) => $entry[0])->merge(array_keys(self::NOT_IN_MENU))->unique()->all();
+        $panel = Filament::getPanel('admin');
+
+        return array_values(array_filter([...$panel->getResources(), ...$panel->getPages()], fn (string $class) => !in_array($class, $listed, true)));
     }
 
     /**
@@ -170,6 +232,9 @@ class TopMenu
      */
     private static function item(string $class, string $page = 'index', ?string $label = null, array $query = []): ?array
     {
+        if (in_array($class, self::DEBUG_ONLY, true) && !config('settings.debug', false)) {
+            return null;
+        }
         try {
             if (is_subclass_of($class, Resource::class)) {
                 $allowed = $page === 'create' ? $class::canCreate() : $class::canAccess();
