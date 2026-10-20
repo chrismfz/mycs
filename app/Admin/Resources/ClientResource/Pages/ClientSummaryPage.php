@@ -73,6 +73,8 @@ class ClientSummaryPage extends ViewRecord
         return [
             'client' => $client,
             'summary' => $this->summary ??= ClientSummary::for($client, $staff instanceof Staff ? $staff : null),
+            // The sticky notes on top (WHMCS's client «Notes»); the page is staff's, as are the notes.
+            'stickyNotes' => $client->notes()->where('sticky', true)->with('staff')->latest()->latest('id')->limit(10)->get(),
             'links' => [
                 'services' => $can('admin.services.viewAny') ? ClientResource::getUrl('services', ['record' => $client]) : null,
                 'service' => $can('admin.services.update') ? fn (int $id) => ServiceResource::getUrl('edit', ['record' => $id]) : null,

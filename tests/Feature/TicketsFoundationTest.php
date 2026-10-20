@@ -31,6 +31,16 @@ class TicketsFoundationTest extends TestCase
 {
     use RefreshDatabase;
 
+    /**
+     * A department the migration made from the old setting (Support, Sales): made here when it is not there. A test of
+     * the same process that truncates the tables (DatabaseTruncation: PaymentMutationAtomicityTest,
+     * CreditPurchaseMutationReviewTest) leaves only what the seeder puts back, and a migration's rows are not that.
+     */
+    private function department(string $name): TicketDepartment
+    {
+        return TicketDepartment::query()->firstOrCreate(['name' => $name]);
+    }
+
     private function guestTicket(array $attributes = []): Ticket
     {
         return Ticket::query()->create(array_merge(['subject' => 'Hello', 'status' => Ticket::STATUS_OPEN, 'priority' => 'medium',
@@ -162,7 +172,7 @@ class TicketsFoundationTest extends TestCase
     {
         $user = User::factory()->create();
         $hidden = TicketDepartment::query()->create(['name' => 'Abuse', 'hidden' => true]);
-        $support = TicketDepartment::query()->where('name', 'Support')->firstOrFail();
+        $support = $this->department('Support');
         $this->actingAs($user);
 
         $this->livewireAs($user)->test(TicketCreate::class)
@@ -182,7 +192,7 @@ class TicketsFoundationTest extends TestCase
         ApiKey::create(['staff_id' => Staff::factory()->admin()->create()->id, 'name' => 't', 'type' => 'admin', 'enabled' => true,
             'token' => hash('sha256', $token), 'permissions' => ['admin.tickets.create']]);
         $client = User::factory()->create()->client();
-        $sales = TicketDepartment::query()->where('name', 'Sales')->firstOrFail();
+        $sales = $this->department('Sales');
 
         $this->withToken($token)->postJson(route('api.v1.admin.tickets.store'), ['subject' => 'A', 'client_id' => $client->id, 'department' => 'Sales'])
             ->assertSuccessful()->assertJsonPath('data.attributes.department_id', $sales->id);
@@ -194,7 +204,7 @@ class TicketsFoundationTest extends TestCase
     public function test_a_department_with_tickets_is_hidden_not_deleted(): void
     {
         $staff = $this->asStaff();
-        $support = TicketDepartment::query()->where('name', 'Support')->firstOrFail();
+        $support = $this->department('Support');
         $empty = TicketDepartment::query()->create(['name' => 'Spare']);
         $this->guestTicket(['department_id' => $support->id]);
 

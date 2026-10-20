@@ -132,7 +132,8 @@ class TicketsFoundationAdversarialTest extends TestCase
         $user = User::factory()->create();
         $other = User::factory()->create()->client();
         $hidden = TicketDepartment::query()->create(['name' => 'Abuse', 'hidden' => true]);
-        $support = TicketDepartment::query()->where('name', 'Support')->firstOrFail();
+        // Not the migration's row: a truncating test of the same process removes it (TicketsFoundationTest::department).
+        $support = TicketDepartment::query()->firstOrCreate(['name' => 'Support']);
         $this->asCustomer($user);
 
         $this->livewireAs($user)->test(TicketCreate::class)
