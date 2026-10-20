@@ -276,7 +276,7 @@ class Contact extends Model implements Auditable
         $byAccount = $contacts->groupBy('client_id');
         foreach (Domain::ROLES as $role) {
             foreach ($byAccount as $clientId => $group) {
-                Domain::query()->where('client_id', $clientId)->whereIn("{$role}_contact_id", $group->modelKeys())
+                Domain::query()->where('client_id', $clientId)->whereIn("{$role}_contact_id", $group->pluck('id')->all())
                     ->whereNotIn('status', [DomainStatus::TransferredAway->value, DomainStatus::Cancelled->value])
                     ->orderBy('fqdn')->get(['id', 'fqdn', "{$role}_contact_id"])
                     ->each(function (Domain $domain) use (&$uses, $role) {
