@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
 use OwenIt\Auditing\Contracts\Auditable;
 
 /**
@@ -67,6 +68,12 @@ class Ticket extends Model implements Auditable
             if ($ticket->reference === null) {
                 $ticket->reference = TicketReference::generate();
                 $ticket->referenceDrawn = true;
+            }
+        });
+        // Imported from WHMCS and deleted here: a re-run of the import never brings it back (docs/tickets.md §6ζ).
+        static::deleted(function (Ticket $ticket) {
+            if ($ticket->whmcs_id !== null) {
+                DB::table('ticket_whmcs_tombstones')->insertOrIgnore(['ref' => 'ticket:' . $ticket->whmcs_id, 'created_at' => now()]);
             }
         });
         // Linked to an account, or its address changed: the guest's links lead nowhere (docs/tickets.md §3 Δ).

@@ -17,7 +17,8 @@ use function Laravel\Prompts\password;
 class ImportWhmcsTickets extends Command
 {
     protected $signature = 'app:import-whmcs-tickets {dbname} {username=mycs} {host=localhost} {port=3306}
-        {--attachments= : A copy of WHMCS\'s attachments folder (its files are copied under the ticket file rules)}';
+        {--attachments= : A copy of WHMCS\'s attachments folder (its files are copied under the ticket file rules)}
+        {--dry-run : The same numbers, nothing kept}';
 
     protected $description = 'Import the support tickets (departments, tickets, replies, notes, files) from a WHMCS database';
 
@@ -40,15 +41,20 @@ class ImportWhmcsTickets extends Command
         }
         Config::set('audit.console', false);
 
-        return self::report($this, (new WhmcsTicketImport($pdo, $attachments !== null ? (string) $attachments : null))->run());
+        return self::report($this, (new WhmcsTicketImport($pdo, $attachments !== null ? (string) $attachments : null, (bool) $this->option('dry-run')))->run());
     }
 
     /** What the import did, and its parity; FAILURE when WHMCS and MyCS disagree. @param  array<string, mixed>  $counts */
     public static function report(Command $command, array $counts): int
     {
-        $command->table(['Departments', 'Tickets', 'Guests', 'Clients not imported', 'Messages', 'Notes', 'Merged', 'Files', 'Missing', 'Refused', 'Number taken'],
-            [[$counts['departments'], $counts['tickets'], $counts['guests'], $counts['no_account'], $counts['messages'], $counts['notes'], $counts['merged'],
-                $counts['files'], $counts['files_missing'], $counts['files_refused'], $counts['reference_taken']]]);
+        $command->table(['Departments', 'Tickets', 'Unchanged', 'Guests', 'Clients not imported', 'Messages', 'Notes', 'Merged', 'Deleted here'],
+            [[$counts['departments'], $counts['tickets'], $counts['unchanged'], $counts['guests'], $counts['no_account'], $counts['messages'], $counts['notes'],
+                $counts['merged'], $counts['deleted_here']]]);
+        $command->table(['Files', 'Missing', 'Refused', 'Removed in WHMCS', 'Texts cut', 'Number taken', 'Failed'],
+            [[$counts['files'], $counts['files_missing'], $counts['files_refused'], $counts['files_removed'], $counts['truncated'], $counts['reference_taken'], $counts['failed']]]);
+        foreach ($counts['errors'] as $error) {
+            $command->error($error);
+        }
         foreach ($counts['other_status'] as $status => $n) {
             $command->warn("{$n} with WHMCS status «{$status}»: imported as open.");
         }
@@ -57,7 +63,7 @@ class ImportWhmcsTickets extends Command
         sort($keys);
         $rows = array_map(fn ($key) => [$key, $parity['whmcs'][$key] ?? 0, $parity['mycs'][$key] ?? 0, ($parity['whmcs'][$key] ?? 0) === ($parity['mycs'][$key] ?? 0) ? 'ok' : 'DIFFERS'], $keys);
         $command->table(['Department/status', 'WHMCS', 'MyCS', ''], $rows);
-        if ($parity['whmcs'] !== $parity['mycs']) {
+        if ($parity['whmcs'] !== $parity['mycs'] || $counts['failed'] > 0) {
             $command->error('Parity: the tickets per department and status differ.');
 
             return self::FAILURE;

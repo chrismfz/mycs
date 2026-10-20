@@ -10,23 +10,26 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 use MyCS\TicketMail\Attachments;
 use PDO;
+use Throwable;
 
 /**
- * WHMCS's tickets (docs/tickets.md §5α, PR Δ), after its accounts are imported (WHMCS client = the MyCS login of the same
- * id, owner of its account). Read-only on WHMCS; re-runnable: a ticket is found by its `whmcs_id`, a message by its
- * `whmcs_ref`, and what MyCS made is never touched.
- *  - Departments with their address; never the mailbox's login (staff enter it at the cut-over).
- *  - A ticket of a client goes to that client's account; one with no account in WHMCS (`userid` 0) is a guest's, never
- *    the account of the same email (§3 Δ), and so is one whose client was not imported (counted).
- *  - Its opening, its replies (staff's by the admin's name), staff's notes as internal messages; a ticket WHMCS merged
- *    into another joins that one, with a note. Messages as text: WHMCS keeps them HTML-escaped, shown escaped again here.
- *  - Files copied from WHMCS's attachments folder through the same rules as by mail (§3 ΣΤ); what is missing or refused
- *    is counted, never stops the import.
- *  - No event fires (no mail, no status moved, no staff notice): the rows go in as WHMCS has them.
+ * WHMCS's tickets (docs/tickets.md §5α, §6ζ, PR Δ), after its accounts are imported (an account keeps its WHMCS client
+ * id). Read-only on WHMCS. Re-runnable: a ticket is found by its `whmcs_id`, a message by its `whmcs_ref`; MyCS's work
+ * is never undone:
+ *  - a ticket's fields follow WHMCS only when WHMCS changed them since the last run (`whmcs_hash`), never its owner
+ *    (staff may have linked a guest's ticket to an account); a message is brought once;
+ *  - a ticket or message deleted in MyCS stays deleted (`ticket_whmcs_tombstones`).
+ * Owners (§3 Δ): a client's ticket goes to the WHMCS client's own account, and only when its address matches one of that
+ * account's (an id alone proves nothing: a MyCS signup may hold it); anything else is a guest's, with the client's or
+ * ticket's name and address, never an account found by its email, never vouched for.
+ * Messages in the order WHMCS wrote them: the opening, replies, staff's notes (internal), and those of the tickets WHMCS
+ * merged into it (to the end of a chain), internal when another requester wrote them. Files from a copy of WHMCS's
+ * attachments folder under §3 ΣΤ, every one counted. No event fires (no mail, no status moved, no notice). One ticket that
+ * fails is counted and skipped; the others go on. --dry-run: the same numbers, nothing kept.
  */
 final class WhmcsTicketImport
 {
-    /** WHMCS's statuses (Answered, Customer-Reply, …); any other (a custom one) is open, and counted. */
+    /** WHMCS's statuses; any other (a custom one) is open, and counted. */
     public const STATUSES = [
         'Open' => Ticket::STATUS_OPEN,
         'Answered' => Ticket::STATUS_ANSWERED,
@@ -38,17 +41,38 @@ final class WhmcsTicketImport
 
     private const CHUNK = 500;
 
+    /** Files of one message at most (WHMCS has no limit; ours by mail is 5): the rest counted, never silently dropped. */
+    private const MAX_FILES = 50;
+
+    private const MAX_TEXT_BYTES = 60_000;
+
     /** @var array<string, mixed> */
-    private array $counts = ['departments' => 0, 'tickets' => 0, 'guests' => 0, 'no_account' => 0, 'messages' => 0, 'notes' => 0, 'merged' => 0,
-        'files' => 0, 'files_missing' => 0, 'files_refused' => 0, 'reference_taken' => 0, 'other_status' => []];
+    private array $counts = ['departments' => 0, 'tickets' => 0, 'unchanged' => 0, 'guests' => 0, 'no_account' => 0, 'messages' => 0, 'notes' => 0,
+        'merged' => 0, 'files' => 0, 'files_missing' => 0, 'files_refused' => 0, 'files_removed' => 0, 'truncated' => 0, 'reference_taken' => 0,
+        'deleted_here' => 0, 'failed' => 0, 'errors' => [], 'other_status' => []];
 
     /** @var array<int, int> WHMCS department id => ours */
     private array $departments = [];
 
+    /** @var array<int, int> a merged ticket's WHMCS id => the ticket it ended in (its chain followed) */
+    private array $roots = [];
+
+    /** @var array<int, list<array<string, mixed>>> WHMCS ticket id => the rows of the tickets merged into it */
+    private array $mergedInto = [];
+
     /** @var array<string, int|null> */
     private array $staff = [];
 
-    public function __construct(private readonly PDO $whmcs, private readonly ?string $attachments = null) {}
+    /** @var list<string> files written in the ticket's open transaction (deleted if it rolls back) */
+    private array $written = [];
+
+    private int $order = 0;
+
+    private ?bool $notes = null;
+
+    private ?bool $clients = null;
+
+    public function __construct(private readonly PDO $whmcs, private readonly ?string $attachments = null, private readonly bool $dryRun = false) {}
 
     /** @return array<string, mixed> what was brought, and the parity (WHMCS and MyCS, per department and status) */
     public function run(): array
@@ -56,27 +80,49 @@ final class WhmcsTicketImport
         if (!$this->hasTable('tbltickets')) {
             return $this->counts;
         }
-        $this->departments();
-        $merged = [];
-        $last = 0;
-        do {
-            $rows = $this->rows('SELECT * FROM tbltickets WHERE id > ? ORDER BY id LIMIT ' . self::CHUNK, [$last]);
-            foreach ($rows as $row) {
-                $last = (int) $row['id'];
-                if ((int) ($row['merged_ticket_id'] ?? 0) > 0 && (int) $row['merged_ticket_id'] !== (int) $row['id']) {
-                    $merged[] = $row;
-
-                    continue;
-                }
-                DB::transaction(fn () => $this->ticket($row));
-            }
-        } while (count($rows) === self::CHUNK);
-        foreach ($merged as $row) {
-            DB::transaction(fn () => $this->merged($row));
+        if ($this->dryRun) {
+            DB::beginTransaction();
         }
-        $this->counts['parity'] = $this->parity();
+        try {
+            $this->departments();
+            $this->merges();
+            $last = 0;
+            do {
+                $rows = $this->rows('SELECT * FROM tbltickets WHERE id > ? ORDER BY id LIMIT ' . self::CHUNK, [$last]);
+                foreach ($rows as $row) {
+                    $last = (int) $row['id'];
+                    if (!isset($this->roots[$last])) {
+                        $this->safely($row); // a merged one joins the ticket its chain ends in
+                    }
+                }
+            } while (count($rows) === self::CHUNK);
+            $this->counts['parity'] = $this->parity();
+        } finally {
+            if ($this->dryRun) {
+                DB::rollBack();
+            }
+        }
 
         return $this->counts;
+    }
+
+    /**
+     * One ticket in its own transaction: a failure is counted (with its WHMCS id), its files deleted, the run goes on.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    private function safely(array $row): void
+    {
+        $this->written = [];
+        try {
+            DB::transaction(fn () => $this->ticket($row));
+        } catch (Throwable $e) {
+            foreach ($this->written as $path) {
+                @unlink(storage_path('app/' . $path));
+            }
+            $this->counts['failed']++;
+            $this->counts['errors'][] = 'Ticket ' . $row['id'] . ': ' . mb_substr($e->getMessage(), 0, 300);
+        }
     }
 
     private function departments(): void
@@ -88,19 +134,47 @@ final class WhmcsTicketImport
             $department = TicketDepartment::query()->firstOrNew(['whmcs_id' => (int) $row['id']]);
             // A department named as one here (made by the A1 migration from the old setting) is taken over, not doubled.
             if (!$department->exists) {
-                $department = TicketDepartment::query()->whereNull('whmcs_id')->whereRaw('LOWER(name) = ?', [mb_strtolower(trim((string) $row['name']))])->first()
+                $department = TicketDepartment::query()->whereNull('whmcs_id')->whereRaw('LOWER(name) = ?', [mb_strtolower($this->text((string) $row['name']))])->first()
                     ?? $department;
             }
             $department->forceFill([
                 'whmcs_id' => (int) $row['id'],
-                'name' => mb_substr(trim((string) $row['name']), 0, 255),
+                'name' => mb_substr($this->text((string) $row['name']) ?: 'Department ' . $row['id'], 0, 255),
                 'sort' => max(0, min(65535, (int) ($row['order'] ?? 0))),
                 'hidden' => (bool) ($row['hidden'] ?? false),
                 'clients_only' => (bool) ($row['clientsonly'] ?? false),
-                'email' => filter_var(trim((string) ($row['email'] ?? '')), FILTER_VALIDATE_EMAIL) ?: null,
+                'email' => $this->email((string) ($row['email'] ?? '')),
             ])->saveQuietly();
             $this->departments[(int) $row['id']] = $department->id;
             $this->counts['departments']++;
+        }
+    }
+
+    /** WHMCS's merges, each to the end of its chain (B into A, A into C: B ends in C); one whose end is gone comes as itself. */
+    private function merges(): void
+    {
+        if (!$this->hasColumn('tbltickets', 'merged_ticket_id')) {
+            return;
+        }
+        $into = [];
+        foreach ($this->rows('SELECT id, merged_ticket_id FROM tbltickets WHERE merged_ticket_id > 0 AND merged_ticket_id <> id') as $row) {
+            $into[(int) $row['id']] = (int) $row['merged_ticket_id'];
+        }
+        foreach (array_keys($into) as $id) {
+            $root = $id;
+            $seen = [];
+            while (isset($into[$root]) && !isset($seen[$root])) {
+                $seen[$root] = true;
+                $root = $into[$root];
+            }
+            if ($root !== $id && !isset($into[$root]) && $this->rows('SELECT id FROM tbltickets WHERE id = ?', [$root]) !== []) {
+                $this->roots[$id] = $root;
+            }
+        }
+        foreach (array_chunk(array_keys($this->roots), 500) as $ids) {
+            foreach ($this->rows('SELECT * FROM tbltickets WHERE id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')', $ids) as $row) {
+                $this->mergedInto[$this->roots[(int) $row['id']]][] = $row;
+            }
         }
     }
 
@@ -108,9 +182,12 @@ final class WhmcsTicketImport
     private function ticket(array $row): void
     {
         $whmcsId = (int) $row['id'];
-        $existing = DB::table('tickets')->where('whmcs_id', $whmcsId)->first();
-        $clientId = $this->clientOf((int) $row['userid']);
-        $attributes = [
+        if ($this->tombstoned('ticket:' . $whmcsId)) {
+            $this->counts['deleted_here']++;
+
+            return;
+        }
+        $fields = [
             'subject' => mb_substr($this->text((string) $row['title']) ?: '(' . __('no subject') . ')', 0, 255),
             'status' => $this->status((string) $row['status']),
             'priority' => match ((string) $row['urgency']) {
@@ -119,139 +196,268 @@ final class WhmcsTicketImport
                 default => 'medium',
             },
             'department_id' => $this->departments[(int) $row['did']] ?? null,
-            'client_id' => $clientId,
-            'guest_name' => $clientId === null ? mb_substr($this->text((string) $row['name']) ?: (string) $row['email'], 0, 255) : null,
-            'guest_email' => $clientId === null ? (mb_strtolower(trim((string) $row['email'])) ?: null) : null,
-            'opened_via' => 'whmcs',
-            'created_at' => $this->date($row['date']) ?? now(),
-            'updated_at' => $this->date($row['lastreply'] ?? null) ?? $this->date($row['date']) ?? now(),
         ];
-        if ($clientId === null) {
-            $this->counts[(int) $row['userid'] > 0 ? 'no_account' : 'guests']++;
-        }
-        if ($existing !== null) {
-            DB::table('tickets')->where('id', $existing->id)->update($attributes);
-            $ticketId = (int) $existing->id;
-        } else {
-            $attributes['whmcs_id'] = $whmcsId;
-            $attributes['reference'] = $this->reference((string) ($row['tid'] ?? ''), $whmcsId);
+        $hash = sha1((string) json_encode($fields) . '|' . ($row['lastreply'] ?? ''));
+        $existing = DB::table('tickets')->where('whmcs_id', $whmcsId)->first();
+        if ($existing === null) {
+            $owner = $this->owner($row);
+            $attributes = $fields + $owner + [
+                'whmcs_id' => $whmcsId,
+                'whmcs_hash' => $hash,
+                'reference' => $this->reference((string) ($row['tid'] ?? ''), $whmcsId),
+                'opened_via' => 'whmcs',
+                // WHMCS never checked who wrote to it (its form, its piping): a guest's is not vouched for (§3 Β).
+                'sender_vouched' => $owner['client_id'] === null ? false : null,
+                'created_at' => $this->date($row['date']) ?? now(),
+                'updated_at' => $this->date($row['lastreply'] ?? null) ?? $this->date($row['date']) ?? now(),
+            ];
             // The same id when it is free (the full import starts empty), so a number written somewhere still finds it.
             if (!DB::table('tickets')->where('id', $whmcsId)->exists()) {
                 $attributes['id'] = $whmcsId;
             }
             $ticketId = (int) DB::table('tickets')->insertGetId($attributes);
+            $clientId = $owner['client_id'];
+            if ($clientId === null) {
+                $this->counts[(int) $row['userid'] > 0 ? 'no_account' : 'guests']++;
+            }
+        } else {
+            $ticketId = (int) $existing->id;
+            $clientId = $existing->client_id !== null ? (int) $existing->client_id : null;
+            // Only what WHMCS changed since the last run; never who owns it (staff may have linked it to an account).
+            if ($existing->whmcs_hash !== $hash) {
+                DB::table('tickets')->where('id', $ticketId)->update($fields + ['whmcs_hash' => $hash, 'updated_at' => $this->date($row['lastreply'] ?? null) ?? now()]);
+            } else {
+                $this->counts['unchanged']++;
+            }
         }
         $this->counts['tickets']++;
 
-        $this->message($ticketId, 'ticket:' . $whmcsId, $row, (string) ($row['message'] ?? ''), false);
-        foreach ($this->rows('SELECT * FROM tblticketreplies WHERE tid = ? ORDER BY id', [$whmcsId]) as $reply) {
-            $this->message($ticketId, 'reply:' . $reply['id'], $reply, (string) $reply['message'], false);
+        // Its messages and those of the tickets merged into it, in the order they were written.
+        $items = $this->items($row, false);
+        foreach ($this->mergedInto[$whmcsId] ?? [] as $merged) {
+            // Another requester's words never become visible to this ticket's requester.
+            $foreign = !$this->sameRequester($merged, $row);
+            $items = array_merge($items, $this->items($merged, $foreign));
+            $items[] = ['ref' => 'merged:' . $merged['id'], 'date' => $merged['date'], 'admin' => '', 'userid' => 0, 'internal' => true, 'files' => '',
+                'removed' => false, 'order' => $this->order++, 'text' => 'Merged in WHMCS from ticket #' . $merged['tid'] . ' (' . $this->text((string) $merged['title']) . ')'
+                    . ($foreign ? ', of another requester: its messages are internal.' : '.')];
+            $this->counts['merged']++;
         }
-        if ($this->hasTable('tblticketnotes')) {
-            foreach ($this->rows('SELECT * FROM tblticketnotes WHERE ticketid = ? ORDER BY id', [$whmcsId]) as $note) {
-                $this->message($ticketId, 'note:' . $note['id'], $note + ['userid' => 0], (string) $note['message'], true, (string) ($note['attachments'] ?? ''));
+        usort($items, fn (array $a, array $b) => [$this->date($a['date'])?->getTimestamp() ?? 0, $a['order']] <=> [$this->date($b['date'])?->getTimestamp() ?? 0, $b['order']]);
+        foreach ($items as $item) {
+            $this->message($ticketId, $clientId, $item);
+        }
+    }
+
+    /**
+     * A ticket's messages as items to insert: its opening, its replies, staff's notes.
+     *
+     * @param  array<string, mixed>  $row
+     * @return list<array<string, mixed>>
+     */
+    private function items(array $row, bool $internal): array
+    {
+        $id = (int) $row['id'];
+        $items = [['ref' => 'ticket:' . $id, 'date' => $row['date'], 'admin' => (string) ($row['admin'] ?? ''), 'userid' => (int) $row['userid'],
+            'internal' => $internal, 'text' => (string) ($row['message'] ?? ''), 'files' => (string) ($row['attachment'] ?? ''),
+            'removed' => (bool) ($row['attachments_removed'] ?? false), 'order' => $this->order++]];
+        foreach ($this->rows('SELECT * FROM tblticketreplies WHERE tid = ? ORDER BY id', [$id]) as $reply) {
+            $items[] = ['ref' => 'reply:' . $reply['id'], 'date' => $reply['date'], 'admin' => (string) ($reply['admin'] ?? ''), 'userid' => (int) ($reply['userid'] ?? 0),
+                'internal' => $internal, 'text' => (string) ($reply['message'] ?? ''), 'files' => (string) ($reply['attachment'] ?? ''),
+                'removed' => (bool) ($reply['attachments_removed'] ?? false), 'order' => $this->order++];
+        }
+        if ($this->notes ??= $this->hasTable('tblticketnotes')) {
+            foreach ($this->rows('SELECT * FROM tblticketnotes WHERE ticketid = ? ORDER BY id', [$id]) as $note) {
+                $items[] = ['ref' => 'note:' . $note['id'], 'date' => $note['date'], 'admin' => (string) ($note['admin'] ?? ''), 'userid' => 0, 'internal' => true,
+                    'text' => (string) ($note['message'] ?? ''), 'files' => (string) ($note['attachments'] ?? ''),
+                    'removed' => (bool) ($note['attachments_removed'] ?? false), 'order' => $this->order++];
             }
         }
+
+        return $items;
     }
 
-    /** A ticket WHMCS merged into another: its opening joins that ticket, with a note saying from where. */
-    private function merged(array $row): void
+    /** @param  array<string, mixed>  $item */
+    private function message(int $ticketId, ?int $clientId, array $item): void
     {
-        $target = DB::table('tickets')->where('whmcs_id', (int) $row['merged_ticket_id'])->value('id');
-        if ($target === null) {
-            $this->ticket($row); // the ticket it went into was not brought: it comes as itself
+        if ($this->tombstoned($item['ref'])) {
+            $this->counts['deleted_here']++;
 
             return;
         }
-        $this->message((int) $target, 'ticket:' . $row['id'], $row, (string) $row['message'], false);
-        $this->message((int) $target, 'merged:' . $row['id'], ['date' => $row['date'], 'admin' => '', 'userid' => 0],
-            'Merged in WHMCS from ticket #' . $row['tid'] . ' (' . $this->text((string) $row['title']) . ').', true);
-        $this->counts['merged']++;
-    }
-
-    /** @param  array<string, mixed>  $row */
-    private function message(int $ticketId, string $ref, array $row, string $text, bool $internal, ?string $files = null): void
-    {
-        $staffId = $this->staffOf((string) ($row['admin'] ?? ''));
-        $attributes = [
-            'ticket_id' => $ticketId,
-            'staff_id' => $staffId,
-            'user_id' => $staffId === null ? $this->userOf((int) ($row['userid'] ?? 0)) : null,
-            'message' => mb_strcut($this->text($text, multiline: true) ?: '(' . __('no text') . ')', 0, 60_000, 'UTF-8'),
-            'via' => 'whmcs',
-            'is_internal' => $internal,
-            'created_at' => $this->date($row['date'] ?? null) ?? now(),
-            'updated_at' => $this->date($row['date'] ?? null) ?? now(),
-        ];
-        $existing = DB::table('ticket_messages')->where('whmcs_ref', $ref)->value('id');
-        if ($existing !== null) {
-            DB::table('ticket_messages')->where('id', $existing)->update($attributes);
-            $messageId = (int) $existing;
-        } else {
-            $messageId = (int) DB::table('ticket_messages')->insertGetId($attributes + ['whmcs_ref' => $ref]);
+        $existing = DB::table('ticket_messages')->where('whmcs_ref', $item['ref'])->value('id');
+        if ($existing === null) {
+            $staffId = $this->staffOf((string) $item['admin']);
+            $text = $this->text((string) $item['text'], multiline: true);
+            if (strlen($text) > self::MAX_TEXT_BYTES) {
+                $this->counts['truncated']++;
+            }
+            $existing = DB::table('ticket_messages')->insertGetId([
+                'ticket_id' => $ticketId,
+                'staff_id' => $staffId,
+                'user_id' => $staffId === null ? $this->userOf((int) $item['userid'], $clientId) : null,
+                'message' => mb_strcut($text !== '' ? $text : '(' . __('no text') . ')', 0, self::MAX_TEXT_BYTES, 'UTF-8'),
+                'via' => 'whmcs',
+                'is_internal' => (bool) $item['internal'],
+                'whmcs_ref' => $item['ref'],
+                'created_at' => $this->date($item['date']) ?? now(),
+                'updated_at' => $this->date($item['date']) ?? now(),
+            ]);
         }
-        $this->counts[$internal ? 'notes' : 'messages']++;
-        $this->files($messageId, (string) ($files ?? $row['attachment'] ?? ''));
+        $this->counts[$item['internal'] ? 'notes' : 'messages']++;
+        $this->files((int) $existing, (string) $item['files'], (bool) $item['removed']);
     }
 
-    /** WHMCS's files of a message («123456_name.pdf|…» in its attachments folder), once, under §3 ΣΤ. */
-    private function files(int $messageId, string $list): void
+    /** WHMCS's files of a message («123456_name.pdf|…»), each once (by its name), under §3 ΣΤ; every one counted. */
+    private function files(int $messageId, string $list, bool $removed): void
     {
         $names = array_values(array_filter(array_map('trim', explode('|', $list))));
-        if ($names === [] || DB::table('ticket_message_attachments')->where('ticket_message_id', $messageId)->exists()) {
+        if ($names === []) {
             return;
         }
-        foreach (array_slice($names, 0, Attachments::MAX_COUNT) as $stored) {
-            $path = $this->attachments !== null ? rtrim($this->attachments, '/') . '/' . basename($stored) : null;
-            if ($path === null || !is_file($path) || filesize($path) > Attachments::MAX_BYTES) {
-                $this->counts[$path !== null && is_file($path) ? 'files_refused' : 'files_missing']++;
+        if ($removed) {
+            $this->counts['files_removed'] += count($names); // WHMCS removed them (staff, or its pruning): not «missing»
+
+            return;
+        }
+        $have = DB::table('ticket_message_attachments')->where('ticket_message_id', $messageId)->pluck('filename')->all();
+        foreach ($names as $index => $stored) {
+            $name = Attachments::safeName(str_contains($stored, '_') ? substr($stored, strpos($stored, '_') + 1) : $stored);
+            if (in_array($name, $have, true)) {
+                continue; // brought on an earlier run
+            }
+            if ($index >= self::MAX_FILES) {
+                $this->counts['files_refused']++;
 
                 continue;
             }
-            $content = (string) file_get_contents($path);
-            // WHMCS writes «random_original.ext»: the name the customer gave is after the first underscore.
-            $name = Attachments::safeName(str_contains($stored, '_') ? substr($stored, strpos($stored, '_') + 1) : $stored);
+            $path = $this->attachments !== null ? rtrim($this->attachments, '/') . '/' . basename($stored) : null;
+            if ($path === null || (!is_file($path) && !is_link($path))) {
+                $this->counts['files_missing']++;
+
+                continue;
+            }
+            // Never a file outside the folder: no link is followed, no size over the limit is read.
+            $root = realpath((string) $this->attachments);
+            $real = realpath($path);
+            if (is_link($path) || $real === false || $root === false || !str_starts_with($real, rtrim($root, '/') . '/') || filesize($real) > Attachments::MAX_BYTES) {
+                $this->counts['files_refused']++;
+
+                continue;
+            }
+            $content = (string) file_get_contents($real);
             if (Attachments::refusal($name, $content) !== null) {
                 $this->counts['files_refused']++;
 
                 continue;
             }
+            $this->counts['files']++;
+            $have[] = $name;
+            if ($this->dryRun) {
+                continue;
+            }
             $relative = 'tickets/uploads/' . Str::ulid() . '.' . Attachments::extension($name);
             File::ensureDirectoryExists(storage_path('app/tickets/uploads'));
             file_put_contents(storage_path('app/' . $relative), $content);
+            $this->written[] = $relative;
             DB::table('ticket_message_attachments')->insert(['uuid' => (string) Str::uuid(), 'ticket_message_id' => $messageId, 'path' => $relative,
                 'filename' => $name, 'mime_type' => Attachments::sniff($content), 'filesize' => strlen($content), 'created_at' => now(), 'updated_at' => now()]);
-            $this->counts['files']++;
         }
     }
 
-    /** The account of a WHMCS client: the one its login (the same id) owns; none, and it is a guest's. */
-    private function clientOf(int $userId): ?int
+    /**
+     * Who owns a WHMCS ticket here: the WHMCS client's account (the same id) when its address is one of that account's;
+     * anything else a guest's, by the ticket's (or the client's) name and address.
+     *
+     * @param  array<string, mixed>  $row
+     * @return array{client_id: ?int, guest_name: ?string, guest_email: ?string}
+     */
+    private function owner(array $row): array
     {
-        if ($userId <= 0) {
+        $userId = (int) $row['userid'];
+        $client = $userId > 0 && ($this->clients ??= $this->hasTable('tblclients'))
+            ? ($this->rows('SELECT * FROM tblclients WHERE id = ?', [$userId])[0] ?? null) : null;
+        if ($userId > 0 && $this->isTheAccount($userId, $client)) {
+            return ['client_id' => $userId, 'guest_name' => null, 'guest_email' => null];
+        }
+        $name = $this->text((string) $row['name']) ?: $this->text(trim(($client['firstname'] ?? '') . ' ' . ($client['lastname'] ?? '')));
+        $email = $this->email((string) $row['email']) ?? $this->email((string) ($client['email'] ?? ''));
+
+        return ['client_id' => null, 'guest_name' => mb_substr($name !== '' ? $name : ($email ?? __('Guest')), 0, 255), 'guest_email' => $email];
+    }
+
+    /**
+     * The account of a WHMCS client is the one of its id (accounts keep it), and it is that client's: WHMCS's address of
+     * the client is one of the account's logins or contacts. Without WHMCS's client row the id is all there is.
+     *
+     * @param  array<string, mixed>|null  $client
+     */
+    private function isTheAccount(int $clientId, ?array $client): bool
+    {
+        if (!DB::table('clients')->where('id', $clientId)->exists()) {
+            return false;
+        }
+        if ($client === null) {
+            return true;
+        }
+        $email = $this->email((string) ($client['email'] ?? ''));
+        if ($email === null) {
+            return false;
+        }
+        $logins = DB::table('client_user')->join('users', 'users.id', '=', 'client_user.user_id')->where('client_user.client_id', $clientId)->pluck('users.email');
+        $contacts = DB::table('contacts')->where('client_id', $clientId)->pluck('email');
+
+        return $logins->merge($contacts)->map(fn ($address) => mb_strtolower((string) $address))->contains($email);
+    }
+
+    /**
+     * The login a customer's message is of: on an account's ticket only, the WHMCS client's own login (the full import
+     * gives it the client's id) when it is one of the account's, else the account's owner. Never another account's.
+     */
+    private function userOf(int $userId, ?int $clientId): ?int
+    {
+        if ($userId <= 0 || $clientId === null) {
             return null;
         }
-        $client = DB::table('client_user')->where('user_id', $userId)->whereNotNull('owner_of_client_id')->value('client_id');
+        if (DB::table('client_user')->where('client_id', $clientId)->where('user_id', $userId)->whereNull('revoked_at')->exists()) {
+            return $userId;
+        }
+        $owner = DB::table('client_user')->where('client_id', $clientId)->whereNotNull('owner_of_client_id')->value('user_id');
 
-        return $client !== null ? (int) $client : null;
+        return $owner !== null ? (int) $owner : null;
     }
 
-    private function userOf(int $userId): ?int
+    /**
+     * Two WHMCS tickets of the same requester: the same client, or the same guest address.
+     *
+     * @param  array<string, mixed>  $a
+     * @param  array<string, mixed>  $b
+     */
+    private function sameRequester(array $a, array $b): bool
     {
-        return $userId > 0 && DB::table('users')->where('id', $userId)->exists() ? $userId : null;
+        if ((int) $a['userid'] > 0 || (int) $b['userid'] > 0) {
+            return (int) $a['userid'] === (int) $b['userid'];
+        }
+        $email = $this->email((string) $a['email']);
+
+        return $email !== null && $email === $this->email((string) $b['email']);
     }
 
-    /** The staff member of a WHMCS admin's name; one no longer here: a disabled member of that name (the reply stays theirs). */
+    /** The staff member of a WHMCS admin's name: by full name, by first name only when one has it; one no longer here: a disabled member of that name. */
     private function staffOf(string $name): ?int
     {
-        $name = trim($name);
+        $name = $this->text($name);
         if ($name === '') {
             return null;
         }
         if (array_key_exists($name, $this->staff)) {
             return $this->staff[$name];
         }
-        $id = DB::table('staff')->where(DB::raw("CONCAT(first_name, ' ', last_name)"), $name)->orWhere('first_name', $name)->value('id');
+        $id = DB::table('staff')->where(DB::raw("CONCAT(first_name, ' ', last_name)"), $name)->value('id');
+        if ($id === null) {
+            $byFirst = DB::table('staff')->where('first_name', $name)->limit(2)->pluck('id');
+            $id = $byFirst->count() === 1 ? $byFirst->first() : null;
+        }
 
         return $this->staff[$name] = $id !== null ? (int) $id : (int) DB::table('staff')->insertGetId(['first_name' => mb_substr($name, 0, 255), 'last_name' => '',
             'email' => 'whmcs-admin-' . Str::slug($name) . '-' . Str::random(6) . '@invalid.example', 'password' => bcrypt(Str::random(32)), 'active' => false,
@@ -270,7 +476,8 @@ final class WhmcsTicketImport
     /** WHMCS's tid as the number, unless a ticket made here has it: then the tid with -W and the id (counted). */
     private function reference(string $tid, int $whmcsId): string
     {
-        $tid = trim($tid) !== '' ? mb_substr(trim($tid), 0, 50) : (string) $whmcsId;
+        $tid = (string) preg_replace('/[^A-Za-z0-9_-]/', '', $this->text($tid));
+        $tid = mb_substr($tid !== '' ? $tid : (string) $whmcsId, 0, 50);
         if (!DB::table('tickets')->where('reference', $tid)->exists()) {
             return $tid;
         }
@@ -279,12 +486,25 @@ final class WhmcsTicketImport
         return mb_substr($tid, 0, 40) . '-W' . $whmcsId;
     }
 
+    private function tombstoned(string $ref): bool
+    {
+        return DB::table('ticket_whmcs_tombstones')->where('ref', $ref)->exists();
+    }
+
+    /** An address as stored: lower case, valid, at most 255; else none. */
+    private function email(string $value): ?string
+    {
+        $value = mb_strtolower(trim(mb_scrub($value, 'UTF-8')));
+
+        return $value !== '' && strlen($value) <= 255 && filter_var($value, FILTER_VALIDATE_EMAIL) ? $value : null;
+    }
+
     /** WHMCS's text (kept HTML-escaped) as text: decoded, valid UTF-8, without control characters; one line unless multiline. */
     private function text(string $value, bool $multiline = false): string
     {
         $value = html_entity_decode(mb_scrub($value, 'UTF-8'), ENT_QUOTES | ENT_HTML5, 'UTF-8');
         $value = str_replace(["\r\n", "\r"], "\n", $value);
-        $value = (string) preg_replace($multiline ? '/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u' : '/[\x00-\x1F\x7F]+/u', $multiline ? '' : ' ', $value);
+        $value = (string) preg_replace($multiline ? '/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u' : '/[\x00-\x1F\x7F\p{Cf}]+/u', $multiline ? '' : ' ', $value);
 
         return trim($multiline ? $value : (string) preg_replace('/\s+/u', ' ', $value));
     }
@@ -297,25 +517,26 @@ final class WhmcsTicketImport
         }
         try {
             return Carbon::parse($value);
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return null;
         }
     }
 
     /**
-     * Tickets per department and status, in WHMCS (merged ones not counted: they joined another) and here (those it
-     * brought): they must agree.
+     * Tickets per department and status, in WHMCS (those merged into another not counted: they joined it; those deleted
+     * here neither) and here (those it brought): they must agree.
      *
      * @return array{whmcs: array<string, int>, mycs: array<string, int>}
      */
     private function parity(): array
     {
         $whmcs = [];
-        // merged_ticket_id since WHMCS 7: without it, nothing was merged.
-        $merged = $this->hasColumn('tbltickets', 'merged_ticket_id') ? ' WHERE merged_ticket_id = 0 OR merged_ticket_id IS NULL OR merged_ticket_id = id' : '';
-        foreach ($this->rows("SELECT did, status, COUNT(*) AS n FROM tbltickets{$merged} GROUP BY did, status") as $row) {
+        foreach ($this->rows('SELECT id, did, status FROM tbltickets') as $row) {
+            if (isset($this->roots[(int) $row['id']]) || $this->tombstoned('ticket:' . $row['id'])) {
+                continue;
+            }
             $key = ($this->departments[(int) $row['did']] ?? 0) . '/' . (self::STATUSES[(string) $row['status']] ?? Ticket::STATUS_OPEN);
-            $whmcs[$key] = ($whmcs[$key] ?? 0) + (int) $row['n'];
+            $whmcs[$key] = ($whmcs[$key] ?? 0) + 1;
         }
         $mycs = DB::table('tickets')->whereNotNull('whmcs_id')->selectRaw('department_id, status, COUNT(*) AS n')->groupBy('department_id', 'status')->get()
             ->mapWithKeys(fn ($row) => [(int) $row->department_id . '/' . $row->status => (int) $row->n])->all();
@@ -340,7 +561,7 @@ final class WhmcsTicketImport
             $this->whmcs->query("SELECT {$column} FROM {$table} LIMIT 1");
 
             return true;
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return false;
         }
     }
@@ -351,7 +572,7 @@ final class WhmcsTicketImport
             $this->whmcs->query("SELECT 1 FROM {$table} LIMIT 1");
 
             return true;
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return false;
         }
     }

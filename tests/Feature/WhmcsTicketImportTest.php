@@ -13,6 +13,7 @@ use App\Services\Import\WhmcsTicketImport;
 use Illuminate\Console\Command;
 use Illuminate\Console\OutputStyle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Mail;
 use MyCS\TicketMail\Tests\Eml;
@@ -30,12 +31,16 @@ class WhmcsTicketImportTest extends TestCase
 
     private User $customer;
 
+    /** The customer's account: WHMCS's userid is its id (the full import keeps it). */
+    private int $clientId;
+
     private string $folder;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->customer = User::factory()->create(['email' => 'customer@example.com']);
+        $this->clientId = $this->customer->client()->id;
         Staff::factory()->create(['first_name' => 'Nikos', 'last_name' => 'Admin']);
         $this->whmcs = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
         $this->whmcs->exec('CREATE TABLE tblticketdepartments (id INTEGER PRIMARY KEY, name TEXT, email TEXT, clientsonly INT, hidden INT, "order" INT, host TEXT, login TEXT, password TEXT)');
@@ -60,7 +65,7 @@ class WhmcsTicketImportTest extends TestCase
 
     private function ticket(int $id, array $columns = []): void
     {
-        $row = $columns + ['id' => $id, 'tid' => (string) (100000 + $id), 'did' => 1, 'userid' => $this->customer->id, 'name' => '', 'email' => '',
+        $row = $columns + ['id' => $id, 'tid' => (string) (100000 + $id), 'did' => 1, 'userid' => $this->clientId, 'name' => '', 'email' => '',
             'date' => '2025-03-01 10:00:00', 'title' => "Ticket {$id}", 'message' => "Opening {$id}", 'status' => 'Open', 'urgency' => 'Medium',
             'admin' => '', 'attachment' => '', 'lastreply' => '2025-03-02 10:00:00', 'merged_ticket_id' => 0];
         $this->insert('tbltickets', $row);
@@ -83,7 +88,7 @@ class WhmcsTicketImportTest extends TestCase
         Mail::fake();
         $this->ticket(7, ['status' => 'In Progress', 'urgency' => 'High', 'title' => 'Site &quot;down&quot;', 'message' => 'It &lt;b&gt;broke&lt;/b&gt;']);
         $this->insert('tblticketreplies', ['id' => 1, 'tid' => 7, 'userid' => 0, 'name' => '', 'email' => '', 'date' => '2025-03-01 11:00:00', 'message' => 'Looking', 'admin' => 'Nikos Admin', 'attachment' => '']);
-        $this->insert('tblticketreplies', ['id' => 2, 'tid' => 7, 'userid' => $this->customer->id, 'name' => '', 'email' => '', 'date' => '2025-03-01 12:00:00', 'message' => 'Thanks', 'admin' => '', 'attachment' => '']);
+        $this->insert('tblticketreplies', ['id' => 2, 'tid' => 7, 'userid' => $this->clientId, 'name' => '', 'email' => '', 'date' => '2025-03-01 12:00:00', 'message' => 'Thanks', 'admin' => '', 'attachment' => '']);
         $this->insert('tblticketreplies', ['id' => 3, 'tid' => 7, 'userid' => 0, 'name' => '', 'email' => '', 'date' => '2025-03-01 13:00:00', 'message' => 'Bye', 'admin' => 'Gone Admin', 'attachment' => '']);
         $this->insert('tblticketnotes', ['id' => 1, 'ticketid' => 7, 'admin' => 'Nikos Admin', 'date' => '2025-03-01 11:30:00', 'message' => 'Reseller', 'attachments' => '']);
 
@@ -195,5 +200,70 @@ class WhmcsTicketImportTest extends TestCase
         $command->setOutput(new OutputStyle(new ArrayInput([]), $output));
         $this->assertSame(Command::SUCCESS, ImportWhmcsTickets::report($command, $counts));
         $this->assertStringContainsString('Escalated', $output->fetch());
+    }
+
+    /** --dry-run: the same numbers, nothing kept (not a ticket, not a file). */
+    public function test_a_dry_run_keeps_nothing(): void
+    {
+        file_put_contents("{$this->folder}/123456_report.pdf", Eml::pdf());
+        $this->ticket(9, ['attachment' => '123456_report.pdf']);
+        $before = glob(storage_path('app/tickets/uploads/*')) ?: [];
+
+        $counts = (new WhmcsTicketImport($this->whmcs, $this->folder, dryRun: true))->run();
+
+        $this->assertSame([1, 1], [$counts['tickets'], $counts['files']]);
+        $this->assertSame(0, Ticket::query()->count());
+        $this->assertSame($before, glob(storage_path('app/tickets/uploads/*')) ?: [], 'no file written');
+    }
+
+    /** One ticket that fails is counted and skipped; the others come, and the command says so. */
+    public function test_a_failing_ticket_stops_no_other(): void
+    {
+        $this->ticket(1);
+        $this->ticket(2);
+        Ticket::query()->create(['subject' => 'Made here', 'status' => 'open', 'priority' => 'low', 'client_id' => $this->clientId, 'reference' => 'X']);
+        DB::table('tickets')->where('reference', 'X')->update(['id' => 500]);
+        // The database refuses ticket 1's opening (as a constraint would), on any driver.
+        DB::connection()->beforeExecuting(function (string $query, array $bindings) {
+            if (preg_match('/^insert into [`"]ticket_messages[`"]/', $query) === 1 && in_array('ticket:1', $bindings, true)) {
+                throw new \RuntimeException('boom');
+            }
+        });
+
+        $counts = $this->import();
+
+        $this->assertSame(1, $counts['failed']);
+        $this->assertStringStartsWith('Ticket 1: ', $counts['errors'][0]);
+        $this->assertStringContainsString('boom', $counts['errors'][0]);
+        $this->assertNull(Ticket::query()->where('whmcs_id', 1)->first(), 'its own part rolled back');
+        $this->assertNotNull(Ticket::query()->where('whmcs_id', 2)->first());
+    }
+
+    /** A message staff deleted here stays deleted on a re-run. */
+    public function test_a_message_deleted_here_stays_deleted(): void
+    {
+        $this->ticket(6);
+        $this->insert('tblticketreplies', ['id' => 9, 'tid' => 6, 'userid' => 0, 'name' => '', 'email' => '', 'date' => '2025-03-01 11:00:00', 'message' => 'Spam reply', 'admin' => '', 'attachment' => '']);
+        $this->import();
+        TicketMessage::query()->where('message', 'Spam reply')->sole()->delete();
+
+        $counts = $this->import();
+
+        $this->assertFalse(TicketMessage::query()->where('message', 'Spam reply')->exists());
+        $this->assertSame(1, $counts['deleted_here']);
+    }
+
+    /** An admin known by a first name two of staff have is credited to neither: a disabled member of that name. */
+    public function test_an_ambiguous_first_name_is_credited_to_no_one(): void
+    {
+        Staff::factory()->create(['first_name' => 'Maria', 'last_name' => 'One']);
+        Staff::factory()->create(['first_name' => 'Maria', 'last_name' => 'Two']);
+        $this->ticket(3);
+        $this->insert('tblticketreplies', ['id' => 4, 'tid' => 3, 'userid' => 0, 'name' => '', 'email' => '', 'date' => '2025-03-01 11:00:00', 'message' => 'Hi', 'admin' => 'Maria', 'attachment' => '']);
+
+        $this->import();
+
+        $staff = TicketMessage::query()->where('message', 'Hi')->sole()->staff;
+        $this->assertSame(['Maria', '', false], [$staff->first_name, (string) $staff->last_name, (bool) $staff->active]);
     }
 }

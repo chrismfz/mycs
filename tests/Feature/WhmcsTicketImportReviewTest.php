@@ -22,12 +22,16 @@ class WhmcsTicketImportReviewTest extends TestCase
 
     private User $customer;
 
+    /** The customer's account: WHMCS's userid is its id (the full import keeps it). */
+    private int $clientId;
+
     private string $folder;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->customer = User::factory()->create(['email' => 'customer@example.com']);
+        $this->clientId = $this->customer->client()->id;
         Staff::factory()->create(['first_name' => 'Nikos', 'last_name' => 'Admin']);
         $this->whmcs = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
         $this->whmcs->exec('CREATE TABLE tblticketdepartments (id INTEGER PRIMARY KEY, name TEXT, email TEXT, clientsonly INT, hidden INT, "order" INT)');
@@ -52,7 +56,7 @@ class WhmcsTicketImportReviewTest extends TestCase
 
     private function ticket(int $id, array $columns = []): void
     {
-        $this->insert('tbltickets', $columns + ['id' => $id, 'tid' => (string) (100000 + $id), 'did' => 1, 'userid' => $this->customer->id, 'name' => '', 'email' => '',
+        $this->insert('tbltickets', $columns + ['id' => $id, 'tid' => (string) (100000 + $id), 'did' => 1, 'userid' => $this->clientId, 'name' => '', 'email' => '',
             'date' => '2025-03-01 10:00:00', 'title' => "Ticket {$id}", 'message' => "Opening {$id}", 'status' => 'Open', 'urgency' => 'Medium',
             'admin' => '', 'attachment' => '', 'lastreply' => '2025-03-02 10:00:00', 'merged_ticket_id' => 0]);
     }
@@ -73,7 +77,7 @@ class WhmcsTicketImportReviewTest extends TestCase
     {
         $this->ticket(7);
         $this->insert('tblticketreplies', ['id' => 1, 'tid' => 7, 'userid' => 0, 'date' => '2025-03-01 11:00:00', 'message' => 'Looking', 'admin' => 'Nikos Admin', 'attachment' => '']);
-        $this->insert('tblticketreplies', ['id' => 2, 'tid' => 7, 'userid' => $this->customer->id, 'date' => '2025-03-01 13:00:00', 'message' => 'Thanks', 'admin' => '', 'attachment' => '']);
+        $this->insert('tblticketreplies', ['id' => 2, 'tid' => 7, 'userid' => $this->clientId, 'date' => '2025-03-01 13:00:00', 'message' => 'Thanks', 'admin' => '', 'attachment' => '']);
         $this->insert('tblticketnotes', ['id' => 1, 'ticketid' => 7, 'admin' => 'Nikos Admin', 'date' => '2025-03-01 12:00:00', 'message' => 'Reseller', 'attachments' => '']);
 
         $this->import();

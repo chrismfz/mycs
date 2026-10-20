@@ -141,7 +141,7 @@ class TicketsFoundationReviewTest extends TestCase
         $whmcs->exec('CREATE TABLE tblticketdepartments (id INTEGER PRIMARY KEY, name TEXT, "order" INT, hidden INT, clientsonly INT, email TEXT)');
         $whmcs->exec("INSERT INTO tblticketdepartments VALUES (1, 'Support', 1, 0, 0, '')");
         $whmcs->exec("INSERT INTO tbltickets VALUES (7, '481516', 1, 0, 'Guest', 'same@guest.example', 'Hi', 'Open', 'Medium', '2026-09-01 10:00:00', '2026-09-01 10:00:00')");
-        $whmcs->exec("INSERT INTO tbltickets VALUES (8, '234200', 1, {$customer->id}, '', '', 'Mine', 'Answered', 'Low', '2026-09-01 10:00:00', '2026-09-01 10:00:00')");
+        $whmcs->exec("INSERT INTO tbltickets VALUES (8, '234200', 1, {$customer->client()->id}, '', '', 'Mine', 'Answered', 'Low', '2026-09-01 10:00:00', '2026-09-01 10:00:00')");
         $whmcs->exec("INSERT INTO tblticketreplies VALUES (1, 7, 0, 'Guest', 'same@guest.example', '', 'more', '2026-09-01 11:00:00')");
         $users = User::query()->count();
 

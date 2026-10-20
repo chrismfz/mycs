@@ -739,7 +739,9 @@ class ImportFromWhmcs extends Command
         } catch (Throwable) {
             $folder = null; // called without the command's input (the tests' reflection)
         }
-        ImportWhmcsTickets::report($this, (new WhmcsTicketImport($this->pdo, is_string($folder) && $folder !== '' ? $folder : null))->run());
+        if (ImportWhmcsTickets::report($this, (new WhmcsTicketImport($this->pdo, is_string($folder) && $folder !== '' ? $folder : null))->run()) !== self::SUCCESS) {
+            $this->warn('Tickets: see above; app:import-whmcs-tickets can be run again on its own.');
+        }
     }
 
     private function importOrders()
