@@ -40,6 +40,50 @@
         @endforelse
     </section>
 
+    {{-- What renews in the next months and what it costs (P4d) --}}
+    @if (\App\Support\CurrentClient::allows('products') || \App\Support\CurrentClient::allows('domains'))
+    <section aria-labelledby="renewals-title" class="bg-background-secondary border border-neutral rounded-lg p-4 mt-4">
+        <h2 id="renewals-title" class="text-lg font-semibold flex items-center gap-2">
+            <x-ri-calendar-schedule-line class="size-5" />
+            {{ __('dashboard.renewals.title') }}
+        </h2>
+        <p class="text-sm text-base/60 mb-3">{{ __('dashboard.renewals.hint') }}</p>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            @foreach ($renewals as $month)
+            <details class="group bg-background border border-neutral rounded-lg p-3" wire:key="renewals-{{ $month['month'] }}" @if ($loop->first && count($month['items']) > 0) open @endif>
+                <summary class="list-none [&::-webkit-details-marker]:hidden flex items-start justify-between gap-2 {{ count($month['items']) > 0 ? 'cursor-pointer' : '' }}">
+                    <span class="min-w-0">
+                        <span class="flex items-center gap-1 font-semibold">
+                            {{ $month['label'] }}
+                            @if (count($month['items']) > 0)
+                            <x-ri-arrow-down-s-line class="size-4 transition group-open:rotate-180" aria-hidden="true" />
+                            @endif
+                        </span>
+                        <span class="block text-sm text-base/60">{{ trans_choice('dashboard.renewals.count', count($month['items']), ['count' => count($month['items'])]) }}</span>
+                    </span>
+                    <span class="font-semibold text-right">{{ $month['totals'] !== '' ? $month['totals'] : '—' }}</span>
+                </summary>
+                @if (count($month['items']) > 0)
+                <ul class="mt-2 space-y-1 text-sm">
+                    @foreach ($month['items'] as $item)
+                    <li class="flex justify-between gap-2">
+                        <a href="{{ $item['url'] }}" wire:navigate class="min-w-0 truncate hover:underline" title="{{ $item['name'] }}">{{ $item['date'] }} · {{ $item['name'] }}</a>
+                        <span class="whitespace-nowrap text-base/70">
+                            @if ($item['invoiced'])
+                            <span class="text-xs text-warning">{{ __('dashboard.renewals.invoiced') }}</span>
+                            @endif
+                            {{ $item['amount'] ?? __('dashboard.renewals.priced_by_us') }}
+                        </span>
+                    </li>
+                    @endforeach
+                </ul>
+                @endif
+            </details>
+            @endforeach
+        </div>
+    </section>
+    @endif
+
     <div class="grid grid-cols-1 md:grid-cols-2 gap-12 mt-8 items-start">
 
         <div class="grid gap-8 items-start">
