@@ -176,6 +176,15 @@ final class RevenueForecast
         return $keys;
     }
 
+    /**
+     * What came in, net, in [from, until) (null: since ever), by when invoices were paid: the dashboard's Billing (Today,
+     * This Month, This Year, All Time, as WHMCS's, net), the forecast's «collected» and «last year».
+     */
+    public static function collected(string $currency, ?CarbonImmutable $from, CarbonImmutable $until): string
+    {
+        return self::money(self::paidNet($currency, $from ?? CarbonImmutable::create(1970), $until));
+    }
+
     /** What the invoices paid in [from, until) brought in, net, in cents (by paid_at, WHMCS datepaid). */
     private static function paidNet(string $currency, CarbonImmutable $from, CarbonImmutable $until): int
     {

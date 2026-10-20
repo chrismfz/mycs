@@ -155,14 +155,41 @@ class RevenueForecastTest extends TestCase
         $this->livewireAs($staff)->test(RevenueForecast::class)->callAction('csv')->assertFileDownloaded('revenue-forecast-USD-2026-10-21.csv');
     }
 
-    public function test_the_widget_hides_with_nothing_to_show(): void
+    public function test_the_widget_reads_as_whmcs_zero_cycles_included(): void
     {
         Cache::flush();
-        $this->actingAs(Staff::factory()->withPermissions(['admin.reports.view'])->create());
-        $this->assertFalse(EstimatedIncome::canView(), 'an empty heading with no recurring service');
+        config(['settings.default_currency' => 'USD']);
+        $staff = Staff::factory()->withPermissions(['admin.reports.view'])->create();
+        $this->service(548.70, 'month', 1, '2026-11-01');
+        $this->service(1116.00, 'year', 3, '2027-01-01');
 
-        $this->service(10.00, 'month', 1, '2026-11-01');
+        $this->livewireAs($staff)->test(EstimatedIncome::class)
+            ->assertSee(__(':code Currency', ['code' => 'USD']))
+            ->assertSee(__('Monthly') . ': $548.70 (1)')
+            ->assertSee(__('Quarterly') . ': $0.00 (0)')
+            ->assertSee(__('Triennially') . ': $1,116.00 (1)')
+            ->assertSee(__('Est. Annual') . ': $6,956.40'); // 548.70 × 12 + 1,116 / 3
+
+    }
+
+    public function test_the_widgets_billing_is_what_came_in_net_today_this_month_this_year_and_ever(): void
+    {
         Cache::flush();
-        $this->assertTrue(EstimatedIncome::canView());
+        config(['settings.default_currency' => 'USD', 'settings.tax_enabled' => true, 'settings.tax_type' => 'exclusive']);
+        foreach (['2026-10-21 09:00:00' => 10, '2026-10-02 09:00:00' => 20, '2026-03-01 09:00:00' => 40, '2024-05-05 09:00:00' => 80] as $when => $net) {
+            $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+            $invoice->items()->create(['description' => 'x', 'quantity' => 1, 'price' => $net, 'tax_rate' => '24']);
+            DB::table('invoices')->where('id', $invoice->id)->update(['status' => Invoice::STATUS_PAID, 'paid_at' => $when]);
+        }
+
+        // What came in (net of the 24%), then what is to come.
+        $this->livewireAs(Staff::factory()->withPermissions(['admin.reports.view'])->create())->test(EstimatedIncome::class)
+            ->assertSeeInOrder(['$10.00', __('Today'), '$30.00', __('This Month'), '$70.00', __('This Year'), '$150.00', __('All Time'), __('Income Forecast')]);
+    }
+
+    public function test_staff_without_the_permission_get_no_widget(): void
+    {
+        $this->actingAs(Staff::factory()->withPermissions(['admin.clients.viewAny'])->create());
+        $this->assertFalse(EstimatedIncome::canView());
     }
 }
