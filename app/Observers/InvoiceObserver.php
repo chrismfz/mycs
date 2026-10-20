@@ -247,8 +247,9 @@ class InvoiceObserver
     public function updated(Invoice $invoice): void
     {
         // Merged (PR E): it bills nothing any more, so no credit note (which would also spend a credit note number).
+        // Never numbered (a proforma or a draft, Δ2): it was never an invoice, so nothing to credit (owner 2026-10-20).
         if ($invoice->status === Invoice::STATUS_CANCELLED && $invoice->getOriginal('status') !== Invoice::STATUS_CANCELLED
-            && $invoice->merged_into_id === null) {
+            && $invoice->merged_into_id === null && (string) $invoice->number !== '') {
             $invoice->createCancellationCreditNote($invoice->cancellation_reason);
         }
 
