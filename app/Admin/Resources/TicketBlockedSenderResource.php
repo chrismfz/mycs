@@ -16,7 +16,10 @@ class TicketBlockedSenderResource extends Resource
 {
     protected static ?string $model = TicketBlockedSender::class;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Support';
+    // Under Tickets, where staff work on them.
+    protected static string|\UnitEnum|null $navigationGroup = 'Administration';
+
+    protected static ?string $navigationParentItem = 'Tickets';
 
     protected static string|\BackedEnum|null $navigationIcon = 'ri-mail-forbid-line';
 

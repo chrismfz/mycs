@@ -24,6 +24,23 @@
                                             href="{{ App\Admin\Resources\UserResource::getUrl('edit', ['record' => $message->user]) }}">
                                             {{ $message->user->name }}
                                         </a>
+                                        @elseif ($this->record->isGuest())
+                                            {{-- A guest's, by the form, a mail or their link: no login to name (docs/tickets.md §3 Δ). --}}
+                                            <span class="text-lg font-semibold">{{ $this->record->guest_name }}</span>
+                                            <x-filament::badge color="gray" size="sm">{{ __('Guest') }}</x-filament::badge>
+                                        @else
+                                            <span class="text-lg font-semibold text-gray-500">{{ __('Customer') }}</span>
+                                        @endif
+                                        @if ($message->is_internal)
+                                            <x-filament::badge color="warning" size="sm">{{ __('Internal note') }}</x-filament::badge>
+                                        @endif
+                                        @if (in_array($message->via, ['form', 'link', 'email', 'whmcs'], true))
+                                            <x-filament::badge color="gray" size="sm">{{ match ($message->via) {
+                                                'form' => __('Contact form'),
+                                                'link' => __('Guest page'),
+                                                'email' => __('Email'),
+                                                'whmcs' => 'WHMCS',
+                                            } }}</x-filament::badge>
                                         @endif
                                 </div>
                                 <div class="flex gap-1">

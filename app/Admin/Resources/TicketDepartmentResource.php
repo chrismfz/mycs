@@ -57,7 +57,7 @@ class TicketDepartmentResource extends Resource
                         ->helperText('Staff mailed of its new tickets and customers\' replies, when the ticket is assigned to no one (then its staff member is). Only staff who may see tickets.'),
                 ]),
                 Section::make(__('Mailbox'))->columns(2)
-                    ->description('Read every 5 minutes when «Read the mailbox» is on. A reply joins a ticket only by our mail\'s Message-ID and only from the ticket\'s owner (docs/tickets.md §3); anything else waits in Support → Mail Quarantine.')
+                    ->description('Read every 5 minutes when «Read the mailbox» is on. A reply joins a ticket only by our mail\'s Message-ID and only from the ticket\'s owner; anything else waits in Support → Mail Quarantine.')
                     ->schema([
                         TextInput::make('imap_host')->label('IMAP host')->maxLength(255)->required(fn (Get $get) => (bool) $get('polling')),
                         TextInput::make('imap_port')->label('Port')->integer()->minValue(1)->maxValue(65535)->placeholder('993'),
@@ -117,10 +117,10 @@ class TicketDepartmentResource extends Resource
                 TextColumn::make('name')->label('Name')->searchable(),
                 TextColumn::make('email')->label('Email')->placeholder('—'),
                 TextColumn::make('sort')->label('Order')->sortable(),
-                IconColumn::make('hidden')->label('Hidden')->boolean(),
-                IconColumn::make('clients_only')->label('Clients only')->boolean(),
+                IconColumn::make('hidden')->label('Hidden')->boolean()->falseColor('gray')->falseIcon('heroicon-o-minus'),
+                IconColumn::make('clients_only')->label('Clients only')->boolean()->falseColor('gray')->falseIcon('heroicon-o-minus'),
                 TextColumn::make('tickets_count')->label('Tickets')->counts('tickets'),
-                IconColumn::make('polling')->label('Mailbox read')->boolean(),
+                IconColumn::make('polling')->label('Mailbox read')->boolean()->falseColor('gray')->falseIcon('heroicon-o-minus'),
             ])
             ->defaultSort('sort')
             ->recordActions([

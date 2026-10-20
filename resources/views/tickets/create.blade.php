@@ -36,7 +36,7 @@
                     <label for="editor" class="block text-sm font-medium text-primary-100">
                         {{ __('ticket.reply') }}
                     </label>
-                    <textarea id="editor" placeholder="Initial message"></textarea>
+                    <textarea id="editor" placeholder="{{ __('ticket.initial_message') }}"></textarea>
                     
                     <label for="attachments" class="block text-sm font-medium text-primary-100 mt-2">
                         {{ __('ticket.attachments') }}
@@ -77,7 +77,7 @@
                                             </label>
                                             <p class="pl-1 text-base/80">{{ __('ticket.or_drag_and_drop') }}</p>
                                         </div>
-                                        <p class="text-xs/5 text-base/50">{{ __('ticket.files_max') }}</p>
+                                        <p class="text-xs/5 text-base/50">{{ __('ticket.files_max', ['count' => \MyCS\TicketMail\Attachments::MAX_COUNT, 'size' => \App\Support\Tickets\TicketFiles::maxUploadMegabytes(), 'types' => implode(', ', array_keys(\MyCS\TicketMail\Attachments::TYPES))]) }}</p>
                                     </div>
                                 </template>
                                 <div x-show="selectedFiles.length > 0">
@@ -102,6 +102,11 @@
                             wire:model.live="attachments" x-ref="fileInput"
                             @change="selectedFiles = Array.from($event.target.files)" />
                     </div>
+                    @foreach ($errors->get('attachments*') as $messages)
+                        @foreach ((array) $messages as $message)
+                            <p class="text-sm text-red-500 mt-1" role="alert">{{ is_array($message) ? implode(' ', $message) : $message }}</p>
+                        @endforeach
+                    @endforeach
                     <x-button.primary class="mt-2 !w-fit float-right">
                         {{ __('ticket.create') }}
                     </x-button.primary>

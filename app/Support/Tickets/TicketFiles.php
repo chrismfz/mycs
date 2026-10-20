@@ -34,6 +34,22 @@ final class TicketFiles
         self::put($message, $file->getClientOriginalName(), (string) file_get_contents($file->getRealPath()));
     }
 
+    /**
+     * The size a file can have in the portal, in MB: the smaller of the ticket rule and Livewire's temporary upload limit
+     * (its rules, 12 MB by default), so the text says what is really taken.
+     */
+    public static function maxUploadMegabytes(): int
+    {
+        $livewire = 12288;
+        foreach ((array) (config('livewire.temporary_file_upload.rules') ?? []) as $rule) {
+            if (is_string($rule) && preg_match('/^max:(\d+)$/', $rule, $m) === 1) {
+                $livewire = (int) $m[1];
+            }
+        }
+
+        return (int) floor(min(Attachments::MAX_BYTES / 1024, $livewire) / 1024);
+    }
+
     /** The validation of an upload: the same types (by name and by bytes) and size as by email. */
     public static function rule(): \Closure
     {

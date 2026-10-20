@@ -54,4 +54,5 @@ return [
         'request_another' => 'Resend verification email',
     ],
     'captcha_invalid' => 'The CAPTCHA was invalid or has expired. Try again.',
+    'remember_me' => 'Remember me',
 ];

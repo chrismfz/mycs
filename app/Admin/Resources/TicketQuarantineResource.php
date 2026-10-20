@@ -28,11 +28,18 @@ class TicketQuarantineResource extends Resource
 {
     protected static ?string $model = TicketQuarantine::class;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Support';
+    // Under Tickets, where staff work on them.
+    protected static string|\UnitEnum|null $navigationGroup = 'Administration';
+
+    protected static ?string $navigationParentItem = 'Tickets';
 
     protected static string|\BackedEnum|null $navigationIcon = 'ri-mail-lock-line';
 
     protected static ?string $navigationLabel = 'Mail Quarantine';
+
+    protected static ?string $modelLabel = 'quarantined mail';
+
+    protected static ?string $pluralModelLabel = 'Mail Quarantine';
 
     protected static ?string $slug = 'ticket-quarantine';
 
@@ -56,6 +63,8 @@ class TicketQuarantineResource extends Resource
         return $table
             ->modifyQueryUsing(fn ($query) => $query->with(['department', 'suggestedTicket', 'ticket']))
             ->defaultSort('id', 'desc')
+            ->emptyStateHeading('No quarantined mail')
+            ->emptyStateDescription('Mail that did not pass the checks of a department\'s mailbox waits here for staff.')
             ->columns([
                 TextColumn::make('created_at')->label('Received')->since()->sortable(),
                 TextColumn::make('department.name')->label('Department')->placeholder('—'),

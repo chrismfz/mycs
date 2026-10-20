@@ -752,5 +752,9 @@
     "Last cron run": "Τελευταία εκτέλεση του cron",
     "Next cron run": "Επόμενη εκτέλεση του cron",
     "Select Date": "Επιλογή ημερομηνίας",
-    "no subject": "χωρίς θέμα"
+    "no subject": "χωρίς θέμα",
+    "Customer": "Πελάτης",
+    "Internal note": "Εσωτερική σημείωση",
+    "Contact form": "Φόρμα επικοινωνίας",
+    "Guest page": "Σελίδα επισκέπτη"
 }
