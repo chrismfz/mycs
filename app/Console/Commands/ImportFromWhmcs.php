@@ -2,8 +2,10 @@
 
 namespace App\Console\Commands;
 
+use App\Helpers\ExtensionHelper;
 use App\Models\Client;
 use App\Models\ConfigOption;
+use App\Models\Extension;
 use App\Models\Order;
 use App\Models\PaymentGroup;
 use App\Models\Product;
@@ -16,10 +18,12 @@ use App\Providers\SettingsProvider;
 use App\Services\Import\WhmcsMassPay;
 use App\Services\Licensing\WhmcsLicensingImport;
 use App\Services\Money\MoneyTrail;
+use Brick\Math\BigDecimal;
 use Closure;
 use DB;
 use Illuminate\Console\Command;
 use Illuminate\Http\Client\Batch;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 use Log;
 use MyCS\Pricing\LinePricer;
@@ -92,6 +96,7 @@ class ImportFromWhmcs extends Command
             $this->importCategories();
             $this->importConfigOptions();
             $this->importProducts();
+            $this->importPromotions();
             $this->importTickets();
             $this->importOrders();
             $this->importServices();
@@ -1005,7 +1010,10 @@ class ImportFromWhmcs extends Command
                     'username' => self::text($record['username'] ?? null, 255),
                     'dedicated_ip' => self::text($record['dedicatedip'] ?? null, 45),
                     'assigned_ips' => self::text(str_replace("\r\n", "\n", (string) ($record['assignedips'] ?? ''))),
-                    'notes' => self::text($record['notes'] ?? null),
+                    'notes' => self::text(implode("\n\n", array_filter([$this->promotionStillRunning($record), trim((string) ($record['notes'] ?? ''))]))),
+                    // Its promotion (tblhosting.promoid), for the record: its discount is in `price` already (WHMCS's
+                    // recurring amount), so it is used up here and never moves the price (importer: no amount changes).
+                    ...$this->serviceCoupon($record),
                     'suspend_reason' => $record['domainstatus'] === 'Suspended' ? self::text($record['suspendreason'] ?? null, 255) : null,
                     'created_at' => $this->validateDate($record['regdate']),
                     'updated_at' => $this->validateDate($record['regdate']),
@@ -1176,6 +1184,12 @@ class ImportFromWhmcs extends Command
                 $data[] = [
                     'id' => $record['id'],
                     'invoice_id' => $record['invoiceid'],
+                    // The gateway it came through (tblaccounts.gateway), for «Payment Method» and the money trail. Not on a
+                    // payment WHMCS refunded (to credit, by bank: a row with `refundid`), nor on that refund's row: its
+                    // refund is not on it here, and a gateway would offer to refund it again through the gateway
+                    // (adversarial ADV-1). Those stay manual: staff refund by hand, as before.
+                    'gateway_id' => (float) ($record['amountout'] ?? 0) > 0 || isset($this->refundedPayments()[(int) $record['id']]) ? null
+                        : $this->gatewayId((string) ($record['gateway'] ?? '')),
                     'amount' => $record['amountin'],
                     'transaction_id' => $record['transid'],
                     'created_at' => $this->validateDate($record['date']),
@@ -1185,6 +1199,255 @@ class ImportFromWhmcs extends Command
 
             DB::table('invoice_transactions')->insert($data);
         });
+        $this->importRefunds();
+        $this->reportUnmappedGateways();
+    }
+
+    /**
+     * WHMCS's refunds (a tblaccounts row with `amountout`, its payment in `refundid`) on the payment they refunded:
+     * `refunded_amount`, so what was given back is never given back again (adversarial ADV-1), up to its amount.
+     */
+    private function importRefunds(): void
+    {
+        try {
+            $refunds = $this->pdo->query('SELECT refundid, amountout FROM tblaccounts WHERE refundid > 0 AND amountout > 0')->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException) {
+            return; // a WHMCS without refunds' column
+        }
+        $byPayment = [];
+        foreach ($refunds as $refund) {
+            $byPayment[(int) $refund['refundid']] = BigDecimal::of($byPayment[(int) $refund['refundid']] ?? '0')->plus(number_format((float) $refund['amountout'], 2, '.', ''));
+        }
+        foreach ($byPayment as $paymentId => $refunded) {
+            $payment = DB::table('invoice_transactions')->where('id', $paymentId)->first(['amount', 'refunded_amount']);
+            if ($payment === null) {
+                continue;
+            }
+            $total = BigDecimal::of((string) ($payment->refunded_amount ?? '0'))->plus($refunded);
+            $cap = BigDecimal::of((string) $payment->amount);
+            DB::table('invoice_transactions')->where('id', $paymentId)->update(['refunded_amount' => (string) ($total->isGreaterThan($cap) ? $cap : $total)->toScale(2)]);
+        }
+    }
+
+    /**
+     * WHMCS payment gateway modules (tblaccounts.gateway) and the MyCS gateway extension each one's payments belong to.
+     * A bank transfer or any other module MyCS has no extension for: none (a manual payment, as staff record one).
+     */
+    public const GATEWAYS = [
+        'stripe' => 'Stripe', 'stripe_sepa' => 'Stripe', 'stripe_ach' => 'Stripe', 'stripe_bacs' => 'Stripe',
+        'paypal' => 'PayPal', 'paypal_ppcpv' => 'PayPal', 'paypalcheckout' => 'PayPal', 'paypal_acdc' => 'PayPal',
+        'mollie' => 'Mollie',
+        'cardlink' => 'Cardlink', 'cardlink_eurobank' => 'Cardlink', 'eurobank' => 'Cardlink',
+    ];
+
+    /** @var array<int, true>|null WHMCS payments with a refund row (tblaccounts.refundid) */
+    private ?array $refundedPayments = null;
+
+    /** @return array<int, true> */
+    private function refundedPayments(): array
+    {
+        if ($this->refundedPayments === null) {
+            try {
+                $ids = $this->pdo->query('SELECT DISTINCT refundid FROM tblaccounts WHERE refundid > 0')->fetchAll(PDO::FETCH_COLUMN);
+            } catch (PDOException) {
+                $ids = []; // a WHMCS without refunds' column (an old version, a test fixture)
+            }
+            $this->refundedPayments = array_fill_keys(array_map('intval', $ids), true);
+            if ($this->refundedPayments !== []) {
+                $this->warn('Payments: ' . count($this->refundedPayments) . ' refunded in WHMCS imported without a gateway (their refunds are not on them here): refund nothing more of them through a gateway.');
+            }
+        }
+
+        return $this->refundedPayments;
+    }
+
+    /** @var array<string, int|null> WHMCS module => MyCS gateway id */
+    private array $gatewayIds = [];
+
+    /** @var array<string, int> payments of a module imported without a gateway, by module: the summary */
+    private array $unmappedGateways = [];
+
+    private function gatewayId(string $module): ?int
+    {
+        $module = strtolower(trim($module));
+        if (!array_key_exists($module, $this->gatewayIds)) {
+            $extension = self::GATEWAYS[$module] ?? (str_starts_with($module, 'mollie') ? 'Mollie' : null);
+            $this->gatewayIds[$module] = $extension === null ? null : $this->installedGateway($extension);
+        }
+        if ($this->gatewayIds[$module] === null && $module !== '') {
+            $this->unmappedGateways[$module] = ($this->unmappedGateways[$module] ?? 0) + 1;
+        }
+
+        return $this->gatewayIds[$module];
+    }
+
+    /**
+     * The gateway extension's id, installed as the admin's «Install» does when the fresh database has none (disabled:
+     * staff set its keys and enable it). Its payments are its own from the start.
+     */
+    private function installedGateway(string $extension): int
+    {
+        $id = DB::table('extensions')->where('type', 'gateway')->where('extension', $extension)->value('id');
+        if ($id !== null) {
+            return (int) $id;
+        }
+        $gateway = Extension::create(['name' => $extension, 'type' => 'gateway', 'extension' => $extension]);
+        ExtensionHelper::call($gateway, 'installed', mayFail: true);
+        $this->warn("Gateway «{$extension}» installed for the imported payments: set it up and enable it.");
+
+        return (int) $gateway->id;
+    }
+
+    /** Payments brought without a gateway: MyCS has no extension for their module (a bank transfer, ...). */
+    private function reportUnmappedGateways(): void
+    {
+        foreach ($this->unmappedGateways as $module => $count) {
+            $this->warn("Payments: {$count} of gateway «{$module}» imported without a gateway (MyCS has none for it): «Payment Method» shows them as manual.");
+        }
+    }
+
+    /**
+     * WHMCS promotions (tblpromotions) as coupons, with their ids (tblhosting.promoid). One MyCS cannot express as WHMCS
+     * applies it (a price override, some billing cycles only, new or existing clients only, «requires», once per order,
+     * recurring for N times) is imported closed for new orders (expired now) and reported: staff recreate it. The
+     * services ordered with it keep it, for the record (serviceCoupon).
+     */
+    /** @var array<int, array{recurring: int, recurfor: int, code: string}> the promotions imported, by id: serviceCoupon */
+    private array $promotions = [];
+
+    private function importPromotions(): void
+    {
+        $this->info('Importing promotions... (' . $this->count('tblpromotions') . ' records)');
+        $now = now()->toDateTimeString();
+        $products = DB::table('products')->pluck('id')->map(fn ($id) => (int) $id)->flip();
+        $currencies = (int) $this->pdo->query('SELECT COUNT(*) FROM tblcurrencies')->fetchColumn();
+        $closed = now()->subSecond()->toDateTimeString(); // past already: closed from the import on
+
+        foreach ($this->pdo->query('SELECT * FROM tblpromotions ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $promo) {
+            $why = [];
+            [$type, $value, $appliesTo] = match ($promo['type']) {
+                'Percentage' => ['percentage', $promo['value'], 'all'],
+                'Fixed Amount' => ['fixed', $promo['value'], 'all'],
+                'Free Setup' => ['percentage', '100.00', 'setup_fee'],
+                default => ['fixed', '0.00', 'all'],
+            };
+            if (!in_array($promo['type'], ['Percentage', 'Fixed Amount', 'Free Setup'], true)) {
+                $why[] = "type «{$promo['type']}»";
+            }
+            $recurring = (int) $promo['recurring'] === 0 ? null : 0; // the first payment only, or every one
+            if ((int) $promo['recurring'] === 1 && (int) $promo['recurfor'] > 0) {
+                $why[] = "recurring for {$promo['recurfor']} times";
+            }
+            $cycles = array_filter(array_map('trim', explode(',', (string) $promo['cycles'])));
+            // MyCS has no cycle limit: one WHMCS limits (a list without every cycle, «One Time» too) is not expressible.
+            if ($cycles !== [] && array_diff(['Monthly', 'Quarterly', 'Semi-Annually', 'Annually', 'Biennially', 'Triennially', 'One Time'], $cycles) !== []) {
+                $why[] = 'some billing cycles only (' . implode(', ', $cycles) . ')';
+            }
+            // A MyCS coupon has no currency: a fixed amount means another sum in each one (WHMCS converts it).
+            if ($promo['type'] === 'Fixed Amount' && $currencies > 1) {
+                $why[] = 'a fixed amount with more than one currency';
+            }
+            foreach (['newsignups' => 'new clients only', 'existingclient' => 'existing clients only', 'requiresexisting' => 'requires an existing product',
+                'applyonce' => 'once per order', 'upgrades' => 'for upgrades', 'lifetimepromo' => 'kept on upgrades'] as $column => $label) {
+                if ((int) ($promo[$column] ?? 0) === 1) {
+                    $why[] = $label;
+                }
+            }
+            if (trim((string) ($promo['requires'] ?? '')) !== '') {
+                $why[] = 'requires other products';
+            }
+            $applies = array_filter(array_map('trim', explode(',', (string) $promo['appliesto'])));
+            $productIds = array_values(array_filter(array_map('intval', array_filter($applies, 'ctype_digit')), fn (int $id) => $products->has($id)));
+            if (count($productIds) !== count($applies)) {
+                $why[] = 'addons, domains or products not imported';
+            }
+            // No products in MyCS means every product (ADV-3): one WHMCS applies to nothing stays closed.
+            if ($applies === []) {
+                $why[] = 'applies to no product';
+            }
+            // Its uses: MyCS counts the services with it, WHMCS counted more (deleted services, orders). Used up there:
+            // closed; else the uses left there on top of those brought here (ADV-2).
+            $maxUses = null;
+            if ((int) $promo['maxuses'] > 0) {
+                $left = (int) $promo['maxuses'] - (int) ($promo['uses'] ?? 0);
+                if ($left <= 0) {
+                    $why[] = "used up ({$promo['uses']} of {$promo['maxuses']})";
+                }
+                $statement = $this->pdo->prepare('SELECT COALESCE(SUM(qty), 0) FROM tblhosting WHERE promoid = ?');
+                $statement->execute([$promo['id']]);
+                $maxUses = (int) $statement->fetchColumn() + max(0, $left);
+            }
+
+            // WHMCS's expiration date is its last day (ADV-4).
+            $expires = ($day = $this->validateDate($promo['expirationdate'] ?? null)) === null ? null
+                : Carbon::parse($day)->endOfDay()->toDateTimeString();
+            DB::table('coupons')->insert([
+                'id' => $promo['id'],
+                'code' => $promo['code'],
+                'type' => $type,
+                'value' => $value,
+                'applies_to' => $appliesTo,
+                'recurring' => $recurring,
+                'max_uses' => $maxUses,
+                'max_uses_per_user' => (int) $promo['onceperclient'] === 1 ? 1 : null,
+                'starts_at' => $this->validateDate($promo['startdate'] ?? null),
+                // Closed for new orders when MyCS would apply it otherwise than WHMCS.
+                'expires_at' => $why !== [] && ($expires === null || $expires > $now) ? $closed : $expires,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+            $this->promotions[(int) $promo['id']] = ['recurring' => (int) $promo['recurring'], 'recurfor' => (int) $promo['recurfor'], 'code' => (string) $promo['code']];
+            if ($productIds !== []) {
+                DB::table('coupon_products')->insert(array_map(fn (int $id) => ['coupon_id' => $promo['id'], 'product_id' => $id], $productIds));
+            }
+            if ($why !== []) {
+                $this->warn("Promotion #{$promo['id']} «{$promo['code']}»: imported closed for new orders (" . implode('; ', $why) . '): recreate it by hand if still offered.');
+            }
+        }
+    }
+
+    /**
+     * A service's promotion, used up: WHMCS's recurring amount (`price`) has its discount already, and a coupon still
+     * running would be taken off again or the price recalculated from the catalog when it ends. One recurring for N
+     * times may not have ended yet: reported, staff set the price when it does.
+     *
+     * @param  array<string, mixed>  $record  a tblhosting row
+     * @return array{coupon_id: int|null, coupon_started_at: string|null, coupon_expired_at: string|null}
+     */
+    private function serviceCoupon(array $record): array
+    {
+        $promo = (int) ($record['promoid'] ?? 0);
+        $row = $this->promotions[$promo] ?? null;
+        if ($row === null) {
+            return ['coupon_id' => null, 'coupon_started_at' => null, 'coupon_expired_at' => null];
+        }
+
+        return ['coupon_id' => $promo, 'coupon_started_at' => $this->validateDate($record['regdate']), 'coupon_expired_at' => now()->toDateTimeString()];
+    }
+
+    /**
+     * A live service whose promotion recurs for N times and has not (tblhosting.promocount) recurred all of them: WHMCS
+     * would charge the full price after them; here its price stays (code review F4). Reported, and written on the
+     * service's staff notes, where staff see it.
+     *
+     * @param  array<string, mixed>  $record  a tblhosting row
+     */
+    private function promotionStillRunning(array $record): ?string
+    {
+        $promo = $this->promotions[(int) ($record['promoid'] ?? 0)] ?? null;
+        if ($promo === null || $promo['recurring'] !== 1 || $promo['recurfor'] <= 0
+            || !in_array($record['domainstatus'], ['Active', 'Suspended', 'Pending'], true)) {
+            return null;
+        }
+        $done = isset($record['promocount']) ? (int) $record['promocount'] : null; // older WHMCS: unknown
+        if ($done !== null && $done >= $promo['recurfor']) {
+            return null;
+        }
+        $left = $done === null ? "up to {$promo['recurfor']}" : (string) ($promo['recurfor'] - $done);
+        $note = "WHMCS promotion «{$promo['code']}» still running at import ({$left} more discounted renewals): the price {$record['amount']} was kept; set the full price when it ends.";
+        $this->warn("Service #{$record['id']}: {$note}");
+
+        return $note;
     }
 
     /**
