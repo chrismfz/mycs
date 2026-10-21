@@ -2,13 +2,13 @@
 
 namespace Tests\Feature;
 
-use App\Console\Commands\CronJob;
 use App\Enums\DomainStatus;
 use App\Models\Contact;
 use App\Models\Currency;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainTld;
+use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\Service;
@@ -17,9 +17,6 @@ use App\Services\Domains\Registrars\GrEppRegistrar;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
 use App\Support\Domains\DomainRegistrarCredentials;
-use Illuminate\Console\Scheduling\Event;
-use Illuminate\Console\Scheduling\Schedule;
-use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
@@ -91,17 +88,22 @@ class CronLogFailureAdversarialTest extends TestCase
      * FINDING ADV290-2. The guard's only record of what could not be logged is the console ("cron mails or journals
      * it"). Production runs the cron through `schedule:run` (docs/HANDOFF.md), and the event has no output target: Laravel
      * sends its output to /dev/null. The «Not logged (…)» line, the failure's class and message, reaches nobody.
+     *
+     * Fixed in #290 another way (the author): the console line is gone; the failure is kept (App\Logging\WriteFailures)
+     * and mailed to staff with the cron's notices. This test asserted the scheduler's output target; it now asserts the
+     * mail, which reaches someone on a full disk where a cron.log file would not.
      */
     public function test_the_scheduled_cron_keeps_its_console_output_somewhere(): void
     {
-        $this->app->make(Kernel::class)->bootstrap();
-        $events = array_values(array_filter(app(Schedule::class)->events(),
-            fn (Event $event) => str_contains((string) $event->command, (new CronJob)->getName())));
-        $this->assertNotEmpty($events, 'the cron is scheduled');
+        config(['settings.system_email_address' => 'staff@example.test', 'settings.mail_disable' => false]);
+        $this->breakTheLog();
+        config(['logging.default' => 'daily']);
+        $this->twoCustomersInCreditOneBroken();
 
-        foreach ($events as $event) {
-            $this->assertNotSame($event->getDefaultOutput(), $event->output, 'the cron\'s console output is thrown away by the scheduler');
-        }
+        $this->runTheCron();
+
+        $body = html_entity_decode((string) EmailLog::query()->where('subject', 'Cron Job: needs staff attention')->latest('id')->value('body'), ENT_QUOTES);
+        $this->assertStringContainsString('log_not_written: The application log could not be written (UnexpectedValueException: Writing to the log file failed', $body);
     }
 
     /**

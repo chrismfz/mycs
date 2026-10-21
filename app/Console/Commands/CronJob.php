@@ -10,6 +10,7 @@ use App\Exceptions\DisplayException;
 use App\Helpers\NotificationHelper;
 use App\Jobs\Server\SuspendJob;
 use App\Jobs\Server\TerminateJob;
+use App\Logging\WriteFailures;
 use App\Models\CronStat;
 use App\Models\DebugLog;
 use App\Models\Domain;
@@ -108,6 +109,7 @@ class CronJob extends Command
         Config::set('audit.console', true);
         // One command object can run twice (a test, a long-lived worker): nothing carries over from a run to the next.
         $this->failures = $this->notices = $this->suspended = $this->terminated = [];
+        WriteFailures::forget();
 
         // Each job commits on its own (renewals: per service): one failure no longer rolls back the
         // whole run, nothing stays locked for the whole run, and each step sees what the previous
@@ -139,7 +141,7 @@ class CronJob extends Command
                         (new ProcessPaidInvoiceService)->handle($invoice);
                         $number++;
                     } catch (Throwable $e) {
-                        $this->report($e);
+                        report($e);
                         $until = $invoice?->apply_pending_since?->addDays(RenewalBilling::PAID_NOT_APPLIED_DAYS)->toDateString();
                         $this->notices["paid_applied #{$id}"] = new DisplayException("Invoice #{$id} is paid but its lines could not be applied: {$e->getMessage()}. Tried again on the next run; the services of the lines not applied are neither billed nor suspended until {$until}.");
 
@@ -148,7 +150,7 @@ class CronJob extends Command
                     try {
                         event(new InvoiceEvent\Paid($invoice)); // the one its failed application never reached
                     } catch (Throwable $e) {
-                        $this->report($e);
+                        report($e);
                         $this->notices["paid_applied #{$id} paid event"] = new DisplayException("Invoice #{$id} was applied, but its paid notifications failed: {$e->getMessage()}");
                     }
                 }
@@ -164,7 +166,7 @@ class CronJob extends Command
                         $outcome = app(DomainRenewalService::class)->renewLine((int) $lineId);
                         $number += in_array($outcome, [DomainRenewalService::APPLIED, DomainRenewalService::ADOPTED], true) ? 1 : 0;
                     } catch (Throwable $e) {
-                        $this->report($e);
+                        report($e);
                         $this->failures["domains_renewed line #{$lineId}"] = $e;
                     }
                 }
@@ -217,7 +219,7 @@ class CronJob extends Command
                     try {
                         $number += app(DomainOrderFulfilment::class)->fulfil((int) $id) === DomainOrderFulfilment::SENT ? 1 : 0;
                     } catch (Throwable $e) {
-                        $this->report($e);
+                        report($e);
                         $this->failures["domains_ordered #{$id}"] = $e;
                     }
                 }
@@ -250,7 +252,7 @@ class CronJob extends Command
                             // while the cron runs is seen, and nothing stays locked for the whole run.
                             $number += DB::transaction(fn () => $billing->billRenewal($id, $billUntil));
                         } catch (Throwable $e) {
-                            $this->report($e);
+                            report($e);
                             $this->failures["invoices_created #{$id}"] = $e;
                         }
                     }
@@ -265,7 +267,7 @@ class CronJob extends Command
                             $number += DB::transaction(fn () => $billing->billDomainRenewal($id, $domainsUntil));
                             DB::transaction(fn () => $billing->addStageFee($id));
                         } catch (Throwable $e) {
-                            $this->report($e);
+                            report($e);
                             $this->failures["invoices_created domain #{$id}"] = $e;
                         }
                     }
@@ -327,7 +329,7 @@ class CronJob extends Command
                             return 1;
                         });
                     } catch (Throwable $e) {
-                        $this->report($e);
+                        report($e);
                         $this->failures["orders_cancelled #{$id}"] = $e;
                     }
                 }
@@ -357,7 +359,7 @@ class CronJob extends Command
                             return 1;
                         });
                     } catch (Throwable $e) {
-                        $this->report($e);
+                        report($e);
                         $this->failures["orders_cancelled domain #{$id}"] = $e;
                     }
                 }
@@ -373,7 +375,7 @@ class CronJob extends Command
                     try {
                         $number += DB::transaction(fn () => $this->refreshUpgrade((int) $id));
                     } catch (Throwable $e) {
-                        $this->report($e);
+                        report($e);
                         $this->failures["upgrade_invoices_updated #{$id}"] = $e;
                     }
                 }
@@ -394,7 +396,7 @@ class CronJob extends Command
                     try {
                         $number += DB::transaction(fn () => $this->endAsRequested($id));
                     } catch (Throwable $e) {
-                        $this->report($e);
+                        report($e);
                         $this->failures["cancellations_processed #{$id}"] = $e;
                     }
                 }
@@ -447,7 +449,7 @@ class CronJob extends Command
                             $this->suspended[] = (int) $id;
                         }
                     } catch (Throwable $e) {
-                        $this->report($e);
+                        report($e);
                         $this->failures["services_suspended #{$id}"] = $e;
                     }
                 }
@@ -488,7 +490,7 @@ class CronJob extends Command
                             $this->terminated[] = (int) $id;
                         }
                     } catch (Throwable $e) {
-                        $this->report($e);
+                        report($e);
                         $this->failures["services_terminated #{$id}"] = $e;
                     }
                 }
@@ -549,9 +551,14 @@ class CronJob extends Command
             try {
                 SuspensionDigest::send($this->suspended, $this->terminated);
             } catch (Throwable $e) {
-                $this->report($e);
+                report($e);
                 $this->notices['suspension_digest'] = new DisplayException('The email of the services suspended or terminated today could not be sent: '
                     . $e->getMessage() . '. See Services, status Suspended or Terminated.');
+            }
+
+            // A log that could not be written (a full disk): what this run reported is not in it (#290).
+            if (($notLogged = WriteFailures::first()) !== null) {
+                $this->notices['log_not_written'] = new DisplayException("The application log could not be written ({$notLogged}): errors of this run are not in it. Check the disk space and the log files' owner.");
             }
 
             if ($this->notices !== []) {
@@ -901,7 +908,7 @@ class CronJob extends Command
         try {
             $items = ($transaction ? DB::transaction(fn () => $callback()) : $callback()) ?? 0;
         } catch (Throwable $e) {
-            $this->report($e);
+            report($e);
             $this->failures[$key] = $e;
 
             return;
@@ -914,19 +921,5 @@ class CronJob extends Command
         ]);
 
         $this->info("Cronjob task '" . __('admin.cronjob.' . $key) . "' completed: Processed " . $items . ' items.');
-    }
-
-    /**
-     * report(), but a log that cannot be written (a full disk: Monolog throws "Writing to the log file failed") never
-     * leaves the catch that called it: the step or item stays failed as it was, and the steps after it still run
-     * (billing, suspensions, reminders). What was not logged goes to the console: cron mails or journals it.
-     */
-    private function report(Throwable $e): void
-    {
-        try {
-            report($e);
-        } catch (Throwable $logging) {
-            $this->error("Not logged ({$logging->getMessage()}): " . get_class($e) . ': ' . $e->getMessage());
-        }
     }
 }

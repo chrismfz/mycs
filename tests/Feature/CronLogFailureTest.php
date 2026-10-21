@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Jobs\Server\SuspendJob;
+use App\Logging\WriteFailures;
+use App\Models\EmailLog;
 use App\Models\Service;
 use App\Models\User;
 use Illuminate\Database\Events\QueryExecuted;
@@ -13,6 +15,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Monolog\Handler\AbstractProcessingHandler;
 use Monolog\LogRecord;
+use Psr\Log\LoggerInterface;
 use RuntimeException;
 use Tests\TestCase;
 use UnexpectedValueException;
@@ -31,6 +34,7 @@ class CronLogFailureTest extends TestCase
         parent::setUp();
         config(['settings.cronjob_order_suspend' => 2, 'settings.cronjob_order_terminate' => 14]);
         Queue::fake();
+        config(['settings.system_email_address' => 'staff@example.test', 'settings.mail_disable' => false]);
     }
 
     /** The log as configured (stack over daily), its file not writable: the run goes on past a failed step. */
@@ -44,11 +48,12 @@ class CronLogFailureTest extends TestCase
 
         $this->assertSame('epp codes step broke', $failure?->getMessage(), 'the run ends failed, with the step that failed');
         $this->assertSuspendedAndBilled($service);
+        $this->assertStaffToldTheLogFailed();
     }
 
     /**
-     * A channel without ignore_exceptions (an operator's LOG_CHANNEL=daily): report() itself throws, and the cron's own
-     * guard keeps it in the step. What was not logged goes to the console.
+     * A channel without the stack's tap (an operator's LOG_CHANNEL=daily): the handler throws, and report() keeps it
+     * (ErrorHandler::reportThrowable).
      */
     public function test_report_throwing_inside_a_step_does_not_abort_the_run(): void
     {
@@ -61,10 +66,10 @@ class CronLogFailureTest extends TestCase
 
         $this->assertSame('epp codes step broke', $failure?->getMessage());
         $this->assertSuspendedAndBilled($service);
-        $this->assertStringContainsString('Not logged (Writing to the log file failed', Artisan::output());
+        $this->assertStaffToldTheLogFailed();
     }
 
-    /** The log failing on its own (no step failed): nothing changes, the run succeeds. */
+    /** The log failing with no failed step: the run succeeds; nothing it reported was lost, so no notice about the log. */
     public function test_the_log_not_writable_with_no_failed_step_is_a_successful_run(): void
     {
         $this->breakTheLog('daily');
@@ -72,6 +77,19 @@ class CronLogFailureTest extends TestCase
 
         $this->assertNull($this->runTheCron());
         $this->assertSuspendedAndBilled($service);
+        $this->assertNull(WriteFailures::first());
+        $this->assertDatabaseMissing('email_logs', ['subject' => 'Cron Job: needs staff attention']);
+    }
+
+    /** report() with no logger at all: kept, never thrown, and said so (not as the reported error itself). */
+    public function test_report_with_no_logger_never_throws(): void
+    {
+        $this->app->bind(LoggerInterface::class, fn () => throw new \Exception('no logger'));
+        WriteFailures::forget();
+
+        report(new RuntimeException('a step broke'));
+
+        $this->assertSame('RuntimeException: No logger to report a step broke', WriteFailures::first());
     }
 
     private function breakTheLog(string $channel): void
@@ -79,8 +97,13 @@ class CronLogFailureTest extends TestCase
         config(["logging.channels.{$channel}" => ['driver' => 'monolog', 'handler' => FullDiskLogHandler::class]]);
         Log::forgetChannel($channel);
         Log::forgetChannel('stack');
-        // As configured (the test proves the shipped value, not one set here).
-        $this->assertTrue((bool) config('logging.channels.stack.ignore_exceptions'));
+    }
+
+    private function assertStaffToldTheLogFailed(): void
+    {
+        $mail = EmailLog::query()->where('subject', 'Cron Job: needs staff attention')->latest('id')->first();
+        $this->assertNotNull($mail, 'the notices mail is sent');
+        $this->assertStringContainsString('log_not_written: The application log could not be written (UnexpectedValueException: Writing to the log file failed', html_entity_decode((string) $mail->body, ENT_QUOTES));
     }
 
     /** domain_epp_codes_cleared, early in the run, fails: its query throws once it ran. */
