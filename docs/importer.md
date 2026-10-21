@@ -76,6 +76,8 @@
 ζωντανά δεδομένα).
 
 ## Έλεγχος
+- **Πριν το migration του myip, ο server:** OPcache όπως στο `install.md` («Μέγεθος server και PHP»), ελεύθερος δίσκος
+  για τη βάση και ένα backup της (`df -h`), και ένα ζεστό `/admin` μετά το import (το πρώτο request μεταγλωττίζει).
 - Κάθε αριθμός της λίστας parity βγαίνει **και από τις δύο πλευρές** με μία εντολή (π.χ. `mycs:parity --whmcs-copy=…`)
   και τυπώνει diff. Cut-over μόνο με μηδενικό diff ή με κάθε διαφορά εξηγημένη και καταγεγραμμένη.
 - Tests του importer σε fixture βάση WHMCS (ανωνυμοποιημένη, CLAUDE.md), όπως τα `WhmcsSchema`/`BlestaSchema` του
