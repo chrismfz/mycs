@@ -23,7 +23,7 @@ final class Response
             }
             [$key, $value] = [$m[1], $m[2]];
             if (preg_match('/^property\[([^\]]*)\](?:\[(\d+)\])?/i', $key, $p) === 1) {
-                $name = strtoupper((string) preg_replace('/\s/', '', $p[1]));
+                $name = self::name($p[1]);
                 // By its index, never by its order (a row out of order or missing never shifts the others: #297).
                 if (isset($p[2])) {
                     $properties[$name][(int) $p[2]] = $value;
@@ -38,6 +38,15 @@ final class Response
         }
 
         return new self($code, $description, $properties);
+    }
+
+    /**
+     * A property's name as it is looked up: upper-cased, without spaces or underscores. Its documentation writes
+     * PAIDUNTIL_DATE, its live API answers «PAIDUNTIL DATE» (myip's account, 2026-10-21): both are the same name.
+     */
+    public static function name(string $name): string
+    {
+        return strtoupper((string) preg_replace('/[\s_]+/', '', $name));
     }
 
     public function success(): bool
@@ -72,7 +81,7 @@ final class Response
     /** @return list<string> its values in index order (a gap left out) */
     public function list(string $name): array
     {
-        $values = $this->properties[strtoupper($name)] ?? [];
+        $values = $this->properties[self::name($name)] ?? [];
         ksort($values);
 
         return array_values($values);
@@ -81,7 +90,7 @@ final class Response
     /** Its value at that index (the row of a list), or null. */
     public function at(string $name, int $index): ?string
     {
-        $value = $this->properties[strtoupper($name)][$index] ?? null;
+        $value = $this->properties[self::name($name)][$index] ?? null;
 
         return $value === null || $value === '' ? null : $value;
     }
@@ -95,7 +104,7 @@ final class Response
 
     public function has(string $name): bool
     {
-        return array_key_exists(strtoupper($name), $this->properties);
+        return array_key_exists(self::name($name), $this->properties);
     }
 
     /** Its code and description, for a message (never its properties: they may carry an auth code or contact data). */

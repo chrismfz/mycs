@@ -70,8 +70,9 @@ final class CnicRegistrar implements DomainRegistrar, ReadsAccountBalance
     {
         $r = $this->read($credentials, ['COMMAND' => 'StatusAccount']);
 
-        // Its credit is what it can spend (AMOUNT is what was used).
-        return new RegistrarBalance(amount: (string) ($r->first('CREDIT') ?? '0'), currency: $r->first('CURRENCY'));
+        // Its balance is AMOUNT, as its account page shows it (myip's, 2026-10-21: 42.85 EUR); CREDIT is a credit line on top
+        // (0 there), not the balance as its documentation reads.
+        return new RegistrarBalance(amount: (string) ($r->first('AMOUNT') ?? '0'), currency: $r->first('CURRENCY'));
     }
 
     public function checkAvailability(string $fqdn, DomainRegistrarCredentials $credentials): AvailabilityResult

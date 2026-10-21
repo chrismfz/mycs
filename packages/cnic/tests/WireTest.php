@@ -32,7 +32,7 @@ final class WireTest extends TestCase
         $this->assertTrue($r->success());
         $this->assertSame(200, $r->code);
         $this->assertSame(['ns1.example.net', 'ns2.example.net'], $r->list('nameserver'));
-        $this->assertSame('2027-11-01 10:00:00.0', $r->first('REGISTRATIONEXPIRATIONDATE'), 'spaces in a name are dropped');
+        $this->assertSame('2027-11-01 10:00:00.0', $r->first('REGISTRATION_EXPIRATION_DATE'), 'spaces and underscores are the same name');
         $this->assertSame('1', $r->first('transfer_lock'));
         $this->assertNull($r->first('AUTH'));
     }
@@ -54,5 +54,20 @@ final class WireTest extends TestCase
 
         $this->assertSame(['a.com', 'b.com'], $r->list('DOMAIN'));
         $this->assertSame([null, 'ROID-B'], [$r->at('ROID', 0), $r->at('ROID', 1)]);
+    }
+
+    public function test_its_live_names_with_spaces_are_its_documented_ones_with_underscores(): void
+    {
+        // As myip's account answers (2026-10-21): «PAIDUNTIL DATE», «TRANSFER LOCK», «OWNER CONTACT».
+        $r = Response::parse("code = 200\nproperty[PAIDUNTIL DATE][0] = 2027-09-16 18:57:28.0\nproperty[TRANSFER LOCK][0] = 1\nproperty[OWNER CONTACT][0] = P-ABC1\n");
+
+        $this->assertSame(['2027-09-16 18:57:28.0', '1', 'P-ABC1'], [$r->first('PAIDUNTIL_DATE'), $r->first('TRANSFER_LOCK'), $r->first('owner_contact')]);
+    }
+
+    public function test_a_hyphen_is_kept_so_names_that_differ_by_it_never_merge(): void
+    {
+        $r = Response::parse("code = 200\nproperty[ROID][0] = R-1\nproperty[X-DOMAIN-ROID][0] = X-1\nproperty[DOMAIN][0] = a.com\nproperty[DOMAIN IDN][0] = a.com\n");
+
+        $this->assertSame(['R-1', 'X-1', ['a.com']], [$r->first('ROID'), $r->first('X-DOMAIN-ROID'), $r->list('DOMAIN')]);
     }
 }
