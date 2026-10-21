@@ -1021,6 +1021,33 @@ class EmailTemplateSeeder extends Seeder
             'edit_preference_message' => 'Tell me when the transfer of a domain of mine fails',
             'in_app_url' => '{{ urls.domain }}',
         ],
+        // The mass mail (ROADMAP 6δ): its message is the staff's ({{ content }}); these are its layout and preference.
+        'announcement' => [
+            'subject' => '{{ subject }}',
+            'body' => '{{ content }}',
+            'in_app_title' => '{{ subject }}',
+            'in_app_body' => '',
+            'mail_enabled' => 'force',
+            'in_app_enabled' => 'never',
+            'edit_preference_message' => 'Important announcements about my services',
+            'in_app_url' => null,
+        ],
+        'announcement_news' => [
+            'subject' => '{{ subject }}',
+            'body' => <<<'HTML'
+                {{ content }}
+
+                {% if unsubscribe_url %}
+                <p style="font-size: 12px; color: #6b7280;">You get our news and offers as our customer. <a href="{{ unsubscribe_url }}">Stop these emails</a>.</p>
+                {% endif %}
+                HTML,
+            'in_app_title' => '{{ subject }}',
+            'in_app_body' => '',
+            'mail_enabled' => 'choice_on',
+            'in_app_enabled' => 'never',
+            'edit_preference_message' => 'News and offers from us',
+            'in_app_url' => null,
+        ],
     ];
 
     /**
@@ -1954,6 +1981,24 @@ class EmailTemplateSeeder extends Seeder
                     HTML,
                 'in_app_title' => 'Η μεταφορά του {{ fqdn }} δεν ολοκληρώθηκε',
                 'in_app_body' => 'Η μεταφορά του domain σας {{ fqdn }} δεν ολοκληρώθηκε: ελέγξτε τον κωδικό EPP και το κλείδωμά του.',
+            ],
+        ],
+        'announcement' => [
+            'el' => [
+                'subject' => '{{ subject }}',
+                'body' => '{{ content }}',
+                'in_app_title' => '{{ subject }}',
+            ],
+        ],
+        'announcement_news' => [
+            'el' => [
+                'body' => <<<'HTML'
+                    {{ content }}
+
+                    {% if unsubscribe_url %}
+                    <p style="font-size: 12px; color: #6b7280;">Λαμβάνετε τα νέα και τις προσφορές μας ως πελάτης μας. <a href="{{ unsubscribe_url }}">Διακοπή αυτών των emails</a>.</p>
+                    {% endif %}
+                    HTML,
             ],
         ],
     ];

@@ -185,6 +185,13 @@ return [
             'reports' => [
                 'view' => 'View Reports',
             ],
+            'bulk_mails' => [
+                'create' => 'Create Mass Mails',
+                'update' => 'Update Mass Mails',
+                'viewAny' => 'View Mass Mails',
+                'delete' => 'Delete Mass Mails',
+                'send' => 'Send Mass Mails',
+            ],
             'offers' => [
                 'create' => 'Create Offers',
                 'update' => 'Update Offers',
