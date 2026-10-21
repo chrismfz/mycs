@@ -64,7 +64,7 @@ class CnicManagementAdversarialTest extends TestCase
 
     private static function statusAnswer(array $extra = []): string
     {
-        $lines = ['PAIDUNTIL DATE' => '2031-03-02 09:12:44.0', 'STATUS' => 'ACTIVE', 'TRANSFER LOCK' => '1', 'NAMESERVER' => 'ns1.example.net'] + $extra;
+        $lines = $extra + ['PAIDUNTIL DATE' => '2031-03-02 09:12:44.0', 'STATUS' => 'ACTIVE', 'TRANSFER LOCK' => '1', 'NAMESERVER' => 'ns1.example.net']; // its own first
         $body = "[RESPONSE]\ncode = 200\ndescription = OK\n";
         foreach ($lines as $key => $value) {
             foreach ((array) $value as $i => $one) {
@@ -226,6 +226,8 @@ class CnicManagementAdversarialTest extends TestCase
      */
     public function test_adv7_an_address_line_taken_away_is_cleared_at_cnic_too(): void
     {
+        // A contact MyCS made: only such is modified there in the shared account (code review 3 of #300).
+        $this->domain(['meta' => ['contact_handles' => [1 => 'P-OWN1']]]);
         (new CnicRegistrar)->updateContact('P-OWN1', $this->contact('Maria', ['address2' => '', 'state' => '']), $this->credentials());
 
         $this->assertMatchesRegularExpression('/^STREET1=/m', $this->sent[0], 'the old second line stays at CentralNic');
@@ -275,6 +277,7 @@ class CnicManagementAdversarialTest extends TestCase
     /** Guard: a line break in a contact's email never adds a key (a role, a name) to ModifyContact. */
     public function test_guard_a_line_break_in_a_contact_never_adds_a_key(): void
     {
+        $this->domain(['meta' => ['contact_handles' => [1 => 'P-OWN1']]]); // a contact MyCS made (code review 3 of #300)
         (new CnicRegistrar)->updateContact('P-OWN1', $this->contact('Maria', ['email' => "m@example.test\nOWNERCONTACT0=P-EVIL\nFIRSTNAME=Evil"]), $this->credentials());
 
         $this->assertDoesNotMatchRegularExpression('/^(OWNERCONTACT0|FIRSTNAME|LASTNAME|ORGANIZATION)=/m', $this->sent[0]);

@@ -13,6 +13,9 @@ final class Command
 
     public const OTE = 'https://api-ote.rrpproxy.net/api/call.cgi';
 
+    /** A value to clear: sent as «KEY=» (an empty or null value is left out). */
+    public const CLEAR = "\0clear";
+
     /**
      * @param  array<string, scalar|array<int, scalar|null>|null>  $command  COMMAND first, as the API expects it
      * @return array{s_login: string, s_pw: string, s_command: string}
@@ -34,6 +37,11 @@ final class Command
                         $lines[] = $key . $i . '=' . self::clean((string) $item);
                     }
                 }
+
+                continue;
+            }
+            if ($value === self::CLEAR) {
+                $lines[] = $key . '=';
 
                 continue;
             }

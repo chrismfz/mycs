@@ -44,8 +44,13 @@ class CnicManagementTest extends TestCase
             $command = (string) ($form['s_command'] ?? '');
             $this->sent[] = $command;
             preg_match('/^COMMAND=(\w+)/', $command, $m);
+            $name = $m[1] ?? '';
+            // Its record once changed, when the test says what it is then.
+            if ($name === 'StatusDomain' && isset($this->answers['StatusDomainAfter']) && collect($this->sent)->contains(fn ($c) => str_starts_with($c, 'COMMAND=ModifyDomain'))) {
+                $name = 'StatusDomainAfter';
+            }
 
-            return Http::response($this->answers[$m[1] ?? ''] ?? "[RESPONSE]\ncode = 200\ndescription = Command completed successfully\nEOF\n");
+            return Http::response($this->answers[$name] ?? "[RESPONSE]\ncode = 200\ndescription = Command completed successfully\nEOF\n");
         });
         $this->user = User::factory()->create();
         $this->answers['StatusDomain'] = self::statusAnswer(['OWNER CONTACT' => 'P-OWN1', 'ADMIN CONTACT' => 'P-OWN1', 'TECH CONTACT' => 'P-OWN1', 'BILLING CONTACT' => 'P-OWN1']);
@@ -53,7 +58,7 @@ class CnicManagementTest extends TestCase
 
     private static function statusAnswer(array $extra = []): string
     {
-        $lines = ['PAIDUNTIL DATE' => '2031-03-02 09:12:44.0', 'STATUS' => 'ACTIVE', 'TRANSFER LOCK' => '1', 'NAMESERVER' => 'ns1.example.net'] + $extra;
+        $lines = $extra + ['PAIDUNTIL DATE' => '2031-03-02 09:12:44.0', 'STATUS' => 'ACTIVE', 'TRANSFER LOCK' => '1', 'NAMESERVER' => 'ns1.example.net']; // its own first
         $body = "[RESPONSE]\ncode = 200\ndescription = OK\n";
         foreach ($lines as $key => $value) {
             $body .= "property[{$key}][0] = {$value}\n";
@@ -107,7 +112,7 @@ class CnicManagementTest extends TestCase
             $this->fail('privacy');
         } catch (RegistrarNotAsked) {
         }
-        $this->assertSame([], $this->sent);
+        $this->assertSame([], array_values(array_filter($this->sent, fn ($c) => !str_starts_with($c, 'COMMAND=StatusDomain'))), 'read only: nothing changed');
     }
 
     public function test_a_new_admin_gets_its_handle_made_once_and_only_its_role_is_sent(): void
@@ -116,6 +121,7 @@ class CnicManagementTest extends TestCase
         $admin = $this->contact('Nikos');
         $domain = $this->domain(['registrant_contact_id' => $owner->id, 'registrant_handle' => 'P-OWN1', 'admin_contact_id' => $admin->id]);
         $this->answers['AddContact'] = "[RESPONSE]\ncode = 200\ndescription = OK\nproperty[CONTACT][0] = P-NEW9\nEOF\n";
+        $this->answers['StatusDomainAfter'] = self::statusAnswer(['OWNER CONTACT' => 'P-OWN1', 'ADMIN CONTACT' => 'P-NEW9', 'TECH CONTACT' => 'P-OWN1', 'BILLING CONTACT' => 'P-OWN1']);
 
         $result = (new CnicRegistrar)->updateDomain($domain->fresh(), new DomainChanges(applyContacts: true), $this->credentials());
 
@@ -143,6 +149,7 @@ class CnicManagementTest extends TestCase
 
     public function test_a_contacts_details_are_updated_never_who_it_is(): void
     {
+        $this->domain(['meta' => ['contact_handles' => [1 => 'P-OWN1']]]); // a contact MyCS made (the shared account: #300)
         (new CnicRegistrar)->updateContact('P-OWN1', $this->contact('Maria', ['address1' => 'Odos 9', 'email' => 'new@example.test']), $this->credentials());
 
         $this->assertStringStartsWith("COMMAND=ModifyContact\nCONTACT=P-OWN1\nSTREET0=Odos 9", $this->sent[0]);
@@ -165,6 +172,17 @@ class CnicManagementTest extends TestCase
                 $this->assertInstanceOf($exception, $e);
                 $this->assertStringNotContainsString('Cnic-Secret-1', $e->getMessage());
             }
+        }
+    }
+
+    public function test_a_contact_mycs_did_not_make_is_never_modified_there(): void
+    {
+        // The account is shared with nixpal: a handle not made here may hold its domains too (code review 3 of #300).
+        $this->expectException(RegistrarRefused::class);
+        try {
+            (new CnicRegistrar)->updateContact('P-LEGACY1', $this->contact('Maria'), $this->credentials());
+        } finally {
+            $this->assertSame([], $this->sent);
         }
     }
 }
