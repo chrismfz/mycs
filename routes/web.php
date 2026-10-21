@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\IncomeExportController;
+use App\Http\Controllers\AnnouncementUnsubscribeController;
 use App\Http\Controllers\GuestTicketAttachmentController;
 use App\Http\Controllers\InvoicePdfController;
 use App\Http\Controllers\OfferController;
@@ -23,6 +24,7 @@ use App\Livewire\Tickets;
 use App\Providers\Filament\AdminPanelProvider;
 use App\Services\Captcha\Altcha;
 use Illuminate\Foundation\Auth\EmailVerificationRequest;
+use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -112,6 +114,10 @@ Route::get('/invite/{token}', Client\AcceptInvite::class)->name('invites.accept'
 Route::get('cart', Cart::class)->name('cart')->middleware('checkout');
 // An offer's link (ROADMAP 6α): its products in the cart, its coupon applied.
 Route::get('offer/{offer}', OfferController::class)->name('offers.show')->middleware(['checkout', 'throttle:20,1']);
+Route::get('announcements/unsubscribe/{user}', [AnnouncementUnsubscribeController::class, 'show'])->name('announcements.unsubscribe')->middleware(['signed', 'throttle:20,1']);
+// Its signature is its proof (no session: a mail provider's one-click, RFC 8058, or a page left open past the session).
+Route::post('announcements/unsubscribe/{user}', [AnnouncementUnsubscribeController::class, 'store'])->middleware(['signed', 'throttle:20,1'])
+    ->withoutMiddleware([ValidateCsrfToken::class]);
 
 Route::group(['prefix' => 'products', 'middleware' => 'checkout'], function () {
     Route::get('/{category:slug}', Products\Index::class)->name('category.show')/* ->where('category', '[A-Za-z0-9_/-]+') */;

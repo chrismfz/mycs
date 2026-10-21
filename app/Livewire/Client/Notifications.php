@@ -136,6 +136,7 @@ class Notifications extends Component
                 'password_reset',
                 'new_login_detected',
                 'client_invite', // to an address, not a login's preference (PR 2b)
+                'announcement', // a mass mail's important announcement: always sent (its news is a preference)
             ])
             ->get()
             ->map(function ($notification) use ($userPreferences) {

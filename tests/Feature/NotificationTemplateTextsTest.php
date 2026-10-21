@@ -21,6 +21,7 @@ use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail as MailFacade;
+use MyCS\MailTemplate\Html;
 use Tests\TestCase;
 
 /**
@@ -78,6 +79,9 @@ class NotificationTemplateTextsTest extends TestCase
                 'fqdn' => 'example.com', 'expires' => '15/11/2027', 'years' => 1, 'nameservers' => 'ns1.example.net, ns2.example.net',
                 'reason' => 'auth',
             ],
+            // ROADMAP 6δ: a mass mail's layout, its message the staff's.
+            'announcement', 'announcement_news' => ['subject' => 'Rigel moves', 'content' => new Html('<p>On Sunday.</p>'),
+                'unsubscribe_url' => $key === 'announcement_news' ? 'https://example.test/stop' : null],
             'service_cancellation_received' => ['service' => $service, 'cancellation' => ServiceCancellation::withoutEvents(fn () => ServiceCancellation::query()->create(['service_id' => $service->id, 'type' => 'end_of_period', 'reason' => 'Moving']))],
         };
     }

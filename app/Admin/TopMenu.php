@@ -14,6 +14,7 @@ use App\Admin\Pages\Settings;
 use App\Admin\Resources\AdjustmentNoteResource;
 use App\Admin\Resources\ApiResource;
 use App\Admin\Resources\Audits\AuditResource;
+use App\Admin\Resources\BulkMailResource;
 use App\Admin\Resources\CannedReplyCategoryResource;
 use App\Admin\Resources\CannedReplyResource;
 use App\Admin\Resources\CategoryResource;
@@ -85,6 +86,7 @@ class TopMenu
             [ServiceCancellationResource::class, 'index', 'Cancellation Requests'],
             [LicenseResource::class, 'index', 'Licenses'],
             [ClientGroupResource::class, 'index', 'Client Groups'],
+            [BulkMailResource::class, 'index', 'Mass Mail Tool'],
         ],
         'Orders' => [
             [OrderResource::class, 'index', 'List All Orders'],
