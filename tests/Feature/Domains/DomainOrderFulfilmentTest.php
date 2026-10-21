@@ -235,7 +235,9 @@ class DomainOrderFulfilmentTest extends TestCase
 
         $failed = MailFacade::queued(Mail::class)->filter(fn (Mail $mail) => $mail->templateKey === 'domain_transfer_failed');
         $this->assertCount(1, $failed);
-        $this->assertStringContainsString('Invalid auth code', $failed->first()->render());
+        $body = $failed->first()->render();
+        $this->assertStringContainsString('did not accept its EPP', $body, 'what to fix, in our words');
+        $this->assertStringNotContainsString('Openprovider', $body, 'never the registrar\'s own text');
         $this->assertStringNotContainsString('Bad-Epp-7731', strip_tags($failed->first()->render()), 'never its EPP code');
         $this->assertCount(1, MailFacade::queued(SystemMail::class)->filter(fn (SystemMail $mail) => $mail->envelope()->subject === 'Domain transfer needs staff: nixpal.com'));
     }
@@ -249,7 +251,9 @@ class DomainOrderFulfilmentTest extends TestCase
         $this->assertSame([], $this->mails('domain_transferred'));
 
         $this->status = 'ACT';
+        $stale = $domain->fresh(); // the batched sync's copy, read before another sync finished it (code review 3)
         app(DomainSyncService::class)->sync($domain->refresh());
+        app(DomainSyncService::class)->sync($stale);
         app(DomainSyncService::class)->sync($domain->refresh());
 
         $this->assertSame(DomainStatus::Active, $domain->fresh()->status);

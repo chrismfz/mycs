@@ -368,18 +368,19 @@ class DomainRenewalService
                 "Renewed, but the registrar shows {$result->expiresAt} for a period paid to {$line->period_end->toDateString()}: check it on its next sync, then close this."));
         }
         $this->lifecycle->advance($domain->refresh());
-        self::tellRenewed($domain);
+        // Short: the registrar does not show it yet; the period paid for is what the customer has (ADV-6 of #293).
+        self::tellRenewed($domain, $short ? Carbon::parse($line->period_end) : null);
 
         return $adopted ? self::ADOPTED : self::APPLIED;
     }
 
     /** The customer's «renewed until» (WHMCS's Domain Renewal Confirmation, mail check of 2026-10-21): after it is applied. */
-    private static function tellRenewed(Domain $domain): void
+    private static function tellRenewed(Domain $domain, ?Carbon $until = null): void
     {
         try {
             NotificationHelper::domainNotification($domain->client, $domain, 'domain_renewed', [
                 'fqdn' => $domain->fqdn,
-                'expires' => $domain->expires_at?->format('d/m/Y'),
+                'expires' => ($until ?? $domain->expires_at)?->format('d/m/Y'),
             ]);
         } catch (Throwable $e) {
             report($e); // renewed at the registrar: a mail that fails is not a failed renewal
@@ -521,11 +522,11 @@ class DomainRenewalService
 
             return;
         }
-        DB::transaction(function () use ($domain, $line, $staff) {
+        $applied = DB::transaction(function () use ($domain, $line, $staff) {
             $domain = Domain::query()->whereKey($domain->id)->lockForUpdate()->firstOrFail(); // the domain first (D5b-1 lock order)
             $line = InvoiceItem::query()->whereKey($line->id)->lockForUpdate()->firstOrFail();
             if ($line->applied_at !== null) {
-                return;
+                return false; // a second click: done already, told already
             }
             $line->forceFill(['applied_at' => now()])->save();
             $end = Carbon::parse($line->period_end);
@@ -536,8 +537,12 @@ class DomainRenewalService
                 'staff_id' => $staff?->id, 'invoice_id' => $line->invoice_id, 'action' => 'renew', 'status' => DomainRegistrarLog::STATUS_OK,
                 'response' => ['by_hand' => true, 'expires_at' => $end->toDateString(), 'line' => $line->id]]);
             ModuleAction::domainSucceeded($domain, $line);
+
+            return true;
         });
         $this->lifecycle->advance($domain->refresh());
-        self::tellRenewed($domain);
+        if ($applied) {
+            self::tellRenewed($domain);
+        }
     }
 }

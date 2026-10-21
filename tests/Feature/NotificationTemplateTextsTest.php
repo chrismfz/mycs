@@ -76,7 +76,7 @@ class NotificationTemplateTextsTest extends TestCase
             'domain_registered', 'domain_transfer_started', 'domain_transferred', 'domain_renewed', 'domain_transfer_failed' => [
                 'domain' => Domain::query()->where('fqdn', 'example.com')->first() ?? Domain::factory()->create(['client_id' => $user->client()->id, 'sld' => 'example', 'tld' => 'com', 'fqdn' => 'example.com', 'expires_at' => '2026-11-15']),
                 'fqdn' => 'example.com', 'expires' => '15/11/2027', 'years' => 1, 'nameservers' => 'ns1.example.net, ns2.example.net',
-                'reason' => 'Invalid auth code',
+                'reason' => 'auth',
             ],
             'service_cancellation_received' => ['service' => $service, 'cancellation' => ServiceCancellation::withoutEvents(fn () => ServiceCancellation::query()->create(['service_id' => $service->id, 'type' => 'end_of_period', 'reason' => 'Moving']))],
         };

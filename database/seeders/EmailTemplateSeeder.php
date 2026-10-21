@@ -964,7 +964,7 @@ class EmailTemplateSeeder extends Seeder
             'in_app_url' => '{{ urls.domain }}',
         ],
         'domain_renewed' => [
-            'subject' => '{{ fqdn }} is renewed until {{ expires }}',
+            'subject' => '{{ fqdn }} is renewed{% if expires %} until {{ expires }}{% endif %}',
             'body' => <<<'HTML'
                 # Domain renewed
 
@@ -994,11 +994,17 @@ class EmailTemplateSeeder extends Seeder
 
                 The transfer of your domain **{{ fqdn }}** to us did not go through.
 
-                {% if reason %}
-                The registrar's answer: *{{ reason }}*
+                {% if reason == "auth" %}
+                The registrar did not accept its EPP (authorisation) code: please get a new one from your current registrar.
+                {% else %}
+                {% if reason == "lock" %}
+                The domain is locked at its current registrar: please unlock it there.
+                {% else %}
+                The usual reasons are a wrong or expired EPP (authorisation) code, a domain still locked at its current registrar, or a transfer refused there.
+                {% endif %}
                 {% endif %}
 
-                The usual reasons are a wrong or expired EPP (authorisation) code, a domain still locked at its current registrar, or a transfer refused there. Your domain stays where it is and keeps working.
+                Your domain stays where it is and keeps working.
 
                 Please check these with your current registrar and reply to this message, or open a ticket: we will send the transfer again.
 
@@ -1898,7 +1904,7 @@ class EmailTemplateSeeder extends Seeder
         ],
         'domain_renewed' => [
             'el' => [
-                'subject' => 'Το {{ fqdn }} ανανεώθηκε έως {{ expires }}',
+                'subject' => 'Το {{ fqdn }} ανανεώθηκε{% if expires %} έως {{ expires }}{% endif %}',
                 'body' => <<<'HTML'
                     # Το domain ανανεώθηκε
 
@@ -1926,11 +1932,17 @@ class EmailTemplateSeeder extends Seeder
 
                     Η μεταφορά του domain σας **{{ fqdn }}** σε εμάς δεν ολοκληρώθηκε.
 
-                    {% if reason %}
-                    Η απάντηση του registrar: *{{ reason }}*
+                    {% if reason == "auth" %}
+                    Ο registrar δεν δέχτηκε τον κωδικό EPP (κωδικό εξουσιοδότησης): ζητήστε νέο από τον τωρινό registrar σας.
+                    {% else %}
+                    {% if reason == "lock" %}
+                    Το domain είναι κλειδωμένο στον τωρινό registrar: ξεκλειδώστε το εκεί.
+                    {% else %}
+                    Οι συνηθισμένοι λόγοι είναι λάθος ή ληγμένος κωδικός EPP (κωδικός εξουσιοδότησης), domain που είναι ακόμα κλειδωμένο στον τωρινό registrar ή άρνηση της μεταφοράς από εκεί.
+                    {% endif %}
                     {% endif %}
 
-                    Οι συνηθισμένοι λόγοι είναι λάθος ή ληγμένος κωδικός EPP (κωδικός εξουσιοδότησης), domain που είναι ακόμα κλειδωμένο στον τωρινό registrar ή άρνηση της μεταφοράς από εκεί. Το domain σας μένει όπου είναι και συνεχίζει να λειτουργεί.
+                    Το domain σας μένει όπου είναι και συνεχίζει να λειτουργεί.
 
                     Ελέγξτε τα με τον τωρινό registrar σας και απαντήστε σε αυτό το μήνυμα ή ανοίξτε ticket: θα στείλουμε ξανά τη μεταφορά.
 

@@ -100,7 +100,13 @@ class DomainOrderFulfilment
     {
         return $domain !== null && $domain->order_id !== null
             && in_array($domain->status, [DomainStatus::PendingRegister, DomainStatus::PendingTransfer], true)
-            && empty($domain->meta['sent_at']) && empty($domain->meta['on_hold']);
+            && (empty($domain->meta['sent_at']) || self::failedTransfer($domain)) && empty($domain->meta['on_hold']);
+    }
+
+    /** Sent, and its registrar reported it failed (DomainSyncService::transferOutcome): staff's Retry sends it again. */
+    private static function failedTransfer(Domain $domain): bool
+    {
+        return $domain->status === DomainStatus::PendingTransfer && !empty($domain->meta['transfer_failed']);
     }
 
     public function fulfil(int $domainId): string
@@ -191,10 +197,11 @@ class DomainOrderFulfilment
             $clean = $this->clean($domain, $e);
             $log->update(['status' => DomainRegistrarLog::STATUS_FAILED, 'error' => mb_substr($clean->getMessage(), 0, 2000), 'transactions' => $transactions->since($mark)]);
             ModuleAction::domainFailed($domain, $line, $connection->registrar, $clean, $action);
-            // A transfer its registrar refused (a wrong EPP code, a lock): the customer is told what it said, to fix it.
-            // Not one we did not send (NotAsked, not configured): that is ours to fix.
-            if (!$register && $e instanceof RegistrarRefused) {
-                $this->tellTransferFailed($domain, $clean->getMessage());
+            // A transfer its registrar refused for the customer to fix (its EPP code, its lock): told what to check, in our
+            // words, never the registrar's text (our account, its name: reviews of #293). Anything else (a contact refused,
+            // our balance, a rate limit, not sent at all) is staff's.
+            if (!$register && $e instanceof RegistrarRefused && ($reason = self::transferRefusal($clean->getMessage())) !== null) {
+                $this->tellTransferFailed($domain, $reason);
             }
 
             return self::STAFF;
@@ -274,13 +281,26 @@ class DomainOrderFulfilment
         }
     }
 
+    /** Why a transfer was refused, when it is the customer's to fix: «auth» (its EPP code) or «lock»; else null. */
+    public static function transferRefusal(string $message): ?string
+    {
+        if (preg_match('/\b429\b|too many|rate limit/i', $message)) {
+            return null;
+        }
+        if (preg_match('/auth(orization|orisation)?[ _-]?(code|info)|\bepp\b|authinfo|transfer (key|secret)/i', $message)) {
+            return 'auth';
+        }
+        if (preg_match('/\block(ed)?\b|prohibit|clienttransferprohibited/i', $message)) {
+            return 'lock';
+        }
+
+        return null;
+    }
+
     private function tellTransferFailed(Domain $domain, string $reason): void
     {
         try {
-            NotificationHelper::domainNotification($domain->client, $domain, 'domain_transfer_failed', [
-                'fqdn' => $domain->fqdn,
-                'reason' => mb_substr($reason, 0, 300),
-            ]);
+            NotificationHelper::domainNotification($domain->client, $domain, 'domain_transfer_failed', ['fqdn' => $domain->fqdn, 'reason' => $reason]);
         } catch (Throwable $e) {
             report($e);
         }
