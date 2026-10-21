@@ -14,6 +14,7 @@ use App\Models\ModuleAction;
 use App\Models\User;
 use App\Services\Domains\DomainRenewalService;
 use App\Services\Domains\DomainSyncService;
+use App\Services\Domains\Lookup\LaravelTransport;
 use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -22,6 +23,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
+use Nixpal\DomainTools\Whois\SocketConnector;
 use Tests\TestCase;
 
 /**
@@ -41,6 +43,9 @@ class RenewAsTransferTest extends TestCase
 
     private ?string $auth = 'Epp-Code-123';
 
+    /** The registry's expiry (RDAP), as it shows the transfer: null, not readable. */
+    private ?string $rdapExpiry = '2026-11-01T00:00:00Z';
+
     /** null: takes it; 'refuse': 4xx; 'down': 5xx */
     private ?string $target = null;
 
@@ -56,6 +61,14 @@ class RenewAsTransferTest extends TestCase
         Queue::fake();
         Mail::fake();
         Http::preventStrayRequests();
+        LaravelTransport::$resolve = fn (string $host) => ['93.184.216.34'];
+        $this->app->bind(SocketConnector::class, fn () => new class implements SocketConnector
+        {
+            public function query($host, $query, $timeout = 8, $max = 65536)
+            {
+                return null;
+            }
+        });
         Http::fake(fn (Request $request) => str_contains($request->url(), 'rrpproxy') ? $this->cnicAnswer($request) : $this->opAnswer($request));
         config(['audit.console' => true, 'settings.domain_billing_enabled' => true, 'settings.domain_invoice_days' => 15, 'settings.credits_auto_use' => false]);
         Currency::query()->firstOrCreate(['code' => 'EUR'], ['name' => 'Euro', 'suffix' => 'EUR', 'format' => '1.000,00']);
@@ -68,6 +81,7 @@ class RenewAsTransferTest extends TestCase
 
     protected function tearDown(): void
     {
+        LaravelTransport::$resolve = null;
         Carbon::setTestNow();
         parent::tearDown();
     }
@@ -97,6 +111,9 @@ class RenewAsTransferTest extends TestCase
             $request->method() === 'POST' && str_ends_with($path, '/domains/transfer') => $this->opTransfer($path, $request->data()),
             $request->method() === 'POST' && str_ends_with($path, '/renew') => $this->opRenew(),
             $request->method() === 'GET' && str_contains($path, '/v1/domains') => Http::response(['data' => ['results' => $this->op === [] ? [] : [$this->record()], 'total' => $this->op === [] ? 0 : 1] + ($this->op === [] ? [] : $this->record())]),
+            str_contains($request->url(), 'data.iana.org') => Http::response(['services' => [[['com', 'eu', 'uk'], ['https://rdap.example/']]]]),
+            str_contains($request->url(), 'rdap.example/domain/') => $this->rdapExpiry === null ? Http::response([], 503)
+                : Http::response(['objectClassName' => 'domain', 'ldhName' => 'example.com', 'events' => [['eventAction' => 'expiration', 'eventDate' => $this->rdapExpiry]]]),
             default => Http::response([], 404),
         };
     }
@@ -280,7 +297,8 @@ class RenewAsTransferTest extends TestCase
 
         $domain->refresh();
         $this->assertSame([DomainStatus::Active, $this->to->id, '2027-11-01'], [$domain->status, $domain->registrar_connection_id, $domain->expires_at->toDateString()]);
-        $this->assertNotNull($domain->meta['renew_transfer']['done_at']);
+        $this->assertNotNull($domain->meta['renew_transfer_last']['done_at'], 'settled: kept as history');
+        $this->assertArrayNotHasKey('renew_transfer', $domain->meta);
         $this->assertSame([], $this->mails('domain_transferred'), 'a renewal to the customer, not a transfer');
         $this->assertCount(1, $this->mails('domain_renewed'));
     }
@@ -325,6 +343,47 @@ class RenewAsTransferTest extends TestCase
 
         $this->assertNotNull($line->fresh()->applied_at);
         $this->assertSame(0, $this->opRenewals);
-        $this->assertArrayNotHasKey('short_since', $domain->fresh()->meta['renew_transfer']);
+        $this->assertSame('covered', $domain->fresh()->meta['renew_transfer_last']['settled'] ?? null);
+    }
+
+    public function test_a_registrar_lagging_past_the_wait_is_never_charged_when_the_registry_has_the_year(): void
+    {
+        // A .com: its transfer added the year at the registry; the registrar shows the old date for days (code review 3 of #304).
+        [$domain, $line] = $this->paidRenewal();
+        app(DomainRenewalService::class)->renewLine($line->id);
+        $this->opStatus = 'ACT';
+        $this->opExpiry = '2026-11-01 00:00:00';
+        $this->rdapExpiry = '2027-11-01T00:00:00Z';
+        $sync = app(DomainSyncService::class);
+        $sync->sync($domain->refresh());
+        foreach (['2026-10-23 11:00:00', '2026-10-25 11:00:00', '2026-10-30 11:00:00'] as $day) {
+            Carbon::setTestNow($day);
+            $sync->sync($domain->refresh());
+            app(DomainRenewalService::class)->renewLine($line->id);
+        }
+
+        $this->assertNotNull($line->fresh()->applied_at, 'never opened again');
+        $this->assertSame(0, $this->opRenewals, 'never a second year');
+        $this->assertSame(0, ModuleAction::query()->open()->count());
+    }
+
+    public function test_a_registry_not_readable_is_staffs_never_a_charge(): void
+    {
+        [$domain, $line] = $this->paidRenewal();
+        app(DomainRenewalService::class)->renewLine($line->id);
+        $this->opStatus = 'ACT';
+        $this->opExpiry = '2026-11-01 00:00:00';
+        $this->rdapExpiry = null;
+        $sync = app(DomainSyncService::class);
+        $sync->sync($domain->refresh());
+        Carbon::setTestNow('2026-10-23 11:00:00');
+        $sync->sync($domain->refresh());
+        $sync->sync($domain->refresh());
+        app(DomainRenewalService::class)->renewLine($line->id);
+
+        $this->assertNotNull($line->fresh()->applied_at);
+        $this->assertSame(0, $this->opRenewals);
+        $row = ModuleAction::query()->open()->where('domain_id', $domain->id)->sole();
+        $this->assertStringContainsString('could not confirm', $row->last_error);
     }
 }

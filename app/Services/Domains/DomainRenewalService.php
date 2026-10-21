@@ -277,7 +277,11 @@ class DomainRenewalService
         // Its connection transfers its renewals elsewhere (owner 2026-10-21, the WHMCS hook as a setting): a transfer adds
         // the one year paid for. More years, or some already charged for this line: renewed here.
         // A line whose transfer failed is renewed here (RenewAsTransfer::revert), never transferred again on its own.
-        $here = (int) ($domain->meta['renew_here_line'] ?? 0) === $line->id;
+        // A line opened again after its transfer (renewAfterTransfer), or one a transfer already took: renewed where it is,
+        // never transferred again (ADV-2 / code review 2 of #304).
+        $here = (int) ($domain->meta['renew_here_line'] ?? 0) === $line->id || self::reopenedAfterTransfer($domain, $line)
+            || DomainRegistrarLog::query()->where('domain_id', $domain->id)->where('action', 'transfer')->where('status', DomainRegistrarLog::STATUS_OK)
+                ->where('request->line', $line->id)->exists();
         $to = $restore || $here ? null : $connection->renewTransferTarget();
         if ($to !== null && $now->status === DomainStatus::Active && $years === 1 && $done === 0 && $paid === 1) {
             $outcome = app(RenewAsTransfer::class)->run($domain, $line, $connection, $to, $now, $staff);
@@ -424,12 +428,37 @@ class DomainRenewalService
         $this->lifecycle->advance($domain->refresh());
         // Short: the registrar does not show it yet; the period paid for is what the customer has (ADV-6 of #293). A line
         // opened again after its transfer (renewAfterTransfer): the customer was told «renewed» when it was sent.
-        $again = (int) ($domain->meta['renew_transfer']['line'] ?? 0) === $line->id && !empty($domain->meta['renew_transfer']['reopened_at']);
-        if (!$again) {
+        if (!self::reopenedAfterTransfer($domain, $line)) {
             self::tellRenewed($domain, $short ? Carbon::parse($line->period_end) : null);
         }
+        self::settleTransferRecord($domain, $line);
 
         return $adopted ? self::ADOPTED : self::APPLIED;
+    }
+
+    /** This line was opened again after the transfer that replaced its renewal added no year (renewAfterTransfer). */
+    public static function reopenedAfterTransfer(Domain $domain, InvoiceItem $line): bool
+    {
+        $record = $domain->meta['renew_transfer'] ?? null;
+
+        return is_array($record) && (int) ($record['line'] ?? 0) === $line->id && !empty($record['reopened_at']);
+    }
+
+    /** Its transfer's record, settled once its reopened line is applied: kept as history (code review 5 of #304). */
+    private static function settleTransferRecord(Domain $domain, InvoiceItem $line): void
+    {
+        if (!self::reopenedAfterTransfer($domain, $line)) {
+            return;
+        }
+        DB::transaction(function () use ($domain) {
+            $fresh = Domain::query()->lockForUpdate()->findOrFail($domain->id);
+            $meta = $fresh->meta ?? [];
+            if (isset($meta['renew_transfer'])) {
+                $meta['renew_transfer_last'] = $meta['renew_transfer'] + ['settled_at' => now()->toIso8601String()];
+                unset($meta['renew_transfer']);
+                $fresh->forceFill(['meta' => $meta])->save();
+            }
+        });
     }
 
     /** The customer's «renewed until» (WHMCS's Domain Renewal Confirmation, mail check of 2026-10-21): after it is applied. */
@@ -602,8 +631,11 @@ class DomainRenewalService
             return true;
         });
         $this->lifecycle->advance($domain->refresh());
-        if ($applied) {
+        if ($applied && !self::reopenedAfterTransfer($domain, $line)) { // told when its transfer was sent (ADV-3 of #304)
             self::tellRenewed($domain);
+        }
+        if ($applied) {
+            self::settleTransferRecord($domain, $line);
         }
     }
 }

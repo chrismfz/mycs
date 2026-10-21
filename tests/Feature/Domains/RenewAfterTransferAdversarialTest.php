@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Services\Domains\DomainLifecycle;
 use App\Services\Domains\DomainRenewalService;
 use App\Services\Domains\DomainSyncService;
+use App\Services\Domains\Lookup\LaravelTransport;
 use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -26,6 +27,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
+use Nixpal\DomainTools\Whois\SocketConnector;
 use Tests\TestCase;
 
 /**
@@ -45,6 +47,9 @@ class RenewAfterTransferAdversarialTest extends TestCase
 
     private ?string $auth = 'Epp-Code-123';
 
+    /** The registry's expiry (RDAP), as it shows the transfer: null, not readable. */
+    private ?string $rdapExpiry = '2026-11-01T00:00:00Z';
+
     /** null: takes it; 'refuse': 4xx; 'down': 5xx */
     private ?string $target = null;
 
@@ -60,6 +65,14 @@ class RenewAfterTransferAdversarialTest extends TestCase
         Queue::fake();
         Mail::fake();
         Http::preventStrayRequests();
+        LaravelTransport::$resolve = fn (string $host) => ['93.184.216.34'];
+        $this->app->bind(SocketConnector::class, fn () => new class implements SocketConnector
+        {
+            public function query($host, $query, $timeout = 8, $max = 65536)
+            {
+                return null;
+            }
+        });
         Http::fake(fn (Request $request) => str_contains($request->url(), 'rrpproxy') ? $this->cnicAnswer($request) : $this->opAnswer($request));
         config(['audit.console' => true, 'settings.domain_billing_enabled' => true, 'settings.domain_invoice_days' => 15, 'settings.credits_auto_use' => false]);
         Currency::query()->firstOrCreate(['code' => 'EUR'], ['name' => 'Euro', 'suffix' => 'EUR', 'format' => '1.000,00']);
@@ -72,6 +85,7 @@ class RenewAfterTransferAdversarialTest extends TestCase
 
     protected function tearDown(): void
     {
+        LaravelTransport::$resolve = null;
         Carbon::setTestNow();
         parent::tearDown();
     }
@@ -101,6 +115,9 @@ class RenewAfterTransferAdversarialTest extends TestCase
             $request->method() === 'POST' && str_ends_with($path, '/domains/transfer') => $this->opTransfer($path, $request->data()),
             $request->method() === 'POST' && str_ends_with($path, '/renew') => $this->opRenew(),
             $request->method() === 'GET' && str_contains($path, '/v1/domains') => Http::response(['data' => ['results' => $this->op === [] ? [] : [$this->record()], 'total' => $this->op === [] ? 0 : 1] + ($this->op === [] ? [] : $this->record())]),
+            str_contains($request->url(), 'data.iana.org') => Http::response(['services' => [[['com', 'eu', 'uk'], ['https://rdap.example/']]]]),
+            str_contains($request->url(), 'rdap.example/domain/') => $this->rdapExpiry === null ? Http::response([], 503)
+                : Http::response(['objectClassName' => 'domain', 'ldhName' => 'example.com', 'events' => [['eventAction' => 'expiration', 'eventDate' => $this->rdapExpiry]]]),
             default => Http::response([], 404),
         };
     }
