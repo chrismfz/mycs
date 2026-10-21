@@ -122,6 +122,13 @@ return [
         'cycle_changed' => 'Cancelled: the billing cycle of the service changed.',
     ],
 
+    // Bank transfer (#287)
+    'bank_transfer_charged' => 'This invoice will be paid automatically with your saved payment method on :date, so there is no need to pay by transfer. If you would rather pay it by transfer, please contact us first.',
+    'bank_transfer' => 'Pay by bank transfer',
+    'bank_transfer_intro' => 'Transfer :total to one of our bank accounts:',
+    'bank_transfer_reference' => 'In the transfer\'s reference, write: :reference',
+    'bank_transfer_after' => 'We record your payment as soon as it reaches our account; this can take 1–2 working days. If you have already paid, there is nothing more to do.',
+
     // Cardlink/Eurobank (PR H2a)
     'cardlink_redirect' => 'You are being taken to the bank\'s secure page to pay by card, Apple/Google Pay or IRIS.',
     'cardlink_continue' => 'Continue to payment',

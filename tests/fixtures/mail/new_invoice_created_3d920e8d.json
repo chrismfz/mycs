@@ -1,0 +1,14 @@
+{
+    "en": {
+        "subject": "New invoice #{{ invoice_number }} | Due {{ invoice.due_at|date(\"d/m/Y\") }} | {{ total }}",
+        "body": "# New invoice #{{ invoice_number }}\n\nDear {{ user.first_name }},\n\nA new invoice was issued for your account.\n\n- Invoice: **#{{ invoice_number }}**\n- Total: **{{ total }}**\n- Due date: **{{ invoice.due_at|date(\"d/m/Y\") }}**\n\n<div class=\"table\">\n\n| Description | Qty | Price |\n| :--- | :---: | ---: |\n{% for item in items %}\n| {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |\n{% endfor %}\n</div>\n\n{% if has_subscription %}\nIt will be paid automatically with your saved payment method: there is nothing you need to do.\n{% else %}\n<div class=\"action\">\n\t<a class=\"button button-blue\" href=\"{{ urls.invoice }}\">\n\t\tView & pay invoice\n\t</a>\n</div>\n{% endif %}\n\nIf you have already paid, please ignore this message.",
+        "in_app_title": "New invoice #{{ invoice_number }}",
+        "in_app_body": "Invoice #{{ invoice_number }} of {{ total }}, due {{ invoice.due_at|date(\"d/m/Y\") }}."
+    },
+    "el": {
+        "subject": "Νέο προτιμολόγιο #{{ invoice_number }} | Λήξη {{ invoice.due_at|date(\"d/m/Y\") }} | {{ total }}",
+        "body": "# Νέο προτιμολόγιο #{{ invoice_number }}\n\nΑγαπητέ/ή {{ user.first_name }},\n\nΕκδόθηκε νέο προτιμολόγιο για τον λογαριασμό σας.\n\n- Προτιμολόγιο: **#{{ invoice_number }}**\n- Σύνολο: **{{ total }}**\n- Ημερομηνία λήξης: **{{ invoice.due_at|date(\"d/m/Y\") }}**\n\n<div class=\"table\">\n\n| Περιγραφή | Ποσότητα | Τιμή |\n| :--- | :---: | ---: |\n{% for item in items %}\n| {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |\n{% endfor %}\n</div>\n\n{% if has_subscription %}\nΘα εξοφληθεί αυτόματα με τον αποθηκευμένο τρόπο πληρωμής σας: δεν χρειάζεται να κάνετε κάτι.\n{% else %}\n<div class=\"action\">\n\t<a class=\"button button-blue\" href=\"{{ urls.invoice }}\">\n\t\tΠροβολή & πληρωμή\n\t</a>\n</div>\n{% endif %}\n\nΑν έχετε ήδη πληρώσει, παραβλέψτε αυτό το μήνυμα.",
+        "in_app_title": "Νέο προτιμολόγιο #{{ invoice_number }}",
+        "in_app_body": "Προτιμολόγιο #{{ invoice_number }} ποσού {{ total }}, λήξη {{ invoice.due_at|date(\"d/m/Y\") }}."
+    }
+}

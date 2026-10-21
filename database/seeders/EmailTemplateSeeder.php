@@ -77,6 +77,16 @@ class EmailTemplateSeeder extends Seeder
                 </div>
                 {% endif %}
 
+                {% if bank_transfer %}
+                **Pay by bank transfer**
+
+                {% for line in bank_transfer.lines %}
+                {{ line }}<br>
+                {% endfor %}
+
+                In the transfer's reference, write: **{{ bank_transfer.reference }}**
+                {% endif %}
+
                 If you have already paid, please ignore this message.
                 HTML,
             'in_app_title' => 'New invoice #{{ invoice_number }}',
@@ -1022,6 +1032,16 @@ class EmailTemplateSeeder extends Seeder
                     		Προβολή & πληρωμή
                     	</a>
                     </div>
+                    {% endif %}
+
+                    {% if bank_transfer %}
+                    **Πληρωμή με τραπεζική μεταφορά**
+
+                    {% for line in bank_transfer.lines %}
+                    {{ line }}<br>
+                    {% endfor %}
+
+                    Στην αιτιολογία της μεταφοράς γράψτε: **{{ bank_transfer.reference }}**
                     {% endif %}
 
                     Αν έχετε ήδη πληρώσει, παραβλέψτε αυτό το μήνυμα.

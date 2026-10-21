@@ -211,8 +211,9 @@ class TransactionsRelationManager extends RelationManager
             return ['credit' => __('invoices.refund_method_credit')];
         }
         $methods = [];
-        if ($record->gateway && $record->gateway->extension && ExtensionHelper::hasFunction($record->gateway, 'supportsRefunds')
-            && ExtensionHelper::hasFunction($record->gateway, 'refund')) {
+        // Only a gateway that refunds (its own answer: every gateway has the method, code review of #287); a bank transfer is
+        // given back by hand or to credit.
+        if ($record->gateway && $record->gateway->extension && self::gatewayRefunds($record)) {
             $methods['gateway'] = __('invoices.refund_method_gateway');
         }
 
@@ -220,6 +221,15 @@ class TransactionsRelationManager extends RelationManager
             'manual' => __('invoices.refund_method_manual'),
             'credit' => __('invoices.refund_method_credit'),
         ];
+    }
+
+    private static function gatewayRefunds(InvoiceTransaction $record): bool
+    {
+        try {
+            return (bool) ExtensionHelper::getExtension('gateway', $record->gateway->extension, $record->gateway->settings)->supportsRefunds();
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     private function notifyRefundResult(bool $success, ?string $errorMessage = null): void

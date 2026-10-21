@@ -23,6 +23,7 @@ use App\Models\TicketMessage;
 use App\Models\User;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Mail\MailAudit;
+use App\Services\Money\BankTransferDetails;
 use App\Support\Redact;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\App;
@@ -309,6 +310,8 @@ class NotificationHelper
             // What is left to pay, for a partly paid invoice (review R5/A10).
             'remaining' => $invoice->formattedRemaining,
             'partly_paid' => $invoice->remaining > 0 && $invoice->remaining < $invoice->total,
+            // Unpaid: the bank transfer accounts, line by line, and the reference to write (null without them).
+            'bank_transfer' => BankTransferDetails::forTemplate($invoice),
         ];
 
         // Generate the invoice PDF, in the customer's language
