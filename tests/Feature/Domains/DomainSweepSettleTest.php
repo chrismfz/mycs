@@ -32,7 +32,7 @@ use Tests\TestCase;
  * Domain sweep (2026-10-22), the paid-renewal path: DomainRenewalService (renewLine, renewNow, apply), RenewAsTransfer
  * and the ModuleAction close. Every test here FAILS on e3b94471 and shows one defect; see the report for fixes.
  */
-class DomainSweepRenewalTest extends TestCase
+class DomainSweepSettleTest extends TestCase
 {
     use RefreshDatabase;
 
