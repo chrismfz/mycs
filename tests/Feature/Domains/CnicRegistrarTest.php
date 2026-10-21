@@ -123,11 +123,11 @@ class CnicRegistrarTest extends TestCase
         $this->assertFalse($cnic->ping(new DomainRegistrarCredentials([], sandbox: false)), 'no credentials: false, never thrown');
     }
 
-    public function test_no_write_is_ever_sent_yet(): void
+    public function test_no_registration_transfer_or_restore_is_ever_sent_yet(): void
     {
         $this->cnic([]);
         $domain = Domain::factory()->make(['fqdn' => 'example.com']);
-        foreach ([fn ($c) => $c->renew($domain, 1, $this->credentials()), fn ($c) => $c->register($domain, 1, $this->credentials()),
+        foreach ([fn ($c) => $c->register($domain, 1, $this->credentials()),
             fn ($c) => $c->transferIn($domain, 'x', $this->credentials()), fn ($c) => $c->restore($domain, $this->credentials())] as $write) {
             try {
                 $write(new CnicRegistrar);

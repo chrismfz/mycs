@@ -57,6 +57,11 @@ final class DomainSyncResult
         /** Y-m-d the registrar's grace (soft quarantine) and redemption (hard quarantine) end, when it is in them (D5a). */
         public readonly ?string $graceEndsOn = null,
         public readonly ?string $redemptionEndsOn = null,
+        /**
+         * Y-m-d it is paid until there, when that differs from the day it goes (CentralNic Reseller: its renewal date can
+         * be earlier): «is the period paid there already» reads this, never a charge for a year it has (ADV-2 of #302).
+         */
+        public readonly ?string $paidUntil = null,
     ) {}
 
     /** Nothing was read (a write whose re-read failed): no truth to apply, the next sync brings it (review 7). */
