@@ -41,6 +41,7 @@ use App\Admin\Resources\McpProposalResource;
 use App\Admin\Resources\ModuleActionResource;
 use App\Admin\Resources\NotificationTemplateResource;
 use App\Admin\Resources\OauthClientResource;
+use App\Admin\Resources\OfferResource;
 use App\Admin\Resources\OrderResource;
 use App\Admin\Resources\PaymentGatewayEventResource;
 use App\Admin\Resources\ProductResource;
@@ -90,6 +91,7 @@ class TopMenu
             [OrderResource::class, 'index', 'Pending Orders', ['tab' => 'pending']],
             [OrderResource::class, 'create', 'Add New Order'],
             [CouponResource::class, 'index', 'Promotions'],
+            [OfferResource::class, 'index', 'Offers'],
         ],
         'Billing' => [
             [InvoiceResource::class, 'index', 'Invoices'],

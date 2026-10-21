@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\IncomeExportController;
 use App\Http\Controllers\GuestTicketAttachmentController;
 use App\Http\Controllers\InvoicePdfController;
+use App\Http\Controllers\OfferController;
 use App\Http\Controllers\SocialLoginController;
 use App\Http\Controllers\TicketAttachmentController;
 use App\Http\Middleware\MustVerfiyEmail;
@@ -107,6 +108,8 @@ Route::group(['middleware' => ['web', 'auth']], function () {
 Route::get('/invite/{token}', Client\AcceptInvite::class)->name('invites.accept')->middleware(['web', 'throttle:30,1']);
 
 Route::get('cart', Cart::class)->name('cart')->middleware('checkout');
+// An offer's link (ROADMAP 6α): its products in the cart, its coupon applied.
+Route::get('offer/{offer}', OfferController::class)->name('offers.show')->middleware(['checkout', 'throttle:20,1']);
 
 Route::group(['prefix' => 'products', 'middleware' => 'checkout'], function () {
     Route::get('/{category:slug}', Products\Index::class)->name('category.show')/* ->where('category', '[A-Za-z0-9_/-]+') */;

@@ -185,6 +185,13 @@ return [
             'reports' => [
                 'view' => 'View Reports',
             ],
+            'offers' => [
+                'create' => 'Create Offers',
+                'update' => 'Update Offers',
+                'viewAny' => 'View Offers',
+                'delete' => 'Delete Offers',
+                'deleteAny' => 'Bulk Delete Offers',
+            ],
             'client_groups' => [
                 'create' => 'Create Client Groups',
                 'update' => 'Update Client Groups',
