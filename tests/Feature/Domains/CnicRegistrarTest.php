@@ -7,6 +7,7 @@ use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainTld;
 use App\Models\User;
+use App\Services\Domains\DomainManagementService;
 use App\Services\Domains\DomainNotFoundAtRegistrar;
 use App\Services\Domains\DomainRegistrarFactory;
 use App\Services\Domains\DomainSyncService;
@@ -97,6 +98,7 @@ class CnicRegistrarTest extends TestCase
     public function test_its_ping_balance_list_and_contacts(): void
     {
         $this->cnic([
+            'StatusDomain' => self::STATUS_DOMAIN,
             'StatusAccount' => "[RESPONSE]\ncode = 200\ndescription = OK\nproperty[AMOUNT][0] = 1520.00\nproperty[CREDIT][0] = 312.40\nproperty[CURRENCY][0] = EUR\nEOF\n",
             'QueryDomainList' => "[RESPONSE]\ncode = 200\ndescription = OK\nproperty[DOMAIN][0] = alpha.com\nproperty[DOMAIN][1] = beta.eu\n"
                 . "property[DOMAIN_REGISTRATION_EXPIRATION_DATE][0] = 2027-01-10 00:00:00.0\nproperty[DOMAIN_REGISTRATION_EXPIRATION_DATE][1] = 2029-05-05 00:00:00.0\n"
@@ -111,7 +113,9 @@ class CnicRegistrarTest extends TestCase
         $this->assertSame(['312.40', 'EUR'], [$cnic->accountBalance($this->credentials())->amount, $cnic->accountBalance($this->credentials())->currency]);
         $page = $cnic->listDomains($this->credentials(), 0, 100);
         $this->assertSame([198, 2], [$page->total, $page->rawCount]);
-        $this->assertSame(['alpha.com', '2027-01-10', false], [$page->records[0]->fqdn(), $page->records[0]->expiresAt, $page->records[0]->autoRenew]);
+        // Each read as its sync reads it (StatusDomain): the same expiry, nameservers and contacts (reviews of #297).
+        $this->assertSame(['alpha.com', '2031-03-02', false, ['ns1.example.net', 'ns2.example.net']],
+            [$page->records[0]->fqdn(), $page->records[0]->expiresAt, $page->records[0]->autoRenew, $page->records[0]->nameservers]);
         $this->assertSame(['beta', 'eu'], [$page->records[1]->sld, $page->records[1]->tld]);
         $contact = $cnic->getContact('P-ABC123', $this->credentials());
         $this->assertSame(['Maria Papadopoulou', 'Example IKE', 'GR', '10431'], [$contact->name, $contact->org, $contact->country, $contact->postcode]);
@@ -149,5 +153,20 @@ class CnicRegistrarTest extends TestCase
         $domain->refresh();
         $this->assertSame(['2031-03-02', ['ns1.example.net', 'ns2.example.net']], [$domain->expires_at->toDateString(), $domain->nameservers()->orderBy('sort')->pluck('host')->all()]);
         $this->assertSame('myipreseller', $this->sent[0]['login']);
+    }
+
+    public function test_its_availability_and_that_nothing_is_sold_or_changed_through_it_yet(): void
+    {
+        $this->cnic(['CheckDomains' => "[RESPONSE]\ncode = 200\ndescription = OK\nproperty[DOMAINCHECK][0] = 210 Domain name available\nEOF\n"]);
+        $this->assertTrue((new CnicRegistrar)->checkAvailability('free-name.com', $this->credentials())->available);
+
+        $cnic = DomainRegistrarConnection::query()->create(['registrar' => 'cnic', 'label' => 'CNIC', 'is_active' => true, 'mode' => 'production']);
+        $cnic->storeCredentials(['username' => 'myipreseller', 'password' => 'Cnic-Secret-1'], ['password']);
+        $tld = DomainTld::query()->create(['tld' => 'com', 'is_active' => true, 'grace_days' => 40, 'redemption_days' => 30, 'registrar_connection_id' => $cnic->id]);
+        $domain = Domain::factory()->create(['client_id' => User::factory()->create()->client()->id, 'sld' => 'example', 'tld' => 'com', 'fqdn' => 'example.com',
+            'domain_tld_id' => $tld->id, 'registrar_connection_id' => $cnic->id, 'status' => DomainStatus::Active, 'expires_at' => '2030-03-02']);
+
+        $this->assertFalse($tld->fresh()->registrarCan('register'), 'not sold through it (reviews of #297)');
+        $this->assertFalse(app(DomainManagementService::class)->isManageable($domain), 'its forms not shown: nothing is changed through it yet');
     }
 }

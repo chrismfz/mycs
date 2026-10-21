@@ -169,7 +169,9 @@ class DomainSyncService
         $now = $domain->expires_at?->toDateString();
         $pending = in_array($domain->status, self::PENDING, true) && $result->status !== DomainStatus::Active;
         if (!$pending && $result->expiresAt !== null) {
-            if ($now !== null && $result->expiresAt < $now) {
+            if ($now !== null && $result->expiresAt < $now && $this->movesBack($domain, $result->expiresAt, $now)) {
+                $set('expires_at', $now, $result->expiresAt); // the day the name goes there (CNIC: #297)
+            } elseif ($now !== null && $result->expiresAt < $now) {
                 // Never back (review F2: a garbled 1970 would have ended a renewed domain in one run).
                 $changes['_warning'] = [null, "the registrar's expiry {$result->expiresAt} is before ours ({$now}): not applied, check it"];
             } else {
@@ -356,6 +358,22 @@ class DomainSyncService
         } catch (Throwable $e) {
             report($e); // the sync is done: what is told is not its result
         }
+    }
+
+    /** Back to its registrar's expiry by at most this much (a garbled date never takes a year off: review F2). */
+    public const MAX_BACK_DAYS = 400;
+
+    /** Its registrar's expiry is when the name goes there (DomainRegistrarCapabilities::expiryIsWhenItGoes), not far back. */
+    private function movesBack(Domain $domain, string $theirs, string $ours): bool
+    {
+        $connection = $domain->effectiveRegistrarConnection();
+        try {
+            $goes = $connection !== null && $this->factory->for($connection)->capabilities()->expiryIsWhenItGoes;
+        } catch (Throwable) {
+            return false;
+        }
+
+        return $goes && $theirs >= '2000-01-01' && Carbon::parse($theirs)->diffInDays(Carbon::parse($ours)) <= self::MAX_BACK_DAYS;
     }
 
     /** Seen «not ours» this long apart (twice at least, the same connection and mode) before it is marked transferred away. */

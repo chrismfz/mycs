@@ -14,7 +14,7 @@ final class Command
     public const OTE = 'https://api-ote.rrpproxy.net/api/call.cgi';
 
     /**
-     * @param  array<string, scalar|list<scalar>|null>  $command  COMMAND first, as the API expects it
+     * @param  array<string, scalar|array<int, scalar|null>|null>  $command  COMMAND first, as the API expects it
      * @return array{s_login: string, s_pw: string, s_command: string}
      */
     public static function form(string $login, string $password, array $command): array
@@ -22,14 +22,14 @@ final class Command
         return ['s_login' => $login, 's_pw' => $password, 's_command' => self::lines($command)];
     }
 
-    /** @param  array<string, scalar|list<scalar>|null>  $command */
+    /** @param  array<string, scalar|array<int, scalar|null>|null>  $command */
     public static function lines(array $command): string
     {
         $lines = [];
         foreach ($command as $key => $value) {
             $key = strtoupper(self::clean((string) $key));
             if (is_array($value)) {
-                foreach (array_values($value) as $i => $item) {
+                foreach (array_values($value) as $i => $item) { // numbered from 0, whatever its keys
                     if ($item !== null && (string) $item !== '') {
                         $lines[] = $key . $i . '=' . self::clean((string) $item);
                     }

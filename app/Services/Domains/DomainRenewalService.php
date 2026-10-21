@@ -260,6 +260,12 @@ class DomainRenewalService
 
             return self::FAILED;
         }
+        // A registrar that renews nothing through its API (CentralNic Reseller, step 1): staff at once, no charge logged.
+        if (!$capabilities->supportsRenewal) {
+            $this->staffDecides($domain, $line, $connection->registrar, "This registrar's renewals are not made through its API yet: renew it there by hand ({$years} year(s)), then mark it «Renewed by hand».");
+
+            return self::FAILED;
+        }
         $steps = $restore ? array_filter(['restore' => 1, 'renew' => $years - 1]) : ['renew' => $years];
         $result = $now;
         foreach ($steps as $action => $stepYears) {

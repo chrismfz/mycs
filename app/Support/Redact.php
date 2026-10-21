@@ -19,7 +19,8 @@ final class Redact
      * its own (api_key, x-api-key, apikey, key) — not key_length, keyboard or monkey (review R12).
      */
     // An EPP/auth code transfers a domain away: a secret like a password (docs/domains.md D-11).
-    private const SECRET_KEY = '/pass|secret|token|authori[sz]ation|cookie|^sess(ion)?(_?id)?$|session$|sig(nature)?$|apikey|(^|[_\-.])key$|auth_?code|epp/i';
+    // s_pw: CentralNic Reseller's password field (#297).
+    private const SECRET_KEY = '/pass|secret|token|authori[sz]ation|cookie|^sess(ion)?(_?id)?$|session$|sig(nature)?$|apikey|(^|[_\-.])key$|auth_?code|epp|^s_pw$/i';
 
     /** Re-read this often: another process (the web request saving a server) may have changed one (review R8). */
     private const KNOWN_TTL = 60;
@@ -69,6 +70,11 @@ final class Redact
         // A webhook's token is in its path (Discord, Slack): review R3.
         $text = (string) preg_replace('#(/api/webhooks/\d+/)[A-Za-z0-9_\-]+#', '$1' . self::MASK, $text);
         $text = (string) preg_replace('#(hooks\.slack\.com/services/)[A-Za-z0-9/]+#', '$1' . self::MASK, $text);
+        // CentralNic Reseller (#297): its auth codes in an answer (property[AUTH][0] = …), its password in a request
+        // (s_pw=…), an AUTH line of a command (plain or form-encoded).
+        $text = (string) preg_replace('/(property\[(?:AUTH|[A-Z-]*AUTHCODE|X-SG-TRANSFER-OUT-CODE)\]\[\d+\]\s*=\s*)[^\r\n"\\\\]*/i', '$1' . self::MASK, $text);
+        $text = (string) preg_replace('/(\bs_pw=)[^&\s"]*/', '$1' . self::MASK, $text);
+        $text = (string) preg_replace('/((?:^|\n|\\\\n|%0A)AUTH(?:=|%3D))(?:(?!%0A|\\\\n|&|")[^\n])*/i', '$1' . self::MASK, $text);
         foreach (self::known() as $secret) {
             $text = str_replace($secret, self::MASK, $text);
         }

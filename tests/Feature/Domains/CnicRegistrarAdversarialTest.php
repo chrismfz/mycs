@@ -196,6 +196,8 @@ class CnicRegistrarAdversarialTest extends TestCase
         $this->answers['QueryDomainList'] = "[RESPONSE]\ncode = 200\ndescription = OK\nproperty[DOMAIN][0] = example.com\n"
             . "property[DOMAIN_REGISTRATION_EXPIRATION_DATE][0] = 2028-03-02 09:12:44.0\nproperty[RENEWALMODE][0] = AUTOEXPIRE\n"
             . "property[TOTAL][0] = 1\nproperty[COUNT][0] = 1\nEOF\n";
+        // The name's own record, as CNIC answers it to the sync below (the import reads each name: #297).
+        $this->answers['StatusDomain'] = self::statusDomain(self::base(['REGISTRATION_EXPIRATION_DATE' => '2028-03-02 09:12:44.0', 'PAIDUNTIL_DATE' => '2027-03-02 09:12:44.0']));
         $imported = (new CnicRegistrar)->listDomains($this->credentials(), 0, 100)->records[0]->expiresAt;
         $synced = $this->sync(['REGISTRATION_EXPIRATION_DATE' => '2028-03-02 09:12:44.0', 'PAIDUNTIL_DATE' => '2027-03-02 09:12:44.0'])->expiresAt;
 
@@ -392,6 +394,7 @@ class CnicRegistrarAdversarialTest extends TestCase
     public function test_adv10_renewalmode_default_is_not_known_auto_renew(): void
     {
         $this->answers['QueryDomainList'] = "[RESPONSE]\ncode = 200\ndescription = OK\nproperty[DOMAIN][0] = alpha.com\nproperty[RENEWALMODE][0] = DEFAULT\nproperty[TOTAL][0] = 1\nEOF\n";
+        $this->answers['StatusDomain'] = self::statusDomain(self::base(['RENEWALMODE' => 'DEFAULT'])); // the name's own record (#297)
 
         $this->assertNull((new CnicRegistrar)->listDomains($this->credentials(), 0, 100)->records[0]->autoRenew);
     }
@@ -401,6 +404,7 @@ class CnicRegistrarAdversarialTest extends TestCase
     {
         $this->answers['QueryDomainList'] = "[RESPONSE]\ncode = 200\ndescription = OK\nproperty[DOMAIN][0] = alpha.com\nproperty[DOMAIN][1] = nodot\n"
             . "property[DOMAIN][2] = beta.co.uk\nproperty[TOTAL][0] = -1\nEOF\n";
+        $this->answers['StatusDomain'] = self::statusDomain(self::base()); // each name's own record (#297)
 
         $page = (new CnicRegistrar)->listDomains($this->credentials(), 200, 0);
 

@@ -9,7 +9,7 @@ namespace MyCS\Cnic;
  */
 final class Response
 {
-    /** @param  array<string, list<string>>  $properties */
+    /** @param  array<string, array<int, string>>  $properties  by name, then by its index */
     private function __construct(public readonly ?int $code, public readonly string $description, private readonly array $properties) {}
 
     public static function parse(string $raw): self
@@ -22,8 +22,14 @@ final class Response
                 continue;
             }
             [$key, $value] = [$m[1], $m[2]];
-            if (preg_match('/^property\[([^\]]*)\]/i', $key, $p) === 1) {
-                $properties[strtoupper((string) preg_replace('/\s/', '', $p[1]))][] = $value;
+            if (preg_match('/^property\[([^\]]*)\](?:\[(\d+)\])?/i', $key, $p) === 1) {
+                $name = strtoupper((string) preg_replace('/\s/', '', $p[1]));
+                // By its index, never by its order (a row out of order or missing never shifts the others: #297).
+                if (isset($p[2])) {
+                    $properties[$name][(int) $p[2]] = $value;
+                } else {
+                    $properties[$name][] = $value;
+                }
             } elseif (strcasecmp($key, 'code') === 0 && ctype_digit($value)) {
                 $code = (int) $value;
             } elseif (strcasecmp($key, 'description') === 0) {
@@ -63,15 +69,26 @@ final class Response
         return $this->code === 545;
     }
 
-    /** @return list<string> */
+    /** @return list<string> its values in index order (a gap left out) */
     public function list(string $name): array
     {
-        return $this->properties[strtoupper($name)] ?? [];
+        $values = $this->properties[strtoupper($name)] ?? [];
+        ksort($values);
+
+        return array_values($values);
+    }
+
+    /** Its value at that index (the row of a list), or null. */
+    public function at(string $name, int $index): ?string
+    {
+        $value = $this->properties[strtoupper($name)][$index] ?? null;
+
+        return $value === null || $value === '' ? null : $value;
     }
 
     public function first(string $name): ?string
     {
-        $value = $this->list($name)[0] ?? null;
+        $value = $this->at($name, 0) ?? ($this->list($name)[0] ?? null);
 
         return $value === null || $value === '' ? null : $value;
     }

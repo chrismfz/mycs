@@ -590,12 +590,20 @@
   - 2xx: έγινε·
   - 4xx: προσωρινό, δεν έγινε τίποτα·
   - 5xx: άρνηση (545: δεν υπάρχει στον λογαριασμό).
-- **Βήμα 1 (#…): μόνο αναγνώσεις:**
+- **Βήμα 1 (#297): μόνο αναγνώσεις:**
   - ping και υπόλοιπο (`StatusAccount`: CREDIT και CURRENCY)·
   - διαθεσιμότητα (`CheckDomains`)·
-  - sync (`StatusDomain`): λήξη = `PAIDUNTIL_DATE`, αλλιώς `REGISTRATION_EXPIRATION_DATE`· nameservers· lock· επαφές· ROID·
-  - λίστα του λογαριασμού (`QueryDomainList`) και επαφές (`StatusContact`) για το import·
-  - EPP (`AUTH`, ποτέ στα details).
+  - sync (`StatusDomain`): ως λήξη κρατιέται η νωρίτερη από:
+    - `PAIDUNTIL_DATE` (αλλιώς `REGISTRATION_EXPIRATION_DATE`)·
+    - `RENEWAL_DATE`, γιατί με AUTOEXPIRE το CNIC σβήνει το domain τότε.
+
+    Μόνο υπαρκτές ημερομηνίες. Επειδή η λήξη του CNIC είναι η μέρα που σβήνεται το domain, το sync μπορεί να μεταφέρει τη δική μας λήξη πίσω, έως 400 μέρες (`expiryIsWhenItGoes`). Για τους άλλους registrars η λήξη δεν πάει ποτέ πίσω.
+  - status: Active μόνο όταν δηλώνεται και το domain είναι ζωντανό. Redemption, pending delete, pending restore ή pending transfer (και στο `RGP_STATUS`), ή κανένα status: άγνωστο.
+  - **545 (δεν υπάρχει στον λογαριασμό):** μόνο σημείωση για το staff (`elsewhere: false`), ποτέ αυτόματα «transferred away», γιατί το CNIC απαντά το ίδιο είτε το έσβησε είτε έφυγε·
+  - nameservers· lock· επαφές· ROID·
+  - λίστα του λογαριασμού (`QueryDomainList`) και επαφές (`StatusContact`) για το import. Κάθε domain της λίστας διαβάζεται με `StatusDomain`, ώστε η λήξη να είναι ίδια με του sync. Για το `RENEWALMODE`: AUTORENEW = ναι· AUTOEXPIRE, AUTODELETE, RENEWONCE ή EXPIREAUCTION = όχι· DEFAULT = άγνωστο·
+  - EPP (`AUTH`): διαβάζεται ήδη σε αυτό το βήμα, και το portal το δείχνει σε όποιον επιτρέπεται. Δεν μπαίνει ποτέ στα details ούτε στο debug log: το `Redact` κρύβει το `property[AUTH]`, το `s_pw` και τις γραμμές `AUTH=`.
+  - **Κατάστημα και portal:** τα TLDs του CNIC δεν πωλούνται (`supportsRegistration: false`). Οι φόρμες nameservers και επαφών δεν εμφανίζονται (`supportsManagement: false`) μέχρι το βήμα 2. Μια πληρωμένη ανανέωση πηγαίνει κατευθείαν στο staff (`supportsRenewal: false`), χωρίς να γράφεται «χρέωση» που δεν ζητήθηκε ποτέ.
 - **Writes:** ανανέωση, κατοχύρωση, μεταφορά, αλλαγές και restore **δεν ζητούνται** (`RegistrarNotAsked`): δεν στέλνεται τίποτα και δεν χρεώνεται τίποτα. Μια πληρωμένη ανανέωση πηγαίνει στο staff (Pending Module Action και email). Το staff την κάνει στο CNIC και πατά «Renewed by hand», που την επιβεβαιώνει διαβάζοντας το CNIC.
 - **Επόμενα:**
   - (2) nameservers, lock, EPP και επαφές από το portal και το admin·

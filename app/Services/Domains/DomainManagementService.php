@@ -59,7 +59,15 @@ class DomainManagementService
     /** It can be managed: routed to an active connection with an API, and not ended. */
     public function isManageable(Domain $domain): bool
     {
-        return $this->sync->isSyncable($domain);
+        if (!$this->sync->isSyncable($domain)) {
+            return false;
+        }
+        $connection = $domain->effectiveRegistrarConnection();
+        try {
+            return $connection === null || app(DomainRegistrarFactory::class)->for($connection)->capabilities()->supportsManagement;
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     /**

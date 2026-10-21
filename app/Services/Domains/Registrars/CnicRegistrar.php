@@ -38,7 +38,7 @@ use Throwable;
 final class CnicRegistrar implements DomainRegistrar, ReadsAccountBalance
 {
     /** What staff see of its record: never its auth code. */
-    private const DETAIL_KEYS = ['STATUS', 'RENEWALMODE', 'TRANSFERMODE', 'PAIDUNTIL_DATE', 'REGISTRATION_EXPIRATION_DATE', 'RENEWAL_DATE',
+    private const DETAIL_KEYS = ['STATUS', 'RGP_STATUS', 'RENEWALMODE', 'TRANSFERMODE', 'PAIDUNTIL_DATE', 'REGISTRATION_EXPIRATION_DATE', 'RENEWAL_DATE',
         'CREATED_DATE', 'UPDATED_DATE', 'ZONE', 'X-WHOISPRIVACY', 'X-TRANSFERLOCK-UNTIL', 'X-REGISTRY-LOCK', 'X-TIME-TO-SUSPENSION'];
 
     private const ROLES = ['registrant' => 'OWNER_CONTACT', 'admin' => 'ADMIN_CONTACT', 'tech' => 'TECH_CONTACT', 'billing' => 'BILLING_CONTACT'];
@@ -50,7 +50,10 @@ final class CnicRegistrar implements DomainRegistrar, ReadsAccountBalance
 
     public function capabilities(): DomainRegistrarCapabilities
     {
-        return new DomainRegistrarCapabilities(supportsPortfolioImport: true);
+        // Reads only (step 1): nothing sold, registered, renewed or changed through it; its expiry is the day the name goes
+        // there (reviews of #297).
+        return new DomainRegistrarCapabilities(supportsPortfolioImport: true, supportsRegistration: false, supportsRenewal: false,
+            supportsManagement: false, expiryIsWhenItGoes: true);
     }
 
     /** Contract: never throws — false on missing credentials, a refused login or no answer. */
@@ -76,8 +79,8 @@ final class CnicRegistrar implements DomainRegistrar, ReadsAccountBalance
         $r = $this->read($credentials, ['COMMAND' => 'CheckDomains', 'DOMAIN0' => mb_strtolower($fqdn)]);
         $check = (string) ($r->first('DOMAINCHECK') ?? '');
 
-        return new AvailabilityResult($fqdn, str_starts_with($check, '210'), $check !== '' ? $check : null,
-            premium: $r->first('X-FEE-CLASS') !== null && strcasecmp((string) $r->first('X-FEE-CLASS'), 'standard') !== 0);
+        // Its premium price is not asked (no X-FEE-*): nothing is sold through it (reviews of #297).
+        return new AvailabilityResult($fqdn, str_starts_with($check, '210'), $check !== '' ? $check : null);
     }
 
     public function syncDomain(Domain $domain, DomainRegistrarCredentials $credentials): DomainSyncResult
@@ -92,30 +95,55 @@ final class CnicRegistrar implements DomainRegistrar, ReadsAccountBalance
         throw new DomainRegistrarNotConfigured('CentralNic Reseller: its prices are not read (no new domains are sold through it).');
     }
 
+    /**
+     * A page of the account, each name read as its sync reads it (StatusDomain): the same expiry, nameservers, contacts
+     * and lock for the import as for the sync, never its list\'s registry date (reviews of #297).
+     */
     public function listDomains(DomainRegistrarCredentials $credentials, int $offset, int $limit): RegistrarDomainPage
     {
-        $r = $this->read($credentials, ['COMMAND' => 'QueryDomainList', 'WIDE' => 1, 'ORDERBY' => 'DOMAIN', 'FIRST' => max(0, $offset), 'LIMIT' => max(1, $limit)]);
+        $r = $this->read($credentials, ['COMMAND' => 'QueryDomainList', 'ORDERBY' => 'DOMAIN', 'FIRST' => max(0, $offset), 'LIMIT' => max(1, $limit)]);
         $records = [];
         $names = $r->list('DOMAIN');
-        foreach ($names as $i => $fqdn) {
+        foreach ($names as $fqdn) {
             $fqdn = mb_strtolower(trim($fqdn));
             if (!str_contains($fqdn, '.')) {
                 continue;
             }
+            try {
+                $one = $this->read($credentials, ['COMMAND' => 'StatusDomain', 'DOMAIN' => $fqdn]);
+            } catch (DomainNotFoundAtRegistrar) {
+                continue; // gone since the list was made
+            }
+            $result = $this->result($one);
             [$sld, $tld] = explode('.', $fqdn, 2);
             $records[] = new RegistrarDomainRecord(
                 sld: $sld,
                 tld: $tld,
-                expiresAt: self::date($r->list('DOMAIN_REGISTRATION_EXPIRATION_DATE')[$i] ?? null),
-                registeredAt: self::date($r->list('DOMAIN_CREATED_DATE')[$i] ?? null),
-                registrarDomainId: ($r->list('ROID')[$i] ?? '') !== '' ? $r->list('ROID')[$i] : null,
-                status: DomainStatus::Active, // listed in the account
-                autoRenew: isset($r->list('RENEWALMODE')[$i]) ? in_array(strtoupper($r->list('RENEWALMODE')[$i]), ['AUTORENEW', 'DEFAULT'], true) : null,
+                expiresAt: $result->expiresAt,
+                registeredAt: $result->registeredAt,
+                registrarDomainId: $result->registrarDomainId,
+                status: $result->status,
+                rawStatus: $result->rawStatus,
+                nameservers: $result->nameservers,
+                autoRenew: self::autoRenew($one->first('RENEWALMODE')),
+                contactHandles: $result->contactHandles,
+                transferLock: $result->transferLock,
+                whoisPrivacy: $result->whoisPrivacy,
             );
         }
         $total = $r->first('TOTAL');
 
         return new RegistrarDomainPage($records, $total !== null && ctype_digit($total) ? (int) $total : null, count($names));
+    }
+
+    /** AUTORENEW: on; one that lets it go: off; DEFAULT (the account's, not known here) or another: unknown. */
+    private static function autoRenew(?string $mode): ?bool
+    {
+        return match (strtoupper((string) $mode)) {
+            'AUTORENEW', 'AUTORENEWMONTHLY', 'AUTORENEWQUATERLY' => true,
+            'AUTOEXPIRE', 'AUTODELETE', 'RENEWONCE', 'EXPIREAUCTION' => false,
+            default => null,
+        };
     }
 
     public function getContact(string $handle, DomainRegistrarCredentials $credentials): ?RegistrarContact
@@ -180,7 +208,7 @@ final class CnicRegistrar implements DomainRegistrar, ReadsAccountBalance
 
     private function result(Response $r): DomainSyncResult
     {
-        $statuses = $r->list('STATUS');
+        $statuses = [...$r->list('STATUS'), ...$r->list('RGP_STATUS')];
         $handles = [];
         foreach (self::ROLES as $role => $key) {
             if (($handle = $r->first($key)) !== null) {
@@ -197,8 +225,7 @@ final class CnicRegistrar implements DomainRegistrar, ReadsAccountBalance
         $privacy = $r->first('X-WHOISPRIVACY');
 
         return new DomainSyncResult(
-            // Paid until (what the customer has); the registry's own expiry is in its details.
-            expiresAt: self::date($r->first('PAIDUNTIL_DATE') ?? $r->first('REGISTRATION_EXPIRATION_DATE')),
+            expiresAt: self::expiry($r),
             nameservers: array_values(array_filter(array_map(fn (string $ns) => mb_strtolower(rtrim(trim($ns), '.')), $r->list('NAMESERVER')))),
             registrarDomainId: $r->first('ROID'),
             status: self::status($statuses),
@@ -211,21 +238,48 @@ final class CnicRegistrar implements DomainRegistrar, ReadsAccountBalance
         );
     }
 
+    /**
+     * The day it goes there unless renewed: paid until (else the registry\'s expiry), or its renewal date when that is
+     * earlier (with AUTOEXPIRE CentralNic deletes it then, for some TLDs days or weeks before: reviews of #297). Only
+     * real dates; none: unknown, never a guess.
+     */
+    private static function expiry(Response $r): ?string
+    {
+        $paid = self::date($r->first('PAIDUNTIL_DATE')) ?? self::date($r->first('REGISTRATION_EXPIRATION_DATE'));
+        $renewal = self::date($r->first('RENEWAL_DATE'));
+
+        return match (true) {
+            $paid === null => $renewal,
+            $renewal === null => $paid,
+            default => min($paid, $renewal),
+        };
+    }
+
     /** @param  list<string>  $statuses */
     private static function status(array $statuses): ?DomainStatus
     {
+        if ($statuses === []) {
+            return null; // no status said: unknown, never Active (reviews of #297)
+        }
         $all = strtolower(implode(' ', $statuses));
-        if (str_contains($all, 'redemption') || str_contains($all, 'pendingdelete')) {
-            return null; // in its deletion: the lifecycle decides by its dates, never a guess
+        foreach (['redemption', 'pendingdelete', 'pendingrestore', 'pendingtransfer', 'deleted', 'expired'] as $going) {
+            if (str_contains($all, $going)) {
+                return null; // being deleted or moved: the lifecycle decides by its dates, never a guess
+            }
         }
 
-        return DomainStatus::Active; // in the account, not being deleted
+        return DomainStatus::Active; // in the account, live
     }
 
-    /** «2027-11-01 10:00:00.0» → «2027-11-01». */
+    /** «2027-11-01 10:00:00.0» → «2027-11-01»; only a real date (never 0000-00-00 or 31 February). */
     private static function date(?string $value): ?string
     {
-        return $value !== null && preg_match('/^(\d{4}-\d{2}-\d{2})/', $value, $m) === 1 ? $m[1] : null;
+        if ($value === null || preg_match('/^(\d{4})-(\d{2})-(\d{2})/', $value, $m) !== 1) {
+            return null;
+        }
+        [$y, $mo, $d] = [(int) $m[1], (int) $m[2], (int) $m[3]];
+
+        return $y >= 1985 && checkdate($mo, $d, $y) ? sprintf('%04d-%02d-%02d', $y, $mo, $d) : null;
     }
 
     /** A read: refused or unknown throws (545: not in the account). */
@@ -236,7 +290,9 @@ final class CnicRegistrar implements DomainRegistrar, ReadsAccountBalance
             return $r;
         }
         if ($r->notFound()) {
-            throw new DomainNotFoundAtRegistrar('CentralNic Reseller: ' . $r->summary(), resultCode: 545);
+            // «Not in the account» says nothing of where it went: deleted by CentralNic itself (AUTOEXPIRE on its renewal
+            // date) answers the same as moved away. Noted only, never marked transferred away on its own (#297).
+            throw new DomainNotFoundAtRegistrar('CentralNic Reseller: ' . $r->summary(), elsewhere: false, resultCode: 545);
         }
 
         throw new RuntimeException('CentralNic Reseller ' . (string) $command['COMMAND'] . ': ' . $r->summary());

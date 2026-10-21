@@ -47,4 +47,12 @@ final class WireTest extends TestCase
         $this->assertTrue(Response::parse('<html>Bad gateway</html>')->unknown());
         $this->assertFalse(Response::parse('')->success());
     }
+
+    public function test_a_row_is_read_by_its_index_never_by_its_order(): void
+    {
+        $r = Response::parse("code = 200\nproperty[DOMAIN][1] = b.com\nproperty[DOMAIN][0] = a.com\nproperty[ROID][1] = ROID-B\n");
+
+        $this->assertSame(['a.com', 'b.com'], $r->list('DOMAIN'));
+        $this->assertSame([null, 'ROID-B'], [$r->at('ROID', 0), $r->at('ROID', 1)]);
+    }
 }
