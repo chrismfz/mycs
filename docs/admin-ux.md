@@ -3,6 +3,12 @@
 Το staff δουλεύει ~15 χρόνια σε WHMCS. Κρατάμε το Filament, αλλά δίνουμε τα σημεία που ψάχνει το χέρι:
 μενού πάνω με την ίδια δομή και dashboard με τους ίδιους μετρητές. Το admin μένει στα αγγλικά (`Admin Language`).
 
+## Διεύθυνση: `/sysadmin` (2026-10-21)
+Όπως στα άλλα δύο συστήματα της εταιρείας. Μία σταθερά, `AdminPanelProvider::PATH`· από αυτήν διαβάζουν το panel, το
+guard του staff (`UseStaffGuard`), το login/logout, τα tags του audit και το export των εσόδων. Το παλιό `/admin/…`
+πάει με 301 στο ίδιο σημείο του `/sysadmin/…`, με το query του (bookmarks, links σε mails που έφυγαν). Ένα signed
+link που φτιάχτηκε πριν την αλλαγή δεν περνά το redirect (η υπογραφή είναι πάνω στο URL)· βγαίνει ξανά από τη σελίδα.
+
 ## Μενού
 **Topbar Menu (vaslv/filament-topbar-menu): όχι.** Είναι MIT και Filament 5, αλλά:
 - τα links ζουν σε δικό του πίνακα και συντηρούνται με το χέρι, όχι από τις σελίδες του admin (διπλή καταχώριση)·

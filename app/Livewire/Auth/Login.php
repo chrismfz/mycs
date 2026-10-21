@@ -4,6 +4,7 @@ namespace App\Livewire\Auth;
 
 use App\Livewire\Component;
 use App\Models\User;
+use App\Providers\Filament\AdminPanelProvider;
 use App\Traits\Captchable;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
@@ -64,7 +65,7 @@ class Login extends Component
         $loginAction->execute($user, $this->remember);
 
         $intendedUrl = session()->pull('url.intended', default: route('dashboard'));
-        $isAdminRoute = str_starts_with($intendedUrl, url('/admin'));
+        $isAdminRoute = str_starts_with($intendedUrl, url('/' . AdminPanelProvider::PATH . '/'));
 
         // Redirect normally if it is an admin route, otherwise navigate using livewire
         return $this->redirect($intendedUrl, navigate: !$isAdminRoute);

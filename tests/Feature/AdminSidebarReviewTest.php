@@ -52,7 +52,7 @@ class AdminSidebarReviewTest extends TestCase
 
         DB::flushQueryLog();
         DB::enableQueryLog();
-        $session->get('/admin')->assertOk();
+        $session->get('/sysadmin')->assertOk();
         $queries = collect(DB::getQueryLog())->pluck('query');
 
         foreach (['"tickets" where "status" in', '"invoices" where "status" =', '"services" where "status" =', '"ticket_quarantine"', '"mcp_proposals"'] as $needle) {
@@ -105,6 +105,6 @@ class AdminSidebarReviewTest extends TestCase
         $staff->refresh();
         $this->actingAs($staff, 'staff');
 
-        $session->get('/admin')->assertOk()->assertDontSee('Secret Customer');
+        $session->get('/sysadmin')->assertOk()->assertDontSee('Secret Customer');
     }
 }

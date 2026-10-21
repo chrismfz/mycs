@@ -20,8 +20,10 @@ use App\Livewire\Invoices;
 use App\Livewire\Products;
 use App\Livewire\Services;
 use App\Livewire\Tickets;
+use App\Providers\Filament\AdminPanelProvider;
 use App\Services\Captcha\Altcha;
 use Illuminate\Foundation\Auth\EmailVerificationRequest;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', Home::class)->name('home');
@@ -131,6 +133,13 @@ Route::group([
 });
 
 // The accountant's income file (ROADMAP 6, review F2 of #280): a plain download for staff, from a signed link.
-Route::get('/admin/reports/income/{year}/{currency}.{format}', IncomeExportController::class)
+Route::get('/' . AdminPanelProvider::PATH . '/reports/income/{year}/{currency}.{format}', IncomeExportController::class)
     ->whereNumber('year')->where('currency', '[A-Z]{3}')->where('format', 'xlsx|csv')
     ->middleware(['web', 'auth:staff', 'signed'])->name('admin.reports.income.export');
+
+// The admin was /admin until 2026-10-21 (now AdminPanelProvider::PATH): a bookmark, a link in a mail already sent or the
+// habit lands on the same page there, with its query. Only a GET: nothing posts to a page of the panel itself.
+Route::get('/admin/{rest?}', fn (Request $request, string $rest = '') => redirect(
+    '/' . AdminPanelProvider::PATH . ($rest === '' ? '' : '/' . $rest) . (($query = (string) $request->server('QUERY_STRING')) === '' ? '' : '?' . $query),
+    301,
+))->where('rest', '.*')->name('admin.legacy');

@@ -4,6 +4,7 @@ namespace App\Console\Commands\Staff;
 
 use App\Models\Role;
 use App\Models\Staff;
+use App\Providers\Filament\AdminPanelProvider;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Console\PromptsForMissingInput;
 use Illuminate\Support\Facades\Config;
@@ -40,7 +41,7 @@ class Create extends Command implements PromptsForMissingInput
             'password' => $this->argument('password'),
             'role_id' => $role->id,
         ]);
-        $this->info('Created. Log in at ' . rtrim((string) config('app.url'), '/') . '/admin');
+        $this->info('Created. Log in at ' . rtrim((string) config('app.url'), '/') . '/' . AdminPanelProvider::PATH);
 
         return self::SUCCESS;
     }

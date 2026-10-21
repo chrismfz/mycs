@@ -92,11 +92,11 @@ class LocalizationTest extends TestCase
         App::setLocale('el'); // e.g. the client-area default or the visitor's choice
         config(['settings.admin_language' => 'en']);
 
-        (new AdminLocale)->handle(Request::create('/admin'), fn () => response('ok'));
+        (new AdminLocale)->handle(Request::create('/sysadmin'), fn () => response('ok'));
         $this->assertSame('en', App::getLocale());
 
         config(['settings.admin_language' => 'el']);
-        (new AdminLocale)->handle(Request::create('/admin'), fn () => response('ok'));
+        (new AdminLocale)->handle(Request::create('/sysadmin'), fn () => response('ok'));
         $this->assertSame('el', App::getLocale());
     }
 

@@ -2,6 +2,7 @@
 
 namespace App\Models\Traits;
 
+use App\Providers\Filament\AdminPanelProvider;
 use Illuminate\Support\Facades\App;
 use OwenIt\Auditing\Auditable as AuditableTrait;
 use Request;
@@ -13,11 +14,12 @@ trait Auditable
 
     public function generateTags(): array
     {
-        if (App::runningInConsole() || !Str::contains(Request::livewireUrl(), '/admin')) {
+        // A change made from the admin (its page, or its Livewire request coming from one) is tagged so.
+        $path = trim((string) parse_url(Request::livewireUrl(), PHP_URL_PATH), '/');
+        if (App::runningInConsole() || !Str::is([AdminPanelProvider::PATH, AdminPanelProvider::PATH . '/*'], $path)) {
             return [];
         }
 
-        // Check current url contains admin
         return [
             'admin',
         ];

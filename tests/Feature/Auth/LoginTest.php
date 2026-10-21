@@ -100,7 +100,7 @@ class LoginTest extends TestCase
         ]);
 
         // The admin has its own login (docs/accounts.md, PR 1), not the client area's.
-        $this->get('/admin/settings')->assertRedirect(route('filament.admin.auth.login'));
+        $this->get('/sysadmin/settings')->assertRedirect(route('filament.admin.auth.login'));
 
         Livewire::test(FilamentLogin::class)
             ->set('data.email', 'test@example.test')
@@ -111,7 +111,7 @@ class LoginTest extends TestCase
         $this->assertAuthenticated('staff');
         $this->assertGuest('web');
 
-        $this->get('/admin/settings')->assertOk();
+        $this->get('/sysadmin/settings')->assertOk();
     }
 
     /**
@@ -119,7 +119,7 @@ class LoginTest extends TestCase
      */
     public function test_cant_go_to_admin_dashboard_if_not_authenticated()
     {
-        $this->get('/admin/settings')->assertRedirect(route('filament.admin.auth.login'));
+        $this->get('/sysadmin/settings')->assertRedirect(route('filament.admin.auth.login'));
     }
 
     /**
@@ -130,7 +130,7 @@ class LoginTest extends TestCase
         $user = User::factory()->create();
 
         // A customer is not staff: the admin asks for a staff login.
-        $this->actingAs($user)->withSession($this->loginUser($user))->get('/admin/settings')
+        $this->actingAs($user)->withSession($this->loginUser($user))->get('/sysadmin/settings')
             ->assertRedirect(route('filament.admin.auth.login'));
     }
 }

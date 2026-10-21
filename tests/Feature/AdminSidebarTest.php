@@ -67,7 +67,7 @@ class AdminSidebarTest extends TestCase
     {
         $staff = $this->staff();
 
-        $this->withSession($this->loginUser($staff))->get('/admin')->assertOk()
+        $this->withSession($this->loginUser($staff))->get('/sysadmin')->assertOk()
             ->assertSee('mycs-work-sidebar', false)->assertSee(__('To handle'))
             ->assertSee('fi-sidebar-nav-groups', false); // hidden by CSS from lg up, where the top menu is
     }
