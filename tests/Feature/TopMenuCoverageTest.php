@@ -4,9 +4,11 @@ namespace Tests\Feature;
 
 use App\Admin\TopMenu;
 use App\Models\Role;
+use App\Models\Setting;
 use App\Models\Staff;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
 
 /**
@@ -34,7 +36,14 @@ class TopMenuCoverageTest extends TestCase
 
     public function test_every_line_of_the_menu_opens_for_staff_who_may_see_everything(): void
     {
-        config(['settings.debug' => true, 'settings.tax_enabled' => true, 'settings.immutable_invoices_enabled' => true]); // pages shown only with these on
+        // Pages shown only with these on. Stored as Settings → …: each request below loads them again from the database,
+        // so a config() of the test alone is gone by then (a 403, and the error page's 500 without a currency).
+        foreach (['debug' => [true, 'boolean'], 'tax_enabled' => [true, 'boolean'], 'immutable_invoices_enabled' => [true, 'boolean'],
+            'default_currency' => ['USD', 'string']] as $key => [$value, $kind]) {
+            Setting::query()->updateOrCreate(['key' => $key, 'settingable_type' => null], ['value' => $value, 'type' => $kind]);
+            config(["settings.{$key}" => $value]);
+        }
+        Cache::forget('settings.rows');
         $urls = collect(TopMenu::groups())->flatMap(fn (array $group) => array_column($group['items'], 'url'));
         $lines = collect(TopMenu::MENU)->flatten(1)->count();
 
