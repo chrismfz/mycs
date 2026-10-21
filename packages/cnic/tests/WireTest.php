@@ -63,4 +63,11 @@ final class WireTest extends TestCase
 
         $this->assertSame(['2027-09-16 18:57:28.0', '1', 'P-ABC1'], [$r->first('PAIDUNTIL_DATE'), $r->first('TRANSFER_LOCK'), $r->first('owner_contact')]);
     }
+
+    public function test_a_hyphen_is_kept_so_names_that_differ_by_it_never_merge(): void
+    {
+        $r = Response::parse("code = 200\nproperty[ROID][0] = R-1\nproperty[X-DOMAIN-ROID][0] = X-1\nproperty[DOMAIN][0] = a.com\nproperty[DOMAIN IDN][0] = a.com\n");
+
+        $this->assertSame(['R-1', 'X-1', ['a.com']], [$r->first('ROID'), $r->first('X-DOMAIN-ROID'), $r->list('DOMAIN')]);
+    }
 }
