@@ -202,7 +202,9 @@ class Pr306AdversarialTest extends TestCase
         $outcome = app(DomainRenewalService::class)->renewLine($y->id, $staff);
 
         $why = (string) ModuleAction::query()->open()->where('invoice_item_id', $y->id)->value('last_error');
-        $this->assertSame(DomainRenewalService::APPLIED, $outcome, "Line #{$y->id} paid, never renewed: blocked by line #{$x->id}'s charge, applied by hand a year ago ({$why})");
+        // Fixed: «Renewed by hand» settled X's charge, so Y is renewed on its first run (the Close and Retry find nothing left).
+        $this->assertContains($outcome, [DomainRenewalService::APPLIED, DomainRenewalService::NOTHING]);
+        $this->assertNotNull($y->fresh()->applied_at, "Line #{$y->id} paid, never renewed: blocked by line #{$x->id}'s charge, applied by hand a year ago ({$why})");
     }
 
     /**

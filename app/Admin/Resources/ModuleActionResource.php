@@ -138,7 +138,8 @@ class ModuleActionResource extends Resource
                         };
                     }),
                 Action::make('notDone')->label('Not done there')->icon('ri-arrow-go-back-line')->color('gray')
-                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN
+                    // Also on an order closed «stop it» whose request is still unconfirmed (adversarial ADV-4 of #306).
+                    ->visible(fn (ModuleAction $record) => ($record->status === ModuleAction::STATUS_OPEN || $record->onHold())
                         && in_array($record->action, [ModuleAction::DOMAIN_REGISTER, ModuleAction::DOMAIN_TRANSFER], true))
                     ->authorize('update')
                     ->requiresConfirmation()
@@ -146,14 +147,20 @@ class ModuleActionResource extends Resource
                     ->action(fn (ModuleAction $record) => self::orBusy(fn () => $record->markNotDone(self::staff()))),
                 Action::make('retryDomain')->label('Retry')->icon('ri-loop-right-line')
                     // Also on a renewal closed «not renewed» whose line is still paid and waiting: only staff renew it then (sweep R5).
+                    // The line's latest row only (code review 3 of #306).
                     ->visible(fn (ModuleAction $record) => $record->action === ModuleAction::DOMAIN_RENEW && ($record->status === ModuleAction::STATUS_OPEN
                         || ($record->resolution === ModuleAction::CLOSED_UNRENEWED && $record->invoice_item_id !== null
                             && DomainRenewalService::waitingLines()->whereKey($record->invoice_item_id)->exists()
-                            && $record->invoiceItem !== null && DomainRenewalService::closedUnrenewed($record->invoiceItem))))
+                            && $record->invoiceItem !== null && DomainRenewalService::closedUnrenewed($record->invoiceItem)
+                            && ModuleAction::query()->where('invoice_item_id', $record->invoice_item_id)->where('action', ModuleAction::DOMAIN_RENEW)->max('id') === $record->id)))
                     ->authorize('update')
                     ->requiresConfirmation()
                     ->modalDescription('Reads the registrar and renews the paid period it lacks (charged to our account there), unless a charge is still unconfirmed.')
                     ->action(function (ModuleAction $record) {
+                        // A closed row retried is open again: its outcome lands on it, and a success completes it (code review 1 of #306).
+                        if ($record->resolution === ModuleAction::CLOSED_UNRENEWED) {
+                            $record->forceFill(['status' => ModuleAction::STATUS_OPEN, 'resolved_at' => null, 'resolution' => null, 'resolved_by_staff_id' => null])->save();
+                        }
                         $outcome = $record->invoice_item_id !== null ? app(DomainRenewalService::class)->renewLine($record->invoice_item_id, self::staff()) : DomainRenewalService::NOTHING;
                         $record->refresh();
                         match ($outcome) {
@@ -182,7 +189,7 @@ class ModuleActionResource extends Resource
                     default => 'Mark resolved',
                 })
                     ->icon('ri-check-line')->color('gray')
-                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN)
+                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN || $record->onHold()) // «Done by hand» after «stop it» (ADV-4 of #306)
                     ->authorize('update')
                     ->requiresConfirmation()
                     ->modalDescription(fn (ModuleAction $record) => match ($record->action) {
@@ -205,7 +212,7 @@ class ModuleActionResource extends Resource
                     ->authorize('update')
                     ->requiresConfirmation()
                     ->modalDescription(fn (ModuleAction $record) => $record->action === ModuleAction::DOMAIN_RENEW
-                        ? 'Closes it without renewing (refunded, the domain ended, or checked at the registrar: its unconfirmed charge was not done). Its paid period is then never renewed on its own: only a Retry here renews it.'
+                        ? 'Closes it without renewing (refunded, the domain ended, or checked at the registrar: its unconfirmed charge was not done). Its paid period is then never renewed on its own: only «Retry» on this row (listed under Resolved) renews it.'
                         : 'Stops it: never sent to the registrar on its own again (on hold). An unconfirmed request stays unconfirmed: if you checked the registrar and it was not done, use «Not done there» first. Cancel or refund its order separately.')
                     ->action(fn (ModuleAction $record) => self::orBusy(fn () => $record->closeUnrenewed(self::staff()))),
             ])

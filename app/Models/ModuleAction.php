@@ -64,6 +64,9 @@ class ModuleAction extends Model
     /** The resolution of a renewal staff closed «not renewed»: its line is then charged only by their Retry. */
     public const CLOSED_UNRENEWED = 'closed without renewing';
 
+    /** The resolution of an order staff closed «stop it»: on hold, its unconfirmed request still for them to say. */
+    public const CLOSED_ON_HOLD = 'closed, on hold';
+
     public const DOMAIN_ACTIONS = [self::DOMAIN_RENEW, self::DOMAIN_REGISTER, self::DOMAIN_TRANSFER];
 
     /**
@@ -172,18 +175,35 @@ class ModuleAction extends Model
             if ($this->action !== self::DOMAIN_RENEW && ($domain = Domain::query()->find($this->domain_id)) !== null) {
                 $domain->forceFill(['meta' => ['on_hold' => now()->toIso8601String()] + ($domain->meta ?? [])])->save();
             }
-            // Its own line's charges only (sweep S1): a renew or restore, or a transfer that replaced the renewal
-            // (RenewAsTransfer, code review 2 of #303).
             if ($this->action === self::DOMAIN_RENEW && $this->invoice_item_id !== null) {
-                DomainRegistrarLog::query()->where('domain_id', $this->domain_id)->where('status', DomainRegistrarLog::STATUS_PENDING)
-                    ->where('request->line', $this->invoice_item_id)
-                    ->where(fn ($q) => $q->whereIn('action', ['renew', 'restore'])->orWhere(fn ($t) => $t->where('action', 'transfer')->where('request->renewal', true)))
-                    ->update(['status' => DomainRegistrarLog::STATUS_FAILED, 'error' => 'Checked by staff at the registrar: not done.',
-                        'staff_id' => $staff?->id, 'updated_at' => now()]);
+                self::settleRenewalCharges((int) $this->domain_id, (int) $this->invoice_item_id, DomainRegistrarLog::STATUS_FAILED,
+                    'Checked by staff at the registrar: not done.', $staff);
             }
             $this->forceFill(['status' => self::STATUS_RESOLVED, 'resolved_at' => now(),
-                'resolution' => $this->action === self::DOMAIN_RENEW ? self::CLOSED_UNRENEWED : 'closed, on hold', 'resolved_by_staff_id' => $staff?->id])->save();
+                'resolution' => $this->action === self::DOMAIN_RENEW ? self::CLOSED_UNRENEWED : self::CLOSED_ON_HOLD, 'resolved_by_staff_id' => $staff?->id])->save();
         });
+    }
+
+    /**
+     * A renewal's unconfirmed charges settled by staff: its own line's (sweep S1), and any whose line no longer waits
+     * (refunded, applied) and that nothing else would ever settle: it would block every later renewal of the domain for
+     * good (adversarial ADV-1/ADV-2 of #306). Another line still waiting keeps its own: its row says it. A renew or
+     * restore, or a transfer that replaced the renewal (RenewAsTransfer, code review 2 of #303).
+     */
+    public static function settleRenewalCharges(int $domainId, int $lineId, string $status, string $why, ?Staff $staff): void
+    {
+        $waiting = DomainRenewalService::waitingLines()->where('reference_id', $domainId)->whereKeyNot($lineId)->pluck('id')->all();
+        DomainRegistrarLog::query()->where('domain_id', $domainId)->where('status', DomainRegistrarLog::STATUS_PENDING)
+            ->where(fn ($q) => $q->whereIn('action', ['renew', 'restore'])->orWhere(fn ($t) => $t->where('action', 'transfer')->where('request->renewal', true)))
+            ->get()->filter(fn (DomainRegistrarLog $log) => !in_array((int) ($log->request['line'] ?? 0), $waiting, true))
+            ->each(fn (DomainRegistrarLog $log) => $log->update(['status' => $status, 'error' => $why, 'staff_id' => $staff?->id]));
+    }
+
+    /** An order's row closed «stop it» (on hold). */
+    public function onHold(): bool
+    {
+        return $this->status === self::STATUS_RESOLVED && $this->resolution === self::CLOSED_ON_HOLD
+            && in_array($this->action, [self::DOMAIN_REGISTER, self::DOMAIN_TRANSFER], true);
     }
 
     /** Run under the domain's registrar lock, or throw «busy» (a charge or change under way). */
@@ -266,7 +286,8 @@ class ModuleAction extends Model
      */
     public function markNotDone(?Staff $staff): void
     {
-        if (!in_array($this->action, [self::DOMAIN_REGISTER, self::DOMAIN_TRANSFER], true) || $this->status !== self::STATUS_OPEN) {
+        // Open, or closed «stop it» with its request still unconfirmed: staff checked it since (adversarial ADV-4 of #306).
+        if (!in_array($this->action, [self::DOMAIN_REGISTER, self::DOMAIN_TRANSFER], true) || !($this->status === self::STATUS_OPEN || $this->onHold())) {
             return;
         }
         // Its order's requests only, never a transfer that replaced a renewal (RenewAsTransfer: the renewal's row); under

@@ -60,6 +60,7 @@ return [
         'redemption_fee' => ':domain: restore fee (redemption period)',
     ],
     'renew' => [
+        'closed_unrenewed' => ':domain has a paid renewal staff closed «not renewed»: renew it with «Retry» on that row (Pending Module Actions, Resolved), or refund it.',
         'renewed_unpaid' => ':domain was renewed now and its invoice #:invoice is not paid yet: not renewed again before that.',
         'unconfirmed' => 'A charge for :domain at its registrar has no clear answer yet: check the registrar; it is not asked again until that is settled.',
         'paid_on_its_way' => 'A paid renewal of :domain is being done at its registrar: nothing to renew now.',
