@@ -45,6 +45,18 @@ final class DomainRegistrarCapabilities
         public readonly bool $supportsRegistration = true,
         /** A registration recalled within days of it (the .gr registry: 5, by its protocol). G5a of grepp. */
         public readonly bool $supportsRecall = false,
+        /**
+         * Renewals through the API. Without (CentralNic Reseller, step 1): a paid renewal goes to staff at once, never a
+         * charge logged that was never asked (adversarial ADV-13 of #297).
+         */
+        public readonly bool $supportsRenewal = true,
+        /** Nameservers and contacts changed through the API: without, the portal shows them, never a form (#297). */
+        public readonly bool $supportsManagement = true,
+        /**
+         * Its expiry is when the name is deleted there (CentralNic Reseller: paid until, its renewal date): a sync may move
+         * ours back to it (within MAX_BACK_DAYS), never left later than the day the name goes (#297).
+         */
+        public readonly bool $expiryIsWhenItGoes = false,
     ) {}
 
     /** The API-less baseline: a manually-managed registrar can do none of this. */

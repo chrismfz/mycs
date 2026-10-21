@@ -37,6 +37,7 @@
         "livewire/livewire": "^4.0",
         "minishlink/web-push": "^11.0",
         "mycs/billing-period": "^1.0",
+        "mycs/cnic": "^1.0",
         "mycs/gr-epp": "^1.0",
         "mycs/mail-template": "^1.0",
         "mycs/pricing": "^1.0",
@@ -91,6 +92,7 @@
         "psr-4": {
             "Tests\\": "tests/",
             "MyCS\\BillingPeriod\\Tests\\": "packages/billing-period/tests/",
+            "MyCS\\Cnic\\Tests\\": "packages/cnic/tests/",
             "MyCS\\GrEpp\\Tests\\": "packages/gr-epp/tests/",
             "MyCS\\MailTemplate\\Tests\\": "packages/mail-template/tests/",
             "MyCS\\Pricing\\Tests\\": "packages/pricing/tests/",

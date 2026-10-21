@@ -578,3 +578,34 @@
     - χωρίς μεταφορές (`domain_allow_transfer`) η σελίδα δίνει 404.
 - Πάνω από τα βήματα φαίνονται τα domains για μεταφορά που είναι ήδη στο καλάθι, με κουμπί προς αυτό. Οι κωδικοί που
   λείπουν συμπληρώνονται στο καλάθι, όπως πριν.
+
+## CentralNic Reseller (CNIC, 2026-10-21)
+
+Τα 198 domains του myip στο CNIC λήγουν από το 2026 έως το 2034. Ο υπεύθυνος (2026-10-21): χρειάζεται **κανονικός registrar** και όχι μόνο «μεταφορά στην ανανέωση», γιατί όσα λήγουν αργά μένουν εκεί χρόνια.
+- **Πηγές:**
+  - **API:** `packages/cnic` (`MyCS\Cnic`). Γράφτηκε από τη δημόσια τεκμηρίωση των εντολών (kb.centralnicreseller.com/api/api-command) και από την περιγραφή του wire format στο MIT php-sdk τους.
+  - **Τι δεν χρησιμοποιήθηκε:** το module τους για το WHMCS. Είναι ionCube με κλειστή άδεια: ούτε κώδικας ούτε αποκωδικοποίηση. Από αυτό είδαμε μόνο τα ονόματα των εντολών που χρησιμοποιεί.
+- **Αίτημα:** form POST στο `api.rrpproxy.net/api/call.cgi` με `s_login`, `s_pw` και `s_command` (`KEY=value`). Με mode «sandbox» πηγαίνει στο OTE (`api-ote.rrpproxy.net`).
+- **Απάντηση:** `code` και `description`, μετά `property[NAME][i]`.
+  - 2xx: έγινε·
+  - 4xx: προσωρινό, δεν έγινε τίποτα·
+  - 5xx: άρνηση (545: δεν υπάρχει στον λογαριασμό).
+- **Βήμα 1 (#297): μόνο αναγνώσεις:**
+  - ping και υπόλοιπο (`StatusAccount`: CREDIT και CURRENCY)·
+  - διαθεσιμότητα (`CheckDomains`)·
+  - sync (`StatusDomain`): ως λήξη κρατιέται η νωρίτερη από:
+    - `PAIDUNTIL_DATE` (αλλιώς `REGISTRATION_EXPIRATION_DATE`)·
+    - `RENEWAL_DATE`, γιατί με AUTOEXPIRE το CNIC σβήνει το domain τότε.
+
+    Μόνο υπαρκτές ημερομηνίες. Επειδή η λήξη του CNIC είναι η μέρα που σβήνεται το domain, το sync μπορεί να μεταφέρει τη δική μας λήξη πίσω, έως 400 μέρες (`expiryIsWhenItGoes`). Για τους άλλους registrars η λήξη δεν πάει ποτέ πίσω.
+  - status: Active μόνο όταν δηλώνεται και το domain είναι ζωντανό. Redemption, pending delete, pending restore ή pending transfer (και στο `RGP_STATUS`), ή κανένα status: άγνωστο.
+  - **545 (δεν υπάρχει στον λογαριασμό):** μόνο σημείωση για το staff (`elsewhere: false`), ποτέ αυτόματα «transferred away», γιατί το CNIC απαντά το ίδιο είτε το έσβησε είτε έφυγε·
+  - nameservers· lock· επαφές· ROID·
+  - λίστα του λογαριασμού (`QueryDomainList`) και επαφές (`StatusContact`) για το import. Κάθε domain της λίστας διαβάζεται με `StatusDomain`, ώστε η λήξη να είναι ίδια με του sync. Για το `RENEWALMODE`: AUTORENEW = ναι· AUTOEXPIRE, AUTODELETE, RENEWONCE ή EXPIREAUCTION = όχι· DEFAULT = άγνωστο·
+  - EPP (`AUTH`): διαβάζεται ήδη σε αυτό το βήμα, και το portal το δείχνει σε όποιον επιτρέπεται. Δεν μπαίνει ποτέ στα details ούτε στο debug log: το `Redact` κρύβει το `property[AUTH]`, το `s_pw` και τις γραμμές `AUTH=`.
+  - **Κατάστημα και portal:** τα TLDs του CNIC δεν πωλούνται (`supportsRegistration: false`). Οι φόρμες nameservers και επαφών δεν εμφανίζονται (`supportsManagement: false`) μέχρι το βήμα 2. Μια πληρωμένη ανανέωση πηγαίνει κατευθείαν στο staff (`supportsRenewal: false`), χωρίς να γράφεται «χρέωση» που δεν ζητήθηκε ποτέ.
+- **Writes:** ανανέωση, κατοχύρωση, μεταφορά, αλλαγές και restore **δεν ζητούνται** (`RegistrarNotAsked`): δεν στέλνεται τίποτα και δεν χρεώνεται τίποτα. Μια πληρωμένη ανανέωση πηγαίνει στο staff (Pending Module Action και email). Το staff την κάνει στο CNIC και πατά «Renewed by hand», που την επιβεβαιώνει διαβάζοντας το CNIC.
+- **Επόμενα:**
+  - (2) nameservers, lock, EPP και επαφές από το portal και το admin·
+  - (3) ανανέωση με τις ασφάλειες του Openprovider·
+  - (4) «μεταφορά στο Openprovider αντί για ανανέωση», ανά connection ή TLD.

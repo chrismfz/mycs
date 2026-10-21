@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\Domains\Registrars\CnicRegistrar;
 use App\Services\Domains\Registrars\GrEppRegistrar;
 use App\Services\Domains\Registrars\OpenproviderRegistrar;
 
@@ -10,11 +11,17 @@ use App\Services\Domains\Registrars\OpenproviderRegistrar;
 return [
     'registrars' => [
         'openprovider' => OpenproviderRegistrar::class,
-        // 'cnic' => CentralNic Reseller, only if its domains are not moved first (D-10)
+        // CentralNic Reseller (fka RRPproxy): myip's domains there, some paid to 2034 (owner 2026-10-21). Reads only, for now.
+        'cnic' => CnicRegistrar::class,
         'grepp' => GrEppRegistrar::class, // the .gr registry (EPP over HTTPS, docs/domains/grepp.md)
     ],
 
     'registrar_fields' => [
+        // Its reseller login (or a role user: «login:role»): sandbox reaches its OTE, production the live API.
+        'cnic' => [
+            'username' => ['label' => 'Username', 'secret' => false],
+            'password' => ['label' => 'Password', 'secret' => true],
+        ],
         'openprovider' => [
             'username' => ['label' => 'Username', 'secret' => false],
             'password' => ['label' => 'Password', 'secret' => true],
@@ -35,5 +42,6 @@ return [
         'manual' => 'Manual (no API)',
         'openprovider' => 'Openprovider',
         'grepp' => '.gr registry (ICS-FORTH)',
+        'cnic' => 'CentralNic Reseller (CNIC)',
     ],
 ];
