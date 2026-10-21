@@ -23,7 +23,7 @@ class DomainRenewals extends TableWidget
 {
     protected static ?int $sort = 20;
 
-    // Two side by side, two rows (owner 2026-10-21); a hidden «to check» list leaves no hole.
+    // Half the width from lg: they flow two by two, the first beside «Income» (owner 2026-10-21).
     protected int|string|array $columnSpan = 1; // the dashboard's grid: one column below lg (full width), two from lg
 
     /** An expired domain stays on the list this long after its expiry. */

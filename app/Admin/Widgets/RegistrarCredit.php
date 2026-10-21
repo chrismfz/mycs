@@ -12,7 +12,7 @@ use Illuminate\View\View;
 /**
  * «Registrar credit» (G8-1, owner 2026-10-19, as WHMCS shows it): what is left with each registrar, as last read by
  * `domains:balances` (hourly); a page never calls a registrar. Red when staff are told about it (low, suspended, unread).
- * A box beside «Income», a row a registrar (owner 2026-10-21: the full-width cards with an empty third «sucked»).
+ * One thin line under the cards (owner 2026-10-21: the full-width cards with an empty third «sucked», «tiny»).
  */
 class RegistrarCredit extends Widget
 {

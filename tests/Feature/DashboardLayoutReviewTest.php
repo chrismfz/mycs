@@ -34,8 +34,9 @@ class DashboardLayoutReviewTest extends TestCase
     }
 
     /**
-     * R1. The lists are half width only from lg, where the dashboard's grid has 2 columns, and they pair only if they
-     * start a row. With all permissions, EstimatedIncome (full width, sort 12) starts one. Staff without
+     * R1. The lists are half width only from lg, where the dashboard's grid has 2 columns; without the income widget
+     * they start a row because Revenue | Support fill the one before (#283: no forced column starts, and a staff member
+     * with one of those two gets its list beside it, which is the intent: no hole). With all permissions, EstimatedIncome (full width, sort 12) starts one. Staff without
      * admin.reports.view do not see it, so Revenue | Support, then ActiveUsers alone: Domain renewals sits beside
      * Active users, Service renewals drops to the next row (with a «to check» list, or alone).
      */
