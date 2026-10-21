@@ -35,10 +35,12 @@ class License extends Model implements Auditable
     public const STATUS_EXPIRED = 'Expired';
 
     /**
-     * Not for a template (`{{ service.license.license_key }}` is, for the nixpal welcome mail): what was seen checking it
-     * and the WHMCS row are staff's.
+     * Not for a template: only its key and status are (`{{ service.license.license_key }}`, nixpal's welcome mail). A
+     * service reaches mail sent to others too (a ticket's CC, code review of #291): where it is installed, what was seen
+     * checking it and the WHMCS row stay staff's and the client area's.
      */
-    public const TEMPLATE_HIDDEN = ['whmcs_id', 'last_access', 'last_ok_at', 'last_seen_ip', 'last_seen_client', 'last_failure_at', 'last_failure'];
+    public const TEMPLATE_HIDDEN = ['valid_domain', 'valid_ip', 'valid_directory', 'reissues', 'whmcs_id', 'last_access', 'last_ok_at',
+        'last_seen_ip', 'last_seen_client', 'last_failure_at', 'last_failure'];
 
     protected $fillable = ['service_id', 'license_key', 'status', 'valid_domain', 'valid_ip', 'valid_directory', 'reissues', 'last_access', 'whmcs_id',
         'last_ok_at', 'last_seen_ip', 'last_seen_client', 'last_failure_at', 'last_failure'];

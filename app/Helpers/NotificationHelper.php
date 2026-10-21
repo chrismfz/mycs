@@ -422,6 +422,8 @@ class NotificationHelper
 
     public static function serverCreatedNotification(Client $client, Service $service, array $data = []): void
     {
+        // Its license as it is now: one read before the module issued it is not the welcome mail's (code review of #291).
+        $service->unsetRelation('license');
         $data['service'] = $service;
         // The welcome mail only (WHMCS's {$service_password}): customers keep their login from it. No other template
         // can read the password (Service::TEMPLATE_HIDDEN).
