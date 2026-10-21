@@ -55,7 +55,10 @@ return [
         'stack' => [
             'driver' => 'stack',
             'channels' => ['daily'],
-            'ignore_exceptions' => false,
+            // A log that cannot be written (a full disk, a file owned by another user) never changes what the code
+            // does: report() and Log:: would throw inside the catch that called them, abort the cron's later steps or
+            // the items left in one (renewals, charges), and turn a page into an error. The cron mails its failures.
+            'ignore_exceptions' => true,
         ],
 
         'single' => [
