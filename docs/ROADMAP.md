@@ -42,7 +42,7 @@
 ### Έλεγχος parity 2026-10-21 (nixpal και myip, μόνο αναγνώσεις στο WHMCS)
 **nixpal** (τα modules και τα gateways της υπάρχουν όλα):
 - [ ] **4 domains στο CNIC** (3 ενεργά, 1 σε grace): μαζί με τη ροή του CNIC παρακάτω, ή μεταφορά με το χέρι πριν το cut-over.
-- [ ] **Το κλειδί της άδειας στο email καλωσορίσματος:** τα templates διαβάζουν μόνο `product`, `plan`, `client` της
+- [x] **Το κλειδί της άδειας στο email καλωσορίσματος** (feat/template-license): τα templates διαβάζουν μόνο `product`, `plan`, `client` της
       υπηρεσίας· να επιτραπεί `{{ service.license.license_key }}`. Το κείμενο ανά προϊόν υπάρχει (`email_template` →
       `{{ product_info }}`): τα «ZoneCloud» templates της nixpal μεταφέρονται εκεί.
 - [ ] Το custom field «comments» (16 υπηρεσίες) και «IP Address» (1): στην εισαγωγή, στο label ή στις σημειώσεις.

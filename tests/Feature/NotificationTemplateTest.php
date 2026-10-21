@@ -7,6 +7,7 @@ use App\Helpers\TemplateRenderer;
 use App\Mail\Mail;
 use App\Models\EmailLog;
 use App\Models\Invoice;
+use App\Models\License;
 use App\Models\NotificationTemplate;
 use App\Models\Service;
 use App\Models\User;
@@ -102,6 +103,27 @@ class NotificationTemplateTest extends TestCase
         $notification = $user->notifications()->latest('id')->firstOrFail();
         $this->assertSame('Ready: Test Product & co', $notification->body);
         $this->assertSame(route('services.show', $service), $notification->url);
+    }
+
+    public function test_the_welcome_mail_reads_the_licenses_key_never_what_staff_see_of_it(): void
+    {
+        // nixpal's welcome mail (parity 2026-10-21): the key in the product's snippet; what checked it stays staff's.
+        MailFacade::fake();
+        $user = User::factory()->create();
+        $product = $this->createProduct(['email_template' => 'Key: {{ service.license.license_key }} ({{ service.license.status }}) '
+            . 'ip[{{ service.license.last_seen_ip }}] err[{{ service.license.last_failure }}] whmcs[{{ service.license.whmcs_id }}] '
+            . 'logs[{{ service.license.accessLogs }}] svc[{{ service.license.service.password }}]']);
+        $service = Service::factory()->create(['client_id' => $user->client()->id, 'product_id' => $product->product->id,
+            'plan_id' => $product->plan->id, 'status' => 'active']);
+        License::query()->create(['service_id' => $service->id, 'license_key' => 'Zone-test0000000000', 'status' => License::STATUS_ACTIVE,
+            'whmcs_id' => 77, 'last_seen_ip' => '192.0.2.10', 'last_failure' => 'Invalid IP']);
+
+        NotificationHelper::serverCreatedNotification($user->client(), $service->fresh());
+
+        $body = $this->lastEmail()->body;
+        $this->assertStringContainsString('Key: Zone-test0000000000 (Active)', $body);
+        $this->assertStringContainsString('ip[] err[] whmcs[] logs[] svc[]', $body);
+        $this->assertStringNotContainsString('192.0.2.10', $body);
     }
 
     public function test_a_broken_template_is_reported_and_skipped(): void

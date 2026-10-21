@@ -78,7 +78,7 @@ class TemplateRenderer
         Invoice::class => ['relations' => ['items', 'client'], 'accessors' => ['total', 'remaining', 'formattedTotal', 'formattedRemaining']],
         InvoiceItem::class => ['accessors' => ['formattedPrice', 'formattedTotal']],
         Order::class => ['relations' => ['services', 'client'], 'accessors' => ['formattedTotal']],
-        Service::class => ['relations' => ['product', 'plan', 'client'], 'accessors' => ['formattedPrice', 'label']],
+        Service::class => ['relations' => ['product', 'plan', 'client', 'license'], 'accessors' => ['formattedPrice', 'label']],
         ServiceCancellation::class => ['relations' => ['service']],
         Ticket::class => ['relations' => ['client', 'service', 'department']],
         TicketMessage::class => ['relations' => ['ticket', 'user']],
