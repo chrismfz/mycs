@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Exceptions\CouponUnusableException;
 use App\Models\Cart;
 use App\Models\Coupon;
 use App\Models\Offer;
@@ -240,7 +241,7 @@ class OffersAdversarialTest extends TestCase
         // A guest gets it in the cart; the order refuses it.
         $cart = $this->cart();
         $cart->update(['coupon_id' => $trial->id]);
-        $this->expectException(\App\Exceptions\CouponUnusableException::class);
+        $this->expectException(CouponUnusableException::class);
         (new PlaceOrderService)->place($user->client(), 'USD', [new OrderLine($product->fresh(), Plan::query()->where('priceable_id', $product->id)->firstOrFail()->load('prices'), 1)], $trial);
     }
 }
