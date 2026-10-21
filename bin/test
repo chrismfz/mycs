@@ -11,6 +11,18 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 base="${TEST_TMPDIR:-$([ -w /dev/shm ] && echo /dev/shm || echo "${TMPDIR:-/tmp}")}"
+
+# A full disk does not fail one test, it fails random ones far from the cause: the cron catches a Blade view it cannot
+# compile into storage/, report() cannot write the log either, and the billing tests see a run that did nothing
+# (2026-10-21: BillingCursorFuzzTest «flaked» with / at 100%). Refuse to start instead.
+min_free_mb="${TEST_MIN_FREE_MB:-200}"
+for path in storage "$base"; do
+    free_mb=$(( $(df -Pk "$path" | awk 'NR == 2 { print $4 }') / 1024 ))
+    if [ "$free_mb" -lt "$min_free_mb" ]; then
+        echo "bin/test: only ${free_mb} MB free under $path (needs ${min_free_mb}): tests would fail at random. Free some space first." >&2
+        exit 1
+    fi
+done
 dir="$(mktemp -d "$base/mycs-test.XXXXXX")"
 trap 'rm -rf "$dir"' EXIT
 touch "$dir/test.sqlite"
