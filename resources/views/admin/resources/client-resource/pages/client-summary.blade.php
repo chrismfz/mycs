@@ -116,16 +116,16 @@
                             <th class="py-2 pr-3">{{ count($yearlyTotals) > 1 ? $currency : __('Year') }}</th>
                             <th class="py-2 pr-3 text-right">{{ __('Invoiced') }}</th>
                             <th class="py-2 pr-3 text-right">{{ __('Paid') }}</th>
-                            <th class="py-2 text-right">{{ __('Open') }}</th>
+                            <th class="py-2 text-right">{{ __('Outstanding') }}</th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach ($totals['years'] as $year)
                             <tr class="border-b border-gray-100 dark:border-white/5">
-                                <td class="py-2 pr-3">{{ $year['year'] }}</td>
+                                <td class="py-2 pr-3">{{ $year['year'] ?? __('Paid, no date') }}</td>
                                 <td class="py-2 pr-3 text-right whitespace-nowrap">{{ $money($year['invoiced']) }}</td>
                                 <td class="py-2 pr-3 text-right whitespace-nowrap">{{ $money($year['paid']) }}</td>
-                                <td class="py-2 text-right whitespace-nowrap">{{ $money($year['open']) }}</td>
+                                <td class="py-2 text-right whitespace-nowrap">{{ $money($year['outstanding']) }}</td>
                             </tr>
                         @endforeach
                     </tbody>
@@ -134,7 +134,7 @@
                             <td class="py-2 pr-3">{{ __('All Time') }}</td>
                             <td class="py-2 pr-3 text-right whitespace-nowrap">{{ $money($totals['total']['invoiced']) }}</td>
                             <td class="py-2 pr-3 text-right whitespace-nowrap">{{ $money($totals['total']['paid']) }}</td>
-                            <td class="py-2 text-right whitespace-nowrap">{{ $money($totals['total']['open']) }}</td>
+                            <td class="py-2 text-right whitespace-nowrap">{{ $money($totals['total']['outstanding']) }}</td>
                         </tr>
                     </tfoot>
                 </table>

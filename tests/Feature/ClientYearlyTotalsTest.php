@@ -56,7 +56,8 @@ class ClientYearlyTotalsTest extends TestCase
 
         $this->assertSame([2026, '140.00', '160.00', '40.00'], array_values($totals['years'][0]));
         $this->assertSame([2025, '60.00', '0.00', '0.00'], array_values($totals['years'][1]));
-        $this->assertSame(['invoiced' => '200.00', 'paid' => '160.00', 'open' => '40.00'], $totals['total']);
+        $this->assertCount(2, $totals['years'], 'no rows for years with nothing (the cancelled 2025 one)');
+        $this->assertSame(['invoiced' => '200.00', 'paid' => '160.00', 'outstanding' => '40.00'], $totals['total']);
     }
 
     public function test_on_the_summary_for_staff_who_may_see_invoices_only(): void
@@ -68,5 +69,22 @@ class ClientYearlyTotalsTest extends TestCase
             ->get($url)->assertOk()->assertSee(__('Totals by year'));
         $this->actingAs(Staff::factory()->withPermissions(['admin.clients.viewAny'])->create())
             ->get($url)->assertOk()->assertDontSee(__('Totals by year'));
+    }
+
+    public function test_outstanding_is_what_is_left_and_an_undated_payment_has_its_row(): void
+    {
+        // 100 net + 24% = 124; 62 paid on it: 62 left, net 50.
+        $this->invoice('2026-05-01 10:00:00', 100.00, Invoice::STATUS_UNPAID);
+        $invoice = Invoice::query()->latest('id')->first();
+        DB::table('invoice_transactions')->insert(['invoice_id' => $invoice->id, 'amount' => 62, 'status' => 'succeeded', 'is_credit_transaction' => false,
+            'refunded_amount' => 0, 'credited_amount' => 0, 'created_at' => now(), 'updated_at' => now()]);
+        $this->invoice('2019-03-01 10:00:00', 50.00, Invoice::STATUS_PAID); // an import with no datepaid
+
+        $totals = ClientTotals::for($this->user->client())['EUR'];
+
+        $this->assertSame('50.00', $totals['years'][0]['outstanding']);
+        $undated = collect($totals['years'])->firstWhere('year', null);
+        $this->assertSame('50.00', $undated['paid']);
+        $this->assertSame('50.00', $totals['total']['paid'], 'the years and the undated row add up');
     }
 }
