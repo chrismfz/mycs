@@ -358,7 +358,9 @@ final class RenewalBilling
         if ($fee === null || bccomp($fee, '0', 2) <= 0) {
             return;
         }
-        $renewal = $domain->invoiceItems()->whereNull('kind')->whereDate('period_start', '>=', $domain->expires_at->toDateString())
+        // Its renewal by the same rule as billing (sweep L2: an expiry a day later than its period's start lost its fee).
+        $renewal = $domain->invoiceItems()->whereNull('kind')->whereDate('period_end', '>', $domain->expires_at->toDateString())
+            ->whereDate('period_start', '>=', $domain->expires_at->copy()->subDays(DomainRenewalService::SAME_PERIOD_DAYS)->toDateString())
             ->whereHas('invoice', fn ($invoice) => $invoice->where('status', '!=', Invoice::STATUS_CANCELLED))->orderByDesc('id')->first();
         if ($renewal === null) {
             return;

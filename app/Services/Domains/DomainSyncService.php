@@ -182,7 +182,12 @@ class DomainSyncService
         $now = $domain->expires_at?->toDateString();
         $pending = in_array($domain->status, self::PENDING, true) && $result->status !== DomainStatus::Active;
         if (!$pending && $result->expiresAt !== null) {
-            if ($now !== null && $result->expiresAt < $now && $this->movesBack($domain, $result->expiresAt, $now)) {
+            if ($now !== null && $result->expiresAt < $now && $this->movesBack($domain, $result->expiresAt, $now)
+                && ($open = $this->renewalBeyond($domain, $result->expiresAt)) !== null) {
+                // Back past where an open or paid renewal starts: that period would be billed again over it (sweep L3).
+                $changes['_warning'] = [null, "the registrar's expiry {$result->expiresAt} is before the period its renewal on invoice #{$open->invoice_id} starts ("
+                    . $open->period_start?->toDateString() . '): not moved back, check it at the registrar'];
+            } elseif ($now !== null && $result->expiresAt < $now && $this->movesBack($domain, $result->expiresAt, $now)) {
                 $set('expires_at', $now, $result->expiresAt); // the day the name goes there (CNIC: #297)
             } elseif ($now !== null && $result->expiresAt < $now) {
                 // Never back (review F2: a garbled 1970 would have ended a renewed domain in one run).
@@ -521,6 +526,14 @@ class DomainSyncService
 
         return $domain->expires_at === null
             || $domain->expires_at->copy()->startOfDay()->lessThan(Carbon::parse($line->period_end)->startOfDay()->subDays(3));
+    }
+
+    /** A renewal not applied yet, on a live invoice, whose period starts past a period from $expiry (the same within a month). */
+    private function renewalBeyond(Domain $domain, string $expiry): ?InvoiceItem
+    {
+        return $domain->invoiceItems()->whereNull('kind')->whereNull('applied_at')
+            ->whereDate('period_start', '>', Carbon::parse($expiry)->addDays(DomainRenewalService::SAME_PERIOD_DAYS)->toDateString())
+            ->whereHas('invoice', fn ($invoice) => $invoice->whereNotIn('status', [Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED]))->first();
     }
 
     /** Back to its registrar's expiry by at most this much (a garbled date never takes a year off: review F2). */
