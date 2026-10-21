@@ -164,6 +164,11 @@ class DomainRenewalService
         if ($line === null || $domain === null) {
             return self::NOTHING; // applied meanwhile, or not a paid renewal
         }
+        // Closed by staff «not renewed» (refunded by hand, ended, checked at the registrar): never charged nor raised again
+        // on its own, only by their Retry (sweep R5/S3; an order's twin is meta.on_hold).
+        if (!$retry && $staff === null && self::closedUnrenewed($line)) {
+            return self::WAITING;
+        }
         if (in_array($domain->status->value, DomainStatus::terminalValues(), true)) {
             $this->staffDecides($domain, $line, null, "The domain has ended ({$domain->status->value}): renew or restore it by hand, or refund the payment and close this.");
 
@@ -195,6 +200,10 @@ class DomainRenewalService
         if ($line->applied_at !== null || !$this->stillWaiting($line)) {
             return self::NOTHING;
         }
+        // Closed by staff while this run waited for the lock (adversarial ADV-3 of #306).
+        if (!$retry && self::closedUnrenewed($line)) {
+            return self::WAITING;
+        }
         $target = Carbon::parse($line->period_end)->startOfDay();
 
         try {
@@ -212,8 +221,10 @@ class DomainRenewalService
         // An earlier paid period of the domain still waiting is renewed first (sweep F3): run before it, this one would be
         // charged its own years only and applied short, and the earlier one then adopted over them: years paid, never bought.
         // Never with staff's Retry of this one: the earlier one waits for its own.
+        // Not one staff closed «not renewed»: it is renewed only by their Retry, and this one then meets the gap rule below.
         $earlier = self::waitingLines()->where('reference_id', $domain->id)->whereKeyNot($line->id)
-            ->whereDate('period_start', '<', Carbon::parse($line->period_start)->toDateString())->orderBy('period_start')->first();
+            ->whereDate('period_start', '<', Carbon::parse($line->period_start)->toDateString())->orderBy('period_start')->get()
+            ->first(fn (InvoiceItem $candidate) => !self::closedUnrenewed($candidate));
         if ($earlier !== null) {
             $outcome = $this->renewLocked($domain->refresh(), $earlier, $connection, $staff);
             // Held for staff (failed, refused, or a line staff alone renew): said on this one too, so a paid period is never
@@ -365,8 +376,9 @@ class DomainRenewalService
 
             return null;
         } catch (Throwable $e) {
-            // Its outcome is unknown (no answer, a 5xx): left pending, never asked again blindly.
-            $log->update(['error' => mb_substr(Redact::text($e->getMessage()), 0, 2000), 'transactions' => $transactions->since($mark)]);
+            // Its outcome is unknown (no answer, a 5xx): left pending, never asked again blindly; pending again if a click
+            // settled it while it was asked (sweep S4).
+            $log->update(['status' => DomainRegistrarLog::STATUS_PENDING, 'error' => mb_substr(Redact::text($e->getMessage()), 0, 2000), 'transactions' => $transactions->since($mark)]);
             $this->staffDecides($domain, $line, $connection->registrar, "The {$action} got no clear answer ({$e->getMessage()}): its outcome is checked on the next run; do not renew it by hand before checking the registrar.");
 
             return null;
@@ -376,6 +388,17 @@ class DomainRenewalService
         $this->sync->applyResult($domain->refresh(), $result);
 
         return $result;
+    }
+
+    /** Staff closed this line's renewal without it, and nothing has opened it again since. */
+    public static function closedUnrenewed(InvoiceItem $line): bool
+    {
+        $last = ModuleAction::query()->where('domain_id', $line->reference_id)->where('invoice_item_id', $line->id)
+            ->where('action', ModuleAction::DOMAIN_RENEW)->latest('id')->first();
+
+        // Not one a sync opened again after its transfer (renewAfterTransfer): that one is renewed (code review 1 of #306).
+        return $last !== null && $last->status === ModuleAction::STATUS_RESOLVED && $last->resolution === ModuleAction::CLOSED_UNRENEWED
+            && !(($domain = Domain::query()->find($line->reference_id)) !== null && self::reopenedAfterTransfer($domain, $line));
     }
 
     /** Its last charge for this line was refused, and staff have it (an open Pending Module Action). */
@@ -452,9 +475,14 @@ class DomainRenewalService
         DB::transaction(function () use ($domain, $line, $connection, $staff, $result, $adopted) {
             $line->forceFill(['applied_at' => now()])->save();
             // A charge whose answer was not known, now shown by the registrar: settled, never «unconfirmed» a year on (ADV-1 of #302).
+            // This line's, and another line's only when the expiry shown reaches what it asked for (sweep R4: adopting one
+            // line settled another's charge as done, and that line was then applied without its year).
+            $shown = $result->paidUntil ?? $result->expiresAt;
             DomainRegistrarLog::query()->where('domain_id', $domain->id)->where(fn ($q) => $q->whereIn('action', ['renew', 'restore'])
                 ->orWhere(fn ($t) => $t->where('action', 'transfer')->where('request->renewal', true))) // RAT-ADV-2
                 ->where('status', DomainRegistrarLog::STATUS_PENDING)->get()
+                ->filter(fn (DomainRegistrarLog $log) => (int) ($log->request['line'] ?? 0) === $line->id || ($shown !== null
+                    && isset($log->request['target_expiry']) && Carbon::parse($shown)->greaterThanOrEqualTo(Carbon::parse($log->request['target_expiry'])->subDays(self::TOLERANCE_DAYS))))
                 ->each(fn (DomainRegistrarLog $log) => $log->update(['status' => DomainRegistrarLog::STATUS_OK,
                     'response' => ['settled' => 'shown by the registrar', 'expires_at' => $result->paidUntil ?? $result->expiresAt, 'line' => $line->id]]));
             if ($adopted) {
@@ -549,8 +577,9 @@ class DomainRenewalService
             if ($this->unconfirmed($domain) !== null) {
                 throw new RuntimeException(__('domains.renew.unconfirmed', ['domain' => $domain->fqdn]));
             }
-            if (self::waitingLines()->where('reference_id', $domain->id)->exists()) {
-                throw new RuntimeException(__('domains.renew.paid_on_its_way', ['domain' => $domain->fqdn]));
+            if (($waiting = self::waitingLines()->where('reference_id', $domain->id)->first()) !== null) {
+                // One staff closed «not renewed»: its Retry renews it (code review 2 of #306).
+                throw new RuntimeException(__(self::closedUnrenewed($waiting) ? 'domains.renew.closed_unrenewed' : 'domains.renew.paid_on_its_way', ['domain' => $domain->fqdn]));
             }
             // A transfer that replaced its renewal not settled yet: whether it added its year is the registry's to say
             // (renewAfterTransfer, #304), never a second year bought because the registrar lags (adversarial ADV-2 of #305).
@@ -682,6 +711,8 @@ class DomainRenewalService
             if ($domain->expires_at === null || $domain->expires_at->lessThan($end)) {
                 $domain->forceFill(['expires_at' => $end])->save(); // audited
             }
+            // Its unconfirmed charges, renewed by hand now: settled, never blocking next year's (adversarial ADV-2 of #306).
+            ModuleAction::settleRenewalCharges($domain->id, $line->id, DomainRegistrarLog::STATUS_OK, 'Renewed by hand by staff.', $staff);
             DomainRegistrarLog::query()->create(['domain_id' => $domain->id, 'registrar_connection_id' => $domain->effectiveRegistrarConnection()?->id,
                 'staff_id' => $staff?->id, 'invoice_id' => $line->invoice_id, 'action' => 'renew', 'status' => DomainRegistrarLog::STATUS_OK,
                 'response' => ['by_hand' => true, 'expires_at' => $end->toDateString(), 'line' => $line->id]]);
