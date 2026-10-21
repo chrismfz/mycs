@@ -40,7 +40,8 @@ use Throwable;
  * contacts), the account's list and contacts, its EPP code.
  * Step 2, management (nothing charged): its nameservers, its transfer lock, its contacts' details (address, phone, email,
  * never who they are) and which contact has each role (its handle made where none; never another owner through the API).
- * A renewal, registration, transfer or restore is still not asked (RegistrarNotAsked: nothing sent, nothing charged).
+ * Step 3, its renewal (RenewDomain, through DomainRenewalService's locks and checks). A registration, transfer or restore
+ * is not asked (RegistrarNotAsked: nothing sent, nothing charged).
  */
 final class CnicRegistrar implements DomainRegistrar, ReadsAccountBalance, UpdatesContacts
 {
@@ -59,8 +60,10 @@ final class CnicRegistrar implements DomainRegistrar, ReadsAccountBalance, Updat
     {
         // Managed (step 2), nothing sold, registered or renewed through it yet; its expiry is the day the name goes there
         // (reviews of #297). No WHOIS privacy, no DNSSEC, no glue hosts through it.
-        return new DomainRegistrarCapabilities(supportsPortfolioImport: true, supportsTransferLock: true, supportsRegistration: false,
-            supportsRenewal: false, supportsManagement: true, expiryIsWhenItGoes: true);
+        // Its renewal (step 3): RenewDomain, in its grace too (the registry's own: renewed as it is); a restore from
+        // redemption is staff's.
+        return new DomainRegistrarCapabilities(supportsPortfolioImport: true, supportsTransferLock: true, renewsInGrace: true,
+            supportsRegistration: false, supportsRenewal: true, supportsManagement: true, expiryIsWhenItGoes: true);
     }
 
     /** Contract: never throws — false on missing credentials, a refused login or no answer. */
@@ -184,9 +187,24 @@ final class CnicRegistrar implements DomainRegistrar, ReadsAccountBalance, Updat
         return $this->read($credentials, ['COMMAND' => 'StatusDomain', 'DOMAIN' => $domain->fqdn])->first('AUTH');
     }
 
+    /**
+     * Its renewal (step 3): RenewDomain for these years. ONLY DomainRenewalService calls this: it holds the domain's lock,
+     * reads CentralNic first (a period it already has is adopted, never charged again) and logs the charge before it is
+     * asked. Its answer: refused (5xx) or try later (4xx): nothing charged; no code, an HTTP error of its front: maybe
+     * charged (left pending, never asked again blindly). Charged, its record is read again; a read that fails then is
+     * never a failure (the next sync lands the new date).
+     */
     public function renew(Domain $domain, int $years, DomainRegistrarCredentials $credentials): DomainSyncResult
     {
-        throw self::notYet('renewed');
+        if ($years < 1 || $years > 10) {
+            throw new RegistrarRefused("CentralNic Reseller: {$years} years is not a renewal: nothing was sent.");
+        }
+        $this->write($credentials, ['COMMAND' => 'RenewDomain', 'DOMAIN' => $domain->fqdn, 'PERIOD' => $years]);
+        try {
+            return $this->result($this->read($credentials, ['COMMAND' => 'StatusDomain', 'DOMAIN' => $domain->fqdn]));
+        } catch (Throwable) {
+            return new DomainSyncResult(registrarDomainId: $domain->registrar_domain_id);
+        }
     }
 
     public function register(Domain $domain, int $years, DomainRegistrarCredentials $credentials): DomainSyncResult

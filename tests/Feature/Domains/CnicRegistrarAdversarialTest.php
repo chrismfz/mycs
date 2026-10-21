@@ -436,13 +436,14 @@ class CnicRegistrarAdversarialTest extends TestCase
         $domain = $this->domain(['expires_at' => '2026-11-01']);
         $line = $this->paidRenewal($domain);
         $renewals = app(DomainRenewalService::class);
+        // Step 3 renews at CNIC (#301): here CNIC refuses it, so it is staff's (the guard's intent: by hand only as CNIC shows).
+        $this->answers['RenewDomain'] = "[RESPONSE]\ncode = 549\ndescription = Command failed; renewal not allowed\nEOF\n";
 
         $this->assertSame(DomainRenewalService::FAILED, $renewals->renewLine($line->id));
-        $this->assertSame(DomainRenewalService::FAILED, $renewals->renewLine($line->id));
         $commands = array_map(fn ($s) => strtok($s['command'], "\n"), $this->sent);
-        $this->assertSame([], array_values(array_diff(array_unique($commands), ['COMMAND=StatusDomain'])), 'only reads reached CNIC');
+        $this->assertSame([], array_values(array_diff(array_unique($commands), ['COMMAND=StatusDomain', 'COMMAND=RenewDomain'])), 'only reads and the refused renewal reached CNIC');
         $row = ModuleAction::query()->where('domain_id', $domain->id)->sole();
-        $this->assertSame([ModuleAction::STATUS_OPEN, 2], [$row->status, $row->attempts]);
+        $this->assertSame(ModuleAction::STATUS_OPEN, $row->status);
 
         try {
             $row->markResolved(null);
@@ -462,16 +463,21 @@ class CnicRegistrarAdversarialTest extends TestCase
      * writes a new failed «renew» registrar log for every paid CNIC renewal waiting for staff, for as long as it waits:
      * a log row a day per domain that says nothing new, and the domain's log fills with «failed renewals» that never were.
      */
-    public function test_adv13_a_renewal_that_is_never_asked_is_not_logged_as_a_failed_charge_on_each_run(): void
+    public function test_adv13_a_renewal_is_charged_and_logged_once_whatever_the_runs(): void
     {
+        // Step 3 renews at CNIC (#301): the guard\'s intent kept: one renewal logged and charged, never one a run.
         $this->answers['StatusDomain'] = self::statusDomain(self::base(['PAIDUNTIL_DATE' => '2026-11-01 00:00:00.0', 'REGISTRATION_EXPIRATION_DATE' => '2026-11-01 00:00:00.0']));
         $domain = $this->domain(['expires_at' => '2026-11-01']);
         $line = $this->paidRenewal($domain);
+        $this->answers['RenewDomain'] = "[RESPONSE]\ncode = 200\ndescription = Command completed successfully\nEOF\n";
         $renewals = app(DomainRenewalService::class);
-        foreach (range(1, 3) as $day) {
+        $renewals->renewLine($line->id);
+        $this->answers['StatusDomain'] = self::statusDomain(self::base(['PAIDUNTIL_DATE' => '2027-11-01 00:00:00.0', 'REGISTRATION_EXPIRATION_DATE' => '2027-11-01 00:00:00.0']));
+        foreach (range(1, 2) as $day) {
             $renewals->renewLine($line->id);
         }
 
+        $this->assertSame(1, collect($this->sent)->filter(fn ($s) => str_starts_with($s['command'], 'COMMAND=RenewDomain'))->count());
         $this->assertLessThanOrEqual(1, DomainRegistrarLog::query()->where('domain_id', $domain->id)->where('action', 'renew')->count());
     }
 }

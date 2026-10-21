@@ -604,7 +604,7 @@
   - nameservers· lock· επαφές· ROID·
   - λίστα του λογαριασμού (`QueryDomainList`) και επαφές (`StatusContact`) για το import. Κάθε domain της λίστας διαβάζεται με `StatusDomain`, ώστε η λήξη να είναι ίδια με του sync. Για το `RENEWALMODE`: AUTORENEW = ναι· AUTOEXPIRE, AUTODELETE, RENEWONCE ή EXPIREAUCTION = όχι· DEFAULT = άγνωστο·
   - EPP (`AUTH`): διαβάζεται ήδη σε αυτό το βήμα, και το portal το δείχνει σε όποιον επιτρέπεται. Δεν μπαίνει ποτέ στα details ούτε στο debug log: το `Redact` κρύβει το `property[AUTH]`, το `s_pw` και τις γραμμές `AUTH=`.
-  - **Κατάστημα και portal:** τα TLDs του CNIC δεν πωλούνται (`supportsRegistration: false`). Οι φόρμες nameservers και επαφών δεν εμφανίζονται (`supportsManagement: false`) μέχρι το βήμα 2. Μια πληρωμένη ανανέωση πηγαίνει κατευθείαν στο staff (`supportsRenewal: false`), χωρίς να γράφεται «χρέωση» που δεν ζητήθηκε ποτέ.
+  - **Κατάστημα και portal:** τα TLDs του CNIC δεν πωλούνται (`supportsRegistration: false`). Οι φόρμες nameservers και επαφών δεν εμφανίζονται (`supportsManagement: false`) μέχρι το βήμα 2. Μια πληρωμένη ανανέωση πήγαινε κατευθείαν στο staff (`supportsRenewal: false`) μέχρι το βήμα 3.
 - **Writes:** ανανέωση, κατοχύρωση, μεταφορά, αλλαγές και restore **δεν ζητούνται** (`RegistrarNotAsked`): δεν στέλνεται τίποτα και δεν χρεώνεται τίποτα. Μια πληρωμένη ανανέωση πηγαίνει στο staff (Pending Module Action και email). Το staff την κάνει στο CNIC και πατά «Renewed by hand», που την επιβεβαιώνει διαβάζοντας το CNIC.
 - **Βήμα 2 (feat/cnic-manage): διαχείριση, χωρίς χρεώσεις.**
   - **Τι αλλάζει:**
@@ -627,6 +627,10 @@
     - **σφάλμα HTTP (502/504) σε αλλαγή:** «άγνωστο», δηλαδή ίσως έγινε· ένα `AddContact` με άγνωστη έκβαση αναιρεί τους ρόλους εδώ, γιατί το domain δεν άλλαξε·
     - **toggle του lock:** μόνο όπου το CNIC δίνει `TRANSFER LOCK` (`is_lockable`).
   - **Αλλαγή email κατόχου σε gTLD:** μπορεί να ενεργοποιήσει τον κανόνα του ICANN για αλλαγή κατόχου (lock 60 ημερών). Ο υπεύθυνος δέχτηκε τις αλλαγές email κατόχου (2026-10-20). Για το CNIC ισχύει μόνο για handles που έφτιαξε το MyCS.
+- **Βήμα 3 (feat/cnic-renew): ανανέωση.** Ο υπεύθυνος (2026-10-21): «ας υπάρχει η ανανέωση, και ας μην τη χρησιμοποιήσουμε ποτέ».
+  - Μια πληρωμένη ανανέωση στέλνει **ένα** `RenewDomain` (`DOMAIN`, `PERIOD` = έτη της γραμμής, 1–10) μέσα από το `DomainRenewalService`, με τα ίδια locks και ελέγχους με το Openprovider (`supportsRenewal: true`, `renewsInGrace: true`).
+  - **Πριν τη χρέωση:** το domain διαβάζεται· αν το CNIC έχει ήδη την περίοδο (ανανεώθηκε με το χέρι ή από το AUTORENEW), η γραμμή υιοθετείται χωρίς χρέωση.
+  - **Απαντήσεις:** 2xx = έγινε, και η νέα λήξη διαβάζεται με `StatusDomain` (αν η ανάγνωση αποτύχει, η ανανέωση δεν γίνεται «αποτυχία»)· 4xx = δεν έγινε, ξαναδοκιμάζεται· 5xx = άρνηση, πηγαίνει στο staff· χωρίς code ή σφάλμα HTTP = άγνωστο: το log μένει pending και δεν ξαναζητείται στα τυφλά.
+  - Κατοχύρωση, μεταφορά προς το CNIC και restore μένουν `RegistrarNotAsked`.
 - **Επόμενα:**
-  - (3) ανανέωση με τις ασφάλειες του Openprovider·
-  - (4) «μεταφορά στο Openprovider αντί για ανανέωση», ανά connection ή TLD.
+  - (4) «μεταφορά αντί για ανανέωση»: ρύθμιση σε κάθε registrar connection («σε πληρωμένη ανανέωση: ανανέωση εδώ / μεταφορά στο: [connection]»), με εξαιρέσεις ανά TLD (.eu/.uk: η μεταφορά δεν προσθέτει έτος).
