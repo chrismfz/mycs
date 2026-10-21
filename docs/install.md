@@ -8,6 +8,24 @@ installer, γιατί ένα `/install` στο internet είναι επιφάν�
 PHP 8.4 (τα extensions του `composer.lock`), MariaDB 10.11 (utf8mb4_unicode_ci), Node 20+, nginx, ένας χρήστης
 συστήματος για την εφαρμογή (π.χ. `mycs`). Παράδειγμα vhost και systemd: `HANDOFF.md` (devbox).
 
+## Μέγεθος server και PHP (για το migration, 2026-10-21)
+- **OPcache: όχι τα defaults της διανομής.** Ένα Laravel/Filament app φορτώνει ~1.600 αρχεία ανά request και έχει
+  ~43.000 PHP αρχεία· όλα τα pools ενός php-fpm μοιράζονται **ένα** OPcache. Με τα defaults (128 MB, 8 MB strings,
+  10.000 αρχεία) και δύο apps (MyCS + Ekdosi) γέμιζε, έκανε restart (`oom_restarts`) και κάθε request ξαναμεταγλώττιζε
+  (~1,4 s, το dashboard με τα ~10 lazy widgets 4–5 s). Στο `/etc/php.d/10-opcache.ini`:
+  ```ini
+  opcache.memory_consumption=256        ; ~70 MB ανά app ζεστό, με περιθώριο
+  opcache.interned_strings_buffer=32
+  opcache.max_accelerated_files=60000   ; όλα τα αρχεία των apps του server
+  ```
+  και `systemctl reload php-fpm`. Έλεγχος: `opcache_get_status()` από το pool (όχι από το CLI, έχει δικό του):
+  `oom_restarts` 0, `interned_strings_usage.free_memory` > 0. Μετά από deploy ή reload το πρώτο request ξαναμεταγλωττίζει (~1 s).
+- **Μέγεθος:** με δεδομένα στο μέγεθος του myip (500 πελάτες, 600 υπηρεσίες, 2.000 domains, 7.200 τιμολόγια) κάθε
+  widget του dashboard κάνει 2–16 queries σε ≤ 42 ms SQL, χωρίς N+1: ο όγκος δεν είναι το πρόβλημα, η μνήμη και ο
+  δίσκος είναι. Devbox: 16 GB RAM, 16 cores, 42 GB δίσκος (vega, VM 114).
+- **Δίσκος:** τα review clones (~800 MB το καθένα με το `vendor` τους) και το cache του phpstan (`/tmp/phpstan`) τον
+  γέμισαν στο 100% (2026-10-21), μαζί με το live site. `vendor` με hardlinks (`cp -al`), clones σβήνονται μετά το review.
+
 ## Νέο instance
 ```bash
 git clone <repo> /var/www/mycs && cd /var/www/mycs

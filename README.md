@@ -10,6 +10,7 @@ Client system (billing, provisioning, domains, support) για **nixpal** και
 
 **Ξεκίνα από το [`docs/HANDOFF.md`](docs/HANDOFF.md)** (κατάσταση) και το [`docs/ROADMAP.md`](docs/ROADMAP.md) (τι ακολουθεί). Ευρετήριο: [`docs/README.md`](docs/README.md).
 Κανόνες για όποιον δουλεύει εδώ: [`CLAUDE.md`](CLAUDE.md).
+Server και PHP για production και migration (OPcache, μέγεθος): [`docs/install.md`](docs/install.md#μέγεθος-server-και-php-για-το-migration-2026-10-21).
 
 ## Άδεια
 MIT, βλ. [`LICENSE`](LICENSE) (μαζί με τη σημείωση copyright του αρχικού κώδικα, όπως ζητά η άδεια).
