@@ -70,6 +70,35 @@ class DomainLookup
         return $answer;
     }
 
+    /**
+     * The registry's own expiry of this name (Y-m-d or its RDAP date), read now: never cached, never completed from the
+     * registrar's RDAP (a thin registry's answer merged with the registrar's would be the registrar's word: R2-1 of #304),
+     * and only for the name asked. Null: not known (no RDAP, no date, another name, an error).
+     */
+    public function registryExpiry(string $fqdn): ?string
+    {
+        $fqdn = mb_strtolower(rtrim(trim($fqdn), '.'));
+        $tld = substr($fqdn, (int) strrpos($fqdn, '.') + 1);
+        try {
+            [$status, $record] = GrWhois::covers($tld) ? app(GrWhois::class)->lookup($fqdn) : ($this->rdap()?->lookup($fqdn, false) ?? ['unsupported', null]);
+        } catch (\Throwable) {
+            return null;
+        }
+        if ($status !== 'found' || $record === null || self::ascii((string) $record->domain) !== self::ascii($fqdn)) {
+            return null;
+        }
+
+        return is_string($record->expires) && trim($record->expires) !== '' ? trim($record->expires) : null;
+    }
+
+    private static function ascii(string $name): string
+    {
+        $name = mb_strtolower(rtrim(trim($name), '.'));
+        $ascii = $name === '' ? false : idn_to_ascii($name, IDNA_NONTRANSITIONAL_TO_ASCII, INTL_IDNA_VARIANT_UTS46);
+
+        return $ascii === false ? $name : $ascii;
+    }
+
     /** Free (true), taken (false), or not known (null), by RDAP alone: the registrar's fallback. */
     public function availableByRdap(string $fqdn): ?bool
     {

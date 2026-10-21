@@ -32,7 +32,7 @@ class DomainRegistrarConnection extends Model implements Auditable
 
     public const MANUAL = 'manual';
 
-    protected $fillable = ['registrar', 'label', 'is_active', 'mode', 'debug_log', 'low_balance', 'renew_transfer_to_id', 'renew_transfer_except'];
+    protected $fillable = ['registrar', 'label', 'is_active', 'mode', 'debug_log', 'low_balance', 'renew_transfer_to_id'];
 
     /** Its settings are the credentials, its TLDs and domains every account's: never in a JSON or a template. */
     protected $hidden = ['settings', 'tlds', 'domains'];
@@ -44,7 +44,7 @@ class DomainRegistrarConnection extends Model implements Auditable
 
     protected function casts(): array
     {
-        return ['is_active' => 'boolean', 'debug_log' => 'boolean', 'balance' => 'array', 'low_balance' => 'decimal:2', 'renew_transfer_except' => 'array'];
+        return ['is_active' => 'boolean', 'debug_log' => 'boolean', 'balance' => 'array', 'low_balance' => 'decimal:2'];
     }
 
     protected static function booted(): void
@@ -123,23 +123,14 @@ class DomainRegistrarConnection extends Model implements Auditable
     }
 
     /**
-     * The connection a paid renewal of this TLD is transferred to instead of renewed here, or null: renewed here (none
-     * set, itself, or a TLD excepted: .eu and .uk transfers add no year). Its usability is the caller's to check.
+     * The connection a paid renewal is transferred to instead of renewed here, or null: renewed here (none set, or itself).
+     * Every TLD (owner 2026-10-22): one whose transfer adds no year is renewed there after it (renewAfterTransfer). Its
+     * usability is the caller's to check.
      */
-    public function renewTransferTarget(string $tld): ?self
+    public function renewTransferTarget(): ?self
     {
         $to = $this->renewTransferTo;
-        if ($to === null || $to->id === $this->id) {
-            return null;
-        }
-        $tld = mb_strtolower(ltrim($tld, '.'));
-        foreach ((array) $this->renew_transfer_except as $except) {
-            $except = mb_strtolower(ltrim(trim((string) $except), '.'));
-            if ($except !== '' && ($tld === $except || str_ends_with($tld, ".{$except}"))) {
-                return null;
-            }
-        }
 
-        return $to;
+        return $to === null || $to->id === $this->id ? null : $to;
     }
 }

@@ -73,6 +73,23 @@ final class RdapTest extends TestCase
         $this->assertStringNotContainsString('p@example.org', json_encode($record));
     }
 
+    public function test_the_registrys_own_word_never_follows_the_registrar()
+    {
+        $http = new FakeTransport;
+        $http->answers['https://rdap.verisign.example/com/v1/domain/example.com'] = [200, json_encode([
+            'objectClassName' => 'domain', 'ldhName' => 'EXAMPLE.COM', 'events' => [],
+            'links' => [['rel' => 'related', 'type' => 'application/rdap+json', 'href' => 'https://rdap.registrar.example/domain/example.com']],
+        ])];
+        $http->answers['https://rdap.registrar.example/domain/example.com'] = [200, json_encode([
+            'objectClassName' => 'domain', 'events' => [['eventAction' => 'expiration', 'eventDate' => '2026-11-01T00:00:00Z']],
+        ])];
+
+        [$result, $record] = (new RdapClient($http, self::bootstrap()))->lookup('example.com', false);
+
+        $this->assertSame('found', $result);
+        $this->assertNull($record->expires); // a thin registry's missing date is never the registrar's
+    }
+
     public function test_not_found_unsupported_and_errors()
     {
         $http = new FakeTransport;

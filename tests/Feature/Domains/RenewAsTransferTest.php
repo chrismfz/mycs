@@ -14,6 +14,7 @@ use App\Models\ModuleAction;
 use App\Models\User;
 use App\Services\Domains\DomainRenewalService;
 use App\Services\Domains\DomainSyncService;
+use App\Services\Domains\Lookup\LaravelTransport;
 use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -22,6 +23,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
+use Nixpal\DomainTools\Whois\SocketConnector;
 use Tests\TestCase;
 
 /**
@@ -41,6 +43,9 @@ class RenewAsTransferTest extends TestCase
 
     private ?string $auth = 'Epp-Code-123';
 
+    /** The registry's expiry (RDAP), as it shows the transfer: null, not readable. */
+    private ?string $rdapExpiry = '2026-11-01T00:00:00Z';
+
     /** null: takes it; 'refuse': 4xx; 'down': 5xx */
     private ?string $target = null;
 
@@ -56,18 +61,27 @@ class RenewAsTransferTest extends TestCase
         Queue::fake();
         Mail::fake();
         Http::preventStrayRequests();
+        LaravelTransport::$resolve = fn (string $host) => ['93.184.216.34'];
+        $this->app->bind(SocketConnector::class, fn () => new class implements SocketConnector
+        {
+            public function query($host, $query, $timeout = 8, $max = 65536)
+            {
+                return null;
+            }
+        });
         Http::fake(fn (Request $request) => str_contains($request->url(), 'rrpproxy') ? $this->cnicAnswer($request) : $this->opAnswer($request));
         config(['audit.console' => true, 'settings.domain_billing_enabled' => true, 'settings.domain_invoice_days' => 15, 'settings.credits_auto_use' => false]);
         Currency::query()->firstOrCreate(['code' => 'EUR'], ['name' => 'Euro', 'suffix' => 'EUR', 'format' => '1.000,00']);
         $this->to = DomainRegistrarConnection::query()->create(['registrar' => 'openprovider', 'label' => 'OP', 'is_active' => true, 'mode' => 'production']);
         $this->to->storeCredentials(['username' => 'u', 'password' => 'Op-Secret-Pa55'], ['password']);
         $this->from = DomainRegistrarConnection::query()->create(['registrar' => 'cnic', 'label' => 'CNIC', 'is_active' => true, 'mode' => 'production',
-            'renew_transfer_to_id' => $this->to->id, 'renew_transfer_except' => ['eu', 'uk']]);
+            'renew_transfer_to_id' => $this->to->id]);
         $this->from->storeCredentials(['username' => 'myipreseller', 'password' => 'Cnic-Secret-1'], ['password']);
     }
 
     protected function tearDown(): void
     {
+        LaravelTransport::$resolve = null;
         Carbon::setTestNow();
         parent::tearDown();
     }
@@ -95,7 +109,11 @@ class RenewAsTransferTest extends TestCase
             str_contains($path, '/auth/login') => Http::response(['data' => ['token' => 'tok']]),
             $request->method() === 'POST' && str_ends_with($path, '/customers') => Http::response(['data' => ['handle' => 'MP000001-GR']]),
             $request->method() === 'POST' && str_ends_with($path, '/domains/transfer') => $this->opTransfer($path, $request->data()),
+            $request->method() === 'POST' && str_ends_with($path, '/renew') => $this->opRenew(),
             $request->method() === 'GET' && str_contains($path, '/v1/domains') => Http::response(['data' => ['results' => $this->op === [] ? [] : [$this->record()], 'total' => $this->op === [] ? 0 : 1] + ($this->op === [] ? [] : $this->record())]),
+            str_contains($request->url(), 'data.iana.org') => Http::response(['services' => [[['com', 'eu', 'uk'], ['https://rdap.example/']]]]),
+            str_contains($request->url(), 'rdap.example/domain/') => $this->rdapExpiry === null ? Http::response([], 503)
+                : Http::response(['objectClassName' => 'domain', 'ldhName' => 'example.com', 'events' => [['eventAction' => 'expiration', 'eventDate' => $this->rdapExpiry]]]),
             default => Http::response([], 404),
         };
     }
@@ -115,6 +133,16 @@ class RenewAsTransferTest extends TestCase
     private function mails(string $template): array
     {
         return Mail::queued(\App\Mail\Mail::class)->filter(fn ($mail) => $mail->templateKey === $template)->map(fn ($mail) => $mail->templateKey)->values()->all();
+    }
+
+    private int $opRenewals = 0;
+
+    private function opRenew()
+    {
+        $this->opRenewals++;
+        $this->opExpiry = Carbon::parse($this->opExpiry)->addYear()->format('Y-m-d H:i:s');
+
+        return Http::response(['code' => 0, 'data' => ['status' => 'ACT']]);
     }
 
     private function opTransfer(string $path, array $data)
@@ -227,14 +255,14 @@ class RenewAsTransferTest extends TestCase
         $this->assertSame(0, $this->sent('RenewDomain'));
     }
 
-    public function test_an_excepted_tld_is_renewed_here(): void
+    public function test_every_tld_is_transferred_eu_too(): void
     {
         [$domain, $line] = $this->paidRenewal('eu');
 
         $this->assertSame(DomainRenewalService::APPLIED, app(DomainRenewalService::class)->renewLine($line->id));
-        $this->assertSame(1, $this->sent('RenewDomain'));
-        $this->assertSame([], $this->op);
-        $this->assertSame($this->from->id, $domain->fresh()->registrar_connection_id);
+        $this->assertSame(0, $this->sent('RenewDomain'));
+        $this->assertCount(1, $this->op);
+        $this->assertSame($this->to->id, $domain->fresh()->registrar_connection_id);
     }
 
     public function test_no_setting_renews_here(): void
@@ -269,22 +297,93 @@ class RenewAsTransferTest extends TestCase
 
         $domain->refresh();
         $this->assertSame([DomainStatus::Active, $this->to->id, '2027-11-01'], [$domain->status, $domain->registrar_connection_id, $domain->expires_at->toDateString()]);
-        $this->assertNotNull($domain->meta['renew_transfer']['done_at']);
+        $this->assertNotNull($domain->meta['renew_transfer_last']['done_at'], 'settled: kept as history');
+        $this->assertArrayNotHasKey('renew_transfer', $domain->meta);
         $this->assertSame([], $this->mails('domain_transferred'), 'a renewal to the customer, not a transfer');
         $this->assertCount(1, $this->mails('domain_renewed'));
     }
 
-    public function test_a_transfer_that_added_no_year_is_told_to_staff(): void
+    public function test_a_transfer_that_added_no_year_is_renewed_there_once_only_when_it_still_lacks_it(): void
     {
         [$domain, $line] = $this->paidRenewal();
         app(DomainRenewalService::class)->renewLine($line->id);
 
         $this->opStatus = 'ACT';
-        $this->opExpiry = '2026-11-01 00:00:00'; // a ccTLD whose transfer adds no year, left off the exceptions
-        app(DomainSyncService::class)->sync($domain->refresh());
+        $this->opExpiry = '2026-11-01 00:00:00'; // its transfer added no year
+        $sync = app(DomainSyncService::class);
+        $sync->sync($domain->refresh());
+        $sync->sync($domain->refresh());
+        $this->assertNotNull($line->fresh()->applied_at, 'not at once: its expiry there may lag the transfer');
 
+        Carbon::setTestNow('2026-10-22 11:00:00');
+        $sync->sync($domain->refresh());
+        $this->assertNull($line->fresh()->applied_at, 'still short a day on: opened again, to be renewed there');
+
+        $this->assertSame(DomainRenewalService::APPLIED, app(DomainRenewalService::class)->renewLine($line->id));
+        $this->assertSame(DomainRenewalService::NOTHING, app(DomainRenewalService::class)->renewLine($line->id));
+        $sync->sync($domain->refresh());
+        $this->assertSame(1, $this->opRenewals, 'renewed there once');
+        $this->assertSame([0, '2027-11-01'], [$this->sent('RenewDomain'), $domain->fresh()->expires_at->toDateString()]);
+        $this->assertCount(1, $this->mails('domain_renewed'), 'told «renewed» once, when it was sent');
+    }
+
+    public function test_a_year_that_shows_up_late_is_never_charged_again(): void
+    {
+        [$domain, $line] = $this->paidRenewal();
+        app(DomainRenewalService::class)->renewLine($line->id);
+
+        $this->opStatus = 'ACT';
+        $this->opExpiry = '2026-11-01 00:00:00'; // the target's expiry lags its transfer
+        $sync = app(DomainSyncService::class);
+        $sync->sync($domain->refresh());
+        $this->opExpiry = '2027-11-01 00:00:00'; // there by the next sync
+        Carbon::setTestNow('2026-10-23 11:00:00');
+        $sync->sync($domain->refresh());
+        $sync->sync($domain->refresh());
+
+        $this->assertNotNull($line->fresh()->applied_at);
+        $this->assertSame(0, $this->opRenewals);
+        $this->assertSame('covered', $domain->fresh()->meta['renew_transfer_last']['settled'] ?? null);
+    }
+
+    public function test_a_registrar_lagging_past_the_wait_is_never_charged_when_the_registry_has_the_year(): void
+    {
+        // A .com: its transfer added the year at the registry; the registrar shows the old date for days (code review 3 of #304).
+        [$domain, $line] = $this->paidRenewal();
+        app(DomainRenewalService::class)->renewLine($line->id);
+        $this->opStatus = 'ACT';
+        $this->opExpiry = '2026-11-01 00:00:00';
+        $this->rdapExpiry = '2027-11-01T00:00:00Z';
+        $sync = app(DomainSyncService::class);
+        $sync->sync($domain->refresh());
+        foreach (['2026-10-23 11:00:00', '2026-10-25 11:00:00', '2026-10-30 11:00:00'] as $day) {
+            Carbon::setTestNow($day);
+            $sync->sync($domain->refresh());
+            app(DomainRenewalService::class)->renewLine($line->id);
+        }
+
+        $this->assertNotNull($line->fresh()->applied_at, 'never opened again');
+        $this->assertSame(0, $this->opRenewals, 'never a second year');
+        $this->assertSame(0, ModuleAction::query()->open()->count());
+    }
+
+    public function test_a_registry_not_readable_is_staffs_never_a_charge(): void
+    {
+        [$domain, $line] = $this->paidRenewal();
+        app(DomainRenewalService::class)->renewLine($line->id);
+        $this->opStatus = 'ACT';
+        $this->opExpiry = '2026-11-01 00:00:00';
+        $this->rdapExpiry = null;
+        $sync = app(DomainSyncService::class);
+        $sync->sync($domain->refresh());
+        Carbon::setTestNow('2026-10-23 11:00:00');
+        $sync->sync($domain->refresh());
+        $sync->sync($domain->refresh());
+        app(DomainRenewalService::class)->renewLine($line->id);
+
+        $this->assertSame(0, $this->opRenewals, 'the cron never charges it on its own');
+        $this->assertTrue($domain->fresh()->meta['renew_transfer']['staff_only'] ?? false, 'open for staff\'s Retry only');
         $row = ModuleAction::query()->open()->where('domain_id', $domain->id)->sole();
-        $this->assertSame($line->id, $row->invoice_item_id);
-        $this->assertStringContainsString('added no year', $row->last_error);
+        $this->assertStringContainsString('could not confirm', $row->last_error);
     }
 }
