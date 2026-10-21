@@ -4,6 +4,7 @@ namespace App\Services\Domains;
 
 use App\Enums\DomainStatus;
 use App\Models\Domain;
+use App\Models\DomainRegistrarConnection;
 use Illuminate\Support\Carbon;
 
 /**
@@ -44,12 +45,21 @@ class DomainLifecycle
             // Past the stages it has: the registrar with an API says «deleted» itself (it may still restore by hand); without
             // one, the dates do, but only when both stages are known: never past what is known.
             // Never backwards from a later stage (review 8).
-            $this->sync->isSyncable($domain) => in_array($domain->status, [DomainStatus::Grace, DomainStatus::Redemption], true) ? $domain->status : DomainStatus::Expired,
+            // A registrar with an API whose connection is off for now (sweep L4) is the same: its word, not our dates.
+            $this->sync->isSyncable($domain) || $this->hasApi($domain) => in_array($domain->status, [DomainStatus::Grace, DomainStatus::Redemption], true) ? $domain->status : DomainStatus::Expired,
             $known => DomainStatus::Deleted,
             default => DomainStatus::Expired,
         };
 
         return $status === $domain->status ? null : $status;
+    }
+
+    /** Its registrar has an API (its connection maybe off for now): never ended by our dates, only by its word. */
+    private function hasApi(Domain $domain): bool
+    {
+        $connection = $domain->effectiveRegistrarConnection();
+
+        return $connection !== null && $connection->registrar !== DomainRegistrarConnection::MANUAL;
     }
 
     /** Move it, audited; returns the new status or null. */

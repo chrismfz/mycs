@@ -973,12 +973,18 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
         // stale-id catch below, which is for domain-fetch errors only.
         $this->token($credentials);
 
+        $tombstone = null;
         if ($domain->registrar_domain_id !== null && $domain->registrar_domain_id !== '') {
             try {
                 $data = $this->request($credentials, 'GET', '/v1/domains/' . rawurlencode($domain->registrar_domain_id))->json('data');
                 // Only this domain's record: an id now pointing at another name is not ours (review F1).
+                // A dead one (DEL, FAI) only when no live record of the name is there: lapsed and bought again, the stored id
+                // is its tombstone, and the new registration would be ended here as deleted (sweep G1).
                 if (is_array($data) && $this->isRecordOf($data, $domain->fqdn)) {
-                    return $data;
+                    if (!in_array((string) ($data['status'] ?? ''), self::DEAD_STATUSES, true)) {
+                        return $data;
+                    }
+                    $tombstone = $data;
                 }
             } catch (RuntimeException) {
                 // Stale/wrong stored id (object re-created under a new id, or a
@@ -989,14 +995,24 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
         }
 
         [$name, $extension] = $this->splitFqdn($domain->fqdn);
-        $results = $this->request($credentials, 'GET', '/v1/domains?full_name=' . rawurlencode($name . '.' . $extension))
-            ->json('data.results');
+        try {
+            $results = $this->request($credentials, 'GET', '/v1/domains?full_name=' . rawurlencode($name . '.' . $extension))
+                ->json('data.results');
+        } catch (RuntimeException $e) {
+            if ($tombstone !== null) {
+                return $tombstone; // read by its id; the search not answering is no reason to read less
+            }
+            throw $e;
+        }
         // Prefer a LIVE record: after a lapse-and-rebuy the account can hold
         // BOTH the lingering DEL tombstone AND the fresh ACT record for the
         // same fqdn (id-ascending puts the tombstone first) — picking the
         // tombstone would disown a registration that was just paid for.
         // Only records of this very name: a search may answer with others (review F1: another domain's id, expiry and
         // nameservers were written onto ours, and a renewal would have charged for it).
+        if (!is_array($results) && $tombstone !== null) {
+            return $tombstone;
+        }
         if (!is_array($results)) {
             // Not its search's answer (a maintenance page, a proxy, a changed API): could not read, never «not ours»
             // (ADV-4 of #203).
@@ -1010,7 +1026,7 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
                 break;
             }
         }
-        $first ??= $candidates[0] ?? null;
+        $first ??= $tombstone ?? $candidates[0] ?? null;
         if (!is_array($first)) {
             // TYPED: «not in the account» must be distinguishable from a
             // transport failure — the register adopt-guard acts on the
