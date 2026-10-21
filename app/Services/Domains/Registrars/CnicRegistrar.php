@@ -4,21 +4,27 @@ namespace App\Services\Domains\Registrars;
 
 use App\Contracts\DomainRegistrar;
 use App\Contracts\ReadsAccountBalance;
+use App\Contracts\UpdatesContacts;
 use App\Enums\DomainStatus;
+use App\Models\Contact;
 use App\Models\Domain;
 use App\Services\Domains\DomainNotFoundAtRegistrar;
 use App\Services\Domains\DomainRegistrarNotConfigured;
 use App\Services\Domains\RegistrarNotAsked;
+use App\Services\Domains\RegistrarOutcomeUnknown;
+use App\Services\Domains\RegistrarRefused;
 use App\Support\Domains\AvailabilityResult;
 use App\Support\Domains\DomainChanges;
 use App\Support\Domains\DomainRegistrarCapabilities;
 use App\Support\Domains\DomainRegistrarCredentials;
 use App\Support\Domains\DomainSyncResult;
+use App\Support\Domains\Phone;
 use App\Support\Domains\RegistrarBalance;
 use App\Support\Domains\RegistrarContact;
 use App\Support\Domains\RegistrarDomainPage;
 use App\Support\Domains\RegistrarDomainRecord;
 use App\Support\Domains\TldPricing;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use MyCS\Cnic\Command;
 use MyCS\Cnic\Response;
@@ -30,12 +36,13 @@ use Throwable;
  * registrar of its own, not «moved at their renewal» only. Its API is packages/cnic (written from its public command
  * reference and the MIT php-sdk's wire format; the WHMCS module is ionCube and closed: nothing of it).
  *
- * Step 1, reads only: the connection's ping and balance, availability, a domain's sync (its dates, nameservers, lock,
- * contacts), the account's list and contacts (the import), its EPP code. Every write (renew, register, transfer, a
- * change, a restore) is not asked (RegistrarNotAsked: nothing sent, nothing charged): staff do it at CNIC by hand until
- * the next steps.
+ * Step 1, reads: the connection's ping and balance, availability, a domain's sync (its dates, nameservers, lock,
+ * contacts), the account's list and contacts, its EPP code.
+ * Step 2, management (nothing charged): its nameservers, its transfer lock, its contacts' details (address, phone, email,
+ * never who they are) and which contact has each role (its handle made where none; never another owner through the API).
+ * A renewal, registration, transfer or restore is still not asked (RegistrarNotAsked: nothing sent, nothing charged).
  */
-final class CnicRegistrar implements DomainRegistrar, ReadsAccountBalance
+final class CnicRegistrar implements DomainRegistrar, ReadsAccountBalance, UpdatesContacts
 {
     /** What staff see of its record: never its auth code. */
     private const DETAIL_KEYS = ['STATUS', 'RGP_STATUS', 'RENEWALMODE', 'TRANSFERMODE', 'PAIDUNTIL_DATE', 'REGISTRATION_EXPIRATION_DATE', 'RENEWAL_DATE',
@@ -50,10 +57,10 @@ final class CnicRegistrar implements DomainRegistrar, ReadsAccountBalance
 
     public function capabilities(): DomainRegistrarCapabilities
     {
-        // Reads only (step 1): nothing sold, registered, renewed or changed through it; its expiry is the day the name goes
-        // there (reviews of #297).
-        return new DomainRegistrarCapabilities(supportsPortfolioImport: true, supportsRegistration: false, supportsRenewal: false,
-            supportsManagement: false, expiryIsWhenItGoes: true);
+        // Managed (step 2), nothing sold, registered or renewed through it yet; its expiry is the day the name goes there
+        // (reviews of #297). No WHOIS privacy, no DNSSEC, no glue hosts through it.
+        return new DomainRegistrarCapabilities(supportsPortfolioImport: true, supportsTransferLock: true, supportsRegistration: false,
+            supportsRenewal: false, supportsManagement: true, expiryIsWhenItGoes: true);
     }
 
     /** Contract: never throws — false on missing credentials, a refused login or no answer. */
@@ -192,9 +199,207 @@ final class CnicRegistrar implements DomainRegistrar, ReadsAccountBalance
         throw self::notYet('transferred in');
     }
 
+    /**
+     * Its nameservers, its transfer lock, which contact has each role: one ModifyDomain, then read again. A nameserver
+     * inside the name itself needs its glue at CentralNic, set there by hand; no WHOIS privacy through it. A role sent only
+     * when its handle is not the one CentralNic has; another owner never (a trade, maybe charged: staff).
+     */
     public function updateDomain(Domain $domain, DomainChanges $changes, DomainRegistrarCredentials $credentials): DomainSyncResult
     {
-        throw self::notYet('changed');
+        if ($changes->isEmpty()) {
+            throw new RuntimeException('Nothing to send to CentralNic Reseller.');
+        }
+        if ($changes->whoisPrivacy !== null) {
+            throw new RegistrarNotAsked('CentralNic Reseller: WHOIS privacy is not set from MyCS: nothing was sent.');
+        }
+        $command = ['COMMAND' => 'ModifyDomain', 'DOMAIN' => $domain->fqdn];
+        $now = null; // its record before the change, read once when needed
+        $current = function () use (&$now, $domain, $credentials): DomainSyncResult {
+            return $now ??= $this->result($this->read($credentials, ['COMMAND' => 'StatusDomain', 'DOMAIN' => $domain->fqdn]));
+        };
+        if ($changes->nameservers !== null) {
+            // A line break taken out first, as it would be on the wire (adversarial ADV-6 of #300).
+            $hosts = array_map(fn (string $host) => mb_strtolower(rtrim(trim(str_replace(["\r", "\n"], '', $host)), '.')), $changes->nameservers);
+            foreach ($hosts as $host) {
+                $inside = $host === $domain->fqdn || str_ends_with($host, '.' . $domain->fqdn);
+                // One inside the name needs its glue at CentralNic: one it has already has it (ADV-8 of #300).
+                if ($inside && !in_array($host, $current()->nameservers, true)) {
+                    throw new RegistrarRefused("CentralNic Reseller: {$host} is inside {$domain->fqdn} and needs its glue (IP) there: set it at CentralNic by hand. Nothing was sent.");
+                }
+            }
+            $command['NAMESERVER'] = $hosts;
+        }
+        if ($changes->transferLock !== null) {
+            $command['TRANSFERLOCK'] = $changes->transferLock ? 1 : 0;
+        }
+        $handles = [];
+        if ($changes->applyContacts) {
+            $theirs = $current()->contactHandles;
+            // Its owner first, before any contact is made (code review 7, ADV-9 of #300): never another owner here.
+            $owner = trim((string) $domain->registrant_handle);
+            if ($owner === '' || ($theirs['registrant'] ?? null) !== $owner) {
+                throw new RegistrarRefused("CentralNic Reseller: the owner of {$domain->fqdn} here is not the one CentralNic has (another owner is a trade, maybe charged: staff do it there). Nothing was sent.");
+            }
+            foreach (array_keys(self::ROLES) as $role) {
+                // A role just emptied here (the change saved before it is sent) while CentralNic has one: it cannot be taken
+                // away through it (ADV-3 of #300). One that never had a contact here is not this.
+                if ($role !== 'registrant' && $domain->wasChanged("{$role}_contact_id") && $domain->{"{$role}_contact_id"} === null && isset($theirs[$role])) {
+                    throw new RegistrarRefused("CentralNic Reseller: the {$role} of {$domain->fqdn} cannot be left without a contact there (it has {$theirs[$role]}): choose one. Nothing was sent.");
+                }
+            }
+            $handles = $this->ensureHandles($domain, $credentials);
+            foreach (self::ROLES as $role => $key) {
+                if ($role === 'registrant' || !isset($handles[$role]) || ($theirs[$role] ?? null) === $handles[$role]) {
+                    continue; // its owner never; not ours to say, or already so
+                }
+                $command[str_replace('_', '', $key) . '0'] = $handles[$role];
+            }
+        }
+        if (count($command) > 2) {
+            $this->write($credentials, $command);
+        }
+        try {
+            $base = $this->result($this->read($credentials, ['COMMAND' => 'StatusDomain', 'DOMAIN' => $domain->fqdn]));
+        } catch (Throwable) {
+            // Done, not read back (a 421, no answer): what was sent, never «failed» (an undo here would say the opposite
+            // of CentralNic: code review 1, ADV-1 of #300). The next sync reads the rest.
+            return new DomainSyncResult(nameservers: $command['NAMESERVER'] ?? [], contactHandles: $handles, transferLock: $changes->transferLock);
+        }
+
+        return new DomainSyncResult(
+            expiresAt: $base->expiresAt,
+            nameservers: $base->nameservers,
+            registrarDomainId: $base->registrarDomainId,
+            status: $base->status,
+            rawStatus: $base->rawStatus,
+            // What CentralNic says after the change wins: a role it did not take shows, and the sync warns (CR 10, ADV-4).
+            contactHandles: $base->contactHandles + $handles,
+            transferLock: $base->transferLock,
+            whoisPrivacy: $base->whoisPrivacy,
+            registeredAt: $base->registeredAt,
+            details: $base->details,
+        );
+    }
+
+    /** A contact's address, phone and email at CentralNic (P1b-2): ModifyContact; who it is never. */
+    public function updateContact(string $handle, Contact $contact, DomainRegistrarCredentials $credentials): void
+    {
+        // Its account is shared with another company (nixpal): a handle MyCS did not make may hold its domains too, and
+        // their WHOIS would change. Only ours; another is staff's (code review 3 of #300).
+        if (!self::madeHere($handle)) {
+            throw new RegistrarRefused("CentralNic Reseller: the contact {$handle} was not made by MyCS and may be another company's too in this shared account: update it at CentralNic by hand. Nothing was sent.");
+        }
+        $this->write($credentials, ['COMMAND' => 'ModifyContact', 'CONTACT' => $handle] + self::contactDetails($contact, clear: true));
+    }
+
+    /** A handle this MyCS made (AddContact, kept on its domain's meta). */
+    private static function madeHere(string $handle): bool
+    {
+        return Domain::query()->where('meta', 'like', '%' . str_replace(['%', '_'], ['\\%', '\\_'], json_encode($handle)) . '%')->get(['meta'])
+            ->contains(fn (Domain $domain) => in_array($handle, (array) ($domain->meta['contact_handles'] ?? []), true));
+    }
+
+    /**
+     * Each role\'s handle: the one it has (cleared by Domain when its contact changes), the one made for that contact on this
+     * domain before (a write refused after it), or a new one (AddContact). Only the account\'s own contacts, with a country.
+     *
+     * @return array<string, string> role → handle
+     */
+    private function ensureHandles(Domain $domain, DomainRegistrarCredentials $credentials): array
+    {
+        // Every role checked before anything is made (code review 7 of #300).
+        foreach (array_keys(self::ROLES) as $role) {
+            $contact = $domain->{"{$role}Contact"};
+            if ($contact !== null && trim((string) $domain->{"{$role}_handle"}) === '') {
+                if ((int) $contact->client_id !== (int) $domain->client_id) {
+                    throw new RegistrarRefused("CentralNic Reseller: the {$role} contact of {$domain->fqdn} belongs to another account. Nothing was sent.");
+                }
+                if (trim((string) $contact->country) === '') {
+                    throw new RegistrarRefused("CentralNic Reseller: the {$role} contact of {$domain->fqdn} has no country. Nothing was sent.");
+                }
+            }
+        }
+        // The handles its contacts already have, in any role (ADV-5 of #300); one staff linked to a role by their word is
+        // that role\'s only, never lent to another (D4c, code review 5).
+        $handles = [];
+        $byContact = [];
+        foreach (array_keys(self::ROLES) as $role) {
+            $contact = $domain->{"{$role}Contact"};
+            $existing = trim((string) $domain->{"{$role}_handle"});
+            if ($existing === '') {
+                continue;
+            }
+            $handles[$role] = $existing;
+            if ($contact !== null && ($domain->meta['linked_handles'][$role] ?? null) !== $existing) {
+                $byContact[$contact->id] ??= $existing;
+            }
+        }
+        foreach (array_keys(self::ROLES) as $role) {
+            $contact = $domain->{"{$role}Contact"};
+            if (isset($handles[$role]) || $contact === null) {
+                continue;
+            }
+            $handle = $byContact[$contact->id] ?? $this->madeHandle($domain, $contact->id);
+            if ($handle === null) {
+                try {
+                    $made = $this->write($credentials, ['COMMAND' => 'AddContact',
+                        'FIRSTNAME' => (string) $contact->first_name,
+                        'LASTNAME' => (string) ($contact->last_name ?: $contact->first_name),
+                        'ORGANIZATION' => trim((string) $contact->company_name) !== '' ? trim((string) $contact->company_name) : null,
+                    ] + self::contactDetails($contact));
+                } catch (RegistrarOutcomeUnknown|ConnectionException $e) {
+                    // At most an orphan contact there; the domain was not touched: its roles go back here (code review 4).
+                    throw new RuntimeException("CentralNic Reseller: the {$role} contact of {$domain->fqdn} could not be made ({$e->getMessage()}): nothing was changed on the domain.");
+                }
+                $handle = $made->first('CONTACT');
+                if ($handle === null) {
+                    throw new RuntimeException("CentralNic Reseller made the {$role} contact of {$domain->fqdn} without telling its handle: nothing was changed on the domain.");
+                }
+                $this->rememberHandle($domain, $contact->id, $handle);
+            }
+            Domain::query()->whereKey($domain->getKey())->update(["{$role}_handle" => $handle]);
+            $domain->forceFill(["{$role}_handle" => $handle])->syncOriginalAttribute("{$role}_handle");
+            $handles[$role] = $byContact[$contact->id] = $handle;
+        }
+
+        return $handles;
+    }
+
+    private function madeHandle(Domain $domain, int $contactId): ?string
+    {
+        $meta = json_decode((string) Domain::query()->toBase()->where('id', $domain->getKey())->value('meta'), true);
+        $handle = is_array($meta) ? ($meta['contact_handles'][$contactId] ?? null) : null;
+
+        return is_string($handle) && $handle !== '' ? $handle : null;
+    }
+
+    /** Kept at once, outside the caller\'s work and its undo: a handle made is never made again for this contact. */
+    private function rememberHandle(Domain $domain, int $contactId, string $handle): void
+    {
+        $meta = json_decode((string) Domain::query()->toBase()->where('id', $domain->getKey())->value('meta'), true);
+        $meta = is_array($meta) ? $meta : [];
+        $meta['contact_handles'][$contactId] = $handle;
+        Domain::query()->whereKey($domain->getKey())->update(['meta' => json_encode($meta)]);
+        $domain->forceFill(['meta' => $meta])->syncOriginalAttribute('meta');
+    }
+
+    /** @return array<string, string|null> its address, phone and email as CentralNic takes them */
+    private static function contactDetails(Contact $contact, bool $clear = false): array
+    {
+        $phone = Phone::split($contact->phone, $contact->country);
+        // A second line or a state taken away is cleared there too on an update (ADV-7 of #300); the rest is required.
+        $optional = fn (?string $value) => trim((string) $value) !== '' ? trim((string) $value) : ($clear ? Command::CLEAR : null);
+
+        return [
+            'STREET0' => trim((string) $contact->address1) ?: null,
+            'STREET1' => $optional($contact->address2),
+            'CITY' => trim((string) $contact->city) ?: null,
+            'ZIP' => trim((string) $contact->postcode) ?: null,
+            'STATE' => $optional($contact->state),
+            'COUNTRY' => strtoupper(trim((string) $contact->country)) ?: null,
+            'PHONE' => $phone !== null ? $phone[0] . '.' . $phone[1] : null,
+            'EMAIL' => trim((string) $contact->email) ?: null,
+        ];
     }
 
     public function restore(Domain $domain, DomainRegistrarCredentials $credentials): DomainSyncResult
@@ -223,6 +428,8 @@ final class CnicRegistrar implements DomainRegistrar, ReadsAccountBalance
             }
         }
         $lock = $r->first('TRANSFER_LOCK');
+        // A TLD without a transfer lock there (no such property): its toggle not offered (code review 8 of #300).
+        $details['is_lockable'] = $lock !== null;
         $privacy = $r->first('X-WHOISPRIVACY');
 
         return new DomainSyncResult(
@@ -281,6 +488,32 @@ final class CnicRegistrar implements DomainRegistrar, ReadsAccountBalance
         [$y, $mo, $d] = [(int) $m[1], (int) $m[2], (int) $m[3]];
 
         return $y >= 1985 && checkdate($mo, $d, $y) ? sprintf('%04d-%02d-%02d', $y, $mo, $d) : null;
+    }
+
+    /**
+     * A write: done (2xx), or why not: try later (4xx: nothing done, RegistrarNotAsked), refused (5xx: nothing done, the
+     * same would be refused again), or not known (no code: maybe done, never «refused»).
+     */
+    private function write(DomainRegistrarCredentials $credentials, array $command): Response
+    {
+        try {
+            $r = $this->call($credentials, $command);
+        } catch (DomainRegistrarNotConfigured $e) {
+            throw $e;
+        } catch (RuntimeException $e) {
+            // An HTTP error of its front (a 502, a 504) after it was sent: maybe done (code review 2, ADV-2 of #300).
+            throw new RegistrarOutcomeUnknown('CentralNic Reseller ' . (string) $command['COMMAND'] . ': ' . $e->getMessage() . ': whether it was done is not known');
+        }
+        if ($r->success()) {
+            return $r;
+        }
+        $what = 'CentralNic Reseller ' . (string) $command['COMMAND'] . ': ' . $r->summary();
+
+        throw match (true) {
+            $r->temporary() => new RegistrarNotAsked($what . ' (try later: nothing was done)'),
+            $r->refused() => new RegistrarRefused($what, $r->code),
+            default => new RegistrarOutcomeUnknown($what . ': whether it was done is not known'),
+        };
     }
 
     /** A read: refused or unknown throws (545: not in the account). */

@@ -156,7 +156,7 @@ class CnicRegistrarTest extends TestCase
         $this->assertSame('myipreseller', $this->sent[0]['login']);
     }
 
-    public function test_its_availability_and_that_nothing_is_sold_or_changed_through_it_yet(): void
+    public function test_its_availability_nothing_sold_through_it_and_its_domains_managed(): void
     {
         $this->cnic(['CheckDomains' => "[RESPONSE]\ncode = 200\ndescription = OK\nproperty[DOMAINCHECK][0] = 210 Domain name available\nEOF\n"]);
         $this->assertTrue((new CnicRegistrar)->checkAvailability('free-name.com', $this->credentials())->available);
@@ -168,7 +168,7 @@ class CnicRegistrarTest extends TestCase
             'domain_tld_id' => $tld->id, 'registrar_connection_id' => $cnic->id, 'status' => DomainStatus::Active, 'expires_at' => '2030-03-02']);
 
         $this->assertFalse($tld->fresh()->registrarCan('register'), 'not sold through it (reviews of #297)');
-        $this->assertFalse(app(DomainManagementService::class)->isManageable($domain), 'its forms not shown: nothing is changed through it yet');
+        $this->assertTrue(app(DomainManagementService::class)->isManageable($domain), 'step 2: its nameservers, lock and contacts from the portal');
     }
 
     public function test_its_live_answer_with_spaces_in_the_names_reads_the_same(): void
