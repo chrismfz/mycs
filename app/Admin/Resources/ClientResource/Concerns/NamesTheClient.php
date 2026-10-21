@@ -16,7 +16,13 @@ trait NamesTheClient
     {
         $client = $this->getRecord();
 
-        return $client instanceof Client ? '#' . $client->id . ' ' . $client->name : static::getNavigationLabel();
+        if (!$client instanceof Client) {
+            return static::getNavigationLabel();
+        }
+        // An account with no contact nor owner is named «Client #5» already: not «#5 Client #5» (review of #301).
+        $name = (string) $client->name;
+
+        return str_ends_with($name, '#' . $client->id) ? $name : '#' . $client->id . ' ' . $name;
     }
 
     public function getSubheading(): ?string

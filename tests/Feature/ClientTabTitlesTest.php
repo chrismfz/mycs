@@ -36,4 +36,14 @@ class ClientTabTitlesTest extends TestCase
 
         $this->get($summary)->assertOk()->assertSee($title);
     }
+
+    public function test_an_account_without_a_name_is_not_numbered_twice(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $this->actingAs(Staff::factory()->create(['role_id' => Role::create(['name' => 'All', 'permissions' => ['*']])->id]), 'staff');
+        $client = Client::factory()->create();
+
+        $this->get(ClientResource::getUrl('credits', ['record' => $client]))->assertOk()
+            ->assertSee(__('Client') . ' #' . $client->id)->assertDontSee('#' . $client->id . ' ' . __('Client') . ' #');
+    }
 }
