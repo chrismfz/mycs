@@ -45,6 +45,8 @@
 - Τοπικά: **`bin/test`** (όλη η σουίτα σε ~2½ λεπτά με 8 πυρήνες, αντί για ~45), `bin/test tests/Feature/Foo.php` (ένα αρχείο ή φάκελος),
   `bin/test --filter=…`, `bin/test --serial …` για να διαβάσεις μία αποτυχία. SQLite σε tmpfs, μία βάση ανά
   διεργασία, όλοι οι πυρήνες· καμία κοινή βάση, άρα δύο sessions δεν μπλοκάρουν πια η μία την άλλη.
+  Δεν ξεκινά με λιγότερα από 200 MB ελεύθερα στο `storage/` ή στο tmpfs: με γεμάτο δίσκο αποτυγχάνουν τυχαία tests
+  (π.χ. το `BillingCursorFuzzTest`, 2026-10-21) και μοιάζουν με flaky, ενώ φταίει ο δίσκος.
 - Τα tests που κλειδώνουν γραμμές (`*Concurrency*`, `*RaceReview*`) θέλουν MariaDB και pcntl, και στο SQLite
   παραλείπονται. Τα τρέχει το job της MariaDB στο CI· όταν το PR αγγίζει locks χρημάτων, τρέξ' τα και τοπικά πάνω σε
   MariaDB (`php artisan test --filter='Concurrency|RaceReview'`).
