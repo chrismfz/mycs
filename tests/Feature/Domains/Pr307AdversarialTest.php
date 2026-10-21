@@ -319,7 +319,9 @@ class Pr307AdversarialTest extends TestCase
         $this->assertSame($before, $this->sent('ModifyDomain', 'TRANSFERLOCK=1'));
         $this->assertSame([$this->from->id, DomainStatus::Active], [$domain->fresh()->registrar_connection_id, $domain->fresh()->status]);
         $this->assertNull($line->fresh()->applied_at, 'its line open again: renewed at its source');
-        $this->assertStringContainsString('lock it there by hand', (string) ModuleAction::query()->open()->where('domain_id', $domain->id)->value('last_error'));
+        // On a row of its own, which no renewal closes (ADV-2 of #307).
+        $this->assertStringContainsString('lock it there by hand', (string) ModuleAction::query()->open()->where('domain_id', $domain->id)
+            ->where('subject', ModuleAction::SUBJECT_RELOCK)->value('last_error'));
     }
 
     /** A failed lock never throws out of revert: reverted fully, the line open for its renewal at the source. */
