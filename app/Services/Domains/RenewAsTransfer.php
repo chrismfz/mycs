@@ -102,7 +102,7 @@ class RenewAsTransfer
         // 3. The source's handles put aside (the target makes its own), then the target's call, logged pending before it
         // is asked (D-17); a failure putting them aside asked nothing (code review 8).
         try {
-            $prior = $this->clearHandles($domain, $from, $to, $line);
+            $prior = $this->clearHandles($domain, $from, $to, $line, $unlocked);
         } catch (Throwable $e) {
             $this->relock($domain, $source, $sourceCredentials, $unlocked);
 
@@ -155,17 +155,21 @@ class RenewAsTransfer
     /**
      * Its transfer reported failed by the target (DomainSyncService::transferOutcome): back at its source as it was (its
      * connection, handles, record id), Active; its line not applied, renewed at the source by the next run (meta
-     * renew_here_line), never transferred again on its own; staff told (RAT-ADV-4, 5; code review 3).
+     * renew_here_line), never transferred again on its own; staff told (RAT-ADV-4, 5; code review 3). Unlocked there for
+     * the transfer: locked again, never left open to anyone with its code (sweep R7); a lock that fails is staff's.
      */
     public static function revert(Domain $domain, string $status): void
     {
-        DB::transaction(function () use ($domain, $status) {
+        $relock = false;
+        DB::transaction(function () use ($domain, $status, &$relock) {
             $fresh = Domain::query()->lockForUpdate()->findOrFail($domain->id);
             $meta = $fresh->meta ?? [];
             $record = $meta['renew_transfer'] ?? null;
             if (!is_array($record) || !isset($record['from'], $record['line'])) {
                 return;
             }
+            // Before this flag was kept (a transfer sent earlier): unlocked unless known otherwise.
+            $relock = (bool) ($record['unlocked'] ?? true);
             $prior = (array) ($record['prior'] ?? []);
             $columns = ['registrar_connection_id' => $record['from'], 'status' => DomainStatus::Active,
                 'registrar_domain_id' => $prior['registrar_domain_id'] ?? null];
@@ -186,6 +190,30 @@ class RenewAsTransfer
             ModuleAction::domainFailed($fresh, $line, $fresh->effectiveRegistrarConnection()?->registrar, new RuntimeException(
                 "The transfer of {$fresh->fqdn} that replaced its paid renewal failed at the target (status {$status}). It is back at its old registrar, as it was: the next run renews it there (Retry to do it now)."));
         });
+        if ($relock) {
+            self::lockAtSource($domain->refresh());
+        }
+    }
+
+    /** Its transfer lock on again at the registrar it is back at; a failure is said on its row for staff. */
+    private static function lockAtSource(Domain $domain): void
+    {
+        $connection = $domain->effectiveRegistrarConnection();
+        try {
+            if (!$connection instanceof DomainRegistrarConnection || !$connection->isUsable()) {
+                throw new RuntimeException('its registrar has no usable API');
+            }
+            $factory = app(DomainRegistrarFactory::class);
+            app(DomainSyncService::class)->applyResult($domain, $factory->for($connection)->updateDomain($domain, new DomainChanges(transferLock: true), $factory->credentialsFor($connection)));
+            DomainRegistrarLog::query()->create(['domain_id' => $domain->id, 'registrar_connection_id' => $connection->id, 'action' => 'lock',
+                'status' => DomainRegistrarLog::STATUS_OK, 'request' => ['renewal_transfer_failed' => true]]);
+        } catch (Throwable $e) {
+            report($e);
+            $line = InvoiceItem::query()->find((int) ($domain->meta['renew_here_line'] ?? 0));
+            ModuleAction::domainFailed($domain, $line, $connection?->registrar, new RuntimeException(
+                "The transfer of {$domain->fqdn} that replaced its paid renewal failed, and it is still unlocked at its old registrar (locking it failed: "
+                . Redact::text($e->getMessage()) . '): lock it there by hand.'));
+        }
     }
 
     /**
@@ -194,9 +222,9 @@ class RenewAsTransfer
      *
      * @return array<string, mixed>
      */
-    private function clearHandles(Domain $domain, DomainRegistrarConnection $from, DomainRegistrarConnection $to, InvoiceItem $line): array
+    private function clearHandles(Domain $domain, DomainRegistrarConnection $from, DomainRegistrarConnection $to, InvoiceItem $line, bool $unlocked): array
     {
-        return DB::transaction(function () use ($domain, $from, $to, $line) {
+        return DB::transaction(function () use ($domain, $from, $to, $line, $unlocked) {
             $fresh = Domain::query()->lockForUpdate()->findOrFail($domain->id);
             $meta = $fresh->meta ?? [];
             // A prior already kept (a run before it whose answer was not known) is the source's: never replaced by another's.
@@ -211,7 +239,9 @@ class RenewAsTransfer
                 $clear["{$role}_handle"] = null;
             }
             unset($meta['contact_handles'], $meta['linked_handles']);
-            $meta['renew_transfer'] = ['line' => $line->id, 'from' => $from->id, 'to' => $to->id, 'at' => now()->toIso8601String(), 'prior' => $prior];
+            // Unlocked by us for it: locked again at the source if the transfer fails later (sweep R7).
+            $meta['renew_transfer'] = ['line' => $line->id, 'from' => $from->id, 'to' => $to->id, 'at' => now()->toIso8601String(), 'prior' => $prior,
+                'unlocked' => $unlocked];
             $fresh->forceFill($clear + ['meta' => $meta])->save();
 
             return $prior;
