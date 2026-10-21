@@ -100,7 +100,13 @@ class DomainOrderFulfilment
     {
         return $domain !== null && $domain->order_id !== null
             && in_array($domain->status, [DomainStatus::PendingRegister, DomainStatus::PendingTransfer], true)
-            && empty($domain->meta['sent_at']) && empty($domain->meta['on_hold']);
+            && (empty($domain->meta['sent_at']) || self::failedTransfer($domain)) && empty($domain->meta['on_hold']);
+    }
+
+    /** Sent, and its registrar reported it failed (DomainSyncService::transferOutcome): staff's Retry sends it again. */
+    private static function failedTransfer(Domain $domain): bool
+    {
+        return $domain->status === DomainStatus::PendingTransfer && !empty($domain->meta['transfer_failed']);
     }
 
     public function fulfil(int $domainId): string
@@ -191,6 +197,12 @@ class DomainOrderFulfilment
             $clean = $this->clean($domain, $e);
             $log->update(['status' => DomainRegistrarLog::STATUS_FAILED, 'error' => mb_substr($clean->getMessage(), 0, 2000), 'transactions' => $transactions->since($mark)]);
             ModuleAction::domainFailed($domain, $line, $connection->registrar, $clean, $action);
+            // A transfer its registrar refused for the customer to fix (its EPP code, its lock): told what to check, in our
+            // words, never the registrar's text (our account, its name: reviews of #293). Anything else (a contact refused,
+            // our balance, a rate limit, not sent at all) is staff's.
+            if (!$register && $e instanceof RegistrarRefused && ($reason = self::transferRefusal($clean->getMessage())) !== null) {
+                $this->tellTransferFailed($domain, $reason);
+            }
 
             return self::STAFF;
         } catch (Throwable $e) {
@@ -209,6 +221,7 @@ class DomainOrderFulfilment
             $fresh = Domain::query()->lockForUpdate()->findOrFail($domain->id);
             $meta = $fresh->meta ?? [];
             $meta['sent_at'] = now()->toIso8601String();
+            unset($meta['transfer_failed']); // sent again: a failure of this attempt is told again
             // What its answer told (a .gr registration's protocol: its recall needs it), until a sync reads its truth.
             if ($result->details !== []) {
                 $meta['registrar'] = $result->details + (is_array($meta['registrar'] ?? null) ? $meta['registrar'] : []);
@@ -247,12 +260,16 @@ class DomainOrderFulfilment
         return self::SENT;
     }
 
-    /** The customer's mail: registered (with its expiry, once synced), its transfer started, or done (G5b-3). */
+    /** The customer's mail: registered (with its expiry, once synced), or its transfer started (done: the sync's). */
     private function notify(Domain $domain, bool $register): void
     {
         try {
             // A transfer the sync already found active (the .gr registry approves it at once): done, not «started».
-            $key = $register ? 'domain_registered' : ($domain->status === DomainStatus::Active ? 'domain_transferred' : 'domain_transfer_started');
+            // Found active by the sync just made: that sync told the customer «done» (DomainSyncService::transferOutcome).
+            if (!$register && $domain->status === DomainStatus::Active) {
+                return;
+            }
+            $key = $register ? 'domain_registered' : 'domain_transfer_started';
             NotificationHelper::domainNotification($domain->client, $domain, $key, [
                 'fqdn' => $domain->fqdn,
                 'years' => $domain->years,
@@ -261,6 +278,31 @@ class DomainOrderFulfilment
             ]);
         } catch (Throwable $e) {
             report($e); // sent at the registrar: a mail that fails is not a failed order
+        }
+    }
+
+    /** Why a transfer was refused, when it is the customer's to fix: «auth» (its EPP code) or «lock»; else null. */
+    public static function transferRefusal(string $message): ?string
+    {
+        if (preg_match('/\b429\b|too many|rate limit/i', $message)) {
+            return null;
+        }
+        if (preg_match('/auth(orization|orisation)?[ _-]?(code|info)|\bepp\b|authinfo|transfer (key|secret)/i', $message)) {
+            return 'auth';
+        }
+        if (preg_match('/\block(ed)?\b|prohibit|clienttransferprohibited/i', $message)) {
+            return 'lock';
+        }
+
+        return null;
+    }
+
+    private function tellTransferFailed(Domain $domain, string $reason): void
+    {
+        try {
+            NotificationHelper::domainNotification($domain->client, $domain, 'domain_transfer_failed', ['fqdn' => $domain->fqdn, 'reason' => $reason]);
+        } catch (Throwable $e) {
+            report($e);
         }
     }
 

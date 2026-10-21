@@ -2,8 +2,10 @@
 
 namespace App\Models;
 
+use App\Admin\Resources\DomainResource;
 use App\Enums\DomainStatus;
 use App\Helpers\ExtensionHelper;
+use App\Helpers\NotificationHelper;
 use App\Services\Domains\DomainRenewalService;
 use App\Support\Redact;
 use Illuminate\Database\Eloquent\Builder;
@@ -105,10 +107,34 @@ class ModuleAction extends Model
         $row = self::query()->open()->where('domain_id', $domain->id)->where('invoice_item_id', $line?->id)->where('action', $action)
             ->where('subject', $subject)->latest('id')->first()
             ?? new self(['domain_id' => $domain->id, 'invoice_item_id' => $line?->id, 'action' => $action, 'subject' => $subject, 'status' => self::STATUS_OPEN]);
+        $new = !$row->exists;
         $row->fill(['module' => $module, 'attempts' => $row->attempts + 1, 'last_attempt_at' => now(),
             'last_error' => Str::limit(Redact::text($error->getMessage()), 2000)])->save();
+        // Staff told once, when it opens (a registration, transfer or renewal: WHMCS's «Domain Renewal Failed», mail
+        // check of 2026-10-21), never on each retry; after it commits, so a rolled-back one tells no one.
+        if ($new && in_array($action, self::DOMAIN_ACTIONS, true)) {
+            DB::afterCommit(fn () => $row->tellStaff($domain));
+        }
 
         return $row;
+    }
+
+    /** The mail to staff of a domain's registration, transfer or renewal that waits for them. */
+    private function tellStaff(Domain $domain): void
+    {
+        try {
+            $what = match ($this->action) {
+                self::DOMAIN_REGISTER => 'registration',
+                self::DOMAIN_TRANSFER => 'transfer',
+                default => 'renewal',
+            };
+            $url = DomainResource::getUrl('view', ['record' => $domain->id], panel: 'admin');
+            NotificationHelper::sendSystemEmailNotification("Domain {$what} needs staff: {$domain->fqdn}", e("The {$what} of {$domain->fqdn} waits for staff: "
+                . $this->last_error) . '<br><br>' . e('It is listed in Pending Module Actions: retry it there once the cause is fixed, or close it.')
+                . '<br><a href="' . e($url) . '">' . e($domain->fqdn) . '</a>');
+        } catch (Throwable $e) {
+            report($e); // the row is what counts: a mail that fails is not a lost failure
+        }
     }
 
     /** Done (renewed, registered, transferred, adopted, or by hand): its open row, if any, completed. */
