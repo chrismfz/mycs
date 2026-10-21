@@ -139,7 +139,9 @@ Route::get('/' . AdminPanelProvider::PATH . '/reports/income/{year}/{currency}.{
 
 // The admin was /admin until 2026-10-21 (now AdminPanelProvider::PATH): a bookmark, a link in a mail already sent or the
 // habit lands on the same page there, with its query. Only a GET: nothing posts to a page of the panel itself.
-Route::get('/admin/{rest?}', fn (Request $request, string $rest = '') => redirect(
-    '/' . AdminPanelProvider::PATH . ($rest === '' ? '' : '/' . $rest) . (($query = (string) $request->server('QUERY_STRING')) === '' ? '' : '?' . $query),
+// The path as it came, still encoded: the decoded {rest} would put a %0A or a %3F raw into Location (review of #295).
+Route::get('/admin/{rest?}', fn (Request $request) => redirect(
+    '/' . AdminPanelProvider::PATH . rtrim(substr($request->getPathInfo(), strlen('/admin')), '/')
+        . (($query = (string) $request->server('QUERY_STRING')) === '' ? '' : '?' . $query),
     301,
 ))->where('rest', '.*')->name('admin.legacy');

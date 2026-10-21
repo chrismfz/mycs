@@ -7,6 +7,7 @@ use App\Models\Currency;
 use App\Models\Role;
 use App\Models\Setting;
 use App\Models\Staff;
+use App\Providers\Filament\AdminPanelProvider;
 use App\Providers\SettingsProvider;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Artisan;
@@ -115,7 +116,7 @@ class Install extends Command
         $this->info('Installed.');
         $this->line("  Company: {$input['company']}");
         $this->line("  Admin:   {$admin->email}");
-        $this->line("  Login:   {$input['url']}/admin");
+        $this->line("  Login:   {$input['url']}/" . AdminPanelProvider::PATH);
         $this->line('  Next:    cron (`php artisan schedule:run` every minute), queue worker, mail settings (docs/install.md).');
 
         return self::SUCCESS;
