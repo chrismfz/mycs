@@ -14,6 +14,7 @@ use App\Admin\Resources\TicketResource;
 use App\Models\Client;
 use App\Models\Staff;
 use App\Services\Admin\ClientSummary;
+use App\Services\Reports\ClientTotals;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Resources\Pages\ViewRecord;
@@ -77,6 +78,8 @@ class ClientSummaryPage extends ViewRecord
             'client' => $client,
             'summary' => $this->summary ??= ClientSummary::for($client, $staff instanceof Staff ? $staff : null),
             // The sticky notes on top (WHMCS's client «Notes»); the page is staff's, as are the notes.
+            // All time and yearly (the owner, 2026-10-21), for staff who may see its invoices.
+            'yearlyTotals' => $can('admin.invoices.viewAny') ? ClientTotals::for($client) : null,
             'stickyNotes' => $client->notes()->where('sticky', true)->with('staff')->latest()->latest('id')->limit(10)->get(),
             'links' => [
                 'services' => $can('admin.services.viewAny') ? ClientResource::getUrl('services', ['record' => $client]) : null,
