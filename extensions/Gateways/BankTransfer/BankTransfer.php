@@ -5,6 +5,7 @@ namespace MyCS\Extensions\Gateways\BankTransfer;
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Gateway;
 use App\Models\Invoice;
+use App\Services\Invoice\PaymentReminders;
 use App\Services\Money\BankTransferDetails;
 use Illuminate\Support\Facades\View;
 
@@ -33,6 +34,13 @@ class BankTransfer extends Gateway
                 'description' => 'As the customer should read them: bank, beneficiary, IBAN, BIC; one account after the other, a blank line between them.',
             ],
             [
+                'name' => 'currencies',
+                'label' => 'Currencies',
+                'type' => 'text',
+                'required' => false,
+                'description' => 'The currencies these accounts take, comma separated (EUR). Empty: any.',
+            ],
+            [
                 'name' => 'show_on_invoices',
                 'label' => 'Also on unpaid invoices (PDF and mail)',
                 'type' => 'checkbox',
@@ -40,6 +48,12 @@ class BankTransfer extends Gateway
                 'default' => true,
             ],
         ];
+    }
+
+    /** Offered only in a currency the accounts take (reviews of #287: never a USD invoice told to wire to EUR accounts). */
+    public function canUseGateway($total, $currency, $type, $items = [])
+    {
+        return BankTransferDetails::takes($this->config('currencies'), $currency);
     }
 
     /**
@@ -50,6 +64,11 @@ class BankTransfer extends Gateway
      */
     public function pay(Invoice $invoice, $total)
     {
+        // A saved method pays it on its due date: a transfer too would be paid twice (adversarial BT-ADV-3).
+        if (PaymentReminders::chargedOnItsOwn($invoice)) {
+            return View::file(__DIR__ . '/resources/views/charged.blade.php', ['due' => $invoice->due_at?->format('d/m/Y')]);
+        }
+
         return View::file(__DIR__ . '/resources/views/pay.blade.php', [
             'accounts' => (string) $this->config('accounts'),
             'reference' => BankTransferDetails::reference($invoice),

@@ -14,8 +14,17 @@ return new class extends Migration
 {
     private const KEY = 'new_invoice_created';
 
-    /** md5 of subject, body, in_app_title, in_app_body (NUL-joined) of the defaults before this migration. */
-    private const PREVIOUS = ['en' => '65ffa8770419ff8cc0b5bdbcce8a07b2', 'el' => '1daedc928920c7333b15b46d1153daf8'];
+    /**
+     * md5 of subject, body, in_app_title, in_app_body (NUL-joined) of every default these texts have had (the seeder's
+     * history: 3d920e8d, 6e5ba773, 57651ec7). Some changed without a migration, so a database may still hold an older one
+     * (the live one did, adversarial BT-ADV-5): each takes the new text whole.
+     */
+    private const PREVIOUS = [
+        'en' => ['03ec555b1e9c148bd8eff3328c8de462', '68d38afcdead57c6c7c4b205d9979fd7', '65ffa8770419ff8cc0b5bdbcce8a07b2'],
+        'el' => ['438b9a380c3f9c55280e4b9f90efbf89', '1daedc928920c7333b15b46d1153daf8'],
+    ];
+
+    private const FIELDS = ['subject', 'body', 'in_app_title', 'in_app_body'];
 
     public function up(): void
     {
@@ -25,16 +34,19 @@ return new class extends Migration
         }
         $update = [];
         $default = EmailTemplateSeeder::mapping[self::KEY];
-        if (self::hash((array) $row) === self::PREVIOUS['en']) {
-            $update['body'] = $default['body'];
-        } elseif (self::hash((array) $row) !== self::hash($default)) {
+        $hash = self::hash((array) $row);
+        if (in_array($hash, self::PREVIOUS['en'], true)) {
+            $update = array_intersect_key($default, array_flip(self::FIELDS));
+        } elseif ($hash !== self::hash($default)) {
             Log::notice("Notification template '" . self::KEY . "' was rewritten by staff: kept, without the bank transfer block.");
         }
         $translations = json_decode((string) $row->translations, true);
         $el = is_array($translations) ? ($translations['el'] ?? null) : null;
-        if (is_array($el) && self::hash($el) === self::PREVIOUS['el']) {
-            $translations['el']['body'] = EmailTemplateSeeder::translations[self::KEY]['el']['body'];
+        if (is_array($el) && in_array(self::hash($el), self::PREVIOUS['el'], true)) {
+            $translations['el'] = array_intersect_key(EmailTemplateSeeder::translations[self::KEY]['el'], array_flip(self::FIELDS)) + $el;
             $update['translations'] = json_encode($translations, JSON_UNESCAPED_UNICODE);
+        } elseif (is_array($el) && self::hash($el) !== self::hash(EmailTemplateSeeder::translations[self::KEY]['el'])) {
+            Log::notice("Notification template '" . self::KEY . "' (el) was rewritten by staff: kept, without the bank transfer block.");
         }
         if ($update !== []) {
             DB::table('notification_templates')->where('id', $row->id)->update($update);

@@ -2,11 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\InvoiceResource\RelationManagers\TransactionsRelationManager;
+use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Livewire\Invoices\Show;
 use App\Models\EmailLog;
 use App\Models\Gateway;
 use App\Models\Invoice;
+use App\Models\InvoiceTransaction;
 use App\Models\User;
 use App\Services\Money\BankTransferDetails;
 use Database\Seeders\EmailTemplateSeeder;
@@ -139,5 +142,46 @@ class BankTransferTest extends TestCase
         DB::table('notification_templates')->where('key', 'new_invoice_created')->update(['body' => 'Our own text']);
         $migration->up();
         $this->assertSame('Our own text', DB::table('notification_templates')->where('key', 'new_invoice_created')->value('body'));
+    }
+
+    public function test_accounts_for_some_currencies_are_offered_and_printed_only_in_them(): void
+    {
+        $this->gateway->settings()->create(['key' => 'currencies', 'value' => 'eur, gbp']);
+        $invoice = $this->invoice();
+        Invoice::query()->whereKey($invoice->id)->update(['currency_code' => 'USD']);
+
+        $this->assertNull(BankTransferDetails::for($invoice->fresh()), 'a USD invoice is not told to wire to EUR accounts');
+        $this->assertNotContains($this->gateway->id, array_map(fn ($gateway) => $gateway->id, ExtensionHelper::getCheckoutGateways(50, 'USD', 'invoice')));
+        $this->assertContains($this->gateway->id, array_map(fn ($gateway) => $gateway->id, ExtensionHelper::getCheckoutGateways(50, 'EUR', 'invoice')));
+
+        Invoice::query()->whereKey($invoice->id)->update(['currency_code' => 'EUR']);
+        $this->assertNotNull(BankTransferDetails::for($invoice->fresh()));
+    }
+
+    public function test_a_transfer_is_refunded_by_hand_or_to_credit_never_through_the_gateway(): void
+    {
+        $invoice = $this->invoice();
+        ExtensionHelper::addPayment($invoice->id, 'BankTransfer', 50, transactionId: 'BANK-1');
+        $transaction = InvoiceTransaction::query()->where('invoice_id', $invoice->id)->sole();
+        $this->assertSame($this->gateway->id, (int) $transaction->gateway_id);
+
+        $methods = (new \ReflectionMethod(TransactionsRelationManager::class, 'refundMethods'))->invoke(null, $transaction);
+
+        $this->assertSame(['manual', 'credit'], array_keys($methods), 'the first is the default: one that works');
+    }
+
+    public function test_an_older_default_text_the_live_database_still_holds_takes_the_new_one(): void
+    {
+        // The default of 3d920e8d (the seeder changed later without a migration): what the live database held (BT-ADV-5).
+        $old = json_decode((string) file_get_contents(base_path('tests/fixtures/mail/new_invoice_created_3d920e8d.json')), true);
+        DB::table('notification_templates')->where('key', 'new_invoice_created')
+            ->update($old['en'] + ['translations' => json_encode(['el' => $old['el']], JSON_UNESCAPED_UNICODE)]);
+
+        (require database_path('migrations/2026_12_14_000000_bank_transfer_in_invoice_mail.php'))->up();
+
+        $row = DB::table('notification_templates')->where('key', 'new_invoice_created')->first();
+        $this->assertSame(EmailTemplateSeeder::mapping['new_invoice_created']['body'], $row->body);
+        $this->assertSame(EmailTemplateSeeder::mapping['new_invoice_created']['subject'], $row->subject);
+        $this->assertSame(EmailTemplateSeeder::translations['new_invoice_created']['el']['body'], json_decode($row->translations, true)['el']['body']);
     }
 }
