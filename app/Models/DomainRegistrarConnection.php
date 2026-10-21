@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Exceptions\DisplayException;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use OwenIt\Auditing\Contracts\Auditable;
@@ -31,7 +32,7 @@ class DomainRegistrarConnection extends Model implements Auditable
 
     public const MANUAL = 'manual';
 
-    protected $fillable = ['registrar', 'label', 'is_active', 'mode', 'debug_log', 'low_balance'];
+    protected $fillable = ['registrar', 'label', 'is_active', 'mode', 'debug_log', 'low_balance', 'renew_transfer_to_id', 'renew_transfer_except'];
 
     /** Its settings are the credentials, its TLDs and domains every account's: never in a JSON or a template. */
     protected $hidden = ['settings', 'tlds', 'domains'];
@@ -43,7 +44,7 @@ class DomainRegistrarConnection extends Model implements Auditable
 
     protected function casts(): array
     {
-        return ['is_active' => 'boolean', 'debug_log' => 'boolean', 'balance' => 'array', 'low_balance' => 'decimal:2'];
+        return ['is_active' => 'boolean', 'debug_log' => 'boolean', 'balance' => 'array', 'low_balance' => 'decimal:2', 'renew_transfer_except' => 'array'];
     }
 
     protected static function booted(): void
@@ -109,5 +110,36 @@ class DomainRegistrarConnection extends Model implements Auditable
                 ['type' => 'string', 'value' => $value === null ? null : (string) $value, 'encrypted' => $isSecret],
             );
         }
+    }
+
+    /**
+     * Where its paid renewals are transferred instead (null: renewed here).
+     *
+     * @return BelongsTo<self, $this>
+     */
+    public function renewTransferTo(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'renew_transfer_to_id');
+    }
+
+    /**
+     * The connection a paid renewal of this TLD is transferred to instead of renewed here, or null: renewed here (none
+     * set, itself, or a TLD excepted: .eu and .uk transfers add no year). Its usability is the caller's to check.
+     */
+    public function renewTransferTarget(string $tld): ?self
+    {
+        $to = $this->renewTransferTo;
+        if ($to === null || $to->id === $this->id) {
+            return null;
+        }
+        $tld = mb_strtolower(ltrim($tld, '.'));
+        foreach ((array) $this->renew_transfer_except as $except) {
+            $except = mb_strtolower(ltrim(trim((string) $except), '.'));
+            if ($except !== '' && ($tld === $except || str_ends_with($tld, ".{$except}"))) {
+                return null;
+            }
+        }
+
+        return $to;
     }
 }

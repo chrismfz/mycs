@@ -328,9 +328,17 @@ class DomainSyncService
             return;
         }
         try {
+            // A transfer that replaced its renewal (RenewAsTransfer): the customer was told «renewed» when it was paid; staff's.
+            $renewal = isset($meta['renew_transfer']);
             if ($domain->status === DomainStatus::Active) {
                 unset($meta['transfer_failed']);
+                if ($renewal) {
+                    $meta['renew_transfer']['done_at'] = now()->toIso8601String();
+                }
                 $domain->forceFill(['meta' => $meta])->saveQuietly();
+                if ($renewal) {
+                    return;
+                }
                 $line = DomainOrderFulfilment::lineOf($domain);
                 if ($line === null || DomainOrderFulfilment::paid($domain, $line)) {
                     NotificationHelper::domainNotification($domain->client, $domain, 'domain_transferred', [
@@ -351,9 +359,14 @@ class DomainSyncService
                 $meta['transfer_failed'] = ['at' => now()->toIso8601String(), 'id' => $storedId, 'status' => $result->rawStatus];
                 $domain->forceFill(['meta' => $meta])->save();
                 ModuleAction::domainFailed($domain, DomainOrderFulfilment::lineOf($domain), $domain->effectiveRegistrarConnection()?->registrar,
-                    new RuntimeException("The registrar reports the transfer of {$domain->fqdn} failed (status {$result->rawStatus}): a wrong EPP code, a lock or a refusal at the losing registrar. Ask the customer, then Retry to send it again, or cancel and refund it."),
+                    new RuntimeException(isset($meta['renew_transfer'])
+                        ? "The transfer of {$domain->fqdn} that replaced its paid renewal failed (status {$result->rawStatus}): it is still at its old registrar, with its old expiry. Renew it there by hand and set its registrar back, or transfer it again by hand."
+                        : "The registrar reports the transfer of {$domain->fqdn} failed (status {$result->rawStatus}): a wrong EPP code, a lock or a refusal at the losing registrar. Ask the customer, then Retry to send it again, or cancel and refund it."),
                     ModuleAction::DOMAIN_TRANSFER);
             });
+            if (isset($meta['renew_transfer'])) {
+                return; // ours to fix, not the customer's
+            }
             NotificationHelper::domainNotification($domain->client, $domain, 'domain_transfer_failed', ['fqdn' => $domain->fqdn, 'reason' => null]);
         } catch (Throwable $e) {
             report($e); // the sync is done: what is told is not its result

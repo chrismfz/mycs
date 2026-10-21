@@ -14,6 +14,7 @@ use App\Services\Domains\RegistrarBalances;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TagsInput;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
@@ -71,6 +72,15 @@ class DomainRegistrarConnectionResource extends Resource
                 TextInput::make('low_balance')->label(__('Low balance'))->numeric()->minValue(0)->step('0.01')->nullable()
                     ->visible(fn (Get $get, ?DomainRegistrarConnection $record) => self::readsBalance($get('registrar') ?? $record?->registrar))
                     ->helperText(__('Staff are mailed when the account\'s balance falls under it (read hourly; the dashboard\'s «Registrar credit»). Empty: never for its amount; a suspension is told all the same.')),
+            ]),
+            // The WHMCS hook DomainMigration as a setting (owner 2026-10-21): a paid renewal transferred instead.
+            Section::make(__('Paid renewals'))->columns(2)->visibleOn('edit')->schema([
+                Select::make('renew_transfer_to_id')->label(__('On a paid renewal'))->placeholder(__('Renew it here'))
+                    ->options(fn (?DomainRegistrarConnection $record) => DomainRegistrarConnection::query()->whereKeyNot($record?->id)
+                        ->where('registrar', '!=', DomainRegistrarConnection::MANUAL)->pluck('label', 'id')->map(fn ($label) => __('Transfer it to :label', ['label' => $label]))->all())
+                    ->helperText(__('Instead of renewing it here: unlocked, its EPP code read, and transferred there with its nameservers; the transfer adds the year paid for. Only one-year renewals of active names; refused, it stays here and staff decide.')),
+                TagsInput::make('renew_transfer_except')->label(__('Except these TLDs (renewed here)'))->placeholder('eu')
+                    ->helperText(__('TLDs whose transfer adds no year: .eu, .uk (and its second levels).')),
             ]),
             Section::make(__('Credentials'))->columns(2)
                 ->visible(fn (Get $get) => self::credentialFields($get('registrar')) !== [])

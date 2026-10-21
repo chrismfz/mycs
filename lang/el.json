@@ -926,5 +926,12 @@
     "Important announcements about my services": "Σημαντικές ενημερώσεις για τις υπηρεσίες μου",
     "News and offers from us": "Νέα και προσφορές από εμάς",
     "As the first customer it goes to would get it.": "Όπως θα το έπαιρνε ο πρώτος πελάτης στον οποίο πηγαίνει.",
-    "This mass mail is being sent already.": "Αυτό το μαζικό email στέλνεται ήδη."
+    "This mass mail is being sent already.": "Αυτό το μαζικό email στέλνεται ήδη.",
+    "Paid renewals": "Πληρωμένες ανανεώσεις",
+    "On a paid renewal": "Σε πληρωμένη ανανέωση",
+    "Renew it here": "Ανανέωση εδώ",
+    "Transfer it to :label": "Μεταφορά στο :label",
+    "Instead of renewing it here: unlocked, its EPP code read, and transferred there with its nameservers; the transfer adds the year paid for. Only one-year renewals of active names; refused, it stays here and staff decide.": "Αντί για ανανέωση εδώ: ξεκλείδωμα, κωδικός EPP και μεταφορά εκεί με τους nameservers του· η μεταφορά προσθέτει το έτος που πληρώθηκε. Μόνο ανανεώσεις ενός έτους ενεργών domains· αν απορριφθεί, μένει εδώ και αποφασίζει το staff.",
+    "Except these TLDs (renewed here)": "Εκτός από αυτά τα TLDs (ανανέωση εδώ)",
+    "TLDs whose transfer adds no year: .eu, .uk (and its second levels).": "TLDs των οποίων η μεταφορά δεν προσθέτει έτος: .eu, .uk (και τα δεύτερα επίπεδά του)."
 }
