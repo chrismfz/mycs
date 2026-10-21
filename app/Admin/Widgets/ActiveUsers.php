@@ -10,7 +10,10 @@ class ActiveUsers extends Widget
 {
     protected string $view = 'admin.widgets.active-users';
 
-    protected static ?int $sort = 2;
+    // Last, the width of the page (owner 2026-10-21: beside Income it stood tall and empty).
+    protected static ?int $sort = 30;
+
+    protected int|string|array $columnSpan = 'full';
 
     protected static string $title = 'Active Users';
 

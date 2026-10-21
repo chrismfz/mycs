@@ -23,6 +23,9 @@ use Livewire\Attributes\On;
 
 class Overview extends BaseWidget
 {
+    // The dashboard's order (owner 2026-10-21): cards, registrar credit, revenue | support, income | renewals.
+    protected static ?int $sort = 0;
+
     // Poll every 5 minutes (5m doesn't work somehow)
     protected ?string $pollingInterval = '600s';
 
