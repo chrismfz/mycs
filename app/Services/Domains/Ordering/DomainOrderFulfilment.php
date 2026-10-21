@@ -100,7 +100,8 @@ class DomainOrderFulfilment
     {
         return $domain !== null && $domain->order_id !== null
             && in_array($domain->status, [DomainStatus::PendingRegister, DomainStatus::PendingTransfer], true)
-            && (empty($domain->meta['sent_at']) || self::failedTransfer($domain)) && empty($domain->meta['on_hold']);
+            && (empty($domain->meta['sent_at']) || self::failedTransfer($domain)) && empty($domain->meta['on_hold'])
+            && empty($domain->meta['renew_transfer']); // a renewal's transfer, never an order's (RAT-ADV-5 of #303)
     }
 
     /** Sent, and its registrar reported it failed (DomainSyncService::transferOutcome): staff's Retry sends it again. */

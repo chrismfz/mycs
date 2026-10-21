@@ -14,6 +14,7 @@ use App\Services\Domains\RegistrarBalances;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TagsInput;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
@@ -72,6 +73,20 @@ class DomainRegistrarConnectionResource extends Resource
                     ->visible(fn (Get $get, ?DomainRegistrarConnection $record) => self::readsBalance($get('registrar') ?? $record?->registrar))
                     ->helperText(__('Staff are mailed when the account\'s balance falls under it (read hourly; the dashboard\'s «Registrar credit»). Empty: never for its amount; a suspension is told all the same.')),
             ]),
+            // The WHMCS hook DomainMigration as a setting (owner 2026-10-21): a paid renewal transferred instead.
+            Section::make(__('Paid renewals'))->columns(2)->visibleOn('edit')->schema([
+                Select::make('renew_transfer_to_id')->label(__('On a paid renewal'))->placeholder(__('Renew it here'))
+                    // Active ones that take transfers through their API, never one that sends its own back here (a cycle: code
+                    // review 7 of #303).
+                    ->options(fn (?DomainRegistrarConnection $record) => DomainRegistrarConnection::query()->whereKeyNot($record?->id)
+                        ->where('is_active', true)->where('registrar', '!=', DomainRegistrarConnection::MANUAL)
+                        ->where(fn ($q) => $q->whereNull('renew_transfer_to_id')->orWhere('renew_transfer_to_id', '!=', $record?->id))->get()
+                        ->filter(fn (DomainRegistrarConnection $to) => self::takesTransfers($to->registrar))
+                        ->mapWithKeys(fn (DomainRegistrarConnection $to) => [$to->id => __('Transfer it to :label', ['label' => $to->label])])->all())
+                    ->helperText(__('Instead of renewing it here: unlocked, its EPP code read, and transferred there with its nameservers; the transfer adds the year paid for. Only one-year renewals of active names; refused, it stays here and staff decide.')),
+                TagsInput::make('renew_transfer_except')->label(__('Except these TLDs (renewed here)'))->placeholder('eu')
+                    ->helperText(__('TLDs whose transfer adds no year: .eu, .uk (and its second levels).')),
+            ]),
             Section::make(__('Credentials'))->columns(2)
                 ->visible(fn (Get $get) => self::credentialFields($get('registrar')) !== [])
                 ->schema(fn (Get $get) => collect(self::credentialFields($get('registrar')))->map(function (array $field, string $key) {
@@ -109,6 +124,16 @@ class DomainRegistrarConnectionResource extends Resource
                 TextColumn::make('domains_count')->label(__('domains.domains'))->counts('domains'),
             ])
             ->recordActions([self::testAction(), self::balanceAction(), EditAction::make()]);
+    }
+
+    /** Its registrar takes transfers through its API (a target of «transfer it to»). */
+    public static function takesTransfers(string $registrar): bool
+    {
+        try {
+            return app(DomainRegistrarRegistry::class)->for($registrar)->capabilities()->supportsTransfer;
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     /** Its registrar tells its balance (G8-1). */

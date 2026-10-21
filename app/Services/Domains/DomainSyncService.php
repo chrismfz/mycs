@@ -7,6 +7,7 @@ use App\Helpers\NotificationHelper;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainTld;
+use App\Models\InvoiceItem;
 use App\Models\ModuleAction;
 use App\Services\Domains\Ordering\DomainOrderFulfilment;
 use App\Support\Domains\DomainSyncResult;
@@ -75,6 +76,11 @@ class DomainSyncService
             throw new RuntimeException("A change to {$domain->fqdn} at the registrar is under way: synced later.");
         }
         try {
+            // As stored, under the lock: a batch's copy read before a write (a renewal transferred meanwhile) never writes
+            // its stale meta or connection back (RAT-ADV-1 of #303).
+            if ($write && $domain->exists) {
+                $domain->refresh();
+            }
             try {
                 $result = $this->read($domain);
                 $verified = $this->verifiedHandles($domain, $result);
@@ -328,9 +334,19 @@ class DomainSyncService
             return;
         }
         try {
+            // A transfer that replaced its renewal (RenewAsTransfer): the customer was told «renewed» when it was paid; staff's.
+            $renewal = isset($meta['renew_transfer']);
             if ($domain->status === DomainStatus::Active) {
                 unset($meta['transfer_failed']);
+                if ($renewal) {
+                    $meta['renew_transfer']['done_at'] = now()->toIso8601String();
+                }
                 $domain->forceFill(['meta' => $meta])->saveQuietly();
+                if ($renewal) {
+                    $this->renewalTransferDone($domain, $meta['renew_transfer']);
+
+                    return;
+                }
                 $line = DomainOrderFulfilment::lineOf($domain);
                 if ($line === null || DomainOrderFulfilment::paid($domain, $line)) {
                     NotificationHelper::domainNotification($domain->client, $domain, 'domain_transferred', [
@@ -347,6 +363,12 @@ class DomainSyncService
                 || ($meta['transfer_failed']['id'] ?? null) === $storedId) {
                 return;
             }
+            // A transfer that replaced a renewal: back at its source, renewed there (RAT-ADV-4, 5).
+            if (isset($meta['renew_transfer'])) {
+                RenewAsTransfer::revert($domain, (string) $result->rawStatus);
+
+                return;
+            }
             DB::transaction(function () use ($domain, $meta, $storedId, $result) {
                 $meta['transfer_failed'] = ['at' => now()->toIso8601String(), 'id' => $storedId, 'status' => $result->rawStatus];
                 $domain->forceFill(['meta' => $meta])->save();
@@ -357,6 +379,25 @@ class DomainSyncService
             NotificationHelper::domainNotification($domain->client, $domain, 'domain_transfer_failed', ['fqdn' => $domain->fqdn, 'reason' => null]);
         } catch (Throwable $e) {
             report($e); // the sync is done: what is told is not its result
+        }
+    }
+
+    /**
+     * A transfer that replaced a renewal, done: its expiry reaches the end of the period paid, else staff are told (a TLD
+     * whose transfer adds no year, left off the exceptions: code review 1 of #303). The customer was told «renewed».
+     *
+     * @param  array<string, mixed>  $record
+     */
+    private function renewalTransferDone(Domain $domain, array $record): void
+    {
+        $line = InvoiceItem::query()->find($record['line'] ?? null);
+        if ($line === null || $line->period_end === null) {
+            return;
+        }
+        if ($domain->expires_at === null || $domain->expires_at->copy()->startOfDay()->lessThan(Carbon::parse($line->period_end)->startOfDay()->subDays(3))) {
+            ModuleAction::domainFailed($domain, $line, $domain->effectiveRegistrarConnection()?->registrar, new RuntimeException(
+                "{$domain->fqdn} was transferred in place of its paid renewal, but its expiry there is " . ($domain->expires_at?->toDateString() ?? 'unknown')
+                . " for a period paid to {$line->period_end->toDateString()}: its transfer added no year. Renew it there by hand, then close this; add its TLD to the connection's exceptions."));
         }
     }
 

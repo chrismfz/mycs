@@ -150,7 +150,9 @@ class DomainRenewalService
     /** The domain's charge whose outcome is not known (any line, invoice or «Renew now»), or null. */
     private function unconfirmed(Domain $domain): ?DomainRegistrarLog
     {
-        return DomainRegistrarLog::query()->where('domain_id', $domain->id)->whereIn('action', ['renew', 'restore'])
+        // A transfer that replaces a renewal (RenewAsTransfer) too: an order's has its own guard (DomainOrderFulfilment).
+        return DomainRegistrarLog::query()->where('domain_id', $domain->id)->where(fn ($q) => $q->whereIn('action', ['renew', 'restore'])
+            ->orWhere(fn ($t) => $t->where('action', 'transfer')->where('request->renewal', true)))
             ->where('status', DomainRegistrarLog::STATUS_PENDING)->latest('id')->first();
     }
 
@@ -272,6 +274,20 @@ class DomainRenewalService
 
             return self::FAILED;
         }
+        // Its connection transfers its renewals elsewhere (owner 2026-10-21, the WHMCS hook as a setting): a transfer adds
+        // the one year paid for. More years, or some already charged for this line: renewed here.
+        // A line whose transfer failed is renewed here (RenewAsTransfer::revert), never transferred again on its own.
+        $here = (int) ($domain->meta['renew_here_line'] ?? 0) === $line->id;
+        $to = $restore || $here ? null : $connection->renewTransferTarget((string) $domain->tld);
+        if ($to !== null && $now->status === DomainStatus::Active && $years === 1 && $done === 0 && $paid === 1) {
+            $outcome = app(RenewAsTransfer::class)->run($domain, $line, $connection, $to, $now, $staff);
+            if ($outcome === self::APPLIED) {
+                $this->lifecycle->advance($domain->refresh());
+                self::tellRenewed($domain, Carbon::parse($line->period_end)); // the year its transfer adds
+            }
+
+            return $outcome;
+        }
         // A registrar that renews nothing through its API (CentralNic Reseller, step 1): staff at once, no charge logged.
         if (!$capabilities->supportsRenewal) {
             $this->staffDecides($domain, $line, $connection->registrar, "This registrar's renewals are not made through its API yet: renew it there by hand ({$years} year(s)), then mark it «Renewed by hand».");
@@ -327,7 +343,7 @@ class DomainRenewalService
     /** Its last charge for this line was refused, and staff have it (an open Pending Module Action). */
     private function refusedFor(InvoiceItem $line): bool
     {
-        $last = DomainRegistrarLog::query()->where('domain_id', $line->reference_id)->whereIn('action', ['renew', 'restore'])
+        $last = DomainRegistrarLog::query()->where('domain_id', $line->reference_id)->whereIn('action', ['renew', 'restore', 'transfer'])
             ->where('request->line', $line->id)->latest('id')->first();
 
         return $last !== null && $last->status === DomainRegistrarLog::STATUS_FAILED && ($last->response['refused'] ?? false) === true
@@ -388,7 +404,8 @@ class DomainRenewalService
         DB::transaction(function () use ($domain, $line, $connection, $staff, $result, $adopted) {
             $line->forceFill(['applied_at' => now()])->save();
             // A charge whose answer was not known, now shown by the registrar: settled, never «unconfirmed» a year on (ADV-1 of #302).
-            DomainRegistrarLog::query()->where('domain_id', $domain->id)->whereIn('action', ['renew', 'restore'])
+            DomainRegistrarLog::query()->where('domain_id', $domain->id)->where(fn ($q) => $q->whereIn('action', ['renew', 'restore'])
+                ->orWhere(fn ($t) => $t->where('action', 'transfer')->where('request->renewal', true))) // RAT-ADV-2
                 ->where('status', DomainRegistrarLog::STATUS_PENDING)->get()
                 ->each(fn (DomainRegistrarLog $log) => $log->update(['status' => DomainRegistrarLog::STATUS_OK,
                     'response' => ['settled' => 'shown by the registrar', 'expires_at' => $result->paidUntil ?? $result->expiresAt, 'line' => $line->id]]));
