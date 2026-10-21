@@ -11,6 +11,7 @@ use App\Models\ServiceUpgrade;
 use App\Services\Invoice\ChangeOpenLine;
 use App\Services\Invoice\LineTax;
 use App\Services\Money\PaymentsLog;
+use App\Services\Service\OptionTasks;
 use Brick\Math\BigDecimal;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -91,6 +92,9 @@ class ServiceUpgradeService
                     ->delete();
             }
 
+            // Its options staff do by hand, before and after: a task for what it takes or gives back (OptionTasks).
+            $staffOptions = OptionTasks::on($service);
+
             // Update or create new configs
             foreach ($serviceUpgrade->configs as $config) {
                 $service->configs()->updateOrCreate(
@@ -100,6 +104,7 @@ class ServiceUpgradeService
             }
 
             $service->refresh();
+            OptionTasks::changed($service, $staffOptions, OptionTasks::on($service));
 
             // Options only: the price it had and the options' difference (a staff price stays). Another product or
             // plan: its catalog price for the next renewal.

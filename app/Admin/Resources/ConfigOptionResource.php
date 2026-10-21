@@ -80,6 +80,9 @@ class ConfigOptionResource extends Resource
                                 ->visible(fn (Get $get): bool => in_array($get('type'), ['select', 'radio', 'slider']))
                                 ->label('Upgradable')
                                 ->helperText('If enabled, this configuration option can be upgraded in the future.'),
+                            Checkbox::make('staff_task')
+                                ->label('Done by staff')
+                                ->helperText('A service taking it (an order, an upgrade) or giving it back (a downgrade, its end) opens a task for staff in Pending Module Actions, with a mail: a dedicated IP, an extra IPv4. For a dedicated IP that customers may add later, use a select (No / Yes) and tick Upgradable.'),
                             Select::make('products')
                                 ->label('Products')
                                 ->relationship('products', 'name')

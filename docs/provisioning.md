@@ -174,3 +174,17 @@ Modules για το myip:
   πρόθεμα όταν λείπει). Με το πλήρες όνομα ο λογαριασμός έγινε, με ιδιοκτήτη τον reseller.
 - **suspend / unsuspend / terminate:** εντάξει, επαληθευμένα με `accountsummary`· στο τέλος ο λογαριασμός δεν υπάρχει.
 - Η υπηρεσία δοκιμής (#3) μένει terminated στο devbox.
+
+## Επιλογές αντί για τα addons του WHMCS (2026-10-21)
+
+Τα product addons του WHMCS γίνονται **επιλογές της ίδιας της υπηρεσίας** (configurable options). Ανανεώνονται μαζί της, με τον ίδιο κύκλο και την ίδια λήξη. Ο πελάτης τις προσθέτει, τις αλλάζει ή τις αφαιρεί με την αναβάθμιση, με αναλογική χρέωση. Στο myip ήταν 15 ενεργά addons (2026-10-21): 11 Dedicated IP, 3 extra χώρος, 1 System Maintenance. Στη nixpal κανένα.
+- **Extra χώρος σε βήματα των 10GB** (απόφαση υπευθύνου):
+  - Επιλογή `extra_disk_gb`, τύπου select και upgradable, με τιμές «None» (env `0`), «+10GB» (`10`), «+20GB» (`20`)… Κάθε τιμή έχει τη δική της τιμή χρέωσης.
+  - Το cPanel module βάζει quota = quota του πακέτου + extra (WHM `getpkginfo` → `editquota`, σε MB), στο create και σε κάθε αναβάθμιση, και το ξαναβάζει μετά το `changepackage`. Με «None» επιστρέφει στο quota του πακέτου.
+  - Πακέτο χωρίς όριο, ή προϊόν χωρίς την επιλογή: το quota μένει όπως το έβαλε το staff.
+  - Αν το quota αποτύχει μετά τη δημιουργία του λογαριασμού, δεν ξαναγίνεται create. Ανοίγει «Change Package» στις Pending Module Actions, και το Retry ξαναβάζει το quota.
+- **Dedicated IP, extra IPv4 σε VPS, dedicated ή colocation: πάντα από το staff** (απόφαση υπευθύνου):
+  - Επιλογή με «Done by staff» (`config_options.staff_task`). Για dedicated IP που μπορεί να προστεθεί αργότερα: select «No» / «Yes» (env `no` / `yes`), upgradable. Τα checkboxes δεν αναβαθμίζονται.
+  - Όταν η υπηρεσία ξεκινά με την επιλογή, όταν μια αναβάθμιση την προσθέτει ή την αλλάζει, και όταν η υπηρεσία λήγει ή τερματίζεται, ανοίγει **Staff Task** στις Pending Module Actions («Give / Change / Take back: …», με την υπηρεσία και το domain) και φεύγει email στο staff.
+  - Το module δεν αγγίζει IPs, και τα Staff Tasks δεν έχουν Retry. Το staff κάνει τη δουλειά και πατά «Done».
+- **System Maintenance:** ξεχωριστό προϊόν, χωρίς module.

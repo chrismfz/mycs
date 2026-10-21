@@ -26,7 +26,10 @@ class ConfigOption extends Model implements Auditable
         'hidden',
         'parent_id',
         'upgradable',
+        'staff_task',
     ];
+
+    protected $casts = ['staff_task' => 'boolean'];
 
     /**
      * Get the parent option.

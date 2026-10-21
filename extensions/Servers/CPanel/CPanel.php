@@ -4,6 +4,7 @@ namespace MyCS\Extensions\Servers\CPanel;
 
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Server;
+use App\Models\ModuleAction;
 use App\Models\Service;
 use App\Rules\Domain;
 use Exception;
@@ -11,6 +12,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Throwable;
 
 #[ExtensionMeta(
     name: 'cPanel',
@@ -192,7 +194,37 @@ class CPanel extends Server
             throw new Exception('cPanel createacct failed: ' . ($json['metadata']['reason'] ?? 'no reason given'));
         }
 
-        return $this->created($service, $username, $properties);
+        $this->created($service, $username, $properties);
+        // Its extra disk (an option): set after the account is made. One that fails is not a failed create (a retry would
+        // make the account again): staff see it as a failed Change Package, whose Retry sets it.
+        try {
+            $this->applyExtraDisk($username, $this->package($settings, $properties), $properties);
+        } catch (Throwable $e) {
+            report($e);
+            ModuleAction::recordFailure($service, 'upgrade', 'CPanel', new Exception('The extra disk space was not set after the account was made: ' . $e->getMessage()));
+        }
+
+        return true;
+    }
+
+    /**
+     * Extra disk space (owner 2026-10-21, in steps of 10GB): the option «extra_disk_gb», its value the GB (a select:
+     * +10GB → 10). The account's quota is its package's plus that, set with WHM's editquota; none again (a downgrade):
+     * its package's. A package without a limit needs none. Only a service whose product has the option is touched: a
+     * quota staff set in WHM for another stays as it is. changepackage puts the package's quota back, so it is set after.
+     */
+    private function applyExtraDisk(string $username, string $package, array $properties): void
+    {
+        if (!array_key_exists('extra_disk_gb', $properties)) {
+            return;
+        }
+        $extra = max(0, (int) preg_replace('/\D/', '', (string) $properties['extra_disk_gb']));
+        $info = $this->whm('/getpkginfo', ['pkg' => $package]);
+        $quota = $info['data']['pkg']['QUOTA'] ?? null;
+        if (!is_numeric($quota) || (int) $quota <= 0) {
+            return; // unlimited (or not told): nothing to add to
+        }
+        $this->whm('/editquota', ['user' => $username, 'quota' => (int) $quota + $extra * 1024]);
     }
 
     /**
@@ -337,13 +369,14 @@ class CPanel extends Server
         // The service's package as create chose it: a config option «package» first (review R1a). Only when it changed
         // (review R1b, as WHMCS): changepackage re-applies the package's limits and shell, undoing what staff set in WHM.
         $package = $this->package($settings, $properties);
-        if (($this->account($properties['cpanel_username'])['plan'] ?? null) === $package) {
-            return true;
+        if (($this->account($properties['cpanel_username'])['plan'] ?? null) !== $package) {
+            $this->whm('/changepackage', [
+                'user' => $properties['cpanel_username'],
+                'pkg' => $package,
+            ]);
         }
-        $this->whm('/changepackage', [
-            'user' => $properties['cpanel_username'],
-            'pkg' => $package,
-        ]);
+        // Its extra disk as it is now: added, changed or taken off by this upgrade, or put back after changepackage.
+        $this->applyExtraDisk($properties['cpanel_username'], $package, $properties);
 
         return true;
     }
