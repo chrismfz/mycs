@@ -57,9 +57,9 @@ class DomainSweepRegistrarsTest extends TestCase
      */
     public function test_f1_openprovider_a_stored_id_of_a_tombstone_hides_the_live_record_of_the_same_name(): void
     {
-        $tombstone = ['id' => 100, 'domain' => ['name' => 'example', 'extension' => 'com'], 'status' => 'DEL',
+        $tombstone = ['id' => 100, 'domain' => ['name' => 'example', 'extension' => 'com'], 'status' => 'DEL', 'owner_handle' => 'EX000001-NL',
             'expiration_date' => '2025-10-01 00:00:00', 'name_servers' => [['name' => 'ns1.example.net']]];
-        $live = ['id' => 200, 'domain' => ['name' => 'example', 'extension' => 'com'], 'status' => 'ACT',
+        $live = ['id' => 200, 'domain' => ['name' => 'example', 'extension' => 'com'], 'status' => 'ACT', 'owner_handle' => 'EX000001-NL',
             'expiration_date' => '2027-10-20 00:00:00', 'name_servers' => [['name' => 'ns1.example.net']]];
         Http::fake([
             self::OP . '/v1/auth/login' => Http::response(['data' => ['token' => 'tok']]),
@@ -71,7 +71,8 @@ class DomainSweepRegistrarsTest extends TestCase
         $user = User::factory()->create();
         // Lapsed here (its redemption), the tombstone's id stored; bought again at Openprovider meanwhile.
         $domain = Domain::factory()->create(['client_id' => $user->client()->id, 'sld' => 'example', 'tld' => 'com', 'fqdn' => 'example.com',
-            'registrar_connection_id' => $op->id, 'status' => DomainStatus::Redemption, 'expires_at' => '2025-10-01', 'registrar_domain_id' => '100']);
+            'registrar_connection_id' => $op->id, 'status' => DomainStatus::Redemption, 'expires_at' => '2025-10-01', 'registrar_domain_id' => '100',
+            'registrant_handle' => 'EX000001-NL']); // the same owner: bought again for this customer (#308 review: another owner's is never adopted, Pr308AdversarialTest ADV-3)
 
         $result = (new OpenproviderRegistrar)->syncDomain($domain, new DomainRegistrarCredentials(['username' => 'u', 'password' => 'p'], sandbox: false));
         $this->assertSame([false, DomainStatus::Active, '200', '2027-10-20'], [$result->deadRecord, $result->status, $result->registrarDomainId, $result->expiresAt],

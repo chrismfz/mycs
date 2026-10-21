@@ -16,6 +16,9 @@ use Illuminate\Support\Carbon;
  */
 class DomainLifecycle
 {
+    /** A connection off this long past a domain's last stage is off for good, not for a while. */
+    private const OFF_MARGIN_DAYS = 30;
+
     private const MOVING = [DomainStatus::Active, DomainStatus::Expired, DomainStatus::Grace, DomainStatus::Redemption];
 
     public function __construct(private readonly DomainSyncService $sync) {}
@@ -45,8 +48,11 @@ class DomainLifecycle
             // Past the stages it has: the registrar with an API says «deleted» itself (it may still restore by hand); without
             // one, the dates do, but only when both stages are known: never past what is known.
             // Never backwards from a later stage (review 8).
-            // A registrar with an API whose connection is off for now (sweep L4) is the same: its word, not our dates.
-            $this->sync->isSyncable($domain) || $this->hasApi($domain) => in_array($domain->status, [DomainStatus::Grace, DomainStatus::Redemption], true) ? $domain->status : DomainStatus::Expired,
+            // A registrar with an API whose connection is off (sweep L4) the same, until a month past its last stage: off for
+            // good (the registrar left), it is not held open and billed forever (code review 3, ADV-1 of #308).
+            // One its registrar no longer has (missing_since) likewise, a month past its last stage (ADV-2 of #308).
+            ($this->sync->isSyncable($domain) && !(isset($domain->meta['missing_since']) && $this->longPast($domain, $today)))
+                || ($this->hasApi($domain) && !$this->sync->isSyncable($domain) && !$this->longPast($domain, $today)) => in_array($domain->status, [DomainStatus::Grace, DomainStatus::Redemption], true) ? $domain->status : DomainStatus::Expired,
             $known => DomainStatus::Deleted,
             default => DomainStatus::Expired,
         };
@@ -60,6 +66,14 @@ class DomainLifecycle
         $connection = $domain->effectiveRegistrarConnection();
 
         return $connection !== null && $connection->registrar !== DomainRegistrarConnection::MANUAL;
+    }
+
+    /** A month past the end of its last known stage (no known end: never). */
+    private function longPast(Domain $domain, Carbon $today): bool
+    {
+        $end = $domain->redemptionEndsOn() ?? $domain->graceEndsOn();
+
+        return $end !== null && $today->greaterThan(Carbon::parse($end)->addDays(self::OFF_MARGIN_DAYS));
     }
 
     /** Move it, audited; returns the new status or null. */
