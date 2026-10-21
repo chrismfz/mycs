@@ -50,3 +50,23 @@ The send itself keeps the row. Queue events do not, except the queue's last fail
   - open tracking;
   - a suppression list.
 - A «test mode» that sends every mail to one address is not built: on live, the only account is staff's own test one.
+
+## Μαζικό email (ROADMAP 6δ, 2026-10-21)
+
+Αντίστοιχο του Mass Mail Tool του WHMCS: **Clients → Mass Mail Tool** (δικαιώματα `admin.bulk_mails.*`· η αποστολή θέλει `send`).
+- **Είδη:**
+  - **Σημαντική ενημέρωση** (`announcement`): μεταφορά server, αλλαγές δικτύου. Πηγαίνει πάντα και δεν εμφανίζεται στις προτιμήσεις του πελάτη.
+  - **Νέα και προσφορές** (`announcement_news`): προτίμηση του πελάτη στις Ειδοποιήσεις του λογαριασμού, και link «Διακοπή αυτών των emails» στο email. Το link ανοίγει σελίδα με κουμπί (POST), ώστε ένα φίλτρο που ανοίγει μόνο του τα links να μην απεγγράφει κανέναν.
+- **Κείμενο:** template όπως τα email templates, που αποδίδεται από δεδομένα και ποτέ δεν γίνεται compile.
+  - Διαθέσιμα: `{{ user.first_name }}`, `{{ client.name }}`, `{% for service in services %}` και `{% for domain in domains %}` με όσα ταιριάζουν.
+  - Προαιρετικά στα ελληνικά, για τους λογαριασμούς που διαβάζουν ελληνικά. Η διάταξη (header και footer) είναι των templates `announcement` και `announcement_news`.
+- **Φίλτρα:**
+  - όλοι οι πελάτες, ή μόνο όσοι έχουν ενεργή υπηρεσία ή domain·
+  - ομάδες πελατών·
+  - υπηρεσίες ανά κατάσταση (προεπιλογή: active), προϊόν και server (ο δικός της server ή του προϊόντος της)·
+  - domains ανά κατάσταση και TLD.
+- **Ροή:** draft → «Recipients» (πλήθος και οι πρώτοι 25) → «Send a test» (στον εαυτό σου, ως ο πρώτος παραλήπτης) → «Send».
+  - Η αποστολή κρατά την ίδια στιγμή τη λίστα των παραληπτών, μία γραμμή ανά λογαριασμό.
+  - Στέλνει μια παρτίδα το λεπτό: `settings.bulk_mail_per_minute`, προεπιλογή 60.
+  - Κάθε γραμμή δεσμεύεται πριν σταλεί, οπότε κανείς δεν παίρνει το email δύο φορές. Αν η αποστολή διακοπεί, ο cron τη συνεχίζει μετά από 10 λεπτά (`bulk_mails_resumed`).
+  - Κάθε email γράφεται στο email log, στον λογαριασμό του. Ένα email που στάλθηκε δεν αλλάζει ούτε σβήνεται.

@@ -222,4 +222,10 @@ return [
     ],
     'no_payment_gateways_available' => 'No payment method can be saved at the moment.',
     'invalid_payment_gateway' => 'This payment method is not available.',
+
+    // A mass mail's «stop these emails» (BulkMailer)
+    'news_stop_question' => 'Stop our news and offers by email?',
+    'news_stop' => 'Stop these emails',
+    'news_stopped' => 'Done: you will no longer get our news and offers by email.',
+    'news_stop_note' => 'Important announcements about your services, invoices and domains are still sent. You can change this any time from your account\'s Notifications.',
 ];
