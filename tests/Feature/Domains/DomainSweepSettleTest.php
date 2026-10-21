@@ -256,4 +256,27 @@ class DomainSweepSettleTest extends TestCase
             default => Http::response([], 404),
         };
     }
+
+    /**
+     * After #305 and #306 together: an earlier paid period staff closed «not renewed» and a later one paid. The later one
+     * is not held behind the closed one, nor charged its own year over the gap (it would be adopted over by a Retry of the
+     * earlier one): staff decide, on its own row.
+     */
+    public function test_a_later_period_after_one_closed_not_renewed_goes_to_staff(): void
+    {
+        $this->fakeOp(['status' => 'ACT', 'expiration_date' => '2026-11-01 10:00:00']);
+        $domain = $this->domain();
+        $a = $this->billAndPay($domain);
+        $this->failWith = 'Domain is not renewable: clientRenewProhibited';
+        $this->assertSame(DomainRenewalService::FAILED, app(DomainRenewalService::class)->renewLine($a->id));
+        ModuleAction::query()->open()->where('invoice_item_id', $a->id)->sole()->closeUnrenewed($this->staff());
+        $this->failWith = null;
+        $b = $this->lineFor($domain, '2027-11-01', '2028-11-01');
+        $this->pay($b->invoice);
+
+        $this->assertSame(DomainRenewalService::FAILED, app(DomainRenewalService::class)->renewLine($b->id));
+
+        $this->assertCount(1, $this->charges, 'only A\'s refused one');
+        $this->assertStringContainsString('before this paid period starts', (string) ModuleAction::query()->open()->where('invoice_item_id', $b->id)->value('last_error'));
+    }
 }

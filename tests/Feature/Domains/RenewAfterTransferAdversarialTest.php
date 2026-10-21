@@ -297,9 +297,15 @@ class RenewAfterTransferAdversarialTest extends TestCase
     {
         [$domain, $line] = $this->doneShort();
         $this->lagRenew = true;
-        $renewed = app(DomainRenewalService::class)->renewNow($domain->refresh(), Staff::factory()->create());
-        $this->assertSame($line->id, $renewed->id, 'the paid line, renewed now');
-        $this->assertSame(1, $this->opRenewals);
+        // Refused while the transfer is not settled: the registry, not the lagging registrar, says whether the year is
+        // missing (adversarial ADV-2 of #305; before, «Renew now» charged it here).
+        try {
+            app(DomainRenewalService::class)->renewNow($domain->refresh(), Staff::factory()->create());
+            $this->fail('«Renew now» inside the wait is refused');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('transferred in place of its renewal', $e->getMessage());
+        }
+        $this->assertSame(0, $this->opRenewals);
 
         Carbon::setTestNow('2026-10-22 13:00:00');
         app(DomainSyncService::class)->sync($domain->refresh());
