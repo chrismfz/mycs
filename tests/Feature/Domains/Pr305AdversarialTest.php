@@ -229,8 +229,10 @@ class Pr305AdversarialTest extends TestCase
         $this->pay($b->invoice);
         $this->failWith = 'Not allowed';
 
-        $this->assertSame(DomainRenewalService::WAITING, app(DomainRenewalService::class)->renewLine($b->id));
-        $this->assertSame(DomainRenewalService::WAITING, app(DomainRenewalService::class)->renewLine($b->id, $this->staff(), true));
+        // Held for staff, and said on B too (code review 1 of #305): never a paid period held back with nothing open for it.
+        $this->assertSame(DomainRenewalService::FAILED, app(DomainRenewalService::class)->renewLine($b->id));
+        $this->assertSame(DomainRenewalService::FAILED, app(DomainRenewalService::class)->renewLine($b->id, $this->staff(), true));
+        $this->assertTrue(ModuleAction::query()->open()->where('invoice_item_id', $b->id)->exists(), 'B says it waits for A');
 
         $this->assertCount(1, $this->charges, 'only A asked, once');
         $this->assertTrue(ModuleAction::query()->open()->where('domain_id', $domain->id)->exists(), 'staff told');

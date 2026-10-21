@@ -216,8 +216,17 @@ class DomainRenewalService
             ->whereDate('period_start', '<', Carbon::parse($line->period_start)->toDateString())->orderBy('period_start')->first();
         if ($earlier !== null) {
             $outcome = $this->renewLocked($domain->refresh(), $earlier, $connection, $staff);
-            // Not done, or done by a transfer to another registrar (RenewAsTransfer): this one on a later run, where it is then.
-            if (!in_array($outcome, [self::APPLIED, self::ADOPTED], true) || $domain->refresh()->effectiveRegistrarConnection()?->id !== $connection->id) {
+            // Held for staff (failed, refused, or a line staff alone renew): said on this one too, so a paid period is never
+            // held back with nothing open for it (code review 1 of #305).
+            if ($outcome === self::FAILED || ($outcome === self::WAITING && ($this->refusedFor($earlier)
+                || (self::reopenedAfterTransfer($domain->refresh(), $earlier) && !empty($domain->meta['renew_transfer']['staff_only']))))) {
+                $this->staffDecides($domain, $line, $connection->registrar, "Waits for the earlier paid period (invoice #{$earlier->invoice_id}) to be renewed first: retry or resolve that one.");
+
+                return self::FAILED;
+            }
+            // Not done (busy, an unconfirmed charge), or done by a transfer to another registrar (RenewAsTransfer): this one on
+            // a later run, where it is then. No longer waiting (refunded meanwhile): this one now.
+            if ($outcome === self::WAITING || $domain->refresh()->effectiveRegistrarConnection()?->id !== $connection->id) {
                 return self::WAITING;
             }
 
@@ -284,6 +293,15 @@ class DomainRenewalService
             return $this->apply($domain, $line, $connection, $staff, $now, false); // charged: the registrar lags
         }
         $years = min($this->lacking($now, $target), $paid - $done);
+        // The registrar's expiry short of where this period starts, and no earlier period charged that it lags behind: the
+        // years before it are not bought (an earlier period unpaid, or never billed). Its own years would leave it short, and
+        // an earlier period paid later would be adopted over them (adversarial ADV-1 of #305): staff decide.
+        if ($done === 0 && $this->lacking($now, $target) > $paid && !$this->earlierCharged($domain, $line)) {
+            $this->staffDecides($domain, $line, $connection->registrar, 'The registrar shows ' . ($now->paidUntil ?? $now->expiresAt)
+                . ', before this paid period starts (' . Carbon::parse($line->period_start)->toDateString() . '): the period before it is not renewed. Renew that first (its invoice paid, or by hand), then Retry.');
+
+            return self::FAILED;
+        }
         // A registrar that renews in steps (.gr: 2, 4 … 10) is never asked for another number of years: staff decide.
         if ($years % max(1, $capabilities->renewYearStep) !== 0) {
             $this->staffDecides($domain, $line, $connection->registrar, "The registrar renews in steps of {$capabilities->renewYearStep} years and {$years} would be needed: renew it by hand.");
@@ -368,6 +386,16 @@ class DomainRenewalService
 
         return $last !== null && $last->status === DomainRegistrarLog::STATUS_FAILED && ($last->response['refused'] ?? false) === true
             && ModuleAction::query()->open()->where('domain_id', $line->reference_id)->where('invoice_item_id', $line->id)->exists();
+    }
+
+    /** An earlier period of the domain, ending where this one starts, was renewed (applied): the registrar only lags. */
+    private function earlierCharged(Domain $domain, InvoiceItem $line): bool
+    {
+        $start = Carbon::parse($line->period_start)->startOfDay();
+
+        return $domain->invoiceItems()->whereNull('kind')->whereKeyNot($line->id)->whereNotNull('applied_at')
+            ->whereDate('period_start', '<', $start->toDateString())
+            ->whereDate('period_end', '>=', $start->copy()->subDays(self::TOLERANCE_DAYS)->toDateString())->exists();
     }
 
     /** The whole years of a line's period. */
@@ -523,6 +551,11 @@ class DomainRenewalService
             }
             if (self::waitingLines()->where('reference_id', $domain->id)->exists()) {
                 throw new RuntimeException(__('domains.renew.paid_on_its_way', ['domain' => $domain->fqdn]));
+            }
+            // A transfer that replaced its renewal not settled yet: whether it added its year is the registry's to say
+            // (renewAfterTransfer, #304), never a second year bought because the registrar lags (adversarial ADV-2 of #305).
+            if (isset($domain->meta['renew_transfer'])) {
+                throw new RuntimeException(__('domains.renew.transfer_unsettled', ['domain' => $domain->fqdn]));
             }
             // Renewed now already, its invoice not paid yet (adversarial ADV-6): not a second year on credit.
             // A draft is as unpaid as an unpaid one (sweep F6).
