@@ -16,8 +16,11 @@ base="${TEST_TMPDIR:-$([ -w /dev/shm ] && echo /dev/shm || echo "${TMPDIR:-/tmp}
 # compile into storage/, report() cannot write the log either, and the billing tests see a run that did nothing
 # (2026-10-21: BillingCursorFuzzTest «flaked» with / at 100%). Refuse to start instead.
 min_free_mb="${TEST_MIN_FREE_MB:-200}"
+[[ $min_free_mb =~ ^[0-9]+$ ]] || { echo "bin/test: TEST_MIN_FREE_MB must be a whole number of MB, not '$min_free_mb'." >&2; exit 2; }
 for path in storage "$base"; do
-    free_mb=$(( $(df -Pk "$path" | awk 'NR == 2 { print $4 }') / 1024 ))
+    free_kb="$(df -Pk "$path" 2>/dev/null | awk 'NR == 2 { print $4 }')" || true
+    [[ $free_kb =~ ^[0-9]+$ ]] || { echo "bin/test: cannot read the free space under $path." >&2; exit 1; }
+    free_mb=$(( free_kb / 1024 ))
     if [ "$free_mb" -lt "$min_free_mb" ]; then
         echo "bin/test: only ${free_mb} MB free under $path (needs ${min_free_mb}): tests would fail at random. Free some space first." >&2
         exit 1
