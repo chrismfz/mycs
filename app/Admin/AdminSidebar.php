@@ -13,6 +13,7 @@ use App\Admin\Resources\OrderResource;
 use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\TicketQuarantineResource;
 use App\Admin\Resources\TicketResource;
+use App\Models\Invoice;
 use Filament\Facades\Filament;
 use Filament\Pages\Page;
 use Filament\Resources\Resource;
@@ -25,12 +26,17 @@ use Illuminate\Database\Eloquent\Model;
  */
 class AdminSidebar
 {
-    /** What waits on staff: [class, label, query (a list's tab)]; its count is the page's own navigation badge. */
+    /**
+     * What waits on staff: [class, label, query (a list's tab or filter), own count?]; its count is the page's own
+     * navigation badge, or [model, scope, color] for a queue the page does not count (overdue invoices).
+     */
     public const QUEUES = [
         [TicketResource::class, 'Tickets awaiting reply', ['tab' => 'open']],
         [OrderResource::class, 'Pending orders', ['tab' => 'pending']],
         // Each opens the list of what it counts (review of #277), by the list's own tab or filter.
         [InvoiceResource::class, 'Unpaid invoices', ['filters' => ['status' => ['value' => 'unpaid']]]],
+        // Of those, the late ones (owner 2026-10-21), counted by their own scope, not the page's badge.
+        [InvoiceResource::class, 'Overdue invoices', ['filters' => ['overdue' => ['isActive' => true]]], [Invoice::class, 'overdue', 'danger']],
         [ServiceResource::class, 'Pending services', ['filters' => ['status' => ['value' => 'pending']]]],
         [ModuleActionResource::class, 'Pending module actions', []],
         [TicketQuarantineResource::class, 'Mail quarantine', []],
@@ -67,7 +73,9 @@ class AdminSidebar
     {
         $counted = self::navigationBadges();
         $queues = [];
-        foreach (self::QUEUES as [$class, $label, $query]) {
+        foreach (self::QUEUES as $queue) {
+            [$class, $label, $query] = $queue;
+            $own = $queue[3] ?? null;
             try {
                 if (is_subclass_of($class, Resource::class) && $class::canAccess()) {
                     $base = $class::getUrl('index');
@@ -80,8 +88,15 @@ class AdminSidebar
                 // The count Filament's navigation made in this request; counted again only for a page not in it.
                 // A resource inside a cluster that counts the same is in the navigation as its cluster (invoices).
                 $clusterUrl = in_array($class, self::COUNTED_BY_CLUSTER, true) ? $class::getCluster()::getUrl() : null;
-                [$badge, $color] = $counted[$base] ?? ($clusterUrl !== null ? ($counted[$clusterUrl] ?? null) : null)
-                    ?? [$class::getNavigationBadge(), $class::getNavigationBadgeColor()];
+                if ($own !== null) {
+                    // A queue with its own count: [model, scope, color].
+                    [$model, $scope, $ownColor] = $own;
+                    $count = $model::query()->{$scope}()->count();
+                    [$badge, $color] = [$count > 0 ? $count : null, $ownColor];
+                } else {
+                    [$badge, $color] = $counted[$base] ?? ($clusterUrl !== null ? ($counted[$clusterUrl] ?? null) : null)
+                        ?? [$class::getNavigationBadge(), $class::getNavigationBadgeColor()];
+                }
                 $queues[] = ['label' => $label, 'url' => $url, 'badge' => $badge === null ? null : (string) $badge, 'color' => $color ?? 'gray'];
             } catch (\Throwable) {
                 // A page that cannot build its URL right now is left out, as in the top menu.

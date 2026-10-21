@@ -62,6 +62,7 @@ class SendInvoiceEmail extends Action
     /** Whole days past its due date (0 on the due day or before). */
     private static function daysOverdue(Invoice $invoice): int
     {
+        // Days past its due date, the same rule as the list's «Overdue» (Invoice::daysOverdue), whatever its status here.
         $due = $invoice->due_at?->copy()->startOfDay();
 
         return $due === null || !$due->lt(today()) ? 0 : (int) $due->diffInDays(today());

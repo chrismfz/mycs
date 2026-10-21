@@ -37,6 +37,7 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
+use Filament\Support\Enums\FontWeight;
 use Filament\Support\Exceptions\Halt;
 use Filament\Support\RawJs;
 use Filament\Tables\Columns\TextColumn;
@@ -199,7 +200,8 @@ class InvoiceResource extends Resource
     {
         return $table
             // The account's name is its owner's (until the contacts, PR 3): loaded with the rows, not per row.
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user', 'latestEmailLog']))
+            // Lines and payments too: whether an unpaid one is overdue reads them (Invoice::daysOverdue), not a query a row.
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user', 'latestEmailLog', 'items', 'transactions']))
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -223,6 +225,15 @@ class InvoiceResource extends Resource
                     ->date()
                     ->searchable()
                     ->sortable(),
+                // Due, and how late an unpaid one is (owner 2026-10-21: in time and late ones apart at a glance).
+                TextColumn::make('due_at')
+                    ->label(__('Due Date'))
+                    ->date()
+                    ->sortable()
+                    ->placeholder('—')
+                    ->color(fn (Invoice $record): ?string => $record->daysOverdue() > 0 ? 'danger' : null)
+                    ->weight(fn (Invoice $record) => $record->daysOverdue() > 0 ? FontWeight::SemiBold : null)
+                    ->description(fn (Invoice $record): ?string => $record->daysOverdue() > 0 ? trans_choice(':count day late|:count days late', $record->daysOverdue(), ['count' => $record->daysOverdue()]) : null),
                 TextColumn::make('formattedTotal')
                     ->label('Total'),
                 TextColumn::make('formattedCurrentBalance')
@@ -245,6 +256,10 @@ class InvoiceResource extends Resource
                 SelectFilter::make('status')
                     ->label('Status')
                     ->options(Invoice::statusOptions()),
+                // Unpaid past its due date (Invoice::scopeOverdue).
+                Filter::make('overdue')
+                    ->label(__('Overdue'))
+                    ->query(fn (Builder $query) => Invoice::whereOverdue($query)),
                 // Paid, its services not renewed yet (BIL-9): the cron's paid_applied tries again; the money check
                 // reports one still waiting after a day (MT-3).
                 // Its latest mail failed (the mail audit): to resend.
