@@ -125,6 +125,14 @@
         <p style="margin-top: 12px;">{{ $taxNote }}</p>
     @endforeach
 
+    {{-- Unpaid: the bank transfer method's accounts and the reference to write (BankTransferDetails). --}}
+    @php $bankTransfer = \App\Services\Money\BankTransferDetails::for($invoice); @endphp
+    @if ($bankTransfer)
+        <div class="section">{{ __('invoices.bank_transfer') }}</div>
+        <p style="margin-top: 6px; white-space: pre-line;">{{ $bankTransfer['accounts'] }}</p>
+        <p style="margin-top: 6px;"><strong>{{ __('invoices.bank_transfer_reference', ['reference' => $bankTransfer['reference']]) }}</strong></p>
+    @endif
+
     @if (config('settings.notes_client_visible', false) && $invoice->adjustmentNotes->isNotEmpty())
         <div class="section">{{ __('invoices.ledger_adjustments') }}</div>
         <table class="grid">
