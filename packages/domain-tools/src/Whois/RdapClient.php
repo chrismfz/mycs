@@ -28,10 +28,12 @@ final class RdapClient
     }
 
     /**
+     * @param  bool  $follow  complete a thin answer from the registrar's RDAP it links to; false: the registry's own word
+     *                        only (an expiry that decides a charge is never the registrar's)
      * @return array{0:string,1:RdapRecord|null} "found" with the record, or "not_found",
      *                                           "unsupported", "error"
      */
-    public function lookup($domain)
+    public function lookup($domain, $follow = true)
     {
         $domain = strtolower((string) $domain);
         $tld = substr($domain, strpos($domain, '.') + 1);
@@ -50,7 +52,7 @@ final class RdapClient
             return ['error', null];
         }
 
-        if ($record->related_url !== null && ($record->registrar === null || $record->expires === null || !$record->nameservers)) {
+        if ($follow && $record->related_url !== null && ($record->registrar === null || $record->expires === null || !$record->nameservers)) {
             [$status, $body] = $this->http->get($record->related_url, ['Accept: application/rdap+json'], 6);
             $related = $status === 200 ? json_decode($body, true) : null;
             if (is_array($related) && ($other = RdapRecord::fromArray($related))) {

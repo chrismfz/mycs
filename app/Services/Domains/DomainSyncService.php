@@ -422,14 +422,18 @@ class DomainSyncService
     private function renewAfterTransfer(Domain $domain): void
     {
         $record = $domain->meta['renew_transfer'] ?? null;
-        if (!is_array($record) || empty($record['done_at']) || !empty($record['reopened_at']) || !empty($record['told_at'])) {
+        if (!is_array($record) || empty($record['done_at']) || !empty($record['reopened_at'])) {
             return; // most domains: nothing read
         }
         $line = InvoiceItem::query()->with('invoice')->find($record['line'] ?? null);
+        // The year there (by its transfer, late, or renewed by hand after staff were told): settled (R2-3 of #304).
         if ($line === null || !self::renewalTransferShort($domain, $record)) {
             $this->settleRenewTransfer($domain, 'covered');
 
             return;
+        }
+        if (!empty($record['told_at'])) {
+            return; // staff's
         }
         $near = $domain->expires_at === null || $domain->expires_at->lessThanOrEqualTo(today()->addDays(self::RENEW_AFTER_TRANSFER_NEAR_DAYS));
         if (!$near && Carbon::parse($record['short_since'] ?? now())->greaterThan(now()->subHours(self::RENEW_AFTER_TRANSFER_HOURS))) {
@@ -448,13 +452,20 @@ class DomainSyncService
         };
         DB::transaction(function () use ($domain, $line, $why) {
             $fresh = Domain::query()->lockForUpdate()->findOrFail($domain->id); // the domain first (D5b-1 lock order)
-            $locked = InvoiceItem::query()->lockForUpdate()->find($line->id);
+            $locked = InvoiceItem::query()->with('invoice')->lockForUpdate()->find($line->id);
             $meta = $fresh->meta ?? [];
             if ($locked === null || !empty($meta['renew_transfer']['reopened_at']) || !empty($meta['renew_transfer']['told_at'])) {
                 return;
             }
             if ($why !== null) {
+                // Staff's: opened again for their Retry or «Renewed by hand» (R2-2 of #304), never renewed by the cron on
+                // its own (staff_only); an invoice no longer paid stays applied (nothing to renew).
                 $meta['renew_transfer']['told_at'] = now()->toIso8601String();
+                if ($locked->invoice?->status === Invoice::STATUS_PAID) {
+                    $meta['renew_transfer']['reopened_at'] = now()->toIso8601String();
+                    $meta['renew_transfer']['staff_only'] = true;
+                    $locked->forceFill(['applied_at' => null])->save();
+                }
                 $fresh->forceFill(['meta' => $meta])->save();
                 ModuleAction::domainFailed($fresh, $locked, $fresh->effectiveRegistrarConnection()?->registrar, new RuntimeException(
                     "{$fresh->fqdn} was transferred in place of its paid renewal, but its expiry is " . ($fresh->expires_at?->toDateString() ?? 'unknown')
@@ -468,15 +479,13 @@ class DomainSyncService
         });
     }
 
-    /** The registry's expiry (RDAP, or the .gr registry's WHOIS), read now, not cached; null: not readable. */
+    /** The registry's own expiry (DomainLookup::registryExpiry: read now, never the registrar's); null: not known. */
     private function registryExpiry(string $fqdn): ?Carbon
     {
-        Cache::forget('domain-whois-answer:' . sha1(mb_strtolower($fqdn)));
         try {
-            $answer = app(DomainLookup::class)->whois($fqdn);
-            $expires = $answer['status'] === 'found' ? ($answer['record']->expires ?? null) : null;
+            $expires = app(DomainLookup::class)->registryExpiry($fqdn);
 
-            return is_string($expires) && $expires !== '' ? Carbon::parse($expires)->startOfDay() : null;
+            return $expires !== null ? Carbon::parse($expires)->startOfDay() : null;
         } catch (Throwable) {
             return null;
         }

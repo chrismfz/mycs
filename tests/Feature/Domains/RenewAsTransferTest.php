@@ -381,8 +381,8 @@ class RenewAsTransferTest extends TestCase
         $sync->sync($domain->refresh());
         app(DomainRenewalService::class)->renewLine($line->id);
 
-        $this->assertNotNull($line->fresh()->applied_at);
-        $this->assertSame(0, $this->opRenewals);
+        $this->assertSame(0, $this->opRenewals, 'the cron never charges it on its own');
+        $this->assertTrue($domain->fresh()->meta['renew_transfer']['staff_only'] ?? false, 'open for staff\'s Retry only');
         $row = ModuleAction::query()->open()->where('domain_id', $domain->id)->sole();
         $this->assertStringContainsString('could not confirm', $row->last_error);
     }

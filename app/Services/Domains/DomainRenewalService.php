@@ -253,7 +253,9 @@ class DomainRenewalService
             return self::FAILED;
         }
         // Refused for this line, with staff: never asked again by the next run on its own, only by staff's Retry (ADV-4 of #302).
-        if (!$retry && $this->refusedFor($line)) {
+        // Likewise a line opened again for staff after its transfer (the registry not confirming the year missing: R2-2 of
+        // #304): adopted above when the year shows up, charged only by staff's Retry.
+        if (!$retry && ($this->refusedFor($line) || (self::reopenedAfterTransfer($domain, $line) && !empty($domain->meta['renew_transfer']['staff_only'])))) {
             return self::WAITING;
         }
 

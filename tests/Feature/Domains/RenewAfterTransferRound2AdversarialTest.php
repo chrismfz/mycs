@@ -225,7 +225,9 @@ class RenewAfterTransferRound2AdversarialTest extends TestCase
         }
 
         $this->assertSame(0, $this->opRenewals, 'never a second year on the registrar\'s own word');
-        $this->assertArrayNotHasKey('reopened_at', $domain->fresh()->meta['renew_transfer'] ?? []);
+        // Fix of R2-2: not readable as the registry's word → staff's: opened for their Retry only (staff_only), never the cron's.
+        $record = $domain->fresh()->meta['renew_transfer'] ?? [];
+        $this->assertTrue(empty($record['reopened_at']) || ($record['staff_only'] ?? false) === true, 'never opened for the cron to charge');
     }
 
     /**
@@ -267,7 +269,11 @@ class RenewAfterTransferRound2AdversarialTest extends TestCase
         $this->opExpiry = '2027-11-01 00:00:00'; // renewed there by hand
         Carbon::setTestNow('2026-10-24 11:00:00');
         $sync->sync($domain->refresh());
+        // Fix of R2-2: the line is open for staff; the next cron run finds the year there and adopts it, uncharged.
+        $this->assertSame(DomainRenewalService::ADOPTED, app(DomainRenewalService::class)->renewLine($line->id));
 
+        $this->assertSame(0, $this->opRenewals);
+        $this->assertNotNull($line->fresh()->applied_at);
         $this->assertArrayNotHasKey('renew_transfer', $domain->fresh()->meta, 'settled into renew_transfer_last');
     }
 
