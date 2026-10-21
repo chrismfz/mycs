@@ -288,7 +288,11 @@ class BankTransferAdversarialTest extends TestCase
         $default = EmailTemplateSeeder::mapping['new_invoice_created'];
         $old = preg_replace('/\n *\{% if bank_transfer %\}.*?\{% endif %\}\n/s', '', $default['body']);
 
-        foreach ([null, '{not json', '"a string"', '[1,2]', '{"el":"text"}', '{"el":{"body":null}}'] as $translations) {
+        // Malformed JSON only where the column can hold it: MariaDB's json column refuses it (its CHECK), so it never is there.
+        $values = DB::connection()->getDriverName() === 'sqlite'
+            ? [null, '{not json', '"a string"', '[1,2]', '{"el":"text"}', '{"el":{"body":null}}']
+            : [null, '"a string"', '[1,2]', '{"el":"text"}', '{"el":{"body":null}}'];
+        foreach ($values as $translations) {
             DB::table('notification_templates')->where('key', 'new_invoice_created')->update(['body' => $old, 'translations' => $translations]);
             $migration->up();
             $row = DB::table('notification_templates')->where('key', 'new_invoice_created')->first();
