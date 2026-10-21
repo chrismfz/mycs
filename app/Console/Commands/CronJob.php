@@ -10,6 +10,7 @@ use App\Exceptions\DisplayException;
 use App\Helpers\NotificationHelper;
 use App\Jobs\Server\SuspendJob;
 use App\Jobs\Server\TerminateJob;
+use App\Logging\WriteFailures;
 use App\Models\CronStat;
 use App\Models\DebugLog;
 use App\Models\Domain;
@@ -108,6 +109,7 @@ class CronJob extends Command
         Config::set('audit.console', true);
         // One command object can run twice (a test, a long-lived worker): nothing carries over from a run to the next.
         $this->failures = $this->notices = $this->suspended = $this->terminated = [];
+        WriteFailures::forget();
 
         // Each job commits on its own (renewals: per service): one failure no longer rolls back the
         // whole run, nothing stays locked for the whole run, and each step sees what the previous
@@ -552,6 +554,11 @@ class CronJob extends Command
                 report($e);
                 $this->notices['suspension_digest'] = new DisplayException('The email of the services suspended or terminated today could not be sent: '
                     . $e->getMessage() . '. See Services, status Suspended or Terminated.');
+            }
+
+            // A log that could not be written (a full disk): what this run reported is not in it (#290).
+            if (($notLogged = WriteFailures::first()) !== null) {
+                $this->notices['log_not_written'] = new DisplayException("The application log could not be written ({$notLogged}): errors of this run are not in it. Check the disk space and the log files' owner.");
             }
 
             if ($this->notices !== []) {

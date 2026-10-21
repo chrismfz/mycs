@@ -1,5 +1,6 @@
 <?php
 
+use App\Logging\WriteFailures;
 use Monolog\Handler\NullHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Handler\SyslogUdpHandler;
@@ -55,6 +56,11 @@ return [
         'stack' => [
             'driver' => 'stack',
             'channels' => ['daily'],
+            // A log that cannot be written (a full disk, a file owned by another user) never changes what the code
+            // does: report() and Log:: would throw inside the catch that called them, abort the cron's later steps or
+            // the items left in one (renewals, charges), and turn a page into an error. The tap keeps the failure
+            // instead, and the cron mails it (App\Logging\WriteFailures).
+            'tap' => [WriteFailures::class],
             'ignore_exceptions' => false,
         ],
 
