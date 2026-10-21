@@ -13,6 +13,7 @@ use App\Models\InvoiceItem;
 use App\Models\ModuleAction;
 use App\Models\User;
 use App\Services\Domains\DomainRenewalService;
+use App\Services\Domains\Registrars\CnicRegistrar;
 use App\Services\Invoice\RecordPaymentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -123,11 +124,20 @@ class CnicRenewalTest extends TestCase
         $this->assertSame(ModuleAction::STATUS_OPEN, ModuleAction::query()->sole()->status);
         $this->assertNull($line->fresh()->applied_at);
 
-        $this->renewAnswer = 504; // its front: maybe charged
         app(DomainRenewalService::class)->renewLine($line->id);
+        $this->assertSame(1, $this->renewals(), 'refused: never asked again by the next run on its own');
+
+        $this->renewAnswer = 504; // staff's Retry; its front: maybe charged
+        app(DomainRenewalService::class)->renewLine($line->id, retry: true);
         $before = $this->renewals();
         app(DomainRenewalService::class)->renewLine($line->id);
         $this->assertSame($before, $this->renewals(), 'a renewal whose outcome is not known is never asked again blindly');
         $this->assertSame(DomainRegistrarLog::STATUS_PENDING, DomainRegistrarLog::query()->where('action', 'renew')->latest('id')->first()->status);
+    }
+
+    public function test_its_grace_is_a_restore_never_a_renewal_without_its_fee(): void
+    {
+        // Ours is the day it goes there: our grace is its deletion or redemption, a restore with its fee (code review of #302).
+        $this->assertFalse(app(CnicRegistrar::class)->capabilities()->renewsInGrace);
     }
 }

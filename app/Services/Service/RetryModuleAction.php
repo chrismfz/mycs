@@ -24,7 +24,7 @@ final class RetryModuleAction
         // A domain's renewal (D5b-2): its paid line, at its registrar, now.
         if ($action->action === ModuleAction::DOMAIN_RENEW) {
             $attempts = $action->attempts;
-            $outcome = $action->invoice_item_id !== null ? app(DomainRenewalService::class)->renewLine($action->invoice_item_id) : DomainRenewalService::NOTHING;
+            $outcome = $action->invoice_item_id !== null ? app(DomainRenewalService::class)->renewLine($action->invoice_item_id, retry: true) : DomainRenewalService::NOTHING;
             $action->refresh();
 
             return $outcome !== DomainRenewalService::NOTHING && ($action->status !== ModuleAction::STATUS_OPEN || $action->attempts > $attempts);

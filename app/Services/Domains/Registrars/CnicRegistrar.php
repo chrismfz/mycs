@@ -60,9 +60,9 @@ final class CnicRegistrar implements DomainRegistrar, ReadsAccountBalance, Updat
     {
         // Managed (step 2), nothing sold, registered or renewed through it yet; its expiry is the day the name goes there
         // (reviews of #297). No WHOIS privacy, no DNSSEC, no glue hosts through it.
-        // Its renewal (step 3): RenewDomain, in its grace too (the registry's own: renewed as it is); a restore from
-        // redemption is staff's.
-        return new DomainRegistrarCapabilities(supportsPortfolioImport: true, supportsTransferLock: true, renewsInGrace: true,
+        // Its renewal (step 3): RenewDomain while it is active there. Never «renewed in grace»: ours is the day it goes there,
+        // so our grace is its deletion or redemption, a restore staff make, its grace fee billed (code review of #302).
+        return new DomainRegistrarCapabilities(supportsPortfolioImport: true, supportsTransferLock: true,
             supportsRegistration: false, supportsRenewal: true, supportsManagement: true, expiryIsWhenItGoes: true);
     }
 
@@ -461,6 +461,7 @@ final class CnicRegistrar implements DomainRegistrar, ReadsAccountBalance, Updat
             whoisPrivacy: $privacy === null ? null : $privacy === '1',
             registeredAt: self::date($r->first('CREATED_DATE')),
             details: $details,
+            paidUntil: self::date($r->first('PAIDUNTIL_DATE')) ?? self::date($r->first('REGISTRATION_EXPIRATION_DATE')),
         );
     }
 
