@@ -536,8 +536,9 @@ class CronJob extends Command
             $this->runCronJob('zlic_limits_pruned', fn () => ZlicLimiter::prune());
             // A mass mail whose next batch was lost (a worker restarted): sent on from where it stopped (BulkMailer).
             $this->runCronJob('bulk_mails_resumed', fn () => BulkMail::query()->where('status', BulkMail::STATUS_SENDING)
-                ->where('updated_at', '<', now()->subMinutes(10))->get()
-                ->each(fn (BulkMail $mail) => SendBulkMailJob::dispatch($mail->id))->count(), transaction: false);
+                ->where(fn ($still) => $still->where('batch_at', '<', now()->subMinutes(10))
+                    ->orWhere(fn ($never) => $never->whereNull('batch_at')->where('started_at', '<', now()->subMinutes(10))))->get()
+                ->each(fn (BulkMail $mail) => SendBulkMailJob::dispatch($mail->id, (int) $mail->batch_seq))->count(), transaction: false);
             // An account's services left at another group discount (a lock, a timeout when it moved; #272).
             $this->runCronJob('group_prices_reconciled', fn () => ClientGroupPricing::reconcile(), transaction: false);
 

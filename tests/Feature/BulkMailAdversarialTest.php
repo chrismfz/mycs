@@ -138,20 +138,18 @@ class BulkMailAdversarialTest extends TestCase
      */
     public function test_news_carries_a_one_click_list_unsubscribe_header(): void
     {
-        config(['mail.default' => 'array']);
+        // Read on the mail itself (the headers it adds when it is sent).
+        MailFacade::fake();
         $this->account('Anna');
         $mail = $this->mailTo(['kind' => BulkMail::KIND_NEWS]);
 
         $this->sendAll($mail);
 
-        $sent = collect(app('mailer')->getSymfonyTransport()->messages())
-            ->map(fn ($message) => $message->getOriginalMessage())
-            ->filter(fn ($message) => in_array('anna@example.test', array_map(fn ($a) => $a->getAddress(), $message->getTo()), true)
-                && !str_contains((string) $message->getSubject(), 'elcome'));
+        $sent = $this->mails()->filter(fn (Mail $m) => in_array('anna@example.test', array_column($m->to, 'address'), true));
         $this->assertNotEmpty($sent, 'the news reached Anna');
-        $headers = $sent->last()->getHeaders();
-        $this->assertTrue($headers->has('List-Unsubscribe'), 'news has a List-Unsubscribe header');
-        $this->assertTrue($headers->has('List-Unsubscribe-Post'), 'and a one-click one (RFC 8058)');
+        $headers = $sent->last()->unsubscribeHeaders();
+        $this->assertArrayHasKey('List-Unsubscribe', $headers, 'news has a List-Unsubscribe header');
+        $this->assertSame('List-Unsubscribe=One-Click', $headers['List-Unsubscribe-Post'] ?? null, 'and a one-click one (RFC 8058)');
     }
 
     /**

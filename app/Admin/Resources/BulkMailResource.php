@@ -5,6 +5,7 @@ namespace App\Admin\Resources;
 use App\Admin\Resources\BulkMailResource\Pages\CreateBulkMail;
 use App\Admin\Resources\BulkMailResource\Pages\EditBulkMail;
 use App\Admin\Resources\BulkMailResource\Pages\ListBulkMails;
+use App\Enums\DomainStatus;
 use App\Helpers\TemplateRenderer;
 use App\Models\BulkMail;
 use App\Models\BulkMailRecipient;
@@ -79,14 +80,14 @@ class BulkMailResource extends Resource
                 Toggle::make('filters.active_only')->label(__('Only customers with an active service or domain'))
                     ->visible(fn (Get $get) => $get('filters.target') === 'all'),
                 Select::make('filters.service_statuses')->label(__('Service status'))->multiple()->default([Service::STATUS_ACTIVE])
-                    ->options(array_combine(Service::STATUSES, array_map('ucfirst', Service::STATUSES)))
+                    ->options(collect(Service::STATUSES)->mapWithKeys(fn (string $status) => [$status => __("services.statuses.{$status}")])->all())
                     ->visible(fn (Get $get) => $get('filters.target') === 'services'),
                 Select::make('filters.products')->label(__('Products'))->multiple()->searchable()->options(fn () => Product::query()->orderBy('name')->pluck('name', 'id'))
                     ->visible(fn (Get $get) => $get('filters.target') === 'services')->helperText(__('None: any product.')),
                 Select::make('filters.servers')->label(__('Servers'))->multiple()->searchable()->options(fn () => Server::query()->orderBy('name')->pluck('name', 'id'))
                     ->visible(fn (Get $get) => $get('filters.target') === 'services')->helperText(__('None: any server.')),
                 Select::make('filters.domain_statuses')->label(__('Domain status'))->multiple()->default(['active'])
-                    ->options(['active' => 'Active', 'pending_register' => 'Pending registration', 'pending_transfer' => 'Pending transfer', 'expired' => 'Expired', 'grace' => 'Grace', 'redemption' => 'Redemption'])
+                    ->options(DomainStatus::options())
                     ->visible(fn (Get $get) => $get('filters.target') === 'domains'),
                 Select::make('filters.tlds')->label(__('TLDs'))->multiple()->searchable()->options(fn () => DomainTld::query()->orderBy('tld')->pluck('tld', 'tld'))
                     ->visible(fn (Get $get) => $get('filters.target') === 'domains')->helperText(__('None: any TLD.')),
@@ -104,7 +105,7 @@ class BulkMailResource extends Resource
                     BulkMail::STATUS_SENT => 'success', BulkMail::STATUS_SENDING => 'warning', default => 'gray'
                 }),
             TextColumn::make('recipients_count')->label(__('Recipients')),
-            TextColumn::make('sent')->label(__('Sent'))->state(fn (BulkMail $record) => $record->recipients()->where('status', BulkMailRecipient::STATUS_SENT)->count()),
+            TextColumn::make('sent_count')->label(__('Sent'))->counts(['recipients as sent_count' => fn ($query) => $query->where('status', BulkMailRecipient::STATUS_SENT)]),
             TextColumn::make('started_at')->label(__('Sent at'))->dateTime('d/m/Y H:i'),
         ])->recordActions([EditAction::make()])->toolbarActions([]);
     }

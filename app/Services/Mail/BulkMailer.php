@@ -10,11 +10,13 @@ use App\Mail\Mail;
 use App\Models\BulkMail;
 use App\Models\BulkMailRecipient;
 use App\Models\Client;
+use App\Models\ClientUser;
 use App\Models\Domain;
 use App\Models\NotificationTemplate;
 use App\Models\Service;
 use App\Models\Staff;
 use App\Models\User;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -67,36 +69,60 @@ final class BulkMailer
      */
     public function start(BulkMail $mail, ?Staff $staff): int
     {
-        return Cache::lock("bulk-mail:{$mail->id}", 300)->block(10, function () use ($mail, $staff) {
-            $mail->refresh();
-            if (!$mail->isDraft()) {
-                throw new DisplayException(__('This mass mail has been sent already.'));
-            }
-            if (!$this->recipients($mail)->exists()) {
-                throw new DisplayException(__('No customer matches its filters.'));
-            }
-            $count = DB::transaction(function () use ($mail, $staff) {
-                $this->recipients($mail)->select('id')->chunkById(500, function (Collection $clients) use ($mail) {
-                    $now = now();
-                    BulkMailRecipient::query()->insertOrIgnore($clients->map(fn (Client $client) => [
-                        'bulk_mail_id' => $mail->id, 'client_id' => $client->id, 'status' => BulkMailRecipient::STATUS_PENDING,
-                        'created_at' => $now, 'updated_at' => $now,
-                    ])->all());
-                });
-                $count = $mail->recipients()->count();
-                $mail->forceFill(['status' => BulkMail::STATUS_SENDING, 'recipients_count' => $count, 'started_at' => now(), 'staff_id' => $staff?->id])->save();
+        try {
+            return Cache::lock("bulk-mail:{$mail->id}", 300)->block(10, fn () => $this->startLocked($mail, $staff));
+        } catch (LockTimeoutException) {
+            throw new DisplayException(__('This mass mail is being sent already.'));
+        }
+    }
 
-                return $count;
+    private function startLocked(BulkMail $mail, ?Staff $staff): int
+    {
+        $mail->refresh();
+        if (!$mail->isDraft()) {
+            throw new DisplayException(__('This mass mail has been sent already.'));
+        }
+        if (!$this->recipients($mail)->exists()) {
+            throw new DisplayException(__('No customer matches its filters.'));
+        }
+        $count = DB::transaction(function () use ($mail, $staff) {
+            $people = [];
+            $this->recipients($mail)->select('id')->chunkById(500, function (Collection $clients) use ($mail, &$people) {
+                $owners = ClientUser::query()->whereIn('client_id', $clients->pluck('id'))->whereNotNull('owner_of_client_id')
+                    ->whereNull('revoked_at')->pluck('user_id', 'client_id');
+                $now = now();
+                $rows = [];
+                foreach ($clients as $client) {
+                    $owner = $owners[$client->id] ?? null;
+                    // News once a person: one who owns several accounts gets it once (code review 4 of #294). An
+                    // announcement is about each account (its services): each one's.
+                    if ($mail->kind === BulkMail::KIND_NEWS && $owner !== null && isset($people[$owner])) {
+                        continue;
+                    }
+                    $people[$owner] = true;
+                    $rows[] = ['bulk_mail_id' => $mail->id, 'client_id' => $client->id, 'user_id' => $owner,
+                        'status' => BulkMailRecipient::STATUS_PENDING, 'created_at' => $now, 'updated_at' => $now];
+                }
+                BulkMailRecipient::query()->insertOrIgnore($rows);
             });
-            SendBulkMailJob::dispatch($mail->id)->afterCommit();
+            $count = $mail->recipients()->count();
+            $mail->forceFill(['status' => BulkMail::STATUS_SENDING, 'recipients_count' => $count, 'started_at' => now(), 'staff_id' => $staff?->id])->save();
 
             return $count;
         });
+        SendBulkMailJob::dispatch($mail->id, 0)->afterCommit();
+
+        return $count;
     }
 
     /** One batch (its per-minute share); the mail is done when none is left. @return int how many are left */
     public function sendBatch(BulkMail $mail, int $size): int
     {
+        // Mail turned off for a while (settings, its template): they wait, never «skipped» for good (ADV A5 of #294).
+        $template = NotificationTemplate::query()->where('key', $mail->templateKey())->first();
+        if (config('settings.mail_disable') || $template === null || !$template->enabled) {
+            return $mail->recipients()->where('status', BulkMailRecipient::STATUS_PENDING)->count();
+        }
         $rows = $mail->recipients()->where('status', BulkMailRecipient::STATUS_PENDING)->orderBy('id')->limit(max(1, $size))->get();
         foreach ($rows as $row) {
             // Claimed first: a second worker on the same batch, or a retry, never mails it twice.
@@ -112,7 +138,6 @@ final class BulkMailer
             }
             $row->forceFill(['status' => $status, 'error' => $error, 'sent_at' => $status === BulkMailRecipient::STATUS_SENT ? now() : null])->save();
         }
-        $mail->touch(); // alive: the cron resumes one left still for 10 minutes
         $left = $mail->recipients()->where('status', BulkMailRecipient::STATUS_PENDING)->count();
         if ($left === 0 && $mail->status === BulkMail::STATUS_SENDING) {
             $mail->forceFill(['status' => BulkMail::STATUS_SENT, 'finished_at' => now()])->save();
@@ -121,17 +146,23 @@ final class BulkMailer
         return $left;
     }
 
-    /** To staff, before it is sent: as the first account it goes to would get it (or a sample, with none). */
-    public function sendTest(BulkMail $mail, string $email): void
+    /**
+     * To staff, before it is sent: as the first account it goes to would get it (or a sample, with none), to their own
+     * address only, with no live «stop these emails» of that customer (reviews of #294).
+     */
+    public function sendTest(BulkMail $mail, Staff $staff): void
     {
         $client = $this->recipients($mail)->orderBy('id')->first();
         $owner = $client?->owner();
         $template = NotificationTemplate::query()->where('key', $mail->templateKey())->firstOrFail();
         $locale = NotificationHelper::localeFor($client);
-        $data = TemplateRenderer::context($this->data($mail, $client, $owner, $locale), $owner);
-        $test = (new Mail($template->inLocale($locale), $data))->locale($locale);
+        $data = $this->data($mail, $client, $owner, $locale);
+        if ($data['unsubscribe_url'] !== null) {
+            $data['unsubscribe_url'] = url('/');
+        }
+        $test = (new Mail($template->inLocale($locale), TemplateRenderer::context($data, $owner)))->locale($locale);
         $test->renderedSubject = '[TEST] ' . $test->renderedSubject;
-        MailFacade::to($email)->queue($test);
+        MailFacade::to($staff->email)->queue($test);
     }
 
     /** @return array{0: string, 1: string|null} its status and why */
@@ -142,15 +173,18 @@ final class BulkMailer
         if ($client === null || $owner === null) {
             return [BulkMailRecipient::STATUS_SKIPPED, 'no owner to mail'];
         }
-        $template = NotificationTemplate::query()->where('key', $mail->templateKey())->first();
-        if ($template === null || !$template->enabled || config('settings.mail_disable')) {
-            return [BulkMailRecipient::STATUS_SKIPPED, 'mail turned off'];
-        }
+        $template = NotificationTemplate::query()->where('key', $mail->templateKey())->firstOrFail();
         $preference = $owner->notificationsPreferences()->where('notification_template_id', $template->id)->first();
         if (!$template->isEnabledForPreference($preference, 'mail')) {
             return [BulkMailRecipient::STATUS_SKIPPED, 'news turned off by the customer'];
         }
-        NotificationHelper::announcementNotification($client, $template->key, $this->data($mail, $client, $owner, NotificationHelper::localeFor($client)));
+        $locale = NotificationHelper::localeFor($client);
+        $data = $this->data($mail, $client, $owner, $locale);
+        // Its layout too, here: a template that does not parse is a failure, not a mail «sent» that never went (code review 7).
+        $layout = $template->inLocale($locale);
+        TemplateRenderer::render($layout->subject, TemplateRenderer::context($data, $owner), escape: false);
+        TemplateRenderer::render($layout->body, TemplateRenderer::context($data, $owner));
+        NotificationHelper::announcementNotification($client, $template->key, $data);
 
         return [BulkMailRecipient::STATUS_SENT, null];
     }
@@ -167,11 +201,30 @@ final class BulkMailer
         ];
         $context = TemplateRenderer::context($data, $owner);
         $data['subject'] = TemplateRenderer::render($greek ? $mail->subject_el : $mail->subject, $context, escape: false);
-        $data['content'] = new Html(Str::markdown(TemplateRenderer::render($greek ? $mail->body_el : $mail->body, $context)));
+        $data['content'] = new Html(TemplateRenderer::render(self::markdown((string) ($greek ? $mail->body_el : $mail->body)), $context));
         $data['unsubscribe_url'] = $mail->kind === BulkMail::KIND_NEWS && $owner !== null
             ? URL::signedRoute('announcements.unsubscribe', ['user' => $owner->id]) : null;
 
         return $data;
+    }
+
+    /**
+     * Staff's Markdown made HTML before the values go in: a customer's name or a service's label is text in the mail,
+     * never a link or an image of their own (reviews of #294). Its template tags kept as they are through it.
+     */
+    private static function markdown(string $body): string
+    {
+        $tags = [];
+        $marked = (string) preg_replace_callback('/\{\{.*?\}\}|\{%.*?%\}/s', function (array $m) use (&$tags) {
+            $tags[] = $m[0];
+
+            return 'MYCSTAG' . (count($tags) - 1) . 'X';
+        }, $body);
+        $html = Str::markdown($marked, ['allow_unsafe_links' => false]);
+        // A tag alone on its line became a paragraph of its own: the tag, without it.
+        $html = (string) preg_replace('/<p>(MYCSTAG\d+X)<\/p>/', '$1', $html);
+
+        return (string) preg_replace_callback('/MYCSTAG(\d+)X/', fn (array $m) => $tags[(int) $m[1]], $html);
     }
 
     /**

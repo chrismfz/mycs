@@ -19,7 +19,10 @@ use Illuminate\Mail\Mailables\Envelope;
  */
 class Mail extends Mailable implements ShouldBeEncrypted
 {
-    use LogsDelivery, Queueable;
+    use LogsDelivery {
+        send as private sendLogged;
+    }
+    use Queueable;
 
     /** Retried with backoff: a mail server that is down for a while loses nothing. */
     public int $tries = 5;
@@ -42,6 +45,9 @@ class Mail extends Mailable implements ShouldBeEncrypted
     /** A ticket's mail: the Message-ID of ours it goes out with (TicketMailId, docs/tickets.md A3), the same on a retry. */
     public ?string $threadMessageId = null;
 
+    /** A mass mail's news: its «stop these emails», also as the List-Unsubscribe header (RFC 8058 one-click: #294). */
+    public ?string $unsubscribeUrl = null;
+
     public function __construct(NotificationTemplate $emailTemplate, array $data = [])
     {
         $this->templateKey = $emailTemplate->key;
@@ -49,6 +55,35 @@ class Mail extends Mailable implements ShouldBeEncrypted
         $this->renderedHtml = TemplateRenderer::render($emailTemplate->body, $data);
         $this->ticketMessageId = isset($data['ticketMessage']) ? $data['ticketMessage']->id : null;
         $this->threadMessageId = isset($data['thread_message_id']) && is_string($data['thread_message_id']) ? $data['thread_message_id'] : null;
+        $this->unsubscribeUrl = $emailTemplate->key === 'announcement_news' && is_string($data['unsubscribe_url'] ?? null) ? $data['unsubscribe_url'] : null;
+    }
+
+    /**
+     * Its List-Unsubscribe headers (news only). Not Mailable::headers(): that one is hydrated into a closure when the mail
+     * is rendered for its log, before it is queued, and a closure cannot be queued; these are added when it is sent.
+     *
+     * @return array<string, string>
+     */
+    public function unsubscribeHeaders(): array
+    {
+        return $this->unsubscribeUrl === null ? [] : [
+            'List-Unsubscribe' => '<' . $this->unsubscribeUrl . '>',
+            'List-Unsubscribe-Post' => 'List-Unsubscribe=One-Click',
+        ];
+    }
+
+    public function send($mailer)
+    {
+        $headers = $this->unsubscribeHeaders();
+        if ($headers !== []) {
+            $this->withSymfonyMessage(static function ($message) use ($headers) {
+                foreach ($headers as $name => $value) {
+                    $message->getHeaders()->addTextHeader($name, $value);
+                }
+            });
+        }
+
+        return $this->sendLogged($mailer);
     }
 
     public function envelope(): Envelope

@@ -13,6 +13,8 @@ use Filament\Actions\DeleteAction;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
 
 /** A mass mail's page: edited while a draft; previewed, tested and sent from here (BulkMailer). */
@@ -27,11 +29,14 @@ class EditBulkMail extends EditRecord
                 ->modalHeading(__('Who it is for'))->modalSubmitAction(false)
                 ->modalDescription(fn (BulkMail $record) => $record->isDraft() ? $this->who($record) : $this->progress($record)),
             Action::make('test')->label(__('Send a test'))->icon('ri-mail-check-line')->color('gray')
-                ->schema([TextInput::make('email')->label(__('To'))->email()->required()->default(fn () => auth('staff')->user()?->email)])
-                ->action(function (BulkMail $record, array $data) {
+                ->modalDescription(__('As the first customer it goes to would get it.'))
+                // To the staff member only: shown, never taken from the form (reviews of #294).
+                ->schema([TextInput::make('email')->label(__('To'))->default(fn () => auth('staff')->user()?->email)->disabled()->dehydrated(false)])
+                ->action(function (BulkMail $record) {
                     $this->save(shouldRedirect: false, shouldSendSavedNotification: false);
-                    app(BulkMailer::class)->sendTest($record->refresh(), $data['email']);
-                    Notification::make()->title(__('A test is on its way to :email.', ['email' => $data['email']]))->success()->send();
+                    $staff = auth('staff')->user();
+                    app(BulkMailer::class)->sendTest($record->refresh(), $staff);
+                    Notification::make()->title(__('A test is on its way to :email.', ['email' => $staff->email]))->success()->send();
                 })->visible(fn (BulkMail $record) => $record->isDraft()),
             Action::make('send')->label(__('Send'))->icon('ri-send-plane-line')->color('danger')->requiresConfirmation()
                 ->modalDescription(fn (BulkMail $record) => __('It goes to :count customers now, a batch a minute. It cannot be stopped or sent again.', ['count' => app(BulkMailer::class)->recipients($record)->count()]))
@@ -50,6 +55,24 @@ class EditBulkMail extends EditRecord
                 }),
             DeleteAction::make()->visible(fn (BulkMail $record) => $record->isDraft()),
         ];
+    }
+
+    /**
+     * Only a draft is saved, checked on its row under a lock (reviews of #294): the form is disabled once it is sent, and
+     * a save sent anyway (a stale tab, a crafted request, a second Send) changes nothing of what is being sent.
+     */
+    protected function handleRecordUpdate(Model $record, array $data): Model
+    {
+        return DB::transaction(function () use ($record, $data) {
+            $locked = BulkMail::query()->whereKey($record->getKey())->lockForUpdate()->firstOrFail();
+            if (!$locked->isDraft()) {
+                Notification::make()->title(__('This mass mail has been sent already.'))->danger()->send();
+                $this->halt();
+            }
+            $record->update($data);
+
+            return $record;
+        });
     }
 
     /** Hidden once it is sent: what was sent stays as it was. */

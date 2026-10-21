@@ -12,6 +12,7 @@ use App\Models\BulkMail;
 use App\Models\BulkMailRecipient;
 use App\Models\Client;
 use App\Models\ClientGroup;
+use App\Models\ClientUser;
 use App\Models\Domain;
 use App\Models\DomainTld;
 use App\Models\EmailLog;
@@ -167,6 +168,37 @@ class BulkMailTest extends TestCase
             [$mail->recipients()->where('client_id', $anna->id)->value('status'), $mail->recipients()->where('client_id', $babis->id)->value('status')]);
         $this->assertStringContainsString(URL::signedRoute('announcements.unsubscribe', ['user' => $anna->owner()->id]),
             html_entity_decode($this->mails()->first()->renderedHtml));
+    }
+
+    public function test_news_goes_once_to_one_who_owns_two_accounts_an_announcement_to_each(): void
+    {
+        // Code review 4 of #294.
+        $anna = $this->account('Anna');
+        $second = Client::query()->create([]);
+        ClientUser::query()->create(['client_id' => $second->id, 'user_id' => $anna->owner()->id, 'owner_of_client_id' => $second->id, 'granted_at' => now()]);
+
+        $this->sendAll($this->mailTo(['kind' => BulkMail::KIND_NEWS, 'filters' => ['target' => 'all']]));
+        $this->assertSame(['anna@example.test'], $this->sentTo());
+
+        $this->sendAll($this->mailTo(['kind' => BulkMail::KIND_IMPORTANT, 'filters' => ['target' => 'all']]));
+        $this->assertSame(['anna@example.test', 'anna@example.test', 'anna@example.test'], $this->sentTo(), 'an announcement is about each account');
+    }
+
+    public function test_a_news_mail_is_queued_and_sent_for_real_with_its_one_click_header(): void
+    {
+        // Through a real transport, not Mail::fake (which never serializes): Mailable::headers() would hydrate into a
+        // closure when the mail is rendered for its log, and no mail of ours could be queued (found by the suite, #294).
+        config(['mail.default' => 'array']);
+        $this->app->forgetInstance('mail.manager');
+        MailFacade::clearResolvedInstances();
+        $this->account('Anna');
+
+        app(BulkMailer::class)->start($this->mailTo(['kind' => BulkMail::KIND_NEWS, 'subject' => 'Our news', 'filters' => ['target' => 'all']]), null);
+
+        $sent = collect(app('mailer')->getSymfonyTransport()->messages())->map->getOriginalMessage()->first(fn ($m) => $m->getSubject() === 'Our news');
+        $this->assertNotNull($sent, 'queued, serialized and sent');
+        $this->assertSame('List-Unsubscribe=One-Click', $sent->getHeaders()->get('List-Unsubscribe-Post')?->getBodyAsString());
+        $this->assertStringContainsString('/announcements/unsubscribe/', (string) $sent->getHeaders()->get('List-Unsubscribe')?->getBodyAsString());
     }
 
     public function test_the_stop_link_asks_first_and_turns_news_off_for_that_login_only(): void

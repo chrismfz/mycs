@@ -924,5 +924,7 @@
     "Markdown. Values: {{ user.first_name }}, {{ client.name }}; the matching services and domains: {% for service in services %}{{ service.label }}{% endfor %}, {% for domain in domains %}{{ domain.fqdn }}{% endfor %}. No PHP or Blade.": "Markdown. Τιμές: {{ user.first_name }}, {{ client.name }}· οι υπηρεσίες και τα domains που ταιριάζουν: {% for service in services %}{{ service.label }}{% endfor %}, {% for domain in domains %}{{ domain.fqdn }}{% endfor %}. Όχι PHP ή Blade.",
     "Mass Mail Tool": "Μαζικά email",
     "Important announcements about my services": "Σημαντικές ενημερώσεις για τις υπηρεσίες μου",
-    "News and offers from us": "Νέα και προσφορές από εμάς"
+    "News and offers from us": "Νέα και προσφορές από εμάς",
+    "As the first customer it goes to would get it.": "Όπως θα το έπαιρνε ο πρώτος πελάτης στον οποίο πηγαίνει.",
+    "This mass mail is being sent already.": "Αυτό το μαζικό email στέλνεται ήδη."
 }

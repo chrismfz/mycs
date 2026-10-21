@@ -431,13 +431,13 @@ class NotificationHelper
         self::toAccount($client, 'new_server_created', $data);
     }
 
-    /** A domain's expiry notice (D7, DomainReminders): before it expires, or after, while it can be recovered. */
     /** A mass mail's message to an account (BulkMailer): its owner, as every account mail, logged on the account. */
     public static function announcementNotification(Client $client, string $key, array $data): void
     {
         self::toAccount($client, $key, $data);
     }
 
+    /** A domain's expiry notice (D7, DomainReminders): before it expires, or after, while it can be recovered. */
     public static function domainNotification(Client $client, Domain $domain, string $key, array $data = []): void
     {
         $data['domain'] = $domain;

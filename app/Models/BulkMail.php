@@ -44,6 +44,7 @@ class BulkMail extends Model implements Auditable
             'filters' => 'array',
             'started_at' => 'datetime',
             'finished_at' => 'datetime',
+            'batch_at' => 'datetime',
             'recipients_count' => 'integer',
         ];
     }

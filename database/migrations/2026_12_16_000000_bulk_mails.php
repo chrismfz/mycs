@@ -28,6 +28,8 @@ return new class extends Migration
             $table->unsignedInteger('recipients_count')->default(0);
             $table->foreignId('staff_id')->nullable()->constrained('staff')->nullOnDelete();
             $table->timestamp('started_at')->nullable();
+            $table->timestamp('batch_at')->nullable(); // its last batch (the cron resumes one left still)
+            $table->unsignedInteger('batch_seq')->default(0); // its chain's next batch: one chain only (SendBulkMailJob)
             $table->timestamp('finished_at')->nullable();
             $table->timestamps();
         });
@@ -35,6 +37,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('bulk_mail_id')->constrained()->cascadeOnDelete();
             $table->foreignId('client_id')->constrained()->cascadeOnDelete();
+            $table->unsignedBigInteger('user_id')->nullable()->index(); // its owner when it was sent: news once a person
             $table->string('status', 16)->default('pending'); // pending | sending | sent | skipped | failed
             $table->string('error')->nullable();
             $table->timestamp('sent_at')->nullable();
