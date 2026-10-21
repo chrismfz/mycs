@@ -9,6 +9,7 @@ use App\Models\Staff;
 use App\Services\Domains\ContactPush;
 use App\Services\Domains\DomainRenewalService;
 use App\Services\Domains\Ordering\DomainOrderFulfilment;
+use App\Services\Service\OptionTasks;
 use App\Services\Service\RetryModuleAction;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -90,13 +91,14 @@ class ModuleActionResource extends Resource
                     ModuleAction::STATUS_COMPLETED => 'Completed',
                     ModuleAction::STATUS_RESOLVED => 'Resolved',
                 ])->default(ModuleAction::STATUS_OPEN),
-                SelectFilter::make('action')->options(array_combine([...ModuleAction::ACTIONS, ...ModuleAction::DOMAIN_ACTIONS, ModuleAction::DOMAIN_CONTACT],
-                    array_map(fn (string $action) => self::label($action), [...ModuleAction::ACTIONS, ...ModuleAction::DOMAIN_ACTIONS, ModuleAction::DOMAIN_CONTACT]))),
+                SelectFilter::make('action')->options(array_combine([...ModuleAction::ACTIONS, ...ModuleAction::DOMAIN_ACTIONS, ModuleAction::DOMAIN_CONTACT, OptionTasks::ACTION],
+                    array_map(fn (string $action) => self::label($action), [...ModuleAction::ACTIONS, ...ModuleAction::DOMAIN_ACTIONS, ModuleAction::DOMAIN_CONTACT, OptionTasks::ACTION]))),
             ])
             ->recordActions([
                 // Once the automatic retries are over: while one is still queued, a click would race it (two creates).
                 Action::make('retry')->label('Retry')->icon('ri-loop-right-line')
-                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && $record->given_up_at !== null && $record->domain_id === null)
+                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && $record->given_up_at !== null && $record->domain_id === null
+                        && $record->action !== OptionTasks::ACTION) // a staff task: done by hand, nothing to run
                     ->authorize('update')
                     ->requiresConfirmation()
                     ->modalDescription('Runs the action on the server now (and sends its email, as the automatic run would).')
@@ -171,6 +173,7 @@ class ModuleActionResource extends Resource
                     ModuleAction::DOMAIN_RENEW => 'Renewed by hand',
                     ModuleAction::DOMAIN_REGISTER, ModuleAction::DOMAIN_TRANSFER => 'Done by hand',
                     ModuleAction::DOMAIN_CONTACT => 'Fixed at the registrar',
+                    OptionTasks::ACTION => 'Done',
                     default => 'Mark resolved',
                 })
                     ->icon('ri-check-line')->color('gray')
@@ -181,6 +184,7 @@ class ModuleActionResource extends Resource
                         ModuleAction::DOMAIN_RENEW => 'Applies its paid renewal: with a registrar API only if the registrar shows it renewed (its expiry is the registrar\'s); with a manual registrar the expiry moves to the end of the paid period.',
                         ModuleAction::DOMAIN_REGISTER, ModuleAction::DOMAIN_TRANSFER => 'Registered or its transfer started at the registrar by hand: the domain counts as sent, the sync takes it on (status, expiry), and its payment as used.',
                         ModuleAction::DOMAIN_CONTACT => 'The contact\'s details were set at the registrar by hand: closes it without sending anything.',
+                        OptionTasks::ACTION => 'Done by hand (the IP given or taken back, noted on the service): closes it.',
                         default => 'For an account fixed by hand on the server: closes it without running anything (a create: the service turns active).',
                     })
                     ->action(function (ModuleAction $record) {
@@ -217,6 +221,7 @@ class ModuleActionResource extends Resource
             ModuleAction::DOMAIN_REGISTER => 'Domain Registration',
             ModuleAction::DOMAIN_TRANSFER => 'Domain Transfer',
             ModuleAction::DOMAIN_CONTACT => 'Domain Contact Update',
+            OptionTasks::ACTION => 'Staff Task',
             default => ucfirst($action),
         };
     }

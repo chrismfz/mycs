@@ -7,6 +7,7 @@ use App\Exceptions\DisplayException;
 use App\Models\Contact;
 use App\Models\Order;
 use App\Models\Service;
+use App\Services\Service\OptionTasks;
 use App\Services\Service\ServerSelector;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -161,6 +162,17 @@ class ServiceObserver
     {
         if ($service->wasChanged(['status', 'order_id'])) {
             self::refreshOrders($service, $service->wasChanged('order_id') ? $service->getOriginal('order_id') : null);
+        }
+        // Its options staff do by hand (OptionTasks): given when it starts, taken back when it ends.
+        if ($service->wasChanged('status')) {
+            $was = $service->getOriginal('status');
+            $running = in_array($service->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true);
+            // It starts, or staff bring back one that ended (its IP was taken back): given (reviews of #296).
+            if ($running && ($was === Service::STATUS_PENDING || in_array($was, Service::ENDED_STATUSES, true))) {
+                OptionTasks::changed($service, [], OptionTasks::on($service));
+            } elseif (!in_array($was, Service::ENDED_STATUSES, true) && $was !== Service::STATUS_PENDING && $service->isEnded()) {
+                OptionTasks::changed($service, OptionTasks::on($service), []);
+            }
         }
         if ($service->wasChanged('plan_id')) {
             $service->unsetRelation('plan');

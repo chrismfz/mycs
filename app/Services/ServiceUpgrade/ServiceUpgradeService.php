@@ -11,6 +11,7 @@ use App\Models\ServiceUpgrade;
 use App\Services\Invoice\ChangeOpenLine;
 use App\Services\Invoice\LineTax;
 use App\Services\Money\PaymentsLog;
+use App\Services\Service\OptionTasks;
 use Brick\Math\BigDecimal;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -64,6 +65,9 @@ class ServiceUpgradeService
                 $service->product->increment('stock', $service->quantity);
             }
 
+            // Its options staff do by hand, before anything changes (a product change drops some: reviews of #296), and
+            // after: a task for what it takes or gives back (OptionTasks).
+            $staffOptions = OptionTasks::on($service);
             $productChanged = (int) $service->product_id !== (int) $serviceUpgrade->product_id;
             $service->plan_id = $serviceUpgrade->plan_id;
             $service->product_id = $serviceUpgrade->product_id;
@@ -100,6 +104,7 @@ class ServiceUpgradeService
             }
 
             $service->refresh();
+            OptionTasks::changed($service, $staffOptions, OptionTasks::on($service));
 
             // Options only: the price it had and the options' difference (a staff price stays). Another product or
             // plan: its catalog price for the next renewal.
