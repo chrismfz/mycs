@@ -164,6 +164,11 @@ class DomainRenewalService
         if ($line === null || $domain === null) {
             return self::NOTHING; // applied meanwhile, or not a paid renewal
         }
+        // Closed by staff «not renewed» (refunded by hand, ended, checked at the registrar): never charged nor raised again
+        // on its own, only by their Retry (sweep R5/S3; an order's twin is meta.on_hold).
+        if (!$retry && $staff === null && self::closedUnrenewed($line)) {
+            return self::WAITING;
+        }
         if (in_array($domain->status->value, DomainStatus::terminalValues(), true)) {
             $this->staffDecides($domain, $line, null, "The domain has ended ({$domain->status->value}): renew or restore it by hand, or refund the payment and close this.");
 
@@ -333,8 +338,9 @@ class DomainRenewalService
 
             return null;
         } catch (Throwable $e) {
-            // Its outcome is unknown (no answer, a 5xx): left pending, never asked again blindly.
-            $log->update(['error' => mb_substr(Redact::text($e->getMessage()), 0, 2000), 'transactions' => $transactions->since($mark)]);
+            // Its outcome is unknown (no answer, a 5xx): left pending, never asked again blindly; pending again if a click
+            // settled it while it was asked (sweep S4).
+            $log->update(['status' => DomainRegistrarLog::STATUS_PENDING, 'error' => mb_substr(Redact::text($e->getMessage()), 0, 2000), 'transactions' => $transactions->since($mark)]);
             $this->staffDecides($domain, $line, $connection->registrar, "The {$action} got no clear answer ({$e->getMessage()}): its outcome is checked on the next run; do not renew it by hand before checking the registrar.");
 
             return null;
@@ -344,6 +350,15 @@ class DomainRenewalService
         $this->sync->applyResult($domain->refresh(), $result);
 
         return $result;
+    }
+
+    /** Staff closed this line's renewal without it, and nothing has opened it again since. */
+    public static function closedUnrenewed(InvoiceItem $line): bool
+    {
+        $last = ModuleAction::query()->where('domain_id', $line->reference_id)->where('invoice_item_id', $line->id)
+            ->where('action', ModuleAction::DOMAIN_RENEW)->latest('id')->first();
+
+        return $last !== null && $last->status === ModuleAction::STATUS_RESOLVED && $last->resolution === ModuleAction::CLOSED_UNRENEWED;
     }
 
     /** Its last charge for this line was refused, and staff have it (an open Pending Module Action). */
@@ -410,9 +425,14 @@ class DomainRenewalService
         DB::transaction(function () use ($domain, $line, $connection, $staff, $result, $adopted) {
             $line->forceFill(['applied_at' => now()])->save();
             // A charge whose answer was not known, now shown by the registrar: settled, never «unconfirmed» a year on (ADV-1 of #302).
+            // This line's, and another line's only when the expiry shown reaches what it asked for (sweep R4: adopting one
+            // line settled another's charge as done, and that line was then applied without its year).
+            $shown = $result->paidUntil ?? $result->expiresAt;
             DomainRegistrarLog::query()->where('domain_id', $domain->id)->where(fn ($q) => $q->whereIn('action', ['renew', 'restore'])
                 ->orWhere(fn ($t) => $t->where('action', 'transfer')->where('request->renewal', true))) // RAT-ADV-2
                 ->where('status', DomainRegistrarLog::STATUS_PENDING)->get()
+                ->filter(fn (DomainRegistrarLog $log) => (int) ($log->request['line'] ?? 0) === $line->id || ($shown !== null
+                    && isset($log->request['target_expiry']) && Carbon::parse($shown)->greaterThanOrEqualTo(Carbon::parse($log->request['target_expiry'])->subDays(self::TOLERANCE_DAYS))))
                 ->each(fn (DomainRegistrarLog $log) => $log->update(['status' => DomainRegistrarLog::STATUS_OK,
                     'response' => ['settled' => 'shown by the registrar', 'expires_at' => $result->paidUntil ?? $result->expiresAt, 'line' => $line->id]]));
             if ($adopted) {
