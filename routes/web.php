@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\IncomeExportController;
 use App\Http\Controllers\GuestTicketAttachmentController;
 use App\Http\Controllers\InvoicePdfController;
 use App\Http\Controllers\SocialLoginController;
@@ -125,3 +126,8 @@ Route::group([
         'middleware' => 'web',
     ]);
 });
+
+// The accountant's income file (ROADMAP 6, review F2 of #280): a plain download for staff, from a signed link.
+Route::get('/admin/reports/income/{year}/{currency}.{format}', IncomeExportController::class)
+    ->whereNumber('year')->where('currency', '[A-Z]{3}')->where('format', 'xlsx|csv')
+    ->middleware(['web', 'auth:staff', 'signed'])->name('admin.reports.income.export');

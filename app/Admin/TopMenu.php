@@ -8,6 +8,7 @@ use App\Admin\Clusters\Services;
 use App\Admin\Pages\CronStats;
 use App\Admin\Pages\Dashboard;
 use App\Admin\Pages\Extension;
+use App\Admin\Pages\IncomeReport;
 use App\Admin\Pages\RevenueForecast;
 use App\Admin\Pages\Settings;
 use App\Admin\Resources\AdjustmentNoteResource;
@@ -107,6 +108,7 @@ class TopMenu
         ],
         'Reports' => [
             [RevenueForecast::class],
+            [IncomeReport::class],
         ],
         'Utilities' => [
             [EmailLogResource::class, 'index', 'Email Message Log'],
