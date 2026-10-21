@@ -200,7 +200,8 @@ class InvoiceResource extends Resource
     {
         return $table
             // The account's name is its owner's (until the contacts, PR 3): loaded with the rows, not per row.
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user', 'latestEmailLog']))
+            // Lines and payments too: whether an unpaid one is overdue reads them (Invoice::daysOverdue), not a query a row.
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user', 'latestEmailLog', 'items', 'transactions']))
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -226,7 +227,7 @@ class InvoiceResource extends Resource
                     ->sortable(),
                 // Due, and how late an unpaid one is (owner 2026-10-21: in time and late ones apart at a glance).
                 TextColumn::make('due_at')
-                    ->label('Due Date')
+                    ->label(__('Due Date'))
                     ->date()
                     ->sortable()
                     ->placeholder('—')
@@ -257,7 +258,7 @@ class InvoiceResource extends Resource
                     ->options(Invoice::statusOptions()),
                 // Unpaid past its due date (Invoice::scopeOverdue).
                 Filter::make('overdue')
-                    ->label('Overdue')
+                    ->label(__('Overdue'))
                     ->query(fn (Builder $query) => Invoice::whereOverdue($query)),
                 // Paid, its services not renewed yet (BIL-9): the cron's paid_applied tries again; the money check
                 // reports one still waiting after a day (MT-3).

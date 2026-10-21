@@ -85,10 +85,10 @@ class Invoice extends Model implements Auditable
     /** Every status, in the order screens list them. */
     public const STATUSES = [self::STATUS_DRAFT, self::STATUS_UNPAID, self::STATUS_PAID, self::STATUS_CANCELLED, self::STATUS_REFUNDED];
 
-    /** What staff and customers read for a status: WHMCS's words (Unpaid, Paid…), lang/*\/invoices.php. */
     /**
-     * Unpaid past its due date (owner 2026-10-21: unpaid ones in time and late ones apart), the day after it, as the
-     * overdue reminders count (PaymentReminders, SendInvoiceEmail).
+     * Unpaid past its due date and owed (owner 2026-10-21: unpaid ones in time and late ones apart), the day after it:
+     * not an «add funds» one (a credit purchase left at the gateway: nothing is owed) nor one whose payment is on its way
+     * (a SEPA debit processing), as the reminders leave them out (PaymentReminders::open, review of #286).
      *
      * @param  Builder<Invoice>  $query
      * @return Builder<Invoice>
@@ -108,17 +108,32 @@ class Invoice extends Model implements Auditable
      */
     public static function whereOverdue(Builder $query): Builder
     {
-        return $query->where('status', self::STATUS_UNPAID)->whereNotNull('due_at')->whereDate('due_at', '<', today()->toDateString());
+        return $query->where('status', self::STATUS_UNPAID)->whereNotNull('client_id')->whereNotNull('due_at')
+            ->whereDate('due_at', '<', today()->toDateString())
+            ->whereDoesntHave('transactions', fn ($transactions) => $transactions->where('status', InvoiceTransactionStatus::Processing))
+            // «Add funds»: it has lines and every one is credit.
+            ->whereNot(fn ($addFunds) => $addFunds->whereHas('items')
+                ->whereDoesntHave('items', fn ($items) => $items->where(fn ($line) => $line->whereNull('reference_type')->orWhere('reference_type', '!=', Credit::class))));
     }
 
-    /** How many days past its due date an unpaid invoice is; 0 when it is not late (or not unpaid). */
+    /** How many days past its due date an overdue invoice is (whereOverdue's rule, on its loaded lines); 0 when it is not. */
     public function daysOverdue(): int
     {
         $due = $this->due_at?->copy()->startOfDay();
+        if ($this->status !== self::STATUS_UNPAID || $this->client_id === null || $due === null || !$due->lt(today())) {
+            return 0;
+        }
+        if ($this->transactions->contains(fn (InvoiceTransaction $transaction) => $transaction->status === InvoiceTransactionStatus::Processing)) {
+            return 0;
+        }
+        if ($this->items->isNotEmpty() && $this->items->every(fn (InvoiceItem $item) => $item->reference_type === Credit::class)) {
+            return 0;
+        }
 
-        return $this->status !== self::STATUS_UNPAID || $due === null || !$due->lt(today()) ? 0 : (int) $due->diffInDays(today());
+        return (int) $due->diffInDays(today());
     }
 
+    /** What staff and customers read for a status: WHMCS's words (Unpaid, Paid…), lang/*\/invoices.php. */
     public static function statusLabel(?string $status): string
     {
         $key = 'invoices.statuses.' . $status;
