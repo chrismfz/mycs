@@ -228,4 +228,16 @@ return [
     'news_stop' => 'Stop these emails',
     'news_stopped' => 'Done: you will no longer get our news and offers by email.',
     'news_stop_note' => 'Important announcements about your services, invoices and domains are still sent. You can change this any time from your account\'s Notifications.',
+    // «My emails» (Client\Emails): what we sent the account
+    'emails' => [
+        'title' => 'My emails',
+        'intro' => 'The emails we sent to this account, as they were sent. Passwords and login links are hidden.',
+        'none' => 'No emails yet.',
+        'date' => 'Date',
+        'subject' => 'Subject',
+        'to' => 'To',
+        'view' => 'View',
+        'close' => 'Close',
+        'not_found' => 'This email is not among this account’s.',
+    ],
 ];

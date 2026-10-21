@@ -96,6 +96,7 @@ Route::group(['middleware' => ['web', 'auth']], function () {
     Route::get('/account/credits', Client\Credits::class)->name('account.credits')->middleware('client.can:invoices');
     Route::get('/account/payment-methods', Client\PaymentMethods::class)->name('account.payment-methods')->middleware('client.can:invoices');
     Route::get('/account/notifications', Client\Notifications::class)->name('account.notifications');
+    Route::get('/account/emails', Client\Emails::class)->name('account.emails')->middleware('client.can:emails');
     Route::get('/account/accounts', Client\Accounts::class)->name('account.accounts');
     Route::get('/account/contacts', Client\Contacts::class)->name('account.contacts')->middleware('client.can:contacts');
 
