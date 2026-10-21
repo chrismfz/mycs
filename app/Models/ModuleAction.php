@@ -162,8 +162,10 @@ class ModuleAction extends Model
             $domain->forceFill(['meta' => ['on_hold' => now()->toIso8601String()] + ($domain->meta ?? [])])->save();
         }
         DomainRegistrarLog::query()->where('domain_id', $this->domain_id)->where('status', DomainRegistrarLog::STATUS_PENDING)
-            ->whereIn('action', $actions)->update(['status' => DomainRegistrarLog::STATUS_FAILED,
-                'error' => 'Checked by staff at the registrar: not done.', 'staff_id' => $staff?->id, 'updated_at' => now()]);
+            ->where(fn ($q) => $q->whereIn('action', $actions)->when($this->action === self::DOMAIN_RENEW,
+                // A transfer that replaced the renewal (RenewAsTransfer) is the renewal's (code review 2 of #303).
+                fn ($q) => $q->orWhere(fn ($t) => $t->where('action', 'transfer')->where('request->renewal', true))))->update(['status' => DomainRegistrarLog::STATUS_FAILED,
+                    'error' => 'Checked by staff at the registrar: not done.', 'staff_id' => $staff?->id, 'updated_at' => now()]);
         $this->forceFill(['status' => self::STATUS_RESOLVED, 'resolved_at' => now(), 'resolution' => 'closed without renewing',
             'resolved_by_staff_id' => $staff?->id])->save();
     }

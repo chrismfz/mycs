@@ -53,7 +53,7 @@ class RecordsToCheck extends TableWidget
 
         return Domain::query()->with(['client.primaryContact', 'client.ownerGrant.user'])->where(fn ($q) => $q
             ->where(fn ($none) => $none->whereIn('status', $alive)->whereNull('expires_at'))
-            ->orWhere(fn ($stuck) => $stuck->whereIn('status', $pending)->where('created_at', '<', now()->subDays(SyncDomains::staleTransferDays())))
+            ->orWhere(fn ($stuck) => SyncDomains::stalePending($stuck->whereIn('status', $pending)))
             ->orWhere(fn ($lag) => $lag->where('status', DomainStatus::Active->value)->whereDate('expires_at', '<', today()->subDays(self::LAG_DAYS))));
     }
 

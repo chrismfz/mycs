@@ -38,7 +38,17 @@ class RenewAsTransfer
     /** Returns one of DomainRenewalService's outcomes: APPLIED (sent), FAILED (staff's). */
     public function run(Domain $domain, InvoiceItem $line, DomainRegistrarConnection $from, DomainRegistrarConnection $to, DomainSyncResult $now, ?Staff $staff): string
     {
-        $fail = function (string $why) use ($domain, $line, $from): string {
+        $code = '';
+        // Staff's, and logged for the line as refused: the cron never starts it again on its own, only staff's Retry
+        // (RAT-ADV-7: else every run unlocked and locked it at the source again). Never its EPP code in what is stored.
+        $fail = function (string $why, bool $log = true) use ($domain, $line, $from, $to, $staff, &$code): string {
+            $why = Redact::values(Redact::text($why), [$code]);
+            if ($log) {
+                DomainRegistrarLog::query()->create(['domain_id' => $domain->id, 'registrar_connection_id' => $to->id, 'staff_id' => $staff?->id,
+                    'invoice_id' => $line->invoice_id, 'action' => 'transfer', 'status' => DomainRegistrarLog::STATUS_FAILED,
+                    'request' => ['years' => 1, 'line' => $line->id, 'renewal' => true, 'from' => $from->id, 'sent' => false],
+                    'response' => ['refused' => true], 'error' => mb_substr($why, 0, 2000)]);
+            }
             ModuleAction::domainFailed($domain, $line, $from->registrar, new RuntimeException($why));
 
             return DomainRenewalService::FAILED;
@@ -62,9 +72,10 @@ class RenewAsTransfer
             return $fail("{$domain->fqdn} has no nameservers here: the transfer would get the target's defaults. Set them, then Retry.");
         }
 
-        // 1. Unlocked at its registrar (the hook's step 3): only where it is locked.
+        // 1. Unlocked at its registrar (the hook's step 3): unless it is known unlocked (not read: unlocked all the same,
+        // code review 6: a lock found days later by the registry is a failed transfer).
         $unlocked = false;
-        if ($now->transferLock === true) {
+        if ($now->transferLock !== false) {
             try {
                 $this->sync->applyResult($domain, $source->updateDomain($domain, new DomainChanges(transferLock: false), $sourceCredentials));
                 $this->log($domain, $from, $staff, $line, 'unlock', DomainRegistrarLog::STATUS_OK);
@@ -88,28 +99,39 @@ class RenewAsTransfer
             return $fail("Its transfer to «{$to->label}» needs its EPP code, which its registrar did not give" . (isset($why) ? ": {$why}" : '') . '. Nothing was changed.');
         }
 
-        // 3. The target's call, logged pending before it is asked (D-17); the source's handles are not the target's.
+        // 3. The source's handles put aside (the target makes its own), then the target's call, logged pending before it
+        // is asked (D-17); a failure putting them aside asked nothing (code review 8).
+        try {
+            $prior = $this->clearHandles($domain, $from, $to, $line);
+        } catch (Throwable $e) {
+            $this->relock($domain, $source, $sourceCredentials, $unlocked);
+
+            return $fail('Its contacts could not be put aside for the transfer: ' . $e->getMessage());
+        }
         $log = DomainRegistrarLog::query()->create(['domain_id' => $domain->id, 'registrar_connection_id' => $to->id,
             'staff_id' => $staff?->id, 'invoice_id' => $line->invoice_id, 'action' => 'transfer', 'status' => DomainRegistrarLog::STATUS_PENDING,
             'request' => ['years' => 1, 'line' => $line->id, 'renewal' => true, 'from' => $from->id, 'nameservers' => $nameservers]]);
-        $prior = $this->clearHandles($domain, $from, $to, $line);
         $transactions = app(RegistrarTransactions::class);
         $mark = $transactions->mark();
         try {
             $result = $target->transferIn($domain->refresh(), $code, $targetCredentials);
         } catch (RegistrarRefused|RegistrarNotAsked|DomainRegistrarNotConfigured $e) {
             // Refused: nothing moved. Back as it was (its handles), locked again; staff decide (renew here, or Retry).
-            $log->update(['status' => DomainRegistrarLog::STATUS_FAILED, 'error' => mb_substr(Redact::text($e->getMessage()), 0, 2000),
+            $message = Redact::values(Redact::text($e->getMessage()), [$code]);
+            $log->update(['status' => DomainRegistrarLog::STATUS_FAILED, 'error' => mb_substr($message, 0, 2000),
                 'response' => ['refused' => $e instanceof RegistrarRefused], 'transactions' => $transactions->since($mark)]);
             $this->restoreHandles($domain, $prior);
             $this->relock($domain, $source, $sourceCredentials, $unlocked);
 
-            return $fail("«{$to->label}» refused the transfer that replaces its renewal: {$e->getMessage()}. It is still at «{$from->label}», as it was: renew it there by hand, or fix it and Retry.");
+            return $fail("«{$to->label}» refused the transfer that replaces its renewal: {$message}. It is still at «{$from->label}», as it was: renew it there by hand, or fix it and Retry.", log: false);
         } catch (Throwable $e) {
-            // No clear answer: it may have started. Left as it is (pending), never asked again blindly.
-            $log->update(['error' => mb_substr(Redact::text($e->getMessage()), 0, 2000), 'transactions' => $transactions->since($mark)]);
+            // No clear answer: it may have started. Still the source's here, with its handles (the target's kept apart for
+            // staff: RAT-ADV-3); pending, never asked again blindly.
+            $message = Redact::values(Redact::text($e->getMessage()), [$code]);
+            $log->update(['error' => mb_substr($message, 0, 2000), 'transactions' => $transactions->since($mark)]);
+            $this->restoreHandles($domain, $prior, keepTarget: true);
 
-            return $fail("The transfer to «{$to->label}» that replaces its renewal got no clear answer ({$e->getMessage()}): check «{$to->label}» before anything else; it may be under way.");
+            return $fail("The transfer to «{$to->label}» that replaces its renewal got no clear answer ({$message}): check «{$to->label}» before anything else; it may be under way.", log: false);
         }
 
         // 4. Taken by the target: the domain is the target's, pending its transfer; the paid line applied.
@@ -131,6 +153,42 @@ class RenewAsTransfer
     }
 
     /**
+     * Its transfer reported failed by the target (DomainSyncService::transferOutcome): back at its source as it was (its
+     * connection, handles, record id), Active; its line not applied, renewed at the source by the next run (meta
+     * renew_here_line), never transferred again on its own; staff told (RAT-ADV-4, 5; code review 3).
+     */
+    public static function revert(Domain $domain, string $status): void
+    {
+        DB::transaction(function () use ($domain, $status) {
+            $fresh = Domain::query()->lockForUpdate()->findOrFail($domain->id);
+            $meta = $fresh->meta ?? [];
+            $record = $meta['renew_transfer'] ?? null;
+            if (!is_array($record) || !isset($record['from'], $record['line'])) {
+                return;
+            }
+            $prior = (array) ($record['prior'] ?? []);
+            $columns = ['registrar_connection_id' => $record['from'], 'status' => DomainStatus::Active,
+                'registrar_domain_id' => $prior['registrar_domain_id'] ?? null];
+            foreach ((array) ($prior['handles'] ?? []) as $role => $handle) {
+                $columns["{$role}_handle"] = $handle;
+            }
+            unset($meta['renew_transfer'], $meta['sent_at'], $meta['transfer_failed'], $meta['contact_handles'], $meta['linked_handles']);
+            foreach (['contact_handles', 'linked_handles'] as $key) {
+                if (($prior[$key] ?? null) !== null) {
+                    $meta[$key] = $prior[$key];
+                }
+            }
+            $meta['renew_here_line'] = (int) $record['line'];
+            $meta['renew_transfer_failed'] = ['at' => now()->toIso8601String(), 'to' => $record['to'] ?? null, 'status' => $status, 'line' => (int) $record['line']];
+            $fresh->forceFill($columns + ['meta' => $meta])->save();
+            $line = InvoiceItem::query()->lockForUpdate()->find($record['line']);
+            $line?->forceFill(['applied_at' => null])->save();
+            ModuleAction::domainFailed($fresh, $line, $fresh->effectiveRegistrarConnection()?->registrar, new RuntimeException(
+                "The transfer of {$fresh->fqdn} that replaced its paid renewal failed at the target (status {$status}). It is back at its old registrar, as it was: the next run renews it there (Retry to do it now)."));
+        });
+    }
+
+    /**
      * The source's contact handles kept in meta.renew_transfer (its undo, and staff's record) and emptied, so the target
      * makes its own; returns them.
      *
@@ -141,7 +199,12 @@ class RenewAsTransfer
         return DB::transaction(function () use ($domain, $from, $to, $line) {
             $fresh = Domain::query()->lockForUpdate()->findOrFail($domain->id);
             $meta = $fresh->meta ?? [];
-            $prior = ['handles' => [], 'contact_handles' => $meta['contact_handles'] ?? null, 'linked_handles' => $meta['linked_handles'] ?? null];
+            // A prior already kept (a run before it whose answer was not known) is the source's: never replaced by another's.
+            if (is_array($meta['renew_transfer']['prior'] ?? null)) {
+                throw new RuntimeException('a transfer replacing its renewal is already on record (meta.renew_transfer): check it first');
+            }
+            $prior = ['handles' => [], 'contact_handles' => $meta['contact_handles'] ?? null, 'linked_handles' => $meta['linked_handles'] ?? null,
+                'registrar_domain_id' => $fresh->registrar_domain_id];
             $clear = [];
             foreach (Domain::ROLES as $role) {
                 $prior['handles'][$role] = $fresh->{"{$role}_handle"};
@@ -155,12 +218,24 @@ class RenewAsTransfer
         });
     }
 
-    /** @param  array<string, mixed>  $prior */
-    private function restoreHandles(Domain $domain, array $prior): void
+    /**
+     * The source's handles back. With keepTarget (no clear answer), what the target made meanwhile is kept apart in
+     * meta.renew_transfer_unknown for staff, never left on a domain still at its source (RAT-ADV-3).
+     *
+     * @param  array<string, mixed>  $prior
+     */
+    private function restoreHandles(Domain $domain, array $prior, bool $keepTarget = false): void
     {
-        DB::transaction(function () use ($domain, $prior) {
+        DB::transaction(function () use ($domain, $prior, $keepTarget) {
             $fresh = Domain::query()->lockForUpdate()->findOrFail($domain->id);
             $meta = $fresh->meta ?? [];
+            if ($keepTarget) {
+                $made = [];
+                foreach (Domain::ROLES as $role) {
+                    $made[$role] = $fresh->{"{$role}_handle"};
+                }
+                $meta['renew_transfer_unknown'] = ($meta['renew_transfer'] ?? []) + ['target_handles' => $made, 'target_contact_handles' => $meta['contact_handles'] ?? null];
+            }
             unset($meta['renew_transfer'], $meta['contact_handles'], $meta['linked_handles']);
             foreach (['contact_handles', 'linked_handles'] as $key) {
                 if ($prior[$key] !== null) {

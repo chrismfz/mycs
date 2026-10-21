@@ -41,6 +41,23 @@ class SyncDomains extends Command
     /** Milliseconds between two domains of a batch (unit tests: none). */
     public static int $pauseMs = 500;
 
+    /**
+     * Pending longer than staleTransferDays: from its order (created_at), or for a transfer that replaced a renewal from
+     * when it was sent (an old domain is not «stale» the minute it is sent: RAT-ADV-6 of #303).
+     *
+     * @template T of \Illuminate\Database\Eloquent\Builder
+     *
+     * @param  T  $query
+     * @return T
+     */
+    public static function stalePending($query)
+    {
+        $cutoff = now()->subDays(self::staleTransferDays());
+
+        return $query->where(fn ($q) => $q->where(fn ($order) => $order->whereNull('meta->renew_transfer')->where('created_at', '<', $cutoff))
+            ->orWhere('meta->renew_transfer->sent_at', '<', $cutoff->toIso8601String()));
+    }
+
     /** Days a transfer (or registration) may stay pending before staff are told (Settings → Domains, default 14). */
     public static function staleTransferDays(): int
     {
@@ -256,7 +273,8 @@ class SyncDomains extends Command
                 $failed++;
                 $this->error("{$domain->fqdn}: " . $e->getMessage());
             }
-            if ($domain->status === DomainStatus::PendingTransfer && $domain->created_at?->lt(now()->subDays(self::staleTransferDays()))) {
+            $since = isset($domain->meta['renew_transfer']['sent_at']) ? Carbon::parse($domain->meta['renew_transfer']['sent_at']) : $domain->created_at;
+            if ($domain->status === DomainStatus::PendingTransfer && $since?->lt(now()->subDays(self::staleTransferDays()))) {
                 $this->warn("{$domain->fqdn}: pending transfer for more than " . self::staleTransferDays() . ' days');
             }
         }

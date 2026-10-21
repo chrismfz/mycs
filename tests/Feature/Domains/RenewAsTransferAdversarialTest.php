@@ -198,7 +198,8 @@ class RenewAsTransferAdversarialTest extends TestCase
         // The consequence: the target reports the transfer failed, and staff must hear of it.
         $this->opStatus = 'FAI';
         app(DomainSyncService::class)->sync($domain->refresh());
-        $this->assertTrue(ModuleAction::query()->open()->where('domain_id', $domain->id)->where('action', ModuleAction::DOMAIN_TRANSFER)->exists(),
+        // Fix of RAT-ADV-4: the failure is the renewal's line (reverted, renewed at the source), not an order's transfer.
+        $this->assertTrue(ModuleAction::query()->open()->where('domain_id', $domain->id)->where('action', ModuleAction::DOMAIN_RENEW)->exists(),
             'a failed transfer that replaced a paid renewal reaches staff');
     }
 
@@ -298,7 +299,8 @@ class RenewAsTransferAdversarialTest extends TestCase
         $this->assertSame(DomainRenewalService::APPLIED, app(DomainRenewalService::class)->renewLine($line->id));
         $this->opStatus = 'FAI';
         app(DomainSyncService::class)->sync($domain->refresh());
-        $action = ModuleAction::query()->open()->where('domain_id', $domain->id)->where('action', ModuleAction::DOMAIN_TRANSFER)->sole();
+        // Fix: the failure is the renewal line's row (reverted to its source), so its Retry renews there.
+        $action = ModuleAction::query()->open()->where('domain_id', $domain->id)->where('action', ModuleAction::DOMAIN_RENEW)->sole();
 
         // A code on the domain (staff fetched a fresh one), then Retry.
         $domain->refresh()->forceFill(['epp_code' => 'Fresh-Code-9'])->save();
@@ -312,6 +314,8 @@ class RenewAsTransferAdversarialTest extends TestCase
         $this->assertSame(1, DomainRegistrarLog::query()->where('domain_id', $domain->id)->where('action', 'transfer')->count(),
             'no order transfer sent for a renewal transfer\'s failure');
         $this->assertSame([], $this->mails('domain_transfer_started'), 'the customer paid a renewal: never told of a transfer');
+        $this->assertSame(1, $this->sent('RenewDomain'), 'its Retry renews it at its source, where it is again');
+        $this->assertNotNull($line->fresh()->applied_at);
     }
 
     /**

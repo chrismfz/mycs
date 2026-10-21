@@ -102,10 +102,12 @@ class RenewAsTransferTest extends TestCase
 
     private string $opStatus = 'REQ';
 
+    private string $opExpiry = '2027-11-01 00:00:00';
+
     private function record(): array
     {
         return ['id' => 9001, 'domain' => ['name' => 'example', 'extension' => 'com'], 'status' => $this->opStatus,
-            'expiration_date' => '2027-11-01 00:00:00', 'name_servers' => [['name' => 'ns1.example.net'], ['name' => 'ns2.example.net']],
+            'expiration_date' => $this->opExpiry, 'name_servers' => [['name' => 'ns1.example.net'], ['name' => 'ns2.example.net']],
             'owner_handle' => 'MP000001-GR', 'admin_handle' => 'MP000001-GR', 'tech_handle' => 'MP000001-GR', 'billing_handle' => 'MP000001-GR'];
     }
 
@@ -270,5 +272,19 @@ class RenewAsTransferTest extends TestCase
         $this->assertNotNull($domain->meta['renew_transfer']['done_at']);
         $this->assertSame([], $this->mails('domain_transferred'), 'a renewal to the customer, not a transfer');
         $this->assertCount(1, $this->mails('domain_renewed'));
+    }
+
+    public function test_a_transfer_that_added_no_year_is_told_to_staff(): void
+    {
+        [$domain, $line] = $this->paidRenewal();
+        app(DomainRenewalService::class)->renewLine($line->id);
+
+        $this->opStatus = 'ACT';
+        $this->opExpiry = '2026-11-01 00:00:00'; // a ccTLD whose transfer adds no year, left off the exceptions
+        app(DomainSyncService::class)->sync($domain->refresh());
+
+        $row = ModuleAction::query()->open()->where('domain_id', $domain->id)->sole();
+        $this->assertSame($line->id, $row->invoice_item_id);
+        $this->assertStringContainsString('added no year', $row->last_error);
     }
 }

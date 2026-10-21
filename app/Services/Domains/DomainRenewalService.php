@@ -276,7 +276,9 @@ class DomainRenewalService
         }
         // Its connection transfers its renewals elsewhere (owner 2026-10-21, the WHMCS hook as a setting): a transfer adds
         // the one year paid for. More years, or some already charged for this line: renewed here.
-        $to = $restore ? null : $connection->renewTransferTarget((string) $domain->tld);
+        // A line whose transfer failed is renewed here (RenewAsTransfer::revert), never transferred again on its own.
+        $here = (int) ($domain->meta['renew_here_line'] ?? 0) === $line->id;
+        $to = $restore || $here ? null : $connection->renewTransferTarget((string) $domain->tld);
         if ($to !== null && $now->status === DomainStatus::Active && $years === 1 && $done === 0 && $paid === 1) {
             $outcome = app(RenewAsTransfer::class)->run($domain, $line, $connection, $to, $now, $staff);
             if ($outcome === self::APPLIED) {
@@ -402,7 +404,8 @@ class DomainRenewalService
         DB::transaction(function () use ($domain, $line, $connection, $staff, $result, $adopted) {
             $line->forceFill(['applied_at' => now()])->save();
             // A charge whose answer was not known, now shown by the registrar: settled, never «unconfirmed» a year on (ADV-1 of #302).
-            DomainRegistrarLog::query()->where('domain_id', $domain->id)->whereIn('action', ['renew', 'restore'])
+            DomainRegistrarLog::query()->where('domain_id', $domain->id)->where(fn ($q) => $q->whereIn('action', ['renew', 'restore'])
+                ->orWhere(fn ($t) => $t->where('action', 'transfer')->where('request->renewal', true))) // RAT-ADV-2
                 ->where('status', DomainRegistrarLog::STATUS_PENDING)->get()
                 ->each(fn (DomainRegistrarLog $log) => $log->update(['status' => DomainRegistrarLog::STATUS_OK,
                     'response' => ['settled' => 'shown by the registrar', 'expires_at' => $result->paidUntil ?? $result->expiresAt, 'line' => $line->id]]));

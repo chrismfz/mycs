@@ -217,8 +217,7 @@ final class Health
         }
         $live = Domain::query()->whereNotIn('status', DomainStatus::terminalValues());
         $errors = (clone $live)->whereNotNull('sync_error')->count();
-        $stale = (clone $live)->where('status', DomainStatus::PendingTransfer->value)
-            ->where('created_at', '<', now()->subDays(SyncDomains::staleTransferDays()))->count();
+        $stale = SyncDomains::stalePending((clone $live)->where('status', DomainStatus::PendingTransfer->value))->count();
         $oldest = (clone $live)->whereNotNull('last_synced_at')->min('last_synced_at');
         // The batched sync (#204): a pause forgotten, or a schedule stopped, is seen (review ADV-5).
         $paused = (float) config('settings.domain_sync_hours', 2) <= 0;
