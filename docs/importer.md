@@ -189,3 +189,8 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
 - **Χωρίς αλλαγή στον server:** η IP και το quota διαβάζονται από τον WHM, ώστε το import να μην αλλάξει τίποτα. Χωρίς εργασία για το staff, επειδή η IP υπάρχει ήδη, και χωρίς `editquota` κατά το import.
 - **Το extra που έχει ήδη ο λογαριασμός:** γράφεται στην property `cpanel_extra_disk_gb` της υπηρεσίας, όπως το καταγράφει το cPanel module όταν το βάζει. Έτσι μια μελλοντική αλλαγή προϊόντος χωρίς την επιλογή το αφαιρεί.
 - **Parity:** πλήθος addons = πλήθος επιλογών «on», και άθροισμα των ετήσιων ποσών ανά πελάτη, με ανοχή στρογγυλοποίησης.
+
+
+## Domains: από το WHMCS, όχι από τους registrars (ο υπεύθυνος, 2026-10-21)
+
+Ο importer κάθε instance παίρνει τα domains από το **δικό του** WHMCS (`tbldomains`). Τα συνδέει με τη σύνδεση του registrar τους στο MyCS (`registrar` cnic, openprovider, grepp → η αντίστοιχη `DomainRegistrarConnection`). Δεν εισάγει ποτέ τη λίστα ενός λογαριασμού registrar: ο λογαριασμός του CNIC είναι κοινός για myip (198) και nixpal (4), και θα έφερνε τα domains της άλλης εταιρείας. Η λίστα του registrar (`listDomains`) χρησιμεύει μόνο για έλεγχο parity, δηλαδή για όσα υπάρχουν στο ένα σύστημα και όχι στο άλλο.
