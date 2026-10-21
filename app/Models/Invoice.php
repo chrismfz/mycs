@@ -14,6 +14,7 @@ use App\Services\Billing\RenewalBilling;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Tax\EuVat;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -85,6 +86,39 @@ class Invoice extends Model implements Auditable
     public const STATUSES = [self::STATUS_DRAFT, self::STATUS_UNPAID, self::STATUS_PAID, self::STATUS_CANCELLED, self::STATUS_REFUNDED];
 
     /** What staff and customers read for a status: WHMCS's words (Unpaid, Paid…), lang/*\/invoices.php. */
+    /**
+     * Unpaid past its due date (owner 2026-10-21: unpaid ones in time and late ones apart), the day after it, as the
+     * overdue reminders count (PaymentReminders, SendInvoiceEmail).
+     *
+     * @param  Builder<Invoice>  $query
+     * @return Builder<Invoice>
+     */
+    public function scopeOverdue(Builder $query): Builder
+    {
+        return self::whereOverdue($query);
+    }
+
+    /**
+     * The rule itself, for a query that is not typed as the invoices' (a table filter's).
+     *
+     * @template TQuery of Builder
+     *
+     * @param  TQuery  $query
+     * @return TQuery
+     */
+    public static function whereOverdue(Builder $query): Builder
+    {
+        return $query->where('status', self::STATUS_UNPAID)->whereNotNull('due_at')->whereDate('due_at', '<', today()->toDateString());
+    }
+
+    /** How many days past its due date an unpaid invoice is; 0 when it is not late (or not unpaid). */
+    public function daysOverdue(): int
+    {
+        $due = $this->due_at?->copy()->startOfDay();
+
+        return $this->status !== self::STATUS_UNPAID || $due === null || !$due->lt(today()) ? 0 : (int) $due->diffInDays(today());
+    }
+
     public static function statusLabel(?string $status): string
     {
         $key = 'invoices.statuses.' . $status;

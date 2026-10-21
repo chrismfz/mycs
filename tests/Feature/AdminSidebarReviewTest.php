@@ -56,7 +56,8 @@ class AdminSidebarReviewTest extends TestCase
         $queries = collect(DB::getQueryLog())->pluck('query');
 
         foreach (['"tickets" where "status" in', '"invoices" where "status" =', '"services" where "status" =', '"ticket_quarantine"', '"mcp_proposals"'] as $needle) {
-            $count = $queries->filter(fn (string $sql) => str_contains($sql, 'count(*)') && str_contains($sql, $needle))->count();
+            // The overdue invoices are a count of their own (OverdueInvoicesTest), not the unpaid badge again.
+            $count = $queries->filter(fn (string $sql) => str_contains($sql, 'count(*)') && str_contains($sql, $needle) && !str_contains($sql, 'due_at'))->count();
             $this->assertLessThanOrEqual(1, $count, "count of {$needle} ran {$count} times in one page");
         }
     }
