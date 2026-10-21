@@ -110,7 +110,8 @@ class CnicRegistrarTest extends TestCase
         $cnic = new CnicRegistrar;
 
         $this->assertTrue($cnic->ping($this->credentials()));
-        $this->assertSame(['312.40', 'EUR'], [$cnic->accountBalance($this->credentials())->amount, $cnic->accountBalance($this->credentials())->currency]);
+        // AMOUNT is its balance (its account page; myip's live answer, 2026-10-21), CREDIT a credit line on top.
+        $this->assertSame(['1520.00', 'EUR'], [$cnic->accountBalance($this->credentials())->amount, $cnic->accountBalance($this->credentials())->currency]);
         $page = $cnic->listDomains($this->credentials(), 0, 100);
         $this->assertSame([198, 2], [$page->total, $page->rawCount]);
         // Each read as its sync reads it (StatusDomain): the same expiry, nameservers and contacts (reviews of #297).
@@ -168,5 +169,24 @@ class CnicRegistrarTest extends TestCase
 
         $this->assertFalse($tld->fresh()->registrarCan('register'), 'not sold through it (reviews of #297)');
         $this->assertFalse(app(DomainManagementService::class)->isManageable($domain), 'its forms not shown: nothing is changed through it yet');
+    }
+
+    public function test_its_live_answer_with_spaces_in_the_names_reads_the_same(): void
+    {
+        // As myip's live account answered StatusDomain (2026-10-21), its values made up: names with spaces, not underscores.
+        $this->cnic(['StatusDomain' => "[RESPONSE]\r\ncode = 200\r\ndescription = Command completed successfully\r\n"
+            . "property[CREATED DATE][0] = 2009-09-16 18:57:28.0\r\nproperty[PAIDUNTIL DATE][0] = 2027-09-16 18:57:28.0\r\n"
+            . "property[REGISTRATION EXPIRATION DATE][0] = 2027-09-16 18:57:28.0\r\nproperty[RENEWAL DATE][0] = 2027-10-21 18:57:28.0\r\n"
+            . "property[RENEWALMODE][0] = AUTOEXPIRE\r\nproperty[STATUS][0] = clientTransferProhibited\r\nproperty[TRANSFER LOCK][0] = 1\r\n"
+            . "property[NAMESERVER][0] = ns1.example.net\r\nproperty[NAMESERVER][1] = ns2.example.net\r\n"
+            . "property[OWNER CONTACT][0] = P-OWN1\r\nproperty[ADMIN CONTACT][0] = P-ADM1\r\nproperty[AUTH][0] = live-Auth-9\r\nEOF\r\n"]);
+
+        $result = (new CnicRegistrar)->syncDomain(Domain::factory()->make(['fqdn' => 'example.com']), $this->credentials());
+
+        $this->assertSame(['2027-09-16', '2009-09-16', true, DomainStatus::Active], [$result->expiresAt, $result->registeredAt, $result->transferLock, $result->status],
+            'paid until (its renewal date is later for a .com)');
+        $this->assertSame(['registrant' => 'P-OWN1', 'admin' => 'P-ADM1'], $result->contactHandles);
+        $this->assertSame('2027-10-21 18:57:28.0', $result->details['renewal_date']);
+        $this->assertStringNotContainsString('live-Auth', json_encode($result->details));
     }
 }

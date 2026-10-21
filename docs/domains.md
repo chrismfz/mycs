@@ -591,7 +591,8 @@
   - 4xx: προσωρινό, δεν έγινε τίποτα·
   - 5xx: άρνηση (545: δεν υπάρχει στον λογαριασμό).
 - **Βήμα 1 (#297): μόνο αναγνώσεις:**
-  - ping και υπόλοιπο (`StatusAccount`: CREDIT και CURRENCY)·
+  - ping και υπόλοιπο (`StatusAccount`: το `AMOUNT`, όπως το δείχνει η σελίδα του λογαριασμού· το `CREDIT` είναι πιστωτικό όριο πάνω από αυτό)·
+  - τα ονόματα των πεδίων: η τεκμηρίωση γράφει `PAIDUNTIL_DATE`, το live API απαντά «PAIDUNTIL DATE» (myip, 2026-10-21)· `Response::name()` τα θεωρεί ίδια (χωρίς κενά και κάτω παύλες)·
   - διαθεσιμότητα (`CheckDomains`)·
   - sync (`StatusDomain`): ως λήξη κρατιέται η νωρίτερη από:
     - `PAIDUNTIL_DATE` (αλλιώς `REGISTRATION_EXPIRATION_DATE`)·
