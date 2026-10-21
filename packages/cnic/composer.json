@@ -1,0 +1,22 @@
+{
+    "name": "mycs/cnic",
+    "description": "CentralNic Reseller (fka RRPproxy) API: its request and answer formats. Framework-free; the transport is the caller's.",
+    "license": "proprietary",
+    "version": "1.0.0",
+    "require": {
+        "php": "^8.3"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.5|^12.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "MyCS\\Cnic\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "MyCS\\Cnic\\Tests\\": "tests/"
+        }
+    }
+}

@@ -578,3 +578,26 @@
     - χωρίς μεταφορές (`domain_allow_transfer`) η σελίδα δίνει 404.
 - Πάνω από τα βήματα φαίνονται τα domains για μεταφορά που είναι ήδη στο καλάθι, με κουμπί προς αυτό. Οι κωδικοί που
   λείπουν συμπληρώνονται στο καλάθι, όπως πριν.
+
+## CentralNic Reseller (CNIC, 2026-10-21)
+
+Τα 198 domains του myip στο CNIC λήγουν από το 2026 έως το 2034. Ο υπεύθυνος (2026-10-21): χρειάζεται **κανονικός registrar** και όχι μόνο «μεταφορά στην ανανέωση», γιατί όσα λήγουν αργά μένουν εκεί χρόνια.
+- **Πηγές:**
+  - **API:** `packages/cnic` (`MyCS\Cnic`). Γράφτηκε από τη δημόσια τεκμηρίωση των εντολών (kb.centralnicreseller.com/api/api-command) και από την περιγραφή του wire format στο MIT php-sdk τους.
+  - **Τι δεν χρησιμοποιήθηκε:** το module τους για το WHMCS. Είναι ionCube με κλειστή άδεια: ούτε κώδικας ούτε αποκωδικοποίηση. Από αυτό είδαμε μόνο τα ονόματα των εντολών που χρησιμοποιεί.
+- **Αίτημα:** form POST στο `api.rrpproxy.net/api/call.cgi` με `s_login`, `s_pw` και `s_command` (`KEY=value`). Με mode «sandbox» πηγαίνει στο OTE (`api-ote.rrpproxy.net`).
+- **Απάντηση:** `code` και `description`, μετά `property[NAME][i]`.
+  - 2xx: έγινε·
+  - 4xx: προσωρινό, δεν έγινε τίποτα·
+  - 5xx: άρνηση (545: δεν υπάρχει στον λογαριασμό).
+- **Βήμα 1 (#…): μόνο αναγνώσεις:**
+  - ping και υπόλοιπο (`StatusAccount`: CREDIT και CURRENCY)·
+  - διαθεσιμότητα (`CheckDomains`)·
+  - sync (`StatusDomain`): λήξη = `PAIDUNTIL_DATE`, αλλιώς `REGISTRATION_EXPIRATION_DATE`· nameservers· lock· επαφές· ROID·
+  - λίστα του λογαριασμού (`QueryDomainList`) και επαφές (`StatusContact`) για το import·
+  - EPP (`AUTH`, ποτέ στα details).
+- **Writes:** ανανέωση, κατοχύρωση, μεταφορά, αλλαγές και restore **δεν ζητούνται** (`RegistrarNotAsked`): δεν στέλνεται τίποτα και δεν χρεώνεται τίποτα. Μια πληρωμένη ανανέωση πηγαίνει στο staff (Pending Module Action και email). Το staff την κάνει στο CNIC και πατά «Renewed by hand», που την επιβεβαιώνει διαβάζοντας το CNIC.
+- **Επόμενα:**
+  - (2) nameservers, lock, EPP και επαφές από το portal και το admin·
+  - (3) ανανέωση με τις ασφάλειες του Openprovider·
+  - (4) «μεταφορά στο Openprovider αντί για ανανέωση», ανά connection ή TLD.

@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "8becbb39a4de50467755c9e3a45c6d29",
+    "content-hash": "e095a46f189eb36d04f0a3c85bcbd30e",
     "packages": [
         {
             "name": "altcha-org/altcha",
@@ -5070,6 +5070,40 @@
                 "MIT"
             ],
             "description": "Billing-period arithmetic that keeps the billing day (31st -> 28th/30th -> 31st). Framework-free.",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "mycs/cnic",
+            "version": "1.0.0",
+            "dist": {
+                "type": "path",
+                "url": "packages/cnic",
+                "reference": "c233bb78a5b2f5cd18e6ce39df88630109bfe8e7"
+            },
+            "require": {
+                "php": "^8.3"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^11.5|^12.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "MyCS\\Cnic\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "MyCS\\Cnic\\Tests\\": "tests/"
+                }
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "CentralNic Reseller (fka RRPproxy) API: its request and answer formats. Framework-free; the transport is the caller's.",
             "transport-options": {
                 "symlink": true,
                 "relative": true
