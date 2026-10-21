@@ -7,6 +7,7 @@ use App\Helpers\TemplateRenderer;
 use App\Mail\Mail;
 use App\Models\EmailLog;
 use App\Models\Invoice;
+use App\Models\License;
 use App\Models\NotificationTemplate;
 use App\Models\Service;
 use App\Models\User;
@@ -102,6 +103,46 @@ class NotificationTemplateTest extends TestCase
         $notification = $user->notifications()->latest('id')->firstOrFail();
         $this->assertSame('Ready: Test Product & co', $notification->body);
         $this->assertSame(route('services.show', $service), $notification->url);
+    }
+
+    public function test_the_welcome_mail_reads_the_licenses_key_never_what_staff_see_of_it(): void
+    {
+        // nixpal's welcome mail (parity 2026-10-21): the key in the product's snippet; the rest of it stays staff's.
+        MailFacade::fake();
+        $user = User::factory()->create();
+        $probes = implode(' ', array_map(fn (string $field) => "{$field}[{{ service.license.{$field} }}]", License::TEMPLATE_HIDDEN));
+        $product = $this->createProduct(['email_template' => 'Key: {{ service.license.license_key }} ({{ service.license.status }}) ' . $probes
+            . ' logs[{% for log in service.license.accessLogs %}{{ log.ip }}{% endfor %}] svc[{{ service.license.service.id }}]']);
+        $service = Service::factory()->create(['client_id' => $user->client()->id, 'product_id' => $product->product->id,
+            'plan_id' => $product->plan->id, 'status' => 'active']);
+        $service->license; // read before it is issued (the admin's create action): the mail reads it again
+        $license = License::query()->create(['service_id' => $service->id, 'license_key' => 'Zone-test0000000000', 'status' => License::STATUS_ACTIVE,
+            'valid_domain' => 'example.test', 'valid_ip' => '192.0.2.20', 'valid_directory' => '/srv/app', 'reissues' => 3, 'whmcs_id' => 77,
+            'last_access' => now(), 'last_ok_at' => now(), 'last_seen_ip' => '192.0.2.10', 'last_seen_client' => 'agent/1', 'last_failure_at' => now(), 'last_failure' => 'Invalid IP']);
+        $license->accessLogs()->create(['ip' => '192.0.2.30', 'message' => 'ok', 'created_at' => now()]);
+
+        NotificationHelper::serverCreatedNotification($user->client(), $service);
+
+        $body = $this->lastEmail()->body;
+        $this->assertStringContainsString('Key: Zone-test0000000000 (Active)', $body);
+        foreach (License::TEMPLATE_HIDDEN as $field) {
+            $this->assertStringContainsString("{$field}[]", $body, $field);
+        }
+        $this->assertStringContainsString('logs[] svc[]', $body);
+        $this->assertStringNotContainsString('192.0.2.', $body);
+    }
+
+    public function test_a_service_without_a_license_mails_its_snippet_without_one(): void
+    {
+        MailFacade::fake();
+        $user = User::factory()->create();
+        $product = $this->createProduct(['email_template' => 'Key: [{{ service.license.license_key }}] done']);
+        $service = Service::factory()->create(['client_id' => $user->client()->id, 'product_id' => $product->product->id,
+            'plan_id' => $product->plan->id, 'status' => 'active']);
+
+        NotificationHelper::serverCreatedNotification($user->client(), $service);
+
+        $this->assertStringContainsString('Key: [] done', $this->lastEmail()->body);
     }
 
     public function test_a_broken_template_is_reported_and_skipped(): void

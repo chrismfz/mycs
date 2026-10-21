@@ -108,7 +108,7 @@ class ProductResource extends Resource
                                 ])->default('separated')
                                     ->required(),
                                 Textarea::make('email_template')
-                                    ->hint('Shown as {{ product_info }} in the "service activated" email. Same template syntax, e.g. {{ service.product.name }}.')
+                                    ->hint('Shown as {{ product_info }} in the "service activated" email. Same template syntax, e.g. {{ service.product.name }}, {{ service.license.license_key }} (a nixpal license: its key and status only).')
                                     ->rule(TemplateRenderer::rule())
                                     ->nullable(),
                                 Checkbox::make('hidden')
