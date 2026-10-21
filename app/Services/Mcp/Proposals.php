@@ -9,9 +9,11 @@ use App\Models\Staff;
 use App\Services\Mail\MailAudit;
 use App\Services\Ops\NotFound;
 use App\Services\Ops\Scrub;
+use App\Services\Service\OptionTasks;
 use App\Services\Service\RetryModuleAction;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use InvalidArgumentException;
 use Throwable;
 
@@ -189,6 +191,14 @@ final class Proposals
             return [['module_action_id' => $action->id], $type === self::RETRY_MODULE_ACTION
                 ? "Send {$what} to its registrar again (address, phone, email; never names)."
                 : "Mark {$what} fixed at the registrar by hand, without sending anything."];
+        }
+        // A staff task (OptionTasks): done by hand, nothing to run; marked done.
+        if ($action->action === OptionTasks::ACTION) {
+            if ($type === self::RETRY_MODULE_ACTION) {
+                throw new InvalidArgumentException("Module action #{$action->id} is a staff task: nothing to retry, mark it done once it is done by hand.");
+            }
+
+            return [['module_action_id' => $action->id], 'Mark the staff task «' . Str::before((string) $action->last_error, '.') . '» done.'];
         }
         // A retry only once the automatic ones are over, as the admin's Retry: before that it would race the queue.
         if ($type === self::RETRY_MODULE_ACTION && $action->given_up_at === null) {

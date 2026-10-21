@@ -4,6 +4,7 @@ namespace MyCS\Extensions\Servers\CPanel;
 
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Server;
+use App\Helpers\NotificationHelper;
 use App\Models\ModuleAction;
 use App\Models\Service;
 use App\Rules\Domain;
@@ -171,7 +172,7 @@ class CPanel extends Server
         if (is_string($pending) && $pending !== '') {
             $account = $this->account($pending);
             if ($account !== null && self::sameDomain($account['domain'] ?? null, $domain)) {
-                return $this->created($service, $pending, $properties); // made by the attempt whose answer was lost
+                return $this->made($service, $pending, $settings, $properties); // made by the attempt whose answer was lost
             }
             if ($account !== null) {
                 // That name is someone else's account (review R2): never adopted; the next attempt draws another.
@@ -194,14 +195,27 @@ class CPanel extends Server
             throw new Exception('cPanel createacct failed: ' . ($json['metadata']['reason'] ?? 'no reason given'));
         }
 
+        return $this->made($service, $username, $settings, $properties);
+    }
+
+    /**
+     * The account is made (now, or adopted after a lost answer): kept, then its extra disk set. One that fails is not a
+     * failed create (a retry would make the account again): a Change Package for staff at once (its Retry sets it), and
+     * a mail (reviews of #296).
+     */
+    private function made(Service $service, string $username, array $settings, array $properties): bool
+    {
         $this->created($service, $username, $properties);
-        // Its extra disk (an option): set after the account is made. One that fails is not a failed create (a retry would
-        // make the account again): staff see it as a failed Change Package, whose Retry sets it.
         try {
-            $this->applyExtraDisk($username, $this->package($settings, $properties), $properties);
+            $this->applyExtraDisk($service, $username, $this->package($settings, $properties), $properties);
         } catch (Throwable $e) {
             report($e);
-            ModuleAction::recordFailure($service, 'upgrade', 'CPanel', new Exception('The extra disk space was not set after the account was made: ' . $e->getMessage()));
+            $error = new Exception('The extra disk space was not set after the account was made: ' . $e->getMessage());
+            if (ModuleAction::giveUp($service, 'upgrade', $error)) {
+                NotificationHelper::sendSystemEmailNotification("Module action failed: upgrade of service #{$service->id}", e(
+                    "{$error->getMessage()}. It is listed in Pending Module Actions as a Change Package: Retry it there once the cause is fixed."
+                ));
+            }
         }
 
         return true;
@@ -209,22 +223,41 @@ class CPanel extends Server
 
     /**
      * Extra disk space (owner 2026-10-21, in steps of 10GB): the option «extra_disk_gb», its value the GB (a select:
-     * +10GB → 10). The account's quota is its package's plus that, set with WHM's editquota; none again (a downgrade):
-     * its package's. A package without a limit needs none. Only a service whose product has the option is touched: a
-     * quota staff set in WHM for another stays as it is. changepackage puts the package's quota back, so it is set after.
+     * +10GB → 10; a whole number, never more than written: «2.5» is 2). The account's quota is its package's plus that,
+     * set with WHM's editquota; none again (a downgrade, a product without the option): its package's. What it set is kept
+     * on the service (cpanel_extra_disk_gb), so a product change that drops the option takes it off (reviews of #296);
+     * a service that never had one is not touched (a quota staff set in WHM stays). A package without a limit needs none.
+     * changepackage puts the package's quota back, so it is set after.
      */
-    private function applyExtraDisk(string $username, string $package, array $properties): void
+    private function applyExtraDisk(Service $service, string $username, string $package, array $properties): void
     {
-        if (!array_key_exists('extra_disk_gb', $properties)) {
+        $had = (int) $service->properties()->where('key', 'cpanel_extra_disk_gb')->value('value');
+        if (!array_key_exists('extra_disk_gb', $properties) && $had <= 0) {
             return;
         }
-        $extra = max(0, (int) preg_replace('/\D/', '', (string) $properties['extra_disk_gb']));
+        $extra = self::gigabytes($properties['extra_disk_gb'] ?? 0);
         $info = $this->whm('/getpkginfo', ['pkg' => $package]);
         $quota = $info['data']['pkg']['QUOTA'] ?? null;
         if (!is_numeric($quota) || (int) $quota <= 0) {
             return; // unlimited (or not told): nothing to add to
         }
         $this->whm('/editquota', ['user' => $username, 'quota' => (int) $quota + $extra * 1024]);
+        if ($extra > 0) {
+            $service->properties()->updateOrCreate(['key' => 'cpanel_extra_disk_gb'], ['name' => 'Extra disk space (GB)', 'value' => (string) $extra]);
+        } else {
+            $service->properties()->where('key', 'cpanel_extra_disk_gb')->delete();
+        }
+    }
+
+    /** «10», «+10GB», «10 GB» → 10; «2.5» → 2; anything else (negative, words) → 0. */
+    private static function gigabytes(mixed $value): int
+    {
+        $text = trim((string) $value);
+        if (is_numeric($text)) {
+            return max(0, (int) floor((float) $text));
+        }
+
+        return preg_match('/^\+?\s*(\d+)\s*(gb|g)?$/i', $text, $m) === 1 ? (int) $m[1] : 0;
     }
 
     /**
@@ -376,7 +409,7 @@ class CPanel extends Server
             ]);
         }
         // Its extra disk as it is now: added, changed or taken off by this upgrade, or put back after changepackage.
-        $this->applyExtraDisk($properties['cpanel_username'], $package, $properties);
+        $this->applyExtraDisk($service, $properties['cpanel_username'], $package, $properties);
 
         return true;
     }

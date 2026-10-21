@@ -59,7 +59,7 @@
 - [ ] cPanel: λογαριασμοί reseller (22), αλλαγή κωδικού (staff και πελάτης, 39 τον χρόνο), αργότερα συγχρονισμός χρήσης.
 - [ ] mailcow (10 υπηρεσίες): server extension πάνω στο `packages/mailcow`.
 - [ ] Proxmox (8 VPS): extension ή χειροκίνητο προϊόν (χωρίς start/stop και console για τον πελάτη): **απόφαση υπευθύνου**.
-- [x] Product addons (Dedicated IP ×9, System Maintenance, 5 με δικό τους όνομα): επιλογές της υπηρεσίας (feat/service-options· extra χώρος από το cPanel module, IPs από το staff)· η αντιστοίχιση στον importer (`importer.md`).
+- [ ] Product addons (Dedicated IP ×9, System Maintenance, 5 με δικό τους όνομα): ~~επιλογές της υπηρεσίας~~ έγινε (#296· extra χώρος από το cPanel module, IPs από το staff)· **μένει** η αντιστοίχιση στον importer (περιγράφεται στο `importer.md`).
 - [ ] Μικροί κανόνες από τα hooks: email στο staff σε υπερπληρωμή· email σε κάθε suspend με τον λόγο· αυτόματη ακύρωση
       απλήρωτων «Add Funds» μετά από 30 μέρες· έλεγχος ότι το
       Openprovider κρατά τους nameservers του πελάτη μετά από transfer· έλεγχος μεταγραφής ελληνικών στοιχείων επαφής.

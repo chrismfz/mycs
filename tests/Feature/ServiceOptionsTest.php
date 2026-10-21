@@ -13,6 +13,7 @@ use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Models\Staff;
 use App\Models\User;
+use App\Services\Mcp\Proposals;
 use App\Services\Service\OptionTasks;
 use App\Services\ServiceUpgrade\ServiceUpgradeService;
 use Filament\Facades\Filament;
@@ -186,5 +187,32 @@ class ServiceOptionsTest extends TestCase
         $this->livewireAs($staff)->test(ListModuleActions::class)->callTableAction('resolve', $task);
 
         $this->assertSame(ModuleAction::STATUS_RESOLVED, $task->fresh()->status);
+    }
+
+    public function test_an_upgrade_that_removes_it_or_a_greek_no_is_take_back_and_never_give(): void
+    {
+        $this->ip['Όχι'] = ConfigOption::query()->create(['name' => 'Όχι', 'env_variable' => null, 'type' => 'select', 'parent_id' => $this->ip['_']->id]);
+        $this->choose($this->ip, 'Όχι');
+        $this->service->update(['status' => 'active']);
+        $this->assertSame(0, ModuleAction::query()->where('action', OptionTasks::ACTION)->count(), '«Όχι» is without it');
+
+        $this->choose($this->ip, 'Yes');
+        $upgrade = ServiceUpgrade::create(['service_id' => $this->service->id, 'plan_id' => $this->service->plan_id, 'product_id' => $this->service->product_id, 'status' => 'pending']);
+        $upgrade->configs()->create(['config_option_id' => $this->ip['_']->id, 'config_value_id' => $this->ip['No']->id]);
+
+        $this->assertTrue((new ServiceUpgradeService)->handle($upgrade));
+
+        $this->assertStringContainsString('Take back: Dedicated IP: Yes', (string) ModuleAction::query()->where('action', OptionTasks::ACTION)->sole()->last_error);
+    }
+
+    public function test_the_assistant_cannot_propose_to_retry_a_staff_task(): void
+    {
+        $this->choose($this->ip, 'Yes');
+        $this->service->update(['status' => 'active']);
+        $task = ModuleAction::query()->where('action', OptionTasks::ACTION)->sole();
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
+
+        $this->expectException(\InvalidArgumentException::class);
+        Proposals::propose(Proposals::RETRY_MODULE_ACTION, ['module_action_id' => $task->id], $staff);
     }
 }

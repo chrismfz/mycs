@@ -65,6 +65,9 @@ class ServiceUpgradeService
                 $service->product->increment('stock', $service->quantity);
             }
 
+            // Its options staff do by hand, before anything changes (a product change drops some: reviews of #296), and
+            // after: a task for what it takes or gives back (OptionTasks).
+            $staffOptions = OptionTasks::on($service);
             $productChanged = (int) $service->product_id !== (int) $serviceUpgrade->product_id;
             $service->plan_id = $serviceUpgrade->plan_id;
             $service->product_id = $serviceUpgrade->product_id;
@@ -91,9 +94,6 @@ class ServiceUpgradeService
                     ->whereNotIn('config_option_id', array_keys($options))
                     ->delete();
             }
-
-            // Its options staff do by hand, before and after: a task for what it takes or gives back (OptionTasks).
-            $staffOptions = OptionTasks::on($service);
 
             // Update or create new configs
             foreach ($serviceUpgrade->configs as $config) {

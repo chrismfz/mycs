@@ -328,6 +328,8 @@ class ServiceOptionsAdversarialTest extends TestCase
         $this->whm();
         $this->choose($this->disk, '+10GB');
         $this->service->update(['status' => 'active', 'username' => 'exampleuser']);
+        // The extra it has, as the module that set it (or the importer, for a WHMCS addon) records it.
+        $this->service->properties()->create(['key' => 'cpanel_extra_disk_gb', 'name' => 'Extra disk space (GB)', 'value' => '10']);
         $other = $this->hostingProduct(); // the same package Semi20, no extra-disk option
 
         $this->assertTrue((new ServiceUpgradeService)->handle($this->upgrade($other->product->id, $other->plan->id)));

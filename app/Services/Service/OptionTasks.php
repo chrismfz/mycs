@@ -18,6 +18,9 @@ final class OptionTasks
 {
     public const ACTION = 'staff_task';
 
+    /** A value that means «without it» (its env, else its name), in English or Greek. */
+    public const OFF = ['', '0', 'no', 'none', 'off', 'false', 'όχι', 'οχι', 'χωρίς', 'χωρις', 'κανένα', 'κανενα', 'καμία', 'καμια'];
+
     /**
      * Its staff options that are on, as their value reads: option id => «Dedicated IP: Yes».
      *
@@ -33,7 +36,7 @@ final class OptionTasks
                 continue;
             }
             $raw = mb_strtolower(trim((string) ($value->env_variable ?? $value->name)));
-            if (in_array($raw, ['', '0', 'no', 'none', 'off'], true)) {
+            if (in_array($raw, self::OFF, true)) {
                 continue; // «No», «None»: not taken
             }
             $on[$option->id] = $option->name . ': ' . $value->name;
@@ -52,15 +55,15 @@ final class OptionTasks
     {
         $tasks = [];
         foreach ($after as $id => $label) {
-            if (($before[$id] ?? null) !== $label) {
+            if (!array_key_exists($id, $before)) {
                 $tasks[$id] = "Give: {$label}";
+            } elseif ($before[$id] !== $label) {
+                $tasks[$id] = "Change: {$before[$id]} → {$label}"; // 2 IPs → 1: not «give» (reviews of #296)
             }
         }
         foreach ($before as $id => $label) {
             if (!array_key_exists($id, $after)) {
                 $tasks[$id] = "Take back: {$label}";
-            } elseif ($after[$id] !== $label && !isset($tasks[$id])) {
-                $tasks[$id] = "Change: {$label} → {$after[$id]}";
             }
         }
         foreach ($tasks as $id => $task) {
@@ -71,6 +74,11 @@ final class OptionTasks
     private static function open(Service $service, string $optionId, string $task): void
     {
         $what = "{$task} — service #{$service->id}" . ($service->domain ? " ({$service->domain})" : '');
+        // The same task still open (its status flapping: active, pending, active): not twice.
+        if (ModuleAction::query()->open()->where('service_id', $service->id)->where('action', self::ACTION)->where('subject', $optionId)
+            ->where('last_error', 'like', $task . ' —%')->exists()) {
+            return;
+        }
         ModuleAction::query()->create(['service_id' => $service->id, 'action' => self::ACTION, 'subject' => $optionId,
             'status' => ModuleAction::STATUS_OPEN, 'attempts' => 0, 'last_attempt_at' => now(), 'given_up_at' => now(),
             'last_error' => "{$what}. Do it by hand, then mark it resolved."]);
