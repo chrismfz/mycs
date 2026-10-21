@@ -62,15 +62,17 @@ class OfferResource extends Resource
             Toggle::make('active')->label(__('Active'))->default(true),
             DateTimePicker::make('starts_at')->label(__('Starts at')),
             DateTimePicker::make('expires_at')->label(__('Expires at'))->after('starts_at'),
-            Repeater::make('items')->label(__('Products'))->relationship()->orderColumn('sort')->minItems(1)->defaultItems(1)
+            Repeater::make('items')->label(__('Products'))->relationship()->orderColumn('sort')->minItems(1)->maxItems(15)->defaultItems(1)
                 ->schema([
                     Select::make('product_id')->label(__('Product'))->required()->live()
+                        ->afterStateUpdated(fn (Set $set) => $set('plan_id', null)) // a cycle of the product chosen, never the previous one's
                         ->options(fn () => Product::query()->orderBy('name')->pluck('name', 'id'))->searchable(),
                     Select::make('plan_id')->label(__('Billing cycle'))
                         ->options(fn (Get $get) => $get('product_id') ? Plan::query()->where('priceable_type', Product::class)
                             ->where('priceable_id', $get('product_id'))->pluck('name', 'id') : [])
                         ->placeholder(__('Its first')),
-                    TextInput::make('quantity')->label(__('Quantity'))->integer()->minValue(1)->default(1)->required(),
+                    TextInput::make('quantity')->label(__('Quantity'))->integer()->minValue(1)->default(1)->required()
+                        ->helperText(__('More than 1 only for a product whose quantity the customer chooses.')),
                 ])->columns(3)->columnSpanFull(),
         ]);
     }

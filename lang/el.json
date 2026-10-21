@@ -874,5 +874,12 @@
     "Its first": "Ο πρώτος του",
     "Open the link": "Άνοιγμα του συνδέσμου",
     "The offer's discount could not be applied.": "Η έκπτωση της προσφοράς δεν εφαρμόστηκε.",
-    "Description": "Περιγραφή"
+    "Description": "Περιγραφή",
+    "Coupon code not found": "Ο κωδικός έκπτωσης δεν βρέθηκε",
+    "Coupon code has expired": "Ο κωδικός έκπτωσης έχει λήξει",
+    "Coupon code is not active yet": "Ο κωδικός έκπτωσης δεν ισχύει ακόμη",
+    "Coupon code has reached its maximum uses": "Ο κωδικός έκπτωσης έχει εξαντληθεί",
+    "You have already used this coupon the maximum number of times allowed": "Έχετε ήδη χρησιμοποιήσει αυτόν τον κωδικό όσες φορές επιτρέπεται",
+    "Coupon code is not valid for any items in your cart": "Ο κωδικός έκπτωσης δεν ισχύει για κανένα προϊόν του καλαθιού σας",
+    "More than 1 only for a product whose quantity the customer chooses.": "Πάνω από 1 μόνο σε προϊόν όπου ο πελάτης επιλέγει την ποσότητα."
 }
