@@ -3,6 +3,7 @@
 namespace App\Admin\Resources\ClientResource\Pages;
 
 use App\Admin\Resources\ClientResource;
+use App\Admin\Resources\ClientResource\Concerns\NamesTheClient;
 use App\Admin\Resources\InvoiceResource;
 use App\Models\Currency;
 use App\Models\MoneyEvent;
@@ -20,6 +21,8 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class ShowCreditHistory extends ManageRelatedRecords
 {
+    use NamesTheClient;
+
     protected static string $resource = ClientResource::class;
 
     protected static string $relationship = 'moneyEvents';

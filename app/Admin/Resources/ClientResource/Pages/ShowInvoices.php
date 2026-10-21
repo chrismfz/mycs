@@ -3,6 +3,7 @@
 namespace App\Admin\Resources\ClientResource\Pages;
 
 use App\Admin\Resources\ClientResource;
+use App\Admin\Resources\ClientResource\Concerns\NamesTheClient;
 use App\Admin\Resources\InvoiceResource;
 use App\Models\Invoice;
 use Filament\Actions\ViewAction;
@@ -14,6 +15,8 @@ use Illuminate\Database\Eloquent\Builder;
 
 class ShowInvoices extends ManageRelatedRecords
 {
+    use NamesTheClient;
+
     protected static string $resource = ClientResource::class;
 
     protected static string $relationship = 'invoices';

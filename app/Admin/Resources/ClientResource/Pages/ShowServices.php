@@ -4,6 +4,7 @@ namespace App\Admin\Resources\ClientResource\Pages;
 
 use App\Admin\Actions\InvoiceSelectedItemsAction;
 use App\Admin\Resources\ClientResource;
+use App\Admin\Resources\ClientResource\Concerns\NamesTheClient;
 use App\Admin\Resources\ServiceResource;
 use App\Models\Service;
 use App\Services\Admin\ClientSummary;
@@ -16,6 +17,8 @@ use Illuminate\Database\Eloquent\Builder;
 
 class ShowServices extends ManageRelatedRecords
 {
+    use NamesTheClient;
+
     protected static string $resource = ClientResource::class;
 
     protected static string $relationship = 'services';
