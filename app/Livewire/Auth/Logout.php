@@ -3,6 +3,7 @@
 namespace App\Livewire\Auth;
 
 use App\Livewire\Component;
+use App\Providers\Filament\AdminPanelProvider;
 
 class Logout extends Component
 {
@@ -12,7 +13,7 @@ class Logout extends Component
         if (session()->has('impersonating')) {
             session()->forget('impersonating');
 
-            return redirect('/admin');
+            return redirect('/' . AdminPanelProvider::PATH);
         }
 
         $logoutAction->execute();

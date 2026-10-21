@@ -69,7 +69,7 @@ class StaffSplitTest extends TestCase
         $staff = Staff::factory()->admin()->create(['email' => $customer->email, 'password' => Hash::make('password')]);
 
         // The customer's session does not open the admin.
-        $this->actingAs($customer)->withSession($this->loginUser($customer))->get('/admin')
+        $this->actingAs($customer)->withSession($this->loginUser($customer))->get('/sysadmin')
             ->assertRedirect(route('filament.admin.auth.login'));
 
         // Staff logged in at the admin are nobody in the client area.
@@ -114,7 +114,7 @@ class StaffSplitTest extends TestCase
 
         $this->assertFalse($staff->hasPermission('admin.invoices.viewAny'));
         $this->assertFalse($staff->canAccessPanel(Filament::getPanel('admin')));
-        $this->actingAs($staff)->get('/admin')->assertForbidden();
+        $this->actingAs($staff)->get('/sysadmin')->assertForbidden();
     }
 
     public function test_a_staff_reply_is_told_by_its_author_not_by_ids(): void
@@ -184,7 +184,7 @@ class StaffSplitTest extends TestCase
         $this->assertSame($customer->id, Auth::guard('web')->id());
 
         // Back in the admin, it ends.
-        $this->withSession($this->staffSession($staff, ['impersonating' => $customer->id]))->get('/admin')->assertOk();
+        $this->withSession($this->staffSession($staff, ['impersonating' => $customer->id]))->get('/sysadmin')->assertOk();
         $this->assertFalse(Session::has('impersonating'));
 
         Auth::guard('web')->setUser($customer);

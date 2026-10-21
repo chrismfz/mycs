@@ -4,7 +4,7 @@
             {{ __('You are currently impersonating') }}: 
             <strong>{{  auth()->user()->name }}</strong>
         </p>
-        <a href="/admin/users/{{  auth()->user()->id }}/edit">
+        <a href="/{{ \App\Providers\Filament\AdminPanelProvider::PATH }}/users/{{ auth()->user()->id }}/edit">
             <x-button.primary>
                 {{ __('Leave') }}
             </x-button.primary>

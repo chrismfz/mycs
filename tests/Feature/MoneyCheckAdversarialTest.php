@@ -438,7 +438,7 @@ class MoneyCheckAdversarialTest extends TestCase
     {
         $this->stripe();
         $this->get('/extensions/not-a-gateway/x')->assertStatus(404);
-        $this->get('/admin/nothing-here-' . 'x')->assertStatus(404);
+        $this->get('/sysadmin/nothing-here-' . 'x')->assertStatus(404);
         $this->stripeWebhook(['type' => 'noise'], false)->assertStatus(400);
 
         $rows = PaymentGatewayEvent::query()->get();

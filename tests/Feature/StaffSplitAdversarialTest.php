@@ -125,7 +125,7 @@ class StaffSplitAdversarialTest extends TestCase
 
         $html = $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.1'])
             ->withSession($this->staffSession($staff))
-            ->get('/admin/users')
+            ->get('/sysadmin/users')
             ->assertOk()
             ->getContent();
 
@@ -133,7 +133,7 @@ class StaffSplitAdversarialTest extends TestCase
         $snapshot = null;
         foreach ($m[1] as $raw) {
             $decoded = html_entity_decode($raw, ENT_QUOTES);
-            if (str_starts_with((string) (json_decode($decoded, true)['memo']['path'] ?? ''), 'admin/users')) {
+            if (str_starts_with((string) (json_decode($decoded, true)['memo']['path'] ?? ''), 'sysadmin/users')) {
                 $snapshot = $decoded;
                 break;
             }
@@ -159,7 +159,7 @@ class StaffSplitAdversarialTest extends TestCase
         $customer = User::factory()->create();
         $staff = Staff::factory()->withPermissions(['admin.users.viewAny', 'admin.users.impersonate'])->create();
 
-        $this->withSession($this->staffSession($staff, ['impersonating' => $customer->id]))->get('/admin');
+        $this->withSession($this->staffSession($staff, ['impersonating' => $customer->id]))->get('/sysadmin');
 
         $this->assertFalse(Session::has('impersonating'), 'still logged in as the client after going back to the admin');
     }
@@ -227,7 +227,7 @@ class StaffSplitAdversarialTest extends TestCase
     {
         [$customer] = $this->twins(['*']);
 
-        $this->withSession($this->loginUser($customer))->get('/admin')->assertRedirect('/admin/login');
+        $this->withSession($this->loginUser($customer))->get('/sysadmin')->assertRedirect('/sysadmin/login');
         $this->assertFalse(Auth::guard('staff')->check());
     }
 
@@ -245,7 +245,7 @@ class StaffSplitAdversarialTest extends TestCase
         $staff = Staff::factory()->admin()->create();
         $staff->update(['active' => false]);
 
-        $this->withSession($this->staffSession($staff))->get('/admin')->assertForbidden();
+        $this->withSession($this->staffSession($staff))->get('/sysadmin')->assertForbidden();
     }
 
     public function test_holds_login_as_client_ends_when_the_member_is_disabled(): void
@@ -279,11 +279,11 @@ class StaffSplitAdversarialTest extends TestCase
     {
         $staff = Staff::factory()->admin()->create();
 
-        $this->withSession($this->staffSession($staff))->get('/admin')->assertOk();
+        $this->withSession($this->staffSession($staff))->get('/sysadmin')->assertOk();
         $staff->forceFill(['password' => Hash::make('a-brand-new-password')])->save();
         $this->app['auth']->forgetGuards();
 
-        $this->get('/admin')->assertRedirect();
+        $this->get('/sysadmin')->assertRedirect();
         $this->assertFalse(Session::has(Auth::guard('staff')->getName()), 'still logged in after the password changed');
     }
 
@@ -295,11 +295,11 @@ class StaffSplitAdversarialTest extends TestCase
     {
         $staff = Staff::factory()->admin()->create();
 
-        $this->withSession($this->staffSession($staff))->get('/admin')->assertOk();
+        $this->withSession($this->staffSession($staff))->get('/sysadmin')->assertOk();
         $staff->forceFill(['password' => Hash::make('a-brand-new-password')])->save();
         $this->app['auth']->forgetGuards();
 
-        $this->get('/admin')->assertRedirect('/admin/login');
+        $this->get('/sysadmin')->assertRedirect('/sysadmin/login');
     }
 
     public function test_holds_admin_session_lock_applies_to_admin_pages(): void
@@ -307,8 +307,8 @@ class StaffSplitAdversarialTest extends TestCase
         Config::set('settings.session_validation', 'ip_admin');
         $staff = Staff::factory()->withPermissions(['admin.users.viewAny'])->create();
 
-        $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.1'])->withSession($this->staffSession($staff))->get('/admin/users')->assertOk();
-        $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.9'])->get('/admin/users')->assertRedirect('/');
+        $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.1'])->withSession($this->staffSession($staff))->get('/sysadmin/users')->assertOk();
+        $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.9'])->get('/sysadmin/users')->assertRedirect('/');
     }
 
     public function test_holds_a_customers_reset_token_does_not_reset_staff_with_the_same_email(): void

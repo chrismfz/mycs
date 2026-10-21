@@ -38,7 +38,7 @@ php artisan mycs:install                    # ρωτάει εταιρεία, URL
 Το `mycs:install` τρέχει migrations και το βασικό seed (ρόλος admin, προεπιλογές ρυθμίσεων, templates), δημιουργεί
 το νόμισμα (EUR, `1.000,00 €`), γράφει εταιρεία/URL/γλώσσα (client area `el` + `en`, admin `en`)/ζώνη ώρας
 (`Europe/Athens`), τα passport keys, το `storage:link` και το πρώτο μέλος του **staff** (πίνακας `staff`, login στο
-`/admin/login`, όχι στο client area). Αρνείται αν υπάρχει ήδη staff (`--force` για δεύτερο ή για να ξαναγράψει τις
+`/sysadmin/login`, όχι στο client area). Αρνείται αν υπάρχει ήδη staff (`--force` για δεύτερο ή για να ξαναγράψει τις
 ρυθμίσεις· **δεν** αλλάζει κωδικό υπάρχοντος). Άλλο μέλος από την κονσόλα: `php artisan app:staff:create`· πελάτης:
 `app:user:create`. Το 2FA του staff στήνεται από το προφίλ του στο admin (προαιρετικό).
 

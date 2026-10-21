@@ -76,7 +76,7 @@ class AdminDensityTest extends TestCase
         $session = [Auth::guard('staff')->getName() => $staff->id];
         Client::factory()->count(3)->create();
 
-        $html = (string) $this->withSession($session)->get('/admin/clients')->assertOk()->getContent();
+        $html = (string) $this->withSession($session)->get('/sysadmin/clients')->assertOk()->getContent();
         $snapshot = $this->tableSnapshot($html);
         $this->assertSame(50, json_decode($snapshot, true)['data']['tableRecordsPerPage']);
 

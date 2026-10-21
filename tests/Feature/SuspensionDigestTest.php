@@ -78,7 +78,7 @@ class SuspensionDigestTest extends TestCase
         $this->assertSame('Cron Job: services 2 suspended', $mail->subject);
         $this->assertSame('staff@example.test', $mail->to);
         foreach ([$first, $second] as $service) {
-            $this->assertStringContainsString("/admin/services/services/{$service->id}/edit", $mail->body);
+            $this->assertStringContainsString("/sysadmin/services/services/{$service->id}/edit", $mail->body);
             $this->assertStringContainsString(e($service->client->name), $mail->body);
         }
         $this->assertStringContainsString('first.example', $mail->body);

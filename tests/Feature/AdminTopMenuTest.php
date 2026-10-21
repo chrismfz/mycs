@@ -59,7 +59,7 @@ class AdminTopMenuTest extends TestCase
     {
         $owner = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]);
 
-        $this->actingAs($owner)->withSession($this->loginUser($owner))->get('/admin')
+        $this->actingAs($owner)->withSession($this->loginUser($owner))->get('/sysadmin')
             ->assertOk()
             ->assertSee('mycs-top-menu', false)
             ->assertSee('Add New Client');

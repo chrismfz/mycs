@@ -235,7 +235,7 @@ tickets, affiliates, emails, orders`. Στην πράξη: «όλα» ή μικ�
 
 ### Staff
 - Δικός του guard `staff` και provider. Το Filament panel παίρνει `authGuard('staff')` και δικό του login στο
-  `/admin/login`. Ξεχωριστά password resets, throttle και session cookie.
+  `/sysadmin/login`. Ξεχωριστά password resets, throttle και session cookie.
 - **2FA (TOTP) διαθέσιμο, όχι υποχρεωτικό** (απόφαση 3). Τα 2FA του WHMCS δεν μεταφέρονται (κρυπτογραφημένα με
   κλειδί του WHMCS)· όποιος το θέλει, το στήνει ξανά.
 - Οι roles και τα permissions υπάρχουν μόνο εδώ (`staff.role_id`). Το `users.role_id` φεύγει.
@@ -356,7 +356,7 @@ tickets, affiliates, emails, orders`. Στην πράξη: «όλα» ή μικ�
 
 ## PR 1: τι έγινε (staff χωριστά)
 - **Πίνακας `staff`**, guard `staff`, provider και password broker δικά του (`staff_password_reset_tokens`, γιατί το ίδιο
-  email μπορεί να είναι και πελάτης). Το Filament panel: `authGuard('staff')`, δικό του login (`/admin/login`), reset,
+  email μπορεί να είναι και πελάτης). Το Filament panel: `authGuard('staff')`, δικό του login (`/sysadmin/login`), reset,
   προφίλ και **προαιρετικό 2FA** (MFA του Filament με TOTP και recovery codes, απόφαση 3). Rate limit στο login και
   στο 2FA από το Filament.
 - **Ρόλοι μόνο στο staff:** το `users.role_id` φεύγει· `User::hasPermission()` είναι πάντα `false`. Το users API δεν

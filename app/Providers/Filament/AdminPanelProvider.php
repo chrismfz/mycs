@@ -38,6 +38,12 @@ use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 class AdminPanelProvider extends PanelProvider
 {
+    /**
+     * Where the admin lives: /sysadmin, as in the company's other two systems (owner 2026-10-21). The old /admin
+     * redirects here (routes/web.php), so bookmarks and links in mails already sent still open.
+     */
+    public const PATH = 'sysadmin';
+
     /** Rows per page of the admin's tables (WHMCS shows long lists). */
     private const PAGE_OPTIONS = [25, 50, 100, 200];
 
@@ -51,7 +57,7 @@ class AdminPanelProvider extends PanelProvider
         $panel
             ->default()
             ->id('admin')
-            ->path('admin')
+            ->path(self::PATH)
             // Staff only, with their own guard, login, password reset and optional 2FA (docs/accounts.md, PR 1).
             ->authGuard('staff')
             ->authPasswordBroker('staff')
