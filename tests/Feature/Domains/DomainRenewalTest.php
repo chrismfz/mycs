@@ -4,6 +4,8 @@ namespace Tests\Feature\Domains;
 
 use App\Enums\DomainStatus;
 use App\Jobs\Domains\RenewDomainJob;
+use App\Mail\Mail;
+use App\Mail\SystemMail;
 use App\Models\Currency;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
@@ -25,6 +27,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail as MailFacade;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
@@ -147,6 +150,48 @@ class DomainRenewalTest extends TestCase
         $this->assertSame('2027-11-01', $domain->fresh()->expires_at->toDateString());
         $log = DomainRegistrarLog::query()->where('action', 'renew')->sole();
         $this->assertSame([DomainRegistrarLog::STATUS_OK, $line->invoice_id], [$log->status, $log->invoice_id]);
+    }
+
+    public function test_the_customer_is_told_it_is_renewed_and_staff_once_when_it_fails(): void
+    {
+        // Mail check of 2026-10-21 (ROADMAP 6γ): WHMCS's Domain Renewal Confirmation and Domain Renewal Failed.
+        MailFacade::fake();
+        config(['settings.system_email_address' => 'staff@example.test', 'settings.mail_disable' => false]);
+        $domain = $this->domain();
+        $line = $this->billAndPay($domain);
+        $this->failWith = 'Insufficient funds';
+
+        $this->renew($line);
+        $this->renew($line); // its retry: the same row, no second mail
+        $staff = MailFacade::queued(SystemMail::class)->filter(fn (SystemMail $mail) => str_contains($mail->envelope()->subject, 'Domain renewal needs staff'));
+        $this->assertCount(1, $staff);
+        $this->assertStringContainsString($domain->fqdn, $staff->first()->envelope()->subject);
+        $this->assertSame([], $this->customerMails('domain_renewed'));
+
+        $this->failWith = null;
+        $this->assertTrue(RetryModuleAction::run(ModuleAction::query()->open()->sole()));
+
+        $this->assertSame(['nixpal.com is renewed until 01/11/2027'], $this->customerMails('domain_renewed'));
+    }
+
+    public function test_a_renewal_staff_mark_done_by_hand_tells_the_customer(): void
+    {
+        MailFacade::fake();
+        $manual = DomainRegistrarConnection::query()->create(['registrar' => 'manual', 'label' => 'CNIC', 'is_active' => true, 'mode' => 'production']);
+        $domain = $this->domain(['registrar_connection_id' => $manual->id]);
+        $line = $this->billAndPay($domain);
+        $this->renew($line);
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'R' . uniqid(), 'permissions' => ['*']])->id]);
+
+        ModuleAction::query()->open()->sole()->markResolved($staff);
+
+        $this->assertSame(['nixpal.com is renewed until 01/11/2027'], $this->customerMails('domain_renewed'));
+    }
+
+    /** @return list<string> the subjects of the customer's mails of this template */
+    private function customerMails(string $key): array
+    {
+        return MailFacade::queued(Mail::class)->filter(fn (Mail $mail) => $mail->templateKey === $key)->map(fn (Mail $mail) => $mail->renderedSubject)->values()->all();
     }
 
     public function test_a_period_the_registrar_already_covers_is_adopted_never_charged(): void

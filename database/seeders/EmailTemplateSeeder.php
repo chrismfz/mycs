@@ -963,6 +963,58 @@ class EmailTemplateSeeder extends Seeder
             'edit_preference_message' => 'Tell me when the transfer of a domain of mine is complete',
             'in_app_url' => '{{ urls.domain }}',
         ],
+        'domain_renewed' => [
+            'subject' => '{{ fqdn }} is renewed until {{ expires }}',
+            'body' => <<<'HTML'
+                # Domain renewed
+
+                Dear {{ user.first_name }},
+
+                Your domain **{{ fqdn }}** is renewed{% if expires %}: it now expires on **{{ expires }}**{% endif %}. There is nothing more you need to do.
+
+                <div class="action">
+                	<a class="button button-blue" href="{{ urls.domain }}">
+                		View domain
+                	</a>
+                </div>
+                HTML,
+            'in_app_title' => '{{ fqdn }} is renewed',
+            'in_app_body' => 'Your domain {{ fqdn }} is renewed{% if expires %} until {{ expires }}{% endif %}.',
+            'mail_enabled' => 'choice_on',
+            'in_app_enabled' => 'choice_on',
+            'edit_preference_message' => 'Tell me when a domain of mine is renewed',
+            'in_app_url' => '{{ urls.domain }}',
+        ],
+        'domain_transfer_failed' => [
+            'subject' => 'The transfer of {{ fqdn }} did not go through',
+            'body' => <<<'HTML'
+                # Domain transfer not completed
+
+                Dear {{ user.first_name }},
+
+                The transfer of your domain **{{ fqdn }}** to us did not go through.
+
+                {% if reason %}
+                The registrar's answer: *{{ reason }}*
+                {% endif %}
+
+                The usual reasons are a wrong or expired EPP (authorisation) code, a domain still locked at its current registrar, or a transfer refused there. Your domain stays where it is and keeps working.
+
+                Please check these with your current registrar and reply to this message, or open a ticket: we will send the transfer again.
+
+                <div class="action">
+                	<a class="button button-blue" href="{{ urls.domain }}">
+                		View domain
+                	</a>
+                </div>
+                HTML,
+            'in_app_title' => 'The transfer of {{ fqdn }} did not go through',
+            'in_app_body' => 'The transfer of your domain {{ fqdn }} did not go through: please check its EPP code and lock.',
+            'mail_enabled' => 'force',
+            'in_app_enabled' => 'choice_on',
+            'edit_preference_message' => 'Tell me when the transfer of a domain of mine fails',
+            'in_app_url' => '{{ urls.domain }}',
+        ],
     ];
 
     /**
@@ -1842,6 +1894,54 @@ class EmailTemplateSeeder extends Seeder
                     HTML,
                 'in_app_title' => 'Το {{ fqdn }} είναι πλέον σε εμάς',
                 'in_app_body' => 'Η μεταφορά του domain σας {{ fqdn }} ολοκληρώθηκε.',
+            ],
+        ],
+        'domain_renewed' => [
+            'el' => [
+                'subject' => 'Το {{ fqdn }} ανανεώθηκε έως {{ expires }}',
+                'body' => <<<'HTML'
+                    # Το domain ανανεώθηκε
+
+                    Αγαπητέ/ή {{ user.first_name }},
+
+                    Το domain σας **{{ fqdn }}** ανανεώθηκε{% if expires %}: λήγει πλέον στις **{{ expires }}**{% endif %}. Δεν χρειάζεται να κάνετε τίποτε άλλο.
+
+                    <div class="action">
+                    	<a class="button button-blue" href="{{ urls.domain }}">
+                    		Προβολή domain
+                    	</a>
+                    </div>
+                    HTML,
+                'in_app_title' => 'Το {{ fqdn }} ανανεώθηκε',
+                'in_app_body' => 'Το domain σας {{ fqdn }} ανανεώθηκε{% if expires %} έως {{ expires }}{% endif %}.',
+            ],
+        ],
+        'domain_transfer_failed' => [
+            'el' => [
+                'subject' => 'Η μεταφορά του {{ fqdn }} δεν ολοκληρώθηκε',
+                'body' => <<<'HTML'
+                    # Η μεταφορά δεν ολοκληρώθηκε
+
+                    Αγαπητέ/ή {{ user.first_name }},
+
+                    Η μεταφορά του domain σας **{{ fqdn }}** σε εμάς δεν ολοκληρώθηκε.
+
+                    {% if reason %}
+                    Η απάντηση του registrar: *{{ reason }}*
+                    {% endif %}
+
+                    Οι συνηθισμένοι λόγοι είναι λάθος ή ληγμένος κωδικός EPP (κωδικός εξουσιοδότησης), domain που είναι ακόμα κλειδωμένο στον τωρινό registrar ή άρνηση της μεταφοράς από εκεί. Το domain σας μένει όπου είναι και συνεχίζει να λειτουργεί.
+
+                    Ελέγξτε τα με τον τωρινό registrar σας και απαντήστε σε αυτό το μήνυμα ή ανοίξτε ticket: θα στείλουμε ξανά τη μεταφορά.
+
+                    <div class="action">
+                    	<a class="button button-blue" href="{{ urls.domain }}">
+                    		Προβολή domain
+                    	</a>
+                    </div>
+                    HTML,
+                'in_app_title' => 'Η μεταφορά του {{ fqdn }} δεν ολοκληρώθηκε',
+                'in_app_body' => 'Η μεταφορά του domain σας {{ fqdn }} δεν ολοκληρώθηκε: ελέγξτε τον κωδικό EPP και το κλείδωμά του.',
             ],
         ],
     ];

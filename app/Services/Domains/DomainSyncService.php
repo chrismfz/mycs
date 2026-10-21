@@ -3,6 +3,7 @@
 namespace App\Services\Domains;
 
 use App\Enums\DomainStatus;
+use App\Helpers\NotificationHelper;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainTld;
@@ -90,7 +91,9 @@ class DomainSyncService
             }
             $changes = $this->plan($domain, $result, $verified);
             if ($write) {
+                $was = $domain->status;
                 $this->apply($domain, $result, $changes);
+                $this->transferOutcome($domain, $was, $result);
             }
 
             return $changes;
@@ -294,6 +297,47 @@ class DomainSyncService
         // review 6 of #180).
         if (isset($changes['status']) && $domain->order_id !== null && in_array(DomainStatus::tryFrom((string) $changes['status'][0]), self::PENDING, true)) {
             $domain->order?->refreshStatus();
+        }
+    }
+
+    /**
+     * A transfer's end, as its registrar shows it (mail check of 2026-10-21, ROADMAP 6γ):
+     * - done (pending → active): the customer is told, its order's row completed (one sent and found active at once is
+     *   told here too: DomainOrderFulfilment then says nothing more);
+     * - failed (its own record, by the id its request gave, a tombstone: Openprovider's FAI): it stays pending for staff
+     *   (send it again, or cancel and refund), a Pending Module Action that mails them, and the customer is told what
+     *   to check. Once per attempt: a transfer sent again clears it.
+     */
+    private function transferOutcome(Domain $domain, DomainStatus $was, DomainSyncResult $result): void
+    {
+        if ($was !== DomainStatus::PendingTransfer) {
+            return;
+        }
+        $domain->refresh();
+        try {
+            if ($domain->status === DomainStatus::Active) {
+                ModuleAction::domainSucceeded($domain, DomainOrderFulfilment::lineOf($domain), ModuleAction::DOMAIN_TRANSFER);
+                NotificationHelper::domainNotification($domain->client, $domain, 'domain_transferred', [
+                    'fqdn' => $domain->fqdn,
+                    'expires' => $domain->expires_at?->format('d/m/Y'),
+                    'nameservers' => $domain->nameservers()->pluck('host')->implode(', '),
+                ]);
+
+                return;
+            }
+            $meta = $domain->meta ?? [];
+            $ours = $domain->registrar_domain_id !== null && $domain->registrar_domain_id !== '' && $result->registrarDomainId === $domain->registrar_domain_id;
+            if ($domain->status !== DomainStatus::PendingTransfer || !$result->deadRecord || !$ours || empty($meta['sent_at']) || !empty($meta['transfer_failed'])) {
+                return;
+            }
+            $meta['transfer_failed'] = ['at' => now()->toIso8601String(), 'status' => $result->rawStatus];
+            $domain->forceFill(['meta' => $meta])->save();
+            ModuleAction::domainFailed($domain, DomainOrderFulfilment::lineOf($domain), $domain->effectiveRegistrarConnection()?->registrar,
+                new RuntimeException("The registrar reports the transfer of {$domain->fqdn} failed (status {$result->rawStatus}): a wrong EPP code, a lock or a refusal at the losing registrar. Ask the customer, then send it again or cancel and refund it."),
+                ModuleAction::DOMAIN_TRANSFER);
+            NotificationHelper::domainNotification($domain->client, $domain, 'domain_transfer_failed', ['fqdn' => $domain->fqdn, 'reason' => null]);
+        } catch (Throwable $e) {
+            report($e); // the sync is done: what is told is not its result
         }
     }
 

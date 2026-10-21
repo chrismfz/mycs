@@ -191,6 +191,11 @@ class DomainOrderFulfilment
             $clean = $this->clean($domain, $e);
             $log->update(['status' => DomainRegistrarLog::STATUS_FAILED, 'error' => mb_substr($clean->getMessage(), 0, 2000), 'transactions' => $transactions->since($mark)]);
             ModuleAction::domainFailed($domain, $line, $connection->registrar, $clean, $action);
+            // A transfer its registrar refused (a wrong EPP code, a lock): the customer is told what it said, to fix it.
+            // Not one we did not send (NotAsked, not configured): that is ours to fix.
+            if (!$register && $e instanceof RegistrarRefused) {
+                $this->tellTransferFailed($domain, $clean->getMessage());
+            }
 
             return self::STAFF;
         } catch (Throwable $e) {
@@ -209,6 +214,7 @@ class DomainOrderFulfilment
             $fresh = Domain::query()->lockForUpdate()->findOrFail($domain->id);
             $meta = $fresh->meta ?? [];
             $meta['sent_at'] = now()->toIso8601String();
+            unset($meta['transfer_failed']); // sent again: a failure of this attempt is told again
             // What its answer told (a .gr registration's protocol: its recall needs it), until a sync reads its truth.
             if ($result->details !== []) {
                 $meta['registrar'] = $result->details + (is_array($meta['registrar'] ?? null) ? $meta['registrar'] : []);
@@ -247,12 +253,16 @@ class DomainOrderFulfilment
         return self::SENT;
     }
 
-    /** The customer's mail: registered (with its expiry, once synced), its transfer started, or done (G5b-3). */
+    /** The customer's mail: registered (with its expiry, once synced), or its transfer started (done: the sync's). */
     private function notify(Domain $domain, bool $register): void
     {
         try {
             // A transfer the sync already found active (the .gr registry approves it at once): done, not «started».
-            $key = $register ? 'domain_registered' : ($domain->status === DomainStatus::Active ? 'domain_transferred' : 'domain_transfer_started');
+            // Found active by the sync just made: that sync told the customer «done» (DomainSyncService::transferOutcome).
+            if (!$register && $domain->status === DomainStatus::Active) {
+                return;
+            }
+            $key = $register ? 'domain_registered' : 'domain_transfer_started';
             NotificationHelper::domainNotification($domain->client, $domain, $key, [
                 'fqdn' => $domain->fqdn,
                 'years' => $domain->years,
@@ -261,6 +271,18 @@ class DomainOrderFulfilment
             ]);
         } catch (Throwable $e) {
             report($e); // sent at the registrar: a mail that fails is not a failed order
+        }
+    }
+
+    private function tellTransferFailed(Domain $domain, string $reason): void
+    {
+        try {
+            NotificationHelper::domainNotification($domain->client, $domain, 'domain_transfer_failed', [
+                'fqdn' => $domain->fqdn,
+                'reason' => mb_substr($reason, 0, 300),
+            ]);
+        } catch (Throwable $e) {
+            report($e);
         }
     }
 

@@ -4,6 +4,7 @@ namespace App\Services\Domains;
 
 use App\Enums\DomainStatus;
 use App\Exceptions\DisplayException;
+use App\Helpers\NotificationHelper;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainRegistrarLog;
@@ -367,8 +368,22 @@ class DomainRenewalService
                 "Renewed, but the registrar shows {$result->expiresAt} for a period paid to {$line->period_end->toDateString()}: check it on its next sync, then close this."));
         }
         $this->lifecycle->advance($domain->refresh());
+        self::tellRenewed($domain);
 
         return $adopted ? self::ADOPTED : self::APPLIED;
+    }
+
+    /** The customer's «renewed until» (WHMCS's Domain Renewal Confirmation, mail check of 2026-10-21): after it is applied. */
+    private static function tellRenewed(Domain $domain): void
+    {
+        try {
+            NotificationHelper::domainNotification($domain->client, $domain, 'domain_renewed', [
+                'fqdn' => $domain->fqdn,
+                'expires' => $domain->expires_at?->format('d/m/Y'),
+            ]);
+        } catch (Throwable $e) {
+            report($e); // renewed at the registrar: a mail that fails is not a failed renewal
+        }
     }
 
     private function staffDecides(Domain $domain, InvoiceItem $line, ?string $module, string $why): void
@@ -523,5 +538,6 @@ class DomainRenewalService
             ModuleAction::domainSucceeded($domain, $line);
         });
         $this->lifecycle->advance($domain->refresh());
+        self::tellRenewed($domain);
     }
 }

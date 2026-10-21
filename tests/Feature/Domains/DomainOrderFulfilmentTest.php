@@ -7,6 +7,7 @@ use App\Jobs\Domains\FulfilDomainOrderJob;
 use App\Livewire\Cart;
 use App\Livewire\DomainShop\Search;
 use App\Mail\Mail;
+use App\Mail\SystemMail;
 use App\Models\Currency;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
@@ -18,6 +19,7 @@ use App\Models\InvoiceItem;
 use App\Models\ModuleAction;
 use App\Models\Order;
 use App\Models\User;
+use App\Services\Domains\DomainSyncService;
 use App\Services\Domains\Lookup\LaravelTransport;
 use App\Services\Domains\Ordering\DomainOrderFulfilment;
 use App\Services\Invoice\RecordPaymentService;
@@ -220,6 +222,67 @@ class DomainOrderFulfilmentTest extends TestCase
         $this->assertSame(DomainStatus::PendingTransfer, $domain->status, 'pending until the registrar completes it');
         $this->assertContains('domain_transfer_started', MailFacade::queued(Mail::class)->map(fn (Mail $mail) => $mail->templateKey)->all());
         $this->assertNotNull($domain->meta['sent_at'] ?? null);
+    }
+
+    public function test_a_transfer_its_registrar_refuses_tells_the_customer_why_and_staff_once(): void
+    {
+        // Mail check of 2026-10-21 (ROADMAP 6γ): the customer fixes the EPP code or the lock; staff send it again.
+        config(['settings.system_email_address' => 'staff@example.test', 'settings.mail_disable' => false]);
+        $this->mode = 'refuse';
+        $domain = $this->order('transfer', 'nixpal.com', ['epp.{item}' => 'Bad-Epp-7731']);
+        $this->pay($domain);
+        $this->runJobs();
+
+        $failed = MailFacade::queued(Mail::class)->filter(fn (Mail $mail) => $mail->templateKey === 'domain_transfer_failed');
+        $this->assertCount(1, $failed);
+        $this->assertStringContainsString('Invalid auth code', $failed->first()->render());
+        $this->assertStringNotContainsString('Bad-Epp-7731', strip_tags($failed->first()->render()), 'never its EPP code');
+        $this->assertCount(1, MailFacade::queued(SystemMail::class)->filter(fn (SystemMail $mail) => $mail->envelope()->subject === 'Domain transfer needs staff: nixpal.com'));
+    }
+
+    public function test_a_transfer_the_sync_finds_done_tells_the_customer_once(): void
+    {
+        $this->status = 'REQ';
+        $domain = $this->order('transfer', 'nixpal.com', ['epp.{item}' => 'Epp#Code-77']);
+        $this->pay($domain);
+        $this->runJobs();
+        $this->assertSame([], $this->mails('domain_transferred'));
+
+        $this->status = 'ACT';
+        app(DomainSyncService::class)->sync($domain->refresh());
+        app(DomainSyncService::class)->sync($domain->refresh());
+
+        $this->assertSame(DomainStatus::Active, $domain->fresh()->status);
+        $this->assertSame(['nixpal.com is now with us'], $this->mails('domain_transferred'));
+        $this->assertSame(['domain_transfer_started'], $this->mails('domain_transfer_started', key: true));
+    }
+
+    public function test_a_transfer_its_registrar_reports_failed_tells_customer_and_staff_once_until_sent_again(): void
+    {
+        config(['settings.system_email_address' => 'staff@example.test', 'settings.mail_disable' => false]);
+        $this->status = 'REQ';
+        $domain = $this->order('transfer', 'nixpal.com', ['epp.{item}' => 'Epp#Code-77']);
+        $this->pay($domain);
+        $this->runJobs();
+
+        $this->status = 'FAI';
+        app(DomainSyncService::class)->sync($domain->refresh());
+        app(DomainSyncService::class)->sync($domain->refresh());
+
+        $domain->refresh();
+        $this->assertSame(DomainStatus::PendingTransfer, $domain->status, 'staff decide: send it again, or cancel and refund');
+        $this->assertSame(['The transfer of nixpal.com did not go through'], $this->mails('domain_transfer_failed'));
+        $action = ModuleAction::query()->open()->sole();
+        $this->assertSame(ModuleAction::DOMAIN_TRANSFER, $action->action);
+        $this->assertStringContainsString('FAI', $action->last_error);
+        $this->assertCount(1, MailFacade::queued(SystemMail::class)->filter(fn (SystemMail $mail) => $mail->envelope()->subject === 'Domain transfer needs staff: nixpal.com'));
+    }
+
+    /** @return list<string> the customer's mails of this template: their subjects, or their keys */
+    private function mails(string $template, bool $key = false): array
+    {
+        return MailFacade::queued(Mail::class)->filter(fn (Mail $mail) => $mail->templateKey === $template)
+            ->map(fn (Mail $mail) => $key ? $mail->templateKey : $mail->renderedSubject)->values()->all();
     }
 
     public function test_a_refusal_goes_to_staff_and_is_not_sent_again_until_they_retry(): void
