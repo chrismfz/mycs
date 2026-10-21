@@ -60,6 +60,8 @@ return [
         'redemption_fee' => ':domain: restore fee (redemption period)',
     ],
     'renew' => [
+        'renewed_already' => ':domain is renewed for its paid period already; its registrar shows :expires yet: check it on its next sync.',
+        'transfer_unsettled' => ':domain was transferred in place of its renewal and that is not settled yet: whether the transfer added its year is checked against the registry first. Use its Pending Module Action, or wait.',
         'renewed_unpaid' => ':domain was renewed now and its invoice #:invoice is not paid yet: not renewed again before that.',
         'unconfirmed' => 'A charge for :domain at its registrar has no clear answer yet: check the registrar; it is not asked again until that is settled.',
         'paid_on_its_way' => 'A paid renewal of :domain is being done at its registrar: nothing to renew now.',
