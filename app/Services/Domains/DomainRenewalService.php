@@ -278,7 +278,7 @@ class DomainRenewalService
         // the one year paid for. More years, or some already charged for this line: renewed here.
         // A line whose transfer failed is renewed here (RenewAsTransfer::revert), never transferred again on its own.
         $here = (int) ($domain->meta['renew_here_line'] ?? 0) === $line->id;
-        $to = $restore || $here ? null : $connection->renewTransferTarget((string) $domain->tld);
+        $to = $restore || $here ? null : $connection->renewTransferTarget();
         if ($to !== null && $now->status === DomainStatus::Active && $years === 1 && $done === 0 && $paid === 1) {
             $outcome = app(RenewAsTransfer::class)->run($domain, $line, $connection, $to, $now, $staff);
             if ($outcome === self::APPLIED) {
@@ -422,8 +422,12 @@ class DomainRenewalService
                 "Renewed, but the registrar shows {$result->expiresAt} for a period paid to {$line->period_end->toDateString()}: check it on its next sync, then close this."));
         }
         $this->lifecycle->advance($domain->refresh());
-        // Short: the registrar does not show it yet; the period paid for is what the customer has (ADV-6 of #293).
-        self::tellRenewed($domain, $short ? Carbon::parse($line->period_end) : null);
+        // Short: the registrar does not show it yet; the period paid for is what the customer has (ADV-6 of #293). A line
+        // opened again after its transfer (renewAfterTransfer): the customer was told «renewed» when it was sent.
+        $again = (int) ($domain->meta['renew_transfer']['line'] ?? 0) === $line->id && !empty($domain->meta['renew_transfer']['reopened_at']);
+        if (!$again) {
+            self::tellRenewed($domain, $short ? Carbon::parse($line->period_end) : null);
+        }
 
         return $adopted ? self::ADOPTED : self::APPLIED;
     }

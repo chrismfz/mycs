@@ -62,7 +62,7 @@ class RenewAsTransferTest extends TestCase
         $this->to = DomainRegistrarConnection::query()->create(['registrar' => 'openprovider', 'label' => 'OP', 'is_active' => true, 'mode' => 'production']);
         $this->to->storeCredentials(['username' => 'u', 'password' => 'Op-Secret-Pa55'], ['password']);
         $this->from = DomainRegistrarConnection::query()->create(['registrar' => 'cnic', 'label' => 'CNIC', 'is_active' => true, 'mode' => 'production',
-            'renew_transfer_to_id' => $this->to->id, 'renew_transfer_except' => ['eu', 'uk']]);
+            'renew_transfer_to_id' => $this->to->id]);
         $this->from->storeCredentials(['username' => 'myipreseller', 'password' => 'Cnic-Secret-1'], ['password']);
     }
 
@@ -95,6 +95,7 @@ class RenewAsTransferTest extends TestCase
             str_contains($path, '/auth/login') => Http::response(['data' => ['token' => 'tok']]),
             $request->method() === 'POST' && str_ends_with($path, '/customers') => Http::response(['data' => ['handle' => 'MP000001-GR']]),
             $request->method() === 'POST' && str_ends_with($path, '/domains/transfer') => $this->opTransfer($path, $request->data()),
+            $request->method() === 'POST' && str_ends_with($path, '/renew') => $this->opRenew(),
             $request->method() === 'GET' && str_contains($path, '/v1/domains') => Http::response(['data' => ['results' => $this->op === [] ? [] : [$this->record()], 'total' => $this->op === [] ? 0 : 1] + ($this->op === [] ? [] : $this->record())]),
             default => Http::response([], 404),
         };
@@ -115,6 +116,16 @@ class RenewAsTransferTest extends TestCase
     private function mails(string $template): array
     {
         return Mail::queued(\App\Mail\Mail::class)->filter(fn ($mail) => $mail->templateKey === $template)->map(fn ($mail) => $mail->templateKey)->values()->all();
+    }
+
+    private int $opRenewals = 0;
+
+    private function opRenew()
+    {
+        $this->opRenewals++;
+        $this->opExpiry = Carbon::parse($this->opExpiry)->addYear()->format('Y-m-d H:i:s');
+
+        return Http::response(['code' => 0, 'data' => ['status' => 'ACT']]);
     }
 
     private function opTransfer(string $path, array $data)
@@ -227,14 +238,14 @@ class RenewAsTransferTest extends TestCase
         $this->assertSame(0, $this->sent('RenewDomain'));
     }
 
-    public function test_an_excepted_tld_is_renewed_here(): void
+    public function test_every_tld_is_transferred_eu_too(): void
     {
         [$domain, $line] = $this->paidRenewal('eu');
 
         $this->assertSame(DomainRenewalService::APPLIED, app(DomainRenewalService::class)->renewLine($line->id));
-        $this->assertSame(1, $this->sent('RenewDomain'));
-        $this->assertSame([], $this->op);
-        $this->assertSame($this->from->id, $domain->fresh()->registrar_connection_id);
+        $this->assertSame(0, $this->sent('RenewDomain'));
+        $this->assertCount(1, $this->op);
+        $this->assertSame($this->to->id, $domain->fresh()->registrar_connection_id);
     }
 
     public function test_no_setting_renews_here(): void
@@ -274,17 +285,46 @@ class RenewAsTransferTest extends TestCase
         $this->assertCount(1, $this->mails('domain_renewed'));
     }
 
-    public function test_a_transfer_that_added_no_year_is_told_to_staff(): void
+    public function test_a_transfer_that_added_no_year_is_renewed_there_once_only_when_it_still_lacks_it(): void
     {
         [$domain, $line] = $this->paidRenewal();
         app(DomainRenewalService::class)->renewLine($line->id);
 
         $this->opStatus = 'ACT';
-        $this->opExpiry = '2026-11-01 00:00:00'; // a ccTLD whose transfer adds no year, left off the exceptions
-        app(DomainSyncService::class)->sync($domain->refresh());
+        $this->opExpiry = '2026-11-01 00:00:00'; // its transfer added no year
+        $sync = app(DomainSyncService::class);
+        $sync->sync($domain->refresh());
+        $sync->sync($domain->refresh());
+        $this->assertNotNull($line->fresh()->applied_at, 'not at once: its expiry there may lag the transfer');
 
-        $row = ModuleAction::query()->open()->where('domain_id', $domain->id)->sole();
-        $this->assertSame($line->id, $row->invoice_item_id);
-        $this->assertStringContainsString('added no year', $row->last_error);
+        Carbon::setTestNow('2026-10-22 11:00:00');
+        $sync->sync($domain->refresh());
+        $this->assertNull($line->fresh()->applied_at, 'still short a day on: opened again, to be renewed there');
+
+        $this->assertSame(DomainRenewalService::APPLIED, app(DomainRenewalService::class)->renewLine($line->id));
+        $this->assertSame(DomainRenewalService::NOTHING, app(DomainRenewalService::class)->renewLine($line->id));
+        $sync->sync($domain->refresh());
+        $this->assertSame(1, $this->opRenewals, 'renewed there once');
+        $this->assertSame([0, '2027-11-01'], [$this->sent('RenewDomain'), $domain->fresh()->expires_at->toDateString()]);
+        $this->assertCount(1, $this->mails('domain_renewed'), 'told «renewed» once, when it was sent');
+    }
+
+    public function test_a_year_that_shows_up_late_is_never_charged_again(): void
+    {
+        [$domain, $line] = $this->paidRenewal();
+        app(DomainRenewalService::class)->renewLine($line->id);
+
+        $this->opStatus = 'ACT';
+        $this->opExpiry = '2026-11-01 00:00:00'; // the target's expiry lags its transfer
+        $sync = app(DomainSyncService::class);
+        $sync->sync($domain->refresh());
+        $this->opExpiry = '2027-11-01 00:00:00'; // there by the next sync
+        Carbon::setTestNow('2026-10-23 11:00:00');
+        $sync->sync($domain->refresh());
+        $sync->sync($domain->refresh());
+
+        $this->assertNotNull($line->fresh()->applied_at);
+        $this->assertSame(0, $this->opRenewals);
+        $this->assertArrayNotHasKey('short_since', $domain->fresh()->meta['renew_transfer']);
     }
 }

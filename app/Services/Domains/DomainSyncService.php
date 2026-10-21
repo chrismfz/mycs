@@ -103,6 +103,11 @@ class DomainSyncService
                 if ($before !== null) {
                     $this->transferOutcome($domain, DomainStatus::tryFrom((string) $before->status), $before->registrar_domain_id, $result);
                 }
+                try {
+                    $this->renewAfterTransfer($domain);
+                } catch (Throwable $e) {
+                    report($e); // the sync is done; the next one looks again
+                }
             }
 
             return $changes;
@@ -382,23 +387,78 @@ class DomainSyncService
         }
     }
 
+    /** Hours a transfer that replaced a renewal must still look short before its year is renewed at the target. */
+    public const RENEW_AFTER_TRANSFER_HOURS = 24;
+
     /**
-     * A transfer that replaced a renewal, done: its expiry reaches the end of the period paid, else staff are told (a TLD
-     * whose transfer adds no year, left off the exceptions: code review 1 of #303). The customer was told «renewed».
+     * A transfer that replaced a renewal, done: its expiry reaches the end of the period paid, or it is noted short (a TLD
+     * whose transfer adds no year). Nothing is charged yet: a registrar's expiry can lag its transfer (renewAfterTransfer).
      *
      * @param  array<string, mixed>  $record
      */
     private function renewalTransferDone(Domain $domain, array $record): void
     {
-        $line = InvoiceItem::query()->find($record['line'] ?? null);
-        if ($line === null || $line->period_end === null) {
+        if (self::renewalTransferShort($domain, $record)) {
+            $meta = $domain->meta ?? [];
+            $meta['renew_transfer']['short_since'] ??= now()->toIso8601String();
+            $domain->forceFill(['meta' => $meta])->saveQuietly();
+        }
+    }
+
+    /**
+     * Owner 2026-10-22: every TLD goes, «renewed there only if needed». A transfer that replaced a renewal and still added no
+     * year, seen so on a sync at least RENEW_AFTER_TRANSFER_HOURS after it was first noted (a lagging expiry is not charged
+     * twice): its paid line is opened again, and the renewal service renews it at the target, reading first (a year there
+     * by then is adopted, never charged). Once: meta.renew_transfer.reopened_at.
+     */
+    private function renewAfterTransfer(Domain $domain): void
+    {
+        if (empty($domain->meta['renew_transfer']['done_at'])) {
+            return; // most domains: no query more
+        }
+        $domain->refresh();
+        $meta = $domain->meta ?? [];
+        $record = $meta['renew_transfer'] ?? null;
+        if ($domain->status !== DomainStatus::Active || !is_array($record) || empty($record['done_at']) || empty($record['short_since'])
+            || !empty($record['reopened_at'])) {
             return;
         }
-        if ($domain->expires_at === null || $domain->expires_at->copy()->startOfDay()->lessThan(Carbon::parse($line->period_end)->startOfDay()->subDays(3))) {
-            ModuleAction::domainFailed($domain, $line, $domain->effectiveRegistrarConnection()?->registrar, new RuntimeException(
-                "{$domain->fqdn} was transferred in place of its paid renewal, but its expiry there is " . ($domain->expires_at?->toDateString() ?? 'unknown')
-                . " for a period paid to {$line->period_end->toDateString()}: its transfer added no year. Renew it there by hand, then close this; add its TLD to the connection's exceptions."));
+        if (!self::renewalTransferShort($domain, $record)) {
+            unset($meta['renew_transfer']['short_since']); // the year showed up: nothing to do
+            $domain->forceFill(['meta' => $meta])->saveQuietly();
+
+            return;
         }
+        if (Carbon::parse($record['short_since'])->greaterThan(now()->subHours(self::RENEW_AFTER_TRANSFER_HOURS))) {
+            return;
+        }
+        DB::transaction(function () use ($domain, $record) {
+            $fresh = Domain::query()->lockForUpdate()->findOrFail($domain->id); // the domain first (D5b-1 lock order)
+            $line = InvoiceItem::query()->lockForUpdate()->find($record['line']);
+            $meta = $fresh->meta ?? [];
+            if ($line === null || !empty($meta['renew_transfer']['reopened_at'])) {
+                return;
+            }
+            $meta['renew_transfer']['reopened_at'] = now()->toIso8601String();
+            $fresh->forceFill(['meta' => $meta])->save();
+            $line->forceFill(['applied_at' => null])->save();
+        });
+    }
+
+    /**
+     * Its expiry (here, as just synced) does not reach the end of the period its transfer replaced the renewal of.
+     *
+     * @param  array<string, mixed>  $record
+     */
+    private static function renewalTransferShort(Domain $domain, array $record): bool
+    {
+        $line = InvoiceItem::query()->find($record['line'] ?? null);
+        if ($line === null || $line->period_end === null) {
+            return false;
+        }
+
+        return $domain->expires_at === null
+            || $domain->expires_at->copy()->startOfDay()->lessThan(Carbon::parse($line->period_end)->startOfDay()->subDays(3));
     }
 
     /** Back to its registrar's expiry by at most this much (a garbled date never takes a year off: review F2). */

@@ -73,7 +73,7 @@ class RenewAsTransferAdversarialTest extends TestCase
         $this->to = DomainRegistrarConnection::query()->create(['registrar' => 'openprovider', 'label' => 'OP', 'is_active' => true, 'mode' => 'production']);
         $this->to->storeCredentials(['username' => 'u', 'password' => 'Op-Secret-Pa55'], ['password']);
         $this->from = DomainRegistrarConnection::query()->create(['registrar' => 'cnic', 'label' => 'CNIC', 'is_active' => true, 'mode' => 'production',
-            'renew_transfer_to_id' => $this->to->id, 'renew_transfer_except' => ['eu', 'uk']]);
+            'renew_transfer_to_id' => $this->to->id]);
         $this->from->storeCredentials(['username' => 'myipreseller', 'password' => 'Cnic-Secret-1'], ['password']);
     }
 
@@ -371,15 +371,15 @@ class RenewAsTransferAdversarialTest extends TestCase
         $this->assertStringNotContainsString('Epp-Code-123', (string) $stored);
     }
 
-    /** GUARD — passes. A second level of an excepted TLD (co.uk under «uk») is renewed here, never transferred. */
-    public function test_guard_a_second_level_of_an_excepted_tld_is_renewed_here(): void
+    /** GUARD (owner 2026-10-22: no exceptions). A second-level TLD (co.uk) is transferred as any other. */
+    public function test_guard_a_second_level_tld_is_transferred_too(): void
     {
         [$domain, $line] = $this->paidRenewal('co.uk');
 
         $this->assertSame(DomainRenewalService::APPLIED, app(DomainRenewalService::class)->renewLine($line->id));
-        $this->assertSame(1, $this->sent('RenewDomain'));
-        $this->assertSame([], $this->op);
-        $this->assertSame($this->from->id, $domain->fresh()->registrar_connection_id);
+        $this->assertSame(0, $this->sent('RenewDomain'));
+        $this->assertCount(1, $this->op);
+        $this->assertSame($this->to->id, $domain->fresh()->registrar_connection_id);
     }
 
     /** GUARD — passes. A two-year line is renewed here (a transfer adds one year only), never transferred. */
