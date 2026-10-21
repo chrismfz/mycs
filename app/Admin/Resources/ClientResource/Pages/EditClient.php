@@ -5,6 +5,7 @@ namespace App\Admin\Resources\ClientResource\Pages;
 use App\Admin\Actions\AuditAction;
 use App\Admin\Concerns\RemembersRecent;
 use App\Admin\Resources\ClientResource;
+use App\Admin\Resources\ClientResource\Concerns\NamesTheClient;
 use App\Admin\Resources\UserResource\Pages\EditUser;
 use App\Models\Client;
 use Filament\Actions\Action;
@@ -16,6 +17,7 @@ use Illuminate\Support\Facades\Auth;
 
 class EditClient extends EditRecord
 {
+    use NamesTheClient;
     use RemembersRecent;
 
     protected static string $resource = ClientResource::class;

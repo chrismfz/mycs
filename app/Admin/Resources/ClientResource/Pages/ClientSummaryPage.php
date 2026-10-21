@@ -5,6 +5,7 @@ namespace App\Admin\Resources\ClientResource\Pages;
 use App\Admin\Actions\InvoiceSelectedItemsAction;
 use App\Admin\Concerns\RemembersRecent;
 use App\Admin\Resources\ClientResource;
+use App\Admin\Resources\ClientResource\Concerns\NamesTheClient;
 use App\Admin\Resources\DomainResource;
 use App\Admin\Resources\EmailLogResource;
 use App\Admin\Resources\InvoiceResource;
@@ -27,6 +28,7 @@ use Filament\Schemas\Schema;
  */
 class ClientSummaryPage extends ViewRecord
 {
+    use NamesTheClient;
     use RemembersRecent;
 
     protected static string $resource = ClientResource::class;
@@ -39,13 +41,6 @@ class ClientSummaryPage extends ViewRecord
     public static function getNavigationLabel(): string
     {
         return __('Summary');
-    }
-
-    public function getTitle(): string
-    {
-        $client = $this->getRecord();
-
-        return $client instanceof Client ? '#' . $client->id . ' ' . $client->name : __('Summary');
     }
 
     public function infolist(Schema $schema): Schema

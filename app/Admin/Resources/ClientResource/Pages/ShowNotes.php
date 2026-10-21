@@ -3,6 +3,7 @@
 namespace App\Admin\Resources\ClientResource\Pages;
 
 use App\Admin\Resources\ClientResource;
+use App\Admin\Resources\ClientResource\Concerns\NamesTheClient;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
@@ -21,6 +22,8 @@ use Filament\Tables\Table;
  */
 class ShowNotes extends ManageRelatedRecords
 {
+    use NamesTheClient;
+
     protected static string $resource = ClientResource::class;
 
     protected static string $relationship = 'notes';

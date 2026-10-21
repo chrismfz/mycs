@@ -4,6 +4,7 @@ namespace App\Admin\Resources\ClientResource\Pages;
 
 use App\Admin\Actions\InvoiceSelectedItemsAction;
 use App\Admin\Resources\ClientResource;
+use App\Admin\Resources\ClientResource\Concerns\NamesTheClient;
 use App\Admin\Resources\DomainResource;
 use App\Models\Domain;
 use Filament\Actions\ViewAction;
@@ -15,6 +16,8 @@ use Filament\Tables\Table;
 /** The client's domains (docs/domains.md, D1), beside its Products/Services, as WHMCS's «Domains» tab. */
 class ShowDomains extends ManageRelatedRecords
 {
+    use NamesTheClient;
+
     protected static string $resource = ClientResource::class;
 
     protected static string $relationship = 'domains';

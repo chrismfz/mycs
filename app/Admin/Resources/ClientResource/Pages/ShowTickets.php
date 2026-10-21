@@ -3,6 +3,7 @@
 namespace App\Admin\Resources\ClientResource\Pages;
 
 use App\Admin\Resources\ClientResource;
+use App\Admin\Resources\ClientResource\Concerns\NamesTheClient;
 use App\Models\Ticket;
 use Filament\Resources\Pages\ManageRelatedRecords;
 use Filament\Tables\Columns\TextColumn;
@@ -11,6 +12,8 @@ use Illuminate\Database\Eloquent\Builder;
 
 class ShowTickets extends ManageRelatedRecords
 {
+    use NamesTheClient;
+
     protected static string $resource = ClientResource::class;
 
     protected static string $relationship = 'tickets';
