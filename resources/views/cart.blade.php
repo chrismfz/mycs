@@ -1,6 +1,22 @@
 <div class="container mt-14">
     <div class="flex flex-col md:grid md:grid-cols-4 gap-8">
         <div class="flex flex-col col-span-3 gap-4">
+            {{-- An offer's link just filled the cart (ROADMAP 6α): what it did, and what is left to the customer. --}}
+            @if (session('offer'))
+                @php($offer = session('offer'))
+                <div class="flex flex-col gap-2 bg-background-secondary border border-primary/40 p-4 rounded-lg text-sm">
+                    <p class="font-semibold">{{ __('product.offer_added', ['offer' => $offer['name']]) }}</p>
+                    @if ($offer['coupon'])
+                        <p>{{ __('product.offer_coupon', ['code' => $offer['coupon']]) }}</p>
+                    @endif
+                    @if ($offer['error'])
+                        <p class="text-red-500">{{ $offer['error'] }}</p>
+                    @endif
+                    @foreach ($offer['to_configure'] as $product)
+                        <p>{{ __('product.offer_configure') }} <a href="{{ $product['url'] }}" class="underline" wire:navigate>{{ $product['name'] }}</a></p>
+                    @endforeach
+                </div>
+            @endif
             @if (Cart::items()->count() === 0)
             {{-- Not a dead end (shop polish of 2026-10-20): the way back to the products. --}}
             <div class="flex flex-col items-start gap-3 bg-background-secondary border border-neutral p-6 rounded-lg">

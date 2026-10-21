@@ -1,6 +1,9 @@
 <?php
 
 return [
+    'offer_added' => 'The offer «:offer» is in your cart.',
+    'offer_coupon' => 'Its discount is applied (:code).',
+    'offer_configure' => 'Complete your choices for:',
     'add_to_cart' => 'Add to cart',
     'view' => 'View',
     'checkout' => 'Checkout',

@@ -66,9 +66,12 @@ class Cart
 
     protected const DEFAULT_RATE_LIMIT_DECAY_MINUTES = 1;
 
-    public static function add(Product $product, Plan $plan, $configOptions, $checkoutConfig, $quantity = 1, $key = null)
+    /** @param  bool  $limited  false for one of several added at once, which hit the limit once (an offer: addLimit()) */
+    public static function add(Product $product, Plan $plan, $configOptions, $checkoutConfig, $quantity = 1, $key = null, bool $limited = true)
     {
-        self::checkRateLimit();
+        if ($limited) {
+            self::checkRateLimit();
+        }
 
         // Match on key
         $cart = self::createCart();
@@ -225,6 +228,12 @@ class Cart
         }
     }
 
+    /** One hit of the add limit for several products added at once (an offer's link). */
+    public static function addLimit(): void
+    {
+        self::checkRateLimit();
+    }
+
     protected static function checkRateLimit()
     {
         $key = self::resolveRateLimiterKey();
@@ -304,20 +313,20 @@ class Cart
             $coupon = Coupon::where('code', $coupon_code)->lockForUpdate()->first();
 
             if (!$coupon) {
-                throw new DisplayException('Coupon code not found');
+                throw new DisplayException(__('Coupon code not found'));
             }
 
             if ($coupon->expires_at && $coupon->expires_at->isPast()) {
-                throw new DisplayException('Coupon code has expired');
+                throw new DisplayException(__('Coupon code has expired'));
             }
             if ($coupon->starts_at && $coupon->starts_at->isFuture()) {
-                throw new DisplayException('Coupon code is not active yet');
+                throw new DisplayException(__('Coupon code is not active yet'));
             }
             if ($coupon->max_uses && $coupon->services()->count() >= $coupon->max_uses) {
-                throw new DisplayException('Coupon code has reached its maximum uses');
+                throw new DisplayException(__('Coupon code has reached its maximum uses'));
             }
             if (Auth::check() && $coupon->hasExceededMaxUsesPerUser(CurrentClient::id())) {
-                throw new DisplayException('You have already used this coupon the maximum number of times allowed');
+                throw new DisplayException(__('You have already used this coupon the maximum number of times allowed'));
             }
             // Its rules for this customer (a guest's are checked again at checkout, once signed up or in).
             // An empty cart keeps it for what comes (F7 of #274): its products are checked once there are some.
@@ -336,7 +345,7 @@ class Cart
                     }
                 }
                 if (!$applicable) {
-                    throw new DisplayException('Coupon code is not valid for any items in your cart');
+                    throw new DisplayException(__('Coupon code is not valid for any items in your cart'));
                 }
             }
 
@@ -347,7 +356,7 @@ class Cart
     public static function applyCoupon($code)
     {
         if (RateLimiter::tooManyAttempts('apply_coupon_' . request()->ip(), 5)) {
-            throw new DisplayException('Too many attempts. Please try again later.');
+            throw new DisplayException(__('Too many attempts. Please try again later.'));
         }
 
         RateLimiter::hit('apply_coupon_' . request()->ip());
@@ -373,7 +382,7 @@ class Cart
         } else {
             $cart->coupon_id = null;
             $cart->save();
-            throw new DisplayException('Coupon code is not valid for any items in your cart');
+            throw new DisplayException(__('Coupon code is not valid for any items in your cart'));
         }
     }
 
