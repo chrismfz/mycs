@@ -54,8 +54,8 @@
 (nameservers, ημερομηνίες) και η ροή του hook του WHMCS: στην ανανέωση unlock, EPP code και μεταφορά στο Openprovider
 με τους ίδιους nameservers (χωρίς τα σφάλματα σειράς του παλιού hook), και λίστα για το staff όσων μένουν χειροκίνητα.
 Αργότερα, με την ησυχία μας. **Αναθεώρηση (ο υπεύθυνος, 2026-10-21):** domains λήγουν έως το 2034 (2027: 97, 2028: 16, 2029+:
-12), άρα κανονικός registrar, σε βήματα (`domains.md` «CentralNic Reseller»): (1) αναγνώσεις (feat/cnic-registrar), (2) διαχείριση
-(nameservers, lock, EPP, επαφές), (3) ανανέωση, (4) μεταφορά στο Openprovider στην ανανέωση.
+12), άρα κανονικός registrar, σε βήματα (`domains.md` «CentralNic Reseller»): (1) αναγνώσεις (#297, #298), (2) διαχείριση
+(nameservers, lock, EPP, επαφές· feat/cnic-manage), (3) ανανέωση, (4) μεταφορά στο Openprovider στην ανανέωση.
 
 **myip:**
 - [ ] cPanel: λογαριασμοί reseller (22), αλλαγή κωδικού (staff και πελάτης, 39 τον χρόνο), αργότερα συγχρονισμός χρήσης.
