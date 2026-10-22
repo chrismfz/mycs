@@ -151,4 +151,14 @@ class MailCopiesTest extends TestCase
         $this->assertStringContainsString('href="sms:+3021"', $html);
         $this->assertStringContainsString('href="#"', TemplateRenderer::renderMarkdown('<a href="data:image/png;base64,x">x</a>', []));
     }
+
+    public function test_outlooks_conditional_comment_keeps_its_links_checked(): void
+    {
+        $html = TemplateRenderer::renderMarkdown('<div><!--[if mso]><a href="javascript:alert(1)">x</a><a href="https://ok.test">y</a><![endif]--><!-- <b title=" --></div>', []);
+
+        $this->assertStringNotContainsString('javascript:', $html);
+        $this->assertStringContainsString('<!--[if mso]>', $html);
+        $this->assertStringContainsString('href="https://ok.test"', $html);
+        $this->assertStringContainsString('<!-- <b title=" -->', $html);
+    }
 }

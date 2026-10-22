@@ -151,7 +151,20 @@ class TemplateRenderer
         $length = strlen($html);
         while (($open = strpos($html, '<', $at)) !== false) {
             $out .= substr($html, $at, $open - $at);
-            if (!ctype_alpha($html[$open + 1] ?? '')) {
+            $next = $html[$open + 1] ?? '';
+            if ($next === '!' || $next === '?') {
+                // A comment to its "-->", anything else of the kind (CDATA, a doctype) to its ">", as a browser ends them,
+                // copied as they are. Outlook's conditional comment holds tags it shows: read on inside it.
+                $conditional = substr_compare($html, '<!--[if', $open, 7, true) === 0;
+                $end = str_starts_with(substr($html, $open, 4), '<!--') && !$conditional
+                    ? (($close = strpos($html, '-->', $open + 4)) === false ? $length : $close + 3)
+                    : (($close = strpos($html, '>', $open + 2)) === false ? $length : $close + 1);
+                $out .= substr($html, $open, $end - $open);
+                $at = $end;
+
+                continue;
+            }
+            if (!ctype_alpha($next)) {
                 $out .= '<';
                 $at = $open + 1;
 
