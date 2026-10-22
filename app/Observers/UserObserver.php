@@ -6,6 +6,7 @@ use App\Events\User as UserEvent;
 use App\Exceptions\DisplayException;
 use App\Models\ClientUser;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 
 class UserObserver
 {
@@ -23,6 +24,17 @@ class UserObserver
     public function created(User $user): void
     {
         event(new UserEvent\Created($user));
+    }
+
+    /**
+     * A reset link mailed to the old address opens nothing once the address changed (the table's collation would still
+     * match it to a lookalike new one).
+     */
+    public function updating(User $user): void
+    {
+        if ($user->isDirty('email') && $user->getOriginal('email') !== null) {
+            DB::table((string) config('auth.passwords.users.table'))->where('email', $user->getOriginal('email'))->delete();
+        }
     }
 
     /**

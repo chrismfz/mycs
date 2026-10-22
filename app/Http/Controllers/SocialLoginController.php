@@ -56,38 +56,46 @@ class SocialLoginController extends Controller
 
     public function handle($provider)
     {
-        $action = new Login;
+        if (!config("settings.oauth_$provider")) {
+            abort(404);
+        }
+
         if ($provider == 'discord') {
             $oauth_user = $this->discord_driver->user();
 
-            if ($oauth_user->user['verified'] == false) {
-                return redirect()->route('login')->with('error', __('auth.oauth.unverified_discord_account'));
+            if (($oauth_user->user['verified'] ?? false) !== true) {
+                return $this->refuse('login', __('auth.oauth.unverified_discord_account'));
             }
 
             return $this->findUserAndLogin($oauth_user->email);
         } elseif ($provider == 'google') {
             $oauth_user = $this->google_driver->user();
 
-            if (!$oauth_user->user['email_verified']) {
-                return redirect()->route('login')->with('error', __('auth.oauth.unverified_google_account'));
+            if (($oauth_user->user['email_verified'] ?? false) !== true) {
+                return $this->refuse('login', __('auth.oauth.unverified_google_account'));
             }
 
             return $this->findUserAndLogin($oauth_user->email);
         } elseif ($provider == 'github') {
-            $oauth_user = $this->github_driver->user();
-
+            // Socialite asks GitHub for a primary, verified address when the profile shows none.
             return $this->findUserAndLogin($this->github_driver->user()->email);
         } else {
             return redirect()->route('login');
         }
     }
 
-    private function findUserAndLogin(string $email): RedirectResponse
+    private function findUserAndLogin(?string $email): RedirectResponse
     {
+        // The column's collation matches «ä» to «a» and «ｂ» to «b»: the provider's address must be the account's own.
         $user = User::where('email', $email)->first();
+        if ($email === null || $email === '' || !$user || strtolower($user->email) !== strtolower($email)) {
+            return $this->refuse('register', __('auth.oauth.account_not_registered'));
+        }
 
-        if (!$user) {
-            return redirect()->route('register')->with('error', __('auth.oauth.account_not_registered'));
+        // Whoever registered an address they never confirmed knows its password: logging its owner in through the
+        // provider would hand them that account. A password reset proves the address (and ends the other sessions).
+        if (!$user->email_verified_at) {
+            return $this->refuse('password.request', __('auth.oauth.unverified_account'));
         }
 
         if ($user->tfa_secret) {
@@ -104,5 +112,13 @@ class SocialLoginController extends Controller
 
         // Back where the login started from (an invitation's link, PR 2b).
         return redirect(session()->pull('url.intended', route('home')));
+    }
+
+    /** Back to a page with why (the pages show the session's notification, not a flashed «error»). */
+    private function refuse(string $route, string $message): RedirectResponse
+    {
+        Session::put('notification', ['message' => $message, 'type' => 'error']);
+
+        return redirect()->route($route);
     }
 }
