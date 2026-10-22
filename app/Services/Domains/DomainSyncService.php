@@ -270,7 +270,7 @@ class DomainSyncService
         $warning = $changes['_warning'][1] ?? null;
         unset($changes['_warning']);
         $meta = $domain->meta ?? [];
-        unset($meta['not_ours']); // ours again: a «not ours» seen before was not a transfer away
+        unset($meta['not_ours'], $meta['missing_since']); // ours again: a «not ours» seen before was not a transfer away
         // The connection that read it as ours: only that one can later say it left (ADV-3 of #203).
         $meta['read_by'] = $domain->effectiveRegistrarConnection()?->id;
         if ($result->rawStatus !== null) {
@@ -565,6 +565,11 @@ class DomainSyncService
     private function notOurs(Domain $domain, DomainNotFoundAtRegistrar $e): void
     {
         $domain->refresh();
+        // A lapsed one its registrar no longer has, and cannot say where (CNIC's 545: deleted or gone): noted, so the
+        // lifecycle ends it a month past its last stage instead of never (ADV-2 of #308).
+        if ($e->elsewhere === false && in_array($domain->status, self::LAPSED, true) && !isset($domain->meta['missing_since'])) {
+            $domain->forceFill(['meta' => ['missing_since' => now()->toIso8601String()] + ($domain->meta ?? [])])->saveQuietly();
+        }
         if ($e->elsewhere === false || !in_array($domain->status, [DomainStatus::Active, ...self::LAPSED], true)) {
             return;
         }
