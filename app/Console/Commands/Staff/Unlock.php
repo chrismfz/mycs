@@ -10,6 +10,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
+use OwenIt\Auditing\Events\AuditCustom;
 
 use function Laravel\Prompts\password;
 
@@ -90,11 +91,24 @@ class Unlock extends Command
             $staff->save();
         }
 
+        // In the member's audit, what changed (never the secrets themselves): its columns are left out of the audit, so
+        // a plain save leaves no row (review of #351).
+        $staff->auditEvent = 'unlocked_from_console';
+        $staff->isCustomEvent = true;
+        $staff->auditCustomOld = [];
+        $staff->auditCustomNew = ['changes' => $changes, 'host' => gethostname()];
+        event(new AuditCustom($staff));
         Log::warning('Staff unlocked from the console', ['staff_id' => $staff->id, 'changes' => $changes]);
         NotificationHelper::sendSystemEmailNotification('A member of staff was unlocked from the console', e(
             "{$who}: " . implode(', ', $changes) . ', on ' . gethostname() . ' at ' . now()->toDateTimeString() . '. If nobody here did it, the server itself is in other hands.'
         ));
         $this->info('Done: ' . implode(', ', $changes) . '.');
+        if (!$staff->active) {
+            $this->warn('This member of staff is disabled: they still cannot log in until enabled in the admin.');
+        }
+        if ($this->option('reset-2fa') && $new === null) {
+            $this->warn('Whoever knows their password sets the new 2FA up first: if it may be known to someone else, run again with --password.');
+        }
 
         return self::SUCCESS;
     }
