@@ -197,11 +197,13 @@ class OpenproviderSsl extends Server
     {
         [$registrar, $credentials] = $this->openprovider();
         $rows = [];
-        for ($offset = 0; $offset < 1000; $offset += 100) {
-            $data = $registrar->sslCall($credentials, 'GET', '/v1/ssl/products?' . http_build_query(['with_price' => 'true', 'limit' => 100, 'offset' => $offset]));
+        // Paged up to Openprovider's `total` (a page may be shorter than asked: ADV-9 of #348), at most 2000.
+        while (count($rows) < 2000) {
+            $data = $registrar->sslCall($credentials, 'GET', '/v1/ssl/products?' . http_build_query(['with_price' => 'true', 'limit' => 100, 'offset' => count($rows)]));
             $page = array_values(array_filter((array) ($data['results'] ?? []), 'is_array'));
             array_push($rows, ...$page);
-            if (count($page) < 100) {
+            $total = is_numeric($data['total'] ?? null) ? (int) $data['total'] : null;
+            if ($page === [] || ($total !== null && count($rows) >= $total) || ($total === null && count($page) < 100)) {
                 break;
             }
         }

@@ -16,6 +16,7 @@ use App\Services\Ssl\SslCatalog;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -138,7 +139,40 @@ class SslCatalogTest extends TestCase
         $this->assertSame(1, Product::query()->count());
         $this->assertSame('11.53', (string) $product->plans()->where('billing_unit', 'year')->sole()->prices()->value('price'));
         $this->assertSame('1.00', number_format((float) $monthly->prices()->value('price'), 2), 'another plan untouched');
-        $this->assertSame(['EUR' => [1 => '11.53']], SslCatalog::linked($this->server)[9]['prices']);
+        $this->assertSame(['EUR' => [1 => '11.53']], SslCatalog::linked($this->server)[9][0]['prices']);
+    }
+
+    public function test_a_price_in_a_currency_with_no_rate_stops_the_import_and_a_free_price_is_kept(): void
+    {
+        $entry = SslCatalog::entries($this->products)[9];
+        SslCatalog::import($this->server, [$entry], $this->importOptions(1, ['USD' => '1.10']), $this->category->id, true);
+
+        $e = rescue(fn () => SslCatalog::import($this->server, [$entry], $this->importOptions(), $this->category->id, true), fn ($e) => $e, false);
+        $this->assertInstanceOf(\InvalidArgumentException::class, $e, 'USD priced, no USD rate: refused, never left under cost unseen');
+        $this->assertStringContainsString('USD', $e->getMessage());
+
+        $plan = Product::query()->sole()->plans()->sole();
+        $plan->prices()->where('currency_code', 'USD')->update(['price' => 0]);
+        SslCatalog::import($this->server, [$entry], new TldImportOptions(marginType: 'fixed', margin: '1', rounding: 'none', rates: ['USD' => '1.10']), $this->category->id, true);
+        $this->assertSame(['EUR' => '7.53', 'USD' => '0.00'], $plan->prices()->orderBy('currency_code')->get()
+            ->mapWithKeys(fn ($p) => [$p->currency_code => number_format((float) $p->price, 2, '.', '')])->all(), 'a free price is a decision (D-6)');
+    }
+
+    public function test_two_live_products_of_one_id_are_both_repriced_and_named_in_english(): void
+    {
+        $entry = SslCatalog::entries($this->products)[9];
+        app()->setLocale('el');
+        SslCatalog::import($this->server, [$entry], $this->importOptions(2), $this->category->id, true);
+        $twin = Product::query()->sole()->replicate(['slug']);
+        $twin->slug = 'twin';
+        $twin->save();
+        $twin->settings()->create(['key' => 'product_id', 'value' => '9']);
+
+        SslCatalog::import($this->server, [$entry], new TldImportOptions(marginType: 'fixed', margin: '2', rounding: 'none', years: 2), $this->category->id, true);
+
+        $this->assertSame(['1 year', '2 years'], Product::query()->orderBy('id')->first()->plans()->orderBy('billing_period')->pluck('name')->all());
+        $this->assertSame(['8.53', '13.90'], $twin->plans()->orderBy('billing_period')->get()->map(fn ($p) => number_format((float) $p->prices()->value('price'), 2, '.', ''))->all());
+        $this->assertCount(2, SslCatalog::linked($this->server)[9]);
     }
 
     public function test_a_product_that_cannot_be_sold_is_never_imported(): void
@@ -171,7 +205,7 @@ class SslCatalogTest extends TestCase
             ->fillForm(['server_id' => $this->server->id, 'category_id' => $this->category->id, 'margin_type' => 'percent', 'margin' => '30', 'rounding' => '.99', 'years' => 1]);
         $this->assertInstanceOf(\Throwable::class, rescue(fn () => $page->set('fetched', [9 => ['id' => 9, 'sellable' => true, 'costs' => [1 => ['cost' => '0.01', 'currency' => 'EUR']]]]), fn ($e) => $e, false));
 
-        \Illuminate\Support\Facades\Auth::guard('staff')->logout();
+        Auth::guard('staff')->logout();
         $this->assertFalse(ImportSsl::canAccess(), 'no staff');
         $this->actingAs($this->staff(['admin.products.view']));
         $this->assertFalse(ImportSsl::canAccess());

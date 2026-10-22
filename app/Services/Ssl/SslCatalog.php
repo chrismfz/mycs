@@ -10,6 +10,7 @@ use App\Services\Domains\Pricing\TldImportOptions;
 use App\Services\Domains\Pricing\TldPriceMath;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 
 /**
  * Openprovider's SSL products as a catalogue for staff (owner 2026-10-22: «what I may sell, at what price, with what
@@ -22,8 +23,14 @@ final class SslCatalog
 {
     public const MAX_YEARS = 3;
 
+    /** Openprovider's categories of a website certificate the extension orders (one name and its www, or a wildcard). */
+    private const WEBSITE_CATEGORIES = ['domain_validation', 'organization_validation', 'extended_validation', 'wildcard'];
+
     /**
-     * Openprovider's rows, as staff read them.
+     * Openprovider's rows, as staff read them. A cost is its reseller price rounded to the cent and above zero, an amount
+     * MyCS takes (ADV-1, ADV-5 of #348: never a free or broken price); a period listed twice, or a product, keeps its
+     * higher cost (ADV-8); none beyond the product's `max_period` (ADV-6). Sellable: a website certificate only, by its
+     * category, its flags and its name (ADV-7: never what the extension cannot order).
      *
      * @param  list<array<string, mixed>>  $raw
      * @return array<int, array{id: int, name: string, brand: string, validation: string, wildcard: bool, sellable: bool, reason: ?string, costs: array<int, array{cost: string, currency: string}>}>
@@ -36,34 +43,47 @@ final class SslCatalog
             if ($id <= 0) {
                 continue;
             }
-            $costs = [];
+            $maxPeriod = (int) ($row['max_period'] ?? 0);
+            $costs = $out[$id]['costs'] ?? [];
             foreach ((array) ($row['prices'] ?? []) as $price) {
                 $years = (int) ($price['period'] ?? 0);
                 $amount = $price['price']['reseller']['price'] ?? null;
                 $currency = strtoupper((string) ($price['price']['reseller']['currency'] ?? ''));
-                if ($years >= 1 && $years <= self::MAX_YEARS && (is_int($amount) || is_float($amount) || (is_string($amount) && is_numeric($amount)))
-                    && (float) $amount > 0 && preg_match('/^[A-Z]{3}$/', $currency) === 1) {
-                    $costs[$years] = ['cost' => number_format(round((float) $amount, 2), 2, '.', ''), 'currency' => $currency];
+                if ($years < 1 || $years > self::MAX_YEARS || ($maxPeriod > 0 && $years > $maxPeriod) || preg_match('/^[A-Z]{3}$/', $currency) !== 1
+                    || !(is_int($amount) || is_float($amount) || (is_string($amount) && is_numeric($amount))) || !is_finite((float) $amount)) {
+                    continue;
                 }
+                $cost = number_format(round((float) $amount, 2), 2, '.', '');
+                if (!TldPriceMath::isAmount($cost) || bccomp($cost, '0', 2) <= 0) {
+                    continue;
+                }
+                $known = $costs[$years] ?? null;
+                if ($known !== null && ($known['currency'] !== $currency || bccomp($known['cost'], $cost, 2) >= 0)) {
+                    continue; // the higher of two, never a lower duplicate; two currencies for one period: the first
+                }
+                $costs[$years] = ['cost' => $cost, 'currency' => $currency];
             }
             ksort($costs);
             $name = trim((string) ($row['name'] ?? ''));
             $category = (string) ($row['category'] ?? '');
+            $names = max((int) ($row['max_domains'] ?? 0), (int) ($row['included_domains_count'] ?? 0), (int) ($row['number_of_domains'] ?? 0));
             $reason = match (true) {
-                stripos($name, 'code signing') !== false => 'code_signing',
-                stripos($name, 's/mime') !== false => 'smime',
-                $category === 'multi_domain' || (int) ($row['max_domains'] ?? 0) > 1 || (int) ($row['included_domains_count'] ?? 0) > 1 => 'multi_domain',
+                preg_match('/code[\s-]*sign/i', $name) === 1 => 'code_signing',
+                preg_match('#s/?mime|personal|e-?mail#i', $name) === 1 => 'smime',
+                $category === 'multi_domain' || $names > 1 => 'multi_domain',
+                !in_array($category, self::WEBSITE_CATEGORIES, true) || !in_array((string) ($row['validation_method'] ?? ''), ['domain', 'organization', 'extended'], true) => 'not_website',
                 !isset($costs[1]) => 'no_price',
                 default => null,
             };
+            $sellable = $reason === null && ($out[$id]['sellable'] ?? true);
             $out[$id] = [
                 'id' => $id,
-                'name' => $name,
-                'brand' => trim((string) ($row['brand_name'] ?? '')),
-                'validation' => (string) ($row['validation_method'] ?? ''),
-                'wildcard' => !empty($row['is_wildcard_supported']) || $category === 'wildcard',
-                'sellable' => $reason === null,
-                'reason' => $reason,
+                'name' => $out[$id]['name'] ?? $name,
+                'brand' => $out[$id]['brand'] ?? trim((string) ($row['brand_name'] ?? '')),
+                'validation' => $out[$id]['validation'] ?? (string) ($row['validation_method'] ?? ''),
+                'wildcard' => ($out[$id]['wildcard'] ?? false) || !empty($row['is_wildcard_supported']) || $category === 'wildcard',
+                'sellable' => $sellable,
+                'reason' => $sellable ? null : ($out[$id]['reason'] ?? $reason ?? 'no_price'),
                 'costs' => $costs,
             ];
         }
@@ -72,8 +92,9 @@ final class SslCatalog
     }
 
     /**
-     * The prices a margin makes, per currency and years (Openprovider's cost of those years, converted by staff's rate
-     * when it is in another currency; a currency with no rate gets none).
+     * The prices a margin makes, per currency and years: Openprovider's cost of those years, in its currency or
+     * converted from euros by staff's rate (the rates are of the euro: a cost in another currency is never converted
+     * with them, ADV-2 of #348); a currency with no rate gets none.
      *
      * @param  array{costs: array<int, array{cost: string, currency: string}>}  $entry
      * @return array<string, array<int, array{price: string, cost: string}>> currency => years => price and cost (in it)
@@ -83,14 +104,10 @@ final class SslCatalog
         $out = [];
         foreach (Currency::query()->orderBy('code')->pluck('code') as $currency) {
             foreach ($entry['costs'] as $years => $cost) {
-                if ($years > $options->years) {
-                    continue;
-                }
-                $rate = $currency === $cost['currency'] ? '1' : ($options->rates[$currency] ?? null);
-                if ($rate === null || $rate === '') {
+                $converted = $years <= $options->years ? self::cost($cost, $currency, $options) : null;
+                if ($converted === null) {
                     continue; // never a silent conversion
                 }
-                $converted = TldPriceMath::convert($cost['cost'], $rate);
                 $out[$currency][$years] = [
                     'price' => TldPriceMath::round(TldPriceMath::withMargin($converted, $options->marginType, $options->margin), $options->rounding),
                     'cost' => TldPriceMath::cents($converted),
@@ -99,6 +116,21 @@ final class SslCatalog
         }
 
         return $out;
+    }
+
+    /**
+     * A cost in this currency: its own, or from euros by staff's rate; none otherwise.
+     *
+     * @param  array{cost: string, currency: string}  $cost
+     */
+    public static function cost(array $cost, string $currency, TldImportOptions $options): ?string
+    {
+        if ($currency === $cost['currency']) {
+            return $cost['cost'];
+        }
+        $rate = $cost['currency'] === 'EUR' ? ($options->rates[$currency] ?? null) : null;
+
+        return $rate === null || $rate === '' ? null : TldPriceMath::convert($cost['cost'], $rate);
     }
 
     /** The margin a price leaves over a cost, in percent of the cost (one decimal); none for no cost. */
@@ -112,17 +144,19 @@ final class SslCatalog
     }
 
     /**
-     * The MyCS products of this SSL server, by their Openprovider product id, with their prices now.
+     * The live (not retired) MyCS products of this SSL server, by their Openprovider product id: all of them (two with one
+     * id are both repriced and both shown, ADV-3 of #348), each with its prices now, the lowest where two plans have the
+     * same years (ADV-10).
      *
-     * @return array<int, array{product: Product, prices: array<string, array<int, string>>}> id => product, currency => years => price
+     * @return array<int, list<array{product: Product, prices: array<string, array<int, string>>}>> id => products
      */
     public static function linked(Server $server): array
     {
         $out = [];
-        $products = Product::query()->where('server_id', $server->id)->with(['settings', 'plans.prices'])->get();
+        $products = Product::query()->where('server_id', $server->id)->where('retired', false)->orderBy('id')->with(['settings', 'plans.prices'])->get();
         foreach ($products as $product) {
             $id = (int) $product->settings->pluck('value', 'key')->get('product_id');
-            if ($id <= 0 || isset($out[$id])) {
+            if ($id <= 0) {
                 continue;
             }
             $prices = [];
@@ -133,20 +167,25 @@ final class SslCatalog
                 }
                 foreach ($plan->prices as $price) {
                     if ($price->price !== null) {
-                        $prices[$price->currency_code][$years] = (string) $price->price;
+                        $now = $prices[$price->currency_code][$years] ?? null;
+                        $amount = number_format((float) $price->price, 2, '.', '');
+                        $prices[$price->currency_code][$years] = $now === null || bccomp($amount, $now, 2) < 0 ? $amount : $now;
                     }
                 }
             }
-            $out[$id] = ['product' => $product, 'prices' => $prices];
+            $out[$id][] = ['product' => $product, 'prices' => $prices];
         }
 
         return $out;
     }
 
     /**
-     * Import the products ticked, all or nothing: a new one made (hidden unless staff say otherwise) on this server and
-     * category; an existing one (its Openprovider id on this server) keeps its name, listing and other plans, its plan
-     * of each period up to the years chosen gets the new prices (made when missing). Only sellable products.
+     * Import the products ticked, all or nothing, one at a time per server (its row locked): each Openprovider id once
+     * (ADV-4 of #348); a new one made (hidden unless staff say otherwise) on this server and category; each live product
+     * of an id keeps its name, listing and other plans, and every recurring plan of each period up to the years chosen
+     * gets the new prices (made when missing; ADV-10). A free or not-offered price stays as it is (as the TLD import,
+     * D-6). A product priced in a currency the import cannot price (no rate) is refused, never left under its cost
+     * unseen (ADV-11). Only sellable products.
      *
      * @param  list<array<string, mixed>>  $entries  as entries() made them, the ticked ones
      * @return int products written
@@ -154,39 +193,68 @@ final class SslCatalog
     public static function import(Server $server, array $entries, TldImportOptions $options, int $categoryId, bool $hidden): int
     {
         return DB::transaction(function () use ($server, $entries, $options, $categoryId, $hidden) {
+            Server::query()->whereKey($server->id)->lockForUpdate()->first();
             $linked = self::linked($server);
-            $count = 0;
+            $byId = [];
             foreach ($entries as $entry) {
-                if (!($entry['sellable'] ?? false)) {
-                    continue;
+                if (($entry['sellable'] ?? false) && isset($entry['id'])) {
+                    $byId[(int) $entry['id']] = $entry;
                 }
+            }
+            $count = 0;
+            foreach ($byId as $id => $entry) {
                 $prices = self::prices($entry, $options);
                 if ($prices === []) {
                     continue;
                 }
-                $product = $linked[$entry['id']]['product'] ?? self::newProduct($server, $entry, $categoryId, $hidden);
-                foreach (range(1, min($options->years, self::MAX_YEARS)) as $years) {
-                    if (!isset($entry['costs'][$years])) {
-                        continue;
-                    }
-                    $plan = $product->plans()->get()->first(fn (Plan $plan) => $plan->type === 'recurring' && self::planYears($plan) === $years);
-                    if ($plan === null) {
-                        $plan = (new Plan)->forceFill(['priceable_id' => $product->id, 'priceable_type' => Product::class, 'type' => 'recurring',
-                            'name' => trans_choice('{1} :count year|[2,*] :count years', $years, ['count' => $years]),
-                            'billing_unit' => 'year', 'billing_period' => $years, 'sort' => $years]);
-                        $plan->save();
-                    }
-                    foreach ($prices as $currency => $byYears) {
-                        if (isset($byYears[$years])) {
-                            $plan->prices()->updateOrCreate(['currency_code' => $currency], ['price' => $byYears[$years]['price']]);
+                foreach ($linked[$id] ?? [] as $existing) {
+                    foreach ($existing['prices'] as $currency => $byYears) {
+                        foreach ($byYears as $years => $price) {
+                            if ($years <= $options->years && isset($entry['costs'][$years]) && bccomp($price, '0', 2) > 0 && !isset($prices[$currency][$years])) {
+                                throw new InvalidArgumentException(__('«:product» is priced in :currency, which the import cannot price: give its rate.', [
+                                    'product' => $existing['product']->name, 'currency' => $currency]));
+                            }
                         }
                     }
+                }
+                $products = array_column($linked[$id] ?? [], 'product') ?: [self::newProduct($server, $entry, $categoryId, $hidden)];
+                foreach ($products as $product) {
+                    self::reprice($product, $entry, $prices, $options);
                 }
                 $count++;
             }
 
             return $count;
         });
+    }
+
+    /** @param  array<string, array<int, array{price: string, cost: string}>>  $prices */
+    private static function reprice(Product $product, array $entry, array $prices, TldImportOptions $options): void
+    {
+        foreach (range(1, min($options->years, self::MAX_YEARS)) as $years) {
+            if (!isset($entry['costs'][$years])) {
+                continue;
+            }
+            $plans = $product->plans()->get()->filter(fn (Plan $plan) => $plan->type === 'recurring' && self::planYears($plan) === $years);
+            if ($plans->isEmpty()) {
+                $plan = (new Plan)->forceFill(['priceable_id' => $product->id, 'priceable_type' => Product::class, 'type' => 'recurring',
+                    'name' => $years === 1 ? '1 year' : "{$years} years", 'billing_unit' => 'year', 'billing_period' => $years, 'sort' => $years]);
+                $plan->save();
+                $plans = collect([$plan]);
+            }
+            foreach ($plans as $plan) {
+                foreach ($prices as $currency => $byYears) {
+                    if (!isset($byYears[$years])) {
+                        continue;
+                    }
+                    $row = $plan->prices()->where('currency_code', $currency)->first();
+                    if ($row !== null && $options->keepFreeAndClosed && ($row->price === null || bccomp((string) $row->price, '0', 2) === 0)) {
+                        continue; // a free or not-offered price is a decision (D-6)
+                    }
+                    $plan->prices()->updateOrCreate(['currency_code' => $currency], ['price' => $byYears[$years]['price']]);
+                }
+            }
+        }
     }
 
     /** A plan's years: 1 to 3 years, as a year unit or 12, 24, 36 months. */

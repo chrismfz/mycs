@@ -8,6 +8,7 @@
             'smime' => __('S/MIME: an email certificate'),
             'multi_domain' => __('Multi-domain: not offered yet'),
             'no_price' => __('No price from Openprovider'),
+            'not_website' => __('Not a website certificate'),
         ];
         $validation = ['domain' => 'DV', 'organization' => 'OV', 'extended' => 'EV'];
     @endphp
@@ -51,27 +52,35 @@
                                             @endif
                                         </td>
                                         <td class="py-2 pr-3 align-top" rowspan="{{ count($lines) }}">
-                                            @if ($row['product_url'])
-                                                <a href="{{ $row['product_url'] }}" class="text-primary-600 hover:underline">{{ $row['product_name'] }}</a>
-                                                <span class="text-xs {{ $row['product_listed'] ? 'text-success-600' : 'text-gray-500' }}">({{ $row['product_listed'] ? __('listed') : __('hidden') }})</span>
-                                            @else
+                                            @forelse ($row['products'] as $product)
+                                                <div>
+                                                    <a href="{{ $product['url'] }}" class="text-primary-600 hover:underline">{{ $product['name'] }}</a>
+                                                    <span class="text-xs {{ $product['listed'] ? 'text-success-600' : 'text-gray-500' }}">({{ $product['listed'] ? __('listed') : __('hidden') }})</span>
+                                                </div>
+                                            @empty
                                                 <span class="text-gray-500">—</span>
-                                            @endif
+                                            @endforelse
                                         </td>
                                     @endif
                                     @if ($line)
                                         <td class="py-2 pr-3">{{ $line['years'] }} · {{ $line['currency'] }}</td>
-                                        <td class="py-2 pr-3 whitespace-nowrap">{{ $line['cost'] }}</td>
+                                        <td class="py-2 pr-3 whitespace-nowrap">{{ $line['cost'] ?? '—' }}</td>
                                         <td class="py-2 pr-3 whitespace-nowrap">
                                             @if ($line['now'] !== null)
                                                 {{ $line['now'] }}
-                                                <span class="text-xs {{ ($line['now_margin'] ?? 0) < 0 ? 'text-danger-600' : 'text-gray-500' }}">({{ $line['now_margin'] }}%)</span>
+                                                @if ($line['now_margin'] !== null)
+                                                <span class="text-xs {{ (float) $line['now_margin'] < 0 ? 'text-danger-600' : 'text-gray-500' }}">({{ $line['now_margin'] }}%)</span>
+                                                @endif
                                             @else
                                                 —
                                             @endif
                                         </td>
                                         <td class="py-2 whitespace-nowrap font-medium">
-                                            {{ $line['new'] }} <span class="text-xs text-gray-500">({{ $line['new_margin'] }}%)</span>
+                                            @if ($line['new'] !== null)
+                                                {{ $line['new'] }} <span class="text-xs text-gray-500">({{ $line['new_margin'] }}%)</span>
+                                            @else
+                                                <span class="text-xs font-normal text-warning-600">{{ __('kept (no rate or not chosen)') }}</span>
+                                            @endif
                                         </td>
                                     @else
                                         <td colspan="4" class="py-2 text-gray-500">{{ __('No currency of MyCS can be priced: give a rate.') }}</td>

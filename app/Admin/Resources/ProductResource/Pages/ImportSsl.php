@@ -169,8 +169,9 @@ class ImportSsl extends Page implements HasForms
     }
 
     /**
-     * The rows the page shows: per product, whether it can be sold, its MyCS product, and per currency and years the
-     * cost, the price and margin now, and the price and margin the import would make.
+     * The rows the page shows: per product, whether it can be sold, its MyCS products, and per currency and years the
+     * cost, the price and margin now (the lowest of its products and plans), and the price and margin the import would
+     * make; a price now the import will not touch is shown too, marked kept (ADV-11 of #348).
      *
      * @return list<array<string, mixed>>
      */
@@ -188,24 +189,37 @@ class ImportSsl extends Page implements HasForms
         $linked = $server !== null ? SslCatalog::linked($server) : [];
         $rows = [];
         foreach ($this->fetched as $id => $entry) {
-            $product = $linked[$id]['product'] ?? null;
+            $products = array_column($linked[$id] ?? [], 'product');
+            $now = [];
+            foreach ($linked[$id] ?? [] as $existing) {
+                foreach ($existing['prices'] as $currency => $byYears) {
+                    foreach ($byYears as $years => $price) {
+                        $now[$currency][$years] = isset($now[$currency][$years]) && bccomp($now[$currency][$years], $price, 2) <= 0 ? $now[$currency][$years] : $price;
+                    }
+                }
+            }
+            $new = SslCatalog::prices($entry, $options);
             $lines = [];
-            foreach (SslCatalog::prices($entry, $options) as $currency => $byYears) {
-                foreach ($byYears as $years => $new) {
-                    $now = $linked[$id]['prices'][$currency][$years] ?? null;
-                    $lines[] = ['currency' => $currency, 'years' => $years, 'cost' => $new['cost'],
-                        'now' => $now, 'now_margin' => $now !== null ? SslCatalog::marginPercent($now, $new['cost']) : null,
-                        'new' => $new['price'], 'new_margin' => SslCatalog::marginPercent($new['price'], $new['cost'])];
+            foreach (array_unique(array_merge(array_keys($new), array_keys($now))) as $currency) {
+                $years = array_unique(array_merge(array_keys($new[$currency] ?? []), array_keys($now[$currency] ?? [])));
+                sort($years);
+                foreach ($years as $y) {
+                    $cost = isset($entry['costs'][$y]) ? SslCatalog::cost($entry['costs'][$y], $currency, $options) : null;
+                    $cost = $cost !== null ? TldPriceMath::cents($cost) : null;
+                    $priceNow = $now[$currency][$y] ?? null;
+                    $priceNew = $new[$currency][$y]['price'] ?? null;
+                    $lines[] = ['currency' => $currency, 'years' => $y, 'cost' => $cost, 'now' => $priceNow,
+                        'now_margin' => $priceNow !== null && $cost !== null ? SslCatalog::marginPercent($priceNow, $cost) : null,
+                        'new' => $priceNew, 'new_margin' => $priceNew !== null && $cost !== null ? SslCatalog::marginPercent($priceNew, $cost) : null];
                 }
             }
             $rows[] = $entry + [
-                'product_name' => $product?->name,
-                'product_url' => $product !== null ? ProductResource::getUrl('edit', ['record' => $product]) : null,
-                'product_listed' => $product !== null && !$product->hidden && !$product->retired,
+                'products' => array_map(fn ($product) => ['name' => $product->name, 'url' => ProductResource::getUrl('edit', ['record' => $product]),
+                    'listed' => !$product->hidden], $products),
                 'lines' => $lines,
             ];
         }
-        usort($rows, fn ($a, $b) => [!$a['sellable'], $a['product_name'] === null, $a['brand'], $a['name']] <=> [!$b['sellable'], $b['product_name'] === null, $b['brand'], $b['name']]);
+        usort($rows, fn ($a, $b) => [!$a['sellable'], $a['products'] === [], $a['brand'], $a['name']] <=> [!$b['sellable'], $b['products'] === [], $b['brand'], $b['name']]);
 
         return $rows;
     }
@@ -221,10 +235,10 @@ class ImportSsl extends Page implements HasForms
             return;
         }
         $entries = [];
-        foreach ($this->selected as $id) {
-            $entry = $this->fetched[(int) $id] ?? null;
+        foreach (array_unique(array_map('intval', $this->selected)) as $id) {
+            $entry = $this->fetched[$id] ?? null;
             if (is_array($entry) && ($entry['sellable'] ?? false)) {
-                $entries[] = $entry;
+                $entries[$id] = $entry;
             }
         }
         if ($entries === []) {
@@ -233,13 +247,19 @@ class ImportSsl extends Page implements HasForms
             return;
         }
         $category = (int) ($this->form->getState()['category_id'] ?? 0);
-        $needsCategory = collect($entries)->contains(fn ($entry) => !isset(SslCatalog::linked($server)[$entry['id']]));
-        if ($needsCategory && !Category::query()->whereKey($category)->exists()) {
+        $linked = SslCatalog::linked($server);
+        if (array_diff_key($entries, $linked) !== [] && !Category::query()->whereKey($category)->exists()) {
             Notification::make()->warning()->title(__('Choose the category of new products.'))->send();
 
             return;
         }
-        $count = SslCatalog::import($server, $entries, $options, $category, (bool) ($this->form->getState()['hidden'] ?? true));
+        try {
+            $count = SslCatalog::import($server, array_values($entries), $options, $category, (bool) ($this->form->getState()['hidden'] ?? true));
+        } catch (InvalidArgumentException $e) {
+            Notification::make()->warning()->title(__('Nothing was imported'))->body($e->getMessage())->send();
+
+            return;
+        }
         Notification::make()->success()->title(__(':count product(s) imported.', ['count' => $count]))->send();
         $this->selected = [];
     }

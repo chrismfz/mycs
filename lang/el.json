@@ -963,5 +963,9 @@
     "Tick the products to import.": "Επιλέξτε τα προϊόντα για εισαγωγή.",
     "Choose the category of new products.": "Επιλέξτε την κατηγορία των νέων προϊόντων.",
     ":count product(s) imported.": ":count προϊόν(τα) εισήχθησαν.",
-    "The ticked products are made or get the new prices; nothing else changes.": "Τα επιλεγμένα προϊόντα δημιουργούνται ή παίρνουν τις νέες τιμές· τίποτε άλλο δεν αλλάζει."
+    "The ticked products are made or get the new prices; nothing else changes.": "Τα επιλεγμένα προϊόντα δημιουργούνται ή παίρνουν τις νέες τιμές· τίποτε άλλο δεν αλλάζει.",
+    "Not a website certificate": "Όχι πιστοποιητικό ιστότοπου",
+    "kept (no rate or not chosen)": "μένει ως έχει (χωρίς ισοτιμία ή εκτός επιλογής)",
+    "Nothing was imported": "Δεν εισήχθη τίποτα",
+    "«:product» is priced in :currency, which the import cannot price: give its rate.": "Το «:product» έχει τιμή σε :currency, που η εισαγωγή δεν μπορεί να τιμολογήσει: δώστε την ισοτιμία του."
 }
