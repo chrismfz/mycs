@@ -8,6 +8,7 @@ use App\Models\TicketBlockedSender;
 use App\Models\TicketDepartment;
 use App\Models\TicketMailId;
 use App\Models\TicketMessage;
+use App\Models\TicketMessageAttachment;
 use App\Models\TicketPollRun;
 use App\Models\TicketQuarantine;
 use App\Models\User;
@@ -409,22 +410,35 @@ class TicketMailInboundTest extends TestCase
         @unlink($ticket->messages()->sole()->attachments()->sole()->localPath);
     }
 
-    /** A message that fails after its files were written leaves none on disk. */
+    /**
+     * A message that fails after its files were written leaves none on disk: the second file fails, so the first one was
+     * already written and only the rollback (TicketFiles::transaction) removes it. The folder is shared with the tests
+     * running in parallel, so this test's files are known by their bytes (a PDF comment of their own), not by a listing.
+     */
     public function test_files_of_a_rolled_back_mail_are_deleted(): void
     {
-        $before = glob(storage_path('app/tickets/uploads/*')) ?: [];
-        TicketMessage::created(function () {
-            throw new \RuntimeException('the disk is full');
+        $marker = '% rolled-back-' . bin2hex(random_bytes(8));
+        $ours = fn () => array_values(array_filter(glob(storage_path('app/tickets/uploads/*')) ?: [],
+            fn (string $file) => str_contains((string) @file_get_contents($file), $marker)));
+        $seen = [];
+        TicketMessageAttachment::created(function () use (&$seen, $ours) {
+            $seen[] = count($ours());
+            if (count($seen) === 2) {
+                throw new \RuntimeException('the disk is full');
+            }
         });
 
         try {
-            app(InboundRouter::class)->route($this->support, Parser::parse($raw = Eml::make(['From' => 'maria@example.com'], 'x',
-                [['name' => 'a.pdf', 'content' => Eml::pdf()]])), $raw);
+            app(InboundRouter::class)->route($this->support, Parser::parse($raw = Eml::make(['From' => 'maria@example.com'], 'x', [
+                ['name' => 'a.pdf', 'content' => Eml::pdf() . "{$marker} a\n"],
+                ['name' => 'b.pdf', 'content' => Eml::pdf() . "{$marker} b\n"],
+            ])), $raw);
         } catch (\RuntimeException) {
         }
 
+        $this->assertSame([1, 2], $seen, 'both files were on disk when the second one failed');
         $this->assertSame(0, Ticket::query()->count());
-        $this->assertSame($before, glob(storage_path('app/tickets/uploads/*')) ?: []);
+        $this->assertSame([], $ours());
     }
 
     /** A new ticket that could not be opened does not count against its sender's hour. */
