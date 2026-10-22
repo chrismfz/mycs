@@ -584,6 +584,46 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
         ], fn ($v) => $v !== null);
     }
 
+    /**
+     * A customer made at Openprovider from a contact (its name, company, email, phone and address, as a domain's), for
+     * another of its products (SSL's organization handle). The caller keeps the handle.
+     */
+    public function customerHandle(Contact $contact, DomainRegistrarCredentials $credentials): string
+    {
+        if (trim((string) $contact->country) === '') {
+            throw new RegistrarNotAsked('The contact has no country: Openprovider needs one.');
+        }
+        $payload = array_filter([
+            'name' => ['first_name' => (string) $contact->first_name, 'last_name' => (string) ($contact->last_name ?: $contact->first_name)],
+            'company_name' => trim((string) $contact->company_name) !== '' ? trim((string) $contact->company_name) : null,
+        ], fn ($v) => $v !== null) + self::customerDetails($contact);
+        $handle = $this->request($credentials, 'POST', '/v1/customers', $payload)->json('data.handle');
+        if (!is_string($handle) || $handle === '') {
+            throw new RuntimeException('Openprovider returned no handle for the contact.');
+        }
+
+        return $handle;
+    }
+
+    /**
+     * A call to Openprovider's SSL API (`/v1/ssl/…` only), through request(): its token, a 4xx as RegistrarRefused
+     * (nothing done), a 5xx or an error code as not known; a charge (an order, a renewal) answered without its envelope
+     * is not known either.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed> its `data`
+     */
+    public function sslCall(DomainRegistrarCredentials $credentials, string $method, string $path, array $payload = [], bool $charge = false): array
+    {
+        // Its SSL API only, and no way out of it (ADV-7 of #345: «/v1/ssl/../customers»).
+        if (preg_match('#^/v1/ssl/[a-z0-9_-]+(?:/[a-z0-9_-]+)*(?:\?[^/]*)?$#i', $path) !== 1 || str_contains($path, '..')) {
+            throw new RegistrarNotAsked('Only Openprovider\'s SSL API is called this way.');
+        }
+        $data = $this->request($credentials, $method, $path, $payload, null, $charge)->json('data');
+
+        return is_array($data) ? $data : [];
+    }
+
     /** P1b-2: the customer's email, phone and address as the contact's (its name never: OP keeps a handle's owner). */
     public function updateContact(string $handle, Contact $contact, DomainRegistrarCredentials $credentials): void
     {

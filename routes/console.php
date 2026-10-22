@@ -11,6 +11,7 @@ use App\Console\Commands\MoneyCheckCommand;
 use App\Console\Commands\RegistrarDebugLogPrune;
 use App\Console\Commands\ScheduleHeartbeatCommand;
 use App\Console\Commands\SyncServiceUsage;
+use App\Console\Commands\SyncSslOrders;
 use App\Console\Commands\VatRecheck;
 use Illuminate\Support\Facades\Schedule;
 
@@ -22,6 +23,7 @@ Schedule::command(FetchTicketMail::class)->description('Reads the departments\' 
 Schedule::command(MoneyCheckCommand::class)->description('Checks that the money adds up (read-only)')->dailyAt('06:30')->withoutOverlapping()->onOneServer();
 Schedule::command(SyncDomains::class, ['--scheduled'])->description('Syncs a batch of domains with their registrars (its hours and size in Settings → Domains) and moves them by their dates')->everyTenMinutes()->withoutOverlapping(60)->onOneServer();
 Schedule::command(SyncServiceUsage::class)->description('Reads every live service\'s disk and bandwidth usage from its server (cPanel)')->cron('17 */4 * * *')->withoutOverlapping(60)->onOneServer();
+Schedule::command(SyncSslOrders::class)->description('Reads every Openprovider SSL order again: status, dates, certificate, validation')->cron('41 * * * *')->withoutOverlapping(30)->onOneServer();
 Schedule::command(ReadBalances::class)->description('Reads what is left with each registrar (the dashboard\'s «Registrar credit»; staff mailed when low)')->hourlyAt(7)->withoutOverlapping(30)->onOneServer();
 Schedule::command(SyncCosts::class)->description('Reads the registrars\' costs for the TLDs (never a price)')->weeklyOn(1, '05:30')->withoutOverlapping()->onOneServer();
 Schedule::command(GatewayLogPrune::class)->description('Deletes refused gateway requests that moved no money, after 90 days')->dailyAt('06:15')->withoutOverlapping()->onOneServer();
