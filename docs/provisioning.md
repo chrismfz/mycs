@@ -161,6 +161,14 @@ Modules για το myip:
 - **Hetzner Robot, Hetzner Cloud: όχι.**
 - **Centova Cast:** έγινε (feat/centova, `extensions/Servers/CentovaCast`): δικό μας, πάνω στο XML API του Centova, με
   το ανοιχτό module του Centova για το WHMCS ως αναφορά κλήσεων (όχι κώδικας). Οι 9 υπηρεσίες με τον importer.
+  **Δοκιμή live στο stream (2026-10-22, με άδεια του υπεύθυνου):** server #4, κρυφό προϊόν #39 «Centova test (hidden)»
+  (template `icecast100`, terminate = delete), υπηρεσία #5 του πελάτη #2. Create (θύρα, τύπος IceCast), εύρεση στο
+  `listaccounts` με το email του πελάτη, σύνδεση στο panel, κωδικός, suspend (disabled, μαρκαρισμένο) και unsuspend
+  (enabled, χωρίς μαρκάρισμα), χρήση, terminate (διαγράφηκε· το Centova ξανά με 9 accounts): όλα εντάξει. Η δοκιμή βρήκε
+  τρία πράγματα του Centova 3.3.2, διορθωμένα και με tests: ελληνικά σε HTML entities (`&Iota;…`) μέσα στο XML
+  (#335), το `server.enabled` με κάθε τιμή σε `<field>` (#335), και debug banner πριν από το XML ενός σφάλματος (#336).
+  **Στον stream:** το Centova δεν μπορούσε να φτιάξει κανένα account (`Field 'statuscache' doesn't have a default value`)
+  επειδή η MariaDB ήταν σε strict mode· ο υπεύθυνος αφαίρεσε το `STRICT_TRANS_TABLES` (`sql_mode` στο `my.cnf`).
 - **Proxmox:** το myip τρέχει το Proxmox VE for WHMCS της The-Network-Crew (pvewhmcs· η nixpal/myip του έστειλε το
   PR #178, clusters). Άδεια **GPL-3.0** (επιβεβαιώθηκε 2026-10-15): όχι αυτούσιος κώδικας σε αυτό το repo (MIT).
   **Δικό μας module** πάνω στο API του Proxmox, με το pvewhmcs ως αναφορά συμπεριφοράς (ποιες κλήσεις, τι πεδία, πώς
