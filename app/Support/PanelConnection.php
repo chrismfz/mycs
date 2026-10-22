@@ -40,7 +40,7 @@ final class PanelConnection
                 'database_type' => 'boolean',
                 'default' => false,
                 'required' => false,
-                'description' => 'The panel\'s certificate is not checked against a certificate authority: the server IP above is checked instead (required).',
+                'description' => 'The panel\'s certificate is not checked against a certificate authority: the connection goes only to the server IP above (required). Prefer a valid certificate where the panel can have one.',
             ],
         ];
     }
@@ -53,6 +53,10 @@ final class PanelConnection
             throw new RuntimeException('The panel\'s address must start with https:// (its key is sent with every request).');
         }
         $host = trim($parts['host'], '[]');
+        // As curl sends it: a host in another script by its punycode, or the IP would not match it.
+        if (function_exists('idn_to_ascii') && preg_match('/[^\x20-\x7e]/', $host) === 1) {
+            $host = (string) (idn_to_ascii($host, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46) ?: $host);
+        }
         $port = (int) ($parts['port'] ?? 443);
         $ip = trim((string) $ip);
         if ($ip === '' && filter_var($host, FILTER_VALIDATE_IP) !== false) {
@@ -65,7 +69,9 @@ final class PanelConnection
             throw new RuntimeException('A self-signed certificate needs the server IP: set it in the server\'s settings.');
         }
 
-        $options = [];
+        // Never followed: a 307/308 would send the body (an account's password) again, to http:// or to another host
+        // where neither the IP nor the certificate is checked (review of #356). A panel's API answers, it never moves.
+        $options = ['allow_redirects' => false];
         if ($ip !== '' && $ip !== $host) {
             $options['curl'] = [CURLOPT_RESOLVE => [$host . ':' . $port . ':' . (str_contains($ip, ':') ? '[' . $ip . ']' : $ip)]];
         }

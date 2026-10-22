@@ -28,7 +28,7 @@ class DirectAdmin extends Server
 
     private function request($endpoint, $method = 'get', $data = [], $parse = false)
     {
-        $host = rtrim($this->config('host'), '/');
+        $host = rtrim(trim((string) $this->config('host')), '/');
         $url = $host . $endpoint;
 
         $response = $this->panel()->withBasicAuth(
@@ -329,7 +329,7 @@ class DirectAdmin extends Server
         }
 
         $response = $this->panel()->withBasicAuth($properties['directadmin_username'], self::password($properties))
-            ->post(rtrim($this->config('host'), '/') . '/CMD_API_LOGIN_KEYS', [
+            ->post(rtrim(trim((string) $this->config('host')), '/') . '/CMD_API_LOGIN_KEYS', [
                 'action' => 'create',
                 'type' => 'one_time_url',
                 'expiry' => '5m',
