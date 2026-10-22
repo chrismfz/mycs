@@ -108,6 +108,35 @@ class Mailcow extends Server implements ReadsHostedDomains, ReadsServiceUsage
         }
     }
 
+    /**
+     * A call whose marker was set before it was asked: mailcow's own refusal («nothing was done») takes the marker off,
+     * so it never vouches later for what did not happen (R2-1, R2-2 of #324); no answer keeps it (it may have been done).
+     */
+    private static function refusedClears(Service $service, string $marker, callable $call): mixed
+    {
+        try {
+            return $call();
+        } catch (MailcowException $e) {
+            if (str_starts_with($e->getMessage(), 'mailcow error for ')) {
+                $service->properties()->where('key', $marker)->delete();
+            }
+
+            throw $e;
+        }
+    }
+
+    /** Some domain admin manages this domain at mailcow now. */
+    private static function managedByAnyone(MailcowClient $client, string $domain): bool
+    {
+        foreach ($client->getDomainAdmins() as $admin) {
+            if (in_array($domain, MailcowClient::parseDomainList($admin['selected_domains'] ?? ''), true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static function on(mixed $value, bool $default): bool
     {
         return $value === null || $value === '' ? $default : in_array($value, [true, 1, '1', 'on', 'true', 'yes'], true);
@@ -192,8 +221,10 @@ class Mailcow extends Server implements ReadsHostedDomains, ReadsServiceUsage
         $ours = $service->properties()->where('key', 'mailcow_domain_added')->value('value') === $domain;
         if ($client->getDomain($domain) === []) {
             $service->properties()->updateOrCreate(['key' => 'mailcow_domain_added'], ['name' => 'mailcow domain added by this service', 'value' => $domain]);
-            $client->addDomain($domain, DomainLimits::fromMeta($settings), self::on($settings['restart_sogo'] ?? null, true));
-        } elseif ($admin === [] && !$ours) {
+            self::refusedClears($service, 'mailcow_domain_added',
+                fn () => $client->addDomain($domain, DomainLimits::fromMeta($settings), self::on($settings['restart_sogo'] ?? null, true)));
+        } elseif ($admin === [] && (!$ours || self::managedByAnyone($client, $domain))) {
+            // Not ours, or ours once but another admin manages it now (set up since: R2-1 of #324): never adopted.
             throw new Exception("mailcow: {$domain} is already on this server, not made by this service: check it there");
         }
         if (self::on($settings['create_dkim'] ?? null, true)) {
@@ -224,8 +255,9 @@ class Mailcow extends Server implements ReadsHostedDomains, ReadsServiceUsage
         $client = $this->client();
         [$username, $domains, $record] = self::ownedAdmin($client, $service, $properties);
         if (self::policy($settings)->lockOnSuspend($domains) && in_array($record['active'] ?? 1, [1, '1', true], true)) {
+            // Marked before it is asked (a lost answer keeps it); a refusal takes it off (R2-2 of #324).
             $service->properties()->updateOrCreate(['key' => self::LOCKED], ['name' => 'mailcow admin locked by suspend', 'value' => '1']);
-            $client->setDomainAdminActive($domains, $username, false);
+            self::refusedClears($service, self::LOCKED, fn () => $client->setDomainAdminActive($domains, $username, false));
         }
 
         return true;
