@@ -34,7 +34,9 @@ class CPanel extends Server implements ReadsServiceUsage
             throw new Exception('This server has no host set: enter its WHM address (https://host:2087).'); // not a request to nowhere
         }
         // A server that never answers is told within 10 seconds, not the default 30 (the call itself may take longer).
-        $response = Http::connectTimeout(10)->timeout($timeout)->withHeaders([
+        // A POST is a form (WHM's json-api reads its fields so): a password never in a URL, nor in WHM's access log.
+        $client = Http::connectTimeout(10)->timeout($timeout);
+        $response = ($method === 'post' ? $client->asForm() : $client)->withHeaders([
             'Authorization' => 'whm ' . trim((string) $this->config('username')) . ':' . trim((string) $this->config('apikey')),
         ])->$method($host . '/json-api' . $endpoint, $data)->throw();
 
@@ -599,20 +601,25 @@ class CPanel extends Server implements ReadsServiceUsage
         return $users;
     }
 
-    public function getLoginUrl(Service $service, $settings, $properties): string
+    public function getLoginUrl(Service $service, $settings, $properties, ?string $app = null): string
     {
         if (!isset($properties['cpanel_username'])) {
             throw new Exception('Service has not been created');
+        }
+        // A shortcut opens cPanel on that page (WHM's create_user_session «app»): only one of ours, never what was sent.
+        if ($app !== null && !array_key_exists($app, self::SHORTCUTS)) {
+            throw new Exception('Unknown cPanel shortcut');
         }
 
         $response = $this->request(
             '/create_user_session',
             'post',
-            [
+            array_filter([
                 'api.version' => 1,
                 'user' => $properties['cpanel_username'],
                 'service' => 'cpaneld',
-            ]
+                'app' => $app,
+            ], fn ($value) => $value !== null)
         )->json();
 
         if (isset($response['data']['url'])) {
@@ -624,6 +631,37 @@ class CPanel extends Server implements ReadsServiceUsage
         throw new Exception('Unable to generate cPanel login URL');
     }
 
+    /** Webmail, signed in (WHM's create_user_session for webmaild), as WHMCS's «Login to Webmail». */
+    public function getWebmailUrl(Service $service, $settings, $properties): string
+    {
+        if (!isset($properties['cpanel_username'])) {
+            throw new Exception('Service has not been created');
+        }
+        $url = $this->whm('/create_user_session', ['user' => $properties['cpanel_username'], 'service' => 'webmaild'], 'post')['data']['url'] ?? null;
+        if (!is_string($url) || $url === '') {
+            throw new Exception('Unable to generate the webmail login URL');
+        }
+
+        return $url;
+    }
+
+    /**
+     * WHMCS's «Quick Shortcuts» (owner 2026-10-22): cPanel opened on that page, signed in. Its app names (WHM's
+     * create_user_session «app») and the icon shown; the label is the customer's language (services.cpanel.shortcuts.*).
+     */
+    public const SHORTCUTS = [
+        'Email_Accounts' => 'mail-line',
+        'Email_Forwarders' => 'mail-send-line',
+        'Email_AutoResponders' => 'reply-line',
+        'FileManager_Home' => 'folder-open-line',
+        'Backups_Home' => 'history-line',
+        'Domains_Home' => 'global-line',
+        'Cron_Home' => 'time-line',
+        'MySQL_Databases' => 'database-2-line',
+        'Database_phpMyAdmin' => 'table-line',
+        'Stats_AWStats' => 'line-chart-line',
+    ];
+
     public function getActions(Service $service, $settings, $properties): array
     {
         if (!isset($properties['cpanel_username'])) {
@@ -632,13 +670,68 @@ class CPanel extends Server implements ReadsServiceUsage
 
         return [
             [
-                'label' => 'Access cPanel',
+                'label' => __('services.cpanel.login'),
                 'type' => 'button',
                 // Into the panel: `productsso` (WHMCS; docs/accounts.md, PR 2b).
                 'sso' => true,
                 'function' => 'getLoginUrl',
             ],
+            ['label' => __('services.cpanel.webmail'), 'type' => 'button', 'sso' => true, 'function' => 'getWebmailUrl'],
+            // The page's own blocks (Services\Show): shortcuts (`productsso`), a new password and a new mailbox
+            // (`manageproducts`), each checked again there.
+            ['type' => 'shortcuts', 'items' => array_map(fn (string $app, string $icon) => ['app' => $app, 'icon' => $icon,
+                'label' => __('services.cpanel.shortcuts.' . $app)], array_keys(self::SHORTCUTS), self::SHORTCUTS)],
+            ['type' => 'password', 'function' => 'changePassword'],
+            ['type' => 'email', 'function' => 'createEmailAccount', 'domain' => (string) $service->domain],
         ];
+    }
+
+    /**
+     * A new password for the account (WHM's passwd; WHMCS's «Change Password», staff and customer): WHM's strength rules
+     * apply, its refusal is told. Kept on the service (encrypted, never in its audit) once WHM took it.
+     */
+    public function changePassword(Service $service, $settings, $properties, string $password): bool
+    {
+        if (!isset($properties['cpanel_username'])) {
+            throw new Exception('Service has not been created');
+        }
+        $this->whm('/passwd', ['user' => $properties['cpanel_username'], 'password' => $password], 'post');
+        $service->forceFill(['password' => $password])->save();
+
+        return true;
+    }
+
+    /**
+     * A mailbox on the account's own domain (WHMCS's «Quick Create Email Account»): cPanel's UAPI Email::add_pop through
+     * WHM, as the account. Never another domain; its password is not kept here.
+     */
+    public function createEmailAccount(Service $service, $settings, $properties, string $local, string $password, int $quotaMb = 1024): string
+    {
+        if (!isset($properties['cpanel_username'])) {
+            throw new Exception('Service has not been created');
+        }
+        $domain = strtolower(trim((string) $service->domain));
+        $local = strtolower(trim($local));
+        if ($domain === '' || preg_match('/^[a-z0-9](?:[a-z0-9._+-]{0,62}[a-z0-9])?$/', $local) !== 1 || str_contains($local, '..')) {
+            throw new Exception(__('services.cpanel.email_invalid'));
+        }
+        $json = $this->request('/cpanel', 'post', [
+            'cpanel_jsonapi_user' => $properties['cpanel_username'],
+            'cpanel_jsonapi_apiversion' => 3,
+            'cpanel_jsonapi_module' => 'Email',
+            'cpanel_jsonapi_func' => 'add_pop',
+            'email' => $local,
+            'domain' => $domain,
+            'password' => $password,
+            'quota' => max(0, $quotaMb),
+        ])->json();
+        $result = $json['result'] ?? null;
+        if (!is_array($result) || (int) ($result['status'] ?? 0) !== 1) {
+            $errors = is_array($result) ? implode(' ', array_map('strval', (array) ($result['errors'] ?? []))) : '';
+            throw new Exception(trim('cPanel: ' . ($errors !== '' ? $errors : 'the mailbox was not created')));
+        }
+
+        return "{$local}@{$domain}";
     }
 
     /**

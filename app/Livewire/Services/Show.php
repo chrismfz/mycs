@@ -13,10 +13,12 @@ use App\Services\Licensing\MycsLicenseRepository;
 use App\Services\Money\MoneyTrail;
 use App\Services\ServiceUpgrade\ChangeCycle;
 use App\Support\Actor;
+use App\Support\Redact;
 use Exception;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Validation\Rules\Password;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Renderless;
 use Livewire\Attributes\Url;
@@ -33,6 +35,26 @@ class Show extends Component
 
     #[Locked]
     public $fields = [];
+
+    /** @var list<array{app: string, icon: string, label: string}> the panel's shortcuts (WHMCS's «Quick Shortcuts») */
+    #[Locked]
+    public array $shortcuts = [];
+
+    /** The server changes the account's password (cPanel: WHMCS's «Change Password»). */
+    #[Locked]
+    public bool $canChangePassword = false;
+
+    /** The domain a new mailbox is made on (cPanel: WHMCS's «Quick Create Email Account»); null: none. */
+    #[Locked]
+    public ?string $mailboxDomain = null;
+
+    public string $newPassword = '';
+
+    public string $newPasswordConfirmation = '';
+
+    public string $mailboxName = '';
+
+    public string $mailboxPassword = '';
 
     #[Url('tab', except: false), Locked]
     public $currentView;
@@ -73,6 +95,12 @@ class Show extends Component
                     $this->views[] = $action;
                 } elseif ($action['type'] == 'text') {
                     $this->fields[] = $action;
+                } elseif ($action['type'] === 'shortcuts' && $this->ownsWith('productsso')) {
+                    $this->shortcuts = array_values((array) ($action['items'] ?? []));
+                } elseif ($action['type'] === 'password' && $canManage) {
+                    $this->canChangePassword = true;
+                } elseif ($action['type'] === 'email' && $canManage && filled($action['domain'] ?? null)) {
+                    $this->mailboxDomain = (string) $action['domain'];
                 }
             }
             $this->currentView = $this->currentView ?? ($this->views[0]['name'] ?? null);
@@ -258,6 +286,102 @@ class Show extends Component
             return $result;
         }
         $this->redirect($result);
+    }
+
+    /**
+     * A shortcut into the panel (WHMCS's «Quick Shortcuts»): `productsso`, one of those offered, signed in on that page.
+     */
+    public function openShortcut(string $app)
+    {
+        if (!in_array($app, array_column($this->shortcuts, 'app'), true) || !$this->ownsWith('productsso')) {
+            $this->notify(__('You do not have access to this area of the account.'), 'error');
+
+            return;
+        }
+        try {
+            $url = ExtensionHelper::callService($this->service, 'getLoginUrl', [$app]);
+        } catch (Exception $e) {
+            report($e);
+            $this->notify(__('services.cpanel.failed'), 'error');
+
+            return;
+        }
+        if (is_string($url) && $url !== '') {
+            $this->redirect($url);
+        }
+    }
+
+    /**
+     * A new password for the account at its server (WHMCS's «Change Password»): `manageproducts`, a few a quarter-hour,
+     * the server's strength rules on top of ours; its answer never repeats the password.
+     */
+    public function changeServicePassword(): void
+    {
+        $this->authorize('update', $this->service);
+        if (!$this->canChangePassword || $this->service->status !== Service::STATUS_ACTIVE) {
+            return;
+        }
+        $this->validate([
+            'newPassword' => ['required', 'string', 'max:128', Password::min(10)->letters()->mixedCase()->numbers()],
+            'newPasswordConfirmation' => ['required', 'same:newPassword'],
+        ]);
+        if (RateLimiter::tooManyAttempts($key = 'service-password:' . $this->service->id, 5)) {
+            $this->notify(__('services.cpanel.too_many'), 'error');
+
+            return;
+        }
+        RateLimiter::hit($key, 900);
+        $password = $this->newPassword;
+        $this->reset('newPassword', 'newPasswordConfirmation');
+        try {
+            // Never «may fail»: that path reports the error unredacted and returns null (a refusal told as success).
+            if (ExtensionHelper::callService($this->service, 'changePassword', [$password]) !== true) {
+                throw new Exception('the server did not confirm the change');
+            }
+        } catch (Exception $e) {
+            report(new Exception(Redact::values($e->getMessage(), [$password])));
+            $this->notify(__('services.cpanel.password_refused', ['reason' => Redact::values($e->getMessage(), [$password])]), 'error');
+
+            return;
+        }
+        $this->notify(__('services.cpanel.password_changed'), 'success');
+    }
+
+    /**
+     * A mailbox on the service's domain (WHMCS's «Quick Create Email Account»): `manageproducts`, a few an hour; its
+     * password is not kept here.
+     */
+    public function createMailbox(): void
+    {
+        $this->authorize('update', $this->service);
+        if ($this->mailboxDomain === null || $this->service->status !== Service::STATUS_ACTIVE) {
+            return;
+        }
+        $this->validate([
+            'mailboxName' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z0-9](?:[A-Za-z0-9._+-]{0,62}[A-Za-z0-9])?$/', 'not_regex:/\.\./'],
+            'mailboxPassword' => ['required', 'string', 'max:128', Password::min(10)->letters()->mixedCase()->numbers()],
+        ]);
+        if (RateLimiter::tooManyAttempts($key = 'service-mailbox:' . $this->service->id, 10)) {
+            $this->notify(__('services.cpanel.too_many'), 'error');
+
+            return;
+        }
+        RateLimiter::hit($key, 3600);
+        $password = $this->mailboxPassword;
+        $this->reset('mailboxPassword');
+        try {
+            $address = ExtensionHelper::callService($this->service, 'createEmailAccount', [$this->mailboxName, $password]);
+            if (!is_string($address) || $address === '') {
+                throw new Exception('the server did not confirm the mailbox');
+            }
+        } catch (Exception $e) {
+            report(new Exception(Redact::values($e->getMessage(), [$password])));
+            $this->notify(__('services.cpanel.mailbox_refused', ['reason' => Redact::values($e->getMessage(), [$password])]), 'error');
+
+            return;
+        }
+        $this->reset('mailboxName');
+        $this->notify(__('services.cpanel.mailbox_created', ['address' => (string) $address]), 'success');
     }
 
     /** The login may do this on the service's account (staff in «Login as client» may do all). */
