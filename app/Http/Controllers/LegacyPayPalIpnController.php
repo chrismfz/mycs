@@ -28,7 +28,7 @@ class LegacyPayPalIpnController extends Controller
     private const VERIFY_SANDBOX = 'https://ipnpb.sandbox.paypal.com/cgi-bin/webscr';
 
     /** An IPN is a few KB: a larger body is not PayPal's (code review CR-3). */
-    private const MAX_BYTES = 20000;
+    public const MAX_BYTES = 20000;
 
     /**
      * Forged requests (PayPal answered INVALID) an address may make a minute before we stop calling PayPal for it (CR-3).

@@ -102,6 +102,7 @@ return [
         'expired' => 'Expired',
         'pending' => 'Pending',
     ],
+    'payment_method_setup_not_yours' => 'That PayPal approval was not started from this account: add the payment method again from here.',
     'payment_method_added' => 'Payment method has been added.',
     'payment_method_add_failed' => 'Failed to add payment method. Please try again.',
     'default_payment_method' => 'Used for automatic payments',
