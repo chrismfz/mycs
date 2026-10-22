@@ -11,9 +11,11 @@ use App\Models\ModuleAction;
 use App\Models\Service;
 use App\Models\ServiceHostedDomain;
 use App\Rules\Domain;
+use App\Support\PanelConnection;
 use App\Support\Services\ServiceUsageRead;
 use Exception;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -58,7 +60,7 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
         }
         // A server that never answers is told within 10 seconds, not the default 30 (the call itself may take longer).
         // A POST is a form (WHM's json-api reads its fields so): a password never in a URL, nor in WHM's access log.
-        $client = Http::connectTimeout(10)->timeout($timeout);
+        $client = $this->panel()->connectTimeout(10)->timeout($timeout);
         $response = ($method === 'post' ? $client->asForm() : $client)->withHeaders([
             'Authorization' => 'whm ' . trim((string) $this->config('username')) . ':' . trim((string) $this->config('apikey')),
         ])->$method($host . '/json-api' . $endpoint, $data)->throw();
@@ -96,9 +98,10 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
                 'type' => 'text',
                 'label' => 'Hostname',
                 'placeholder' => 'https://example.com:2087',
-                'validation' => 'url:http,https',
+                'validation' => 'url:https', // its root key goes with every request (PROV-3)
                 'required' => true,
             ],
+            ...PanelConnection::fields(),
             [
                 'name' => 'username',
                 'type' => 'text',
@@ -123,6 +126,12 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
                 'required' => false,
             ],
         ];
+    }
+
+    /** WHM over HTTPS, to its server's IP when set (App\Support\PanelConnection). */
+    private function panel(): PendingRequest
+    {
+        return PanelConnection::http(rtrim(trim((string) $this->config('host')), '/'), $this->config('ip'), (bool) $this->config('self_signed'));
     }
 
     /** @return list<string> */
