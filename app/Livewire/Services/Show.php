@@ -441,7 +441,7 @@ class Show extends Component
     /** The CSR checked (its name, against the product) before anything is ordered; the approver addresses for it. */
     public function sslCheck(): void
     {
-        if (!$this->sslMayOrder()) {
+        if (!$this->sslMayOrder() && !$this->sslMayReissue()) {
             return;
         }
         $this->validate(['sslCsr' => ['required', 'string', 'max:16384', 'regex:/-----BEGIN (NEW )?CERTIFICATE REQUEST-----/']]);
@@ -488,6 +488,87 @@ class Show extends Component
         }
         $this->reset('sslCsr', 'sslName', 'sslApprovers', 'sslApprover');
         $this->notify(__('services.ssl.ordered'), 'success');
+    }
+
+    /** A new certificate for the same name (not charged): for the CSR checked, with the validation chosen. */
+    public function sslReissue(): void
+    {
+        if (!$this->sslMayReissue() || $this->sslName === null) {
+            return;
+        }
+        $this->validate([
+            'sslMethod' => ['required', 'in:' . implode(',', SslOrder::METHODS)],
+            'sslApprover' => ['nullable', 'required_if:sslMethod,email', 'in:' . implode(',', $this->sslApprovers ?: [''])],
+        ]);
+        if ($this->sslLimited('reissue', 5)) {
+            return;
+        }
+        try {
+            if (ExtensionHelper::callService($this->service, 'reissue', [$this->sslCsr, $this->sslMethod, $this->sslMethod === 'email' ? $this->sslApprover : null]) !== true) {
+                throw new Exception('the reissue was not confirmed');
+            }
+        } catch (Exception $e) {
+            $this->sslFailed($e);
+
+            return;
+        }
+        $this->reset('sslCsr', 'sslName', 'sslApprovers', 'sslApprover');
+        $this->notify(__('services.ssl.reissued'), 'success');
+    }
+
+    /** The approver addresses Openprovider allows for the order's name, to choose another (email validation). */
+    public function sslLoadApprovers(): void
+    {
+        $order = $this->sslAwaitingEmail();
+        if ($order === null || $this->sslLimited('check', 20)) {
+            return;
+        }
+        try {
+            $this->sslApprovers = (array) ExtensionHelper::callService($this->service, 'approverEmails', [(string) $order->common_name]);
+        } catch (Exception $e) {
+            $this->sslFailed($e);
+        }
+    }
+
+    /** Another approver address, one Openprovider allows. */
+    public function sslChangeApprover(): void
+    {
+        if ($this->sslAwaitingEmail() === null) {
+            return;
+        }
+        $this->validate(['sslApprover' => ['required', 'in:' . implode(',', $this->sslApprovers ?: [''])]]);
+        if ($this->sslLimited('approver', 5)) {
+            return;
+        }
+        try {
+            ExtensionHelper::callService($this->service, 'changeApproverEmail', [(string) $this->sslApprover]);
+        } catch (Exception $e) {
+            $this->sslFailed($e);
+
+            return;
+        }
+        $this->reset('sslApprovers', 'sslApprover');
+        $this->notify(__('services.ssl.approver_changed'), 'success');
+    }
+
+    /** `manageproducts`, an active service, a certificate issued whose order has not ended. */
+    private function sslMayReissue(): bool
+    {
+        $this->authorize('update', $this->service);
+        $order = SslOrder::query()->where('service_id', $this->service->id)->first();
+
+        return $this->hasSsl && $this->service->status === Service::STATUS_ACTIVE && $order?->order_id !== null && $order->issued()
+            && ($order->order_ends_at === null || $order->order_ends_at->isFuture());
+    }
+
+    /** `manageproducts`, an active service, an order waiting for its approver's email. */
+    private function sslAwaitingEmail(): ?SslOrder
+    {
+        $this->authorize('update', $this->service);
+        $order = SslOrder::query()->where('service_id', $this->service->id)->first();
+
+        return $this->hasSsl && $this->service->status === Service::STATUS_ACTIVE && $order?->order_id !== null && !$order->issued()
+            && $order->validation_method === 'email' ? $order : null;
     }
 
     /** Openprovider's approver email sent again. */

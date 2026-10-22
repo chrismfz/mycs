@@ -31,6 +31,10 @@ use Illuminate\Support\Carbon;
  * @property array<string, mixed>|null $validation
  * @property Carbon|null $synced_at
  * @property string|null $sync_error
+ * @property Carbon|null $renew_requested_at
+ * @property Carbon|null $renew_for
+ * @property list<int>|null $previous_order_ids
+ * @property string|null $notified_hash
  */
 class SslOrder extends Model
 {
@@ -49,6 +53,9 @@ class SslOrder extends Model
             'reissue_at' => 'datetime',
             'order_ends_at' => 'datetime',
             'synced_at' => 'datetime',
+            'renew_requested_at' => 'datetime',
+            'renew_for' => 'datetime',
+            'previous_order_ids' => 'array',
         ];
     }
 

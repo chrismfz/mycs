@@ -56,7 +56,23 @@
             @if($sslOrder->validation_method === 'email')
                 <p class="mt-1">{{ __('services.ssl.validate_email', ['email' => $sslOrder->validation['approver'] ?? $sslOrder->approver_email]) }}</p>
                 @can('update', $service)
-                <x-button.secondary type="button" class="!w-fit mt-2" wire:click="sslResend" wire:loading.attr="disabled">{{ __('services.ssl.resend') }}</x-button.secondary>
+                <div class="flex flex-wrap gap-2 mt-2">
+                    <x-button.secondary type="button" class="!w-fit" wire:click="sslResend" wire:loading.attr="disabled">{{ __('services.ssl.resend') }}</x-button.secondary>
+                    @if($sslApprovers === [])
+                    <x-button.secondary type="button" class="!w-fit" wire:click="sslLoadApprovers" wire:loading.attr="disabled">{{ __('services.ssl.approver_other') }}</x-button.secondary>
+                    @endif
+                </div>
+                @if($sslApprovers !== [])
+                <form wire:submit="sslChangeApprover" class="flex flex-col gap-2 mt-2">
+                    <x-form.select wire:model="sslApprover" name="sslApprover" :label="__('services.ssl.approver')" required>
+                        <option value="">—</option>
+                        @foreach($sslApprovers as $approver)
+                        <option value="{{ $approver }}">{{ $approver }}</option>
+                        @endforeach
+                    </x-form.select>
+                    <x-button.primary type="submit" class="!w-fit" wire:loading.attr="disabled">{{ __('services.ssl.approver_change') }}</x-button.primary>
+                </form>
+                @endif
                 @endcan
             @else
                 @forelse($sslOrder->validation['data'] ?? [] as $item)
@@ -90,6 +106,36 @@
             </div>
             @endif
         </div>
+        @can('update', $service)
+        @if(!$sslOrder->order_ends_at || $sslOrder->order_ends_at->isFuture())
+        <details class="mt-3">
+            <summary class="text-sm font-semibold cursor-pointer">{{ __('services.ssl.reissue_title') }}</summary>
+            <p class="text-xs text-base/50 mt-1">{{ __('services.ssl.reissue_hint') }}</p>
+            <form wire:submit="{{ $sslName ? 'sslReissue' : 'sslCheck' }}" class="flex flex-col gap-3 mt-2">
+                <x-form.textarea wire:model.blur="sslCsr" name="sslCsr" :label="__('services.ssl.csr')" rows="6" class="font-mono text-xs" required
+                    placeholder="-----BEGIN CERTIFICATE REQUEST-----" />
+                @if($sslName)
+                <x-form.select wire:model.live="sslMethod" name="sslMethod" :label="__('services.ssl.method')" required>
+                    <option value="dns">{{ __('services.ssl.methods.dns') }}</option>
+                    <option value="https">{{ __('services.ssl.methods.https') }}</option>
+                    <option value="email">{{ __('services.ssl.methods.email') }}</option>
+                </x-form.select>
+                @if($sslMethod === 'email')
+                <x-form.select wire:model="sslApprover" name="sslApprover" :label="__('services.ssl.approver')" required>
+                    <option value="">—</option>
+                    @foreach($sslApprovers as $approver)
+                    <option value="{{ $approver }}">{{ $approver }}</option>
+                    @endforeach
+                </x-form.select>
+                @endif
+                <x-button.primary type="submit" class="!w-fit" wire:loading.attr="disabled">{{ __('services.ssl.reissue') }}</x-button.primary>
+                @else
+                <x-button.primary type="submit" class="!w-fit" wire:loading.attr="disabled">{{ __('services.ssl.check') }}</x-button.primary>
+                @endif
+            </form>
+        </details>
+        @endif
+        @endcan
         @endif
     @endif
 </div>

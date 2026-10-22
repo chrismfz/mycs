@@ -6,6 +6,7 @@ use App\Exceptions\ServerRefused;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Services\Show;
 use App\Models\DomainRegistrarConnection;
+use App\Models\EmailLog;
 use App\Models\Server;
 use App\Models\Service;
 use App\Models\SslOrder;
@@ -52,6 +53,9 @@ class OpenproviderSslTest extends TestCase
     private array $orders = [];
 
     private int $nextId = 777;
+
+    /** POST …/renew: 'same' (the order's end moves), 'new' (a new order), 'refuse' (400), 'lost' (done, no answer), 'lost-not-made' */
+    private string $renewAnswer = 'same';
 
     /** Called once while the CSR is decoded: another request arriving at that moment (code review 1). */
     private ?\Closure $duringDecode = null;
@@ -100,6 +104,7 @@ class OpenproviderSslTest extends TestCase
             $path === '/v1/ssl/products/9' => $ok(['id' => 9, 'is_wildcard_supported' => $this->wildcardProduct]),
             $path === '/v1/ssl/approver-emails' => $ok(['results' => ['admin@shop.example.test', 'webmaster@shop.example.test']]),
             $path === '/v1/ssl/orders' && $request->method() === 'POST' => $this->newOrder($request),
+            (bool) preg_match('#^/v1/ssl/orders/(\d+)/renew$#', $path, $m) => $this->renew((int) $m[1]),
             $path === '/v1/ssl/orders' => $ok(['results' => array_values(array_filter($this->orders,
                 fn ($o) => $o['common_name'] === ($query['common_name_pattern'] ?? null)))]),
             (bool) preg_match('#^/v1/ssl/orders/(\d+)$#', $path, $m) => isset($this->orders[(int) $m[1]]) ? $ok($this->orders[(int) $m[1]])
@@ -127,6 +132,38 @@ class OpenproviderSslTest extends TestCase
         }
 
         return Http::response(['code' => 0, 'desc' => '', 'data' => ['id' => $id]]);
+    }
+
+    private function renew(int $id)
+    {
+        if ($this->renewAnswer === 'refuse') {
+            return Http::response(['code' => 10002, 'desc' => 'Not renewable yet'], 400);
+        }
+        $ends = now('Europe/Amsterdam')->addYear()->addDays(20)->format('Y-m-d H:i:s');
+        $newId = $id;
+        if (in_array($this->renewAnswer, ['new', 'lost-new'], true)) {
+            $newId = 900;
+            $this->orders[900] = array_merge($this->orders[$id], ['id' => 900, 'order_date' => now('Europe/Amsterdam')->format('Y-m-d H:i:s'), 'order_ends_at' => $ends]);
+        } elseif ($this->renewAnswer !== 'lost-not-made') {
+            $this->orders[$id]['order_ends_at'] = $ends;
+        }
+        if (str_starts_with($this->renewAnswer, 'lost')) {
+            throw new ConnectionException('timed out');
+        }
+
+        return Http::response(['code' => 0, 'desc' => '', 'data' => ['id' => $newId]]);
+    }
+
+    /** An issued certificate whose paid order ends in 20 days; the service paid until then, or a year beyond. */
+    private function issued(bool $paidBeyond): SslOrder
+    {
+        ExtensionHelper::createServer($this->service->fresh());
+        $this->place();
+        $this->orders[777] = array_merge($this->orders[777], ['status' => 'ACT', 'certificate' => "-----BEGIN CERTIFICATE-----\nAAA\n-----END CERTIFICATE-----",
+            'expiration_date' => now('Europe/Amsterdam')->addDays(20)->format('Y-m-d H:i:s'), 'order_ends_at' => now('Europe/Amsterdam')->addDays(20)->format('Y-m-d H:i:s')]);
+        $this->service->forceFill(['expires_at' => now()->addDays($paidBeyond ? 385 : 20)])->save();
+
+        return $this->order();
     }
 
     /** @return list<array<string, mixed>> the payloads sent to this method and path */
@@ -398,6 +435,156 @@ class OpenproviderSslTest extends TestCase
         $this->artisan('ssl:sync')->assertExitCode(0);
 
         $this->assertSame('2027-04-30 22:30:00', $this->order()->expires_at->setTimezone('UTC')->format('Y-m-d H:i:s'));
+    }
+
+    public function test_renewal_only_once_paid_beyond_the_order_and_only_once(): void
+    {
+        $this->issued(paidBeyond: false);
+        $this->artisan('ssl:sync')->assertExitCode(0);
+        $this->assertSame([], $this->sent('POST', '/v1/ssl/orders/777/renew'), 'not paid beyond the order: never renewed');
+
+        $this->service->forceFill(['expires_at' => now()->addDays(385)])->save();
+        $this->artisan('ssl:sync')->assertExitCode(0);
+        $this->artisan('ssl:sync')->assertExitCode(0);
+
+        $this->assertCount(1, $this->sent('POST', '/v1/ssl/orders/777/renew'), 'charged once');
+        $order = $this->order();
+        $this->assertNull($order->renew_requested_at, 'seen: the order\'s end moved');
+        $this->assertTrue($order->order_ends_at->greaterThan(now()->addYear()));
+    }
+
+    public function test_a_renewal_far_from_the_orders_end_or_of_a_suspended_service_waits(): void
+    {
+        $this->issued(paidBeyond: true);
+        $this->orders[777]['order_ends_at'] = now('Europe/Amsterdam')->addDays(60)->format('Y-m-d H:i:s');
+        $this->artisan('ssl:sync')->assertExitCode(0);
+        $this->orders[777]['order_ends_at'] = now('Europe/Amsterdam')->addDays(20)->format('Y-m-d H:i:s');
+        $this->service->forceFill(['status' => 'suspended'])->save();
+        $this->artisan('ssl:sync')->assertExitCode(0);
+
+        $this->assertSame([], $this->sent('POST', '/v1/ssl/orders/777/renew'));
+    }
+
+    public function test_a_lost_renewal_answer_is_seen_never_renewed_twice(): void
+    {
+        $this->issued(paidBeyond: true);
+        $this->renewAnswer = 'lost';
+        $this->artisan('ssl:sync')->assertExitCode(1);
+        $this->assertNotNull($this->order()->renew_requested_at);
+
+        $this->renewAnswer = 'same';
+        $this->artisan('ssl:sync')->assertExitCode(0);
+
+        $this->assertCount(1, $this->sent('POST', '/v1/ssl/orders/777/renew'));
+        $this->assertNull($this->order()->renew_requested_at);
+    }
+
+    public function test_a_renewal_that_makes_a_new_order_moves_the_service_to_it(): void
+    {
+        $this->issued(paidBeyond: true);
+        $this->renewAnswer = 'new';
+
+        $this->artisan('ssl:sync')->assertExitCode(0);
+
+        $order = $this->order();
+        $this->assertSame([900, [777]], [$order->order_id, $order->previous_order_ids]);
+        $this->assertNull($order->renew_requested_at);
+    }
+
+    public function test_a_lost_renewal_that_made_a_new_order_is_found_by_its_csr(): void
+    {
+        $this->issued(paidBeyond: true);
+        $this->renewAnswer = 'lost-new'; // a new order made, the answer lost
+        $this->artisan('ssl:sync')->assertExitCode(1); // told
+
+        $this->artisan('ssl:sync')->assertExitCode(0); // found
+
+        $this->assertSame(900, $this->order()->order_id, 'the new order adopted by its CSR and handle');
+        $this->assertNull($this->order()->renew_requested_at);
+        $this->assertCount(1, $this->sent('POST', '/v1/ssl/orders/777/renew'));
+    }
+
+    public function test_a_refused_renewal_is_told_and_tried_again(): void
+    {
+        $this->issued(paidBeyond: true);
+        $this->renewAnswer = 'refuse';
+        $this->artisan('ssl:sync')->assertExitCode(1);
+        $this->assertStringContainsString('Not renewable yet', (string) $this->order()->sync_error);
+        $this->assertNull($this->order()->renew_requested_at);
+
+        $this->renewAnswer = 'same';
+        $this->artisan('ssl:sync')->assertExitCode(0);
+        $this->assertCount(2, $this->sent('POST', '/v1/ssl/orders/777/renew'));
+    }
+
+    public function test_a_renewal_not_seen_after_a_day_is_told_and_staff_may_clear_it(): void
+    {
+        $this->issued(paidBeyond: true);
+        $this->renewAnswer = 'lost-not-made';
+        $this->artisan('ssl:sync')->assertExitCode(1);
+        $this->travel(25)->hours();
+        $this->artisan('ssl:sync')->assertExitCode(1);
+        $this->assertStringContainsString('does not show it after a day', (string) $this->order()->sync_error);
+
+        $server = $this->service->provisioningServer();
+        ExtensionHelper::getExtension('server', $server->extension, $server->settings)->clearRequest($this->order());
+        $this->assertNull($this->order()->renew_requested_at);
+        $this->assertCount(1, $this->sent('POST', '/v1/ssl/orders/777/renew'), 'clearing charges nothing');
+    }
+
+    public function test_the_customer_is_told_of_a_new_certificate_once(): void
+    {
+        $this->issued(paidBeyond: false);
+        $this->artisan('ssl:sync')->assertExitCode(0);
+        $this->artisan('ssl:sync')->assertExitCode(0);
+        $this->assertSame(1, EmailLog::query()->where('template_key', 'ssl_certificate_issued')->count());
+
+        $this->orders[777]['certificate'] = "-----BEGIN CERTIFICATE-----\nBBB\n-----END CERTIFICATE-----"; // reissued
+        $this->artisan('ssl:sync')->assertExitCode(0);
+        $this->assertSame(2, EmailLog::query()->where('template_key', 'ssl_certificate_issued')->count());
+    }
+
+    public function test_reissue_takes_a_new_csr_for_the_same_name_only(): void
+    {
+        $this->issued(paidBeyond: false);
+        $this->artisan('ssl:sync')->assertExitCode(0);
+        $reissue = fn () => ExtensionHelper::callService($this->service->fresh(), 'reissue', [self::CSR, 'https', null]);
+
+        $this->assertTrue($reissue());
+        [$sent] = $this->sent('POST', '/v1/ssl/orders/777/reissue');
+        $this->assertSame(['shop.example.test'], $sent['host_names']);
+        $this->assertSame('https', $sent['domain_validation_methods'][0]['method']);
+
+        $this->csr = ['subject' => ['common_name' => 'other.example.test'], 'subject_alternative_name' => []];
+        $this->assertFalse(rescue($reissue, false, false), 'another name: a new certificate, not a reissue');
+        $this->assertCount(1, $this->sent('POST', '/v1/ssl/orders/777/reissue'));
+    }
+
+    public function test_the_approver_changes_only_to_one_openprovider_allows(): void
+    {
+        ExtensionHelper::createServer($this->service->fresh());
+        $this->place('email', 'admin@shop.example.test');
+        $change = fn (string $to) => ExtensionHelper::callService($this->service->fresh(), 'changeApproverEmail', [$to]);
+
+        $this->assertFalse(rescue(fn () => $change('me@elsewhere.test'), false, false));
+        $this->assertTrue($change('webmaster@shop.example.test'));
+        $this->assertSame([['id' => 777, 'approver_email' => 'webmaster@shop.example.test']], $this->sent('PUT', '/v1/ssl/orders/777/approver-email'));
+    }
+
+    public function test_the_customer_reissues_from_the_page(): void
+    {
+        $this->issued(paidBeyond: false);
+        $this->artisan('ssl:sync')->assertExitCode(0);
+        RateLimiter::clear('service-ssl-check:' . $this->service->id);
+        RateLimiter::clear('service-ssl-reissue:' . $this->service->id);
+        $this->actingAs($this->owner)->withSession($this->loginUser($this->owner, [CurrentClient::SESSION_KEY => $this->service->client_id]));
+
+        Livewire::test(Show::class, ['service' => $this->service])->assertSee(__('services.ssl.reissue_title'))
+            ->set('sslCsr', self::CSR)->call('sslCheck')->assertSet('sslName', 'shop.example.test')
+            ->set('sslMethod', 'dns')->call('sslReissue');
+
+        $this->assertCount(1, $this->sent('POST', '/v1/ssl/orders/777/reissue'));
+        $this->assertCount(1, $this->sent('POST', '/v1/ssl/orders'), 'nothing ordered again');
     }
 
     public function test_a_plan_not_in_years_is_refused(): void

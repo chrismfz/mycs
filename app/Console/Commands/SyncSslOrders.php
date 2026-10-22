@@ -12,8 +12,8 @@ use Throwable;
 
 /**
  * Every certificate ordered at Openprovider read again (extension OpenproviderSsl): its status, dates, certificate (a
- * reissue's too) and what to publish to validate; an order request whose answer was lost looked for and adopted. Reads
- * only: nothing is ordered here. A failure is kept on the order and told.
+ * reissue's too, told to the customer once) and what to publish to validate; an order request whose answer was lost
+ * looked for and adopted; an order renewed (charged) once its customer has paid beyond its end, never twice. A failure is kept on the order and told.
  */
 class SyncSslOrders extends Command
 {
@@ -35,7 +35,12 @@ class SyncSslOrders extends Command
                 if (!$extension instanceof OpenproviderSsl) {
                     continue;
                 }
-                $order->order_id === null ? $extension->recover($order) : $extension->sync($order);
+                if ($order->order_id === null) {
+                    $extension->recover($order);
+                } else {
+                    $extension->sync($order);
+                    $extension->renewIfPaid($order); // only when the customer has paid beyond the order's end
+                }
             } catch (Throwable $e) {
                 report($e);
                 $reason = Redact::text($e->getMessage());
