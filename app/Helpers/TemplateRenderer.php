@@ -102,6 +102,25 @@ class TemplateRenderer
         return $template === null || $template === '' ? '' : self::renderer()->render($template, $data, $escape);
     }
 
+    /**
+     * Staff's Markdown made HTML before the values go in: a customer's name, a ticket's subject or a service's label is
+     * text in the mail, never a link or an image of their own (reviews of #294). Its template tags kept as they are.
+     */
+    public static function markdown(string $body): string
+    {
+        $tags = [];
+        $marked = (string) preg_replace_callback('/\{\{.*?\}\}|\{%.*?%\}/s', function (array $m) use (&$tags) {
+            $tags[] = $m[0];
+
+            return 'MYCSTAG' . (count($tags) - 1) . 'X';
+        }, $body);
+        $html = Str::markdown($marked, ['allow_unsafe_links' => false]);
+        // A tag alone on its line became a paragraph of its own: the tag, without it.
+        $html = (string) preg_replace('/<p>(MYCSTAG\d+X)<\/p>/', '$1', $html);
+
+        return (string) preg_replace_callback('/MYCSTAG(\d+)X/', fn (array $m) => $tags[(int) $m[1]], $html);
+    }
+
     /** Validation rule (Filament and Validator): the field must parse as a template. */
     public static function rule(): ValidTemplate
     {
@@ -165,7 +184,7 @@ class TemplateRenderer
         $snippet = $service instanceof Service ? $service->product?->email_template : null;
         if ($snippet) {
             try {
-                $data['product_info'] = new Html(Str::markdown(self::render($snippet, $data)));
+                $data['product_info'] = new Html(self::render(self::markdown($snippet), $data));
             } catch (TemplateError $e) {
                 report($e); // the email still goes out, without the broken snippet
             }

@@ -201,30 +201,11 @@ final class BulkMailer
         ];
         $context = TemplateRenderer::context($data, $owner);
         $data['subject'] = TemplateRenderer::render($greek ? $mail->subject_el : $mail->subject, $context, escape: false);
-        $data['content'] = new Html(TemplateRenderer::render(self::markdown((string) ($greek ? $mail->body_el : $mail->body)), $context));
+        $data['content'] = new Html(TemplateRenderer::render(TemplateRenderer::markdown((string) ($greek ? $mail->body_el : $mail->body)), $context));
         $data['unsubscribe_url'] = $mail->kind === BulkMail::KIND_NEWS && $owner !== null
             ? URL::signedRoute('announcements.unsubscribe', ['user' => $owner->id]) : null;
 
         return $data;
-    }
-
-    /**
-     * Staff's Markdown made HTML before the values go in: a customer's name or a service's label is text in the mail,
-     * never a link or an image of their own (reviews of #294). Its template tags kept as they are through it.
-     */
-    private static function markdown(string $body): string
-    {
-        $tags = [];
-        $marked = (string) preg_replace_callback('/\{\{.*?\}\}|\{%.*?%\}/s', function (array $m) use (&$tags) {
-            $tags[] = $m[0];
-
-            return 'MYCSTAG' . (count($tags) - 1) . 'X';
-        }, $body);
-        $html = Str::markdown($marked, ['allow_unsafe_links' => false]);
-        // A tag alone on its line became a paragraph of its own: the tag, without it.
-        $html = (string) preg_replace('/<p>(MYCSTAG\d+X)<\/p>/', '$1', $html);
-
-        return (string) preg_replace_callback('/MYCSTAG(\d+)X/', fn (array $m) => $tags[(int) $m[1]], $html);
     }
 
     /**
