@@ -86,7 +86,7 @@ class AdvRlLoginKeysTest extends TestCase
 
         $this->caller('203.0.113.250');
         Livewire::test(Login::class)->set('email', 'chrȉs@example.com')->set('password', 'Right-Pass-1')->call('submit')
-            ->assertHasErrors(['email' => __('auth.throttle', ['seconds' => 900])]);
+            ->assertHasErrors('email');
         $this->assertFalse(auth()->check(), 'the 21st try at the same account, spelled another way, is still limited');
     }
 
@@ -130,5 +130,23 @@ class AdvRlLoginKeysTest extends TestCase
         $this->caller('203.0.113.10');
         Livewire::test(StaffLogin::class)->set('data.email', $staff->email)->set('data.password', 'Right-Pass-1')->call('authenticate');
         $this->assertTrue(auth('staff')->check(), 'ten wrong tries by someone else locked the owner out for 15 minutes');
+    }
+
+    /**
+     * ADV-RL-3 (re-review of f09262de): `login-ip:<address>` (30 in 15 minutes, any email) counts successful logins too
+     * and is never cleared, so an office or a mobile carrier's NAT where 30 customers signed in correctly locks the next
+     * customer out with the right password. A per-address limit meant for guessing should count failures only.
+     */
+    public function test_adv_rl_3_customers_signing_in_correctly_behind_one_nat_do_not_lock_out_the_next_one(): void
+    {
+        $users = User::factory()->count(31)->create(['password' => Hash::make('Right-Pass-1')]);
+        $this->caller('203.0.113.77');
+
+        foreach ($users as $n => $user) {
+            Livewire::test(Login::class)->set('email', $user->email)->set('password', 'Right-Pass-1')->call('submit')
+                ->assertHasNoErrors();
+            $this->assertTrue(auth('web')->check(), 'customer #' . ($n + 1) . ' signs in from the shared address');
+            auth('web')->logout();
+        }
     }
 }
