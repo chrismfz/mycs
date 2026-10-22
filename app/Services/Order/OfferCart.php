@@ -7,6 +7,7 @@ use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\Offer;
 use App\Models\Product;
+use App\Support\AuthCookies;
 use Illuminate\Support\Once;
 use Throwable;
 
@@ -25,7 +26,7 @@ final class OfferCart
         // One cart for the whole offer: made now, and its cookie seen by the rest of this request (Cart reads the request's
         // cookie; the one it queues is the browser's next request's), so each product is not put in a new cart.
         $cart = Cart::createCart();
-        request()->cookies->set('cart', $cart->ulid);
+        request()->cookies->set(AuthCookies::cart(), $cart->ulid);
         Once::flush();
         $before = $cart->coupon_id; // the customer's own coupon, if the cart had one
         $added = [];

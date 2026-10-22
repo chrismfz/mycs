@@ -11,6 +11,7 @@ use App\Models\Product;
 use App\Services\Domains\DomainSearch;
 use App\Services\Domains\Ordering\DomainOffer;
 use App\Services\Domains\Ordering\DomainOrderLine;
+use App\Support\AuthCookies;
 use App\Support\CallerIp;
 use App\Support\CurrentClient;
 use Illuminate\Support\Facades\Auth;
@@ -26,12 +27,22 @@ class Cart
     public static function getOnce()
     {
         // A cart made earlier in this request is the one, not a second (a hosting and its domain added together).
-        $ulid = request()->attributes->get(self::MADE_NOW) ?? Cookie::get('cart');
+        $ulid = request()->attributes->get(self::MADE_NOW) ?? Cookie::get(AuthCookies::cart());
         if (!is_string($ulid) || !$cart = \App\Models\Cart::where('ulid', $ulid)->first()) {
+            return new \App\Models\Cart;
+        }
+        // An account's cart is that account's alone: its id in someone else's cookie opens nothing (review of #346).
+        if (!self::mayUse($cart)) {
             return new \App\Models\Cart;
         }
 
         return $cart->load('items.plan', 'items.product', 'items.product.configOptions.children.plans.prices');
+    }
+
+    /** A cart of no account is whoever holds its id; one of an account, only that account's (staff in it included). */
+    public static function mayUse(\App\Models\Cart $cart): bool
+    {
+        return $cart->client_id === null || (Auth::check() && (int) CurrentClient::id() === (int) $cart->client_id);
     }
 
     public static function get()
@@ -46,9 +57,12 @@ class Cart
             \App\Models\Cart::where('ulid', $made)->delete();
             request()->attributes->remove(self::MADE_NOW);
         }
-        if (Cookie::has('cart')) {
-            \App\Models\Cart::where('ulid', Cookie::get('cart'))->delete();
-            Cookie::queue(Cookie::forget('cart'));
+        if (Cookie::has(AuthCookies::cart())) {
+            $cart = \App\Models\Cart::where('ulid', Cookie::get(AuthCookies::cart()))->first();
+            if ($cart !== null && self::mayUse($cart)) {
+                $cart->delete();
+            }
+            Cookie::queue(Cookie::forget(AuthCookies::cart()));
         }
     }
 
@@ -64,7 +78,7 @@ class Cart
             $cart->client_id = Auth::check() ? CurrentClient::model()?->id : null;
             $cart->currency_code = session('currency', session('currency', config('settings.default_currency')));
             $cart->save();
-            Cookie::queue('cart', $cart->ulid, 60 * 24 * 30); // 30 days
+            Cookie::queue(AuthCookies::cart(), $cart->ulid, 60 * 24 * 30); // 30 days
             request()->attributes->set(self::MADE_NOW, $cart->ulid);
             $cart = \App\Models\Cart::find($cart->id);
         }
