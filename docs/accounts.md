@@ -394,7 +394,7 @@ tickets, affiliates, emails, orders`. Στην πράξη: «όλα» ή μικ�
   δικαιώματα), οι απενεργοποιημένοι ως ανενεργοί· απαντήσεις admin σε tickets → `staff_id` (άγνωστο όνομα → ανενεργό
   μέλος με αυτό το όνομα, όχι ψεύτικος πελάτης). Δύο admins με το ίδιο email: ο δεύτερος παίρνει
   `duplicate-<id>+<email>` και warning, για διόρθωση με το χέρι.
-- **Εντολές:** `app:staff:create` (νέα)· το `app:user:create` φτιάχνει πλέον μόνο πελάτη· το `mycs:install` φτιάχνει staff.
+- **Εντολές:** `app:staff:create` (νέα), `app:staff:unlock` (κλειδωμένο μέλος: όριο, 2FA, κωδικός· `docs/install.md`)· το `app:user:create` φτιάχνει πλέον μόνο πελάτη· το `mycs:install` φτιάχνει staff.
 
 ## PR 2a: τι έγινε (λογαριασμοί πελάτη χωριστά από τους users)
 - **Πίνακες `clients` και `client_user`** (WHMCS `tblclients` / `tblusers_clients`, με το ιστορικό του Ekdosi
