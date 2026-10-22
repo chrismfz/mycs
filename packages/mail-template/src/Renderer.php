@@ -11,7 +11,7 @@ namespace MyCS\MailTemplate;
  *
  *   {{ invoice.number }}                    value, HTML-escaped when $escape is true
  *   {{ service.expires_at|date("F j, Y") }} filters: date("fmt"), default("x"), upper, lower, raw, url (a link's
- *   address: http, https, mailto, tel, sms, viber, whatsapp or relative, anything else is "#")
+ *   address: http, https, mailto, tel, sms, viber, whatsapp, skype, callto, ftp, geo or relative, anything else is "#")
  *   {% if invoice.total %} … {% else %} … {% endif %}
  *   {% if not item.reason %} … {% endif %}
  *   {% if cancellation.type == "end_of_period" %} … {% endif %}   (also !=)
@@ -407,12 +407,12 @@ final class Renderer
         return $this->emit === null ? $text : ($this->emit)($text, $raw);
     }
 
-    /** A link's address: http(s), mailto, tel, sms, viber, whatsapp or one without a scheme; anything else (javascript:, data:) is "#". */
+    /** A link's address: http(s), mailto, tel, sms, viber, whatsapp, skype, callto, ftp, geo or one without a scheme; anything else (javascript:, data:) is "#". */
     public static function safeUrl(string $url): string
     {
         // Browsers ignore control characters and spaces in a scheme (java\tscript:): so does this check.
         $plain = strtolower((string) preg_replace('/[\x00-\x20\x7F]+/', '', $url));
-        if (preg_match('/^([a-z][a-z0-9+.\-]*):/', $plain, $m) === 1 && !in_array($m[1], ['http', 'https', 'mailto', 'tel', 'sms', 'viber', 'whatsapp'], true)) {
+        if (preg_match('/^([a-z][a-z0-9+.\-]*):/', $plain, $m) === 1 && !in_array($m[1], ['http', 'https', 'mailto', 'tel', 'sms', 'viber', 'whatsapp', 'skype', 'callto', 'ftp', 'geo'], true)) {
             return '#';
         }
 

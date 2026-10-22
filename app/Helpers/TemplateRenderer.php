@@ -142,9 +142,10 @@ class TemplateRenderer
      */
     private static function safeAddresses(string $html): string
     {
-        return (string) preg_replace_callback(
+        // Inside tags only: text between them (a customer's, escaped) is never read as attributes.
+        return (string) preg_replace_callback('~<[a-zA-Z](?:"[^"]*"|\'[^\']*\'|[^\'">])*>~', fn (array $tag) => (string) preg_replace_callback(
             // After a space, a "/" or a quote: a browser reads <a/href=…> and <a title="t"href=…> as well.
-            '~(?<=[\s/"\'])((?:href|src|srcset|action|formaction|background|poster|xlink:href)\s*=\s*)("[^"]*"|\'[^\']*\'|[^\s>]+)~i',
+            '~(?<=[\s/"\'])((?:href|src|srcset|data|action|formaction|background|poster|xlink:href)\s*=\s*)("[^"]*"|\'[^\']*\'|[^\s>]+)~i',
             function (array $m) {
                 $name = strtolower((string) strtok($m[1], " \t\n\r\f="));
                 $value = self::attributeText(trim($m[2], '"\''));
@@ -161,8 +162,8 @@ class TemplateRenderer
 
                 return $m[0];
             },
-            $html,
-        );
+            $tag[0],
+        ), $html);
     }
 
     /**
