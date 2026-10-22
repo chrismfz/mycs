@@ -36,6 +36,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Validation\Rules\Password;
 use Livewire\Attributes\Locked;
 use MyCS\Extensions\Servers\CPanel\CPanel;
+use MyCS\Extensions\Servers\OpenproviderSsl\OpenproviderSsl;
 
 class EditService extends EditRecord
 {
@@ -214,9 +215,10 @@ class EditService extends EditRecord
             Action::make('sslClearRequest')
                 ->label('Clear the unanswered SSL order request')->icon('ri-lock-unlock-line')->color('warning')
                 ->authorize('update')
-                ->visible(fn (Service $record) => SslOrder::query()->where('service_id', $record->id)->whereNull('order_id')->whereNotNull('requested_at')->exists())
+                ->visible(fn (Service $record) => ($order = SslOrder::query()->where('service_id', $record->id)->first()) !== null
+                    && OpenproviderSsl::stuck($order))
                 ->requiresConfirmation()
-                ->modalDescription('Only after checking Openprovider has no order with this CSR: the customer may then order again, and a second order is charged.')
+                ->modalDescription('Only after checking Openprovider has no order with this CSR (it is looked for once more first): the customer may then order again, and a second order is charged.')
                 ->action(function (Service $record): void {
                     $order = SslOrder::query()->where('service_id', $record->id)->sole();
                     $server = $record->provisioningServer() ?? throw new Exception('The service has no server');

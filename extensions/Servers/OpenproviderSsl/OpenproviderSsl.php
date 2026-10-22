@@ -163,8 +163,9 @@ class OpenproviderSsl extends Server
         if (($settings['terminate_mode'] ?? self::KEEP) !== self::CANCEL || $order === null) {
             return true;
         }
-        if ($order->order_id === null && $order->requested_at !== null) {
-            $this->recover($order);
+        if ($order->order_id === null && $order->requested_at !== null && !$this->recover($order)) {
+            // An order request still open and not found yet: not ended here, so it is tried again (R2-3 of #345).
+            throw new Exception('Openprovider SSL: an order request is still open and its order not found yet: terminate again later');
         }
         if ($order->order_id === null) {
             return true;
@@ -269,12 +270,13 @@ class OpenproviderSsl extends Server
         if ($method === 'email' && !in_array($approverEmail, $this->approverEmails($service, $settings, $properties, $csrInfo['common_name']), true)) {
             throw new ServerRefused(__('services.ssl.approver_invalid'));
         }
-        $handle = $order->organization_handle ?? SslOrder::query()->where('connection_id', $connection->id)
+        // A handle of this connection's account only (never one made on another); written by the claim alone, so a request
+        // racing this one never overwrites the handle another's order was made with (R2-1 of #345).
+        $handle = SslOrder::query()->where('connection_id', $connection->id)
             ->whereHas('service', fn ($q) => $q->where('client_id', $service->client_id))->whereNotNull('organization_handle')->value('organization_handle');
         if ($handle === null) {
             $contact = $service->client->primaryContact ?? $service->client->ensurePrimaryContact();
             $handle = self::answered(fn () => $registrar->customerHandle($contact, $credentials));
-            $order->forceFill(['organization_handle' => $handle])->save();
         }
         $claimed = SslOrder::query()->whereKey($order->id)->whereNull('order_id')->whereNull('requested_at')->update([
             'connection_id' => $connection->id, 'common_name' => $csrInfo['common_name'],
@@ -351,8 +353,8 @@ class OpenproviderSsl extends Server
 
             return true;
         }
-        if ($order->requested_at->lessThan(now()->subMinutes(self::STUCK_MINUTES))) {
-            // Told, never silent (code review 2 of #345): staff check Openprovider, then clear the request or link the order.
+        if (self::stuck($order)) {
+            // Told, never silent (code review 2 of #345): staff check Openprovider, then clear the request.
             throw new Exception('Openprovider SSL: an order request was not answered and no such order is found at Openprovider: check it there, then clear the request');
         }
 
@@ -361,10 +363,23 @@ class OpenproviderSsl extends Server
 
     /**
      * Staff, after checking Openprovider has no such order: the request whose answer was lost cleared, so the customer
-     * may order again. Only a request with no order.
+     * may order again. Only a request stuck (older than STUCK_MINUTES), and only when its order is not found now: one
+     * found is adopted instead (R2-2 of #345: never a second charge for an order made).
      */
     public function clearRequest(SslOrder $order): void
     {
+        $order->refresh();
+        if ($order->order_id !== null || $order->requested_at === null || !self::stuck($order)) {
+            throw new Exception('Openprovider SSL: there is no stuck order request to clear (it may still be answered)');
+        }
+        try {
+            $found = $this->recover($order);
+        } catch (Throwable $e) {
+            $found = $order->fresh()->order_id !== null; // stuck and not found: the expected exception
+        }
+        if ($found) {
+            throw new Exception("Openprovider SSL: the order was found at Openprovider ({$order->fresh()->order_id}) and linked: nothing cleared");
+        }
         $cleared = SslOrder::query()->whereKey($order->id)->whereNull('order_id')->whereNotNull('requested_at')
             ->update(['requested_at' => null, 'sync_error' => null, 'updated_at' => now()]);
         if ($cleared !== 1) {
@@ -414,6 +429,12 @@ class OpenproviderSsl extends Server
         self::answered(fn () => $registrar->sslCall($credentials, 'POST', "/v1/ssl/orders/{$order->order_id}/approver-email/resend", ['id' => $order->order_id]));
 
         return true;
+    }
+
+    /** An order request unanswered and not found for STUCK_MINUTES. */
+    public static function stuck(SslOrder $order): bool
+    {
+        return $order->order_id === null && $order->requested_at !== null && $order->requested_at->lessThan(now()->subMinutes(self::STUCK_MINUTES));
     }
 
     /** The same CSR, whatever its line endings and outer whitespace. */
