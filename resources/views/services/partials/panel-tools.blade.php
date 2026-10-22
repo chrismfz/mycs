@@ -37,6 +37,7 @@
         <form wire:submit="changeServicePassword" class="flex flex-col gap-3 mt-3">
             <x-form.input wire:model="newPassword" name="newPassword" type="password" :label="__('services.cpanel.new_password')" autocomplete="new-password" maxlength="128" required />
             <x-form.input wire:model="newPasswordConfirmation" name="newPasswordConfirmation" type="password" :label="__('services.cpanel.confirm_password')" autocomplete="new-password" maxlength="128" required />
+            <x-form.checkbox wire:model="changeMysqlToo" name="changeMysqlToo">{{ __('services.cpanel.mysql_too') }}</x-form.checkbox>
             <p class="text-xs text-base/50">{{ __('services.cpanel.password_hint') }}</p>
             <x-button.primary type="submit" class="!w-fit" wire:loading.attr="disabled">{{ __('services.cpanel.password_change') }}</x-button.primary>
         </form>

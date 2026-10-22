@@ -53,6 +53,9 @@ class Show extends Component
 
     public string $newPasswordConfirmation = '';
 
+    /** WHM's «db_pass_update»: the account's MySQL user gets the new password too (unchecked, as WHM). */
+    public bool $changeMysqlToo = false;
+
     public string $mailboxName = '';
 
     public string $mailboxPassword = '';
@@ -348,7 +351,7 @@ class Show extends Component
         RateLimiter::hit($key, 900);
         try {
             // Never «may fail»: that path reports the error unredacted and returns null (a refusal told as success).
-            if (ExtensionHelper::callService($this->service, 'changePassword', [$password]) !== true) {
+            if (ExtensionHelper::callService($this->service, 'changePassword', [$password, $this->changeMysqlToo]) !== true) {
                 throw new Exception('the server did not confirm the change');
             }
         } catch (Exception $e) {

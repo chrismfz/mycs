@@ -75,6 +75,7 @@ return [
         'password_title' => 'Change password',
         'new_password' => 'New password',
         'confirm_password' => 'Confirm new password',
+        'mysql_too' => 'Change the MySQL password too',
         'password_hint' => 'At least 10 characters, with upper and lower case letters and numbers.',
         'password_change' => 'Change password',
         'password_changed' => 'The password was changed.',

@@ -183,11 +183,13 @@ class EditService extends EditRecord
                 ->schema([
                     TextInput::make('password')->label('New password')->password()->revealable()->required()->maxLength(128)
                         ->rule(Password::min(10)->letters()->mixedCase()->numbers()),
+                    Checkbox::make('mysqlToo')->label('Change the MySQL password too')->default(false)
+                        ->helperText('WHM\'s «db_pass_update»: the account\'s main MySQL user gets the new password too. Scripts that use it must then be updated.'),
                 ])
                 ->action(function (array $data, Service $record, Action $action): void {
                     $password = (string) $data['password'];
                     try {
-                        if (ExtensionHelper::callService($record, 'changePassword', [$password]) !== true) {
+                        if (ExtensionHelper::callService($record, 'changePassword', [$password, (bool) ($data['mysqlToo'] ?? false)]) !== true) {
                             throw new Exception('the server did not confirm the change');
                         }
                     } catch (Exception $e) {

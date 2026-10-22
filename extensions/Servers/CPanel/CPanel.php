@@ -690,13 +690,14 @@ class CPanel extends Server implements ReadsServiceUsage
      * A new password for the account (WHM's passwd; WHMCS's «Change Password», staff and customer): WHM's strength rules
      * apply, its refusal is told. Kept on the service (encrypted, never in its audit) once WHM took it.
      */
-    public function changePassword(Service $service, $settings, $properties, string $password): bool
+    public function changePassword(Service $service, $settings, $properties, string $password, bool $mysqlToo = false): bool
     {
         if (!isset($properties['cpanel_username'])) {
             throw new Exception('Service has not been created');
         }
-        // The account's MySQL user is left as it is (db_pass_update unset, WHM's default): scripts using it keep working.
-        $this->whm('/passwd', ['user' => $properties['cpanel_username'], 'password' => $password], 'post');
+        // The account's MySQL user changed too only when asked (WHM's «db_pass_update», unchecked by default as in WHM:
+        // scripts using it keep working; owner 2026-10-22).
+        $this->whm('/passwd', ['user' => $properties['cpanel_username'], 'password' => $password] + ($mysqlToo ? ['db_pass_update' => 1] : []), 'post');
         try {
             $service->forceFill(['password' => $password])->save();
         } catch (Throwable $e) {

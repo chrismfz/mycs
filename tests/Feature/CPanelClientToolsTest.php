@@ -224,4 +224,26 @@ class CPanelClientToolsTest extends TestCase
             $this->assertNotSame('services.cpanel.shortcuts.' . $app, __('services.cpanel.shortcuts.' . $app), "{$app} has a label");
         }
     }
+
+    public function test_the_mysql_password_changes_too_only_when_asked(): void
+    {
+        $this->page()->set('newPassword', self::PASSWORD)->set('newPasswordConfirmation', self::PASSWORD)->call('changeServicePassword');
+        $this->page()->set('newPassword', self::PASSWORD)->set('newPasswordConfirmation', self::PASSWORD)->set('changeMysqlToo', true)->call('changeServicePassword');
+
+        [$plain, $both] = $this->sent('passwd');
+        $this->assertArrayNotHasKey('db_pass_update', $plain->data());
+        $this->assertSame('1', (string) $both['db_pass_update']);
+    }
+
+    public function test_staff_may_change_the_mysql_password_too(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+
+        $this->livewireAs($staff)->test(EditService::class, ['record' => $this->service->getRouteKey()])
+            ->callAction('serverPassword', ['password' => self::PASSWORD, 'mysqlToo' => true])->assertHasNoActionErrors();
+
+        [$passwd] = $this->sent('passwd');
+        $this->assertSame('1', (string) $passwd['db_pass_update']);
+    }
 }
