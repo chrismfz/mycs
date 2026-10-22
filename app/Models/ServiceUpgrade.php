@@ -28,6 +28,13 @@ class ServiceUpgrade extends Model implements Auditable
 
     public $guarded = [];
 
+    /** @return array<string, string> */
+    protected function casts(): array
+    {
+        // A downgrade's credit and the day it was given for (DowngradeCredit).
+        return ['credit_cents' => 'integer', 'credit_until' => 'date'];
+    }
+
     /** @return BelongsTo<Service, $this> */
     public function service(): BelongsTo
     {
