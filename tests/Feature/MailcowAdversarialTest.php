@@ -229,10 +229,24 @@ class MailcowAdversarialTest extends TestCase
     public function test_a_retry_after_a_lost_add_domain_answer_finishes_the_create(): void
     {
         $this->service->properties()->create(['key' => 'mailcow_pending_username', 'name' => 'p', 'value' => 'cdnet']);
+        // Fix: this service marks the domain before it asks for it (the reviewer's marker); without it, an admin-less
+        // domain is never adopted (it may be another customer's, set up by hand).
+        $this->service->properties()->create(['key' => 'mailcow_domain_added', 'name' => 'm', 'value' => 'cdnet.gr']);
         $this->domains['cdnet.gr'] = ['domain_name' => 'cdnet.gr'];
 
         $this->quietly(fn () => ExtensionHelper::createServer($this->service->fresh()));
 
         $this->assertSame('cdnet', $this->service->fresh()->username, 'stuck: refused as «under another admin»');
+    }
+
+    /** The other side of ADV-11: an admin-less domain this service did not mark is never adopted. */
+    public function test_an_admin_less_domain_not_marked_by_this_service_is_never_adopted(): void
+    {
+        $this->service->properties()->create(['key' => 'mailcow_pending_username', 'name' => 'p', 'value' => 'cdnet']);
+        $this->domains['cdnet.gr'] = ['domain_name' => 'cdnet.gr'];
+
+        $this->quietly(fn () => ExtensionHelper::createServer($this->service->fresh()));
+
+        $this->assertNull($this->service->fresh()->username);
     }
 }

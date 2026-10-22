@@ -91,7 +91,8 @@ class MailcowExtensionTest extends TestCase
 
     private function made(array $domains = ['cdnet.gr']): void
     {
-        $this->domains['cdnet.gr'] = ['domain_name' => 'cdnet.gr', 'bytes_total' => 300 * 1048576, 'max_quota_for_domain' => 51200 * 1048576];
+        $this->domains['cdnet.gr'] = ['domain_name' => 'cdnet.gr', 'bytes_total' => 300 * 1048576, 'max_quota_for_domain' => 51200 * 1048576,
+            'mboxes_in_domain' => 2, 'max_num_mboxes_for_domain' => 100];
         $this->admins = [['username' => 'cdnet', 'selected_domains' => implode(', ', $domains), 'active' => 1]];
         $this->service->properties()->create(['key' => 'mailcow_username', 'name' => 'mailcow domain admin', 'value' => 'cdnet']);
         $this->service->forceFill(['username' => 'cdnet', 'password' => 'Old-Pass-123'])->save();
@@ -128,7 +129,7 @@ class MailcowExtensionTest extends TestCase
         $this->domains['cdnet.gr'] = ['domain_name' => 'cdnet.gr'];
         $this->admins = [['username' => 'someoneelse', 'selected_domains' => 'cdnet.gr', 'active' => 1]];
 
-        $this->expectExceptionMessage('already on this server under another admin');
+        $this->expectExceptionMessage('already on this server');
         try {
             ExtensionHelper::createServer($this->service->fresh());
         } finally {

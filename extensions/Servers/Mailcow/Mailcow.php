@@ -141,24 +141,60 @@ class Mailcow extends Server implements ReadsHostedDomains, ReadsServiceUsage
     }
 
     /**
-     * A domain and its domain admin (as the WHMCS module: domain, DKIM, admin). Idempotent: the admin's name is kept
-     * before it is asked for, so a retry after a lost answer adopts what was made, never a second admin; a domain already
-     * at mailcow is adopted only when this service's admin has it (else it is someone else's: refused).
+     * The service's own domain admin, as mailcow has it: it exists (its exact name) and manages this service's domain.
+     * Every action on an admin goes through here: never one the service does not own (an imported or typed name that is
+     * another customer's, a name not found), never an empty domain list sent (adversarial ADV-3…9 of #324).
+     *
+     * @param  list<array<string, mixed>>|null  $admins  mailcow's admins, read once for many services
+     * @return array{0: string, 1: list<string>, 2: array<string, mixed>} its name, its domains, its record
+     */
+    private static function ownedAdmin(MailcowClient $client, Service $service, array $properties, ?array $admins = null): array
+    {
+        $username = self::username($service, $properties) ?? throw new Exception('Service has not been created');
+        $domain = self::domainOf($service, $properties);
+        $record = $client->getDomainAdmin($username, $admins);
+        if ($record === []) {
+            throw new Exception("mailcow: no domain admin «{$username}» on this server: check the service's username");
+        }
+        $domains = MailcowClient::parseDomainList($record['selected_domains'] ?? '');
+        if (!in_array($domain, $domains, true)) {
+            throw new Exception("mailcow: the domain admin «{$username}» does not manage {$domain}: check the service before anything is done");
+        }
+
+        return [$username, $domains, $record];
+    }
+
+    /**
+     * A domain and its domain admin (as the WHMCS module: domain, DKIM, admin). Idempotent and never someone else's:
+     * - the admin's name is kept before it is asked for; an existing admin is adopted only when it already manages this
+     *   domain, and a name taken since (by another service) is given up for a new one (ADV-1, ADV-2 of #324);
+     * - a domain already at mailcow is adopted only when this service's admin has it, or when this service added it
+     *   (marked before it was asked for: a lost answer, ADV-11 / code review 1); anyone else's is refused.
      */
     public function createServer(Service $service, $settings, $properties)
     {
-        $client = $this->client();
+        $client = $this->client(90);
         $domain = self::domainOf($service, $properties);
         $username = self::username($service, $properties) ?? (string) $service->properties()->where('key', 'mailcow_pending_username')->value('value');
+        $admin = $username !== '' ? $client->getDomainAdmin($username) : [];
+        if ($admin !== [] && !in_array($domain, MailcowClient::parseDomainList($admin['selected_domains'] ?? ''), true)) {
+            $username = ''; // someone else's admin now: never adopted
+            $admin = [];
+        }
         if ($username === '') {
-            $username = Credentials::username($domain, fn (string $candidate) => $client->getDomainAdmin($candidate) === []);
+            $free = fn (string $candidate) => $client->getDomainAdmin($candidate) === [];
+            $username = Credentials::username($domain, $free);
+            if (!$free($username)) {
+                throw new Exception("mailcow: no free domain admin name found for {$domain}: create it by hand");
+            }
             $service->properties()->updateOrCreate(['key' => 'mailcow_pending_username'], ['name' => 'mailcow admin (being created)', 'value' => $username]);
         }
-        $admin = $client->getDomainAdmin($username);
+        $ours = $service->properties()->where('key', 'mailcow_domain_added')->value('value') === $domain;
         if ($client->getDomain($domain) === []) {
+            $service->properties()->updateOrCreate(['key' => 'mailcow_domain_added'], ['name' => 'mailcow domain added by this service', 'value' => $domain]);
             $client->addDomain($domain, DomainLimits::fromMeta($settings), self::on($settings['restart_sogo'] ?? null, true));
-        } elseif (!in_array($domain, MailcowClient::parseDomainList($admin['selected_domains'] ?? ''), true)) {
-            throw new Exception("mailcow: {$domain} is already on this server under another admin: check it there");
+        } elseif ($admin === [] && !$ours) {
+            throw new Exception("mailcow: {$domain} is already on this server, not made by this service: check it there");
         }
         if (self::on($settings['create_dkim'] ?? null, true)) {
             $client->ensureDkim($domain, (string) ($settings['dkim_selector'] ?? 'dkim') ?: 'dkim', (int) ($settings['dkim_keysize'] ?? 2048) ?: 2048);
@@ -170,49 +206,54 @@ class Mailcow extends Server implements ReadsHostedDomains, ReadsServiceUsage
             $client->addDomainAdmin($domain, $username, $password);
         }
         $service->properties()->updateOrCreate(['key' => 'mailcow_username'], ['name' => 'mailcow domain admin', 'value' => $username]);
-        $service->properties()->where('key', 'mailcow_pending_username')->delete();
+        $service->properties()->whereIn('key', ['mailcow_pending_username', 'mailcow_domain_added'])->delete();
         $service->forceFill(['username' => $username, 'domain' => $service->domain ?? $domain])->save();
 
         return true;
     }
 
-    /** Suspend locks the domain admin only (the mailboxes keep working), when the product says so (Policy). */
+    /** The service's mark that it locked its admin (suspend), so unsuspend unlocks only what it locked (ADV-10 of #324). */
+    public const LOCKED = 'mailcow_locked_by_us';
+
+    /**
+     * Suspend locks the domain admin only (the mailboxes keep working), when the product says so (Policy), and only an
+     * active one: an admin already locked (by hand, for abuse) is left as it is, and unsuspend will not unlock it.
+     */
     public function suspendServer(Service $service, $settings, $properties)
     {
-        $username = self::username($service, $properties) ?? throw new Exception('Service has not been created');
         $client = $this->client();
-        $domains = $client->getDomainAdminDomains($username);
-        if (self::policy($settings)->lockOnSuspend($domains)) {
+        [$username, $domains, $record] = self::ownedAdmin($client, $service, $properties);
+        if (self::policy($settings)->lockOnSuspend($domains) && in_array($record['active'] ?? 1, [1, '1', true], true)) {
+            $service->properties()->updateOrCreate(['key' => self::LOCKED], ['name' => 'mailcow admin locked by suspend', 'value' => '1']);
             $client->setDomainAdminActive($domains, $username, false);
         }
 
         return true;
     }
 
-    /** Unlocked only where suspend would have locked it: never an admin locked by hand or for another service. */
+    /** Unlocked only when this service's suspend locked it: never an admin locked by hand or for another service. */
     public function unsuspendServer(Service $service, $settings, $properties)
     {
-        $username = self::username($service, $properties) ?? throw new Exception('Service has not been created');
         $client = $this->client();
-        $domains = $client->getDomainAdminDomains($username);
-        if (self::policy($settings)->unlockOnUnsuspend($domains)) {
+        [$username, $domains] = self::ownedAdmin($client, $service, $properties);
+        if (($properties[self::LOCKED] ?? null) === '1') {
             $client->setDomainAdminActive($domains, $username, true);
+            $service->properties()->where('key', self::LOCKED)->delete();
         }
 
         return true;
     }
 
     /**
-     * lock_only (default): the admin locked, the mail kept. delete_all (the product's explicit choice): mailboxes,
-     * aliases, the admin (only when it has no other domain, else this domain is taken off its list) and the domain; each
-     * step tried, what failed told.
+     * lock_only (default): the admin locked, the mail kept. delete_all (the product's explicit choice), only on the
+     * service's own admin and domain (code review 2): mailboxes, aliases, the admin (only when it has no other domain,
+     * else this domain is taken off its list) and the domain; each step tried, what failed told.
      */
     public function terminateServer(Service $service, $settings, $properties)
     {
-        $username = self::username($service, $properties) ?? throw new Exception('Service has not been created');
         $client = $this->client(120);
         $domain = self::domainOf($service, $properties);
-        $domains = $client->getDomainAdminDomains($username);
+        [$username, $domains] = self::ownedAdmin($client, $service, $properties);
         $policy = self::policy($settings);
         if (!$policy->deletesOnTerminate()) {
             if ($policy->lockOnTerminate($domains)) {
@@ -239,37 +280,38 @@ class Mailcow extends Server implements ReadsHostedDomains, ReadsServiceUsage
         if ($errors !== []) {
             throw new Exception('mailcow delete_all incomplete: ' . implode('; ', $errors));
         }
-        $service->properties()->where('key', 'mailcow_username')->delete();
+        $service->properties()->whereIn('key', ['mailcow_username', self::LOCKED])->delete();
         $service->forceFill(['username' => null])->save();
 
         return true;
     }
 
-    /** A product change: its new limits on the domain. */
+    /** A product change: its new limits on its own domain. */
     public function upgradeServer(Service $service, $settings, $properties)
     {
-        self::username($service, $properties) ?? throw new Exception('Service has not been created');
-        $this->client()->editDomain(self::domainOf($service, $properties), DomainLimits::fromMeta($settings));
+        $client = $this->client();
+        self::ownedAdmin($client, $service, $properties);
+        $client->editDomain(self::domainOf($service, $properties), DomainLimits::fromMeta($settings));
 
         return true;
     }
 
-    /** A new password for the domain admin (the customer's and staff's «Change password»); kept once mailcow took it. */
+    /** A new password for its own domain admin (the customer's and staff's «Change password»); kept once mailcow took it. */
     public function changePassword(Service $service, $settings, $properties, string $password, bool $mysqlToo = false): bool
     {
-        $username = self::username($service, $properties) ?? throw new Exception('Service has not been created');
         $client = $this->client();
-        self::answered(fn () => $client->changeDomainAdminPassword($client->getDomainAdminDomains($username), $username, $password));
+        [$username, $domains] = self::ownedAdmin($client, $service, $properties);
+        self::answered(fn () => $client->changeDomainAdminPassword($domains, $username, $password));
         $service->forceFill(['password' => $password])->save();
 
         return true;
     }
 
-    /** Into the domain admin, signed in (mailcow's SSO token), as WHMCS's «Login to Mailcow». */
+    /** Into its own domain admin, signed in (mailcow's SSO token), as WHMCS's «Login to Mailcow». */
     public function getLoginUrl(Service $service, $settings, $properties): string
     {
-        $username = self::username($service, $properties) ?? throw new Exception('Service has not been created');
         $client = $this->client();
+        [$username] = self::ownedAdmin($client, $service, $properties);
 
         return Sso::loginUrl($client->getBaseUrl(), (string) ($this->config('sso_path') ?: '/domainadmin/'), $client->issueSsoToken($username));
     }
@@ -287,8 +329,9 @@ class Mailcow extends Server implements ReadsHostedDomains, ReadsServiceUsage
     }
 
     /**
-     * Usage: the domains its admin manages, summed (mailcow's own figures: bytes used, the domain quota), with how many
-     * mailboxes it has and may have. Per service (mailcow has no server-wide call for a domain admin's domains).
+     * Usage of its own domain (mailcow's figures for it: bytes used, its quota, its mailboxes and their limit): the admins
+     * read once, then one get/domain a service (code review 3, 5 of #324); a service whose admin it does not own is left
+     * out (ADV-7).
      *
      * @param  list<Service>  $services
      * @return array<int, ServiceUsageRead>
@@ -296,21 +339,26 @@ class Mailcow extends Server implements ReadsHostedDomains, ReadsServiceUsage
     public function usage(array $services): array
     {
         $client = $this->client(60);
+        $admins = $client->getDomainAdmins();
         $read = [];
         foreach ($services as $service) {
             $properties = $service->properties->pluck('value', 'key')->all();
-            $username = self::username($service, $properties);
-            $domains = $username !== null ? $client->getDomainAdminDomains($username) : [];
-            if ($domains === []) {
+            try {
+                self::ownedAdmin($client, $service, $properties, $admins);
+            } catch (Exception) {
                 continue;
             }
-            $totals = Usage::totals($client->overview($domains));
-            $limits = DomainLimits::fromMeta($service->product?->settings?->pluck('value', 'key')->all() ?? []);
+            $domain = $client->getDomain(self::domainOf($service, $properties));
+            if ($domain === []) {
+                continue;
+            }
+            $quota = Usage::bytes($domain['max_quota_for_domain'] ?? 0);
+            $limit = (int) ($domain['max_num_mboxes_for_domain'] ?? 0);
             $read[$service->id] = new ServiceUsageRead(
-                diskUsedMb: (int) round($totals['used'] / 1048576),
-                diskLimitMb: $totals['quota'] > 0 ? (int) round($totals['quota'] / 1048576) : null,
-                accounts: $totals['mailboxes'],
-                accountsLimit: $limits->mailboxes > 0 ? $limits->mailboxes * count($domains) : null,
+                diskUsedMb: (int) round(Usage::bytes($domain['bytes_total'] ?? 0) / 1048576),
+                diskLimitMb: $quota > 0 ? (int) round($quota / 1048576) : null,
+                accounts: isset($domain['mboxes_in_domain']) ? (int) $domain['mboxes_in_domain'] : null,
+                accountsLimit: $limit > 0 ? $limit : null,
                 accountsKind: 'mailboxes',
             );
         }
@@ -319,6 +367,8 @@ class Mailcow extends Server implements ReadsHostedDomains, ReadsServiceUsage
     }
 
     /**
+     * The domains its own admin manages (ADV-7 of #324: never an admin it does not own).
+     *
      * @param  list<Service>  $services
      * @return array<int, list<array{domain: string, type: string, account: string}>>
      */
@@ -328,13 +378,12 @@ class Mailcow extends Server implements ReadsHostedDomains, ReadsServiceUsage
         $admins = $client->getDomainAdmins();
         $read = [];
         foreach ($services as $service) {
-            $properties = $service->properties->pluck('value', 'key')->all();
-            $username = self::username($service, $properties);
-            $record = $username !== null ? $client->getDomainAdmin($username, $admins) : [];
-            $domains = $record !== [] ? MailcowClient::parseDomainList($record['selected_domains'] ?? '') : [];
-            if ($domains !== []) {
-                $read[$service->id] = array_map(fn (string $domain) => ['domain' => $domain, 'type' => 'main', 'account' => (string) $username], $domains);
+            try {
+                [$username, $domains] = self::ownedAdmin($client, $service, $service->properties->pluck('value', 'key')->all(), $admins);
+            } catch (Exception) {
+                continue;
             }
+            $read[$service->id] = array_map(fn (string $domain) => ['domain' => $domain, 'type' => 'main', 'account' => $username], $domains);
         }
 
         return $read;
