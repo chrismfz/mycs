@@ -13,49 +13,67 @@ use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 
 /**
- * The most a downgrade may give back as credit, with tax (adversarial P-1 and #326): what is left, after today, of what
- * was paid for the service (its paid period lines, one paid ahead whole, and the upgrades paid within them), less what
- * earlier downgrades already gave back for those days. Never the renewal price that was not paid (a first-cycle coupon,
- * an offer), never the same money twice.
+ * What a downgrade gives back as credit, with tax (adversarial P-1 and #326): from what was paid for the days left, never
+ * the renewal price that was not paid (a first-cycle coupon, an offer), never the same money twice.
  */
 final class DowngradeCredit
 {
-    public static function cap(Service $service, CarbonImmutable $today): BigDecimal
+    /**
+     * The credit a downgrade gives on $today, with tax, at most `$difference` (its renewal prices' difference for the days
+     * left): what is left of the period's paid money less what the days left cost on the new plan (`$kept`: the customer
+     * keeps them, G1 of #326), plus what is left of the upgrades paid within it, less what earlier downgrades gave back.
+     * The days left are charged against the period's money only (H2): an upgrade undone at once gives back what it cost.
+     */
+    public static function credit(Service $service, CarbonImmutable $today, BigDecimal $difference, BigDecimal $kept): BigDecimal
     {
-        $today = $today->startOfDay();
+        [$period, $upgrades, $given] = self::parts($service, $today->startOfDay());
+        $owed = BigDecimal::max($period->minus($kept), BigDecimal::zero())->plus($upgrades)->minus($given);
+
+        return BigDecimal::min($difference, BigDecimal::max($owed, BigDecimal::zero()))->toScale(2);
+    }
+
+    /**
+     * What is left after $today of: the paid period lines (one paid ahead whole), the upgrades paid within them, and
+     * the credits earlier downgrades gave for them.
+     *
+     * @return array{BigDecimal, BigDecimal, BigDecimal}
+     */
+    private static function parts(Service $service, CarbonImmutable $today): array
+    {
         $lines = $service->livePeriodLines()->filter(fn (InvoiceItem $line) => $line->invoice?->status === Invoice::STATUS_PAID
             && $line->period_end->startOfDay()->greaterThan($today))->values();
         if ($lines->isEmpty()) {
-            // No paid period at all: one bought with a coupon still running gave nothing to give back (F1); one imported
+            // No paid period at all: one bought with a coupon still running paid nothing for it (F1); one imported
             // without its lines (a used-up promotion included: G3) is priced as it renews, as a cycle change prices it.
-            return $service->coupon_id !== null && $service->coupon_expired_at === null
+            $period = $service->coupon_id !== null && $service->coupon_expired_at === null
                 ? BigDecimal::zero() : BigDecimal::of(ChangeCycle::unused($service, $today));
+        } else {
+            $period = BigDecimal::zero();
+            foreach ($lines as $line) {
+                $period = $period->plus(self::left((string) $line->line_total, $line->period_start, $line->period_end, $today));
+            }
         }
 
-        $paid = BigDecimal::zero();
-        foreach ($lines as $line) {
-            $paid = $paid->plus(self::left((string) $line->line_total, $line->period_start, $line->period_end, $today));
-        }
-        // What upgrades paid within those periods (their lines name the upgrade, not a period: F4).
-        $upgrades = ServiceUpgrade::query()->where('service_id', $service->id)->where('status', ServiceUpgrade::STATUS_COMPLETED)->get();
-        foreach ($upgrades as $upgrade) {
+        $upgrades = BigDecimal::zero();
+        $given = BigDecimal::zero();
+        foreach (ServiceUpgrade::query()->where('service_id', $service->id)->where('status', ServiceUpgrade::STATUS_COMPLETED)->get() as $upgrade) {
+            // What it paid (its lines name the upgrade, not a period: F4), to the end of the period it was made in.
             $end = self::endOfPeriodAt($lines, CarbonImmutable::instance($upgrade->created_at)) ?? $service->expires_at;
-            if ($end === null) {
-                continue;
+            if ($end !== null) {
+                $paidLines = InvoiceItem::query()->where('reference_type', ServiceUpgrade::class)->where('reference_id', $upgrade->id)
+                    ->whereHas('invoice', fn ($q) => $q->where('status', Invoice::STATUS_PAID))->get();
+                foreach ($paidLines as $line) {
+                    $upgrades = $upgrades->plus(self::left((string) $line->line_total, $upgrade->created_at, $end, $today));
+                }
             }
-            $lineTotals = InvoiceItem::query()->where('reference_type', ServiceUpgrade::class)->where('reference_id', $upgrade->id)
-                ->whereHas('invoice', fn ($q) => $q->where('status', Invoice::STATUS_PAID))->get();
-            foreach ($lineTotals as $line) {
-                $paid = $paid->plus(self::left((string) $line->line_total, $upgrade->created_at, $end, $today));
-            }
-            // And what earlier downgrades gave back for these days (F2).
+            // What an earlier downgrade gave back for these days (F2).
             if ($upgrade->credit_cents !== null && $upgrade->credit_until !== null) {
-                $paid = $paid->minus(self::left(BigDecimal::of($upgrade->credit_cents)->dividedBy(100, 2)->__toString(),
+                $given = $given->plus(self::left((string) BigDecimal::of($upgrade->credit_cents)->dividedBy(100, 2),
                     $upgrade->created_at, $upgrade->credit_until, $today));
             }
         }
 
-        return BigDecimal::max($paid, BigDecimal::zero())->toScale(2);
+        return [$period, $upgrades, $given];
     }
 
     /** What is left after $today of $amount, spread over [$start, $end): all of it when the period starts later. */

@@ -230,9 +230,10 @@ class Upgrade extends Component
                 $gross = $upgrade->grossPrice();
                 // Never more than what is left of what was paid, less what earlier downgrades gave back (DowngradeCredit),
                 // read before the change: a first-cycle coupon or an offer did not pay the renewal price (P-1, #326).
-                $paid = DowngradeCredit::cap($service, CarbonImmutable::now());
-                // The days left are still the customer's, on the new plan: what they cost there is not given back (G1).
-                $kept = BigDecimal::of($upgrade->newPriceForDaysLeft());
+                // From what was paid, less what the days left cost on the new plan (the customer keeps them), read
+                // before the change (DowngradeCredit: P-1, #326).
+                $credit = DowngradeCredit::credit($service, CarbonImmutable::now(),
+                    BigDecimal::of(number_format(abs((float) $gross->price), 2, '.', '')), BigDecimal::of($upgrade->newPriceForDaysLeft()));
                 $until = $service->expires_at;
                 // Refused when the service stopped running meanwhile: no credit for a downgrade that did not happen.
                 if (!(new ServiceUpgradeService)->handle($upgrade)) {
@@ -252,8 +253,6 @@ class Upgrade extends Component
 
                 // The difference of a downgrade becomes account credit, through the ledger (docs/money-trail.md §2),
                 // with its tax: the unused period was paid with tax, and credit pays invoices with tax (Δ1).
-                $credit = BigDecimal::min(BigDecimal::of(number_format(abs((float) $gross->price), 2, '.', '')),
-                    BigDecimal::max($paid->minus($kept), BigDecimal::zero()));
                 $cents = RecordPaymentService::toCents((string) $credit);
                 if ($cents > 0) {
                     (new CreditLedger)->add((int) $service->client_id, $price->currency->code, $cents, MoneyTrail::CAUSE_DOWNGRADE, MoneyTrail::SOURCE_SYSTEM);
