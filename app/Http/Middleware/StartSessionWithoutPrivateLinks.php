@@ -12,8 +12,8 @@ use Illuminate\Session\Middleware\StartSession;
  */
 class StartSessionWithoutPrivateLinks extends StartSession
 {
-    /** The routes whose URL holds a secret. */
-    public const PRIVATE_ROUTES = ['tickets.guest', 'tickets.guest.attachment'];
+    /** The routes whose URL holds a secret: a guest's ticket, a password reset, an invitation (security audit AUTHN-4). */
+    public const PRIVATE_ROUTES = ['tickets.guest', 'tickets.guest.attachment', 'password.reset', 'invites.accept'];
 
     protected function storeCurrentUrl(Request $request, $session)
     {

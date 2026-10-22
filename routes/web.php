@@ -58,7 +58,7 @@ Route::group(['middleware' => ['web', 'guest']], function () {
     Route::get('/register', Auth\Register::class)->name('register');
     // Todo
     Route::get('/password/request', Auth\Password\Request::class)->name('password.request');
-    Route::get('/password/reset/{token}', Auth\Password\Reset::class)->name('password.reset');
+    Route::get('/password/reset/{token}', Auth\Password\Reset::class)->name('password.reset')->middleware(PrivateLinkHeaders::class);
 
     Route::get('/oauth/{provider}', [SocialLoginController::class, 'redirect'])->name('oauth.redirect');
     Route::get('/oauth/{provider}/callback', [SocialLoginController::class, 'handle'])->name('oauth.handle');
@@ -110,7 +110,7 @@ Route::group(['middleware' => ['web', 'auth']], function () {
 });
 
 // An invitation to an account: a guest is asked to log in or register first (docs/accounts.md, PR 2b).
-Route::get('/invite/{token}', Client\AcceptInvite::class)->name('invites.accept')->middleware(['web', 'throttle:30,1']);
+Route::get('/invite/{token}', Client\AcceptInvite::class)->name('invites.accept')->middleware(['web', 'throttle:30,1', PrivateLinkHeaders::class]);
 
 Route::get('cart', Cart::class)->name('cart')->middleware('checkout');
 // An offer's link (ROADMAP 6α): its products in the cart, its coupon applied.
