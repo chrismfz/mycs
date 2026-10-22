@@ -75,11 +75,9 @@ final class Redact
         $text = (string) preg_replace('/(property\[(?:AUTH|[A-Z-]*AUTHCODE|X-SG-TRANSFER-OUT-CODE)\]\[\d+\]\s*=\s*)[^\r\n"\\\\]*/i', '$1' . self::MASK, $text);
         $text = (string) preg_replace('/(\bs_pw=)[^&\s"]*/', '$1' . self::MASK, $text);
         $text = (string) preg_replace('/((?:^|\n|\\\\n|%0A)AUTH(?:=|%3D))(?:(?!%0A|\\\\n|&|")[^\n])*/i', '$1' . self::MASK, $text);
-        foreach (self::known() as $secret) {
-            $text = str_replace($secret, self::MASK, $text);
-        }
 
-        return $text;
+        // In each form it can take in the text: an escaped mail body shows «Pass&quot;2026» (review of #355).
+        return self::values($text, self::known());
     }
 
     /**

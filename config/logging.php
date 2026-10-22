@@ -1,5 +1,6 @@
 <?php
 
+use App\Logging\RedactSecrets;
 use App\Logging\WriteFailures;
 use Monolog\Handler\NullHandler;
 use Monolog\Handler\StreamHandler;
@@ -60,7 +61,8 @@ return [
             // does: report() and Log:: would throw inside the catch that called them, abort the cron's later steps or
             // the items left in one (renewals, charges), and turn a page into an error. The tap keeps the failure
             // instead, and the cron mails it (App\Logging\WriteFailures).
-            'tap' => [WriteFailures::class],
+            // Secrets masked in what is written, unless «Full logs» (App\Logging\RedactSecrets).
+            'tap' => [WriteFailures::class, RedactSecrets::class],
             'ignore_exceptions' => false,
         ],
 

@@ -24,6 +24,7 @@ use App\Models\User;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Mail\MailAudit;
 use App\Services\Money\BankTransferDetails;
+use App\Support\LogText;
 use App\Support\Redact;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\App;
@@ -176,9 +177,10 @@ class NotificationHelper
         if (!$email || config('settings.mail_disable')) {
             return;
         }
+        // To staff, and kept in the email log: an error in it shows no secret, unless «Full logs» (App\Support\LogText).
         $mail = new SystemMail([
-            'subject' => $subject,
-            'body' => $body,
+            'subject' => (string) LogText::of($subject),
+            'body' => (string) LogText::of($body),
         ]);
         $emailLog = EmailLog::create([
             'subject' => $mail->envelope()->subject,
