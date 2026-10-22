@@ -4,7 +4,7 @@
 @php($meters = array_filter([
     ['label' => __('services.usage.disk'), 'used' => $usage->disk_used_mb, 'limit' => $usage->disk_limit_mb, 'size' => true],
     ['label' => __('services.usage.bandwidth'), 'used' => $usage->bandwidth_used_mb, 'limit' => $usage->bandwidth_limit_mb, 'size' => true],
-    $usage->accounts !== null ? ['label' => __('services.usage.accounts'), 'used' => $usage->accounts, 'limit' => $usage->accounts_limit, 'size' => false] : null,
+    $usage->accounts !== null ? ['label' => __('services.usage.' . ($usage->accounts_kind === 'mailboxes' ? 'mailboxes' : 'accounts')), 'used' => $usage->accounts, 'limit' => $usage->accounts_limit, 'size' => false] : null,
 ]))
 <div class="bg-background-secondary rounded-lg p-4 mt-2">
     <h4 class="text-lg font-semibold">{{ __('services.usage.title') }}</h4>

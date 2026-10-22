@@ -15,5 +15,7 @@ final class ServiceUsageRead
         public readonly ?int $bandwidthLimitMb = null,
         public readonly ?int $accounts = null,
         public readonly ?int $accountsLimit = null,
+        /** What its accounts are: a reseller's hosting accounts, or mailboxes (mailcow). */
+        public readonly string $accountsKind = 'accounts',
     ) {}
 }

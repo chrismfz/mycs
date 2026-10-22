@@ -720,7 +720,7 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
             // (`manageproducts`), each checked again there.
             ['type' => 'shortcuts', 'items' => array_map(fn (string $app, string $icon) => ['app' => $app, 'icon' => $icon,
                 'label' => __('services.cpanel.shortcuts.' . $app)], array_keys(self::SHORTCUTS), self::SHORTCUTS)],
-            ['type' => 'password', 'function' => 'changePassword'],
+            ['type' => 'password', 'function' => 'changePassword', 'mysql' => true],
             ['type' => 'email', 'function' => 'createEmailAccount', 'domain' => (string) $service->domain],
         ];
     }
