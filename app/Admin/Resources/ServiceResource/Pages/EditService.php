@@ -17,6 +17,7 @@ use App\Services\Licensing\Licenses;
 use App\Services\Money\MoneyTrail;
 use App\Services\Service\DeleteService;
 use App\Services\ServiceUpgrade\ChangeCycle;
+use App\Support\Redact;
 use Exception;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
@@ -30,8 +31,10 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Schemas\Components\Utilities\Get;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Validation\Rules\Password;
 use Livewire\Attributes\Locked;
 use MyCS\Extensions\Servers\CPanel\CPanel;
+use MyCS\Extensions\Servers\CPanel\WhmRefused;
 
 class EditService extends EditRecord
 {
@@ -168,6 +171,40 @@ class EditService extends EditRecord
                     Notification::make()->title('Billing cycle changed')
                         ->body($invoice ? "Invoice #{$invoice->id} bills the new period." : 'It applies when the next period is billed.')
                         ->success()->send();
+                }),
+
+            // WHMCS's «Change Password» for staff: a new password at the server (cPanel's passwd), kept on the service once the
+            // server took it. Its answer never repeats the password.
+            Action::make('serverPassword')
+                ->label('Change password on server')
+                ->authorize('update')
+                ->visible(fn (Service $record) => $record->status === Service::STATUS_ACTIVE && rescue(fn () => ($server = $record->provisioningServer()) !== null
+                    && ExtensionHelper::hasFunction($server, 'changePassword'), false, false))
+                ->schema([
+                    TextInput::make('password')->label('New password')->password()->revealable()->required()->maxLength(128)
+                        ->rule(Password::min(10)->letters()->mixedCase()->numbers()),
+                    Checkbox::make('mysqlToo')->label('Change the MySQL password too')->default(false)
+                        ->helperText('WHM\'s «db_pass_update»: the account\'s main MySQL user gets the new password too. Scripts that use it must then be updated.'),
+                ])
+                ->action(function (array $data, Service $record, Action $action): void {
+                    $password = (string) $data['password'];
+                    try {
+                        if (ExtensionHelper::callService($record, 'changePassword', [$password, (bool) ($data['mysqlToo'] ?? false)]) !== true) {
+                            throw new Exception('the server did not confirm the change');
+                        }
+                    } catch (Exception $e) {
+                        $reason = Redact::values($e->getMessage(), [$password]);
+                        report(new Exception($reason));
+                        // The server's own refusal: not changed. No answer (a timeout, an HTTP error): it may have been (ADV-3 of #318).
+                        $refused = $e instanceof WhmRefused;
+                        Notification::make()->title($refused ? 'Password not changed' : 'No clear answer from the server: the password may have changed')
+                            ->body($refused ? $reason : 'Check by logging in with the new password before trying again. ' . $reason)->danger()->send();
+                        $action->halt();
+
+                        return;
+                    }
+                    $this->refreshFormData(['password']);
+                    Notification::make()->title('Password changed on the server')->success()->send();
                 }),
 
             Action::make('changeStatus')

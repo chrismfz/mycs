@@ -176,6 +176,7 @@
     </div>
 
     @include('services.partials.usage')
+    @include('services.partials.panel-tools')
 
     @if (count($views) > 0)
     <div class="bg-primary-800 rounded-lg mt-2">

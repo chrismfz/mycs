@@ -121,6 +121,9 @@
 - [ ] Έλεγχος σε πραγματικό browser (`audit-browser.md`, δεν έχει γραφτεί).
 
 ### Provisioning
+- [x] **cPanel, τα βασικά του πελάτη (feat/cpanel-client-basics):** σύνδεση στο Webmail, «Γρήγορες συντομεύσεις» (Email, Προωθήσεις,
+      Αυτόματοι ανταποκριτές, File Manager, Αντίγραφα, Domains, Cron, MySQL, phpMyAdmin, Awstats) με σύνδεση στη σελίδα τους,
+      αλλαγή κωδικού (πελάτης και staff, στον server και κρυπτογραφημένα εδώ), γρήγορη δημιουργία email στο domain της υπηρεσίας.
 - [ ] **cPanel «σαν WHMCS/Blesta»** (ο υπεύθυνος, 2026-10-20: σήμερα το extension είναι πολύ «dummy»· ιδέες από το Blesta
       και το cPanel/WHM API): αντιστοίχιση πακέτων WHM ↔ προϊόντων MyCS από λίστα, χρήση (quota, bandwidth) πίσω στο
       MyCS, addon/parked/sub domains, email accounts (λίστα, δημιουργία), reseller accounts (παρακάτω). Δοκιμή στον

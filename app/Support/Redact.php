@@ -89,7 +89,8 @@ final class Redact
     {
         foreach ($values as $value) {
             if (is_string($value) && mb_strlen($value) >= 4) {
-                $text = str_replace([$value, e($value)], self::MASK, $text);
+                // As written, HTML-escaped, JSON-escaped (an HTTP body's «a\/b») and URL-encoded (ADV-5 of #318).
+                $text = str_replace(array_unique([$value, e($value), substr((string) json_encode($value), 1, -1), urlencode($value), rawurlencode($value)]), self::MASK, $text);
             }
         }
 
