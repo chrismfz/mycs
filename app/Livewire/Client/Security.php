@@ -4,6 +4,7 @@ namespace App\Livewire\Client;
 
 use App\Livewire\Component;
 use App\Models\UserSession;
+use App\Support\Actor;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Session;
@@ -64,6 +65,9 @@ class Security extends Component
 
     public function enableTwoFactor()
     {
+        if (Actor::impersonating()) {
+            return $this->notify(__('account.notifications.not_while_impersonating'), 'error');
+        }
         if ($this->showEnableTwoFactor) {
             $this->validate([
                 'twoFactorCode' => 'required|string',
@@ -97,8 +101,26 @@ class Security extends Component
         }
     }
 
+    /** Asked to turn two-factor authentication off: the password and a code from the app (AUTHN-1). */
+    public string $disable_password = '';
+
+    public string $disable_code = '';
+
     public function disableTwoFactor()
     {
+        if (Actor::impersonating()) {
+            return $this->notify(__('account.notifications.not_while_impersonating'), 'error');
+        }
+        $user = Auth::user();
+        $tfa = new TwoFactorAuth(new EndroidQrCodeProvider, config('app.name'));
+        if (!Hash::check($this->disable_password, (string) $user->password)) {
+            return $this->notify(__('account.notifications.password_incorrect'), 'error');
+        }
+        if (!is_string($user->tfa_secret) || !$tfa->verifyCode($user->tfa_secret, preg_replace('/\s+/', '', $this->disable_code))) {
+            return $this->notify(__('account.notifications.two_factor_code_incorrect'), 'error');
+        }
+        $this->reset('disable_password', 'disable_code');
+
         Auth::user()->update([
             'tfa_secret' => null,
         ]);

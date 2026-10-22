@@ -24,6 +24,7 @@ return [
     'current_device' => 'Current device',
 
     'input' => [
+        'password_to_change_email' => 'Current password (to change the email)',
         'amount_placeholder' => 'e.g. 50.00',
         'current_password' => 'Current password',
         'current_password_placeholder' => 'Your current password',
@@ -41,6 +42,9 @@ return [
     ],
 
     'notifications' => [
+        'not_while_impersonating' => 'Staff signed in as the customer cannot change the login\'s email or two-factor authentication.',
+        'email_changed_subject' => 'The email of your login was changed',
+        'email_changed_body' => 'The email you sign in with at :site was changed from :old to :new. If you did not do this, contact us at once.',
         'push_enabled_title' => 'Push notifications enabled',
         'push_enabled_body' => 'You will now receive notifications from :app here.',
         'password_changed' => 'Password has been changed.',

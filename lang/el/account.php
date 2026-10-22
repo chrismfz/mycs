@@ -24,6 +24,7 @@ return [
     'current_device' => 'Αυτή η συσκευή',
 
     'input' => [
+        'password_to_change_email' => 'Τρέχων κωδικός (για αλλαγή του email)',
         'amount_placeholder' => 'π.χ. 50.00',
         'current_password' => 'Τρέχων κωδικός',
         'current_password_placeholder' => 'Ο τρέχων κωδικός σας',
@@ -41,6 +42,9 @@ return [
     ],
 
     'notifications' => [
+        'not_while_impersonating' => 'Το staff που έχει συνδεθεί ως πελάτης δεν αλλάζει το email σύνδεσης ούτε το 2FA.',
+        'email_changed_subject' => 'Άλλαξε το email της σύνδεσής σας',
+        'email_changed_body' => 'Το email με το οποίο συνδέεστε στο :site άλλαξε από :old σε :new. Αν δεν το κάνατε εσείς, επικοινωνήστε μαζί μας αμέσως.',
         'push_enabled_title' => 'Οι ειδοποιήσεις push ενεργοποιήθηκαν',
         'push_enabled_body' => 'Θα λαμβάνετε πλέον εδώ ειδοποιήσεις από :app.',
         'password_changed' => 'Ο κωδικός άλλαξε.',
