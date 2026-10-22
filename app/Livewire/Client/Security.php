@@ -6,9 +6,12 @@ use App\Livewire\Component;
 use App\Models\UserSession;
 use App\Support\Actor;
 use App\Support\Reauth;
+use App\Support\Totp;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Validation\Rules\Password;
 use Livewire\Attributes\Locked;
 use RobThree\Auth\Providers\Qr\EndroidQrCodeProvider;
 use RobThree\Auth\TwoFactorAuth;
@@ -40,7 +43,7 @@ class Security extends Component
     {
         return [
             'current_password' => 'required|string',
-            'password' => 'required|string|min:8|confirmed',
+            'password' => ['required', 'string', 'confirmed', Password::defaults()], // AUTHN-12
         ];
     }
 
@@ -128,7 +131,12 @@ class Security extends Component
         if (($refusal = Reauth::refusal($user, $this->disable_password)) !== null) {
             return $this->notify($refusal, 'error');
         }
-        if (!is_string($user->tfa_secret) || !$tfa->verifyCode($user->tfa_secret, preg_replace('/\s+/', '', $this->disable_code))) {
+        // The login's own limit and once-only rule (AUTHN-9): a session and the password never try every code.
+        if (Totp::tooManyWrong($user)) {
+            return $this->notify(__('Too many attempts. Try again in :minutes minutes.', [
+                'minutes' => (int) ceil(RateLimiter::availableIn(Totp::limitKey($user)) / 60)]), 'error');
+        }
+        if (!Totp::accept($user, $user->tfa_secret, $this->disable_code)) {
             return $this->notify(__('account.notifications.two_factor_code_incorrect'), 'error');
         }
         $this->reset('disable_password', 'disable_code');
