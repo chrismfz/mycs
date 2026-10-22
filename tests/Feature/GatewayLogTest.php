@@ -12,6 +12,7 @@ use App\Models\PaymentGatewayEvent;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Models\User;
+use App\Services\Money\GatewayReference;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -81,7 +82,7 @@ class GatewayLogTest extends TestCase
     private function succeeded(Invoice $invoice, int $cents, string $id, string $currency = 'usd'): array
     {
         return ['type' => 'payment_intent.succeeded', 'data' => ['object' => [
-            'id' => $id, 'amount' => $cents, 'currency' => $currency, 'metadata' => ['invoice_id' => (string) $invoice->id],
+            'id' => $id, 'amount' => $cents, 'currency' => $currency, 'metadata' => ['mycs' => GatewayReference::mark(), 'invoice_id' => (string) $invoice->id],
         ]]];
     }
 

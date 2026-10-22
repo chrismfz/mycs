@@ -16,6 +16,7 @@ use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\GatewayLog;
+use App\Services\Money\GatewayReference;
 use App\Services\Money\MoneyCheck;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -240,7 +241,7 @@ class MoneyCheckAdversarialTest extends TestCase
         }
 
         $this->stripeWebhook(['type' => 'payment_intent.succeeded', 'data' => ['object' => [
-            'id' => 'pi_3AdvFlood01', 'amount' => 1000, 'currency' => 'usd', 'metadata' => ['invoice_id' => (string) $invoice->id],
+            'id' => 'pi_3AdvFlood01', 'amount' => 1000, 'currency' => 'usd', 'metadata' => ['mycs' => GatewayReference::mark(), 'invoice_id' => (string) $invoice->id],
         ]]], true, ['REMOTE_ADDR' => '203.0.113.9'])->assertOk();
 
         $transaction = InvoiceTransaction::query()->where('transaction_id', 'pi_3AdvFlood01')->sole();

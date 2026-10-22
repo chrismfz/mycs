@@ -21,6 +21,7 @@ use App\Models\Service;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\GatewayLog;
+use App\Services\Money\GatewayReference;
 use Carbon\Carbon;
 use Exception;
 use Filament\Notifications\Notification;
@@ -195,6 +196,11 @@ class Stripe extends Gateway
 
     private function request($method, $url, $data = [], ?string $idempotencyKey = null)
     {
+        // Every intent this site starts carries its mark: an event of one it did not start is known (S0-6).
+        if (strtolower((string) $method) === 'post' && in_array($url, ['/payment_intents', '/setup_intents'], true)) {
+            $data['metadata'] = ['mycs' => GatewayReference::mark()] + ($data['metadata'] ?? []);
+        }
+
         return Http::withHeaders(array_filter([
             'Authorization' => 'Bearer ' . $this->config('stripe_secret_key'),
             'Stripe-Version' => self::API_VERSION,
@@ -250,6 +256,11 @@ class Stripe extends Gateway
                 if (!isset($paymentIntent->metadata->invoice_id)) {
                     break;
                 }
+                if (!GatewayReference::isOurs($paymentIntent->metadata->mycs ?? null)) {
+                    // Another system's payment on this account (WHMCS's, with its own invoice numbers): never ours (S0-6).
+                    GatewayReference::foreign('Stripe', $event->type, $paymentIntent->id ?? null, isset($paymentIntent->amount) ? $paymentIntent->amount / 100 : null, $paymentIntent->currency ?? null);
+                    break;
+                }
                 ExtensionHelper::addProcessingPayment($paymentIntent->metadata->invoice_id, 'Stripe', $paymentIntent->amount / 100, null, $paymentIntent->id, currency: $paymentIntent->currency ?? null, paymentGroup: $paymentIntent->metadata->payment_group ?? null);
                 break;
                 // Normal payment
@@ -258,11 +269,21 @@ class Stripe extends Gateway
                 if (!isset($paymentIntent->metadata->invoice_id)) {
                     break;
                 }
+                if (!GatewayReference::isOurs($paymentIntent->metadata->mycs ?? null)) {
+                    // Another system's payment on this account (WHMCS's, with its own invoice numbers): never ours (S0-6).
+                    GatewayReference::foreign('Stripe', $event->type, $paymentIntent->id ?? null, isset($paymentIntent->amount) ? $paymentIntent->amount / 100 : null, $paymentIntent->currency ?? null);
+                    break;
+                }
                 ExtensionHelper::addPayment($paymentIntent->metadata->invoice_id, 'Stripe', $paymentIntent->amount / 100, null, $paymentIntent->id, currency: $paymentIntent->currency ?? null, paymentGroup: $paymentIntent->metadata->payment_group ?? null);
                 break;
             case 'payment_intent.payment_failed':
                 $paymentIntent = $event->data->object; // contains a StripePaymentIntent
                 if (!isset($paymentIntent->metadata->invoice_id)) {
+                    break;
+                }
+                if (!GatewayReference::isOurs($paymentIntent->metadata->mycs ?? null)) {
+                    // Another system's payment on this account (WHMCS's, with its own invoice numbers): never ours (S0-6).
+                    GatewayReference::foreign('Stripe', $event->type, $paymentIntent->id ?? null, isset($paymentIntent->amount) ? $paymentIntent->amount / 100 : null, $paymentIntent->currency ?? null);
                     break;
                 }
                 ExtensionHelper::addFailedPayment($paymentIntent->metadata->invoice_id, 'Stripe', $paymentIntent->amount / 100, null, $paymentIntent->id);
@@ -316,6 +337,11 @@ class Stripe extends Gateway
                 break;
             case 'setup_intent.succeeded':
                 $setupIntent = $event->data->object; // contains a StripeSetupIntent
+                if (!GatewayReference::isOurs($setupIntent->metadata->mycs ?? null)) {
+                    // Not started here: never a saved method or a subscription on one of our customers (S0-6).
+                    GatewayReference::foreign('Stripe', $event->type, $setupIntent->id ?? null);
+                    break;
+                }
                 // If it's a billing agreement, call setupBillingAgreement
                 if (!isset($setupIntent->metadata->is_billing_agreement) || $setupIntent->metadata->is_billing_agreement !== '1') {
                     $this->setupSubscription($setupIntent);

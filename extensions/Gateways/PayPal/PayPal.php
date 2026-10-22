@@ -19,10 +19,12 @@ use App\Models\InvoiceTransaction;
 use App\Models\Service;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\GatewayLog;
+use App\Services\Money\GatewayReference;
 use App\Support\CurrentClient;
 use Exception;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -130,7 +132,7 @@ class PayPal extends Gateway
                 'intent' => 'CAPTURE',
                 'purchase_units' => [
                     [
-                        'invoice_id' => $invoice->id,
+                        'invoice_id' => GatewayReference::paypalInvoiceId($invoice), // this site's, unique on the account (S0-6)
                         'amount' => [
                             'currency_code' => $invoice->currency_code,
                             'value' => number_format((float) $total, 2, '.', ''),
@@ -349,7 +351,7 @@ class PayPal extends Gateway
             'intent' => 'CAPTURE',
             'purchase_units' => [
                 [
-                    'invoice_id' => $invoice->id,
+                    'invoice_id' => GatewayReference::paypalInvoiceId($invoice), // this site's, unique on the account (S0-6)
                     'amount' => [
                         'currency_code' => $invoice->currency_code,
                         'value' => number_format((float) $total, 2, '.', ''),
@@ -364,7 +366,24 @@ class PayPal extends Gateway
             ],
         ]);
 
+        // Only an order made here is captured here (S0-6): anyone can make one with the public client id, with any
+        // invoice_id or payee of their choosing.
+        if (isset($order->id) && is_string($order->id)) {
+            self::rememberOrder($order->id, $invoice);
+        }
+
         return view('gateways.paypal::pay', ['invoice' => $invoice, 'total' => $total, 'order' => $order ?? null, 'clientId' => $this->config('client_id')]);
+    }
+
+    /** An order made here for $invoice: the one capture() may take for it (three days). */
+    public static function rememberOrder(string $orderID, Invoice $invoice): void
+    {
+        Cache::put(self::orderKey($orderID), $invoice->id, now()->addDays(3));
+    }
+
+    private static function orderKey(string $orderID): string
+    {
+        return 'paypal-order:' . hash('sha256', $orderID);
     }
 
     public function capture(Invoice $invoice, string $orderID)
@@ -385,8 +404,9 @@ class PayPal extends Gateway
             abort(400, 'PayPal order not found');
         }
 
-        // Verify if the invoice id matches the one from the order
-        if (!isset($order->purchase_units[0]->invoice_id) || $order->purchase_units[0]->invoice_id != $invoice->id) {
+        // An order this site made for this invoice (pay() kept it), carrying its invoice_id: never one made elsewhere.
+        if ((int) Cache::get(self::orderKey($orderID)) !== (int) $invoice->id
+            || GatewayReference::invoiceIdFromPaypal($order->purchase_units[0]->invoice_id ?? null) !== (int) $invoice->id) {
             abort(400, 'PayPal order is not associated with an invoice');
         }
 
@@ -419,7 +439,7 @@ class PayPal extends Gateway
 
         // A PENDING capture (review, eCheck, unheld currency) is not money yet: processing until PAYMENT.CAPTURE.COMPLETED.
         ExtensionHelper::addPayment(
-            $order->purchase_units[0]->invoice_id,
+            $invoice->id,
             'PayPal',
             $capture->amount->value,
             $capture->seller_receivable_breakdown->paypal_fee->value ?? null,
@@ -519,8 +539,16 @@ class PayPal extends Gateway
 
         // Handle the subscription event
         if ($body['event_type'] === 'BILLING.SUBSCRIPTION.CREATED' && isset($body['resource']['custom_id'])) {
-            // Its activated so we can now add the subscription to the user (custom is the order id)
-            Invoice::findOrFail($body['resource']['custom_id'])->items()->where('reference_type', Service::class)->each(function (InvoiceItem $item) use ($body) {
+            // Its activated so we can now add the subscription to the user (custom is the order id). Only for an invoice
+            // of this site named as this site names it: a subscription anyone made with our public client id never
+            // takes over a customer's service (S0-6, PAY-SEC-4).
+            $invoiceId = GatewayReference::invoiceIdFromPaypal($body['resource']['custom_id']);
+            if ($invoiceId === null) {
+                GatewayReference::foreign('PayPal', $body['event_type'], (string) ($body['resource']['id'] ?? ''));
+
+                return response()->json(['status' => 'ignored']);
+            }
+            Invoice::findOrFail($invoiceId)->items()->where('reference_type', Service::class)->each(function (InvoiceItem $item) use ($body) {
                 $service = $item->reference;
                 if ($service === null) {
                     return; // a service deleted since
@@ -590,10 +618,18 @@ class PayPal extends Gateway
             }
 
             if (isset($order->purchase_units[0]->invoice_id)) {
+                // This site's order only (`<mark>-<id>`): another system's on the same account is never ours (S0-6).
+                $invoiceId = GatewayReference::invoiceIdFromPaypal($order->purchase_units[0]->invoice_id);
+                if ($invoiceId === null) {
+                    GatewayReference::foreign('PayPal', $body['event_type'], (string) $body['resource']['id'],
+                        $body['resource']['amount']['value'] ?? null, $body['resource']['amount']['currency_code'] ?? null);
+
+                    return response()->json(['status' => 'ignored']);
+                }
                 // A capture in another currency is refused by RecordPaymentService (logged, staff told), not skipped here.
-                $invoice = Invoice::find($order->purchase_units[0]->invoice_id);
+                $invoice = Invoice::find($invoiceId);
                 if ($invoice) {
-                    ExtensionHelper::addPayment($order->purchase_units[0]->invoice_id, 'PayPal', $order->purchase_units[0]->payments->captures[0]->amount->value, $order->purchase_units[0]->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value ?? null, $body['resource']['id'], currency: $order->purchase_units[0]->payments->captures[0]->amount->currency_code, paymentGroup: $order->purchase_units[0]->custom_id ?? null);
+                    ExtensionHelper::addPayment($invoiceId, 'PayPal', $order->purchase_units[0]->payments->captures[0]->amount->value, $order->purchase_units[0]->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value ?? null, $body['resource']['id'], currency: $order->purchase_units[0]->payments->captures[0]->amount->currency_code, paymentGroup: $order->purchase_units[0]->custom_id ?? null);
                 }
             }
         }

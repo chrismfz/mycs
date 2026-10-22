@@ -14,6 +14,7 @@ use App\Models\Invoice;
 use App\Models\Price;
 use App\Models\Service;
 use App\Models\User;
+use App\Services\Money\GatewayReference;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
@@ -103,7 +104,7 @@ class PayPalApiErrorsAdversarialTest extends TestCase
     {
         return [
             'id' => 'ORDER-1', 'status' => 'APPROVED',
-            'purchase_units' => [['invoice_id' => (string) $invoice->id, 'amount' => ['currency_code' => 'USD', 'value' => '20.00']]],
+            'purchase_units' => [['invoice_id' => GatewayReference::paypalInvoiceId($invoice), 'amount' => ['currency_code' => 'USD', 'value' => '20.00']]],
         ];
     }
 
@@ -112,7 +113,7 @@ class PayPalApiErrorsAdversarialTest extends TestCase
         return [
             'id' => 'ORDER-1', 'status' => 'COMPLETED',
             'purchase_units' => [[
-                'invoice_id' => (string) $invoice->id,
+                'invoice_id' => GatewayReference::paypalInvoiceId($invoice),
                 'amount' => ['currency_code' => 'USD', 'value' => '20.00'],
                 'payments' => ['captures' => [[
                     'id' => 'CAP-P', 'status' => $captureStatus, 'amount' => ['value' => '20.00', 'currency_code' => 'USD'],
@@ -278,6 +279,7 @@ class PayPalApiErrorsAdversarialTest extends TestCase
             '/v1/notifications/verify-webhook-signature' => Http::response(['verification_status' => 'SUCCESS']),
         ]);
         $paypal = $this->paypal();
+        PayPal::rememberOrder('ORDER-1', $invoice);
         $paypal->capture($invoice, 'ORDER-1');
         $this->assertSame(InvoiceTransactionStatus::Processing, $invoice->transactions()->sole()->status);
         $this->assertNotSame($expires, null);
@@ -306,6 +308,8 @@ class PayPalApiErrorsAdversarialTest extends TestCase
             '/v2/checkout/orders/ORDER-1' => Http::response($this->approvedOrder($invoice)),
         ]);
 
+        PayPal::rememberOrder('ORDER-1', $invoice);
+
         $this->paypal()->capture($invoice, 'ORDER-1');
 
         $this->assertSame(InvoiceTransactionStatus::Succeeded, $invoice->transactions()->sole()->status);
@@ -322,6 +326,8 @@ class PayPalApiErrorsAdversarialTest extends TestCase
             '/v2/checkout/orders/ORDER-1/capture' => Http::response($order, 201),
             '/v2/checkout/orders/ORDER-1' => Http::response($this->approvedOrder($invoice)),
         ]);
+
+        PayPal::rememberOrder('ORDER-1', $invoice);
 
         $this->paypal()->capture($invoice, 'ORDER-1');
 

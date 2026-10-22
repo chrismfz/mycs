@@ -9,6 +9,7 @@ use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\PaymentGatewayEvent;
 use App\Models\User;
+use App\Services\Money\GatewayReference;
 use Illuminate\Cache\ArrayStore;
 use Illuminate\Cache\Repository;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -77,7 +78,7 @@ class GatewayLogCodeReviewTest extends TestCase
     private function succeeded(Invoice $invoice, int $cents, string $id): array
     {
         return ['type' => 'payment_intent.succeeded', 'data' => ['object' => [
-            'id' => $id, 'amount' => $cents, 'currency' => 'usd', 'metadata' => ['invoice_id' => (string) $invoice->id],
+            'id' => $id, 'amount' => $cents, 'currency' => 'usd', 'metadata' => ['mycs' => GatewayReference::mark(), 'invoice_id' => (string) $invoice->id],
         ]]];
     }
 
@@ -167,7 +168,7 @@ class GatewayLogCodeReviewTest extends TestCase
             self::PAYPAL_API . '/v1/oauth2/token' => Http::response(['access_token' => 'token']),
             self::PAYPAL_API . '/v1/notifications/verify-webhook-signature' => Http::response(['verification_status' => 'SUCCESS']),
             self::PAYPAL_API . '/v2/checkout/orders/ORDER1' => Http::response(['id' => 'ORDER1', 'status' => 'COMPLETED', 'purchase_units' => [[
-                'invoice_id' => (string) $invoice->id,
+                'invoice_id' => GatewayReference::paypalInvoiceId($invoice),
                 'payments' => ['captures' => [['id' => 'CAP1', 'amount' => ['value' => '100.00', 'currency_code' => 'EUR']]]],
             ]]]),
         ]);

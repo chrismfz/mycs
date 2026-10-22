@@ -7,6 +7,7 @@ use App\Classes\Extension\Gateway;
 use App\Helpers\ExtensionHelper;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
+use App\Services\Money\GatewayReference;
 use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -82,6 +83,7 @@ class Mollie extends Gateway
             'cancelUrl' => route('invoices.show', $invoice),
             'webhookUrl' => route('extensions.gateways.mollie.webhook', $invoice),
             'metadata' => array_filter([
+                'mycs' => GatewayReference::mark(), // this site's payment (S0-6)
                 'invoice_id' => $invoice->id,
                 'payment_group' => $invoice->payingGroup,
             ]),
@@ -106,6 +108,12 @@ class Mollie extends Gateway
             throw new Exception('Mollie API error: ' . $response->status());
         }
         $payment = $response->json();
+        if (!GatewayReference::isOurs($payment['metadata']['mycs'] ?? null)) {
+            // Another system's payment on this account: never ours, staff told (S0-6).
+            GatewayReference::foreign('Mollie', 'payment ' . ($payment['status'] ?? '?'), $payment['id'] ?? $id, $payment['amount']['value'] ?? null, $payment['amount']['currency'] ?? null);
+
+            return response('', 200);
+        }
 
         if ($payment['status'] == 'paid') {
             ExtensionHelper::addPayment($payment['metadata']['invoice_id'], 'Mollie', $payment['amount']['value'], transactionId: $payment['id'], currency: $payment['amount']['currency'] ?? null, paymentGroup: $payment['metadata']['payment_group'] ?? null);
