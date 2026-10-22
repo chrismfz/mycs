@@ -13,6 +13,7 @@ use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\TicketMessageAttachment;
 use App\Models\User;
+use App\Providers\SettingsProvider;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -122,6 +123,23 @@ class UploadHandlingTest extends TestCase
 
         $this->assertSame('hero-3.png', FilamentInput::storedFileName('Hero.png', 'image/png', fn (string $name) => in_array($name, $taken, true)));
         $this->assertSame('logo.png', FilamentInput::storedFileName('logo.png', 'image/png', fn (string $name) => in_array($name, $taken, true)));
+    }
+
+    public function test_a_file_taken_off_the_list_can_be_replaced_under_its_name(): void
+    {
+        Storage::fake('public');
+        $save = fn (array $files) => $this->livewireAs($this->owner)->test(Settings::class)->set('data.theme_assets', $files)->call('save')->assertHasNoErrors();
+
+        $save([UploadedFile::fake()->createWithContent('hero.png', $this->png() . 'old')]);
+        Setting::create(['key' => 'system_email_address', 'value' => 'billing@example.test']); // required, not in the test seed
+        SettingsProvider::flushCache();
+        $this->assertSame(['brand/hero.png'], array_values((array) config('settings.theme_assets')));
+
+        $save([]); // taken off the list (the file stays on the disk)
+        SettingsProvider::flushCache();
+        $save([UploadedFile::fake()->createWithContent('hero.png', $this->png() . 'new')]);
+
+        $this->assertStringEndsWith('new', Storage::disk('public')->get('brand/hero.png'));
     }
 
     public function test_a_disguised_theme_file_never_lands_under_its_own_name(): void

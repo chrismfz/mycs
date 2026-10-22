@@ -22,4 +22,17 @@ class PublicPhpFilesTest extends TestCase
 
         $this->assertSame(['index.php', 'zlic.php'], $files);
     }
+
+    /**
+     * Apache/LiteSpeed: refused by the file a request maps to, in any case. A rule on the URI misses /x.php/anything
+     * (PATH_INFO) and x.PHP, and Apache runs both (review of #317).
+     */
+    public function test_the_apache_rules_look_at_the_file_in_any_case(): void
+    {
+        foreach (['public/.htaccess', 'storage/app/public/.htaccess'] as $file) {
+            $rules = (string) file_get_contents(base_path($file));
+            $this->assertMatchesRegularExpression('~RewriteCond %\{REQUEST_FILENAME\} \\\.\(?ph.*\[NC\]~', $rules, $file);
+        }
+        $this->assertStringContainsString('cgi|pl|py|sh|shtml', (string) file_get_contents(base_path('storage/app/public/.htaccess')));
+    }
 }

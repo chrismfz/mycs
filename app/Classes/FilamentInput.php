@@ -13,7 +13,6 @@ use Filament\Forms\Components\TagsInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\TimePicker;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Spatie\Color\Factory as ColorFactory;
@@ -24,6 +23,9 @@ class FilamentInput
      * What an uploaded setting file may be called, by what it is (its content's type): an image or a font. Anything
      * else is kept as `.bin`, served as a download: never `.php` or `.html` on the public disk.
      */
+    /** @var \WeakMap<FileUpload, list<string>>|null the files each field stored in this save */
+    private static ?\WeakMap $storedNow = null;
+
     private const FILE_EXTENSIONS = [
         'image/png' => ['png'],
         'image/jpeg' => ['jpg', 'jpeg'],
@@ -299,15 +301,19 @@ class FilamentInput
                     );
                 } elseif ($setting->preserve_filenames ?? true) {
                     // The name stays readable (custom CSS refers to it), never one the web server would run.
-                    // A name already on the disk (an earlier file, or one of this same save) gets a number: never overwritten.
-                    $input->getUploadedFileNameForStorageUsing(
-                        fn (TemporaryUploadedFile $file, FileUpload $component): string => self::storedFileName(
-                            $file->getClientOriginalName(),
-                            $file->getMimeType(),
-                            fn (string $name): bool => Storage::disk($component->getDiskName())
-                                ->exists(ltrim(($component->getDirectory() ?? '') . '/' . $name, '/')),
-                        ),
-                    );
+                    // A name the setting still has (or one of this same save) gets a number: never overwritten. A file
+                    // taken off its list may be uploaded again under its name, so the custom CSS keeps pointing at it.
+                    $input->getUploadedFileNameForStorageUsing(function (TemporaryUploadedFile $file, FileUpload $component) use ($setting): string {
+                        $path = fn (string $name): string => ltrim(($component->getDirectory() ?? '') . '/' . $name, '/');
+                        $stored = self::$storedNow ??= new \WeakMap;
+                        $name = self::storedFileName($file->getClientOriginalName(), $file->getMimeType(), fn (string $name): bool => in_array($path($name), [
+                            ...array_filter((array) config('settings.' . $setting->name), 'is_string'),
+                            ...$stored[$component] ?? [],
+                        ], true));
+                        $stored[$component] = [...$stored[$component] ?? [], $path($name)];
+
+                        return $name;
+                    });
                 }
 
                 return $input;

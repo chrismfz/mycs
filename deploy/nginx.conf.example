@@ -28,7 +28,7 @@ server {
 
     # Any other .php is a route of the application (the old PayPal IPN's /modules/gateways/callback/paypal.php):
     # the front controller answers it, no file of that name is ever run or served.
-    location ~ \.ph(p[0-9]?|tml|ar|t|ps)(\.|$) { rewrite ^ /index.php last; }
+    location ~* \.ph(p[0-9]?|tml|ar|t|ps)(\.|$) { rewrite ^ /index.php last; }
 
     # Uploads are files, never pages of this site: no PHP, and sandboxed. A location with add_header of its own
     # inherits none of the server's, so they are all here again.
@@ -38,7 +38,7 @@ server {
         add_header Referrer-Policy            "strict-origin-when-cross-origin"         always;
         add_header Permissions-Policy         "geolocation=(), microphone=(), camera=()" always;
         add_header Content-Security-Policy    "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; font-src 'self'; sandbox" always;
-        location ~ \.ph(p[0-9]?|tml|ar|t|ps)(\.|$) { return 404; }
+        location ~* \.(ph(p[0-9]?|tml|ar|t|ps)|cgi|pl|py|sh|shtml)(\.|/|$) { return 404; }
         location ~ /\. { deny all; }
     }
 
