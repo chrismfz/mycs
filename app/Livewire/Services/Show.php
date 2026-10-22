@@ -25,6 +25,8 @@ use Livewire\Attributes\Url;
 use MyCS\Extensions\Servers\CPanel\WhmRefused;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 
+use function Livewire\store;
+
 class Show extends Component
 {
     public Service $service;
@@ -292,7 +294,13 @@ class Show extends Component
             return;
         }
         $result = ExtensionHelper::callService($this->service, $function);
-        // A redirect, as an address or as a response: only to a web page (panelUrl).
+        // A redirect, as an address, as a response, or one the extension already asked Livewire for (redirect()->away()
+        // inside a Livewire call stores it at once: ADV-1 of #323): only to a web page (panelUrl).
+        if ($this->refusedPendingRedirect()) {
+            $this->notify(__('This action is not allowed'), 'error');
+
+            return;
+        }
         if ($result instanceof RedirectResponse) {
             $result = $result->getTargetUrl();
         }
@@ -305,6 +313,19 @@ class Show extends Component
             return;
         }
         $this->redirect($url);
+    }
+
+    /** A redirect the extension already asked Livewire for, dropped when it is not a web page (panelUrl). */
+    private function refusedPendingRedirect(): bool
+    {
+        $pending = store($this)->get('redirect');
+        if (is_string($pending) && self::panelUrl($pending) === null) {
+            store($this)->set('redirect', null);
+
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -347,7 +368,7 @@ class Show extends Component
 
             return;
         }
-        if (is_string($url) && ($url = self::panelUrl($url)) !== null) {
+        if (!$this->refusedPendingRedirect() && is_string($url) && ($url = self::panelUrl($url)) !== null) {
             $this->redirect($url);
         } else {
             $this->notify(__('services.cpanel.failed'), 'error');

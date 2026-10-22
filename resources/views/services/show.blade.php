@@ -159,7 +159,8 @@
                     <x-button.primary class="h-fit !w-fit" wire:click="goto('{{ $button['function'] }}')">
                         {{ $button['label'] }}
                     </x-button.primary>
-                    @else
+                    @elseif (\App\Livewire\Services\Show::panelUrl((string) ($button['url'] ?? '')) !== null)
+                    {{-- A plain link from the server's extension: only a web page (Show::panelUrl). --}}
                     <a href="{{ $button['url'] }}"
                         @if(!empty($button['target'])) target="{{ $button['target'] }}" @endif
                         @if(($button['target'] ?? null) === '_blank') rel="noopener noreferrer" @endif>
