@@ -56,6 +56,9 @@ class CentovaCastExtensionTest extends TestCase
 
     private bool $enabledUnreadable = false;
 
+    /** Centova's database error printed before its XML. */
+    private bool $banner = false;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -102,6 +105,10 @@ class CentovaCastExtensionTest extends TestCase
         }
         $this->calls[] = [$class, $method, $args];
         $this->assertSame($class === 'system' ? 'admin-secret' : 'admin|admin-secret', $args['password'], 'the admin\'s password, as Centova\'s module sends it');
+        if ($this->banner) {
+            return Http::response("====\nError: Could not execute query\nReason: Field 'statuscache' doesn't have a default value\n====\n"
+                . self::xml('error', '', 'Could not create account: A database error occurred'));
+        }
         if ($this->madeThenRefused && $method === 'provision') {
             $this->accounts[$args['username']] = ['username' => $args['username'], 'email' => $args['email'], 'status' => 'enabled'];
 
@@ -348,6 +355,18 @@ class CentovaCastExtensionTest extends TestCase
         $read = (new \ReflectionMethod(CentovaApi::class, 'parse'))->invoke(null,
             '<centovacast><response type="success"><message>OK</message><data><row><organization>&Iota;&Mu;&Phi; &amp; &Theta;&nbsp;x &bogus; 5 &lt; 6 Rock & Roll &x; &#913;</organization></row></data></response></centovacast>');
         $this->assertSame("ΙΜΦ & Θ\u{00A0}x &bogus; 5 < 6 Rock & Roll &x; Α", $read[2]['row']['organization']);
+    }
+
+    public function test_an_error_after_a_debug_banner_is_read_as_centovas_refusal(): void
+    {
+        // As stream answered live (2026-10-22): its database error printed before the XML that tells it.
+        $this->banner = true;
+
+        $this->assertFalse(rescue(fn () => ExtensionHelper::createServer($this->service->fresh()), false, false));
+
+        $this->assertNull($this->service->properties()->where('key', CentovaCast::PENDING)->value('value'), 'refused: nothing made, its name taken off');
+        $read = (new \ReflectionMethod(CentovaApi::class, 'parse'))->invoke(null, "banner <b>x</b>\n" . self::xml('error', '', 'No'));
+        $this->assertSame(['error', 'No'], [$read[0], $read[1]]);
     }
 
     public function test_usage_from_one_call(): void
