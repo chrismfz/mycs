@@ -337,4 +337,17 @@ return [
         'have_one' => 'Already have a domain with another provider?',
         'search_instead' => 'Looking for a new domain?',
     ],
+    // The hosting's domain at checkout (Products\Checkout, owner 2026-10-22)
+    'checkout' => [
+        'lead' => 'Which domain is this hosting for? Check whether it is free to register it along, or whether it can move to us.',
+        'free' => ':domain is available!',
+        'register' => 'Register :domain with the hosting:',
+        'hosting_only' => 'No, the hosting only',
+        'taken' => ':domain is already registered. If it is yours:',
+        'keep' => 'Keep it at its provider (I only change its nameservers)',
+        'transfer' => 'Transfer :domain to us:',
+        'epp' => 'EPP / Auth code',
+        'taken_keep' => ':domain is already registered: we set the hosting up for it; change its nameservers at its provider.',
+        'unknown' => 'We could not check it right now. You can go on with the hosting alone and add the domain from the domain search.',
+    ],
 ];

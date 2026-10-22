@@ -4,15 +4,23 @@ namespace App\Livewire\Products;
 
 use App\Classes\Cart;
 use App\Classes\Price;
+use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
+use App\Livewire\DomainShop\Search;
+use App\Models\CartItem;
 use App\Models\Category;
 use App\Models\Currency;
 use App\Models\Plan;
+use App\Services\Domains\DomainSearch;
+use App\Services\Domains\Lookup\VisitorKey;
+use App\Services\Domains\Ordering\DomainOffer;
 use App\Services\Order\OrderPricing;
 use App\Support\CurrentClient;
 use Brick\Math\BigDecimal;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Locked;
@@ -49,6 +57,21 @@ class Checkout extends Component
 
     #[Url(as: 'edit'), Locked]
     public $cartProductKey = null;
+
+    /**
+     * The hosting's domain, checked (owner 2026-10-22, as WHMCS asks before the cart): free → register it with the
+     * hosting, taken → transfer it here or keep it where it is. Null until «Check».
+     *
+     * @var array{typed: string, currency: string, fqdn: string, status: string, years: int|null, register: string|null, transfer: string|null}|null
+     */
+    #[Locked]
+    public ?array $domainOffer = null;
+
+    /** What to do with it: '' (only the hosting), 'register' or 'transfer'. */
+    public string $domainAction = '';
+
+    /** A transfer's EPP code (also asked in the cart). */
+    public string $domainEpp = '';
 
     public function mount($product)
     {
@@ -144,6 +167,75 @@ class Checkout extends Component
     public function updatedConfigOptions()
     {
         $this->updatePricing();
+    }
+
+    /** Another domain typed: the check was of the one before. */
+    public function updatedCheckoutConfig($value, $key)
+    {
+        if ($key === 'domain' && $this->domainOffer !== null && $this->domainOffer['typed'] !== mb_strtolower(trim((string) $value))) {
+            $this->reset(['domainOffer', 'domainAction', 'domainEpp']);
+        }
+    }
+
+    /** A name as typed, as a host: no scheme, «www.», path or final dot (what a domain item of it would be). */
+    private static function plainName(string $typed): string
+    {
+        $name = (string) preg_replace('#^[a-z][a-z0-9+.-]*://#i', '', mb_strtolower(trim($typed)));
+        $name = (string) preg_replace('#[/?\#:].*$#', '', $name);
+
+        return rtrim((string) preg_replace('#^www\.#', '', $name), '.');
+    }
+
+    /** Whether this product asks a domain (its server's checkout field) and the shop sells domains. */
+    public function asksDomain(): bool
+    {
+        return config('settings.domain_billing_enabled', true) && (DomainOffer::allowed('register') || DomainOffer::allowed('transfer'))
+            && collect($this->getCheckoutConfig())->contains(fn ($config) => ($config['name'] ?? null) === 'domain');
+    }
+
+    /** «Check»: is the hosting's domain free (register it with us) or taken (transfer it, or keep it)? */
+    public function checkDomain(): void
+    {
+        $this->reset(['domainOffer', 'domainAction', 'domainEpp']);
+        $this->resetErrorBag('checkoutConfig.domain');
+        $typed = mb_substr(trim((string) ($this->checkoutConfig['domain'] ?? '')), 0, 255);
+        if ($typed === '' || !$this->asksDomain()) {
+            return;
+        }
+        // The search's limit (a check is a search of the visitor's): never a way around it.
+        $key = 'domain-search-hits:' . VisitorKey::of(request());
+        if (RateLimiter::tooManyAttempts($key, Search::LIMIT)) {
+            $this->addError('checkoutConfig.domain', __('domains.shop.too_many'));
+
+            return;
+        }
+        RateLimiter::hit($key, 600);
+        // Priced in the cart's currency, as the cart will charge it (review of #313), else the visitor's.
+        $currency = Cart::getOnce()->currency_code ?? Search::currency();
+        $offer = app(DomainOffer::class);
+        $tld = $offer->tldFor($typed, $currency);
+        if ($tld === null) {
+            return; // an ending we do not sell: the hosting alone, with the domain they have
+        }
+        try {
+            // The name checked as the shop sells it: registered, or (registrations off) transferred, never premium or ours.
+            $operation = DomainOffer::allowed('register') ? 'register' : 'transfer';
+            [$fqdn, $tld] = $offer->check($typed, $operation, (int) ($offer->years($tld, $operation, $currency)->first() ?? 1), $currency, availability: false);
+        } catch (DisplayException) {
+            return; // not one we can sell (registrations off, premium, ours already): the hosting alone
+        }
+        $years = $tld->shortestYears('register', $currency);
+        $this->domainOffer = [
+            'typed' => mb_strtolower($typed),
+            'currency' => $currency,
+            'fqdn' => $fqdn,
+            'status' => app(DomainSearch::class)->statuses([$fqdn => $tld])[$fqdn] ?? DomainSearch::UNKNOWN,
+            'years' => $years,
+            'register' => $years === null || !DomainOffer::allowed('register') ? null : $tld->priceFor('register', $years, $currency),
+            'transfer' => DomainOffer::allowed('transfer') && $tld->registrarCan('transfer') ? $tld->priceFor('transfer', 1, $currency) : null,
+        ];
+        // A free name is registered with the hosting unless unticked; a taken one is kept where it is unless asked.
+        $this->domainAction = $this->domainOffer['status'] === DomainSearch::FREE && $this->domainOffer['register'] !== null ? 'register' : '';
     }
 
     public function getCheckoutConfig()
@@ -282,7 +374,40 @@ class Checkout extends Component
             $checkoutConfig[$config['name']] = $this->checkoutConfig[$config['name']] ?? null;
         }
 
-        Cart::add($this->product, $this->plan, $configOptions, $checkoutConfig, key: $this->cartProductKey);
+        $typed = mb_strtolower(trim((string) ($checkoutConfig['domain'] ?? '')));
+        $domain = in_array($this->domainAction, ['register', 'transfer'], true) && $this->domainOffer !== null && $this->asksDomain()
+            && $this->domainOffer['typed'] === $typed ? $this->domainOffer['fqdn'] : null;
+        // The hosting and its domain together or neither (review of #313: a full cart, the add limit, a name taken
+        // meanwhile never leave a domain without its hosting). One hit of the add limit for both.
+        try {
+            DB::transaction(function () use ($configOptions, $checkoutConfig, $typed, $domain) {
+                $hostingId = Cart::add($this->product, $this->plan, $configOptions, $checkoutConfig, key: $this->cartProductKey);
+                $cart = Cart::createCart();
+                // A domain ordered with this hosting before, for a name it is no longer for (an edit): out with it.
+                $keep = $domain ?? self::plainName($typed);
+                $cart->items()->whereNotNull('domain')->get()
+                    ->filter(fn (CartItem $item) => ($item->domain['for'] ?? null) === $hostingId && $item->domain['fqdn'] !== $keep)
+                    ->each(fn (CartItem $item) => $item->delete());
+                if ($domain === null) {
+                    return;
+                }
+                // Already in the cart (the search, an earlier order of it): kept as chosen there, only tied to this hosting.
+                $item = $cart->items()->whereNotNull('domain')->get()->first(fn (CartItem $item) => $item->domain['fqdn'] === $domain)
+                    ?? CartItem::query()->findOrFail(Cart::addDomain($domain, $this->domainAction, limited: false));
+                $item->domain = [...$item->domain, 'for' => $hostingId];
+                if ($item->domain['operation'] === 'transfer' && trim($this->domainEpp) !== '') {
+                    $item->epp_code = mb_substr(trim($this->domainEpp), 0, 255);
+                }
+                $item->save();
+            });
+        } catch (DisplayException $e) {
+            if ($domain === null) {
+                throw $e;
+            }
+            $this->addError('checkoutConfig.domain', $e->getMessage());
+
+            return;
+        }
 
         $this->dispatch('cartUpdated');
 
