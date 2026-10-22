@@ -61,6 +61,9 @@ class SyncServiceUsage extends Command
             }
         }
 
+        // An ended service's hosted domains are not its any more (code review M1 of #320).
+        ServiceHostedDomain::query()->whereHas('service', fn ($q) => $q->whereNotIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED]))->delete();
+
         return $failed ? self::FAILURE : self::SUCCESS;
     }
 
@@ -80,20 +83,32 @@ class SyncServiceUsage extends Command
 
             return false;
         }
+        $ok = true;
         foreach ($read as $serviceId => $domains) {
-            DB::transaction(function () use ($serviceId, $domains) {
-                $now = now();
-                $keep = [];
-                foreach ($domains as $entry) {
-                    $keep[] = $entry['domain'];
-                    ServiceHostedDomain::query()->updateOrCreate(['service_id' => $serviceId, 'domain' => $entry['domain']],
-                        ['type' => $entry['type'], 'account' => $entry['account'], 'read_at' => $now]);
-                }
-                ServiceHostedDomain::query()->where('service_id', $serviceId)->whereNotIn('domain', $keep)->delete();
-            });
+            try {
+                DB::transaction(function () use ($serviceId, $domains) {
+                    // Upserted in chunks, then what the server no longer tells goes (code review L3 of #320).
+                    $now = now()->startOfSecond();
+                    foreach (array_chunk($domains, 500) as $chunk) {
+                        ServiceHostedDomain::query()->upsert(array_map(fn (array $entry) => ['service_id' => $serviceId, 'domain' => $entry['domain'],
+                            'type' => $entry['type'], 'account' => $entry['account'], 'read_at' => $now, 'created_at' => $now, 'updated_at' => $now], $chunk),
+                            ['service_id', 'domain'], ['type', 'account', 'read_at', 'updated_at']);
+                    }
+                    // Those it had and the server no longer tells, deleted in chunks (never one binding per domain kept).
+                    $gone = array_values(array_diff(ServiceHostedDomain::query()->where('service_id', $serviceId)->pluck('domain')->all(), array_column($domains, 'domain')));
+                    foreach (array_chunk($gone, 500) as $chunk) {
+                        ServiceHostedDomain::query()->where('service_id', $serviceId)->whereIn('domain', $chunk)->delete();
+                    }
+                });
+            } catch (Throwable $e) {
+                // One service's write never stops the others (code review L2).
+                report($e);
+                $this->error("{$server} (domains of service #{$serviceId}): " . Redact::text($e->getMessage()));
+                $ok = false;
+            }
         }
         $this->line("{$server}: domains of " . count($read) . ' service(s) read');
 
-        return true;
+        return $ok;
     }
 }

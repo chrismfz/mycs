@@ -148,4 +148,52 @@ class HostedDomainsTest extends TestCase
         $this->assertSame('zonecl', $results->first()->details['Account'] ?? null);
         $this->assertSame('Orion', $results->first()->details['Server'] ?? null);
     }
+
+    /** Code review M1 of #320: an ended service's old domains never lead staff's search away from the account that has them now. */
+    public function test_a_terminated_services_old_domains_are_not_found(): void
+    {
+        $old = $this->service('zonecl');
+        $this->domains = [self::row('zonecloud.io', 'main', 'zonecl'), self::row('shop.example', 'addon', 'zonecl')];
+        $this->artisan('services:usage')->assertExitCode(0);
+        $old->forceFill(['status' => Service::STATUS_TERMINATED])->save();
+        $now = $this->service('zonecl2');
+        $this->domains = [self::row('zonecl2.test', 'main', 'zonecl2'), self::row('shop.example', 'addon', 'zonecl2')];
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $this->actingAs(Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]), 'staff');
+
+        $this->assertSame([], ServiceResource::getGlobalSearchResults('shop.example')->all(), 'before the next read: not the ended one');
+        $this->artisan('services:usage')->assertExitCode(0);
+
+        $this->assertSame([$now->id], ServiceResource::getGlobalSearchResults('shop.example')->map(fn ($r) => (int) basename(dirname($r->url)))->values()->all());
+        $this->assertSame(0, $old->hostedDomains()->count(), 'its rows cleaned');
+    }
+
+    /** L1: a reseller's customer's domain names the account that holds it. */
+    public function test_a_resellers_customer_domain_names_its_account(): void
+    {
+        $this->service('resel1', ['reseller' => '1'], [CPanel::RESELLER => '1']);
+        $this->domains = [self::row('resel1.test', 'main', 'resel1', 'resel1'), self::row('cust-a.gr', 'main', 'cust1', 'resel1')];
+        $this->artisan('services:usage')->assertExitCode(0);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $this->actingAs(Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]), 'staff');
+
+        $details = ServiceResource::getGlobalSearchResults('cust-a.gr')->first()->details;
+
+        $this->assertSame(['resel1', 'cust1'], [$details['Account'] ?? null, $details['On account'] ?? null]);
+    }
+
+    /** L4: an IDN found and shown in Unicode, kept in punycode as the server tells it. */
+    public function test_an_idn_is_found_and_shown_in_unicode(): void
+    {
+        $service = $this->service('zonecl');
+        $puny = idn_to_ascii('ελλάδα.gr', IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46);
+        $this->domains = [self::row('zonecloud.io', 'main', 'zonecl'), self::row($puny, 'addon', 'zonecl')];
+        $this->artisan('services:usage')->assertExitCode(0);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $this->actingAs(Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]), 'staff');
+
+        $this->assertCount(1, ServiceResource::getGlobalSearchResults('ελλάδα.gr'));
+        $this->actingAs($this->user)->withSession($this->loginUser($this->user, [CurrentClient::SESSION_KEY => $service->client_id]))
+            ->get(route('services.show', $service))->assertOk()->assertSee('ελλάδα.gr');
+    }
 }

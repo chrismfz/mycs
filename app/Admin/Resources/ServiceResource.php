@@ -91,8 +91,35 @@ class ServiceResource extends Resource
     /** The admin search (ctrl+k) finds a service by its domain or IP too: «who has IP x» (abuse), as WHMCS. */
     public static function getGloballySearchableAttributes(): array
     {
-        // …and by any domain its account hosts (addon, alias, subdomain; a reseller's customers'): owner 2026-10-22.
-        return ['id', 'domain', 'dedicated_ip', 'assigned_ips', 'username', 'hostedDomains.domain'];
+        // …and by any domain its account hosts (addon, alias, subdomain; a reseller's customers'), live ones: owner 2026-10-22.
+        return ['id', 'domain', 'dedicated_ip', 'assigned_ips', 'username', 'liveHostedDomains.domain'];
+    }
+
+    /** Its client, server and count of hosted domains with the results, not one query each (code review M2 of #320). */
+    public static function getGlobalSearchEloquentQuery(): Builder
+    {
+        return parent::getGlobalSearchEloquentQuery()->with(['client', 'product.server', 'server'])
+            ->withCount(['liveHostedDomains as hosted_main_count' => fn ($q) => $q->where('type', '!=', 'sub')]);
+    }
+
+    public static function modifyGlobalSearchQuery(Builder $query, string $search): void
+    {
+        $term = mb_strtolower(trim($search));
+        // The hosted domain the term matches, loaded with the results (its account, for a reseller's customer: L1).
+        $query->with(['liveHostedDomains' => fn ($q) => $q->where('domain', 'like', '%' . $term . '%')]);
+    }
+
+    /** An IDN typed in Unicode (ελλάδα.gr) found as the server keeps it, in punycode (code review L4). */
+    public static function getGlobalSearchResults(string $search): \Illuminate\Support\Collection
+    {
+        $results = parent::getGlobalSearchResults($search);
+        $plain = mb_strtolower(trim($search));
+        $ascii = $plain !== '' ? idn_to_ascii($plain, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46) : false;
+        if (is_string($ascii) && $ascii !== $plain) {
+            $results = collect($results->all())->merge(parent::getGlobalSearchResults($ascii)->all())->unique(fn ($result) => $result->url)->values();
+        }
+
+        return $results;
     }
 
     /** Where a domain found by the search lives: its account and server (owner 2026-10-22: «which account to look in first»). */
@@ -101,12 +128,14 @@ class ServiceResource extends Resource
         if (!$record instanceof Service) {
             return [];
         }
+        $holder = $record->relationLoaded('liveHostedDomains') ? $record->liveHostedDomains->first()?->account : null;
 
         return array_filter([
             'Client' => $record->client?->name,
             'Account' => $record->username,
+            'On account' => $holder !== null && $holder !== strtolower((string) $record->username) ? $holder : null,
             'Server' => $record->provisioningServer()?->name,
-            'Hosts' => ($count = $record->hostedDomains()->where('type', '!=', 'sub')->count()) > 1 ? "{$count} domains" : null,
+            'Hosts' => ($count = (int) ($record->hosted_main_count ?? 0)) > 1 ? "{$count} domains" : null,
         ]);
     }
 

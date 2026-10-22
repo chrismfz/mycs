@@ -13,15 +13,15 @@
         <ul class="flex flex-wrap gap-2 mt-1">
             @foreach($domains->where('type', '!=', 'sub') as $hostedDomain)
             <li class="text-sm px-2 py-1 rounded bg-neutral">
-                {{ $hostedDomain->domain }}
+                {{ $hostedDomain->displayName() }}
                 <span class="text-xs text-base/50">· {{ __('services.hosted.types.' . $hostedDomain->type) }}</span>
             </li>
             @endforeach
         </ul>
         @if(($subs = $domains->where('type', 'sub'))->isNotEmpty())
         <details class="mt-1">
-            <summary class="text-xs text-base/50 cursor-pointer">{{ __('services.hosted.subdomains', ['count' => $subs->count()]) }}</summary>
-            <p class="text-xs text-base/50 mt-1">{{ $subs->pluck('domain')->implode(', ') }}</p>
+            <summary class="text-xs text-base/70 cursor-pointer">{{ __('services.hosted.subdomains', ['count' => $subs->count()]) }}</summary>
+            <p class="text-xs text-base/70 mt-1">{{ $subs->map->displayName()->implode(', ') }}</p>
         </details>
         @endif
     </div>

@@ -837,7 +837,8 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
             $domain = strtolower(trim((string) ($row['domain'] ?? '')));
             $type = (string) ($row['domain_type'] ?? '');
             $user = strtolower((string) ($row['user'] ?? ''));
-            if ($domain === '' || $user === '' || !in_array($type, ServiceHostedDomain::TYPES, true)) {
+            // A name no domain can be (its column's lengths: code review L2 of #320) is not kept.
+            if ($domain === '' || $user === '' || strlen($domain) > 253 || strlen($user) > 64 || !in_array($type, ServiceHostedDomain::TYPES, true)) {
                 continue;
             }
             $entry = ['domain' => $domain, 'type' => $type, 'account' => $user];

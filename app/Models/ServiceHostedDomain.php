@@ -7,7 +7,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
 /**
- * A domain an account hosts, as its server last told it (services:usage).
+ * A domain an account hosts, as its server last told it (services:usage). Information only (owner 2026-10-22): never
+ * read by an order, a creation or any check: an addon here (nac.gr on cdnet.gr's account) may get its own hosting.
  *
  * @property int $service_id
  * @property string $domain
@@ -30,5 +31,13 @@ class ServiceHostedDomain extends Model
     public function service(): BelongsTo
     {
         return $this->belongsTo(Service::class);
+    }
+
+    /** As people read it: an IDN in Unicode (the server keeps it in punycode: code review L4 of #320). */
+    public function displayName(): string
+    {
+        $unicode = str_contains($this->domain, 'xn--') ? idn_to_utf8($this->domain, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46) : false;
+
+        return is_string($unicode) && $unicode !== '' ? $unicode : $this->domain;
     }
 }
