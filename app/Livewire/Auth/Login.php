@@ -34,7 +34,7 @@ class Login extends Component
         // any normalising (AUTHN-2, review of #333). Only failures count towards the login's own limit.
         $ip = CallerIp::key();
         $user = User::where('email', trim($this->email))->first();
-        $keys = ['login-ip:' . $ip => [30, 900], 'login:' . ($user?->id ?? 'none') . ':' . $ip => [5, 900]];
+        $keys = ['login-ip:' . $ip => [30, 900], 'login:' . ($user->id ?? 'none') . ':' . $ip => [5, 900]];
         foreach ($keys as $key => [$max]) {
             if (RateLimiter::tooManyAttempts($key, $max)) {
                 $this->addError('email', __('auth.throttle', ['seconds' => RateLimiter::availableIn($key)]));
