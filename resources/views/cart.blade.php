@@ -169,7 +169,7 @@
                     @if(config('settings.tos'))
                     <x-form.checkbox wire:model="tos" name="tos">
                         {{ __('product.tos') }}
-                        <a href="{{ config('settings.tos') }}" target="_blank" class="text-primary hover:text-primary/80">
+                        <a href="{{ Str::sanitizeUrl(config('settings.tos')) }}" target="_blank" class="text-primary hover:text-primary/80">
                             {{ __('product.tos_link') }}
                         </a>
                     </x-form.checkbox>
