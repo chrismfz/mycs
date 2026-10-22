@@ -92,6 +92,18 @@ class Mollie extends Gateway
         return $response['_links']['checkout']['href'];
     }
 
+    /** @return list<array<string, mixed>> A payment's refunds or chargebacks at Mollie (an error: Mollie retries). */
+    private function listOf(string $paymentId, string $what): array
+    {
+        $response = Http::withHeaders(['Authorization' => 'Bearer ' . $this->config('api_key')])
+            ->get('https://api.mollie.com/v2/payments/' . $paymentId . '/' . $what);
+        if (!$response->successful()) {
+            throw new Exception('Mollie API error: ' . $response->status());
+        }
+
+        return array_values(array_filter((array) ($response->json('_embedded.' . $what) ?? []), 'is_array'));
+    }
+
     public function webhook(Request $request)
     {
         // Mollie only sends an id: one it does not know (anyone can post one) is a 404, not an error that mails staff
@@ -118,6 +130,41 @@ class Mollie extends Gateway
         if ($payment['status'] == 'paid') {
             ExtensionHelper::addPayment($payment['metadata']['invoice_id'], 'Mollie', $payment['amount']['value'], transactionId: $payment['id'], currency: $payment['amount']['currency'] ?? null, paymentGroup: $payment['metadata']['payment_group'] ?? null);
         }
+
+        // Money given or taken back later (security audit PAY-SEC-5): Mollie calls this webhook again, for the same
+        // payment. Each refund and chargeback is recorded once by its own id, as Stripe's are; a chargeback reversed
+        // (won back) undoes it.
+        // A refund that failed takes amountRefunded back to 0: its link still says there are refunds (review of #349, F2).
+        if ((float) ($payment['amountRefunded']['value'] ?? 0) > 0 || isset($payment['_links']['refunds'])) {
+            foreach ($this->listOf($id, 'refunds') as $refund) {
+                if (!is_string($refund['id'] ?? null)) {
+                    continue;
+                }
+                $amount = (float) ($refund['amount']['value'] ?? 0);
+                $currency = $refund['amount']['currency'] ?? null;
+                match ($refund['status'] ?? null) {
+                    'pending', 'processing', 'refunded' => ExtensionHelper::refundedAtGateway('Mollie', $id, $refund['id'], $amount, $currency),
+                    // Recorded earlier as money given back (or started here) and then not: staff told, as for Stripe.
+                    'failed', 'canceled' => ExtensionHelper::refundFailedAtGateway('Mollie', $refund['id'], $id, $amount, $currency),
+                    default => null, // queued (Mollie's balance too low): recorded once it is pending
+                };
+            }
+        }
+        if ((float) ($payment['amountChargedBack']['value'] ?? 0) > 0 || isset($payment['_links']['chargebacks'])) {
+            foreach ($this->listOf($id, 'chargebacks') as $chargeback) {
+                if (!is_string($chargeback['id'] ?? null)) {
+                    continue;
+                }
+                $amount = (float) ($chargeback['amount']['value'] ?? 0);
+                $currency = $chargeback['amount']['currency'] ?? null;
+                ExtensionHelper::chargebackAtGateway('Mollie', $id, $chargeback['id'], $amount, $currency);
+                if (!empty($chargeback['reversedAt'])) {
+                    ExtensionHelper::chargebackReversedAtGateway('Mollie', $id, $chargeback['id'], $amount, $currency, $chargeback['id'] . ':reversed');
+                }
+            }
+        }
+
+        return response('', 200);
     }
 
     public function supportsRefunds(): bool
