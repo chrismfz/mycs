@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
 use Livewire\Livewire;
+use MyCS\Extensions\Servers\CentovaCast\CentovaApi;
 use MyCS\Extensions\Servers\CentovaCast\CentovaCast;
 use Tests\TestCase;
 
@@ -83,7 +84,8 @@ class CentovaCastExtensionTest extends TestCase
 
     private static function fields(array $row): string
     {
-        return implode('', array_map(fn ($k, $v) => "<{$k}>" . htmlspecialchars((string) $v, ENT_XML1) . "</{$k}>", array_keys($row), $row));
+        // `organization` raw, as Centova writes it (HTML entities and all).
+        return implode('', array_map(fn ($k, $v) => "<{$k}>" . ($k === 'organization' ? (string) $v : htmlspecialchars((string) $v, ENT_XML1)) . "</{$k}>", array_keys($row), $row));
     }
 
     private function centova(Request $request)
@@ -331,6 +333,20 @@ class CentovaCastExtensionTest extends TestCase
         $page = Livewire::test(Show::class, ['service' => $this->service]);
         $page->assertSee('stream.test:9250')->assertSee('radio');
         $page->call('goto', 'getLoginUrl')->assertRedirect(self::API . '/login/index.php');
+    }
+
+    public function test_html_entities_in_an_answer_are_read_as_their_characters(): void
+    {
+        // As stream answered live (2026-10-22): a Greek organization in HTML's named entities, not known to XML.
+        $this->made();
+        $this->accounts['radio']['organization'] = '&Iota;&Mu;&Phi; &amp; &Theta;&nbsp;x &bogus; 5 &lt; 6';
+
+        ExtensionHelper::suspendServer($this->service->fresh());
+
+        $this->assertSame('disabled', $this->accounts['radio']['status'], 'the account found in the listaccounts answer');
+        $read = (new \ReflectionMethod(CentovaApi::class, 'parse'))->invoke(null,
+            '<centovacast><response type="success"><message>OK</message><data><row><organization>&Iota;&Mu;&Phi; &amp; &Theta;&nbsp;x &bogus; 5 &lt; 6</organization></row></data></response></centovacast>');
+        $this->assertSame("ΙΜΦ & Θ\u{00A0}x &bogus; 5 < 6", $read[2]['row']['organization']);
     }
 
     public function test_usage_from_one_call(): void
