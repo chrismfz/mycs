@@ -145,7 +145,7 @@ class PayPal_IPN extends Gateway
 
                 return response('');
             case 'Canceled_Reversal':
-                ExtensionHelper::chargebackReversedAtGateway('PayPal', $parent, null, $amount, $field('mc_currency'), $reference !== '' ? $reference : null);
+                ExtensionHelper::chargebackReversedAtGateway('PayPal', $parent, null, $amount, $field('mc_currency'), 'cr:' . $reference);
 
                 return response('');
             case 'Completed':
@@ -160,6 +160,11 @@ class PayPal_IPN extends Gateway
         }
         ExtensionHelper::addPayment($invoice, 'PayPal', $field('mc_gross'), $field('mc_fee'), transactionId: $field('txn_id'),
             currency: $field('mc_currency'), paymentGroup: $field('custom'));
+        // A refund or chargeback told before this payment waits for it: addPayment applies those only for a gateway with
+        // its own row named so, which this extension is not (review of #349, F1).
+        if ($reference !== '') {
+            ExtensionHelper::applyWaitingRefunds('PayPal', $reference);
+        }
 
         return response('');
     }

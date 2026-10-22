@@ -134,11 +134,20 @@ class Mollie extends Gateway
         // Money given or taken back later (security audit PAY-SEC-5): Mollie calls this webhook again, for the same
         // payment. Each refund and chargeback is recorded once by its own id, as Stripe's are; a chargeback reversed
         // (won back) undoes it.
-        if ((float) ($payment['amountRefunded']['value'] ?? 0) > 0) {
+        // A refund that failed takes amountRefunded back to 0: its link still says there are refunds (review of #349, F2).
+        if ((float) ($payment['amountRefunded']['value'] ?? 0) > 0 || isset($payment['_links']['refunds'])) {
             foreach ($this->listOf($id, 'refunds') as $refund) {
-                if (in_array($refund['status'] ?? null, ['pending', 'processing', 'refunded'], true) && is_string($refund['id'] ?? null)) {
-                    ExtensionHelper::refundedAtGateway('Mollie', $id, $refund['id'], (float) ($refund['amount']['value'] ?? 0), $refund['amount']['currency'] ?? null);
+                if (!is_string($refund['id'] ?? null)) {
+                    continue;
                 }
+                $amount = (float) ($refund['amount']['value'] ?? 0);
+                $currency = $refund['amount']['currency'] ?? null;
+                match ($refund['status'] ?? null) {
+                    'pending', 'processing', 'refunded' => ExtensionHelper::refundedAtGateway('Mollie', $id, $refund['id'], $amount, $currency),
+                    // Recorded earlier as money given back (or started here) and then not: staff told, as for Stripe.
+                    'failed', 'canceled' => ExtensionHelper::refundFailedAtGateway('Mollie', $refund['id'], $id, $amount, $currency),
+                    default => null, // queued (Mollie's balance too low): recorded once it is pending
+                };
             }
         }
         if ((float) ($payment['amountChargedBack']['value'] ?? 0) > 0 || isset($payment['_links']['chargebacks'])) {
