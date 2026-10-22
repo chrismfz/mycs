@@ -54,7 +54,7 @@ class CPanel extends Server implements ReadsServiceUsage
         $json = $this->request($endpoint, $method, ['api.version' => 1, ...$data], $timeout)->json();
 
         if (($json['metadata']['result'] ?? null) !== 1) {
-            throw new Exception('cPanel ' . ltrim($endpoint, '/') . ' failed: ' . ($json['metadata']['reason'] ?? 'no reason given'));
+            throw new WhmRefused('cPanel ' . ltrim($endpoint, '/') . ' failed: ' . ($json['metadata']['reason'] ?? 'no reason given'));
         }
 
         return $json;
@@ -647,7 +647,7 @@ class CPanel extends Server implements ReadsServiceUsage
 
     /**
      * WHMCS's «Quick Shortcuts» (owner 2026-10-22): cPanel opened on that page, signed in. Its app names (WHM's
-     * create_user_session «app») and the icon shown; the label is the customer's language (services.cpanel.shortcuts.*).
+     * create_user_session «app», as Jupiter's dynamicui.conf «implements» them: read on orion, 2026-10-22) and the icon shown; the label is the customer's language (services.cpanel.shortcuts.*).
      */
     public const SHORTCUTS = [
         'Email_Accounts' => 'mail-line',
@@ -655,9 +655,9 @@ class CPanel extends Server implements ReadsServiceUsage
         'Email_AutoResponders' => 'reply-line',
         'FileManager_Home' => 'folder-open-line',
         'Backups_Home' => 'history-line',
-        'Domains_Home' => 'global-line',
+        'Domains_domains' => 'global-line',
         'Cron_Home' => 'time-line',
-        'MySQL_Databases' => 'database-2-line',
+        'Database_MySQL' => 'database-2-line',
         'Database_phpMyAdmin' => 'table-line',
         'Stats_AWStats' => 'line-chart-line',
     ];
@@ -695,8 +695,14 @@ class CPanel extends Server implements ReadsServiceUsage
         if (!isset($properties['cpanel_username'])) {
             throw new Exception('Service has not been created');
         }
+        // The account's MySQL user is left as it is (db_pass_update unset, WHM's default): scripts using it keep working.
         $this->whm('/passwd', ['user' => $properties['cpanel_username'], 'password' => $password], 'post');
-        $service->forceFill(['password' => $password])->save();
+        try {
+            $service->forceFill(['password' => $password])->save();
+        } catch (Throwable $e) {
+            // Changed at the server: never told as a refusal (code review L3 of #318); staff see the stored one is old.
+            report(new Exception("cPanel: the password of service #{$service->id} was changed at the server but not stored here"));
+        }
 
         return true;
     }
@@ -712,7 +718,7 @@ class CPanel extends Server implements ReadsServiceUsage
         }
         $domain = strtolower(trim((string) $service->domain));
         $local = strtolower(trim($local));
-        if ($domain === '' || preg_match('/^[a-z0-9](?:[a-z0-9._+-]{0,62}[a-z0-9])?$/', $local) !== 1 || str_contains($local, '..')) {
+        if ($domain === '' || preg_match('/^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/', $local) !== 1 || str_contains($local, '..')) {
             throw new Exception(__('services.cpanel.email_invalid'));
         }
         $json = $this->request('/cpanel', 'post', [
@@ -728,7 +734,7 @@ class CPanel extends Server implements ReadsServiceUsage
         $result = $json['result'] ?? null;
         if (!is_array($result) || (int) ($result['status'] ?? 0) !== 1) {
             $errors = is_array($result) ? implode(' ', array_map('strval', (array) ($result['errors'] ?? []))) : '';
-            throw new Exception(trim('cPanel: ' . ($errors !== '' ? $errors : 'the mailbox was not created')));
+            throw new WhmRefused(trim('cPanel: ' . ($errors !== '' ? $errors : 'the mailbox was not created')));
         }
 
         return "{$local}@{$domain}";

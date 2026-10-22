@@ -21,6 +21,7 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
 use Livewire\Livewire;
+use MyCS\Extensions\Servers\CPanel\CPanel;
 use Tests\TestCase;
 
 /**
@@ -212,5 +213,15 @@ class CPanelClientToolsTest extends TestCase
 
         $this->assertCount(1, $this->sent('passwd'));
         $this->assertSame(self::PASSWORD, $this->service->fresh()->password);
+    }
+
+    /** As Jupiter's dynamicui.conf «implements» them (read on orion, 2026-10-22): a wrong name opens cPanel's home. */
+    public function test_the_shortcuts_are_cpanels_own_page_names(): void
+    {
+        $this->assertSame(['Email_Accounts', 'Email_Forwarders', 'Email_AutoResponders', 'FileManager_Home', 'Backups_Home', 'Domains_domains',
+            'Cron_Home', 'Database_MySQL', 'Database_phpMyAdmin', 'Stats_AWStats'], array_keys(CPanel::SHORTCUTS));
+        foreach (array_keys(CPanel::SHORTCUTS) as $app) {
+            $this->assertNotSame('services.cpanel.shortcuts.' . $app, __('services.cpanel.shortcuts.' . $app), "{$app} has a label");
+        }
     }
 }

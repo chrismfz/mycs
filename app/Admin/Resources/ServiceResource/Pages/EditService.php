@@ -34,6 +34,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Validation\Rules\Password;
 use Livewire\Attributes\Locked;
 use MyCS\Extensions\Servers\CPanel\CPanel;
+use MyCS\Extensions\Servers\CPanel\WhmRefused;
 
 class EditService extends EditRecord
 {
@@ -192,7 +193,10 @@ class EditService extends EditRecord
                     } catch (Exception $e) {
                         $reason = Redact::values($e->getMessage(), [$password]);
                         report(new Exception($reason));
-                        Notification::make()->title('Password not changed')->body($reason)->danger()->send();
+                        // The server's own refusal: not changed. No answer (a timeout, an HTTP error): it may have been (ADV-3 of #318).
+                        $refused = $e instanceof WhmRefused;
+                        Notification::make()->title($refused ? 'Password not changed' : 'No clear answer from the server: the password may have changed')
+                            ->body($refused ? $reason : 'Check by logging in with the new password before trying again. ' . $reason)->danger()->send();
                         $action->halt();
 
                         return;

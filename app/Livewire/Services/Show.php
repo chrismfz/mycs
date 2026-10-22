@@ -22,6 +22,7 @@ use Illuminate\Validation\Rules\Password;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Renderless;
 use Livewire\Attributes\Url;
+use MyCS\Extensions\Servers\CPanel\WhmRefused;
 
 class Show extends Component
 {
@@ -265,6 +266,12 @@ class Show extends Component
 
     public function goto($function)
     {
+        // Active now, not only when the page opened (ADV-2 of #318): no panel opened on a service suspended since.
+        if ($this->service->fresh()?->status !== Service::STATUS_ACTIVE) {
+            $this->notify(__('This action is not allowed'), 'error');
+
+            return;
+        }
         // Check if function is allowed
         if (!in_array($function, array_column($this->buttons, 'function'))) {
             $this->notify(__('This action is not allowed'), 'error');
@@ -293,6 +300,12 @@ class Show extends Component
      */
     public function openShortcut(string $app)
     {
+        // Active now, not only when the page opened (ADV-1 of #318: suspended since).
+        if ($this->service->fresh()?->status !== Service::STATUS_ACTIVE) {
+            $this->notify(__('services.cpanel.failed'), 'error');
+
+            return;
+        }
         if (!in_array($app, array_column($this->shortcuts, 'app'), true) || !$this->ownsWith('productsso')) {
             $this->notify(__('You do not have access to this area of the account.'), 'error');
 
@@ -325,22 +338,21 @@ class Show extends Component
             'newPassword' => ['required', 'string', 'max:128', Password::min(10)->letters()->mixedCase()->numbers()],
             'newPasswordConfirmation' => ['required', 'same:newPassword'],
         ]);
+        $password = $this->newPassword;
+        $this->reset('newPassword', 'newPasswordConfirmation'); // never kept, whatever follows (ADV-6)
         if (RateLimiter::tooManyAttempts($key = 'service-password:' . $this->service->id, 5)) {
             $this->notify(__('services.cpanel.too_many'), 'error');
 
             return;
         }
         RateLimiter::hit($key, 900);
-        $password = $this->newPassword;
-        $this->reset('newPassword', 'newPasswordConfirmation');
         try {
             // Never «may fail»: that path reports the error unredacted and returns null (a refusal told as success).
             if (ExtensionHelper::callService($this->service, 'changePassword', [$password]) !== true) {
                 throw new Exception('the server did not confirm the change');
             }
         } catch (Exception $e) {
-            report(new Exception(Redact::values($e->getMessage(), [$password])));
-            $this->notify(__('services.cpanel.password_refused', ['reason' => Redact::values($e->getMessage(), [$password])]), 'error');
+            $this->serverFailed($e, $password, 'password_refused', 'password_unknown');
 
             return;
         }
@@ -358,30 +370,46 @@ class Show extends Component
             return;
         }
         $this->validate([
-            'mailboxName' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z0-9](?:[A-Za-z0-9._+-]{0,62}[A-Za-z0-9])?$/', 'not_regex:/\.\./'],
+            'mailboxName' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?$/', 'not_regex:/\.\./'],
             'mailboxPassword' => ['required', 'string', 'max:128', Password::min(10)->letters()->mixedCase()->numbers()],
         ]);
+        $password = $this->mailboxPassword;
+        $this->reset('mailboxPassword'); // never kept, whatever follows (ADV-6)
         if (RateLimiter::tooManyAttempts($key = 'service-mailbox:' . $this->service->id, 10)) {
             $this->notify(__('services.cpanel.too_many'), 'error');
 
             return;
         }
         RateLimiter::hit($key, 3600);
-        $password = $this->mailboxPassword;
-        $this->reset('mailboxPassword');
         try {
             $address = ExtensionHelper::callService($this->service, 'createEmailAccount', [$this->mailboxName, $password]);
             if (!is_string($address) || $address === '') {
                 throw new Exception('the server did not confirm the mailbox');
             }
         } catch (Exception $e) {
-            report(new Exception(Redact::values($e->getMessage(), [$password])));
-            $this->notify(__('services.cpanel.mailbox_refused', ['reason' => Redact::values($e->getMessage(), [$password])]), 'error');
+            $this->serverFailed($e, $password, 'mailbox_refused', 'mailbox_unknown');
 
             return;
         }
         $this->reset('mailboxName');
         $this->notify(__('services.cpanel.mailbox_created', ['address' => (string) $address]), 'success');
+    }
+
+    /**
+     * The server's failure told: its own refusal with its reason (the password taken out); no answer (a timeout, an HTTP
+     * error) as «may have been done», never as refused, nor with the server's address or body (ADV-3, 4 of #318). Reported
+     * without the password either way.
+     */
+    private function serverFailed(Exception $e, string $password, string $refused, string $unknown): void
+    {
+        $reason = Redact::values($e->getMessage(), [$password]);
+        report(new Exception($reason));
+        if ($e instanceof WhmRefused) {
+            $this->notify(__('services.cpanel.' . $refused, ['reason' => $reason]), 'error');
+
+            return;
+        }
+        $this->notify(__('services.cpanel.' . $unknown), 'error');
     }
 
     /** The login may do this on the service's account (staff in «Login as client» may do all). */
