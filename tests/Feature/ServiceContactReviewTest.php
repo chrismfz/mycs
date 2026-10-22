@@ -84,19 +84,21 @@ class ServiceContactReviewTest extends TestCase
             ->assertUnprocessable();
     }
 
-    public function test_api_moves_account_with_a_contact_of_the_new_one(): void
+    public function test_api_no_longer_moves_the_account_and_takes_a_contact_of_its_own(): void
     {
+        // Since #357 the client changes only by «Move to another client» (adversarial ADV-5): not by the API.
         $service = $this->service(User::factory()->create()->client());
         $old = $this->contact($service->client);
-        $service->update(['contact_id' => $old->id]);
         $b = User::factory()->create()->client();
         $new = $this->contact($b);
         $t = $this->token();
-        $this->withToken($t)->putJson(route('api.v1.admin.services.update', $service), ['client_id' => $b->id, 'contact_id' => $old->id])
-            ->assertUnprocessable();
         $this->withToken($t)->putJson(route('api.v1.admin.services.update', $service), ['client_id' => $b->id, 'contact_id' => $new->id])
+            ->assertUnprocessable();
+        $this->withToken($t)->putJson(route('api.v1.admin.services.update', $service), ['contact_id' => $new->id])
+            ->assertUnprocessable();
+        $this->withToken($t)->putJson(route('api.v1.admin.services.update', $service), ['client_id' => $service->client_id, 'contact_id' => $old->id])
             ->assertSuccessful();
-        $this->assertSame($new->id, (int) $service->fresh()->contact_id);
+        $this->assertSame([(int) $service->client_id, $old->id], [(int) $service->fresh()->client_id, (int) $service->fresh()->contact_id]);
     }
 
     public function test_api_non_numeric_contact_id(): void
@@ -118,7 +120,7 @@ class ServiceContactReviewTest extends TestCase
 
     public function test_filament_edit_no_longer_changes_the_client_moving_does(): void
     {
-        // Since #355 (owner 2026-10-23) the client is not edited in the form: «Move to another client» moves the service
+        // Since #357 (owner 2026-10-23) the client is not edited in the form: «Move to another client» moves the service
         // with its unpaid invoices (MoveToClientTest). A client sent with the form is not saved.
         $a = User::factory()->create()->client();
         $service = $this->service($a);

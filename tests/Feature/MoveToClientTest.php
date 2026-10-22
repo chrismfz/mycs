@@ -11,8 +11,11 @@ use App\Models\Contact;
 use App\Models\Currency;
 use App\Models\Domain;
 use App\Models\Invoice;
+use App\Models\Order;
 use App\Models\Role;
 use App\Models\Service;
+use App\Models\ServiceCancellation;
+use App\Models\ServiceUpgrade;
 use App\Models\Staff;
 use App\Models\User;
 use App\Services\Clients\MoveToClient;
@@ -181,5 +184,54 @@ class MoveToClientTest extends TestCase
             ->callAction('moveToClient', data: ['to_client_id' => $this->to->client()->id]);
 
         $this->assertSame($this->to->client()->id, $domain->fresh()->client_id);
+    }
+
+    /** Code review 3: an upgrade's line moves (never copied) and the upgrade follows it, or its shortfall bills it again. */
+    public function test_a_split_moves_the_upgrade_with_its_line(): void
+    {
+        $other = Service::factory()->create(['client_id' => $this->from->client()->id, 'plan_id' => $this->service->plan_id, 'product_id' => $this->service->product_id,
+            'status' => 'active', 'currency_code' => 'EUR', 'price' => 5]);
+        $invoice = $this->invoice($this->from, [['reference_type' => Service::class, 'reference_id' => $other->id]]);
+        $upgrade = ServiceUpgrade::query()->create(['service_id' => $this->service->id, 'plan_id' => $this->service->plan_id, 'product_id' => $this->service->product_id, 'invoice_id' => $invoice->id]);
+        $line = $invoice->items()->create(['reference_type' => ServiceUpgrade::class, 'reference_id' => $upgrade->id, 'quantity' => 1, 'price' => 3, 'description' => 'Upgrade']);
+
+        $result = app(MoveToClient::class)->service($this->service, $this->to->client(), $this->staff);
+
+        $this->assertSame($result['split'][$invoice->id], (int) $upgrade->fresh()->invoice_id);
+        $this->assertSame($result['split'][$invoice->id], (int) $line->fresh()->invoice_id, 'the same line, moved');
+    }
+
+    /** Code review 4: a discount that stays with another item never leaves the first client less than nothing. */
+    public function test_a_split_never_leaves_a_negative_invoice(): void
+    {
+        $other = Service::factory()->create(['client_id' => $this->from->client()->id, 'plan_id' => $this->service->plan_id, 'product_id' => $this->service->product_id,
+            'status' => 'active', 'currency_code' => 'EUR', 'price' => 0]);
+        $invoice = $this->invoice($this->from, [$this->serviceLine(), ['reference_type' => Service::class, 'reference_id' => $other->id, 'price' => 0], ['price' => -4, 'description' => 'Discount']]);
+
+        $this->assertInstanceOf(DisplayException::class, rescue(fn () => app(MoveToClient::class)->service($this->service, $this->to->client(), $this->staff), fn ($e) => $e, false));
+
+        $this->assertSame([$this->from->client()->id, 3], [$this->service->fresh()->client_id, $invoice->items()->count()]);
+    }
+
+    /** Code review 5: an order's own invoice goes with its order when the order is only this item's. */
+    public function test_the_order_goes_with_its_invoice_when_it_is_only_this_item(): void
+    {
+        $invoice = $this->invoice($this->from, [$this->serviceLine()]);
+        $order = Order::query()->create(['client_id' => $this->from->client()->id, 'currency_code' => 'EUR']);
+        Order::query()->whereKey($order->id)->update(['invoice_id' => $invoice->id]);
+        $this->service->forceFill(['order_id' => $order->id])->save();
+
+        app(MoveToClient::class)->service($this->service, $this->to->client(), $this->staff);
+
+        $this->assertSame([$this->to->client()->id, $this->to->client()->id], [(int) $order->fresh()->client_id, (int) $invoice->fresh()->client_id]);
+    }
+
+    /** Code review 9: a cancellation the first client asked for is not handed to the new one. */
+    public function test_a_pending_cancellation_refuses(): void
+    {
+        ServiceCancellation::query()->create(['service_id' => $this->service->id, 'reason' => 'No longer needed', 'type' => 'end_of_period']);
+
+        $this->assertInstanceOf(DisplayException::class, rescue(fn () => app(MoveToClient::class)->service($this->service, $this->to->client(), $this->staff), fn ($e) => $e, false));
+        $this->assertSame($this->from->client()->id, $this->service->fresh()->client_id);
     }
 }

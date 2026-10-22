@@ -27,7 +27,13 @@ class UpdateServiceRequest extends AdminApiRequest
                     }
                 },
             ],
-            'client_id' => 'sometimes|required|exists:clients,id',
+            // Its client changes only by «Move to another client» (MoveToClient: its unpaid invoices, contact and notes with
+            // it, admin.services.move; adversarial ADV-5 of #357): sent, it must be the one it has.
+            'client_id' => ['sometimes', 'required', 'integer', function ($attribute, $value, $fail) {
+                if ((int) $value !== (int) $this->route('service')?->client_id) {
+                    $fail('The client of a service is changed by moving it to another client, not by an update.');
+                }
+            }],
             /**
              * @default 1
              */
@@ -47,7 +53,7 @@ class UpdateServiceRequest extends AdminApiRequest
             'subscription_id' => 'sometimes|nullable|string|max:255',
             // A contact of the service's account (information only, docs/accounts.md 3b).
             'contact_id' => ['sometimes', 'nullable', 'integer', function ($attribute, $value, $fail) {
-                $clientId = $this->input('client_id') ?? $this->route('service')?->client_id;
+                $clientId = $this->route('service')?->client_id;
                 if (!Contact::query()->whereKey($value)->where('client_id', $clientId)->whereNull('archived_at')->exists()) {
                     $fail('The contact must be an active contact of the service\'s account.');
                 }
