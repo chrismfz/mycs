@@ -52,10 +52,13 @@ class SystemMail extends Mailable implements ShouldBeEncrypted
     public function content(): Content
     {
         $appName = e(config('app.name'));
+        // HTML, or escaped text whose lines are kept: never read as Markdown (a customer's text in it stays text).
+        $text = (string) $this->mail['body'];
+        $content = $text === strip_tags($text) ? nl2br($text) : $text;
         $body = <<<HTML
         <p>Hi,</p>
 
-        {$this->mail['body']}
+        {$content}
 
         <small>This is an automated message sent from {$appName}</small>
         HTML;

@@ -102,6 +102,196 @@ class TemplateRenderer
         return $template === null || $template === '' ? '' : self::renderer()->render($template, $data, $escape);
     }
 
+    /**
+     * A template written in Markdown, made HTML: its tags run first (ifs and loops on the real data, as they always
+     * did), but each value goes into the Markdown as a key of letters and digits, and in as escaped text only after
+     * it. A customer's name, a ticket's subject or a service's label is text in the mail, never a link, an image or a
+     * list of their own (reviews of #294 and #319). Every link's or image's address is checked once the values are in.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public static function renderMarkdown(?string $template, array $data): string
+    {
+        if ($template === null || $template === '') {
+            return '';
+        }
+        // A key of this call only: text that looks like it (staff's or a value's) stays text.
+        $key = 'MYCSVAL' . bin2hex(random_bytes(6)) . 'N';
+        $values = [];
+        $blocks = [];
+        $marked = self::renderer()->renderWith($template, $data, function (string $text, bool $raw) use (&$values, &$blocks, $key): string {
+            $values[] = $text;
+            if ($raw) {
+                $blocks[count($values) - 1] = true;
+            }
+
+            return $key . (count($values) - 1) . 'X';
+        });
+        $html = Str::markdown($marked, ['allow_unsafe_links' => false]);
+        $k = preg_quote($key, '~');
+        // An HTML value alone on its line (a product's snippet, a mass mail's message) is a block: not in a paragraph.
+        $html = (string) preg_replace_callback('~<p>(' . $k . '(\d+)X)</p>~', fn (array $m) => isset($blocks[(int) $m[2]]) ? $m[1] : $m[0], $html);
+        $html = (string) preg_replace_callback('~' . $k . '(\d+)X~', fn (array $m) => $values[(int) $m[1]] ?? $m[0], $html);
+
+        return self::safeAddresses($html);
+    }
+
+    /** Attributes that open an address. */
+    private const ADDRESS_ATTRIBUTES = ['href', 'src', 'srcset', 'data', 'action', 'formaction', 'background', 'poster', 'xlink:href'];
+
+    /**
+     * Every address an attribute opens (href, src, srcset, …), as it is with its values in and as a browser reads it: a
+     * javascript: or data: one is "#". An image may also be inline (cid:, a data: PNG, JPEG, GIF or WebP). Tags are
+     * read as a browser reads them (attribute after attribute, never inside a value); text between them is left alone.
+     */
+    private static function safeAddresses(string $html): string
+    {
+        $out = '';
+        $at = 0;
+        $length = strlen($html);
+        while (($open = strpos($html, '<', $at)) !== false) {
+            $out .= substr($html, $at, $open - $at);
+            $next = $html[$open + 1] ?? '';
+            if (str_starts_with(substr($html, $open, 4), '<!--')) {
+                // A comment ends where a browser ends it: at once ("<!-->", "<!--->"), or at the first "-->" or "--!>".
+                $end = self::commentEnd($html, $open, $length);
+                if (substr_compare($html, '<!--[if', $open, 7, true) === 0 && ($opened = strpos($html, '>', $open)) !== false && $opened < $end) {
+                    // Outlook's conditional comment holds tags it shows: checked, but never past the comment's end.
+                    $close = strrpos(substr($html, 0, $end), '--') ?: $end;
+                    $out .= substr($html, $open, $opened + 1 - $open) . self::safeAddresses(substr($html, $opened + 1, $close - $opened - 1)) . substr($html, $close, $end - $close);
+                } else {
+                    $out .= substr($html, $open, $end - $open);
+                }
+                $at = $end;
+
+                continue;
+            }
+            if ($next === '!' || $next === '?' || ($next === '/' && !ctype_alpha($html[$open + 2] ?? ''))) {
+                // Anything else of the kind (CDATA, a doctype, "</ x>") ends at its first ">", as a browser ends it.
+                $end = ($close = strpos($html, '>', $open + 2)) === false ? $length : $close + 1;
+                $out .= substr($html, $open, $end - $open);
+                $at = $end;
+
+                continue;
+            }
+            if ($next === '/') {
+                // An end tag: its attributes are read (and ignored) by a browser, so they end where it says.
+                [$tag, $at] = self::safeTag($html, $open + 1, $length);
+                $out .= '<' . $tag;
+
+                continue;
+            }
+            if (!ctype_alpha($next)) {
+                $out .= '<';
+                $at = $open + 1;
+
+                continue;
+            }
+            [$tag, $at] = self::safeTag($html, $open, $length);
+            $out .= $tag;
+        }
+
+        return $out . substr($html, $at);
+    }
+
+    /** Where a comment that opens at `$open` ends (after its last character). */
+    private static function commentEnd(string $html, int $open, int $length): int
+    {
+        foreach (['>', '->'] as $abrupt) {
+            if (substr($html, $open + 4, strlen($abrupt)) === $abrupt) {
+                return $open + 4 + strlen($abrupt);
+            }
+        }
+        $ends = array_filter([strpos($html, '-->', $open + 4), strpos($html, '--!>', $open + 4)], fn ($at) => $at !== false);
+        if ($ends === []) {
+            return $length;
+        }
+        $at = min($ends);
+
+        return $at + (substr($html, $at, 3) === '-->' ? 3 : 4);
+    }
+
+    /**
+     * One tag from `$open` ("<" and a letter), its address attributes checked: [the tag, where it ends].
+     *
+     * @return array{string, int}
+     */
+    private static function safeTag(string $html, int $open, int $length): array
+    {
+        $i = $open + 1 + strcspn($html, " \t\n\r\f/>", $open + 1); // past the tag's name
+        $tag = substr($html, $open, $i - $open);
+        while ($i < $length) {
+            $gap = strspn($html, " \t\n\r\f/", $i);
+            $tag .= substr($html, $i, $gap);
+            $i += $gap;
+            if ($i >= $length || $html[$i] === '>') {
+                break;
+            }
+            $nameLength = max(1, strcspn($html, " \t\n\r\f/>=", $i + 1) + 1);
+            $name = substr($html, $i, $nameLength);
+            $i += $nameLength;
+            $tag .= $name;
+            $space = strspn($html, " \t\n\r\f", $i);
+            if (($html[$i + $space] ?? '') !== '=') {
+                continue; // an attribute without a value
+            }
+            $tag .= substr($html, $i, $space + 1);
+            $i += $space + 1;
+            $space = strspn($html, " \t\n\r\f", $i);
+            $tag .= substr($html, $i, $space);
+            $i += $space;
+            $quote = $html[$i] ?? '';
+            if ($quote === '"' || $quote === "'") {
+                $end = strpos($html, $quote, $i + 1);
+                $end = $end === false ? $length : $end + 1;
+                $raw = substr($html, $i, $end - $i);
+                $value = substr($raw, 1, $quote === ($raw[strlen($raw) - 1] ?? '') && strlen($raw) > 1 ? -1 : null);
+            } else {
+                $end = $i + strcspn($html, " \t\n\r\f>", $i);
+                $raw = $value = substr($html, $i, $end - $i);
+            }
+            $i = $end;
+            $tag .= in_array(strtolower($name), self::ADDRESS_ATTRIBUTES, true) && !self::safeAddress(strtolower($name), $value) ? '"#"' : $raw;
+        }
+        if ($i < $length) {
+            $tag .= '>';
+            $i++;
+        }
+
+        return [$tag, $i];
+    }
+
+    /** An address attribute's value, safe as a browser would read it. */
+    private static function safeAddress(string $name, string $value): bool
+    {
+        $value = self::attributeText($value);
+        $addresses = $name === 'srcset'
+            ? array_map(fn (string $candidate) => (string) strtok(trim($candidate), " \t\n\r\f"), explode(',', $value))
+            : [$value];
+        foreach ($addresses as $address) {
+            $image = in_array($name, ['src', 'srcset', 'poster', 'background'], true)
+                && preg_match('~^\s*(cid:|data:image/(png|jpe?g|gif|webp)[;,])~i', $address) === 1;
+            if (!$image && $address !== '#' && Renderer::safeUrl($address) === '#') {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * An attribute's value as a browser decodes it. A numeric character reference needs no ";" there, and where it
+     * ends is the browser's to say: an address with one is no address of ours ("javascript:" is what it hides).
+     */
+    private static function attributeText(string $value): string
+    {
+        if (preg_match('/&#(x[0-9a-f]+|[0-9]+)(?!;)/i', $value) === 1) {
+            return 'javascript:';
+        }
+
+        return html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    }
+
     /** Validation rule (Filament and Validator): the field must parse as a template. */
     public static function rule(): ValidTemplate
     {
@@ -165,7 +355,7 @@ class TemplateRenderer
         $snippet = $service instanceof Service ? $service->product?->email_template : null;
         if ($snippet) {
             try {
-                $data['product_info'] = new Html(Str::markdown(self::render($snippet, $data)));
+                $data['product_info'] = new Html(self::renderMarkdown($snippet, $data));
             } catch (TemplateError $e) {
                 report($e); // the email still goes out, without the broken snippet
             }

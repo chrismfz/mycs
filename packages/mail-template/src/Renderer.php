@@ -10,7 +10,8 @@ namespace MyCS\MailTemplate;
  * Syntax (a small subset of Twig, so it reads familiar):
  *
  *   {{ invoice.number }}                    value, HTML-escaped when $escape is true
- *   {{ service.expires_at|date("F j, Y") }} filters: date("fmt"), default("x"), upper, lower, raw
+ *   {{ service.expires_at|date("F j, Y") }} filters: date("fmt"), default("x"), upper, lower, raw, url (a link's
+ *   address: http, https, mailto, tel, sms, viber, whatsapp, skype, callto, ftp, geo or relative, anything else is "#")
  *   {% if invoice.total %} … {% else %} … {% endif %}
  *   {% if not item.reason %} … {% endif %}
  *   {% if cancellation.type == "end_of_period" %} … {% endif %}   (also !=)
@@ -26,7 +27,7 @@ namespace MyCS\MailTemplate;
  */
 final class Renderer
 {
-    private const FILTERS = ['raw', 'date', 'default', 'upper', 'lower'];
+    private const FILTERS = ['raw', 'date', 'default', 'upper', 'lower', 'url'];
 
     /** @var \Closure(mixed, string): mixed */
     private \Closure $accessor;
@@ -40,6 +41,9 @@ final class Renderer
      * @param  (\Closure(object $value): bool)|null  $printable  whether a Stringable object may be printed as a whole;
      *                                                           the app refuses records, whose string is all their fields.
      */
+    /** @var (\Closure(string, bool): string)|null */
+    private ?\Closure $emit = null;
+
     public function __construct(?\Closure $accessor = null, ?\Closure $printable = null)
     {
         $this->accessor = $accessor ?? self::read(...);
@@ -53,6 +57,24 @@ final class Renderer
     public function render(string $template, array $data, bool $escape = true): string
     {
         return $this->renderNodes($this->parse($template), [$data], $escape);
+    }
+
+    /**
+     * Renders, but each value comes out as what `$emit` returns for it (its text, escaped or raw as it would be, and
+     * whether it is raw): for a caller that puts the values in after a step of its own (Markdown, in the app).
+     *
+     * @param  array<string, mixed>  $data
+     * @param  \Closure(string $text, bool $raw): string  $emit
+     */
+    public function renderWith(string $template, array $data, \Closure $emit, bool $escape = true): string
+    {
+        $previous = $this->emit;
+        $this->emit = $emit;
+        try {
+            return $this->renderNodes($this->parse($template), [$data], $escape);
+        } finally {
+            $this->emit = $previous;
+        }
     }
 
     /** Throws TemplateError when the template does not parse. */
@@ -373,11 +395,28 @@ final class Renderer
                     $value = $filter['name'] === 'upper' ? mb_strtoupper($this->stringify($value)) : mb_strtolower($this->stringify($value));
                     $raw = false;
                     break;
+                case 'url':
+                    $value = self::safeUrl($this->stringify($value));
+                    $raw = false;
+                    break;
             }
         }
         $text = $this->stringify($value);
+        $text = $escape && !$raw ? htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') : $text;
 
-        return $escape && !$raw ? htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') : $text;
+        return $this->emit === null ? $text : ($this->emit)($text, $raw);
+    }
+
+    /** A link's address: http(s), mailto, tel, sms, viber, whatsapp, skype, callto, ftp, geo or one without a scheme; anything else (javascript:, data:) is "#". */
+    public static function safeUrl(string $url): string
+    {
+        // Browsers ignore control characters and spaces in a scheme (java\tscript:): so does this check.
+        $plain = strtolower((string) preg_replace('/[\x00-\x20\x7F]+/', '', $url));
+        if (preg_match('/^([a-z][a-z0-9+.\-]*):/', $plain, $m) === 1 && !in_array($m[1], ['http', 'https', 'mailto', 'tel', 'sms', 'viber', 'whatsapp', 'skype', 'callto', 'ftp', 'geo'], true)) {
+            return '#';
+        }
+
+        return $url;
     }
 
     /** @param  list<array<string, mixed>>  $scopes */

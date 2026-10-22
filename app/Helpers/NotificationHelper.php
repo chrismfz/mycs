@@ -39,6 +39,12 @@ class NotificationHelper
     /** Templates whose «url» is a live token (mail audit review R1). */
     public const TOKEN_LINK_TEMPLATES = ['password_reset', 'email_verification'];
 
+    /**
+     * Mails that are a key to an account or carry a secret: they go to their recipient only, never to a template's CC
+     * or BCC (whoever edits templates must not read every reset link, invitation or welcome password).
+     */
+    public const PRIVATE_TEMPLATES = ['password_reset', 'email_verification', 'client_invite', 'new_server_created'];
+
     /** The account a mail is about (docs/accounts.md, PR 2a): its email log is the account's. */
     private static ?Client $account = null;
 
@@ -71,6 +77,23 @@ class NotificationHelper
      */
     private static function bodyForLog(Mail $mail, NotificationTemplate $template, array $data): string
     {
+        $secrets = self::secretsOf($template, $data);
+        if ($secrets === []) {
+            return $mail->render();
+        }
+        $masked = (new Mail($template, array_merge($data, array_fill_keys(array_keys($secrets), Redact::MASK))))->locale($mail->locale);
+
+        return Redact::values($masked->render(), $secrets);
+    }
+
+    /**
+     * What a mail carries that is not for anyone else: a secret under its own name, a login link, a guest's link to
+     * their ticket, an owner's «stop these emails».
+     *
+     * @return array<string, string>
+     */
+    private static function secretsOf(NotificationTemplate $template, array $data): array
+    {
         $secrets = array_filter($data, fn ($value, $key) => Redact::isSecretKey($key) && is_string($value) && $value !== '', ARRAY_FILTER_USE_BOTH);
         // A link that is a login (password reset, email verification): a live token, never kept, never resent (mail
         // audit review R1).
@@ -86,12 +109,17 @@ class NotificationHelper
         if (is_string($data['unsubscribe_url'] ?? null) && $data['unsubscribe_url'] !== '') {
             $secrets['unsubscribe_url'] = $data['unsubscribe_url'];
         }
-        if ($secrets === []) {
-            return $mail->render();
-        }
-        $masked = (new Mail($template, array_merge($data, array_fill_keys(array_keys($secrets), Redact::MASK))))->locale($mail->locale);
 
-        return Redact::values($masked->render(), $secrets);
+        return $secrets;
+    }
+
+    /** A template's CC and BCC may get this mail: not a private one, nor one carrying something of its recipient's. */
+    private static function mayCopy(Mail $mail, NotificationTemplate $template, array $data): bool
+    {
+        // A ticket's mail goes to its owner only (docs/tickets.md §3 Γ): its Message-ID is a key, never copied to anyone.
+        return $mail->threadMessageId === null
+            && !in_array($template->key, self::PRIVATE_TEMPLATES, true)
+            && self::secretsOf($template, $data) === [];
     }
 
     /**
@@ -106,6 +134,7 @@ class NotificationHelper
         $mail = new Mail($notificationTemplate, $data);
         // Rendered (header and footer too) in the language it was written in, also by the queue worker.
         $mail->locale(app()->getLocale());
+        $copies = self::mayCopy($mail, $notificationTemplate, $data);
 
         // The log keeps the mail without its secrets (sweep §6 #10): the welcome mail's password, or what a module gave
         // under a secret's name. The customer's mail keeps them.
@@ -116,8 +145,8 @@ class NotificationHelper
             'body' => self::bodyForLog($mail, $notificationTemplate, $data),
             // The mail audit (docs/mail.md): from, copies, template and what it is about.
             'from_address' => config('settings.mail_from_address'),
-            'cc' => MailAudit::addresses($notificationTemplate->cc) ?: null,
-            'bcc' => MailAudit::addresses($notificationTemplate->bcc) ?: null,
+            'cc' => $copies ? (MailAudit::addresses($notificationTemplate->cc) ?: null) : null,
+            'bcc' => $copies ? (MailAudit::addresses($notificationTemplate->bcc) ?: null) : null,
             'template_key' => $notificationTemplate->key,
             ...MailAudit::related($data),
         ]);
@@ -129,11 +158,9 @@ class NotificationHelper
             $mail->attachFromStorage($attachment['path'], $attachment['name'], $attachment['options'] ?? []);
         }
 
-        // A ticket's mail goes to its owner only (docs/tickets.md §3 Γ): its Message-ID is a key, never copied to anyone.
-        $ticketMail = $mail->threadMessageId !== null;
         FacadesMail::to($user->email)
-            ->bcc($ticketMail ? [] : $notificationTemplate->bcc)
-            ->cc($ticketMail ? [] : $notificationTemplate->cc)
+            ->bcc($copies ? (array) $notificationTemplate->bcc : [])
+            ->cc($copies ? (array) $notificationTemplate->cc : [])
             ->queue($mail);
     }
 
