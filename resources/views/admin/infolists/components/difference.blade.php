@@ -11,12 +11,12 @@
         <div class="flex-grow space-y-1">
             @if($record->event == 'created')
             <div class="text-sm text-gray-950 dark:text-white">
-                @if(count($record->getModified()) === 0)
+                @if(count(\App\Support\AuditValue::modified($record)) === 0)
                 <span class="text-xs text-gray-950 dark:text-white">
                     No changes
                 </span>
                 @else
-                @foreach ($record->getModified() as $key => $value)
+                @foreach (\App\Support\AuditValue::modified($record) as $key => $value)
                 @if(empty($value['new']))
                 @continue
                 @endif
@@ -24,7 +24,7 @@
                     <div class="flex flex-wrap items-center gap-x-2">
                         <span class="font-semibold">{{ $key }}</span>
                         <p class="text-green-300 p-1 rounded font-mono">
-                            {{ $value['new'] ?? '' }}
+                            {{ \App\Support\AuditValue::text($value['new'] ?? null) }}
                         </p>
                     </div>
                 </div>
@@ -33,12 +33,12 @@
             </div>
             @else
             <div class="text-sm text-gray-950 dark:text-white">
-                @if(count($record->getModified()) === 0)
+                @if(count(\App\Support\AuditValue::modified($record)) === 0)
                 <span class="text-xs text-gray-950 dark:text-white">
                     No changes
                 </span>
                 @else
-                @foreach ($record->getModified() as $key => $value)
+                @foreach (\App\Support\AuditValue::modified($record) as $key => $value)
                 @if(empty($value['new']) && empty($value['old']))
                 @continue
                 @endif
@@ -46,11 +46,11 @@
                     <div class="flex flex-wrap items-center gap-x-2">
                         <span class="font-semibold">{{ $key }}</span> changed from
                         <p class="text-red-300 p-1 rounded font-mono">
-                            {{ $value['old'] ?? '' }}
+                            {{ \App\Support\AuditValue::text($value['old'] ?? null) }}
                         </p>
                         <p class="font-medium">-></p>
                         <p class="text-green-300 p-1 rounded font-mono">
-                            {{ $value['new'] ?? '' }}
+                            {{ \App\Support\AuditValue::text($value['new'] ?? null) }}
                         </p>
                     </div>
                 </div>
