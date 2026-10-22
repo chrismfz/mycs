@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\InvoiceTransactionStatus;
 use App\Helpers\ExtensionHelper;
+use App\Models\BillingAgreement;
 use App\Models\Currency;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -184,5 +185,76 @@ class Adv328GatewayReferenceTest extends TestCase
 
         Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/ORDER-OK/capture'));
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
+    }
+
+    /**
+     * ADV-5 (round 2). The payee is patched between capture()'s GET and its capture POST (the buyer's side controls the
+     * timing and can retry at will). PayPal's capture answers with its default `Prefer: return=minimal`, which carries no
+     * payee, so the after-capture check (`isset($response->purchase_units[0]->payee)`) is skipped and the capture is
+     * recorded here, while the money went to the other merchant.
+     */
+    public function test_adv5_a_payee_patched_between_our_read_and_the_capture_is_never_recorded(): void
+    {
+        $invoice = $this->invoice();
+        $paid = [['id' => 'CAP-R', 'status' => 'COMPLETED', 'amount' => ['value' => '20.00', 'currency_code' => 'USD']]];
+        $paypal = $this->paypal([
+            '/v2/checkout/orders/ORDER-R' => Http::sequence()
+                ->push(self::order('ORDER-R', $invoice, 'APPROVED', 'OURS'))
+                ->whenEmpty(Http::response(self::order('ORDER-R', $invoice, 'COMPLETED', 'ATTACKER', $paid))),
+            '/v2/checkout/orders/ORDER-R/capture' => function (Request $request) use ($invoice, $paid) {
+                if (str_contains(implode(',', $request->header('Prefer')), 'return=representation')) {
+                    return Http::response(self::order('ORDER-R', $invoice, 'COMPLETED', 'ATTACKER', $paid), 201);
+                }
+
+                // PayPal's minimal capture answer: no payee.
+                return Http::response(['id' => 'ORDER-R', 'status' => 'COMPLETED', 'purchase_units' => [['reference_id' => 'default', 'payments' => ['captures' => $paid]]]], 201);
+            },
+        ]);
+        PayPal::rememberOrder('ORDER-R', $invoice, (object) ['merchant_id' => 'OURS', 'email_address' => 'ours@example.test']);
+
+        try {
+            $paypal->capture($invoice, 'ORDER-R');
+        } catch (HttpException) {
+            // refused: what is wanted
+        }
+
+        $this->assertSame(0, $invoice->transactions()->whereIn('status', [InvoiceTransactionStatus::Succeeded, InvoiceTransactionStatus::Processing])->count(),
+            'a capture to another payee recorded as our payment');
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
+    }
+
+    /**
+     * ADV-6 (round 2, regression). A vault charge whose answer is lost (a timeout, a 5xx: SavedMethodCharge keeps the
+     * attempt UNKNOWN) may have taken the money. Before #328, PAYMENT.CAPTURE.COMPLETED recorded it; now charge() never
+     * reached rememberOrder(), so the webhook calls our own vault charge «foreign» and records nothing. The invoice stays
+     * unpaid and, after KEY_REUSE_HOURS, AutoCharge charges it again with a new key: the customer pays twice.
+     */
+    public function test_adv6_our_vault_charge_whose_answer_was_lost_is_recorded_by_its_capture_webhook(): void
+    {
+        $invoice = $this->invoice();
+        $order = self::order('ORDER-V', $invoice, 'COMPLETED', 'OURS', [[
+            'id' => 'CAP-V', 'status' => 'COMPLETED', 'amount' => ['value' => '20.00', 'currency_code' => 'USD'],
+        ]]);
+        $order['payment_source'] = ['paypal' => ['attributes' => ['vault' => ['id' => 'VAULT-1', 'status' => 'VAULTED']]]];
+        $paypal = $this->paypal([
+            '/v2/checkout/orders' => Http::response(['name' => 'INTERNAL_SERVER_ERROR'], 500), // taken at PayPal, answer lost
+            '/v2/checkout/orders/ORDER-V' => Http::response($order),
+        ]);
+        $gateway = Gateway::query()->where('extension', 'PayPal')->sole();
+        $agreement = BillingAgreement::create([
+            'client_id' => $this->user->client()->id, 'gateway_id' => $gateway->id, 'name' => 'PayPal', 'external_reference' => 'VAULT-1', 'type' => 'paypal',
+        ]);
+        try {
+            $paypal->charge($invoice, 20, $agreement);
+        } catch (\Throwable) {
+            // the 5xx is rethrown: SavedMethodCharge keeps the attempt UNKNOWN
+        }
+
+        $this->postJson('/extensions/paypal/webhook', ['event_type' => 'PAYMENT.CAPTURE.COMPLETED', 'resource' => [
+            'id' => 'CAP-V', 'amount' => ['value' => '20.00', 'currency_code' => 'USD'],
+            'supplementary_data' => ['related_ids' => ['order_id' => 'ORDER-V']],
+        ]])->assertSuccessful();
+
+        $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status, 'our own vault charge, taken at PayPal, dropped as foreign');
     }
 }
