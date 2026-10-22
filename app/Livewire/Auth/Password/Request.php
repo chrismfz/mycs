@@ -37,7 +37,12 @@ class Request extends Component
         // Find the user
         $user = User::where('email', $this->email)->first();
 
-        if ($user) {
+        // Per account too (AUTHN-12): from any number of addresses, one mail a minute (the broker's own throttle) and
+        // three an hour. The answer is the same either way.
+        $perAccount = $user === null ? null : 'password-reset-account:' . $user->id;
+        if ($user && !Password::broker()->getRepository()->recentlyCreatedToken($user)
+            && !RateLimiter::tooManyAttempts((string) $perAccount, 3)) {
+            RateLimiter::hit((string) $perAccount, 3600);
             NotificationHelper::passwordResetNotification($user, ['url' => url(route('password.reset', [
                 'token' => Password::createToken($user),
                 'email' => $user->email,

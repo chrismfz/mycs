@@ -23,8 +23,13 @@ class Reset extends Component
     #[Url, Locked]
     public string $email = '';
 
-    #[Validate('required|string|min:8|confirmed')]
     public string $password = '';
+
+    /** The customers' one password rule (AppServiceProvider: Password::defaults), as at registration (AUTHN-12). */
+    protected function rules(): array
+    {
+        return ['password' => ['required', 'string', 'confirmed', \Illuminate\Validation\Rules\Password::defaults()]];
+    }
 
     #[Validate('required')]
     public string $password_confirmation = '';

@@ -49,6 +49,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rules\Password;
 use League\CommonMark\Extension\Table\TableExtension;
 use Livewire\Livewire;
 use MyCS\TicketMail\Imap\ImapEngineMailbox;
@@ -229,6 +230,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // The customers' one password rule: registration, reset and change alike (security audit AUTHN-12).
+        Password::defaults(fn () => Password::min(8)->letters()->numbers());
         // .gr registry sessions end with the request or command (a worker keeps its own: it runs on): review 6 of #187.
         $this->app->terminating(fn () => GrEppRegistrar::reset());
         // A file field takes a new upload or a path its record already has, never one the browser names: the state is
