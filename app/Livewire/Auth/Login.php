@@ -10,7 +10,6 @@ use App\Traits\Captchable;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Session;
-use Illuminate\Support\Str;
 use Livewire\Attributes\Validate;
 
 class Login extends Component
@@ -30,24 +29,28 @@ class Login extends Component
         $this->captcha();
         $this->validate();
 
-        // By the address as it reaches us (an IPv6 one by its /64), and by the login across every address: a forged
-        // X-Forwarded-For or a new address per try gets no fresh count (AUTHN-2). The email as the database matches it
-        // (accents and case aside).
-        $emailKey = Str::lower(Str::ascii(trim($this->email)));
-        $keys = ['login:' . $emailKey . ':' . CallerIp::key() => 5, 'login-account:' . $emailKey => 20];
-        foreach ($keys as $key => $max) {
+        // By the address as it reaches us (an IPv6 one by its /64), never one it names in X-Forwarded-For; and the login
+        // the database finds, across every address, by its id: its collation matches more spellings of an email than
+        // any normalising (AUTHN-2, review of #333). Only failures count towards the login's own limit.
+        $ip = CallerIp::key();
+        $user = User::where('email', trim($this->email))->first();
+        $keys = ['login-ip:' . $ip => [30, 900], 'login:' . ($user?->id ?? 'none') . ':' . $ip => [5, 900]];
+        foreach ($keys as $key => [$max]) {
             if (RateLimiter::tooManyAttempts($key, $max)) {
                 $this->addError('email', __('auth.throttle', ['seconds' => RateLimiter::availableIn($key)]));
 
                 return;
             }
         }
-        foreach (array_keys($keys) as $key) {
-            RateLimiter::increment($key, 900);
-        }
+        $account = $user === null ? null : 'login-account:' . $user->id;
+        if ($account !== null && RateLimiter::tooManyAttempts($account, 20)) {
+            $this->addError('email', __('auth.throttle', ['seconds' => RateLimiter::availableIn($account)]));
 
-        // Manually validate credentials instead of Auth::attempt
-        $user = User::where('email', $this->email)->first();
+            return;
+        }
+        foreach ($keys as $key => [, $decay]) {
+            RateLimiter::increment($key, $decay);
+        }
 
         try {
             $valid = $user !== null && Hash::check($this->password, $user->password);
@@ -55,6 +58,9 @@ class Login extends Component
             $valid = false; // a hash in an old format (imported): «Forgot password» sets a new one
         }
         if (!$valid) {
+            if ($account !== null) {
+                RateLimiter::increment($account, 900);
+            }
             $this->addError('email', __('auth.failed'));
 
             return;
@@ -71,7 +77,7 @@ class Login extends Component
             return $this->redirect(route('2fa'), true);
         }
 
-        RateLimiter::clear('login:' . $emailKey . ':' . CallerIp::key());
+        RateLimiter::clear('login:' . $user->id . ':' . $ip);
 
         $loginAction->execute($user, $this->remember);
 

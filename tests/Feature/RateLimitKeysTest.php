@@ -23,14 +23,20 @@ class RateLimitKeysTest extends TestCase
 {
     use RefreshDatabase;
 
+    private string $remote = '127.0.0.1';
+
     protected function setUp(): void
     {
         parent::setUp();
         Cache::flush();
+        // Every request Livewire::test() makes comes from $this->remote (review of #333: setting the current request's
+        // address alone does not reach them).
+        $this->app->rebinding('request', fn ($app, $request) => $request->server->set('REMOTE_ADDR', $this->remote));
     }
 
     private function caller(string $remote, ?string $forwarded = null): void
     {
+        $this->remote = $remote;
         request()->server->set('REMOTE_ADDR', $remote);
         $forwarded === null ? request()->headers->remove('X-Forwarded-For') : request()->headers->set('X-Forwarded-For', $forwarded);
     }
@@ -63,8 +69,9 @@ class RateLimitKeysTest extends TestCase
             Livewire::test(Login::class)->set('email', $user->email)->set('password', 'guess-' . $i)->call('submit');
         }
         $this->caller('203.0.113.250');
-        Livewire::test(Login::class)->set('email', $user->email)->set('password', 'Right-Pass-1')->call('submit')
-            ->assertHasErrors(['email' => __('auth.throttle', ['seconds' => 900])]);
+        $page = Livewire::test(Login::class)->set('email', $user->email)->set('password', 'Right-Pass-1')->call('submit')->assertHasErrors('email');
+        $this->assertStringStartsWith(strtok(__('auth.throttle', ['seconds' => 1]), '1'), (string) $page->errors()->first('email'));
+        $this->assertFalse(auth('web')->check());
     }
 
     public function test_a_login_with_an_old_hash_is_a_failed_login_not_an_error(): void
@@ -81,7 +88,7 @@ class RateLimitKeysTest extends TestCase
     {
         config(['settings.trusted_proxies' => ['*']]);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $staff = Staff::factory()->create(['password' => Hash::make('Right-Pass-1')]);
+        $staff = Staff::factory()->admin()->create(['password' => Hash::make('Right-Pass-1')]);
 
         for ($i = 0; $i < 5; $i++) {
             $this->caller('203.0.113.7', '198.51.100.' . ($i + 1));

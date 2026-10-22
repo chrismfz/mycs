@@ -98,10 +98,12 @@ class AdvRlLoginKeysTest extends TestCase
         $staff = Staff::factory()->admin()->create(['email' => 'chris@example.com', 'password' => Hash::make('Right-Pass-1')]);
         $this->assertSame($staff->id, Staff::where('email', 'chrȉs@example.com')->value('id'), 'the database finds the variant');
 
-        for ($i = 0; $i < 10; $i++) {
+        // Up to the member's own limit (StaffLogin::ACCOUNT_FAILURES, raised from 10 so a stranger cannot lock the owner
+        // out: ADV-RL-2), each from another address.
+        for ($i = 0; $i < StaffLogin::ACCOUNT_FAILURES; $i++) {
             $this->caller('203.0.113.' . ($i + 1));
             Livewire::test(StaffLogin::class)->set('data.email', 'chris@example.com')->set('data.password', 'guess-' . $i)->call('authenticate');
-            $this->travel(61)->seconds(); // past Filament's own 5-a-minute limit per address, well within the 15 minutes
+            $this->travel(61)->seconds(); // past Filament's own 5-a-minute limit per address, well within the hour
         }
 
         $this->caller('203.0.113.250');
