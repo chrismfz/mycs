@@ -15,6 +15,10 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 use MyCS\Pricing\LinePricer;
 use OwenIt\Auditing\Contracts\Auditable;
 
+/**
+ * @property int|null $credit_cents what a downgrade gave back as credit (DowngradeCredit)
+ * @property \Illuminate\Support\Carbon|null $credit_until the end of the days it was given for
+ */
 #[ObservedBy([ServiceUpgradeObserver::class])]
 class ServiceUpgrade extends Model implements Auditable
 {
