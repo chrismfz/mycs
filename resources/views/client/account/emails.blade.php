@@ -17,7 +17,7 @@
                 <button type="button" wire:click="close" class="text-sm text-secondary hover:underline">{{ __('account.emails.close') }}</button>
             </div>
             <iframe sandbox="allow-popups allow-popups-to-escape-sandbox" title="{{ $email->subject }}"
-                srcdoc="{{ '<base target="_blank">' . $email->body }}" class="w-full bg-white rounded-b-lg" style="height: 70vh; border: 0;"></iframe>
+                srcdoc="{{ $srcdoc }}" class="w-full bg-white rounded-b-lg" style="height: 70vh; border: 0;"></iframe>
         </div>
         @elseif ($open !== null)
         <p class="mb-6 text-sm text-base/60">{{ __('account.emails.not_found') }}</p>

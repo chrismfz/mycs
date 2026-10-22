@@ -81,6 +81,11 @@ class NotificationHelper
         if (is_string($data['ticket_url'] ?? null) && str_contains($data['ticket_url'], '/t/')) {
             $secrets['ticket_url'] = $data['ticket_url'];
         }
+        // A mass mail's «stop these emails» is the owner's signed link, kept for good (review of #311): a member who reads
+        // the account's mails must not take the owner off the news.
+        if (is_string($data['unsubscribe_url'] ?? null) && $data['unsubscribe_url'] !== '') {
+            $secrets['unsubscribe_url'] = $data['unsubscribe_url'];
+        }
         if ($secrets === []) {
             return $mail->render();
         }

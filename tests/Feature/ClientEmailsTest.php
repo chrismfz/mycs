@@ -33,7 +33,7 @@ class ClientEmailsTest extends TestCase
     private function mail(string $subject, array $attributes = []): EmailLog
     {
         return EmailLog::query()->create(['client_id' => $this->client->id, 'subject' => $subject, 'to' => 'owner@example.test',
-            'body' => "<p>{$subject} body</p>", 'status' => EmailLog::STATUS_SENT, 'sent_at' => now(), ...$attributes]);
+            'body' => "<p>{$subject} body</p>", 'status' => EmailLog::STATUS_SENT, 'sent_at' => now(), 'template_key' => 'new_invoice_created', ...$attributes]);
     }
 
     public function test_the_owner_sees_the_sent_mails_of_the_account_newest_first_and_opens_one(): void
@@ -57,11 +57,13 @@ class ClientEmailsTest extends TestCase
         $this->mail('Still queued', ['status' => EmailLog::STATUS_PENDING, 'sent_at' => null]);
         $this->mail('Cron failed', ['template_key' => 'system']);
         Staff::factory()->create(['email' => 'desk@example.test']);
-        $this->mail('Copy staff resent to themselves', ['to' => 'desk@example.test']);
+        $ours = EmailLog::query()->where('subject', 'Ours')->value('id');
+        $this->mail('Copy staff resent to themselves', ['to' => 'desk@example.test', 'resent_from_id' => $ours]);
+        $this->mail('Ours resent', ['resent_from_id' => $ours]);
 
         $page = Livewire::actingAs($this->owner)->test(Emails::class);
         $page->assertSee('Ours')->assertDontSee('Someone else')->assertDontSee('Bounced')->assertDontSee('Still queued')
-            ->assertDontSee('Cron failed')->assertDontSee('Copy staff resent');
+            ->assertDontSee('Cron failed')->assertDontSee('Copy staff resent')->assertSee('Ours resent');
 
         // Its id typed in: not shown, said so.
         $page->call('show', $theirs->id)->assertDontSee('Someone else’s invoice body')->assertSee(__('account.emails.not_found'));
