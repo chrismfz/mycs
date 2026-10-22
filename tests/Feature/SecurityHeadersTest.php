@@ -32,6 +32,18 @@ class SecurityHeadersTest extends TestCase
         $this->post('/zlic.php')->assertHeader('X-Frame-Options', 'SAMEORIGIN');
     }
 
+    public function test_the_maintenance_page_carries_them_too(): void
+    {
+        $this->app->maintenanceMode()->activate([]);
+        try {
+            $response = $this->get('/login');
+        } finally {
+            $this->app->maintenanceMode()->deactivate();
+        }
+
+        $response->assertStatus(503)->assertHeader('X-Frame-Options', 'SAMEORIGIN')->assertHeader('X-Content-Type-Options', 'nosniff');
+    }
+
     public function test_a_routes_own_stricter_values_stay(): void
     {
         Route::get('/probe-strict', fn () => response('x')->withHeaders([

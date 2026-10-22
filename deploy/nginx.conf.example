@@ -17,7 +17,10 @@ server {
         try_files $uri $uri/ /index.php?$query_string;
     }
 
+    # The application's answers carry X-Frame-Options, nosniff, Referrer-Policy and a CSP of its own (SecurityHeaders):
+    # an add_header here keeps the server's above off them, or a private link's «no-referrer» would get a second value.
     location ~ ^/(index|zlic)\.php$ {
+        add_header Permissions-Policy         "geolocation=(), microphone=(), camera=()" always;
         try_files $uri =404;
         fastcgi_pass unix:/run/php-fpm/mycs.sock;
         include fastcgi_params;
