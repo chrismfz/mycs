@@ -97,3 +97,28 @@ protection/DNS/email forwarding, mass mail, 2FA πελατών (10), πολλά 
 **Δεν χρησιμοποιούνται (παράλειψη):** late fees, billable items, affiliates, escalation rules, network issues, surveys
 (οι αξιολογήσεις απαντήσεων χρησιμοποιούνται), fraud modules, φόρος δεύτερου επιπέδου, premium domains, δωρεάν domain
 με hosting.
+
+## Τι κοιτούν staff και πελάτες (access log του myip, 1–22/10/2026)
+Μόνο αθροίσματα (καμία IP ή προσωπικό στοιχείο), χωρίς bots· τα παλαιότερα logs είχαν ήδη γυρίσει. Επισκέπτες =
+διαφορετικές IP. Στο MyCS: ✅ υπάρχει, ⚠️ μερικώς, ❌ όχι.
+
+**Staff (`/sysadmin`, 3–7 άτομα):** tickets 9.880 σελίδες (~430/μέρα, ✅ #239–#273)· dashboard 1.894 ✅· υπηρεσίες /
+σύνοψη πελάτη / τιμολόγια ~1.075 / 811 / 450 ✅· global search 912 ✅· Ekdosi bridge «marks» 445 ❌ (τελευταίο)·
+χειροκίνητη παραγγελία 334 ✅· reports 134 ⚠️· υπόλοιπα gateways 127 ⚠️ (των registrars μόνο)· whois 80 ⚠️ (ανά
+domain)· emails πελάτη 68 ✅· PaymentsTrackingMatch 38 ❌· μεταφορά domain σε πελάτη 7 ❌.
+
+**Πελάτες (`/clients`):**
+
+| Σελίδα | Επισκέψεις / επισκέπτες | MyCS |
+|---|---|---|
+| Knowledgebase | 2.919 / 2.480 (κυρίως Google) | ❌ (στα sites· χάρτης 301) |
+| Κατάλογος `/clients/store/...` | 846 / 640 | ✅ με άλλα URLs (χάρτης 301) |
+| Login / client area / προϊόν | ~2.000 / 1.580 / 578 | ✅ |
+| Ένδειξη SSL στα domains (`ssl-check`) | 2.686 / 90 | ❌ |
+| Προεπισκόπηση Sitejet (cPanel) | 907 / 191 | ❌ (να ελεγχθεί) |
+| Ανακοινώσεις | 173 / 134 | ⚠️ (μόνο unsubscribe) |
+| Downloads (`dl.php`) | 139 / 37 | ❌ (4 αρχεία) |
+| Καλάθι ανανεώσεων domain | 100 / 22 | ⚠️ (ανανέωση ανά domain) |
+| Server status / affiliates | 36 / 24 | ❌ (δεν γίνονται) |
+| Μαζικές ενέργειες domains | 25 / 10 | ❌ |
+| Mass pay / EPP code | 23 / 25 | ✅ |
