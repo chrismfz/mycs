@@ -22,6 +22,9 @@ class StaffPresence
 
     public static function heartbeat(Staff $staff): void
     {
+        if (!self::mayBeOnline($staff)) {
+            return;
+        }
         Cache::put(self::key($staff->id), now()->getTimestamp(), self::TTL);
 
         // One conditional update, so two tabs beating at once write it once. Not through the model: no audit row and no
@@ -48,7 +51,7 @@ class StaffPresence
      */
     public static function roster(): array
     {
-        $members = Staff::query()->where('active', true)->whereNotNull('role_id')->with('role')->get();
+        $members = Staff::query()->where('active', true)->whereNotNull('role_id')->get();
         $beats = $members->isEmpty() ? [] : Cache::many($members->map(fn (Staff $staff) => self::key($staff->id))->all());
 
         $roster = $members->map(fn (Staff $staff) => [
@@ -68,6 +71,15 @@ class StaffPresence
     public static function online(): array
     {
         return array_values(array_filter(self::roster(), fn (array $member) => $member['online']));
+    }
+
+    /**
+     * Only a member who is fully in the admin counts: active, with a role, and past the mandatory 2FA set-up. One on
+     * the set-up page is not yet in (review of #362).
+     */
+    public static function mayBeOnline(Staff $staff): bool
+    {
+        return $staff->active && $staff->role_id !== null && $staff->hasTwoFactor();
     }
 
     public static function canView(?Staff $staff): bool

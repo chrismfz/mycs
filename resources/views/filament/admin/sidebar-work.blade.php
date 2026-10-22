@@ -70,5 +70,5 @@
     @endif
 
     {{-- Who of the staff is in (docs/livechat.md §7β). --}}
-    @livewire('admin.staff-online')
+    @livewire('admin.staff-online', key('mycs-staff-online'))
 </div>

@@ -1,4 +1,4 @@
-<div wire:poll.30s class="mycs-staff-online">
+<div wire:poll.30s.visible class="mycs-staff-online">
     @if ($canView && $me)
     <section>
         <h3 class="px-3 mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ __('Staff online') }}</h3>

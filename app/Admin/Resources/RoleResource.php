@@ -60,6 +60,8 @@ class RoleResource extends Resource
                     ->options(fn () => self::permissionOptions())
                     ->columns(4)
                     ->bulkToggleable()
+                    // «Staff online» is on by default in every role (docs/livechat.md §7β), new ones too.
+                    ->default(fn () => PermissionGuard::canGrant(auth()->user(), ['admin.staff_online.view']) ? ['admin.staff_online.view'] : [])
                     ->searchable()
                     ->noSearchResultsMessage('Permission could not be found')->columnSpanFull()
                     ->disableOptionWhen(fn (string $value): bool => !PermissionGuard::canGrant(auth()->user(), [$value]))

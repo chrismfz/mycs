@@ -14,6 +14,15 @@ use Livewire\Component;
  */
 class StaffOnline extends Component
 {
+    /** The sidebar renders before the page's heartbeat: the member is in their own list from the first page (review of #362). */
+    public function mount(): void
+    {
+        $staff = auth('staff')->user();
+        if ($staff instanceof Staff) {
+            StaffPresence::heartbeat($staff);
+        }
+    }
+
     public function setStatus(string $status): void
     {
         $staff = auth('staff')->user();
