@@ -282,13 +282,6 @@ return [
             'mcp' => [
                 'use' => 'Use the MCP Server',
             ],
-            'oauth_clients' => [
-                'create' => 'Create OAuth Clients',
-                'update' => 'Update OAuth Clients',
-                'viewAny' => 'View OAuth Clients',
-                'delete' => 'Delete OAuth Clients',
-                'deleteAny' => 'Bulk Delete OAuth Clients',
-            ],
             'widgets' => [
                 'revenue' => 'View Revenue Widget',
                 'overview' => 'View Overview Widget',

@@ -119,7 +119,8 @@ class McpServerTest extends TestCase
     {
         $customer = User::factory()->create();
 
-        $this->actingAs($customer, 'api')->withHeaders(['Accept' => 'application/json, text/event-stream'])
+        // A customer's login (there is no customer OAuth any more: Passport removed, AUTHN-10).
+        $this->actingAs($customer, 'web')->withHeaders(['Accept' => 'application/json, text/event-stream'])
             ->postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/list'])->assertStatus(401);
     }
 

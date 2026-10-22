@@ -41,7 +41,6 @@ use App\Admin\Resources\McpOauthGrantResource;
 use App\Admin\Resources\McpProposalResource;
 use App\Admin\Resources\ModuleActionResource;
 use App\Admin\Resources\NotificationTemplateResource;
-use App\Admin\Resources\OauthClientResource;
 use App\Admin\Resources\OfferResource;
 use App\Admin\Resources\OrderResource;
 use App\Admin\Resources\PaymentGatewayEventResource;
@@ -145,7 +144,6 @@ class TopMenu
             [ExtensionResource::class, 'index', 'Extensions'],
             [Extension::class],
             [ApiResource::class, 'index', 'API Credentials'],
-            [OauthClientResource::class, 'index', 'OAuth Clients'],
             [McpOauthGrantResource::class, 'index', 'MCP Authorizations'],
         ],
     ];

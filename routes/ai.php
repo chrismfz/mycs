@@ -17,7 +17,7 @@ use Laravel\Mcp\Facades\Mcp;
 
 /*
 | MyCS's MCP server (docs/mcp.md), loaded by laravel/mcp. Staff's only: an admin API key with «Use the MCP Server», or
-| an OAuth access token staff approved (McpAuth); never the customers' Passport tokens (/oauth/*, apart).
+| an OAuth access token staff approved (McpAuth). There is no customer OAuth server (Passport removed, AUTHN-10).
 */
 Mcp::web('/mcp', MycsServer::class)->middleware(McpAuth::class);
 

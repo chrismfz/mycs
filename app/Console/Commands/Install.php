@@ -94,9 +94,6 @@ class Install extends Command
             'default_currency' => $input['currency'],
         ]);
 
-        if (!is_file(storage_path('oauth-private.key'))) {
-            Artisan::call('passport:keys', ['--no-interaction' => true]);
-        }
         if (!file_exists(public_path('storage'))) {
             Artisan::call('storage:link');
         }

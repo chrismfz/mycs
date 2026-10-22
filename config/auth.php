@@ -44,12 +44,6 @@ return [
             'provider' => 'users',
         ],
 
-        'api' => [
-            'driver' => 'passport',
-            'provider' => 'users',
-            'hash' => true,
-        ],
-
         // The admin panel only (docs/accounts.md, PR 1): its own login, never a customer.
         'staff' => [
             'driver' => 'session',

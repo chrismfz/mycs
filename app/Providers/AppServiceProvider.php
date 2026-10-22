@@ -14,7 +14,6 @@ use App\Mail\SystemMail;
 use App\Models\ApiKey;
 use App\Models\EmailLog;
 use App\Models\Extension;
-use App\Models\OauthClient;
 use App\Models\PaymentGatewayEvent;
 use App\Models\Staff;
 use App\Models\User;
@@ -25,7 +24,6 @@ use App\Support\BootFailure;
 use App\Support\CallerIp;
 use App\Support\CurrentClient;
 use App\Support\Domains\RegistrarTransactions;
-use App\Support\Passport\ScopeRegistry;
 use Closure;
 use Dedoc\Scramble\Scramble;
 use Dedoc\Scramble\Support\Generator\OpenApi;
@@ -51,7 +49,6 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
-use Laravel\Passport\Passport;
 use League\CommonMark\Extension\Table\TableExtension;
 use Livewire\Livewire;
 use MyCS\TicketMail\Imap\ImapEngineMailbox;
@@ -351,11 +348,6 @@ class AppServiceProvider extends ServiceProvider
                 new TableExtension,
             ]);
         });
-        Passport::useClientModel(OauthClient::class);
-        Passport::ignoreRoutes();
-        Passport::tokensCan(ScopeRegistry::getAll());
-        Passport::authorizationView('vendor.passport.authorize');
-        Passport::$validateKeyPermissions = false;
 
         if (class_exists(Scramble::class)) {
             Scramble::configure()
