@@ -36,4 +36,11 @@ return [
         'token' => env('MYCS_HEALTH_TOKEN'),
     ],
 
+    // The WHMCS importer's read of what WHMCS keeps encrypted (its logins' 2FA): its API, a read-only role.
+    'whmcs' => [
+        'api_url' => env('WHMCS_API_URL'),
+        'api_identifier' => env('WHMCS_API_IDENTIFIER'),
+        'api_secret' => env('WHMCS_API_SECRET'),
+    ],
+
 ];

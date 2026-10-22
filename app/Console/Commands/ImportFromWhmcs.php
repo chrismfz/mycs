@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Helpers\ExtensionHelper;
 use App\Models\Client;
+use App\Models\ClientUser;
 use App\Models\ConfigOption;
 use App\Models\Credit;
 use App\Models\Extension;
@@ -15,6 +16,7 @@ use App\Models\Service;
 use App\Models\Setting;
 use App\Providers\SettingsProvider;
 use App\Services\Import\WhmcsMassPay;
+use App\Services\Import\WhmcsSecondFactor;
 use App\Services\Import\WhmcsTicketImport;
 use App\Services\Licensing\WhmcsLicensingImport;
 use App\Services\Money\MoneyTrail;
@@ -24,6 +26,7 @@ use DB;
 use Illuminate\Console\Command;
 use Illuminate\Http\Client\Batch;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Str;
 use Log;
 use MyCS\Pricing\LinePricer;
@@ -254,9 +257,56 @@ class ImportFromWhmcs extends Command
         });
     }
 
+    /** How the logins' 2FA is read from WHMCS (its API); the tests set their own. */
+    public ?WhmcsSecondFactor $secondFactor = null;
+
+    /**
+     * WHMCS logins (`tblusers`) → users, with their own ids, emails, passwords and 2FA (docs/accounts.md, PR 4;
+     * security audit AUTHN-11): those of no account too (108 on myip), so no login is lost. A ticket reply's user is
+     * then the same id (WhmcsTicketImport::userOf).
+     */
+    private function importLogins(): void
+    {
+        $this->info('Importing logins... (' . $this->count('tblusers') . ' records)');
+        $secondFactor = $this->secondFactor ?? WhmcsSecondFactor::fromEnv();
+        $withTwoFactor = 0;
+        $missed = [];
+
+        $this->migrateInBatch('tblusers', 'SELECT * FROM tblusers LIMIT :limit OFFSET :offset', function ($records) use ($secondFactor, &$withTwoFactor, &$missed) {
+            $data = [];
+            foreach ($records as $record) {
+                $module = trim((string) ($record['second_factor'] ?? ''));
+                $secret = $module === '' ? null : $secondFactor->secret($module, $record['second_factor_config'] ?? null);
+                if ($module !== '') {
+                    $secret !== null ? $withTwoFactor++ : $missed[] = (int) $record['id'];
+                }
+                $date = fn ($value) => $value === null || $value === '' || str_starts_with((string) $value, '0000') ? now() : $value;
+                $data[] = [
+                    'id' => $record['id'],
+                    'first_name' => (string) $record['first_name'],
+                    'last_name' => (string) $record['last_name'],
+                    'email' => $record['email'],
+                    'password' => $record['password'],
+                    'tfa_secret' => $secret !== null ? Crypt::encryptString($secret) : null,
+                    'email_verified_at' => ($record['email_verified_at'] ?? null) ?: null,
+                    'created_at' => $date($record['created_at'] ?? null),
+                    'updated_at' => $date($record['updated_at'] ?? null),
+                ];
+            }
+            DB::table('users')->insert($data);
+        });
+
+        $this->info("Logins with 2FA carried over: {$withTwoFactor}.");
+        if ($missed !== []) {
+            $this->warn(count($missed) . ' login(s) had 2FA in WHMCS that did not come over' . ($secondFactor->available() ? ' (not readable)' : ' (set WHMCS_API_URL, WHMCS_API_IDENTIFIER and WHMCS_API_SECRET to bring it)')
+                . ': user ids ' . implode(', ', $missed) . '. They log in without it until they set it up again.');
+        }
+    }
+
     private function importUsers()
     {
-        $this->info('Importing users... (' . $this->count('tblclients') . ' records)');
+        $this->importLogins();
+        $this->info('Importing accounts... (' . $this->count('tblclients') . ' records)');
 
         $this->migrateInBatch('tblclients', 'SELECT * FROM tblclients LIMIT :limit OFFSET :offset', function ($records) {
             $data = [];
@@ -265,22 +315,15 @@ class ImportFromWhmcs extends Command
             $credits = [];
 
             foreach ($records as $record) {
-                // Get client (join tblusers_clients on tblusers.id = tblusers_clients.auth_user_id and tblusers_clients.owner = 1)
-                $stmt = $this->pdo->prepare('SELECT * FROM tblusers WHERE id = (SELECT auth_user_id FROM tblusers_clients WHERE client_id = :client_id AND owner = 1 LIMIT 1)');
+                // An account always has its owner in WHMCS (docs/accounts.md: exactly one each): one without is skipped.
+                $stmt = $this->pdo->prepare('SELECT auth_user_id FROM tblusers_clients WHERE client_id = :client_id AND owner = 1 LIMIT 1');
                 $stmt->bindValue(':client_id', $record['id'], PDO::PARAM_INT);
                 $stmt->execute();
-                $user = $stmt->fetch(PDO::FETCH_ASSOC);
-                if (!$user) {
+                if (!$stmt->fetch(PDO::FETCH_ASSOC)) {
                     continue;
                 }
 
                 $data[] = [
-                    'id' => $record['id'],
-                    'first_name' => $record['firstname'],
-                    'last_name' => $record['lastname'],
-                    'email' => $record['email'],
-                    'password' => $user['password'],
-                    'email_verified_at' => $user['email_verified_at'] ? $user['email_verified_at'] : null,
                     'updated_at' => $record['updated_at'] == '0000-00-00 00:00:00' ? now() : $record['updated_at'],
                     'created_at' => $record['created_at'] == '0000-00-00 00:00:00' ? now() : $record['created_at'],
                 ];
@@ -318,12 +361,8 @@ class ImportFromWhmcs extends Command
                 }
             }
 
-            DB::table('users')->insert($data);
             DB::table('clients')->insert($clients);
-            DB::table('client_user')->insert(array_map(fn (array $client) => [
-                'client_id' => $client['id'], 'user_id' => $client['id'], 'owner' => true, 'owner_of_client_id' => $client['id'],
-                'granted_at' => $client['created_at'], 'created_at' => now(), 'updated_at' => now(),
-            ], $clients));
+            $this->importGrants(array_column($clients, 'created_at', 'id'));
             if (count($contacts) > 0) {
                 DB::table('contacts')->insert($contacts);
             }
@@ -342,6 +381,45 @@ class ImportFromWhmcs extends Command
                 ], $credits));
             }
         });
+    }
+
+    /**
+     * Who logs in to each account (`tblusers_clients` → client_user): its owner, and the others with the WHMCS
+     * permissions they had (the same names, ClientUser::PERMISSIONS).
+     *
+     * @param  array<int, mixed>  $accounts  client id => its created_at
+     */
+    private function importGrants(array $accounts): void
+    {
+        if ($accounts === []) {
+            return;
+        }
+        $ids = implode(',', array_map('intval', array_keys($accounts)));
+        $rows = $this->pdo->query("SELECT * FROM tblusers_clients WHERE client_id IN ({$ids}) ORDER BY owner DESC")->fetchAll(PDO::FETCH_ASSOC);
+        $logins = array_flip(DB::table('users')->whereIn('id', array_column($rows, 'auth_user_id'))->pluck('id')->all());
+        $grants = [];
+        $seen = [];
+        foreach ($rows as $row) {
+            $client = (int) $row['client_id'];
+            $user = (int) $row['auth_user_id'];
+            if (!isset($logins[$user]) || isset($seen[$client . ':' . $user])) {
+                continue; // a login that is not there, or a second row for the same pair
+            }
+            $seen[$client . ':' . $user] = true;
+            $owner = (bool) $row['owner'] && !isset($seen['owner:' . $client]);
+            $seen['owner:' . $client] = $seen['owner:' . $client] ?? $owner;
+            $listed = array_values(array_intersect(ClientUser::PERMISSIONS, array_map('trim', explode(',', (string) ($row['permissions'] ?? '')))));
+            $date = fn ($value) => $value === null || $value === '' || str_starts_with((string) $value, '0000') ? null : $value;
+            $grants[] = [
+                'client_id' => $client, 'user_id' => $user, 'owner' => $owner, 'owner_of_client_id' => $owner ? $client : null,
+                'permissions' => $owner ? null : json_encode($listed),
+                'granted_at' => $date($row['created_at'] ?? null) ?? $accounts[$client], 'last_login_at' => $date($row['last_login'] ?? null),
+                'created_at' => now(), 'updated_at' => now(),
+            ];
+        }
+        if ($grants !== []) {
+            DB::table('client_user')->insert($grants);
+        }
     }
 
     /**

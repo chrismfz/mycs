@@ -84,6 +84,20 @@
   `lib/nixpal-licensing/tests`.
 - Η nixpal πρώτη (31 ενεργοί, ~330 άδειες), μετά 2–3 δοκιμαστικά runs του myip πριν το cut-over.
 
+## Logins και πρόσβαση (`tblusers`, `tblusers_clients`, 2026-10-23)
+- **Logins:** κάθε `tblusers` γίνεται user με **το ίδιο id**, το δικό του email (όχι του λογαριασμού), τον κωδικό του
+  (bcrypt του WHMCS 8, ίδιος) και το `email_verified_at`. Έρχονται και όσοι δεν έχουν λογαριασμό (108 στο myip), ώστε να
+  μη χαθεί κανένα login. Οι απαντήσεις των tickets βρίσκουν έτσι τον ίδιο user (`WhmcsTicketImport::userOf`).
+- **Πρόσβαση:** κάθε `tblusers_clients` γίνεται `client_user`: ο owner με `owner_of_client_id`, οι άλλοι με τα
+  δικαιώματα που είχαν (ίδια ονόματα με το WHMCS, `ClientUser::PERMISSIONS`· ένα άγνωστο μένει έξω). Λογαριασμός χωρίς
+  owner παραλείπεται, όπως πριν (στο WHMCS κάθε λογαριασμός έχει ακριβώς έναν).
+- **2FA (security audit AUTHN-11):** το `second_factor_config` είναι κρυπτογραφημένο με το `cc_encryption_hash` του
+  WHMCS, που δεν είναι στη βάση. Ο importer το διαβάζει με το API του WHMCS (`DecryptPassword`, ανάγνωση), αν οριστούν
+  `WHMCS_API_URL` (https), `WHMCS_API_IDENTIFIER` και `WHMCS_API_SECRET` στο `.env`, και το κρατά κρυπτογραφημένο με το
+  κλειδί του MyCS: ο ίδιος authenticator συνεχίζει να δουλεύει. Χωρίς αυτά, ή για ένα που δεν διαβάζεται, ο user έρχεται
+  χωρίς 2FA και ο importer τυπώνει τα ids τους (10 στο myip, 1 στη nixpal), για να ειδοποιηθούν να το ξαναστήσουν.
+  Μόνο `totp` (το μόνο που χρησιμοποιείται).
+
 ## Πεδία υπηρεσίας (tblhosting, 2026-10-14)
 `domain`, `username`, `dedicatedip`, `assignedips` (μία ανά γραμμή), `notes` (staff), `suspendreason` (μόνο σε
 Suspended) περνούν στα native πεδία της υπηρεσίας. Ο **κωδικός** (`password`) είναι κρυπτογραφημένος με το
