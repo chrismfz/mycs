@@ -224,15 +224,14 @@ class EditService extends EditRecord
                                 break;
                             case 'terminate':
                                 $typed = trim((string) ($data['confirmUsername'] ?? ''));
+                                // In this request only, never stored (A4 of #315): a cron or a Retry never sees it.
                                 if ($typed !== '') {
-                                    $record->properties()->updateOrCreate(['key' => CPanel::CONFIRM],
-                                        ['name' => 'Reseller termination confirmed by staff', 'value' => $typed]);
-                                    $record->unsetRelation('properties'); // read again by the extension
+                                    CPanel::confirmTermination($record, $typed);
                                 }
                                 try {
                                     $sdata = ExtensionHelper::terminateServer($record);
                                 } finally {
-                                    $record->properties()->where('key', CPanel::CONFIRM)->delete(); // this click only
+                                    CPanel::clearConfirmation();
                                 }
                                 // Only once the server is gone (it threw otherwise).
                                 foreach ($record->markTerminated() as $left) {

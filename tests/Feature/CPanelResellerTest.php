@@ -148,9 +148,12 @@ class CPanelResellerTest extends TestCase
     {
         $this->made();
         $this->owned = ['cust1'];
-        $this->service->properties()->create(['key' => CPanel::CONFIRM, 'name' => 'confirmed', 'value' => 'resel1']);
-
-        ExtensionHelper::terminateServer($this->service->fresh());
+        CPanel::confirmTermination($this->service, 'resel1');
+        try {
+            ExtensionHelper::terminateServer($this->service->fresh());
+        } finally {
+            CPanel::clearConfirmation();
+        }
 
         [$terminate] = $this->sent('terminatereseller');
         $this->assertSame(['resel1', '1'], [$terminate['user'], (string) $terminate['terminatereseller']]);
@@ -162,12 +165,13 @@ class CPanelResellerTest extends TestCase
     {
         $this->made();
         $this->owned = ['cust1'];
-        $this->service->properties()->create(['key' => CPanel::CONFIRM, 'name' => 'confirmed', 'value' => 'resel2']);
+        CPanel::confirmTermination($this->service, 'resel2');
 
         $this->expectException(Exception::class);
         try {
             ExtensionHelper::terminateServer($this->service->fresh());
         } finally {
+            CPanel::clearConfirmation();
             $this->assertSame([], [...$this->sent('terminatereseller'), ...$this->sent('removeacct')]);
         }
     }
@@ -223,7 +227,8 @@ class CPanelResellerTest extends TestCase
         ExtensionHelper::suspendServer($this->service->fresh());
         ExtensionHelper::terminateServer($this->service->fresh());
 
-        foreach (['setupreseller', 'listresellers', 'listaccts', 'suspendreseller', 'terminatereseller', 'setresellerlimits'] as $call) {
+        // Reads only (listaccts before a removal, listresellers on suspend: A1, A5 of #315); never a reseller write.
+        foreach (['setupreseller', 'suspendreseller', 'terminatereseller', 'setresellerlimits', 'setacls'] as $call) {
             $this->assertSame([], $this->sent($call), $call);
         }
     }

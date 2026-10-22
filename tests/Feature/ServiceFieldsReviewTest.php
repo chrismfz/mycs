@@ -89,7 +89,9 @@ class ServiceFieldsReviewTest extends TestCase
      */
     public function test_after_a_cpanel_terminate_the_service_no_longer_names_an_account(): void
     {
-        Http::fake([self::WHM . '/removeacct*' => Http::response(['metadata' => ['result' => 1, 'reason' => 'OK', 'command' => 'removeacct']])]);
+        Http::fake([self::WHM . '/removeacct*' => Http::response(['metadata' => ['result' => 1, 'reason' => 'OK', 'command' => 'removeacct']]),
+            // A terminate on a root login asks first what the account owns (#315): nothing here.
+            self::WHM . '/listaccts*' => Http::response(['metadata' => ['result' => 1, 'reason' => 'OK'], 'data' => ['acct' => []]])]);
 
         ExtensionHelper::terminateServer($this->service->fresh());
 

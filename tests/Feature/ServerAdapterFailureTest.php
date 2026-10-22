@@ -59,6 +59,8 @@ class ServerAdapterFailureTest extends TestCase
 
     private function whm(string $endpoint, int $result, string $reason = ''): void
     {
+        // A terminate on a root login asks first what the account owns (a reseller's customers: #315): nothing here.
+        Http::fake([self::WHM . '/listaccts*' => Http::response(['metadata' => ['result' => 1, 'reason' => 'OK'], 'data' => ['acct' => []]])]);
         Http::fake([self::WHM . $endpoint . '*' => Http::response([
             'metadata' => ['result' => $result, 'reason' => $reason, 'command' => ltrim($endpoint, '/')],
         ])]);
