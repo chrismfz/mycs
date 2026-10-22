@@ -6,8 +6,9 @@ use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Server;
 use App\Models\Service;
 use App\Rules\Domain;
+use App\Support\PanelConnection;
 use Exception;
-use Illuminate\Support\Facades\Http;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Str;
 
 #[ExtensionMeta(
@@ -19,12 +20,18 @@ use Illuminate\Support\Str;
 )]
 class DirectAdmin extends Server
 {
+    /** DirectAdmin over HTTPS, to its server's IP when set (App\Support\PanelConnection). */
+    private function panel(): PendingRequest
+    {
+        return PanelConnection::http(rtrim(trim((string) $this->config('host')), '/'), $this->config('ip'), (bool) $this->config('self_signed'));
+    }
+
     private function request($endpoint, $method = 'get', $data = [], $parse = false)
     {
         $host = rtrim($this->config('host'), '/');
         $url = $host . $endpoint;
 
-        $response = Http::withBasicAuth(
+        $response = $this->panel()->withBasicAuth(
             $this->config('username'),
             $this->config('password')
         )->withHeaders([
@@ -62,8 +69,10 @@ class DirectAdmin extends Server
                 'label' => 'DirectAdmin URL',
                 'type' => 'text',
                 'required' => true,
-                'validation' => 'url',
+                'placeholder' => 'https://server.example.com:2222',
+                'validation' => 'url:https', // its admin password goes with every request (PROV-3)
             ],
+            ...PanelConnection::fields(),
             [
                 'name' => 'username',
                 'label' => 'DirectAdmin User name',
@@ -319,7 +328,7 @@ class DirectAdmin extends Server
             return '';
         }
 
-        $response = Http::withBasicAuth($properties['directadmin_username'], self::password($properties))
+        $response = $this->panel()->withBasicAuth($properties['directadmin_username'], self::password($properties))
             ->post(rtrim($this->config('host'), '/') . '/CMD_API_LOGIN_KEYS', [
                 'action' => 'create',
                 'type' => 'one_time_url',
