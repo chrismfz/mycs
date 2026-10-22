@@ -201,7 +201,7 @@ final class BulkMailer
         ];
         $context = TemplateRenderer::context($data, $owner);
         $data['subject'] = TemplateRenderer::render($greek ? $mail->subject_el : $mail->subject, $context, escape: false);
-        $data['content'] = new Html(TemplateRenderer::render(TemplateRenderer::markdown((string) ($greek ? $mail->body_el : $mail->body)), $context));
+        $data['content'] = new Html(TemplateRenderer::renderMarkdown((string) ($greek ? $mail->body_el : $mail->body), $context));
         $data['unsubscribe_url'] = $mail->kind === BulkMail::KIND_NEWS && $owner !== null
             ? URL::signedRoute('announcements.unsubscribe', ['user' => $owner->id]) : null;
 

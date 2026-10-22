@@ -95,7 +95,7 @@ class Adv319MailRenderingTest extends TestCase
     /** A value in a link's address is checked as an address, as Markdown checks one it reads (allow_unsafe_links). */
     public function test_a_value_in_a_markdown_link_cannot_be_a_javascript_link(): void
     {
-        $html = TemplateRenderer::render(TemplateRenderer::markdown('[Your site]({{ website }})'), ['website' => 'javascript:alert(document.cookie)']);
+        $html = TemplateRenderer::renderMarkdown('[Your site]({{ website }})', ['website' => 'javascript:alert(document.cookie)']);
 
         $this->assertStringNotContainsString('href="javascript:', $html);
     }
@@ -103,7 +103,7 @@ class Adv319MailRenderingTest extends TestCase
     /** Text that looks like the tag placeholder (MYCSTAG<n>X) is text: it neither breaks the mail nor becomes a tag. */
     public function test_text_like_the_tag_placeholder_is_kept_as_text(): void
     {
-        $this->assertStringContainsString('MYCSTAG7X', TemplateRenderer::render(TemplateRenderer::markdown('Ref MYCSTAG7X for {{ name }}'), ['name' => 'Maria']));
-        $this->assertStringContainsString('MYCSTAG0X', TemplateRenderer::render(TemplateRenderer::markdown('Ref MYCSTAG0X for {{ name }}'), ['name' => 'Maria']));
+        $this->assertStringContainsString('MYCSTAG7X', TemplateRenderer::renderMarkdown('Ref MYCSTAG7X for {{ name }}', ['name' => 'Maria']));
+        $this->assertStringContainsString('MYCSTAG0X', TemplateRenderer::renderMarkdown('Ref MYCSTAG0X for {{ name }}', ['name' => 'Maria']));
     }
 }

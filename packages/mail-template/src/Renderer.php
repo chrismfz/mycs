@@ -41,6 +41,9 @@ final class Renderer
      * @param  (\Closure(object $value): bool)|null  $printable  whether a Stringable object may be printed as a whole;
      *                                                           the app refuses records, whose string is all their fields.
      */
+    /** @var (\Closure(string, bool): string)|null */
+    private ?\Closure $emit = null;
+
     public function __construct(?\Closure $accessor = null, ?\Closure $printable = null)
     {
         $this->accessor = $accessor ?? self::read(...);
@@ -54,6 +57,24 @@ final class Renderer
     public function render(string $template, array $data, bool $escape = true): string
     {
         return $this->renderNodes($this->parse($template), [$data], $escape);
+    }
+
+    /**
+     * Renders, but each value comes out as what `$emit` returns for it (its text, escaped or raw as it would be, and
+     * whether it is raw): for a caller that puts the values in after a step of its own (Markdown, in the app).
+     *
+     * @param  array<string, mixed>  $data
+     * @param  \Closure(string $text, bool $raw): string  $emit
+     */
+    public function renderWith(string $template, array $data, \Closure $emit, bool $escape = true): string
+    {
+        $previous = $this->emit;
+        $this->emit = $emit;
+        try {
+            return $this->renderNodes($this->parse($template), [$data], $escape);
+        } finally {
+            $this->emit = $previous;
+        }
     }
 
     /** Throws TemplateError when the template does not parse. */
@@ -381,8 +402,9 @@ final class Renderer
             }
         }
         $text = $this->stringify($value);
+        $text = $escape && !$raw ? htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') : $text;
 
-        return $escape && !$raw ? htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') : $text;
+        return $this->emit === null ? $text : ($this->emit)($text, $raw);
     }
 
     /** A link's address: http, https, mailto, tel or one without a scheme; anything else (javascript:, data:) is "#". */

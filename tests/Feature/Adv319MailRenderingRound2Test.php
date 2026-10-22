@@ -21,7 +21,7 @@ class Adv319MailRenderingRound2Test extends TestCase
     {
         return [
             Str::markdown(TemplateRenderer::render($body, $data)),
-            TemplateRenderer::render(TemplateRenderer::markdown($body), $data),
+            TemplateRenderer::renderMarkdown($body, $data),
         ];
     }
 

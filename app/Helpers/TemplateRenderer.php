@@ -103,62 +103,51 @@ class TemplateRenderer
     }
 
     /**
-     * Staff's Markdown made HTML before the values go in: a customer's name, a ticket's subject or a service's label is
-     * text in the mail, never a link or an image of their own (reviews of #294). Its template tags kept as they are:
-     * a tag alone on its line is a block of its own (not part of the HTML or paragraph next to it), and a value in a
-     * link's address is checked as an address (`url`), as Markdown checks one it reads.
+     * A template written in Markdown, made HTML: its tags run first (ifs and loops on the real data, as they always
+     * did), but each value goes into the Markdown as a key of letters and digits, and in as escaped text only after
+     * it. A customer's name, a ticket's subject or a service's label is text in the mail, never a link, an image or a
+     * list of their own (reviews of #294 and #319). Every link's or image's address is checked once the values are in.
+     *
+     * @param  array<string, mixed>  $data
      */
-    public static function markdown(string $body): string
+    public static function renderMarkdown(?string $template, array $data): string
     {
-        // A key of this call only: staff text that looks like it stays text (adversarial review of #319, A5).
-        $key = 'MYCSTAG' . bin2hex(random_bytes(4)) . 'N';
-        $tags = [];
-        $marked = (string) preg_replace_callback('/\{\{.*?\}\}|\{%.*?%\}/s', function (array $m) use (&$tags, $key) {
-            $tags[] = $m[0];
+        if ($template === null || $template === '') {
+            return '';
+        }
+        // A key of this call only: text that looks like it (staff's or a value's) stays text.
+        $key = 'MYCSVAL' . bin2hex(random_bytes(6)) . 'N';
+        $values = [];
+        $blocks = [];
+        $marked = self::renderer()->renderWith($template, $data, function (string $text, bool $raw) use (&$values, &$blocks, $key): string {
+            $values[] = $text;
+            if ($raw) {
+                $blocks[count($values) - 1] = true;
+            }
 
-            return $key . (count($tags) - 1) . 'X';
-        }, self::blockTagsApart($body));
+            return $key . (count($values) - 1) . 'X';
+        });
         $html = Str::markdown($marked, ['allow_unsafe_links' => false]);
         $k = preg_quote($key, '~');
-        // Tags alone in a paragraph, or in a table row of their own (a {% for %} between its rows): the tags, without it.
-        $html = (string) preg_replace('~<p>((?:' . $k . '\d+X\s*)+)</p>~', '$1', $html);
-        $html = (string) preg_replace('~<tr>\s*<td[^>]*>\s*(' . $k . '\d+X)\s*</td>(?:\s*<td[^>]*>\s*</td>)*\s*</tr>~', '$1', $html);
+        // An HTML value alone on its line (a product's snippet, a mass mail's message) is a block: not in a paragraph.
+        $html = (string) preg_replace_callback('~<p>(' . $k . '(\d+)X)</p>~', fn (array $m) => isset($blocks[(int) $m[2]]) ? $m[1] : $m[0], $html);
+        $html = (string) preg_replace_callback('~' . $k . '(\d+)X~', fn (array $m) => $values[(int) $m[1]] ?? $m[0], $html);
 
-        return (string) preg_replace_callback('~(href="|src=")?' . $k . '(\d+)X~', function (array $m) use ($tags) {
-            $tag = $tags[(int) $m[2]];
-            // A value as a link's address: only a safe one (Markdown checked the key, not the value).
-            if ($m[1] !== '' && str_starts_with($tag, '{{')) {
-                $tag = (string) preg_replace('/\s*\}\}$/', '|url }}', $tag);
-            }
-
-            return $m[1] . $tag;
-        }, $html);
+        return self::safeAddresses($html);
     }
 
-    /** A line that is one block tag ({% if %}, {% else %}, {% for %}, …) gets blank lines around it, but in a table or a list. */
-    private static function blockTagsApart(string $body): string
+    /** Every address an attribute opens (href, src, …), as it is with its values in: a javascript: or data: one is "#". */
+    private static function safeAddresses(string $html): string
     {
-        // Line ends only: \R (without /u) is also the byte 0x85, which is inside Greek letters.
-        $lines = preg_split('/\r\n|\n|\r/', $body) ?: [];
-        $tag = fn (?string $line): bool => $line !== null && preg_match('/^\s*\{%[^%]*%\}\s*$/', $line) === 1;
-        $sticky = fn (?string $line): bool => $line !== null && preg_match('/^\s*(\||[-*+]\s|\d+[.)]\s)/', $line) === 1;
-        $out = [];
-        $blankNext = false;
-        foreach ($lines as $i => $line) {
-            if ($blankNext && trim($line) !== '') {
-                $out[] = '';
-            }
-            $blankNext = false;
-            if ($tag($line) && !$sticky($lines[$i - 1] ?? null) && !$sticky($lines[$i + 1] ?? null)) {
-                if ($out !== [] && trim((string) end($out)) !== '') {
-                    $out[] = '';
-                }
-                $blankNext = true;
-            }
-            $out[] = $line;
-        }
+        return (string) preg_replace_callback(
+            '~(\s(?:href|src|action|formaction|background|poster|xlink:href)\s*=\s*)("[^"]*"|\'[^\']*\'|[^\s>]+)~i',
+            function (array $m) {
+                $value = html_entity_decode(trim($m[2], '"\''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
 
-        return implode("\n", $out);
+                return Renderer::safeUrl($value) === '#' && $value !== '#' ? $m[1] . '"#"' : $m[0];
+            },
+            $html,
+        );
     }
 
     /** Validation rule (Filament and Validator): the field must parse as a template. */
@@ -224,7 +213,7 @@ class TemplateRenderer
         $snippet = $service instanceof Service ? $service->product?->email_template : null;
         if ($snippet) {
             try {
-                $data['product_info'] = new Html(self::render(self::markdown($snippet), $data));
+                $data['product_info'] = new Html(self::renderMarkdown($snippet, $data));
             } catch (TemplateError $e) {
                 report($e); // the email still goes out, without the broken snippet
             }

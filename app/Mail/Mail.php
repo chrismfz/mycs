@@ -52,8 +52,8 @@ class Mail extends Mailable implements ShouldBeEncrypted
     {
         $this->templateKey = $emailTemplate->key;
         $this->renderedSubject = TemplateRenderer::render($emailTemplate->subject, $data, escape: false);
-        // Its Markdown made HTML first, then the values: what a customer typed stays text (TemplateRenderer::markdown).
-        $this->renderedHtml = TemplateRenderer::render(TemplateRenderer::markdown($emailTemplate->body), $data);
+        // Its Markdown made HTML before the values go in: what a customer typed stays text (TemplateRenderer::renderMarkdown).
+        $this->renderedHtml = TemplateRenderer::renderMarkdown($emailTemplate->body, $data);
         $this->ticketMessageId = isset($data['ticketMessage']) ? $data['ticketMessage']->id : null;
         $this->threadMessageId = isset($data['thread_message_id']) && is_string($data['thread_message_id']) ? $data['thread_message_id'] : null;
         $this->unsubscribeUrl = $emailTemplate->key === 'announcement_news' && is_string($data['unsubscribe_url'] ?? null) ? $data['unsubscribe_url'] : null;
