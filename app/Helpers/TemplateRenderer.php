@@ -136,34 +136,100 @@ class TemplateRenderer
         return self::safeAddresses($html);
     }
 
+    /** Attributes that open an address. */
+    private const ADDRESS_ATTRIBUTES = ['href', 'src', 'srcset', 'data', 'action', 'formaction', 'background', 'poster', 'xlink:href'];
+
     /**
      * Every address an attribute opens (href, src, srcset, …), as it is with its values in and as a browser reads it: a
-     * javascript: or data: one is "#". An image may also be inline (cid:, a data: PNG, JPEG, GIF or WebP).
+     * javascript: or data: one is "#". An image may also be inline (cid:, a data: PNG, JPEG, GIF or WebP). Tags are
+     * read as a browser reads them (attribute after attribute, never inside a value); text between them is left alone.
      */
     private static function safeAddresses(string $html): string
     {
-        // Inside tags only: text between them (a customer's, escaped) is never read as attributes.
-        return (string) preg_replace_callback('~<[a-zA-Z](?:"[^"]*"|\'[^\']*\'|[^\'">])*>~', fn (array $tag) => (string) preg_replace_callback(
-            // After a space, a "/" or a quote: a browser reads <a/href=…> and <a title="t"href=…> as well.
-            '~(?<=[\s/"\'])((?:href|src|srcset|data|action|formaction|background|poster|xlink:href)\s*=\s*)("[^"]*"|\'[^\']*\'|[^\s>]+)~i',
-            function (array $m) {
-                $name = strtolower((string) strtok($m[1], " \t\n\r\f="));
-                $value = self::attributeText(trim($m[2], '"\''));
-                $addresses = $name === 'srcset'
-                    ? array_map(fn (string $candidate) => (string) strtok(trim($candidate), " \t\n\r\f"), explode(',', $value))
-                    : [$value];
-                foreach ($addresses as $address) {
-                    $image = in_array($name, ['src', 'srcset', 'poster', 'background'], true)
-                        && preg_match('~^\s*(cid:|data:image/(png|jpe?g|gif|webp)[;,])~i', $address) === 1;
-                    if (!$image && $address !== '#' && Renderer::safeUrl($address) === '#') {
-                        return $m[1] . '"#"';
-                    }
-                }
+        $out = '';
+        $at = 0;
+        $length = strlen($html);
+        while (($open = strpos($html, '<', $at)) !== false) {
+            $out .= substr($html, $at, $open - $at);
+            if (!ctype_alpha($html[$open + 1] ?? '')) {
+                $out .= '<';
+                $at = $open + 1;
 
-                return $m[0];
-            },
-            $tag[0],
-        ), $html);
+                continue;
+            }
+            [$tag, $at] = self::safeTag($html, $open, $length);
+            $out .= $tag;
+        }
+
+        return $out . substr($html, $at);
+    }
+
+    /**
+     * One tag from `$open` ("<" and a letter), its address attributes checked: [the tag, where it ends].
+     *
+     * @return array{string, int}
+     */
+    private static function safeTag(string $html, int $open, int $length): array
+    {
+        $i = $open + 1 + strcspn($html, " \t\n\r\f/>", $open + 1); // past the tag's name
+        $tag = substr($html, $open, $i - $open);
+        while ($i < $length) {
+            $gap = strspn($html, " \t\n\r\f/", $i);
+            $tag .= substr($html, $i, $gap);
+            $i += $gap;
+            if ($i >= $length || $html[$i] === '>') {
+                break;
+            }
+            $nameLength = max(1, strcspn($html, " \t\n\r\f/>=", $i + 1) + 1);
+            $name = substr($html, $i, $nameLength);
+            $i += $nameLength;
+            $tag .= $name;
+            $space = strspn($html, " \t\n\r\f", $i);
+            if (($html[$i + $space] ?? '') !== '=') {
+                continue; // an attribute without a value
+            }
+            $tag .= substr($html, $i, $space + 1);
+            $i += $space + 1;
+            $space = strspn($html, " \t\n\r\f", $i);
+            $tag .= substr($html, $i, $space);
+            $i += $space;
+            $quote = $html[$i] ?? '';
+            if ($quote === '"' || $quote === "'") {
+                $end = strpos($html, $quote, $i + 1);
+                $end = $end === false ? $length : $end + 1;
+                $raw = substr($html, $i, $end - $i);
+                $value = substr($raw, 1, $quote === ($raw[strlen($raw) - 1] ?? '') && strlen($raw) > 1 ? -1 : null);
+            } else {
+                $end = $i + strcspn($html, " \t\n\r\f>", $i);
+                $raw = $value = substr($html, $i, $end - $i);
+            }
+            $i = $end;
+            $tag .= in_array(strtolower($name), self::ADDRESS_ATTRIBUTES, true) && !self::safeAddress(strtolower($name), $value) ? '"#"' : $raw;
+        }
+        if ($i < $length) {
+            $tag .= '>';
+            $i++;
+        }
+
+        return [$tag, $i];
+    }
+
+    /** An address attribute's value, safe as a browser would read it. */
+    private static function safeAddress(string $name, string $value): bool
+    {
+        $value = self::attributeText($value);
+        $addresses = $name === 'srcset'
+            ? array_map(fn (string $candidate) => (string) strtok(trim($candidate), " \t\n\r\f"), explode(',', $value))
+            : [$value];
+        foreach ($addresses as $address) {
+            $image = in_array($name, ['src', 'srcset', 'poster', 'background'], true)
+                && preg_match('~^\s*(cid:|data:image/(png|jpe?g|gif|webp)[;,])~i', $address) === 1;
+            if (!$image && $address !== '#' && Renderer::safeUrl($address) === '#') {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
