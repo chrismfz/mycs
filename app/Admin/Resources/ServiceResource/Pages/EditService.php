@@ -25,11 +25,13 @@ use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Schemas\Components\Utilities\Get;
 use Illuminate\Database\Eloquent\Model;
 use Livewire\Attributes\Locked;
+use MyCS\Extensions\Servers\CPanel\CPanel;
 
 class EditService extends EditRecord
 {
@@ -172,7 +174,7 @@ class EditService extends EditRecord
                 ->label('Trigger Extension Action')
                 ->schema([
                     Select::make('action')
-                        ->label('Action')
+                        ->label('Action')->live()
                         ->options([
                             'create' => 'Create server',
                             'suspend' => 'Suspend server',
@@ -183,6 +185,11 @@ class EditService extends EditRecord
                     Checkbox::make('sendNotification')
                         ->label('Send Notification')
                         ->default(false),
+                    // A cPanel reseller that owns accounts: they are deleted with it only when its username is typed here
+                    // (owner 2026-10-22); never by a cron or a cancellation.
+                    TextInput::make('confirmUsername')->label('Reseller: type its username to delete its accounts too')
+                        ->visible(fn ($get) => $get('action') === 'terminate')
+                        ->helperText('Only for a cPanel reseller that owns other accounts: they are deleted with it. Leave empty otherwise.'),
                 ])
                 ->action(function (array $data, Service $record, Action $action): void {
                     try {
@@ -216,7 +223,16 @@ class EditService extends EditRecord
                                 }
                                 break;
                             case 'terminate':
-                                $sdata = ExtensionHelper::terminateServer($record);
+                                $typed = trim((string) ($data['confirmUsername'] ?? ''));
+                                // In this request only, never stored (A4 of #315): a cron or a Retry never sees it.
+                                if ($typed !== '') {
+                                    CPanel::confirmTermination($record, $typed);
+                                }
+                                try {
+                                    $sdata = ExtensionHelper::terminateServer($record);
+                                } finally {
+                                    CPanel::clearConfirmation();
+                                }
                                 // Only once the server is gone (it threw otherwise).
                                 foreach ($record->markTerminated() as $left) {
                                     Notification::make()->title('Left open for staff')->body($left->getMessage())->warning()->persistent()->send();
