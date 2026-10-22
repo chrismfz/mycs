@@ -127,7 +127,8 @@ class ProductResource extends Resource
                                     ->imageEditor()
                                     ->image()
                                     ->disk('public')
-                                    ->acceptedFileTypes(['image/*']),
+                                    // Raster images only: an SVG on the public disk is a page of this site, script included.
+                                    ->acceptedFileTypes(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
                                 Select::make('category_id')
                                     ->relationship('category', 'name')
                                     ->searchable()

@@ -1,0 +1,4 @@
+# Uploads (served as /storage through the public/storage link) are files, never code, whatever their name.
+<FilesMatch "\.(php[0-9]?|phtml|phar|pht|phps|cgi|pl|py|sh|shtml)$">
+    Require all denied
+</FilesMatch>

@@ -41,7 +41,9 @@
 - **php-fpm pool** `/etc/php-fpm.d/mycs.conf` → `/run/php-fpm/mycs.sock` (user `mycs`, `pm.max_children = 10`),
   log `/var/log/php-fpm/mycs-error.log`.
 - **nginx** `/etc/nginx/conf.d/mycs.myip.gr.conf`: root `/var/www/mycs/public`, security headers όπως του Ekdosi,
-  χωρίς deny στο `/storage` (το upstream σερβίρει uploads μέσω του symlink `public/storage`).
+  χωρίς deny στο `/storage` (τα uploads σερβίρονται μέσω του symlink `public/storage`). PHP τρέχουν **μόνο** το
+  `index.php` και το `zlic.php`: πρότυπο στο `deploy/nginx.conf.example`· σε Apache/LiteSpeed το ίδιο κάνει το
+  `public/.htaccess`.
   HTTPS με Let's Encrypt (certbot --nginx, redirect 80→443). Τα `*.mycs.myip.gr` δεν έχουν ακόμα vhost/πιστοποιητικό
   (wildcard θέλει DNS-01· ή ένα πιστοποιητικό ανά subdomain).
 - **MariaDB:** βάση `mycs` (utf8mb4_unicode_ci), χρήστης `mycs`@`localhost` με δικαιώματα μόνο στη `mycs`. Τα

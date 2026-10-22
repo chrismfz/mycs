@@ -6,7 +6,8 @@ installer, γιατί ένα `/install` στο internet είναι επιφάν�
 
 ## Απαιτήσεις
 PHP 8.4 (τα extensions του `composer.lock`), MariaDB 10.11 (utf8mb4_unicode_ci), Node 20+, nginx, ένας χρήστης
-συστήματος για την εφαρμογή (π.χ. `mycs`). Παράδειγμα vhost και systemd: `HANDOFF.md` (devbox).
+συστήματος για την εφαρμογή (π.χ. `mycs`). Παράδειγμα vhost: `deploy/nginx.conf.example` (PHP μόνο στα `index.php`
+και `zlic.php`)· σε Apache/LiteSpeed το `public/.htaccess`. Systemd: `HANDOFF.md` (devbox).
 
 ## Μέγεθος server και PHP (για το migration, 2026-10-21)
 - **OPcache: όχι τα defaults της διανομής.** Ένα Laravel/Filament app φορτώνει ~1.600 αρχεία ανά request και έχει

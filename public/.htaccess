@@ -19,3 +19,11 @@
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteRule ^ index.php [L]
 </IfModule>
+
+# Only the front controller and the licence endpoint run PHP: a file under /storage (uploads) never does.
+<FilesMatch "\.(php[0-9]?|phtml|phar|pht|phps)$">
+    Require all denied
+</FilesMatch>
+<FilesMatch "^(index|zlic)\.php$">
+    Require all granted
+</FilesMatch>

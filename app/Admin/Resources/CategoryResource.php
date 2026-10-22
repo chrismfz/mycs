@@ -90,7 +90,8 @@ class CategoryResource extends Resource
                     ->nullable()
                     ->visibility('public')
                     ->disk('public')
-                    ->acceptedFileTypes(['image/*'])
+                    // Raster images only: an SVG on the public disk is a page of this site, script included.
+                    ->acceptedFileTypes(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
                     ->columnSpanFull(),
             ])->columns(2);
     }

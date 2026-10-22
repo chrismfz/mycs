@@ -13,10 +13,28 @@ use Filament\Forms\Components\TagsInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\TimePicker;
+use Illuminate\Support\Str;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Spatie\Color\Factory as ColorFactory;
 
 class FilamentInput
 {
+    /**
+     * What an uploaded setting file may be called, by what it is (its content's type): an image or a font. Anything
+     * else is kept as `.bin`, served as a download: never `.php` or `.html` on the public disk.
+     */
+    private const FILE_EXTENSIONS = [
+        'image/png' => ['png'],
+        'image/jpeg' => ['jpg', 'jpeg'],
+        'image/webp' => ['webp'],
+        'image/gif' => ['gif'],
+        'image/svg+xml' => ['svg'],
+        'image/x-icon' => ['ico'],
+        'image/vnd.microsoft.icon' => ['ico'],
+        'font/woff' => ['woff'],
+        'font/woff2' => ['woff2'],
+    ];
+
     /**
      * Convert array or object to Filament input
      *
@@ -267,15 +285,21 @@ class FilamentInput
                     ->disk($setting->disk ?? 'public')
                     ->directory($setting->directory ?? null)
                     ->multiple($setting->multiple ?? false)
-                    ->preserveFilenames($setting->preserve_filenames ?? true)
                     ->disabled($setting->disabled ?? false)
                     ->visibility($setting->visibility ?? 'private')
                     ->downloadable()
-                    ->rules($setting->validation ?? []);
+                    ->rules($setting->validation ?? [])
+                    // No record to compare with: a path is the setting's own (stored now), or one of ours in its folder.
+                    ->preventFilePathTampering(allowFilePathUsing: fn (string $file): bool => self::ownFilePath($setting, $file));
 
                 if (isset($setting->file_name)) {
                     $input->getUploadedFileNameForStorageUsing(
                         fn (): string => (string) $setting->file_name,
+                    );
+                } elseif ($setting->preserve_filenames ?? true) {
+                    // The name stays readable (custom CSS refers to it), never one the web server would run.
+                    $input->getUploadedFileNameForStorageUsing(
+                        fn (TemporaryUploadedFile $file): string => self::storedFileName($file->getClientOriginalName(), $file->getMimeType()),
                     );
                 }
 
@@ -303,5 +327,31 @@ class FilamentInput
             default:
                 throw new Exception("Unknown input type: {$setting->type}");
         }
+    }
+
+    /** A file's stored name: its own name as a slug, with the extension of what it is (FILE_EXTENSIONS). */
+    public static function storedFileName(string $originalName, ?string $mimeType): string
+    {
+        $originalName = basename(str_replace('\\', '/', $originalName));
+        $name = Str::limit(Str::slug(pathinfo($originalName, PATHINFO_FILENAME)), 100, '') ?: 'file';
+        $allowed = self::FILE_EXTENSIONS[(string) $mimeType] ?? ['bin'];
+        $own = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+
+        return $name . '.' . (in_array($own, $allowed, true) ? $own : $allowed[0]);
+    }
+
+    /**
+     * A path a setting's field may hold without a new upload: what is stored for it now, or a plain name in its own
+     * folder (no other folder, no `..`).
+     */
+    public static function ownFilePath(object $setting, string $file): bool
+    {
+        if (in_array($file, array_filter((array) config('settings.' . $setting->name), 'is_string'), true)) {
+            return true;
+        }
+        $directory = isset($setting->directory) ? trim((string) $setting->directory, '/') . '/' : '';
+
+        return (bool) preg_match('~\A' . preg_quote($directory, '~') . '[A-Za-z0-9][A-Za-z0-9._-]{0,200}\z~', $file)
+            && !str_contains($file, '..');
     }
 }
