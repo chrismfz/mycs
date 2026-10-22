@@ -21,6 +21,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\RateLimiter;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -183,17 +184,22 @@ class DomainBulkRound2AdversarialTest extends TestCase
      */
     public function test_r2_4_changes_with_no_registrar_call_do_not_spend_the_limit(): void
     {
+        // Within REGISTRAR_MAX (the R2-5 fix caps registrar bulks at 10): 9 of the page's 10 slots spent already, 5 domains
+        // locked already (no call) and one to lock (one call): it is done.
         $ids = [];
-        foreach (range(1, 10) as $i) {
+        foreach (range(1, 5) as $i) {
             $ids[] = $this->domain(sprintf('a%02d', $i), ['transfer_lock' => true])->id;
         }
         $open = $this->domain('zzz', ['transfer_lock' => false]);
+        foreach (range(1, 9) as $i) {
+            RateLimiter::hit('domain-portal:' . $this->user->id, 60);
+        }
 
         $page = Livewire::actingAs($this->user)->test(Index::class)->set('selected', [...$ids, $open->id])->call('bulkTransferLock', true);
 
         $this->assertStringNotContainsString('zzz.com: ' . __('domains.portal.bulk.not_tried_limit'), implode(' | ', $this->told($page)),
             'nothing was sent to the registrar, and the one to lock is «not tried: too many changes»');
-        $this->assertTrue($open->fresh()->transfer_lock);
+        $this->assertCount(1, $this->writes(), 'the one to lock was asked (the fake reads nothing back, so its stored lock is not checked)');
     }
 
     /**

@@ -78,6 +78,7 @@ return [
     // The client area (D7-2).
     'portal' => [
         'bulk' => [
+            'too_many_registrar' => 'Nameservers and lock: at most :max domains at once (10 registrar changes a minute).',
             'not_tried_limit' => 'not tried now (too many changes this minute): try it again in a minute',
             'too_many_selected' => 'At most :max domains at once: untick some.',
             'too_many' => 'Too many bulk changes in a short time: please try again in a quarter of an hour.',
