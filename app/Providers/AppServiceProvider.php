@@ -21,6 +21,7 @@ use App\Services\Domains\Lookup\VisitorKey;
 use App\Services\Domains\Registrars\GrEppRegistrar;
 use App\Services\Money\GatewayLog;
 use App\Support\BootFailure;
+use App\Support\CallerIp;
 use App\Support\CurrentClient;
 use App\Support\Domains\RegistrarTransactions;
 use App\Support\Passport\ScopeRegistry;
@@ -36,6 +37,7 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Encryption\Encrypter;
 use Illuminate\Foundation\Exceptions\Handler;
 use Illuminate\Foundation\Http\Events\RequestHandled;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
 use Illuminate\Queue\Events\JobAttempted;
 use Illuminate\Queue\Events\JobFailed;
@@ -63,6 +65,25 @@ use SocialiteProviders\Manager\SocialiteWasCalled;
 
 class AppServiceProvider extends ServiceProvider
 {
+    /** A gateway's callbacks per minute from one address: far above what a gateway sends, far below a flood. */
+    public const GATEWAY_CALLBACKS_PER_MINUTE = 300;
+
+    /**
+     * The gateways' callbacks (webhooks, IPN, the vPOS return) take anyone's request, and most of them ask the gateway
+     * back about it (security audit PAY-SEC-8): one address gets so many a minute, logged as refused past that.
+     */
+    private static function throttleGatewayCallback(Request $request, string $name): void
+    {
+        if (!preg_match('/\.(webhook|notify|ipn|return)$/', $name)) {
+            return;
+        }
+        $key = 'gateway-callback:' . CallerIp::bucket(CallerIp::of($request));
+        if (RateLimiter::tooManyAttempts($key, self::GATEWAY_CALLBACKS_PER_MINUTE)) {
+            throw new ThrottleRequestsException;
+        }
+        RateLimiter::hit($key, 60);
+    }
+
     /**
      * Register any application services.
      */
@@ -220,6 +241,7 @@ class AppServiceProvider extends ServiceProvider
             $name = (string) $event->route->getName();
             if (str_starts_with($name, 'extensions.gateways.')) {
                 GatewayLog::current()->start($event->request, $name);
+                self::throttleGatewayCallback($event->request, $name);
             }
         });
         Event::listen(function (RequestHandled $event) {

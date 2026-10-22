@@ -23,6 +23,8 @@ use App\Support\CurrentClient;
 use Exception;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
@@ -41,6 +43,8 @@ use Throwable;
 )]
 class PayPal extends Gateway
 {
+    private const SETUP_KEY = 'paypal-vault-setup:';
+
     public function supportsBillingAgreements(): bool
     {
         return $this->config('paypal_support_billing_agreements') ?? false;
@@ -67,9 +71,12 @@ class PayPal extends Gateway
             ],
         ]);
 
-        if (!isset($result->links[1]->href)) {
+        if (!isset($result->links[1]->href, $result->id)) {
             throw new Exception('Failed to create billing agreement.');
         }
+        // Whoever holds the approval link can approve it: the token becomes a saved method only of the account and the
+        // login that asked for it, once (security audit PAY-SEC-2).
+        Cache::put(self::SETUP_KEY . $result->id, ['client' => $user->id, 'user' => Auth::id()], now()->addHours(3));
 
         return $result->links[1]->href;
     }
@@ -96,7 +103,16 @@ class PayPal extends Gateway
             'approval_token_id' => 'required|string|max:255',
         ]);
 
-        $tokenId = $request->input('approval_token_id');
+        $tokenId = (string) $request->input('approval_token_id');
+        $client = CurrentClient::model();
+        abort_if($client === null, 403);
+        $asked = Cache::pull(self::SETUP_KEY . $tokenId);
+        if (!is_array($asked) || (int) $asked['client'] !== (int) $client->id || (int) $asked['user'] !== (int) Auth::id()) {
+            return redirect()->route('account.payment-methods')->with('notification', [
+                'type' => 'error',
+                'message' => __('account.payment_method_setup_not_yours'),
+            ]);
+        }
         $url = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
         $request = $this->request('post', $url . '/v3/vault/payment-tokens', [
             'payment_source' => [
@@ -107,8 +123,6 @@ class PayPal extends Gateway
             ],
         ]);
 
-        $client = CurrentClient::model();
-        abort_if($client === null, 403);
         ExtensionHelper::makeBillingAgreement(
             $client,
             'PayPal',

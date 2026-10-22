@@ -940,41 +940,40 @@ class Stripe extends Gateway
         return true;
     }
 
-    // Function to split and decode the Stripe-Signature header
+    /** How old a signed event may be: Stripe's own libraries' default, so a captured one is not replayed later (PAY-SEC-7). */
+    public const SIGNATURE_TOLERANCE = 300;
+
+    /** @return array{0: ?string, 1: list<string>} The header's timestamp and its v1 signatures (two while a secret rolls). */
     private function getHeaderValues($sig_header)
     {
-        $parts = explode(',', $sig_header);
         $timestamp = null;
-        $signature = null;
-
-        foreach ($parts as $part) {
-            if (strpos($part, 't=') === 0) {
+        $signatures = [];
+        foreach (explode(',', (string) $sig_header) as $part) {
+            if (str_starts_with($part, 't=')) {
                 $timestamp = substr($part, 2);
-            } elseif (strpos($part, 'v1=') === 0) {
-                $signature = substr($part, 3);
+            } elseif (str_starts_with($part, 'v1=')) {
+                $signatures[] = substr($part, 3);
             }
         }
 
-        return [$timestamp, $signature];
+        return [$timestamp, $signatures];
     }
 
-    // Validate the signature
     private function isValidSignature($payload, $sig_header, $secret)
     {
-        [$timestamp, $signature] = $this->getHeaderValues($sig_header);
-
-        if (empty($timestamp) || empty($signature) || empty($secret)) {
+        [$timestamp, $signatures] = $this->getHeaderValues($sig_header);
+        if (!ctype_digit((string) $timestamp) || $signatures === [] || empty($secret)
+            || abs(time() - (int) $timestamp) > self::SIGNATURE_TOLERANCE) {
             return false;
         }
+        $expected = hash_hmac('sha256', $timestamp . '.' . $payload, $secret);
+        foreach ($signatures as $signature) {
+            if (hash_equals($expected, $signature)) {
+                return true;
+            }
+        }
 
-        // Create the signed payload string
-        $signed_payload = $timestamp . '.' . $payload;
-
-        // Compute the expected signature
-        $expected_signature = hash_hmac('sha256', $signed_payload, $secret);
-
-        // Compare the expected signature to the actual signature
-        return hash_equals($expected_signature, $signature);
+        return false;
     }
 
     public function supportsRefunds(): bool
