@@ -4,6 +4,7 @@ namespace App\Livewire\Auth;
 
 use App\Actions\Auth\Login;
 use App\Attributes\DisabledIf;
+use App\Helpers\NotificationHelper;
 use App\Livewire\Client\AcceptInvite;
 use App\Livewire\ComponentWithProperties;
 use App\Livewire\Traits\EditsContact;
@@ -13,6 +14,8 @@ use App\Traits\Captchable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\Rules\Password;
 
 #[DisabledIf('registration_disabled')]
@@ -55,7 +58,8 @@ class Register extends ComponentWithProperties
         $rules = [
             'first_name' => 'required|string|max:255',
             'last_name' => 'required|string|max:255',
-            'email' => 'required|email|max:255|unique:users',
+            // No «taken»: an address that has an account gets the same answer as a new one (below).
+            'email' => 'required|email|max:255',
             'password' => ['required', 'confirmed', Password::defaults()],
         ];
 
@@ -71,6 +75,22 @@ class Register extends ComponentWithProperties
         $this->captcha();
 
         $validatedData = $this->validate();
+
+        // An address that already has an account (security audit, owner's decision 2026-10-23): never «taken», which
+        // tells anyone whose address it is. The page answers «we sent you an email»; the owner is told how to log in
+        // or reset, once an hour at most. The password still costs a hash, as for a new one.
+        $existing = User::query()->where('email', $this->email)->first();
+        if ($existing !== null) {
+            Hash::make($this->password);
+            if (RateLimiter::attempt('register-taken:' . $existing->id, 1, fn () => true, 3600)) {
+                NotificationHelper::sendSystemEmailNotification(__('auth.register_taken.subject'), e(__('auth.register_taken.body', [
+                    'app' => config('app.name'), 'login' => route('login'), 'reset' => route('password.request'),
+                ])), email: $existing->email);
+            }
+            Session::put('notification', ['message' => __('auth.register_taken.sent', ['email' => $this->email]), 'type' => 'success']);
+
+            return $this->redirect(route('login'), true);
+        }
 
         // The login and its own account, with the account's details (docs/accounts.md, PR 2a), in one go.
         $user = DB::transaction(function () use ($validatedData) {

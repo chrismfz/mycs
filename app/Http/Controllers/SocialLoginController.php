@@ -89,13 +89,13 @@ class SocialLoginController extends Controller
         // The column's collation matches «ä» to «a» and «ｂ» to «b»: the provider's address must be the account's own.
         $user = User::where('email', $email)->first();
         if ($email === null || $email === '' || !$user || strtolower($user->email) !== strtolower($email)) {
-            return $this->refuse('register', __('auth.oauth.account_not_registered'));
+            return $this->refuse('login', __('auth.oauth.not_logged_in')); // never says whether an account has it
         }
 
         // Whoever registered an address they never confirmed knows its password: logging its owner in through the
         // provider would hand them that account. A password reset proves the address (and ends the other sessions).
         if (!$user->email_verified_at) {
-            return $this->refuse('password.request', __('auth.oauth.unverified_account'));
+            return $this->refuse('login', __('auth.oauth.not_logged_in')); // as one that does not exist: a reset confirms it
         }
 
         if ($user->tfa_secret) {

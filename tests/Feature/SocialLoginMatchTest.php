@@ -48,9 +48,9 @@ class SocialLoginMatchTest extends TestCase
         $this->provider('victim@example.test');
 
         foreach (['google', 'github', 'discord'] as $provider) {
-            $this->get("/oauth/$provider/callback")->assertRedirect(route('password.request'));
+            $this->get("/oauth/$provider/callback")->assertRedirect(route('login'));
             $this->assertGuest();
-            $this->assertSame(__('auth.oauth.unverified_account'), session('notification')['message']);
+            $this->assertSame(__('auth.oauth.not_logged_in'), session('notification')['message']);
         }
     }
 
@@ -69,7 +69,7 @@ class SocialLoginMatchTest extends TestCase
 
         $this->provider($lookalike);
 
-        $this->get('/oauth/google/callback')->assertRedirect(route('register'));
+        $this->get('/oauth/google/callback')->assertRedirect(route('login'));
         $this->assertGuest();
     }
 
@@ -89,7 +89,7 @@ class SocialLoginMatchTest extends TestCase
         User::factory()->create(['email' => 'owner@example.test', 'email_verified_at' => now()]);
         $this->provider('');
 
-        $this->get('/oauth/github/callback')->assertRedirect(route('register'));
+        $this->get('/oauth/github/callback')->assertRedirect(route('login'));
 
         $this->assertGuest();
     }
