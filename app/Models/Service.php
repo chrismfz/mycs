@@ -1010,6 +1010,24 @@ class Service extends Model implements Auditable
         return OrderPricing::line(['price' => (string) $price, 'setup_fee' => '0.00', 'options' => (string) $options], $discount, $this->client, $this->product, $groupPercent)->netPrice;
     }
 
+    /** @return HasMany<ServiceHostedDomain, $this> the domains its account hosts, as its server last told them */
+    public function hostedDomains(): HasMany
+    {
+        return $this->hasMany(ServiceHostedDomain::class)->orderByRaw("CASE type WHEN 'main' THEN 0 WHEN 'addon' THEN 1 WHEN 'parked' THEN 2 ELSE 3 END")->orderBy('domain');
+    }
+
+    /**
+     * Its hosted domains while it is live: staff's search never leads to an ended service's old domains, ahead of the
+     * account that has them now (code review M1 of #320).
+     *
+     * @return HasMany<ServiceHostedDomain, $this>
+     */
+    public function liveHostedDomains(): HasMany
+    {
+        return $this->hasMany(ServiceHostedDomain::class)->whereExists(fn ($q) => $q->from('services as live')
+            ->whereColumn('live.id', 'service_hosted_domains.service_id')->whereIn('live.status', [self::STATUS_ACTIVE, self::STATUS_SUSPENDED]));
+    }
+
     /** @return HasOne<ServiceUsage, $this> its usage as its server last told it (services:usage) */
     public function usage(): HasOne
     {

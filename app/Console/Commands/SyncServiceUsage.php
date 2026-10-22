@@ -2,12 +2,15 @@
 
 namespace App\Console\Commands;
 
+use App\Contracts\ReadsHostedDomains;
 use App\Contracts\ReadsServiceUsage;
 use App\Helpers\ExtensionHelper;
 use App\Models\Service;
+use App\Models\ServiceHostedDomain;
 use App\Models\ServiceUsage;
 use App\Support\Redact;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
@@ -19,7 +22,7 @@ class SyncServiceUsage extends Command
 {
     protected $signature = 'services:usage {--service= : one service (its id)}';
 
-    protected $description = 'Read the disk and bandwidth usage of every live service from its server (cPanel)';
+    protected $description = 'Read the disk and bandwidth usage, and the domains each account hosts, of every live service from its server (cPanel)';
 
     public function handle(): int
     {
@@ -53,8 +56,59 @@ class SyncServiceUsage extends Command
                 ]);
             }
             $this->line("{$server->name}: " . count($read) . ' of ' . $group->count() . ' service(s) read');
+            if ($extension instanceof ReadsHostedDomains && !$this->domains($extension, $group->values()->all(), $server->name)) {
+                $failed = true;
+            }
         }
 
+        // An ended service's hosted domains are not its any more (code review M1 of #320).
+        ServiceHostedDomain::query()->whereHas('service', fn ($q) => $q->whereNotIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED]))->delete();
+
         return $failed ? self::FAILURE : self::SUCCESS;
+    }
+
+    /**
+     * Each service's hosted domains replaced by what its server tells now (a domain gone there goes here); a service not
+     * found there keeps what it had. A server that fails keeps them all. Returns whether it was read.
+     *
+     * @param  list<Service>  $services
+     */
+    private function domains(ReadsHostedDomains $extension, array $services, string $server): bool
+    {
+        try {
+            $read = $extension->hostedDomains($services);
+        } catch (Throwable $e) {
+            report($e);
+            $this->error("{$server} (domains): " . Redact::text($e->getMessage()));
+
+            return false;
+        }
+        $ok = true;
+        foreach ($read as $serviceId => $domains) {
+            try {
+                DB::transaction(function () use ($serviceId, $domains) {
+                    // Upserted in chunks, then what the server no longer tells goes (code review L3 of #320).
+                    $now = now()->startOfSecond();
+                    foreach (array_chunk($domains, 500) as $chunk) {
+                        ServiceHostedDomain::query()->upsert(array_map(fn (array $entry) => ['service_id' => $serviceId, 'domain' => $entry['domain'],
+                            'type' => $entry['type'], 'account' => $entry['account'], 'read_at' => $now, 'created_at' => $now, 'updated_at' => $now], $chunk),
+                            ['service_id', 'domain'], ['type', 'account', 'read_at', 'updated_at']);
+                    }
+                    // Those it had and the server no longer tells, deleted in chunks (never one binding per domain kept).
+                    $gone = array_values(array_diff(ServiceHostedDomain::query()->where('service_id', $serviceId)->pluck('domain')->all(), array_column($domains, 'domain')));
+                    foreach (array_chunk($gone, 500) as $chunk) {
+                        ServiceHostedDomain::query()->where('service_id', $serviceId)->whereIn('domain', $chunk)->delete();
+                    }
+                });
+            } catch (Throwable $e) {
+                // One service's write never stops the others (code review L2).
+                report($e);
+                $this->error("{$server} (domains of service #{$serviceId}): " . Redact::text($e->getMessage()));
+                $ok = false;
+            }
+        }
+        $this->line("{$server}: domains of " . count($read) . ' service(s) read');
+
+        return $ok;
     }
 }

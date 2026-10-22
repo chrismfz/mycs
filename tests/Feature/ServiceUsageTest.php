@@ -51,6 +51,9 @@ class ServiceUsageTest extends TestCase
                 return Http::response([], 503);
             }
             $call = (string) parse_url($request->url(), PHP_URL_PATH);
+            if (str_ends_with($call, '/get_domain_info')) {
+                return Http::response(['metadata' => ['result' => 1, 'reason' => 'OK'], 'data' => ['domains' => []]]); // HostedDomainsTest's
+            }
             if ($this->bandwidthRefused && str_ends_with($call, '/showbw')) {
                 return Http::response(['metadata' => ['result' => 0, 'reason' => 'Permission denied: show-bandwidth']]);
             }
@@ -118,7 +121,7 @@ class ServiceUsageTest extends TestCase
             $usage->bandwidth_limit_mb, $usage->accounts, $usage->accounts_limit]);
     }
 
-    public function test_two_calls_a_server_whatever_its_number_of_services(): void
+    public function test_three_calls_a_server_whatever_its_number_of_services(): void
     {
         foreach (['a1', 'a2', 'a3'] as $user) {
             $this->service($user);
@@ -127,7 +130,7 @@ class ServiceUsageTest extends TestCase
 
         $this->artisan('services:usage')->assertExitCode(0);
 
-        Http::assertSentCount(2);
+        Http::assertSentCount(3); // listaccts, showbw, get_domain_info
         $this->assertSame(3, ServiceUsage::query()->count());
     }
 

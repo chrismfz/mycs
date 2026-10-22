@@ -101,6 +101,17 @@ return [
             'Stats_AWStats' => 'Awstats',
         ],
     ],
+    'hosted' => [
+        'title' => 'Domains σε αυτόν τον λογαριασμό',
+        'account' => 'Λογαριασμός :account',
+        'subdomains' => ':count subdomain(s)',
+        'types' => [
+            'main' => 'κύριο',
+            'addon' => 'addon',
+            'parked' => 'alias',
+            'sub' => 'subdomain',
+        ],
+    ],
     'usage' => [
         'title' => 'Χρήση',
         'disk' => 'Χώρος δίσκου',

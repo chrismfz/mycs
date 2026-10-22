@@ -176,6 +176,7 @@
     </div>
 
     @include('services.partials.usage')
+    @include('services.partials.hosted-domains')
     @include('services.partials.panel-tools')
 
     @if (count($views) > 0)
