@@ -19,6 +19,7 @@ use App\Models\Currency;
 use App\Models\License;
 use App\Models\Product;
 use App\Models\Service;
+use App\Models\ServiceUsage;
 use App\Services\Licensing\Licenses;
 use App\Services\Service\DeleteService;
 use Filament\Actions\Action;
@@ -240,6 +241,22 @@ class ServiceResource extends Resource
                         TextEntry::make('license_checks')->label('Checks, last 30 days')->columnSpanFull()
                             ->state(fn (Service $record) => self::licenseChecks($record)),
                     ]),
+                // Its usage as its server last told it (services:usage, every 4 hours; owner 2026-10-22).
+                Section::make('Usage')
+                    ->columns(3)
+                    ->columnSpanFull()
+                    ->visible(fn (?Service $record) => $record?->usage !== null)
+                    ->schema([
+                        TextEntry::make('usage_disk')->label('Disk space')
+                            ->state(fn (Service $record) => self::meter($record->usage?->disk_used_mb, $record->usage?->disk_limit_mb, true)),
+                        TextEntry::make('usage_bandwidth')->label('Bandwidth (this month)')
+                            ->state(fn (Service $record) => self::meter($record->usage?->bandwidth_used_mb, $record->usage?->bandwidth_limit_mb, true)),
+                        TextEntry::make('usage_accounts')->label('Accounts (reseller)')
+                            ->visible(fn (Service $record) => $record->usage?->accounts !== null)
+                            ->state(fn (Service $record) => self::meter($record->usage?->accounts, $record->usage?->accounts_limit, false)),
+                        TextEntry::make('usage_read_at')->label('Last updated')->columnSpanFull()
+                            ->state(fn (Service $record) => $record->usage?->read_at?->format('d/m/Y H:i')),
+                    ]),
                 // WHMCS's product details (tblhosting): read by the server modules, shown to the customer.
                 Section::make('Account')
                     ->columns(2)
@@ -423,5 +440,14 @@ class ServiceResource extends Resource
                 }
             })
             ->deselectRecordsAfterCompletion();
+    }
+
+    /** «793 MB / 20 GB (4%)», «5 / unlimited». */
+    private static function meter(?int $used, ?int $limit, bool $size): string
+    {
+        $show = fn (?int $v) => $size ? ServiceUsage::size($v) : ($v === null ? '—' : (string) $v);
+        $percent = ServiceUsage::percent($used, $limit);
+
+        return $show($used) . ' / ' . ($limit === null ? 'unlimited' : $show($limit)) . ($percent !== null ? " ({$percent}%)" : '');
     }
 }

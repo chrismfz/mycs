@@ -4,10 +4,12 @@ namespace MyCS\Extensions\Servers\CPanel;
 
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Server;
+use App\Contracts\ReadsServiceUsage;
 use App\Helpers\NotificationHelper;
 use App\Models\ModuleAction;
 use App\Models\Service;
 use App\Rules\Domain;
+use App\Support\Services\ServiceUsageRead;
 use Exception;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
@@ -22,7 +24,7 @@ use Throwable;
     author: 'MyCS',
     icon: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTA0IiBoZWlnaHQ9IjcwIiB2aWV3Ym94PSIwIDAgMTA0IDcwIiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGNsYXNzPSJob3ZlcjpzY2FsZS0xMjAgZmxleCBpdGVtcy1jZW50ZXIganVzdGlmeS1jZW50ZXIgc2l6ZS0xOCByb3VuZGVkLXhsIHAtNCBiZy1bI0ZGNkMyQ10gcmluZy02IHJpbmctWyNGRjZDMkNdLzMwIj48cGF0aCBkPSJNMjYuMjI2IDE3LjQ0OTRINDUuODQwN0w0Mi44MDYgMjkuMDc5NEM0Mi4zODg4IDMwLjYzMTEgNDEuNDc0MSAzMi4wMDMxIDQwLjIwMjIgMzIuOTg1QzM4LjkzNzUgMzMuOTY2IDM3LjM3NjIgMzQuNDg2NCAzNS43NzU5IDM0LjQ2MDVIMjYuNjU5OUMyNC42NzQ5IDM0LjQzMyAyMi43Mzg1IDM1LjA3NTEgMjEuMTYzMiAzNi4yODMxQzE5LjU0OTIgMzcuNTMyNSAxOC4zNzgxIDM5LjI2NjMgMTcuODIxNyA0MS4yMzAyQzE3LjQxOTkgNDIuNjczMiAxNy4zNzUyIDQ0LjE5MjMgMTcuNjkxNSA0NS42NTY1QzE3Ljk4MjIgNDYuOTkxOSAxOC41NTUzIDQ4LjI0OTYgMTkuMzcyNCA0OS4zNDUxQzIwLjIwMDMgNTAuNDMwMiAyMS4yNzAyIDUxLjMwNyAyMi40OTY5IDUxLjkwNTRDMjMuNzkxMSA1Mi41NDY5IDI1LjIxODQgNTIuODc0IDI2LjY2MjggNTIuODYwMUgzMi4yMTc0QzMyLjcxMzUgNTIuODUxNiAzMy4yMDQ0IDUyLjk2MTMgMzMuNjQ5NiA1My4xODAxQzM0LjA5NDkgNTMuMzk4OSAzNC40ODE2IDUzLjcyMDcgMzQuNzc3OCA1NC4xMTg2QzM1LjEwMjMgNTQuNTAyOSAzNS4zMjUzIDU0Ljk2MjUgMzUuNDI2NCA1NS40NTUzQzM1LjUyNzUgNTUuOTQ4IDM1LjUwMzQgNTYuNDU4MyAzNS4zNTY0IDU2LjkzOTNMMzEuODg0OCA2OS43ODQ0SDI1LjgwOTRDMjEuODEwNSA2OS44MjQzIDE3Ljg2MjYgNjguODg1OCAxNC4zMDk2IDY3LjA1MDVDMTAuODk3NSA2NS4zMDg5IDcuOTEyOTMgNjIuODM0MSA1LjU2OTczIDU5LjgwMzRDMy4yNDY1IDU2Ljc3NTggMS42MzAzIDUzLjI2NjYgMC44Mzk2MTcgNDkuNTMzMkMwLjAwMDc4NzIyOCA0NS42MTA5IDAuMTA1ODk0IDQxLjU0NTQgMS4xNDYyOCAzNy42NzE3TDEuNDkzNDQgMzYuMzY5OUMyLjk2MTU4IDMwLjkzMjIgNi4xNzgxNyAyNi4xMjg2IDEwLjY0NyAyMi43MDAzQzEyLjgzODUgMjEuMDM4NiAxNS4yNzk3IDE5LjczNSAxNy44Nzk2IDE4LjgzODFDMjAuNTYzNCAxNy45MDc1IDIzLjM4NTQgMTcuNDM4IDI2LjIyNiAxNy40NDk0WiIgZmlsbD0id2hpdGUiPjwvcGF0aD48cGF0aCBkPSJNMzYuMTIwMSA2OS43ODM2TDUzLjIyMDggNS43MzE4NUM1My42MzggNC4xODAxNiA1NC41NTI3IDIuODA4MTYgNTUuODI0NiAxLjgyNjI2QzU3LjA4OCAwLjg0NTA5OSA1OC42NDg1IDAuMzI0NTg4IDYwLjI0OCAwLjM1MDgxMUg3OC4zOTAyQzgyLjM4OSAwLjMxMTIzMiA4Ni4zMzY5IDEuMjQ5NzggODkuODkgMy4wODQ3M0M5My4yOTg2IDQuODIzNzQgOTYuMjc3OCA3LjI5ODkzIDk4LjYxMTkgMTAuMzMxMUMxMDAuOTQ2IDEzLjM2MzMgMTAyLjU3NyAxNi44NzY1IDEwMy4zODYgMjAuNjE2NUMxMDQuMjU1IDI0LjUzOCAxMDQuMTM1IDI4LjYxMzkgMTAzLjAzOSAzMi40Nzc5TDEwMi42OTIgMzMuNzc5OEMxMDEuOTYgMzYuNTExOSAxMDAuNzg3IDM5LjEwNjMgOTkuMjIwMSA0MS40NjA4Qzk2LjkwMTEgNDQuOTUxNyA5My43NTMgNDcuODEzNCA5MC4wNTc0IDQ5Ljc4OTlDODYuMzYxOCA1MS43NjY0IDgyLjIzNCA1Mi43OTYyIDc4LjA0MzEgNTIuNzg3SDYyLjMzMzlMNjUuNDU4NCA0MS4wNzAyQzY1Ljg5MjYgMzkuNTUwMiA2Ni44MDU3IDM4LjIxMDkgNjguMDYyMSAzNy4yNTE0QzY5LjMyNjggMzYuMjcwNSA3MC44ODgxIDM1Ljc1IDcyLjQ4ODQgMzUuNzc2SDc3LjUyMjNDNzkuNTQ5NyAzNS43NzgyIDgxLjUyMDIgMzUuMTA1NiA4My4xMjMxIDMzLjg2NDFDODQuNzI2IDMyLjYyMjcgODUuODcwMSAzMC44ODMgODYuMzc1IDI4LjkxOTVDODYuNzc0NCAyNy41Mjk5IDg2LjgxNDIgMjYuMDYxNSA4Ni40OTA3IDI0LjY1MjNDODYuMTk2NiAyMy4zMTYgODUuNjE5NSAyMi4wNTgyIDg0Ljc5ODMgMjAuOTYzN0M4My45NjM3IDE5Ljg3MzkgODIuODk2MiAxOC45ODQzIDgxLjY3MzggMTguMzU5OUM4MC4zOTIxIDE3LjY5MzYgNzguOTY2OCAxNy4zNTEgNzcuNTIyMyAxNy4zNjE4SDY3LjgwMTdMNTUuMTMwMiA2NC40ODkzQzU0LjY5NiA2Ni4wMDk0IDUzLjc4MjkgNjcuMzQ4NyA1Mi41MjY1IDY4LjMwODFDNTEuMjkgNjkuMjc5NSA0OS43NTkyIDY5Ljc5OTkgNDguMTg3IDY5Ljc4MzZIMzYuMTIwMVoiIGZpbGw9IndoaXRlIj48L3BhdGg+PC9zdmc+',
 )]
-class CPanel extends Server
+class CPanel extends Server implements ReadsServiceUsage
 {
     private function request($endpoint, $method = 'get', $data = [], int $timeout = 30)
     {
@@ -637,5 +639,105 @@ class CPanel extends Server
                 'function' => 'getLoginUrl',
             ],
         ];
+    }
+
+    /**
+     * Usage (owner 2026-10-22, WHMCS's «Usage Statistics»): the server's accounts in one listaccts (disk) and one showbw
+     * (this month's bandwidth), whatever the number of services. A reseller's: its own account and those it owns, summed,
+     * with its product's limits and how many accounts it has. A service whose account is not there is left out.
+     *
+     * @param  list<Service>  $services
+     * @return array<int, ServiceUsageRead>
+     */
+    public function usage(array $services): array
+    {
+        $listed = $this->whm('/listaccts', ['want' => 'user,owner,diskused,disklimit'], timeout: 60)['data']['acct'] ?? null;
+        // Bandwidth on its own: a login without WHM's show-bandwidth privilege, or a showbw that fails, keeps the disk read
+        // (code review 2 of #316); bandwidth is then not known.
+        try {
+            $bandwidth = $this->whm('/showbw', [], timeout: 60)['data']['acct'] ?? [];
+            $bandwidthRead = true;
+        } catch (Throwable $e) {
+            report($e);
+            $bandwidth = [];
+            $bandwidthRead = false;
+        }
+        if (!is_array($listed)) {
+            throw new Exception('cPanel listaccts: an answer without its accounts');
+        }
+        $accounts = [];
+        foreach ($listed as $account) {
+            $user = strtolower((string) ($account['user'] ?? ''));
+            if ($user !== '') {
+                $accounts[$user] = ['owner' => strtolower((string) ($account['owner'] ?? '')), 'disk' => self::mb($account['diskused'] ?? null),
+                    'disk_limit' => self::limit(self::mb($account['disklimit'] ?? null)), 'bw' => $bandwidthRead ? 0 : null, 'bw_limit' => null];
+            }
+        }
+        foreach ((array) $bandwidth as $row) {
+            $user = strtolower((string) ($row['user'] ?? ''));
+            // A deleted account of this month (a name made again since) is not this one (code review 5).
+            if (isset($accounts[$user]) && empty($row['deleted'])) {
+                $accounts[$user]['bw'] = self::bytesToMb($row['totalbytes'] ?? null) ?? 0;
+                $accounts[$user]['bw_limit'] = self::limit(self::bytesToMb($row['limit'] ?? null));
+            }
+        }
+
+        $read = [];
+        foreach ($services as $service) {
+            $properties = $service->properties->pluck('value', 'key')->all();
+            // An account imported from WHMCS has its username on the service only (as getServiceProperties reads it:
+            // code review 1 of #316).
+            $user = strtolower((string) ($properties['cpanel_username'] ?? $service->username ?? ''));
+            if ($user === '' || !isset($accounts[$user])) {
+                continue;
+            }
+            $settings = $service->product?->settings?->pluck('value', 'key')->all() ?? [];
+            if (self::wasReseller($properties) || self::isReseller($settings)) {
+                $mine = array_filter($accounts, fn (array $a, string $u) => $u === $user || $a['owner'] === $user, ARRAY_FILTER_USE_BOTH);
+                $read[$service->id] = new ServiceUsageRead(
+                    diskUsedMb: array_sum(array_map(fn ($a) => $a['disk'] ?? 0, $mine)),
+                    diskLimitMb: self::megabytes($settings['reseller_disk_mb'] ?? null),
+                    bandwidthUsedMb: $bandwidthRead ? array_sum(array_map(fn ($a) => $a['bw'] ?? 0, $mine)) : null,
+                    bandwidthLimitMb: self::megabytes($settings['reseller_bandwidth_mb'] ?? null),
+                    // Those it owns, as WHM lists them, its own not counted (an approximation of WHM's own count; the
+                    // limits are its product's: code review 4).
+                    accounts: count($mine) - 1,
+                    accountsLimit: self::megabytes($settings['reseller_max_accounts'] ?? null),
+                );
+
+                continue;
+            }
+            $account = $accounts[$user];
+            $read[$service->id] = new ServiceUsageRead(diskUsedMb: $account['disk'], diskLimitMb: $account['disk_limit'],
+                bandwidthUsedMb: $account['bw'], bandwidthLimitMb: $account['bw_limit']);
+        }
+
+        return $read;
+    }
+
+    /** WHM's «793M», «20G», «512000K» → MB; «unlimited» or none → null (a limit of 0 is «none»: self::limit). */
+    private static function mb(mixed $value): ?int
+    {
+        $text = strtolower(trim((string) $value));
+        if (preg_match('/^(\d+(?:\.\d+)?)\s*([kmgt]?)b?$/', $text, $m) !== 1) {
+            return null;
+        }
+        $mb = (float) $m[1] * match ($m[2]) {
+            'k' => 1 / 1024, 'g' => 1024, 't' => 1024 * 1024, default => 1,
+        };
+
+        return (int) round($mb);
+    }
+
+    /** A limit of 0 (or none) is no limit. */
+    private static function limit(?int $mb): ?int
+    {
+        return $mb !== null && $mb > 0 ? $mb : null;
+    }
+
+    /** Bytes → MB; «unlimited», none → null. */
+    private static function bytesToMb(mixed $value): ?int
+    {
+        return is_numeric($value) ? (int) round((float) $value / 1048576) : null;
     }
 }
