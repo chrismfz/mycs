@@ -24,7 +24,7 @@
                     <div class="flex flex-wrap items-center gap-x-2">
                         <span class="font-semibold">{{ $key }}</span>
                         <p class="text-green-300 p-1 rounded font-mono">
-                            {{ $value['new'] ?? '' }}
+                            {{ \App\Support\AuditValue::text($value['new'] ?? null) }}
                         </p>
                     </div>
                 </div>
@@ -46,11 +46,11 @@
                     <div class="flex flex-wrap items-center gap-x-2">
                         <span class="font-semibold">{{ $key }}</span> changed from
                         <p class="text-red-300 p-1 rounded font-mono">
-                            {{ $value['old'] ?? '' }}
+                            {{ \App\Support\AuditValue::text($value['old'] ?? null) }}
                         </p>
                         <p class="font-medium">-></p>
                         <p class="text-green-300 p-1 rounded font-mono">
-                            {{ $value['new'] ?? '' }}
+                            {{ \App\Support\AuditValue::text($value['new'] ?? null) }}
                         </p>
                     </div>
                 </div>
