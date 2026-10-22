@@ -615,7 +615,8 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
      */
     public function sslCall(DomainRegistrarCredentials $credentials, string $method, string $path, array $payload = [], bool $charge = false): array
     {
-        if (!str_starts_with($path, '/v1/ssl/')) {
+        // Its SSL API only, and no way out of it (ADV-7 of #345: «/v1/ssl/../customers»).
+        if (preg_match('#^/v1/ssl/[a-z0-9_-]+(?:/[a-z0-9_-]+)*(?:\?[^/]*)?$#i', $path) !== 1 || str_contains($path, '..')) {
             throw new RegistrarNotAsked('Only Openprovider\'s SSL API is called this way.');
         }
         $data = $this->request($credentials, $method, $path, $payload, null, $charge)->json('data');

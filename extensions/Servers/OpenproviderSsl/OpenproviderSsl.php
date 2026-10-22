@@ -8,6 +8,7 @@ use App\Exceptions\ServerRefused;
 use App\Models\DomainRegistrarConnection;
 use App\Models\Service;
 use App\Models\SslOrder;
+use App\Services\Domains\RegistrarNotAsked;
 use App\Services\Domains\RegistrarRefused;
 use App\Services\Domains\Registrars\OpenproviderRegistrar;
 use App\Support\Domains\DomainRegistrarCredentials;
@@ -36,6 +37,9 @@ class OpenproviderSsl extends Server
 
     /** An earlier order request whose answer was lost is looked for among orders made this long before it (clock skew). */
     private const RECOVERY_WINDOW_MINUTES = 10;
+
+    /** A lost answer's order not found after this long is told (sync_error, the sync fails) for staff to check. */
+    private const STUCK_MINUTES = 30;
 
     public function getConfig($values = []): array
     {
@@ -72,10 +76,16 @@ class OpenproviderSsl extends Server
         return true;
     }
 
-    /** @return array{0: OpenproviderRegistrar, 1: DomainRegistrarCredentials, 2: DomainRegistrarConnection} */
-    private function openprovider(): array
+    /**
+     * The server's Openprovider connection; an order's own, for an order made (code review 6 of #345: never read on
+     * another account when the server's connection changes).
+     *
+     * @return array{0: OpenproviderRegistrar, 1: DomainRegistrarCredentials, 2: DomainRegistrarConnection}
+     */
+    private function openprovider(?SslOrder $order = null): array
     {
-        $connection = DomainRegistrarConnection::query()->find((int) $this->config('connection_id'));
+        $connection = DomainRegistrarConnection::query()->find($order !== null && ($order->order_id !== null || $order->requested_at !== null)
+            ? $order->connection_id : (int) $this->config('connection_id'));
         if ($connection === null || $connection->registrar !== 'openprovider' || !$connection->isUsable()) {
             throw new Exception('Openprovider SSL: the server has no usable Openprovider connection');
         }
@@ -83,12 +93,15 @@ class OpenproviderSsl extends Server
         return [app(OpenproviderRegistrar::class), DomainRegistrarCredentials::fromConnection($connection), $connection];
     }
 
-    /** Openprovider's refusal (a 4xx, nothing done) as one the customer may read; anything else as it is. */
+    /**
+     * Openprovider's refusal (a 4xx), or a call not made (RegistrarNotAsked: a contact with no country), as one the
+     * customer may read: nothing done; anything else as it is (code review 7 of #345).
+     */
     private static function answered(callable $call): mixed
     {
         try {
             return $call();
-        } catch (RegistrarRefused $e) {
+        } catch (RegistrarRefused|RegistrarNotAsked $e) {
             throw new ServerRefused(preg_replace('/^Openprovider error \d+: /', 'Openprovider: ', $e->getMessage()), 0, $e);
         }
     }
@@ -120,9 +133,10 @@ class OpenproviderSsl extends Server
         if ((int) ($settings['product_id'] ?? 0) <= 0) {
             throw new Exception('Openprovider SSL: the product has no Openprovider SSL product ID');
         }
-        self::years($service);
+        $years = self::years($service);
         [, , $connection] = $this->openprovider();
-        SslOrder::query()->firstOrCreate(['service_id' => $service->id], ['connection_id' => $connection->id, 'product_id' => (int) $settings['product_id']]);
+        // The product and years paid for, kept: what is ordered later, whatever the product or the plan becomes (ADV-2, ADV-3 of #345).
+        SslOrder::query()->firstOrCreate(['service_id' => $service->id], ['connection_id' => $connection->id, 'product_id' => (int) $settings['product_id'], 'period' => $years]);
 
         return true;
     }
@@ -138,18 +152,38 @@ class OpenproviderSsl extends Server
         return true;
     }
 
-    /** Nothing at Openprovider by default (the certificate expires); cancelling, which revokes it, only when the product says so. */
+    /**
+     * Nothing at Openprovider by default (the certificate expires); cancelling, which revokes it, only when the product
+     * says so. A lost answer's order is looked for first, so cancel reaches it (code review 4 of #345); the read after a
+     * cancel never fails the terminate (code review 5).
+     */
     public function terminateServer(Service $service, $settings, $properties)
     {
         $order = self::order($service);
-        if ($order?->order_id === null || ($settings['terminate_mode'] ?? self::KEEP) !== self::CANCEL) {
+        if (($settings['terminate_mode'] ?? self::KEEP) !== self::CANCEL || $order === null) {
             return true;
         }
-        [$registrar, $credentials] = $this->openprovider();
+        if ($order->order_id === null && $order->requested_at !== null) {
+            $this->recover($order);
+        }
+        if ($order->order_id === null) {
+            return true;
+        }
+        [$registrar, $credentials] = $this->openprovider($order);
         $registrar->sslCall($credentials, 'POST', "/v1/ssl/orders/{$order->order_id}/cancel", ['id' => $order->order_id]);
-        $this->sync($order);
+        try {
+            $this->sync($order);
+        } catch (Throwable $e) {
+            report($e);
+        }
 
         return true;
+    }
+
+    /** The Openprovider product the service was paid for (kept at payment); the product's setting before that. */
+    private static function productId(Service $service, array $settings): int
+    {
+        return self::order($service)->product_id ?? (int) ($settings['product_id'] ?? 0);
     }
 
     /** Openprovider changes no certificate's product: a new one is ordered. */
@@ -174,12 +208,15 @@ class OpenproviderSsl extends Server
         [$registrar, $credentials] = $this->openprovider();
         $decoded = self::answered(fn () => $registrar->sslCall($credentials, 'POST', '/v1/ssl/csr/decode', ['csr' => $csr]));
         $name = strtolower(trim((string) ($decoded['subject']['common_name'] ?? '')));
+        if (str_ends_with($name, '.')) {
+            throw new ServerRefused(__('services.ssl.csr_no_name')); // «name.»: not what a certificate names (ADV-6 of #345)
+        }
         $wildcard = str_starts_with($name, '*.');
         $bare = $wildcard ? substr($name, 2) : $name;
         if ($bare === '' || filter_var($bare, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME) === false || !str_contains($bare, '.')) {
             throw new ServerRefused(__('services.ssl.csr_no_name'));
         }
-        $product = self::answered(fn () => $registrar->sslCall($credentials, 'GET', '/v1/ssl/products/' . (int) ($settings['product_id'] ?? 0)));
+        $product = self::answered(fn () => $registrar->sslCall($credentials, 'GET', '/v1/ssl/products/' . self::productId($service, $settings)));
         if ($wildcard && empty($product['is_wildcard_supported'])) {
             throw new ServerRefused(__('services.ssl.csr_wildcard'));
         }
@@ -200,15 +237,15 @@ class OpenproviderSsl extends Server
         [$registrar, $credentials] = $this->openprovider();
         $domain = preg_replace('/^\*\./', '', $commonName);
         $data = self::answered(fn () => $registrar->sslCall($credentials, 'GET', '/v1/ssl/approver-emails?' . http_build_query([
-            'product_id' => (int) ($settings['product_id'] ?? 0), 'domain' => $domain])));
+            'product_id' => self::productId($service, $settings), 'domain' => $domain])));
 
         return array_values(array_filter(array_map(fn ($e) => is_string($e) ? strtolower(trim($e)) : null, (array) ($data['results'] ?? []))));
     }
 
     /**
-     * The certificate ordered: the CSR the customer sent and how its name is validated. Marked before it is asked for:
-     * a lost answer is recovered from Openprovider's orders (the same name and product, made since), never asked again;
-     * only Openprovider's refusal takes the mark off.
+     * The certificate ordered: the CSR the customer sent and how its name is validated. Marked before it is asked for,
+     * by one atomic claim (two requests at once: one orders, the other is refused; code review 1 of #345): a lost answer
+     * is recovered by its exact CSR, never asked again; only Openprovider's refusal takes the mark off.
      */
     public function placeOrder(Service $service, $settings, $properties, string $csr, string $method, ?string $approverEmail = null): bool
     {
@@ -232,7 +269,6 @@ class OpenproviderSsl extends Server
         if ($method === 'email' && !in_array($approverEmail, $this->approverEmails($service, $settings, $properties, $csrInfo['common_name']), true)) {
             throw new ServerRefused(__('services.ssl.approver_invalid'));
         }
-        $years = self::years($service);
         $handle = $order->organization_handle ?? SslOrder::query()->where('connection_id', $connection->id)
             ->whereHas('service', fn ($q) => $q->where('client_id', $service->client_id))->whereNotNull('organization_handle')->value('organization_handle');
         if ($handle === null) {
@@ -240,15 +276,19 @@ class OpenproviderSsl extends Server
             $handle = self::answered(fn () => $registrar->customerHandle($contact, $credentials));
             $order->forceFill(['organization_handle' => $handle])->save();
         }
-        $order->forceFill([
-            'connection_id' => $connection->id, 'product_id' => (int) ($settings['product_id'] ?? $order->product_id), 'common_name' => $csrInfo['common_name'],
-            'host_names' => $csrInfo['host_names'], 'csr' => trim($csr), 'validation_method' => $method, 'approver_email' => $method === 'email' ? $approverEmail : null,
-            'organization_handle' => $handle, 'requested_at' => now(),
-        ])->save();
+        $claimed = SslOrder::query()->whereKey($order->id)->whereNull('order_id')->whereNull('requested_at')->update([
+            'connection_id' => $connection->id, 'common_name' => $csrInfo['common_name'],
+            'host_names' => json_encode($csrInfo['host_names']), 'csr' => trim($csr), 'validation_method' => $method,
+            'approver_email' => $method === 'email' ? $approverEmail : null, 'organization_handle' => $handle, 'requested_at' => now(), 'updated_at' => now(),
+        ]);
+        if ($claimed !== 1) {
+            throw new ServerRefused(__('services.ssl.already_ordered'));
+        }
+        $order->refresh();
         try {
             $data = $registrar->sslCall($credentials, 'POST', '/v1/ssl/orders', array_filter([
                 'product_id' => $order->product_id,
-                'period' => $years,
+                'period' => $order->period,
                 'csr' => trim($csr),
                 'host_names' => $csrInfo['host_names'],
                 'domain_validation_methods' => [['host_name' => $csrInfo['common_name'], 'method' => $method]],
@@ -282,22 +322,23 @@ class OpenproviderSsl extends Server
     }
 
     /**
-     * An order asked for whose answer was lost: Openprovider's order with this very CSR, name and product, made since
-     * (minus the clock's slack), that no service here has, adopted. Not found: nothing (still not known).
+     * An order asked for whose answer was lost: Openprovider's order with this very CSR, name, product and customer handle
+     * (never another account's order of a reused key: ADV-5 of #345), made since (minus the clock's slack), that no
+     * service here has, adopted. Not found: nothing (still not known).
      */
     public function recover(SslOrder $order): bool
     {
         if ($order->order_id !== null || $order->requested_at === null || $order->common_name === null || $order->csr === null) {
             return false;
         }
-        [$registrar, $credentials] = $this->openprovider();
+        [$registrar, $credentials] = $this->openprovider($order);
         $data = $registrar->sslCall($credentials, 'GET', '/v1/ssl/orders?' . http_build_query([
             'common_name_pattern' => $order->common_name, 'order_by.order_date' => 'desc', 'limit' => 20]));
         $since = $order->requested_at->copy()->subMinutes(self::RECOVERY_WINDOW_MINUTES);
         foreach ((array) ($data['results'] ?? []) as $row) {
             $id = (int) ($row['id'] ?? 0);
             if ($id <= 0 || strtolower((string) ($row['common_name'] ?? '')) !== $order->common_name || (int) ($row['product_id'] ?? 0) !== $order->product_id
-                || self::sameCsr($row['csr'] ?? null, $order->csr) === false) {
+                || self::sameCsr($row['csr'] ?? null, $order->csr) === false || ($row['organization_handle'] ?? null) !== $order->organization_handle) {
                 continue;
             }
             $made = self::date($row['order_date'] ?? null);
@@ -310,8 +351,25 @@ class OpenproviderSsl extends Server
 
             return true;
         }
+        if ($order->requested_at->lessThan(now()->subMinutes(self::STUCK_MINUTES))) {
+            // Told, never silent (code review 2 of #345): staff check Openprovider, then clear the request or link the order.
+            throw new Exception('Openprovider SSL: an order request was not answered and no such order is found at Openprovider: check it there, then clear the request');
+        }
 
         return false;
+    }
+
+    /**
+     * Staff, after checking Openprovider has no such order: the request whose answer was lost cleared, so the customer
+     * may order again. Only a request with no order.
+     */
+    public function clearRequest(SslOrder $order): void
+    {
+        $cleared = SslOrder::query()->whereKey($order->id)->whereNull('order_id')->whereNotNull('requested_at')
+            ->update(['requested_at' => null, 'sync_error' => null, 'updated_at' => now()]);
+        if ($cleared !== 1) {
+            throw new Exception('Openprovider SSL: there is no unanswered order request to clear');
+        }
     }
 
     /** What Openprovider tells of the order now: its status, dates, certificate and what to publish to validate. */
@@ -320,7 +378,7 @@ class OpenproviderSsl extends Server
         if ($order->order_id === null) {
             return;
         }
-        [$registrar, $credentials] = $this->openprovider();
+        [$registrar, $credentials] = $this->openprovider($order);
         $data = $registrar->sslCall($credentials, 'GET', "/v1/ssl/orders/{$order->order_id}");
         if ((int) ($data['id'] ?? 0) !== $order->order_id) {
             throw new Exception("Openprovider SSL: order {$order->order_id} was not read");
@@ -352,7 +410,7 @@ class OpenproviderSsl extends Server
         if ($order?->order_id === null || $order->validation_method !== 'email' || $order->issued()) {
             throw new ServerRefused(__('services.ssl.resend_not_now'));
         }
-        [$registrar, $credentials] = $this->openprovider();
+        [$registrar, $credentials] = $this->openprovider($order);
         self::answered(fn () => $registrar->sslCall($credentials, 'POST', "/v1/ssl/orders/{$order->order_id}/approver-email/resend", ['id' => $order->order_id]));
 
         return true;
@@ -366,14 +424,14 @@ class OpenproviderSsl extends Server
         return $norm($a) !== null && $norm($a) !== '' && $norm($a) === $norm($b);
     }
 
-    /** Openprovider's dates («2026-01-01 0:00:01»); an empty or zero one is none. */
+    /** Openprovider's dates («2026-01-01 0:00:01», Amsterdam's time as its domains'); an empty or zero one is none. */
     private static function date(mixed $value): ?Carbon
     {
         if (!is_string($value) || trim($value) === '' || str_starts_with($value, '0000')) {
             return null;
         }
         try {
-            return Carbon::parse($value);
+            return Carbon::parse($value, 'Europe/Amsterdam')->setTimezone(config('app.timezone'));
         } catch (Throwable) {
             return null;
         }

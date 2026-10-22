@@ -53,6 +53,9 @@ class OpenproviderSslTest extends TestCase
 
     private int $nextId = 777;
 
+    /** Called once while the CSR is decoded: another request arriving at that moment (code review 1). */
+    private ?\Closure $duringDecode = null;
+
     /** @var list<array{0: string, 1: string, 2: array<string, mixed>}> method, path, payload */
     private array $calls = [];
 
@@ -88,7 +91,12 @@ class OpenproviderSslTest extends TestCase
         return match (true) {
             $path === '/v1/auth/login' => $ok(['token' => 'tok']),
             $path === '/v1/customers' => $ok(['handle' => 'XX123-GR']),
-            $path === '/v1/ssl/csr/decode' => $ok($this->csr),
+            $path === '/v1/ssl/csr/decode' => tap($ok($this->csr), function () {
+                if ($this->duringDecode !== null) {
+                    [$run, $this->duringDecode] = [$this->duringDecode, null];
+                    $run();
+                }
+            }),
             $path === '/v1/ssl/products/9' => $ok(['id' => 9, 'is_wildcard_supported' => $this->wildcardProduct]),
             $path === '/v1/ssl/approver-emails' => $ok(['results' => ['admin@shop.example.test', 'webmaster@shop.example.test']]),
             $path === '/v1/ssl/orders' && $request->method() === 'POST' => $this->newOrder($request),
@@ -107,8 +115,8 @@ class OpenproviderSslTest extends TestCase
         }
         if ($this->orderAnswer !== 'lost-not-made') {
             $id = $this->nextId++;
-            $this->orders[$id] = ['id' => $id, 'common_name' => 'shop.example.test', 'product_id' => $request['product_id'], 'status' => 'REQ', 'csr' => $request['csr'],
-                'order_date' => now()->format('Y-m-d H:i:s'), 'expiration_date' => '', 'order_ends_at' => now()->addYear()->format('Y-m-d H:i:s'),
+            $this->orders[$id] = ['id' => $id, 'common_name' => 'shop.example.test', 'product_id' => $request['product_id'], 'status' => 'REQ', 'csr' => $request['csr'], 'organization_handle' => $request['organization_handle'],
+                'order_date' => now('Europe/Amsterdam')->format('Y-m-d H:i:s'), 'expiration_date' => '', 'order_ends_at' => now()->addYear()->format('Y-m-d H:i:s'),
                 'reissue_at' => '', 'certificate' => '', 'intermediate_certificate' => '', 'email_approver' => $request['approver_email'] ?? '',
                 'domain_validation_methods' => $request['domain_validation_methods'],
                 'additional_data' => [['domain' => 'shop.example.test', 'dns_record' => '_abc.shop.example.test', 'dns_value' => 'abc.def.sectigo.com',
@@ -238,9 +246,9 @@ class OpenproviderSslTest extends TestCase
     {
         // Openprovider's dates may be in another timezone: an earlier order of the same name looks new. Its CSR tells.
         ExtensionHelper::createServer($this->service->fresh());
-        $this->orders[500] = ['id' => 500, 'common_name' => 'shop.example.test', 'product_id' => 9, 'order_date' => now()->addHours(2)->format('Y-m-d H:i:s'),
+        $this->orders[500] = ['id' => 500, 'common_name' => 'shop.example.test', 'product_id' => 9, 'organization_handle' => 'XX123-GR', 'order_date' => now('Europe/Amsterdam')->addHours(2)->format('Y-m-d H:i:s'),
             'csr' => "-----BEGIN CERTIFICATE REQUEST-----\nOTHER\n-----END CERTIFICATE REQUEST-----"];
-        $this->order()->forceFill(['common_name' => 'shop.example.test', 'csr' => self::CSR, 'requested_at' => now()])->save();
+        $this->order()->forceFill(['common_name' => 'shop.example.test', 'csr' => self::CSR, 'organization_handle' => 'XX123-GR', 'requested_at' => now()])->save();
 
         $this->artisan('ssl:sync')->assertExitCode(0);
         $this->assertNull($this->order()->order_id);
@@ -256,7 +264,7 @@ class OpenproviderSslTest extends TestCase
         $other = $this->service->replicate();
         $other->save();
         SslOrder::query()->create(['service_id' => $other->id, 'connection_id' => $this->connection->id, 'product_id' => 9, 'order_id' => 777, 'common_name' => 'shop.example.test']);
-        $this->orders[777] = ['id' => 777, 'common_name' => 'shop.example.test', 'product_id' => 9, 'order_date' => now()->format('Y-m-d H:i:s'), 'csr' => self::CSR];
+        $this->orders[777] = ['id' => 777, 'common_name' => 'shop.example.test', 'product_id' => 9, 'order_date' => now('Europe/Amsterdam')->format('Y-m-d H:i:s'), 'csr' => self::CSR];
         $this->order()->forceFill(['common_name' => 'shop.example.test', 'csr' => self::CSR, 'requested_at' => now()])->save();
 
         $this->artisan('ssl:sync')->assertExitCode(0);
@@ -309,6 +317,87 @@ class OpenproviderSslTest extends TestCase
 
         $this->assertCount(1, $this->sent('POST', '/v1/customers'));
         $this->assertSame('XX123-GR', SslOrder::query()->where('service_id', $second->id)->value('organization_handle'));
+    }
+
+    public function test_two_orders_at_once_order_once(): void
+    {
+        ExtensionHelper::createServer($this->service->fresh());
+        $second = null;
+        $this->duringDecode = function () use (&$second) {
+            $second = rescue(fn () => $this->place(), fn ($e) => $e, false);
+        };
+
+        $first = rescue(fn () => $this->place(), fn ($e) => $e, false);
+
+        $this->assertCount(1, $this->sent('POST', '/v1/ssl/orders'), 'charged once');
+        $this->assertTrue($first === true xor $second === true, 'one of the two ordered');
+        $this->assertSame(777, $this->order()->order_id);
+    }
+
+    public function test_a_lost_answer_not_found_is_told_and_staff_may_clear_it(): void
+    {
+        ExtensionHelper::createServer($this->service->fresh());
+        $this->orderAnswer = 'lost-not-made';
+        rescue(fn () => $this->place(), null, false);
+
+        $this->travel(31)->minutes();
+        $this->artisan('ssl:sync')->assertExitCode(1);
+        $this->assertStringContainsString('no such order is found at Openprovider', (string) $this->order()->sync_error);
+
+        $server = $this->service->provisioningServer();
+        ExtensionHelper::getExtension('server', $server->extension, $server->settings)->clearRequest($this->order());
+        $this->assertTrue($this->order()->awaitingConfiguration());
+        $this->orderAnswer = 'ok';
+        $this->assertTrue($this->place());
+        $this->assertCount(2, $this->sent('POST', '/v1/ssl/orders'));
+    }
+
+    public function test_terminate_with_cancel_finds_a_lost_answers_order_first(): void
+    {
+        ExtensionHelper::createServer($this->service->fresh());
+        $this->orderAnswer = 'lost';
+        rescue(fn () => $this->place(), null, false);
+        $this->service->product->settings()->create(['key' => 'terminate_mode', 'value' => OpenproviderSsl::CANCEL]);
+
+        ExtensionHelper::terminateServer($this->service->fresh());
+
+        $this->assertSame(777, $this->order()->order_id);
+        $this->assertCount(1, $this->sent('POST', '/v1/ssl/orders/777/cancel'));
+    }
+
+    public function test_an_order_is_read_on_its_own_connection(): void
+    {
+        ExtensionHelper::createServer($this->service->fresh());
+        $this->place();
+        $other = DomainRegistrarConnection::query()->create(['registrar' => 'openprovider', 'label' => 'OP2', 'is_active' => false, 'mode' => 'production']);
+        $this->service->provisioningServer()->settings()->where('key', 'connection_id')->update(['value' => (string) $other->id]);
+        $this->orders[777]['status'] = 'ACT';
+
+        $this->artisan('ssl:sync')->assertExitCode(0);
+
+        $this->assertSame('ACT', $this->order()->status);
+    }
+
+    public function test_a_contact_with_no_country_is_told_as_a_refusal(): void
+    {
+        ExtensionHelper::createServer($this->service->fresh());
+        $this->owner->client()->primaryContact->forceFill(['country' => ''])->save();
+
+        $e = rescue(fn () => $this->place(), fn ($e) => $e, false);
+
+        $this->assertInstanceOf(ServerRefused::class, $e);
+        $this->assertTrue($this->order()->awaitingConfiguration());
+    }
+
+    public function test_openproviders_dates_are_amsterdams(): void
+    {
+        ExtensionHelper::createServer($this->service->fresh());
+        $this->place();
+        $this->orders[777]['expiration_date'] = '2027-05-01 00:30:00';
+
+        $this->artisan('ssl:sync')->assertExitCode(0);
+
+        $this->assertSame('2027-04-30 22:30:00', $this->order()->expires_at->setTimezone('UTC')->format('Y-m-d H:i:s'));
     }
 
     public function test_a_plan_not_in_years_is_refused(): void

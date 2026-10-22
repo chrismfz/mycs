@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * A service's SSL certificate at Openprovider (extension OpenproviderSsl): one order per service, its status and dates as
- * Openprovider tells them (the certificate's expiry, the paid order's end, its next reissue), the certificate, and what
+ * Openprovider tells them (its product and years as paid, kept at payment) (the certificate's expiry, the paid order's end, its next reissue), the certificate, and what
  * the customer must publish to validate. `requested_at` is set before an order is asked for and cleared only by a
  * refusal: while it is set and no order is known, no second order is asked for; a lost answer's order is the one with this
  * exact `csr`.
@@ -21,6 +21,7 @@ return new class extends Migration
             $table->foreignId('connection_id')->constrained('domain_registrar_connections');
             $table->unsignedBigInteger('order_id')->nullable();
             $table->unsignedInteger('product_id');
+            $table->unsignedTinyInteger('period')->default(1);
             $table->string('common_name')->nullable();
             $table->json('host_names')->nullable();
             $table->text('csr')->nullable();

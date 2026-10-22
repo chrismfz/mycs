@@ -125,7 +125,7 @@ class OpenproviderSslAdversarialTest extends TestCase
             $id = $this->nextId++;
             $this->orders[$id] = ['id' => $id, 'common_name' => rtrim((string) ($request['host_names'][0] ?? 'shop.example.test'), '.'), 'product_id' => $request['product_id'],
                 'status' => 'REQ', 'csr' => $request['csr'], 'organization_handle' => $request['organization_handle'] ?? null, 'period' => $request['period'],
-                'order_date' => now()->format('Y-m-d H:i:s'), 'expiration_date' => '', 'order_ends_at' => '', 'reissue_at' => '', 'certificate' => '',
+                'order_date' => now('Europe/Amsterdam')->format('Y-m-d H:i:s'), 'expiration_date' => '', 'order_ends_at' => '', 'reissue_at' => '', 'certificate' => '',
                 'intermediate_certificate' => '', 'email_approver' => '', 'domain_validation_methods' => $request['domain_validation_methods'], 'additional_data' => []];
         }
         if (str_starts_with($this->orderAnswer, 'lost')) {
@@ -204,7 +204,7 @@ class OpenproviderSslAdversarialTest extends TestCase
     public function test_adv5_a_lost_answer_never_adopts_another_accounts_order(): void
     {
         ExtensionHelper::createServer($this->service->fresh());
-        $this->orders[600] = ['id' => 600, 'common_name' => 'shop.example.test', 'product_id' => 9, 'order_date' => now()->format('Y-m-d H:i:s'),
+        $this->orders[600] = ['id' => 600, 'common_name' => 'shop.example.test', 'product_id' => 9, 'order_date' => now('Europe/Amsterdam')->format('Y-m-d H:i:s'),
             'csr' => self::CSR, 'organization_handle' => 'YY999-GR'];
         $this->order()->forceFill(['common_name' => 'shop.example.test', 'csr' => self::CSR, 'organization_handle' => 'XX123-GR', 'requested_at' => now()])->save();
 

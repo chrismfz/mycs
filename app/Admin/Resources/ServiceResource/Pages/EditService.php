@@ -14,6 +14,7 @@ use App\Helpers\NotificationHelper;
 use App\Models\License;
 use App\Models\Plan;
 use App\Models\Service;
+use App\Models\SslOrder;
 use App\Services\Licensing\Licenses;
 use App\Services\Money\MoneyTrail;
 use App\Services\Service\DeleteService;
@@ -206,6 +207,21 @@ class EditService extends EditRecord
                     }
                     $this->refreshFormData(['password']);
                     Notification::make()->title('Password changed on the server')->success()->send();
+                }),
+
+            // An Openprovider SSL order request whose answer was lost and that is not found there (ssl:sync tells it): cleared
+            // by staff after checking Openprovider, so the customer may order again (code review 2 of #345).
+            Action::make('sslClearRequest')
+                ->label('Clear the unanswered SSL order request')->icon('ri-lock-unlock-line')->color('warning')
+                ->authorize('update')
+                ->visible(fn (Service $record) => SslOrder::query()->where('service_id', $record->id)->whereNull('order_id')->whereNotNull('requested_at')->exists())
+                ->requiresConfirmation()
+                ->modalDescription('Only after checking Openprovider has no order with this CSR: the customer may then order again, and a second order is charged.')
+                ->action(function (Service $record): void {
+                    $order = SslOrder::query()->where('service_id', $record->id)->sole();
+                    $server = $record->provisioningServer() ?? throw new Exception('The service has no server');
+                    ExtensionHelper::getExtension('server', $server->extension, $server->settings)->clearRequest($order);
+                    Notification::make()->title('The order request was cleared')->success()->send();
                 }),
 
             Action::make('changeStatus')

@@ -14,6 +14,7 @@ use Illuminate\Support\Carbon;
  * @property int $connection_id
  * @property int|null $order_id
  * @property int $product_id
+ * @property int $period
  * @property string|null $common_name
  * @property list<string>|null $host_names
  * @property string|null $csr
