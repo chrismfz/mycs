@@ -112,6 +112,12 @@ return [
             'sub' => 'subdomain',
         ],
     ],
+    'centova' => [
+        'login' => 'Centova Cast panel',
+        'username' => 'Username',
+        'server' => 'Stream server',
+        'servertype' => 'Server type',
+    ],
     'mailcow' => [
         'login' => 'Login to mailcow',
     ],

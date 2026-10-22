@@ -159,8 +159,8 @@
 
 Modules για το myip:
 - **Hetzner Robot, Hetzner Cloud: όχι.**
-- **Centova Cast:** δεν υπάρχει στο MyCS· γράφεται από την αρχή. Το Blesta έχει δικό του (vendor: μόνο ιδέες, ποιες
-  κλήσεις και πεδία, όχι κώδικας). Οι 9 υπηρεσίες πριν το cut-over του myip.
+- **Centova Cast:** έγινε (feat/centova, `extensions/Servers/CentovaCast`): δικό μας, πάνω στο XML API του Centova, με
+  το ανοιχτό module του Centova για το WHMCS ως αναφορά κλήσεων (όχι κώδικας). Οι 9 υπηρεσίες με τον importer.
 - **Proxmox:** το myip τρέχει το Proxmox VE for WHMCS της The-Network-Crew (pvewhmcs· η nixpal/myip του έστειλε το
   PR #178, clusters). Άδεια **GPL-3.0** (επιβεβαιώθηκε 2026-10-15): όχι αυτούσιος κώδικας σε αυτό το repo (MIT).
   **Δικό μας module** πάνω στο API του Proxmox, με το pvewhmcs ως αναφορά συμπεριφοράς (ποιες κλήσεις, τι πεδία, πώς

@@ -112,6 +112,12 @@ return [
             'sub' => 'subdomain',
         ],
     ],
+    'centova' => [
+        'login' => 'Πίνακας Centova Cast',
+        'username' => 'Όνομα χρήστη',
+        'server' => 'Διακομιστής ροής',
+        'servertype' => 'Τύπος διακομιστή',
+    ],
     'mailcow' => [
         'login' => 'Σύνδεση στο mailcow',
     ],
