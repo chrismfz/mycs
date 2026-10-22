@@ -11,6 +11,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\Service;
 use App\Models\User;
+use App\Services\Money\GatewayReference;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -285,7 +286,7 @@ class PayPalApiErrorsTest extends TestCase
     {
         return [
             'id' => 'ORDER-1', 'status' => 'APPROVED',
-            'purchase_units' => [['invoice_id' => (string) $invoice->id, 'amount' => ['currency_code' => 'USD', 'value' => '20.00']]],
+            'purchase_units' => [['invoice_id' => GatewayReference::paypalInvoiceId($invoice), 'amount' => ['currency_code' => 'USD', 'value' => '20.00']]],
         ];
     }
 
@@ -296,6 +297,8 @@ class PayPalApiErrorsTest extends TestCase
             '/v2/checkout/orders/ORDER-1/capture' => $this->declined(),
             '/v2/checkout/orders/ORDER-1' => Http::response($this->approvedOrder($invoice)),
         ]);
+
+        PayPal::rememberOrder('ORDER-1', $invoice);
 
         $response = $this->paypal()->capture($invoice, 'ORDER-1');
 
@@ -318,6 +321,8 @@ class PayPalApiErrorsTest extends TestCase
             '/v2/checkout/orders/ORDER-1' => Http::response($this->approvedOrder($invoice)),
         ]);
 
+        PayPal::rememberOrder('ORDER-1', $invoice);
+
         $this->paypal()->capture($invoice, 'ORDER-1');
 
         $transaction = $invoice->transactions()->sole();
@@ -332,6 +337,7 @@ class PayPalApiErrorsTest extends TestCase
         $this->fakePayPal(['/v2/checkout/orders/ORDER-X' => Http::response(['name' => 'RESOURCE_NOT_FOUND'], 404)]);
 
         try {
+            PayPal::rememberOrder('ORDER-X', $invoice);
             $this->paypal()->capture($invoice, 'ORDER-X');
             $this->fail('An unknown order must abort.');
         } catch (HttpException $e) {

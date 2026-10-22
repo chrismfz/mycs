@@ -18,6 +18,7 @@ use App\Models\User;
 use App\Services\Invoice\MassPay;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
+use App\Services\Money\GatewayReference;
 use App\Services\Money\MoneyCheck;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -117,7 +118,7 @@ class MassPayTest extends TestCase
             // Mollie returns the metadata the checkout was opened with: the invoice and the group.
             'https://api.mollie.com/v2/payments/tr_mass' => fn () => Http::response([
                 'id' => 'tr_mass', 'status' => 'paid', 'amount' => ['value' => '45.00', 'currency' => 'USD'],
-                'metadata' => ['invoice_id' => $lead->id, 'payment_group' => PaymentGroup::query()->sole()->ulid],
+                'metadata' => ['mycs' => GatewayReference::mark(), 'invoice_id' => $lead->id, 'payment_group' => PaymentGroup::query()->sole()->ulid],
             ]),
         ]);
         $this->actingAs($this->user);

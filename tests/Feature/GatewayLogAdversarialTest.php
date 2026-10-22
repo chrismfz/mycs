@@ -15,6 +15,7 @@ use App\Models\Role;
 use App\Models\Service;
 use App\Models\Staff;
 use App\Models\User;
+use App\Services\Money\GatewayReference;
 use Filament\Facades\Filament;
 use Illuminate\Cache\ArrayStore;
 use Illuminate\Cache\Repository;
@@ -128,7 +129,7 @@ class GatewayLogAdversarialTest extends TestCase
     private function succeeded(int|string $invoiceId, int $cents, string $id, string $currency = 'usd', string $type = 'payment_intent.succeeded'): array
     {
         return ['type' => $type, 'data' => ['object' => [
-            'id' => $id, 'amount' => $cents, 'currency' => $currency, 'metadata' => ['invoice_id' => (string) $invoiceId],
+            'id' => $id, 'amount' => $cents, 'currency' => $currency, 'metadata' => ['mycs' => GatewayReference::mark(), 'invoice_id' => (string) $invoiceId],
         ]]];
     }
 
@@ -221,7 +222,7 @@ class GatewayLogAdversarialTest extends TestCase
     {
         $this->stripe();
         Http::fake(['https://api.stripe.com/v1/setup_intents/*' => Http::response([
-            'id' => 'seti_' . str_repeat('a', 24), 'status' => 'succeeded', 'metadata' => ['user_id' => 999999],
+            'id' => 'seti_' . str_repeat('a', 24), 'status' => 'succeeded', 'metadata' => ['mycs' => GatewayReference::mark(), 'user_id' => 999999],
         ])]);
 
         $this->signedIn()->get('/extensions/stripe/setup-agreement?setup_intent=seti_' . str_repeat('a', 24))->assertForbidden();
@@ -408,7 +409,7 @@ class GatewayLogAdversarialTest extends TestCase
         $capture = $this->invoice(100);
         $this->paypal([
             '/v1/notifications/verify-webhook-signature' => Http::response(['verification_status' => 'SUCCESS']),
-            '/v2/checkout/orders/ORDER-ADV' => Http::response(['status' => 'APPROVED', 'purchase_units' => [['invoice_id' => (string) $capture->id, 'amount' => ['currency_code' => 'USD', 'value' => '100.00']]]]),
+            '/v2/checkout/orders/ORDER-ADV' => Http::response(['status' => 'APPROVED', 'purchase_units' => [['invoice_id' => GatewayReference::paypalInvoiceId($capture), 'amount' => ['currency_code' => 'USD', 'value' => '100.00']]]]),
             '/v2/checkout/orders/ORDER-ADV/capture' => Http::response(['status' => 'COMPLETED', 'purchase_units' => [['payments' => ['captures' => [[
                 'id' => 'CAP-ADV', 'status' => 'COMPLETED', 'amount' => ['value' => '100.00', 'currency_code' => 'USD'],
             ]]]]]]),
@@ -422,6 +423,7 @@ class GatewayLogAdversarialTest extends TestCase
         // An invoice is bound by number OR id (Invoice::resolveRouteBinding): the paid invoices' numbers (from a counter
         // other tests moved) must not take the capture invoice's id.
         DB::table('invoices')->whereIn('id', [$invoiceA->id, $invoiceB->id])->update(['number' => null]);
+        PayPal::rememberOrder('ORDER-ADV', $capture); // made here (pay())
         $this->signedIn()->postJson('/extensions/paypal/capture/' . $capture->id . '/ORDER-ADV')->assertOk();
 
         $this->assertSame('paid', $invoiceA->fresh()->status);
@@ -440,7 +442,7 @@ class GatewayLogAdversarialTest extends TestCase
         $mollieInvoice = $this->invoice(40);
         $this->ipn(['https://ipnpb.sandbox.paypal.com/cgi-bin/webscr' => Http::response('VERIFIED')]);
         $this->mollie(['https://api.mollie.com/v2/payments/tr_adv' => Http::response([
-            'id' => 'tr_adv', 'status' => 'paid', 'amount' => ['value' => '40.00', 'currency' => 'USD'], 'metadata' => ['invoice_id' => $mollieInvoice->id],
+            'id' => 'tr_adv', 'status' => 'paid', 'amount' => ['value' => '40.00', 'currency' => 'USD'], 'metadata' => ['mycs' => GatewayReference::mark(), 'invoice_id' => $mollieInvoice->id],
         ])]);
 
         $this->post('/extensions/paypal_ipn/notify', [

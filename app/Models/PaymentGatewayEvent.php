@@ -20,6 +20,9 @@ class PaymentGatewayEvent extends Model
 
     public const OUTCOME_ERROR = 'error';
 
+    /** About a payment this instance did not make or has no record of (GatewayReference::foreign): staff check it. */
+    public const OUTCOME_FOREIGN = 'foreign';
+
     protected $fillable = [
         'gateway',
         'endpoint',

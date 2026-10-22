@@ -14,15 +14,16 @@ use App\Models\BillingAgreement;
 use App\Models\Client;
 use App\Models\GatewayRefund;
 use App\Models\Invoice;
-use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
 use App\Models\Service;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\GatewayLog;
+use App\Services\Money\GatewayReference;
 use App\Support\CurrentClient;
 use Exception;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -130,7 +131,7 @@ class PayPal extends Gateway
                 'intent' => 'CAPTURE',
                 'purchase_units' => [
                     [
-                        'invoice_id' => $invoice->id,
+                        'invoice_id' => GatewayReference::paypalInvoiceId($invoice), // this site's, unique on the account (S0-6)
                         'amount' => [
                             'currency_code' => $invoice->currency_code,
                             'value' => number_format((float) $total, 2, '.', ''),
@@ -152,6 +153,10 @@ class PayPal extends Gateway
             }
 
             throw new DisplayException(__('Could not process payment. Please try again or use a different payment method.'), 0, $e);
+        }
+        // Made here: its capture's webhook is ours to record (S0-6).
+        if (isset($result->id) && is_string($result->id)) {
+            self::rememberOrder($result->id, $invoice, $result->purchase_units[0]->payee ?? null);
         }
 
         $capture = $result->purchase_units[0]->payments->captures[0] ?? null;
@@ -309,14 +314,14 @@ class PayPal extends Gateway
      *
      * @throws PayPalApiException when PayPal does not answer 2xx: an error body must never read as success
      */
-    public function request($method, $url, $data = [], ?string $requestId = null)
+    public function request($method, $url, $data = [], ?string $requestId = null, array $headers = [])
     {
         $requestId ??= (string) Str::uuid();
         $send = fn () => Http::withHeaders([
             'Content-Type' => 'application/json',
             'Authorization' => 'Bearer ' . $this->generateAccessToken(),
             'PayPal-Request-Id' => $requestId,
-        ])->$method($url, $data);
+        ] + $headers)->$method($url, $data);
 
         $response = $send();
         if ($response->status() === 401) { // expired token: a new one, same request id
@@ -349,7 +354,7 @@ class PayPal extends Gateway
             'intent' => 'CAPTURE',
             'purchase_units' => [
                 [
-                    'invoice_id' => $invoice->id,
+                    'invoice_id' => GatewayReference::paypalInvoiceId($invoice), // this site's, unique on the account (S0-6)
                     'amount' => [
                         'currency_code' => $invoice->currency_code,
                         'value' => number_format((float) $total, 2, '.', ''),
@@ -362,9 +367,66 @@ class PayPal extends Gateway
                 // Disable shipping information
                 'shipping_preference' => 'NO_SHIPPING',
             ],
-        ]);
+        ], headers: ['Prefer' => 'return=representation']);
+
+        // Only an order made here is captured here, while its payee is the one it was made with (S0-6): anyone can make
+        // one with the public client id, or change ours' payee before the capture.
+        if (isset($order->id) && is_string($order->id)) {
+            self::rememberOrder($order->id, $invoice, $order->purchase_units[0]->payee ?? null);
+        }
 
         return view('gateways.paypal::pay', ['invoice' => $invoice, 'total' => $total, 'order' => $order ?? null, 'clientId' => $this->config('client_id')]);
+    }
+
+    /**
+     * A vault charge of ours whose answer was lost (a timeout after PayPal took the money: charge() never kept it): its
+     * capture's webhook still records it, so the customer is not charged again (ADV-6 of #328). Ours when it carries our
+     * invoice_id and was paid from a method its customer saved here: a vault token is usable only by the merchant that
+     * holds it, so the order was made with our credentials, to us.
+     */
+    private static function ourVaultCharge(string $orderID, mixed $order): ?int
+    {
+        $invoice = Invoice::query()->find(GatewayReference::invoiceIdFromPaypal($order->purchase_units[0]->invoice_id ?? null));
+        $vault = $order->payment_source->paypal->attributes->vault->id ?? null;
+        if ($invoice === null || !is_string($vault) || $vault === ''
+            || !BillingAgreement::query()->where('client_id', $invoice->client_id)->where('external_reference', $vault)->exists()) {
+            return null;
+        }
+        self::rememberOrder($orderID, $invoice, $order->purchase_units[0]->payee ?? null);
+
+        return $invoice->id;
+    }
+
+    /** An order made here for $invoice, with the payee PayPal gave it: the only kind captured or recorded here. */
+    public static function rememberOrder(string $orderID, Invoice $invoice, ?object $payee = null): void
+    {
+        DB::table('paypal_orders')->updateOrInsert(['order_id' => $orderID], [
+            'invoice_id' => $invoice->id,
+            'payee_merchant_id' => is_string($payee->merchant_id ?? null) ? $payee->merchant_id : null,
+            'payee_email' => is_string($payee->email_address ?? null) ? strtolower($payee->email_address) : null,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    /**
+     * The invoice an order of this site is for, if PayPal's copy of it still pays the payee it was made with; null for
+     * an order made elsewhere, or one whose payee was changed since (ADV-1, ADV-2 of #328).
+     */
+    private static function madeHere(string $orderID, mixed $order): ?int
+    {
+        $made = DB::table('paypal_orders')->where('order_id', $orderID)->first();
+        if ($made === null) {
+            return self::ourVaultCharge($orderID, $order);
+        }
+        $payee = $order->purchase_units[0]->payee ?? null;
+        if ($made->payee_merchant_id !== null && ($payee->merchant_id ?? null) !== $made->payee_merchant_id) {
+            return null;
+        }
+        if ($made->payee_email !== null && strtolower((string) ($payee->email_address ?? '')) !== $made->payee_email) {
+            return null;
+        }
+
+        return (int) $made->invoice_id;
     }
 
     public function capture(Invoice $invoice, string $orderID)
@@ -385,8 +447,9 @@ class PayPal extends Gateway
             abort(400, 'PayPal order not found');
         }
 
-        // Verify if the invoice id matches the one from the order
-        if (!isset($order->purchase_units[0]->invoice_id) || $order->purchase_units[0]->invoice_id != $invoice->id) {
+        // An order this site made for this invoice (pay() kept it), still to its payee, carrying its invoice_id.
+        if (self::madeHere($orderID, $order) !== (int) $invoice->id
+            || GatewayReference::invoiceIdFromPaypal($order->purchase_units[0]->invoice_id ?? null) !== (int) $invoice->id) {
             abort(400, 'PayPal order is not associated with an invoice');
         }
 
@@ -416,10 +479,17 @@ class PayPal extends Gateway
         if (($response->status ?? null) !== 'COMPLETED' || !in_array($capture->status ?? null, ['COMPLETED', 'PENDING'], true)) {
             abort(400, 'Failed to capture PayPal order');
         }
+        // Its payee changed between our read and the capture: the money went elsewhere, nothing is ours to record. The
+        // capture's answer carries no payee by default: then the order is read again (ADV-5 of #328).
+        $after = isset($response->purchase_units[0]->payee) ? $response : $this->request('get', $url . '/v2/checkout/orders/' . $orderID);
+        if (self::madeHere($orderID, $after) !== (int) $invoice->id) {
+            GatewayReference::foreign('PayPal', 'capture to another payee', $capture->id ?? $orderID, $capture->amount->value ?? null, $capture->amount->currency_code ?? null);
+            abort(400, 'PayPal order is not associated with an invoice');
+        }
 
         // A PENDING capture (review, eCheck, unheld currency) is not money yet: processing until PAYMENT.CAPTURE.COMPLETED.
         ExtensionHelper::addPayment(
-            $order->purchase_units[0]->invoice_id,
+            $invoice->id,
             'PayPal',
             $capture->amount->value,
             $capture->seller_receivable_breakdown->paypal_fee->value ?? null,
@@ -518,22 +588,12 @@ class PayPal extends Gateway
         $body = $request->json()->all();
 
         // Handle the subscription event
-        if ($body['event_type'] === 'BILLING.SUBSCRIPTION.CREATED' && isset($body['resource']['custom_id'])) {
-            // Its activated so we can now add the subscription to the user (custom is the order id)
-            Invoice::findOrFail($body['resource']['custom_id'])->items()->where('reference_type', Service::class)->each(function (InvoiceItem $item) use ($body) {
-                $service = $item->reference;
-                if ($service === null) {
-                    return; // a service deleted since
-                }
-                $service->subscription_id = $body['resource']['id'];
-                $service->save();
-                $service->properties()->updateOrCreate([
-                    'key' => 'has_paypal_subscription',
-                    'name' => 'Has PayPal Subscription',
-                ], [
-                    'value' => true,
-                ]);
-            });
+        if ($body['event_type'] === 'BILLING.SUBSCRIPTION.CREATED') {
+            // This site makes no PayPal subscriptions: one created on the account is someone else's, and never takes a
+            // customer's service (S0-6, ADV-3 of #328: its custom_id is anyone's to write).
+            GatewayReference::foreign('PayPal', $body['event_type'], (string) ($body['resource']['id'] ?? ''));
+
+            return response()->json(['status' => 'ignored']);
         } elseif ($body['event_type'] === 'PAYMENT.SALE.COMPLETED' && isset($body['resource']['billing_agreement_id'])) {
             $this->recordSubscriptionSale($body['resource']);
         } elseif ($body['event_type'] === 'VAULT.PAYMENT-TOKEN.DELETED') {
@@ -590,10 +650,18 @@ class PayPal extends Gateway
             }
 
             if (isset($order->purchase_units[0]->invoice_id)) {
+                // This site's order only (`<mark>-<id>`): another system's on the same account is never ours (S0-6).
+                $invoiceId = GatewayReference::invoiceIdFromPaypal($order->purchase_units[0]->invoice_id);
+                if ($invoiceId === null || self::madeHere((string) $orderID, $order) !== $invoiceId) {
+                    GatewayReference::foreign('PayPal', $body['event_type'], (string) $body['resource']['id'],
+                        $body['resource']['amount']['value'] ?? null, $body['resource']['amount']['currency_code'] ?? null);
+
+                    return response()->json(['status' => 'ignored']);
+                }
                 // A capture in another currency is refused by RecordPaymentService (logged, staff told), not skipped here.
-                $invoice = Invoice::find($order->purchase_units[0]->invoice_id);
+                $invoice = Invoice::find($invoiceId);
                 if ($invoice) {
-                    ExtensionHelper::addPayment($order->purchase_units[0]->invoice_id, 'PayPal', $order->purchase_units[0]->payments->captures[0]->amount->value, $order->purchase_units[0]->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value ?? null, $body['resource']['id'], currency: $order->purchase_units[0]->payments->captures[0]->amount->currency_code, paymentGroup: $order->purchase_units[0]->custom_id ?? null);
+                    ExtensionHelper::addPayment($invoiceId, 'PayPal', $order->purchase_units[0]->payments->captures[0]->amount->value, $order->purchase_units[0]->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value ?? null, $body['resource']['id'], currency: $order->purchase_units[0]->payments->captures[0]->amount->currency_code, paymentGroup: $order->purchase_units[0]->custom_id ?? null);
                 }
             }
         }

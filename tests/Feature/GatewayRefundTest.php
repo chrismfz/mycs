@@ -182,14 +182,16 @@ class GatewayRefundTest extends TestCase
         $this->assertSame(Invoice::STATUS_REFUNDED, $invoice->fresh()->status);
     }
 
-    public function test_a_refund_for_a_payment_we_do_not_know_is_ignored(): void
+    /** Not made here, or not here yet: kept until its payment comes, and staff are told (S0-6: a WHMCS-era one). */
+    public function test_a_refund_for_a_payment_we_do_not_know_moves_nothing_and_staff_are_told(): void
     {
         $this->stripe();
 
         $this->stripeWebhook($this->stripeRefund('re_other', 'pi_not_ours', 500))->assertOk();
 
         $this->assertSame(GatewayRefund::ORIGIN_WAITING, GatewayRefund::query()->sole()->origin, 'kept until its payment, if ever');
-        $this->assertSame(['ignored', 'refund_unknown_payment'], [PaymentGatewayEvent::query()->sole()->outcome, PaymentGatewayEvent::query()->sole()->reason]);
+        $this->assertSame([PaymentGatewayEvent::OUTCOME_FOREIGN, 'refund'], [PaymentGatewayEvent::query()->sole()->outcome, PaymentGatewayEvent::query()->sole()->reason]);
+        $this->assertSame(1, EmailLog::query()->where('subject', 'Gateway event for a payment not made here')->count());
     }
 
     public function test_a_refund_in_another_currency_is_not_recorded(): void

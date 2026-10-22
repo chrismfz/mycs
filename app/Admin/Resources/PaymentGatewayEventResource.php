@@ -53,7 +53,7 @@ class PaymentGatewayEventResource extends Resource
                     ->color(fn (string $state): string => match ($state) {
                         PaymentGatewayEvent::OUTCOME_RECORDED => 'success',
                         PaymentGatewayEvent::OUTCOME_IGNORED => 'gray',
-                        PaymentGatewayEvent::OUTCOME_REJECTED => 'warning',
+                        PaymentGatewayEvent::OUTCOME_REJECTED, PaymentGatewayEvent::OUTCOME_FOREIGN => 'warning',
                         default => 'danger',
                     }),
                 TextColumn::make('reason')->label(__('Reason'))->placeholder('—'),
@@ -73,7 +73,7 @@ class PaymentGatewayEventResource extends Resource
             ->filters([
                 SelectFilter::make('outcome')->label(__('Outcome'))->options(fn (): array => collect([
                     PaymentGatewayEvent::OUTCOME_RECORDED, PaymentGatewayEvent::OUTCOME_IGNORED, PaymentGatewayEvent::OUTCOME_REJECTED,
-                    PaymentGatewayEvent::OUTCOME_ERROR, PaymentGatewayEvent::OUTCOME_RECEIVED,
+                    PaymentGatewayEvent::OUTCOME_ERROR, PaymentGatewayEvent::OUTCOME_RECEIVED, PaymentGatewayEvent::OUTCOME_FOREIGN,
                 ])->mapWithKeys(fn (string $outcome) => [$outcome => __('money.outcomes.' . $outcome)])->all()),
                 SelectFilter::make('gateway')->label(__('Gateway'))
                     ->options(fn () => PaymentGatewayEvent::query()->distinct()->orderBy('gateway')->pluck('gateway', 'gateway')),

@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Services\Invoice\MassPay;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
+use App\Services\Money\GatewayReference;
 use App\Services\Money\MoneyCheck;
 use App\Services\Money\MoneyTrail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -204,7 +205,7 @@ class MassPayAdversarialTest extends TestCase
             'https://api.mollie.com/v2/payments' => Http::response(['id' => 'tr_first', '_links' => ['checkout' => ['href' => 'https://mollie.test/checkout/tr_first']]]),
             'https://api.mollie.com/v2/payments/tr_first' => Http::response([
                 // Mollie returns the metadata the checkout was opened with (the group, PR F2).
-                'id' => 'tr_first', 'status' => 'paid', 'amount' => ['value' => '30.00', 'currency' => 'USD'], 'metadata' => ['invoice_id' => $lead->id, 'payment_group' => $first->ulid],
+                'id' => 'tr_first', 'status' => 'paid', 'amount' => ['value' => '30.00', 'currency' => 'USD'], 'metadata' => ['mycs' => GatewayReference::mark(), 'invoice_id' => $lead->id, 'payment_group' => $first->ulid],
             ]),
         ]);
         $this->livewireAs($this->user)->test(PayTogether::class, ['paymentGroup' => $first])
