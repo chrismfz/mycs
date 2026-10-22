@@ -171,7 +171,9 @@ class ServiceResource extends Resource
                     ->preload()
                     ->disabled(fn (Get $get) => !$get('product_id'))
                     ->placeholder('Select the plan'),
-                ClientComponent::make('client_id'),
+                // Chosen when the service is made; afterwards it moves with «Move to another client» (its invoices with it),
+                // never by editing the field (owner 2026-10-23).
+                ClientComponent::make('client_id')->disabledOn('edit'),
                 Select::make('status')
                     ->label('Status')
                     ->required()

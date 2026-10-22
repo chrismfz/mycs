@@ -36,6 +36,23 @@ class ClientComponent extends Select
             ->required();
     }
 
+    /** A client to pick in an action's form (no relationship to the record): found as make()'s, by id, name or email. */
+    public static function picker(string $name): Select
+    {
+        return Select::make($name)
+            ->label(__('Client'))
+            ->searchable()
+            ->getOptionLabelUsing(fn ($value) => ($client = Client::query()->find((int) $value)) !== null ? self::optionLabel($client) : null)
+            ->getSearchResultsUsing(fn (string $search): array => Client::query()
+                ->where(fn (Builder $query) => $query->whereKey((int) $search)->orWhere(fn (Builder $query) => self::search($query, $search, '')))
+                ->with(['primaryContact', 'ownerGrant.user'])
+                ->limit(50)
+                ->get()
+                ->mapWithKeys(fn (Client $client) => [$client->id => self::optionLabel($client)])
+                ->toArray())
+            ->required();
+    }
+
     /**
      * Find accounts by their logins' names or email and by their primary contact (its name, company and email: the
      * account's name, PR 3a). `$relation` is the path to the account from the searched model ('' for a Client).

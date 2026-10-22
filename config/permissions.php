@@ -86,6 +86,8 @@ return [
                 'viewAny' => 'View Services',
                 'delete' => 'Delete Services',
                 'deleteAny' => 'Bulk Delete Services',
+                // To another client, with its invoices not paid yet (owner 2026-10-23).
+                'move' => 'Move Services to Another Client',
             ],
             // Domains (docs/domains.md): seen in D1; their actions come with D2–D5.
             'domains' => [
@@ -98,6 +100,8 @@ return [
                 'epp' => 'Get EPP Codes',
                 // D5b-2: a renewal at the registrar before the payment (D-1, trusted customers): real money.
                 'renew' => 'Renew Domains Now (before payment)',
+                // To another client, with its invoices not paid yet and its contacts copied (owner 2026-10-23).
+                'move' => 'Move Domains to Another Client',
             ],
             // The TLDs sold and their prices (docs/domains.md D-6, D-7).
             'domain_tlds' => [

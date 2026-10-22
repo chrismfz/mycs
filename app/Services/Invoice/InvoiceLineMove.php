@@ -51,9 +51,10 @@ final class InvoiceLineMove
 
     /**
      * Why the lines of this invoice (locked) do not move, or null. Decision 8: an invoice with payments (processing
-     * too) is refused, never unapplied as Blesta does; staff refund or delete the payment first.
+     * too) is refused, never unapplied as Blesta does; staff refund or delete the payment first. $orderMovesWith: the order
+     * goes with its invoice (a move to another client, MoveToClient), so being an order's invoice is no reason.
      */
-    public static function refusal(Invoice $invoice): ?string
+    public static function refusal(Invoice $invoice, bool $orderMovesWith = false): ?string
     {
         $label = '#' . ($invoice->number ?: $invoice->id);
         if ($invoice->status !== Invoice::STATUS_UNPAID) {
@@ -78,7 +79,7 @@ final class InvoiceLineMove
             return __('Invoice :invoice buys account credit: it is not merged or split.', ['invoice' => $label]);
         }
         // An order's own invoice: «Cancel & Refund» refunds the payments of that invoice (code review CR-4).
-        if (Order::query()->where('invoice_id', $invoice->id)->exists()) {
+        if (!$orderMovesWith && Order::query()->where('invoice_id', $invoice->id)->exists()) {
             return __('Invoice :invoice is the invoice of an order: it is not merged or split.', ['invoice' => $label]);
         }
         // Lines of a service that ended, left open for staff (CancelOpenInvoices): moved, they would make another invoice

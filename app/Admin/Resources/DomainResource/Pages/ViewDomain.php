@@ -3,14 +3,17 @@
 namespace App\Admin\Resources\DomainResource\Pages;
 
 use App\Admin\Actions\InvoiceSelectedItemsAction;
+use App\Admin\Components\ClientComponent;
 use App\Admin\Concerns\RemembersRecent;
 use App\Admin\Resources\DomainResource;
 use App\Enums\DomainStatus;
 use App\Exceptions\DisplayException;
+use App\Models\Client;
 use App\Models\Contact;
 use App\Models\Domain;
 use App\Models\Staff;
 use App\Services\Billing\RenewalBilling;
+use App\Services\Clients\MoveToClient;
 use App\Services\Domains\DomainLifecycle;
 use App\Services\Domains\DomainManagementService;
 use App\Services\Domains\DomainRenewalService;
@@ -97,6 +100,34 @@ class ViewDomain extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
+            // To another client (owner 2026-10-23, as WHMCS's «Move»): with its invoices not paid yet; staff with its own
+            // permission, confirmed.
+            Action::make('moveToClient')
+                ->label('Move to another client')->icon('ri-arrow-left-right-line')->color('gray')
+                ->visible(fn () => (bool) Auth::guard('staff')->user()?->hasPermission('admin.domains.move'))
+                ->schema([
+                    ClientComponent::picker('to_client_id')->label('Move to client'),
+                ])
+                ->requiresConfirmation()
+                ->modalDescription('The domain moves to the other client. Nothing changes at the registrar: its contacts are copied to the new client. Its unpaid renewal invoices go with it; paid ones stay. A note is left on both accounts.')
+                ->action(function (array $data, Domain $record, Action $action): void {
+                    $staff = Auth::guard('staff')->user();
+                    abort_unless((bool) $staff?->hasPermission('admin.domains.move'), 403);
+                    $to = Client::query()->findOrFail((int) $data['to_client_id']);
+                    try {
+                        $result = app(MoveToClient::class)->domain($record, $to, $staff);
+                    } catch (DisplayException $e) {
+                        Notification::make()->title('Not moved')->body($e->getMessage())->danger()->send();
+                        $action->halt();
+
+                        return;
+                    }
+                    $told = trim(($result['moved'] !== [] ? count($result['moved']) . ' unpaid invoice(s) moved with it. ' : '')
+                        . ($result['split'] !== [] ? count($result['split']) . ' new invoice(s) issued to the new client for its lines.' : ''));
+                    Notification::make()->title('Moved to ' . $to->name)->body($told !== '' ? $told : null)->success()->send();
+                    $this->redirect(static::getResource()::getUrl('view', ['record' => $record]));
+                }),
+
             // The registrar's truth now (docs/domains.md D-9): reads the registrar, changes nothing there.
             Action::make('sync')->label(__('Sync now'))->icon('heroicon-o-arrow-path')
                 ->visible(fn (Domain $record) => self::can('admin.domains.update') && app(DomainSyncService::class)->isSyncable($record))
