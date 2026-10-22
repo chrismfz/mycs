@@ -85,6 +85,15 @@ class InvoiceObserver
             && in_array($invoice->status, Invoice::OPEN_STATUSES, true) && ($other = self::billedElsewhere($invoice)) !== null) {
             throw new DisplayException(__('Its period is billed again by invoice #:id: cancel that one first.', ['id' => $other]));
         }
+        // Open again (reopened, a payment deleted) only while its lines' items are still its customer's: one moved to
+        // another customer since (MoveToClient) would be renewed by the first customer's invoice (AUTH-8; adversarial
+        // R2-2 of #357). Staff bill the new customer on a new invoice.
+        if ($invoice->isDirty('status') && !in_array($invoice->getOriginal('status'), Invoice::OPEN_STATUSES, true)
+            && in_array($invoice->status, Invoice::OPEN_STATUSES, true)
+            && $invoice->items()->whereIn('reference_type', InvoiceItemReference::TYPES)->get()
+                ->contains(fn (InvoiceItem $item) => InvoiceItemReference::ownerOf($item->reference_type, (int) $item->reference_id) !== (int) $invoice->client_id)) {
+            throw new DisplayException(__('This invoice bills an item that moved to another customer: it is not opened again. Bill that customer on a new invoice.'));
+        }
         // Refunded (PR 2c, as WHMCS): all its money went back, to the customer or to their credit. Final: it holds
         // nothing to pay or to apply, and a later payment on it becomes credit (RecordPaymentService).
         if ($invoice->isDirty('status') && $invoice->getOriginal('status') === Invoice::STATUS_REFUNDED) {

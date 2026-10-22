@@ -170,11 +170,11 @@ final class MoveToClient
                 $why = InvoiceLineMove::refusal($invoice, $orderMoves);
             }
             if ($why === null && !$whole) {
-                // Each part bills something; the part left may be nothing (closed below), never less than nothing
-                // (code review 4, as SplitInvoice's E-ADV-7).
+                // Neither part less than nothing (code review 4, as SplitInvoice's E-ADV-7); one of nothing (a free item) is
+                // closed below (adversarial R2, note).
                 $moving = (int) $ours->sum(fn (InvoiceItem $line) => $line->totalCents());
                 $staying = (int) $lines->reject($isOurs)->sum(fn (InvoiceItem $line) => $line->totalCents());
-                if ($moving <= 0 || $staying < 0) {
+                if ($moving < 0 || $staying < 0) {
                     $why = __('clients.move.nothing', ['invoices' => $label]);
                 }
             }
@@ -230,9 +230,11 @@ final class MoveToClient
             $result['split'][$invoice->id] = $new->id;
             // The first left with nothing to pay is closed, as a zero invoice is; not with an upgrade's line, whose
             // credit nobody decided (ChangeOpenLine; adversarial ADV-4).
-            if ($invoice->status === Invoice::STATUS_UNPAID
-                && !InvoiceItem::query()->where('invoice_id', $invoice->id)->where('reference_type', ServiceUpgrade::class)->exists()) {
-                (new RecordPaymentService)->settle($invoice->id);
+            foreach ([$invoice, $new] as $part) {
+                if ($part->status === Invoice::STATUS_UNPAID
+                    && !InvoiceItem::query()->where('invoice_id', $part->id)->where('reference_type', ServiceUpgrade::class)->exists()) {
+                    (new RecordPaymentService)->settle($part->id);
+                }
             }
             $this->sendAgain($invoice);
         }

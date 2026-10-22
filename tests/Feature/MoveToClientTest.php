@@ -73,9 +73,9 @@ class MoveToClientTest extends TestCase
         return $invoice->fresh();
     }
 
-    private function serviceLine(): array
+    private function serviceLine(array $extra = []): array
     {
-        return ['reference_type' => Service::class, 'reference_id' => $this->service->id];
+        return $extra + ['reference_type' => Service::class, 'reference_id' => $this->service->id];
     }
 
     public function test_the_service_moves_with_the_unpaid_invoice_that_bills_only_it(): void
@@ -233,5 +233,17 @@ class MoveToClientTest extends TestCase
 
         $this->assertInstanceOf(DisplayException::class, rescue(fn () => app(MoveToClient::class)->service($this->service, $this->to->client(), $this->staff), fn ($e) => $e, false));
         $this->assertSame($this->from->client()->id, $this->service->fresh()->client_id);
+    }
+
+    /** A free item on an invoice with others moves too: its own invoice of nothing is closed (adversarial R2, note). */
+    public function test_a_free_item_on_a_shared_invoice_moves_and_its_invoice_is_closed(): void
+    {
+        $other = Service::factory()->create(['client_id' => $this->from->client()->id, 'plan_id' => $this->service->plan_id, 'product_id' => $this->service->product_id,
+            'status' => 'active', 'currency_code' => 'EUR', 'price' => 5]);
+        $invoice = $this->invoice($this->from, [$this->serviceLine(['price' => 0]), ['reference_type' => Service::class, 'reference_id' => $other->id, 'price' => 5]]);
+
+        $result = app(MoveToClient::class)->service($this->service, $this->to->client(), $this->staff);
+
+        $this->assertSame([Invoice::STATUS_UNPAID, Invoice::STATUS_PAID], [$invoice->fresh()->status, Invoice::query()->findOrFail($result['split'][$invoice->id])->status]);
     }
 }

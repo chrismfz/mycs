@@ -29,6 +29,9 @@ use Throwable;
  * a refund or a chargeback already gave back is not given twice (refundable_amount). An order invoice that also bills
  * something else is left to staff, as anything the invoices' own rules leave open.
  *
+ * Only its items still its customer's: one moved to another customer since (MoveToClient) is that customer's now, never
+ * cancelled with the first one's order (adversarial R2-1 of #357).
+ *
  * Locks: its services, then the order, as a payment or a create finishing does (service, then the order through the
  * observer; review R8).
  */
@@ -52,7 +55,7 @@ final class CancelOrder
         // registrar at our cost: kept for staff, never cancelled and refunded here.
         $locks = [];
         $kept = [];
-        foreach (Domain::query()->where('order_id', $order->id)->whereIn('status', [DomainStatus::PendingRegister->value, DomainStatus::PendingTransfer->value])->get() as $domain) {
+        foreach (Domain::query()->where('order_id', $order->id)->where('client_id', $order->client_id)->whereIn('status', [DomainStatus::PendingRegister->value, DomainStatus::PendingTransfer->value])->get() as $domain) {
             $lock = Cache::lock("domain-registrar:{$domain->id}", 60);
             $sent = !empty($domain->meta['sent_at']) || $domain->registrarLogs()->whereIn('action', ['register', 'transfer'])
                 ->whereIn('status', [DomainRegistrarLog::STATUS_PENDING, DomainRegistrarLog::STATUS_OK])->exists();
@@ -102,9 +105,9 @@ final class CancelOrder
     private static function cancel(Order $order, bool $terminate, bool $fraud, array $kept): array
     {
         return DB::transaction(function () use ($order, $terminate, $fraud, $kept) {
-            $live = Service::query()->where('order_id', $order->id)->orderBy('id')->lockForUpdate()->get();
+            $live = Service::query()->where('order_id', $order->id)->where('client_id', $order->client_id)->orderBy('id')->lockForUpdate()->get();
             // Its domains not registered or transferred yet (D8b, code review H2): cancelled with it, the name free again.
-            $pending = Domain::query()->where('order_id', $order->id)->orderBy('id')->whereNotIn('id', $kept ?: [0])
+            $pending = Domain::query()->where('order_id', $order->id)->where('client_id', $order->client_id)->orderBy('id')->whereNotIn('id', $kept ?: [0])
                 ->whereIn('status', [DomainStatus::PendingRegister->value, DomainStatus::PendingTransfer->value])->lockForUpdate()->get()
                 ->reject(fn (Domain $domain) => !empty($domain->meta['sent_at'])); // sent meanwhile
             $locked = Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
@@ -142,8 +145,8 @@ final class CancelOrder
             return []; // nothing was billed with it (a free order)
         }
         // Its own lines: its services' and its domains' (D8b, code review H2).
-        $ours = Service::query()->where('order_id', $order->id)->pluck('id')->all();
-        $ourDomains = Domain::query()->where('order_id', $order->id)->pluck('id')->all();
+        $ours = Service::query()->where('order_id', $order->id)->where('client_id', $order->client_id)->pluck('id')->all();
+        $ourDomains = Domain::query()->where('order_id', $order->id)->where('client_id', $order->client_id)->pluck('id')->all();
         $others = $invoice->items()->where(fn ($items) => $items->whereNull('reference_type')
             ->orWhere(fn ($q) => $q->whereNotIn('reference_type', [Service::class, Domain::class]))
             ->orWhere(fn ($q) => $q->where('reference_type', Service::class)->whereNotIn('reference_id', $ours ?: [0]))
