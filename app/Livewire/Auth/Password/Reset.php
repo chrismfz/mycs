@@ -48,8 +48,10 @@ class Reset extends Component
         $status = Password::reset(
             ['email' => $this->email, 'password' => $this->password, 'password_confirmation' => $this->password_confirmation, 'token' => $this->token],
             function ($user) {
+                // The reset link reached the address: it is now confirmed.
                 $user->forceFill([
                     'password' => Hash::make($this->password),
+                    'email_verified_at' => $user->email_verified_at ?? now(),
                 ]);
 
                 $user->save();
