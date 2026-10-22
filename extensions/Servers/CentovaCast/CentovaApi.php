@@ -121,11 +121,15 @@ final class CentovaApi
     /**
      * Centova writes HTML's named entities in its XML (a Greek organization as `&Iota;&Mu;…`, live on stream 2026-10-22),
      * which XML does not know: each becomes its character, XML's own five are left as they are, an unknown one is kept
-     * as text. Otherwise one such account made the whole `listaccounts` answer unreadable.
+     * as text, and so is a bare «&». Otherwise one such account made the whole `listaccounts` answer unreadable.
      */
     private static function htmlEntities(string $body): string
     {
-        return (string) preg_replace_callback('/&([A-Za-z][A-Za-z0-9]{1,31});/', function (array $match) {
+        return (string) preg_replace_callback('/&(?:#[0-9]+;|#x[0-9A-Fa-f]+;|([A-Za-z][A-Za-z0-9]{0,31});)?/', function (array $match) {
+            if (!isset($match[1])) {
+                // A numeric reference is XML's own; a bare «&» (Rock & Roll) is text.
+                return $match[0] === '&' ? '&amp;' : $match[0];
+            }
             if (in_array($match[1], ['amp', 'lt', 'gt', 'quot', 'apos'], true)) {
                 return $match[0];
             }
