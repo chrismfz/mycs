@@ -87,6 +87,8 @@ class Settings
                 ],
                 [
                     'name' => 'app_url',
+                    // Every link the app makes starts with it (password resets, signed links): full admins only (SA-4).
+                    'permission' => '*',
                     'label' => 'App URL',
                     'default' => 'http://localhost',
                     'type' => 'text',

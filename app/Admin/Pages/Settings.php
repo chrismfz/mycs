@@ -150,6 +150,14 @@ class Settings extends Page implements HasForms
             }
         }
 
+        // The SMTP server moved (host, port, encryption, login): its password is typed again, never sent on to the new
+        // address by itself (the R6 rule of servers and gateways; security audit SA-4).
+        $mailMoved = array_intersect(['mail_host', 'mail_port', 'mail_encryption', 'mail_username'], array_keys($data)) !== [];
+        if ($mailMoved && (string) ($data['mail_password'] ?? '') === ''
+            && (string) Setting::query()->whereNull('settingable_type')->where('key', 'mail_password')->first()?->value !== '') {
+            throw ValidationException::withMessages(['data.mail_password' => __('The address changed: enter this secret again.')]);
+        }
+
         DB::transaction(function () use (&$data) {
             $this->write($data); // normalises the counters in $data
         });
