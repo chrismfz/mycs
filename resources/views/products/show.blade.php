@@ -40,7 +40,7 @@
 
             @if (filled(strip_tags((string) $product->description)))
             <article class="my-6 prose dark:prose-invert">
-                {!! $product->description !!}
+                {!! Str::sanitizeHtml((string) $product->description) !!}
             </article>
             @endif
 

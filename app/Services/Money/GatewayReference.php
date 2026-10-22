@@ -19,9 +19,9 @@ final class GatewayReference
     /** The mark: the `gateway_reference` setting, else a slug of APP_URL's host (e.g. «my-nixpal-com»). */
     public static function mark(): string
     {
-        $set = trim((string) config('settings.gateway_reference', ''));
+        $set = Str::limit(Str::slug(trim((string) config('settings.gateway_reference', ''))), 40, '');
         if ($set !== '') {
-            return Str::limit(Str::slug($set), 40, '');
+            return $set; // a setting that slugs to nothing («--») falls back to the host: never an empty mark
         }
         $host = str_replace('.', '-', (string) (parse_url((string) config('app.url'), PHP_URL_HOST) ?: 'mycs'));
 
