@@ -22,7 +22,15 @@ class StaffFactory extends Factory
             'email' => fake()->unique()->safeEmail(),
             'password' => static::$password ??= Hash::make('password'),
             'active' => true,
+            // The admin needs 2FA (security audit, decided 2026-10-22): staff have it set up unless a test says otherwise.
+            'app_authentication_secret' => 'JBSWY3DPEHPK3PXP',
         ];
+    }
+
+    /** Staff who have not set up 2FA yet (the admin asks them to before anything else). */
+    public function withoutTwoFactor(): static
+    {
+        return $this->state(fn () => ['app_authentication_secret' => null, 'app_authentication_recovery_codes' => null]);
     }
 
     /** A full administrator (role with `*`). */

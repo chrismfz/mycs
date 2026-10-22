@@ -59,13 +59,14 @@ class AdminPanelProvider extends PanelProvider
             ->default()
             ->id('admin')
             ->path(self::PATH)
-            // Staff only, with their own guard, login, password reset and optional 2FA (docs/accounts.md, PR 1).
+            // Staff only, with their own guard, login, password reset and 2FA, which every staff member sets up before anything
+            // else in the admin (docs/accounts.md, PR 1; security audit, decided 2026-10-22).
             ->authGuard('staff')
             ->authPasswordBroker('staff')
             ->login(Login::class)
             ->passwordReset()
             ->profile(EditProfile::class, isSimple: false)
-            ->multiFactorAuthentication([AppAuthentication::make()->recoverable()])
+            ->multiFactorAuthentication([AppAuthentication::make()->recoverable()], isRequired: true)
             ->spa()
             // Density, closer to WHMCS (docs/admin-ux.md): the whole width of the screen, a sidebar that folds away
             // (the top menu has the same pages), tighter spacing in density.css.
