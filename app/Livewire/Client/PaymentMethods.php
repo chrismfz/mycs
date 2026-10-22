@@ -6,6 +6,7 @@ use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
 use App\Models\Currency;
 use App\Models\Gateway;
+use App\Support\Actor;
 use App\Support\CurrentClient;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
@@ -95,6 +96,11 @@ class PaymentMethods extends Component
 
     public function createBillingAgreement()
     {
+        // Staff in «Login as client» spend or change the customer's own money (a saved card, the vault, the balance) only
+        // with the admin permission the same change needs there (security audit SA-5).
+        if (Actor::impersonating() && !Actor::staffMayAs('pay')) {
+            return $this->notify(__('account.notifications.not_while_impersonating_money'), 'error');
+        }
         $this->validate([
             'gateway' => 'required',
         ]);
@@ -116,6 +122,11 @@ class PaymentMethods extends Component
 
     public function removePaymentMethod($billingAgreementUlid)
     {
+        // Staff in «Login as client» spend or change the customer's own money (a saved card, the vault, the balance) only
+        // with the admin permission the same change needs there (security audit SA-5).
+        if (Actor::impersonating() && !Actor::staffMayAs('pay')) {
+            return $this->notify(__('account.notifications.not_while_impersonating_money'), 'error');
+        }
         $billingAgreement = CurrentClient::model()->billingAgreements()->where('ulid', $billingAgreementUlid)->first();
         if (!$billingAgreement) {
             return $this->notify(__('Billing agreement not found'), 'error');

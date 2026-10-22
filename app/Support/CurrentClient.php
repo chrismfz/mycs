@@ -67,7 +67,7 @@ class CurrentClient
 
     /**
      * Whether the login may use this area of the current account (WHMCS permission names, PR 2b): the owner and a
-     * grant without a list have them all; staff in «Login as client» act as the owner (full control).
+     * grant without a list have them all; staff in «Login as client» as far as their admin permissions go (SA-5).
      */
     public static function allows(string $permission): bool
     {
@@ -77,7 +77,7 @@ class CurrentClient
             return false;
         }
         if (Actor::impersonating()) {
-            return true;
+            return Actor::staffMayAs($permission); // only what they may do in the admin (SA-5)
         }
 
         return (bool) app(self::class)->grantOf($user, $client)?->allows($permission);

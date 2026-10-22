@@ -272,7 +272,7 @@ class Navigation
     {
         $client = CurrentClient::model();
 
-        return $client !== null && (Actor::impersonating()
+        return $client !== null && (Actor::staffMayAs('profile') // staff: with the admin permission (SA-5)
             || $client->grants()->where('user_id', Auth::id())->whereNotNull('owner_of_client_id')->whereNull('revoked_at')->exists());
     }
 

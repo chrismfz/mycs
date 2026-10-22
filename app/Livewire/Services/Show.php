@@ -478,7 +478,7 @@ class Show extends Component
             return false;
         }
         if (Actor::impersonating()) {
-            return true;
+            return Actor::staffMayAs($permission); // only what they may do in the admin (SA-5)
         }
 
         return (bool) ClientUser::query()->where('client_id', $this->service->client_id)->where('user_id', $user->id)

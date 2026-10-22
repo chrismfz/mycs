@@ -47,7 +47,7 @@ class Users extends Component
     {
         $client = CurrentClient::model();
         $user = Auth::user();
-        $owns = $client !== null && (Actor::impersonating()
+        $owns = $client !== null && (Actor::staffMayAs('profile') // staff: with the admin permission (SA-5)
             || $client->grants()->where('user_id', $user?->id)->whereNotNull('owner_of_client_id')->whereNull('revoked_at')->exists());
         abort_unless($owns, 403, __('account.only_owner_manages_users'));
 

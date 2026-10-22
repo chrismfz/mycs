@@ -15,6 +15,7 @@ use App\Models\Invoice;
 use App\Models\Service;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Payment\SavedMethodCharge;
+use App\Support\Actor;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Request;
 use Livewire\Attributes\Computed;
@@ -107,6 +108,11 @@ class Show extends Component
 
     public function processPayment()
     {
+        // Staff in «Login as client» spend or change the customer's own money (a saved card, the vault, the balance) only
+        // with the admin permission the same change needs there (security audit SA-5).
+        if (Actor::impersonating() && !Actor::staffMayAs('pay')) {
+            return $this->notify(__('account.notifications.not_while_impersonating_money'), 'error');
+        }
         if ($this->invoice->status !== Invoice::STATUS_UNPAID) {
             return $this->notify(__('This invoice cannot be paid.'), 'error');
         }

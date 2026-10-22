@@ -12,6 +12,7 @@ use App\Models\Invoice;
 use App\Models\PaymentGroup;
 use App\Services\Invoice\MassPay;
 use App\Services\Payment\SavedMethodCharge;
+use App\Support\Actor;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 
@@ -60,6 +61,11 @@ class PayTogether extends Component
 
     public function processPayment()
     {
+        // Staff in «Login as client» spend or change the customer's own money (a saved card, the vault, the balance) only
+        // with the admin permission the same change needs there (security audit SA-5).
+        if (Actor::impersonating() && !Actor::staffMayAs('pay')) {
+            return $this->notify(__('account.notifications.not_while_impersonating_money'), 'error');
+        }
         // Read again as the gateway opens: staff may have changed an invoice, or the customer chosen again elsewhere.
         $this->paymentGroup->refresh();
         if (($stale = MassPay::staleness($this->paymentGroup)) !== null) {
