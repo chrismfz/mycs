@@ -99,9 +99,14 @@ final class CentovaApi
     /** @return array{0: string, 1: string, 2: array<string, mixed>}|null type, message, data */
     private static function parse(string $body): ?array
     {
-        if (!str_contains($body, '<centovacast')) {
+        // Centova may print a debug banner before its XML (its database error on provision, live on stream 2026-10-22):
+        // the answer is the XML that follows.
+        $start = strpos($body, '<centovacast');
+        if ($start === false) {
             return null;
         }
+        $declaration = strrpos(substr($body, 0, $start), '<?xml');
+        $body = substr($body, $declaration !== false ? $declaration : $start);
         $previous = libxml_use_internal_errors(true);
         try {
             $root = simplexml_load_string(self::htmlEntities($body), SimpleXMLElement::class, LIBXML_NONET);
