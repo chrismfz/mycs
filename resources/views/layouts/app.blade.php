@@ -38,10 +38,11 @@
     <style>{!! str_ireplace('</style', '<\\/style', theme('custom_css')) !!}</style>
     @endif
     {{-- Staff's site-wide scripts (analytics, chat) never on a page whose URL is a secret: they read location.href (docs/tickets.md §3 Δ). --}}
-    @unless (request()->routeIs(...\App\Http\Middleware\StartSessionWithoutPrivateLinks::PRIVATE_ROUTES))
+    @php($privateLink = request()->routeIs(...\App\Http\Middleware\StartSessionWithoutPrivateLinks::PRIVATE_ROUTES))
+    @unless ($privateLink)
         {!! theme('custom_head') !!}
+        {!! hook('head') !!}
     @endunless
-    {!! hook('head') !!}
 </head>
 
 <body class="w-full bg-background text-base min-h-screen flex flex-col antialiased"
@@ -60,8 +61,8 @@
     }"
     :class="{'dark': isDark}"
 >
-    {!! hook('body') !!}
-    @unless (request()->routeIs(...\App\Http\Middleware\StartSessionWithoutPrivateLinks::PRIVATE_ROUTES))
+    @unless ($privateLink)
+        {!! hook('body') !!}
         {!! theme('custom_header') !!}
     @endunless
     <x-navigation />
@@ -76,7 +77,8 @@
             <x-notification />
             <x-confirmation />
             <div class="flex">
-                @if (filled(theme('custom_footer')))
+                {{-- Staff's footer HTML (a chat widget, analytics) never on a page whose URL is a secret (AUTHN-4). --}}
+                @if (filled(theme('custom_footer')) && !$privateLink)
                 {!! theme('custom_footer') !!}
                 @else
                 <x-navigation.footer />
@@ -86,7 +88,9 @@
         <x-impersonating />
     </div>
     @livewireScriptConfig
-    {!! hook('footer') !!}
+    @unless ($privateLink)
+        {!! hook('footer') !!}
+    @endunless
 </body>
 
 </html>

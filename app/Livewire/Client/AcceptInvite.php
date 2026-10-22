@@ -8,7 +8,9 @@ use App\Models\ClientInvite;
 use App\Models\User;
 use App\Support\Actor;
 use App\Support\CurrentClient;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Crypt;
 use Livewire\Attributes\Locked;
 
 /**
@@ -21,8 +23,19 @@ class AcceptInvite extends Component
     #[Locked]
     public string $token = '';
 
-    public function mount(string $token): void
+    /** The session's key for an invitation being accepted after a login (kept encrypted, never the raw link: #334). */
+    public const SESSION_KEY = 'invite.pending';
+
+    public function mount(?string $token = null): void
     {
+        if ($token === null) {
+            // Back from logging in (/invite, no secret in the URL): the invitation kept for it.
+            try {
+                $token = Crypt::decryptString((string) session(self::SESSION_KEY));
+            } catch (DecryptException) {
+                $token = '';
+            }
+        }
         $this->token = $token;
     }
 
@@ -36,14 +49,21 @@ class AcceptInvite extends Component
     /** To log in (or create a login), then back here: the invitation's link is where they return. */
     public function login(): void
     {
-        session()->put('url.intended', route('invites.accept', ['token' => $this->token]));
+        $this->keepForLater();
         $this->redirect(route('login'), true);
     }
 
     public function register(): void
     {
-        session()->put('url.intended', route('invites.accept', ['token' => $this->token]));
+        $this->keepForLater();
         $this->redirect(route('register'), true);
+    }
+
+    /** Back here after logging in, to /invite: the link's token kept encrypted in the session, not as a URL in clear. */
+    private function keepForLater(): void
+    {
+        session()->put(self::SESSION_KEY, Crypt::encryptString($this->token));
+        session()->put('url.intended', route('invites.continue'));
     }
 
     public function accept(): void
@@ -64,6 +84,7 @@ class AcceptInvite extends Component
         }
         app(CurrentClient::class)->switchTo((int) $grant->client_id);
 
+        session()->forget(self::SESSION_KEY);
         $this->notify(__('account.invite_accepted', ['name' => $invite->client->name]), 'success', true);
         $this->redirect(route('dashboard'), true);
     }
