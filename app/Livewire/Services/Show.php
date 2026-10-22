@@ -23,6 +23,9 @@ use Illuminate\Validation\Rules\Password;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Renderless;
 use Livewire\Attributes\Url;
+use Symfony\Component\HttpFoundation\RedirectResponse;
+
+use function Livewire\store;
 
 class Show extends Component
 {
@@ -296,11 +299,54 @@ class Show extends Component
             return;
         }
         $result = ExtensionHelper::callService($this->service, $function);
-        // If its a response, return it
+        // A redirect, as an address, as a response, or one the extension already asked Livewire for (redirect()->away()
+        // inside a Livewire call stores it at once: ADV-1 of #323): only to a web page (panelUrl).
+        if ($this->refusedPendingRedirect()) {
+            $this->notify(__('This action is not allowed'), 'error');
+
+            return;
+        }
+        if ($result instanceof RedirectResponse) {
+            $result = $result->getTargetUrl();
+        }
         if (!is_string($result)) {
             return $result;
         }
-        $this->redirect($result);
+        if (($url = self::panelUrl($result)) === null) {
+            $this->notify(__('This action is not allowed'), 'error');
+
+            return;
+        }
+        $this->redirect($url);
+    }
+
+    /** A redirect the extension already asked Livewire for, dropped when it is not a web page (panelUrl). */
+    private function refusedPendingRedirect(): bool
+    {
+        $pending = store($this)->get('redirect');
+        if (is_string($pending) && self::panelUrl($pending) === null) {
+            store($this)->set('redirect', null);
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * An address a server gave to open its panel, if it is a web page: http(s) with a host, nothing else (a server
+     * that answers `javascript:` would run it on this site, where the customer and staff are signed in).
+     */
+    public static function panelUrl(string $url): ?string
+    {
+        $url = trim($url);
+        $parts = parse_url($url);
+        if (preg_match('/[\x00-\x20\x7F]/', $url) === 1 || !is_array($parts) || !in_array(strtolower($parts['scheme'] ?? ''), ['https', 'http'], true)
+            || ($parts['host'] ?? '') === '' || isset($parts['user']) || isset($parts['pass'])) {
+            return null;
+        }
+
+        return $url;
     }
 
     /**
@@ -322,13 +368,17 @@ class Show extends Component
         try {
             $url = ExtensionHelper::callService($this->service, 'getLoginUrl', [$app]);
         } catch (Exception $e) {
+            // A redirect asked for before the failure goes nowhere (ADV-2 of #323).
+            store($this)->set('redirect', null);
             report($e);
             $this->notify(__('services.cpanel.failed'), 'error');
 
             return;
         }
-        if (is_string($url) && $url !== '') {
+        if (!$this->refusedPendingRedirect() && is_string($url) && ($url = self::panelUrl($url)) !== null) {
             $this->redirect($url);
+        } else {
+            $this->notify(__('services.cpanel.failed'), 'error');
         }
     }
 
