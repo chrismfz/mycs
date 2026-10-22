@@ -6,6 +6,7 @@ use App\Livewire\Auth\Password\Reset;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
 use Laravel\Socialite\Facades\Socialite;
 use Laravel\Socialite\Two\User as OauthUser;
@@ -36,6 +37,18 @@ class Adv338SocialLoginTest extends TestCase
         config(['settings.oauth_google' => true]);
     }
 
+    /** The attacker tries the token on the victim's address: a refused page (404) ends the attempt there. */
+    private function attemptReset(string $token): void
+    {
+        if ($this->get(route('password.reset', ['token' => $token, 'email' => 'victim@example.test']))->status() === 404) {
+            return;
+        }
+        Livewire::withQueryParams(['email' => 'victim@example.test'])
+            ->test(Reset::class, ['token' => $token])
+            ->set('password', 'attacker-knows-1')->set('password_confirmation', 'attacker-knows-1')
+            ->call('submit');
+    }
+
     private function requireAccentInsensitiveCollation(): void
     {
         if (DB::connection()->getDriverName() !== 'mariadb' && DB::connection()->getDriverName() !== 'mysql') {
@@ -54,10 +67,7 @@ class Adv338SocialLoginTest extends TestCase
         // Then moves the account to the victim's address (unconfirmed: the change clears the confirmation).
         $attacker->forceFill(['email' => 'victim@example.test', 'email_verified_at' => null])->save();
 
-        Livewire::withQueryParams(['email' => 'victim@example.test'])
-            ->test(Reset::class, ['token' => $token])
-            ->set('password', 'attacker-knows-1')->set('password_confirmation', 'attacker-knows-1')
-            ->call('submit');
+        $this->attemptReset($token);
 
         $this->assertNull($attacker->fresh()->email_verified_at, 'A token mailed to another address confirmed this one.');
 
@@ -78,15 +88,37 @@ class Adv338SocialLoginTest extends TestCase
 
         $squatter = User::factory()->create(['email' => 'victim@example.test', 'email_verified_at' => null]);
 
-        Livewire::withQueryParams(['email' => 'victim@example.test'])
-            ->test(Reset::class, ['token' => $token])
-            ->set('password', 'attacker-knows-1')->set('password_confirmation', 'attacker-knows-1')
-            ->call('submit');
+        $this->attemptReset($token);
 
         $this->assertNull($squatter->fresh()->email_verified_at, 'Another account\'s reset token confirmed this address.');
 
         $this->provider('victim@example.test');
         $this->get('/oauth/google/callback');
         $this->assertGuest();
+    }
+
+    public function test_a_token_row_of_a_lookalike_address_resets_nothing(): void
+    {
+        $this->requireAccentInsensitiveCollation();
+
+        // A row left for a lookalike address (written before tokens died with an address change): the collation finds it.
+        $victim = User::factory()->create(['email' => 'victim@example.test', 'email_verified_at' => null, 'password' => 'Owner-Pass-1']);
+        DB::table('password_reset_tokens')->insert(['email' => 'victim@exämple.test', 'token' => Hash::make('t0ken'), 'created_at' => now()]);
+
+        $this->get(route('password.reset', ['token' => 't0ken', 'email' => 'victim@example.test']))->assertNotFound();
+        $this->attemptReset('t0ken');
+
+        $this->assertTrue(Hash::check('Owner-Pass-1', $victim->fresh()->password));
+        $this->assertNull($victim->fresh()->email_verified_at);
+    }
+
+    public function test_an_address_change_ends_its_reset_links(): void
+    {
+        $user = User::factory()->create(['email' => 'old@example.test']);
+        Password::createToken($user);
+
+        $user->update(['email' => 'new@example.test']);
+
+        $this->assertSame(0, DB::table('password_reset_tokens')->count());
     }
 }

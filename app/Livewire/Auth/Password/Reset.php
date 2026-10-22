@@ -6,6 +6,7 @@ use App\Livewire\Component;
 use App\Models\User;
 use App\Traits\Captchable;
 use Illuminate\Auth\Events\PasswordReset;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Request;
@@ -34,9 +35,20 @@ class Reset extends Component
             return abort(404);
         }
         // Validate token
-        if (!Password::tokenExists(User::where('email', $this->email)->firstOrFail(), $this->token)) {
+        if (!$this->tokenIsTheAccounts(User::where('email', $this->email)->firstOrFail())) {
             return abort(404);
         }
+    }
+
+    /**
+     * The token was mailed to exactly the account's address: the table's collation matches «exämple» to «example», and a
+     * reset confirms the address.
+     */
+    private function tokenIsTheAccounts(User $user): bool
+    {
+        return DB::table((string) config('auth.passwords.users.table'))->where('email', $user->email)->get()
+            ->contains(fn ($row) => hash_equals((string) $user->email, (string) $row->email) && Hash::check($this->token, (string) $row->token))
+            && Password::tokenExists($user, $this->token);
     }
 
     public function submit()
@@ -44,6 +56,11 @@ class Reset extends Component
         $this->validate();
 
         $this->captcha();
+
+        $user = User::where('email', $this->email)->first();
+        if (!$user || !$this->tokenIsTheAccounts($user)) {
+            return $this->notify(__(Password::INVALID_TOKEN), 'error');
+        }
 
         $status = Password::reset(
             ['email' => $this->email, 'password' => $this->password, 'password_confirmation' => $this->password_confirmation, 'token' => $this->token],
