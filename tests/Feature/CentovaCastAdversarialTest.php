@@ -127,7 +127,7 @@ class CentovaCastAdversarialTest extends TestCase
 
     private function sibling(array $attributes = []): Service
     {
-        $other = $this->service->replicate()->fill(['username' => null] + $attributes);
+        $other = $this->service->replicate()->fill($attributes + ['username' => null]);
         $other->save();
 
         return $other;

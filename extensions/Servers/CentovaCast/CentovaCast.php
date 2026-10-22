@@ -9,6 +9,7 @@ use App\Exceptions\ServerRefused;
 use App\Models\Service;
 use App\Support\Services\ServiceUsageRead;
 use Exception;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Str;
 
 /**
@@ -28,6 +29,8 @@ class CentovaCast extends Server implements ReadsServiceUsage
     public const DISABLED = 'centova_disabled_by_us';
 
     public const PENDING = 'centova_pending_username';
+
+    public const USERNAME = 'centova_username';
 
     public const DISABLE_ONLY = 'disable_only';
 
@@ -97,9 +100,16 @@ class CentovaCast extends Server implements ReadsServiceUsage
      */
     private static function account(CentovaApi $api, string $username): array
     {
-        foreach (CentovaApi::rows($api->system('listaccounts', ['start' => 0, 'limit' => 100, 'filter' => $username])) as $row) {
-            if (($row['username'] ?? null) === $username) {
-                return $row;
+        // A keyword filter: every page read, never only the first hundred matches (ADV-6 of #329).
+        for ($start = 0; $start < 10000; $start += 100) {
+            $rows = CentovaApi::rows($api->system('listaccounts', ['start' => $start, 'limit' => 100, 'filter' => $username]));
+            foreach ($rows as $row) {
+                if (($row['username'] ?? null) === $username) {
+                    return $row;
+                }
+            }
+            if (count($rows) < 100) {
+                break;
             }
         }
 
@@ -113,8 +123,8 @@ class CentovaCast extends Server implements ReadsServiceUsage
     private static function owned(CentovaApi $api, Service $service, array $properties): string
     {
         $username = self::username($service, $properties) ?? throw new Exception('Service has not been created');
-        $others = Service::query()->whereKeyNot($service->id)->where('server_id', $service->server_id)
-            ->whereNotIn('status', [Service::STATUS_CANCELLED, Service::STATUS_TERMINATED])->where('username', $username)->exists();
+        $others = self::claimants($service, $username, [self::USERNAME])
+            ->whereNotIn('status', [Service::STATUS_CANCELLED, Service::STATUS_TERMINATED])->exists();
         if ($others) {
             throw new Exception("Centova Cast: another service here has the account «{$username}»: check them before anything is done");
         }
@@ -144,6 +154,54 @@ class CentovaCast extends Server implements ReadsServiceUsage
     }
 
     /**
+     * Another service here has this name, or keeps it for a create not answered yet (code review 2 of #329: two services
+     * of one client never end up on one account).
+     */
+    private static function claimedElsewhere(Service $service, string $name): bool
+    {
+        return self::claimants($service, $name, [self::USERNAME, self::PENDING])->exists();
+    }
+
+    /**
+     * The other services here with this name, as their username or one of these properties, compared trimmed and in any
+     * case (an imported « radio» or «Radio» is still «radio»: ADV-4 of #329).
+     *
+     * @param  list<string>  $keys
+     * @return Builder<Service>
+     */
+    private static function claimants(Service $service, string $name, array $keys)
+    {
+        $name = strtolower(trim($name));
+
+        return Service::query()->whereKeyNot($service->id)->where('server_id', $service->server_id)->where(fn ($query) => $query
+            ->whereRaw('LOWER(TRIM(username)) = ?', [$name])
+            ->orWhereHas('properties', fn ($property) => $property->whereIn('key', $keys)->whereRaw('LOWER(TRIM(value)) = ?', [$name])));
+    }
+
+    /**
+     * Centova has this account with this email (its `listaccounts` row, else its `getaccount`: listaccounts' other fields
+     * are not promised, code review 4 of #329).
+     */
+    private static function hasEmail(CentovaApi $api, string $username, array $row, string $email): bool
+    {
+        if ($email === '') {
+            return false;
+        }
+        $found = $row['email'] ?? null;
+        if (!is_string($found) || $found === '') {
+            $account = $api->server($username, 'getaccount')['account'] ?? null;
+            $found = is_array($account) && ($account['username'] ?? null) === $username ? ($account['email'] ?? '') : '';
+        }
+
+        return is_string($found) && strcasecmp(trim($found), $email) === 0;
+    }
+
+    private static function on(mixed $value, bool $default): bool
+    {
+        return $value === null || $value === '' ? $default : in_array($value, [true, 1, '1', 'on', 'true', 'yes'], true);
+    }
+
+    /**
      * A free username from the account's company, its name or its email (as Centova's WHMCS module: lower-case letters,
      * then two digits when taken), free both at Centova and among the services here.
      */
@@ -160,8 +218,7 @@ class CentovaCast extends Server implements ReadsServiceUsage
         if (strlen($stub) < 3 || !ctype_alpha($stub[0])) {
             $stub = 'radio';
         }
-        $free = fn (string $name) => !Service::query()->where('server_id', $service->server_id)->where('username', $name)->exists()
-            && self::account($api, $name) === [];
+        $free = fn (string $name) => !self::claimedElsewhere($service, $name) && self::account($api, $name) === [];
         foreach (array_merge([$stub], array_map(fn (int $i) => $stub . sprintf('%02d', $i), range(1, 30))) as $candidate) {
             if ($free($candidate)) {
                 return $candidate;
@@ -190,11 +247,11 @@ class CentovaCast extends Server implements ReadsServiceUsage
         $username = (string) $service->properties()->where('key', self::PENDING)->value('value');
         if ($username !== '') {
             $existing = self::account($api, $username);
-            if ($existing !== [] && $email !== '' && strcasecmp((string) ($existing['email'] ?? ''), $email) === 0) {
+            if ($existing !== [] && !self::claimedElsewhere($service, $username) && self::hasEmail($api, $username, $existing, $email)) {
                 return $this->made($service, $username, $existing);
             }
-            if ($existing !== []) {
-                $username = ''; // taken since, or not ours to tell: never adopted
+            if ($existing !== [] || self::claimedElsewhere($service, $username)) {
+                $username = ''; // taken since, another service's, or not ours to tell: never adopted
             }
         }
         if ($username === '') {
@@ -221,9 +278,14 @@ class CentovaCast extends Server implements ReadsServiceUsage
                 'autorebuildlist' => 1,
                 'introfile' => '',
                 'fallbackfile' => '',
-                'autostart' => in_array($settings['autostart'] ?? '1', [true, 1, '1', 'on', 'yes'], true) ? 1 : 0,
+                'autostart' => self::on($settings['autostart'] ?? null, true) ? 1 : 0,
             ] + self::limits($settings));
         } catch (ServerRefused $e) {
+            // Refused, yet made (an error after the account was created, code review 3 of #329): kept, never a second one.
+            $existing = self::account($api, $username);
+            if ($existing !== [] && self::hasEmail($api, $username, $existing, $email)) {
+                return $this->made($service, $username, $existing);
+            }
             $service->properties()->where('key', self::PENDING)->delete();
 
             throw $e;
@@ -256,8 +318,13 @@ class CentovaCast extends Server implements ReadsServiceUsage
     {
         $api = $this->api();
         $username = self::owned($api, $service, $properties);
-        $enabled = $api->server($username, 'enabled');
-        if ((string) ($enabled['enabled'] ?? '1') !== '1') {
+        // One row, as Centova documents it (or its fields alone); not read: nothing assumed (code review 1 of #329).
+        $answer = $api->server($username, 'enabled');
+        $enabled = $answer['enabled'] ?? (CentovaApi::rows($answer)[0]['enabled'] ?? null);
+        if (!is_scalar($enabled) || !in_array((string) $enabled, ['0', '1'], true)) {
+            throw new Exception("Centova Cast: whether «{$username}» is enabled could not be read");
+        }
+        if ((string) $enabled !== '1') {
             return true;
         }
         $up = collect(CentovaApi::rows($api->system('info')))->firstWhere('username', $username)['expected'] ?? 'down';
@@ -335,20 +402,14 @@ class CentovaCast extends Server implements ReadsServiceUsage
     }
 
     /**
-     * A new password for the account's panel. Centova has no call for it alone: its account is read and sent back with
-     * the new password (as Centova's own module). Kept once Centova took it.
+     * A new password for the account's panel: `reconfigure` with it alone (Centova takes a partial reconfigure, as its own
+     * module's plan change sends; the account is never read and sent back, code review 5 of #329). Kept once Centova took it.
      */
     public function changePassword(Service $service, $settings, $properties, string $password, bool $mysqlToo = false): bool
     {
         $api = $this->api();
         $username = self::owned($api, $service, $properties);
-        $account = $api->server($username, 'getaccount')['account'] ?? null;
-        if (!is_array($account) || ($account['username'] ?? null) !== $username) {
-            throw new Exception("Centova Cast: the account «{$username}» could not be read");
-        }
-        $account = array_filter($account, 'is_scalar');
-        unset($account['username'], $account['password']);
-        $api->server($username, 'reconfigure', ['adminpassword' => $password] + $account);
+        $api->server($username, 'reconfigure', ['adminpassword' => $password]);
         $service->forceFill(['password' => $password])->save();
 
         return true;

@@ -47,6 +47,14 @@ class CentovaCastExtensionTest extends TestCase
 
     private bool $down = false;
 
+    /** Centova makes the account, then answers an error (code review 3 of #329). */
+    private bool $madeThenRefused = false;
+
+    /** listaccounts rows with no email (only id, username and password are promised: code review 4). */
+    private bool $bareRows = false;
+
+    private bool $enabledUnreadable = false;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -92,6 +100,11 @@ class CentovaCastExtensionTest extends TestCase
         }
         $this->calls[] = [$class, $method, $args];
         $this->assertSame($class === 'system' ? 'admin-secret' : 'admin|admin-secret', $args['password'], 'the admin\'s password, as Centova\'s module sends it');
+        if ($this->madeThenRefused && $method === 'provision') {
+            $this->accounts[$args['username']] = ['username' => $args['username'], 'email' => $args['email'], 'status' => 'enabled'];
+
+            return Http::response(self::xml('error', '', 'Could not start the server'));
+        }
         if (isset($this->refuse[$method])) {
             return Http::response(self::xml('error', '', $this->refuse[$method]));
         }
@@ -100,7 +113,7 @@ class CentovaCastExtensionTest extends TestCase
 
         return match ("{$class}.{$method}") {
             'system.listaccounts' => Http::response(self::xml('success', implode('', array_map(fn ($a) => '<row>' . self::fields($a) . '</row>',
-                array_filter($this->accounts, fn ($a) => str_contains($a['username'], $args['filter'] ?? '')))))),
+                array_map(fn ($a) => $this->bareRows ? ['username' => $a['username']] : $a, array_filter($this->accounts, fn ($a) => str_contains($a['username'], $args['filter'] ?? ''))))))),
             'system.provision' => tap(Http::response(self::xml('success', '<account>' . self::fields(['username' => $user, 'ipaddress' => '10.0.0.5', 'port' => '9250', 'servertype' => 'IceCast', 'sourcetype' => 'liquidsoap']) . '</account>')),
                 fn () => $this->accounts[$user] = ['username' => $user, 'email' => $args['email'], 'status' => 'enabled', 'adminpassword' => $args['adminpassword']]),
             'system.setstatus' => tap($ok, fn () => $this->accounts[$user]['status'] = $args['status']),
@@ -109,7 +122,7 @@ class CentovaCastExtensionTest extends TestCase
             }),
             'system.info' => Http::response(self::xml('success', implode('', array_map(fn ($a) => '<row>' . self::fields(['username' => $a['username'], 'state' => 'up', 'expected' => 'up']) . '</row>', $this->accounts)))),
             'system.usage' => Http::response(self::xml('success', '<row>' . self::fields(['username' => 'radio', 'diskquota' => 1000, 'transferlimit' => -1, 'diskusage' => 120, 'transferusage' => 4500]) . '</row>')),
-            'server.enabled' => Http::response(self::xml('success', self::fields(['enabled' => ($this->accounts[$user]['status'] ?? '') === 'enabled' ? 1 : 0, 'username' => $user, 'reseller' => 0]))),
+            'server.enabled' => $this->enabledUnreadable ? Http::response(self::xml('success', '<row><username>radio</username></row>')) : Http::response(self::xml('success', '<row>' . self::fields(['enabled' => ($this->accounts[$user]['status'] ?? '') === 'enabled' ? 1 : 0, 'username' => $user, 'reseller' => 0]) . '</row>')),
             'server.getaccount' => Http::response(self::xml('success', '<account>' . self::fields($this->accounts[$user] + ['maxclients' => 100, 'title' => 'Old & Gold']) . '</account>')),
             'server.reconfigure' => tap($ok, fn () => $this->accounts[$user] = array_merge($this->accounts[$user], array_diff_key($args, ['password' => 1]))),
             default => $ok,
@@ -153,9 +166,6 @@ class CentovaCastExtensionTest extends TestCase
         $this->assertSame('radiofono01', $this->sent('system.provision')[0]['username']);
 
         // A lost answer: the name kept, the account made with this account's email: adopted, nothing provisioned again.
-        $other = $this->service->replicate()->fill(['username' => null]);
-        $other->save();
-        $other->properties()->create(['key' => CentovaCast::PENDING, 'name' => 'p', 'value' => 'radiofono01']);
         $this->service->properties()->delete();
         $this->service->forceFill(['username' => null])->save();
         $this->service->properties()->create(['key' => CentovaCast::PENDING, 'name' => 'p', 'value' => 'radiofono01']);
@@ -173,6 +183,44 @@ class CentovaCastExtensionTest extends TestCase
 
         $this->assertSame('radiofono01', $this->sent('system.provision')[0]['username']);
         $this->assertSame('someone@else.test', $this->accounts['radiofono']['email'], 'never adopted');
+    }
+
+    public function test_a_name_another_service_keeps_for_its_create_is_never_taken_nor_adopted(): void
+    {
+        // Service A's provision never reached Centova: it keeps «radiofono». B (same client) must not take it, and A's
+        // retry must not adopt B's account (code review 2 of #329).
+        $a = $this->service->replicate();
+        $a->save();
+        $a->properties()->create(['key' => CentovaCast::PENDING, 'name' => 'p', 'value' => 'radiofono']);
+
+        ExtensionHelper::createServer($this->service->fresh());
+        $this->assertSame('radiofono01', $this->service->fresh()->username);
+
+        $this->service->forceFill(['username' => 'radiofono'])->save(); // even when B has the name itself
+        $this->accounts['radiofono'] = ['username' => 'radiofono', 'email' => 'station@example.test', 'status' => 'enabled'];
+        ExtensionHelper::createServer($a->fresh());
+        $this->assertNotSame('radiofono', $a->fresh()->username);
+    }
+
+    public function test_an_error_after_the_account_was_made_keeps_it_and_makes_no_second(): void
+    {
+        $this->madeThenRefused = true;
+        $this->bareRows = true; // and the email read from getaccount
+
+        ExtensionHelper::createServer($this->service->fresh());
+
+        $this->assertCount(1, $this->sent('system.provision'));
+        $this->assertSame('radiofono', $this->service->fresh()->username);
+        $this->assertCount(1, $this->sent('server.getaccount'));
+    }
+
+    public function test_suspend_never_guesses_whether_the_account_is_enabled(): void
+    {
+        $this->made();
+        $this->enabledUnreadable = true;
+
+        $this->assertFalse(rescue(fn () => ExtensionHelper::suspendServer($this->service->fresh()), false, false));
+        $this->assertNull($this->service->properties()->where('key', CentovaCast::DISABLED)->value('value'));
     }
 
     public function test_a_refused_provision_takes_the_kept_name_off(): void
@@ -265,7 +313,8 @@ class CentovaCastExtensionTest extends TestCase
 
         $page->set('newPassword', 'N3w-Strong-Pass')->set('newPasswordConfirmation', 'N3w-Strong-Pass')->call('changeServicePassword');
         [$sent] = $this->sent('server.reconfigure');
-        $this->assertSame(['N3w-Strong-Pass', 'Old & Gold', '100'], [$sent['adminpassword'], $sent['title'], $sent['maxclients']]);
+        $this->assertSame(['username', 'password', 'adminpassword'], array_keys($sent), 'the password alone, the account never sent back');
+        $this->assertSame('N3w-Strong-Pass', $sent['adminpassword']);
         $this->assertSame('N3w-Strong-Pass', $this->service->fresh()->password);
 
         $this->refuse['reconfigure'] = 'Password too short';
