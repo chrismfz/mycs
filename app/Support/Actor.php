@@ -34,6 +34,54 @@ class Actor
         return $user instanceof User ? $user : null;
     }
 
+    /**
+     * The admin permission each of an account's permissions takes for staff in «Login as client» (security audit SA-5):
+     * they do there only what they may do in the admin, as the domains page already had it (R2).
+     */
+    public const STAFF_PERMISSION_AS = [
+        // Seeing the account: as any staff in «Login as client» could.
+        'products' => null,
+        'domains' => null,
+        'invoices' => null,
+        'quotes' => null,
+        'tickets' => null,
+        'emails' => null,
+        // Acting on it: what the same change needs in the admin.
+        'profile' => 'admin.clients.update',
+        'contacts' => 'admin.clients.update',
+        'affiliates' => 'admin.clients.update',
+        'manageproducts' => 'admin.services.update',
+        'productsso' => 'admin.services.update',
+        'managedomains' => null, // the domain pages ask for each change's own admin permission (staffMay, R2)
+        'orders' => 'admin.orders.create',
+        // Paying with the customer's own money (a saved card, the vault, the balance): the admin's «mark paid».
+        'pay' => 'admin.invoices.update',
+    ];
+
+    /**
+     * Staff in «Login as client» may use this permission of the account (null: anything any login of it may): the
+     * admin permission it takes (STAFF_PERMISSION_AS); never one with none listed. False when not impersonating.
+     */
+    public static function staffMayAs(?string $permission): bool
+    {
+        if (!self::impersonating()) {
+            return false;
+        }
+        $staff = Auth::guard('staff')->user();
+        if (!$staff instanceof Staff) {
+            return false;
+        }
+        if ($permission === null) {
+            return true;
+        }
+        if (!array_key_exists($permission, self::STAFF_PERMISSION_AS)) {
+            return false; // none listed: not theirs to use
+        }
+        $admin = self::STAFF_PERMISSION_AS[$permission];
+
+        return $admin === null || $staff->hasPermission($admin);
+    }
+
     public static function impersonating(): bool
     {
         try {

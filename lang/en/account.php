@@ -42,6 +42,7 @@ return [
     ],
 
     'notifications' => [
+        'not_while_impersonating_money' => 'Staff signed in as the customer need the invoices permission to pay with or change the customer\'s cards and balance.',
         'not_while_impersonating' => 'Staff signed in as the customer cannot change the login\'s email or two-factor authentication.',
         'email_changed_subject' => 'The email of your login was changed',
         'email_changed_body' => 'The email you sign in with at :site was changed from :old to :new. If you did not do this, contact us at once.',

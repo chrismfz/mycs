@@ -87,6 +87,12 @@ class Account extends ComponentWithProperties
                 return;
             }
         }
+        // Staff in «Login as client» change the account's details only with the admin permission they need there (SA-5).
+        if (Actor::impersonating() && !Actor::staffMayAs('profile')) {
+            $this->notify(__('account.notifications.not_while_impersonating'), 'error');
+
+            return;
+        }
         $this->reset('email_password');
         $client = CurrentClient::allows('profile') ? CurrentClient::model() : null;
         // All of it or nothing (code review of #247): the account's details refused (a domain's contact, P1b-1) leave the

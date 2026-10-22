@@ -11,6 +11,7 @@ use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Services\Money\MoneyHistory;
+use App\Support\Actor;
 use App\Support\CurrentClient;
 use Exception;
 use Illuminate\Support\Facades\DB;
@@ -60,12 +61,25 @@ class Credits extends Component
 
     public function updatedAutoApply(bool $value): void
     {
+        // Staff in «Login as client» spend or change the customer's own money (here: its balance paying open invoices on its own) only
+        // with the admin permission the same change needs there (security audit SA-5).
+        if (Actor::impersonating() && !Actor::staffMayAs('pay')) {
+            $this->autoApply = (bool) (CurrentClient::model()->credit_auto_apply ?? true);
+            $this->notify(__('account.notifications.not_while_impersonating_money'), 'error');
+
+            return;
+        }
         CurrentClient::model()?->forceFill(['credit_auto_apply' => $value])->save();
         $this->notify($value ? __('account.credit_auto_apply_on') : __('account.credit_auto_apply_off'), 'success');
     }
 
     public function addCredit()
     {
+        // Staff in «Login as client» spend or change the customer's own money (a saved card, the vault, the balance) only
+        // with the admin permission the same change needs there (security audit SA-5).
+        if (Actor::impersonating() && !Actor::staffMayAs('pay')) {
+            return $this->notify(__('account.notifications.not_while_impersonating_money'), 'error');
+        }
         $this->validate([
             'currency' => 'required|exists:currencies,code',
             'amount' => 'required|numeric|min:' . config('settings.credits_minimum_deposit') . '|max:' . config('settings.credits_maximum_deposit'),

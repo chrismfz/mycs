@@ -6,6 +6,7 @@ use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
 use App\Models\Currency;
 use App\Models\Gateway;
+use App\Support\Actor;
 use App\Support\CurrentClient;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
@@ -34,6 +35,19 @@ class PaymentMethods extends Component
         $this->autoCharge = (bool) CurrentClient::model()->auto_charge;
     }
 
+    /** Staff in «Login as client» change how the customer's money is spent (a saved card, the vault, auto-charge) only with
+     * the admin permission the same change needs there (security audit SA-5). */
+    private function staffMayPay(): bool
+    {
+        if (Actor::impersonating() && !Actor::staffMayAs('pay')) {
+            $this->notify(__('account.notifications.not_while_impersonating_money'), 'error');
+
+            return false;
+        }
+
+        return true;
+    }
+
     private function sameAccount(): bool
     {
         // The route's `client.can:invoices`, again for Livewire's own requests.
@@ -48,6 +62,11 @@ class PaymentMethods extends Component
 
     public function updatedAutoCharge($value): void
     {
+        if (!$this->staffMayPay()) {
+            $this->autoCharge = (bool) CurrentClient::model()->auto_charge;
+
+            return;
+        }
         if (!$this->sameAccount()) {
             $this->autoCharge = (bool) CurrentClient::model()->auto_charge;
 
@@ -60,7 +79,7 @@ class PaymentMethods extends Component
     /** The method that pays the account's renewals (one per account, decision 6). */
     public function makeDefault($billingAgreementUlid)
     {
-        if (!$this->sameAccount()) {
+        if (!$this->staffMayPay() || !$this->sameAccount()) {
             return;
         }
         $agreement = CurrentClient::model()->billingAgreements()->where('ulid', $billingAgreementUlid)->first();
@@ -95,6 +114,9 @@ class PaymentMethods extends Component
 
     public function createBillingAgreement()
     {
+        if (!$this->staffMayPay()) {
+            return;
+        }
         $this->validate([
             'gateway' => 'required',
         ]);
@@ -116,6 +138,9 @@ class PaymentMethods extends Component
 
     public function removePaymentMethod($billingAgreementUlid)
     {
+        if (!$this->staffMayPay()) {
+            return;
+        }
         $billingAgreement = CurrentClient::model()->billingAgreements()->where('ulid', $billingAgreementUlid)->first();
         if (!$billingAgreement) {
             return $this->notify(__('Billing agreement not found'), 'error');

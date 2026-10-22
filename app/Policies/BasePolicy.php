@@ -30,6 +30,14 @@ class BasePolicy
         }
         $grant = ClientUser::query()->where('user_id', $user->id)->where('client_id', (int) $clientId)->whereNull('revoked_at')->first();
 
-        return $grant !== null && ($permission === null || Actor::impersonating() || $grant->allows($permission));
+        if ($grant === null) {
+            return false;
+        }
+        // Staff in «Login as client»: as far as their admin permissions go, never the customer's own (SA-5).
+        if (Actor::impersonating()) {
+            return Actor::staffMayAs($permission);
+        }
+
+        return $permission === null || $grant->allows($permission);
     }
 }
