@@ -76,6 +76,59 @@
                 @endif
             </x-form.configoption>
         @endforeach
+
+        {{-- The hosting's domain (owner 2026-10-22, as WHMCS asks before the cart): free → register it with the hosting;
+             taken → transfer it here, or keep it where it is and point it to us. --}}
+        @if ($this->asksDomain())
+        @php
+            $domainCurrency = \App\Models\Currency::query()->find(\App\Livewire\DomainShop\Search::currency());
+            $domainPrice = fn (?string $amount, ?int $years = 1) => $amount === null || $domainCurrency === null ? ''
+                : (($years ?? 1) > 1 ? trans_choice('domains.shop.per_years', $years, ['price' => (new \App\Classes\Price(['price' => $amount, 'currency' => $domainCurrency]))->formatted->price, 'years' => $years])
+                    : __('domains.shop.per_year', ['price' => (new \App\Classes\Price(['price' => $amount, 'currency' => $domainCurrency]))->formatted->price]));
+        @endphp
+        <div class="flex flex-col gap-3 rounded-md border border-neutral p-3">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <p class="text-sm text-base/70">{{ __('domains.checkout.lead') }}</p>
+                <x-button.secondary type="button" wire:click="checkDomain" wire:loading.attr="disabled" wire:target="checkDomain" class="w-fit!">
+                    {{ __('domains.transfer.check') }}
+                </x-button.secondary>
+            </div>
+            @if ($domainOffer)
+                @php
+                    $free = $domainOffer['status'] === \App\Services\Domains\DomainSearch::FREE;
+                    $taken = $domainOffer['status'] === \App\Services\Domains\DomainSearch::TAKEN;
+                @endphp
+                @if ($free && $domainOffer['register'] !== null)
+                    <p class="text-sm font-semibold text-success">{{ __('domains.checkout.free', ['domain' => $domainOffer['fqdn']]) }}</p>
+                    <label class="flex items-start gap-2 text-sm">
+                        <input type="radio" wire:model.live="domainAction" value="register" class="mt-1">
+                        <span>{{ __('domains.checkout.register', ['domain' => $domainOffer['fqdn']]) }} <strong>{{ $domainPrice($domainOffer['register'], $domainOffer['years']) }}</strong></span>
+                    </label>
+                    <label class="flex items-start gap-2 text-sm">
+                        <input type="radio" wire:model.live="domainAction" value="" class="mt-1">
+                        <span>{{ __('domains.checkout.hosting_only') }}</span>
+                    </label>
+                @elseif ($taken && $domainOffer['transfer'] !== null)
+                    <p class="text-sm">{{ __('domains.checkout.taken', ['domain' => $domainOffer['fqdn']]) }}</p>
+                    <label class="flex items-start gap-2 text-sm">
+                        <input type="radio" wire:model.live="domainAction" value="" class="mt-1">
+                        <span>{{ __('domains.checkout.keep') }}</span>
+                    </label>
+                    <label class="flex items-start gap-2 text-sm">
+                        <input type="radio" wire:model.live="domainAction" value="transfer" class="mt-1">
+                        <span>{{ __('domains.checkout.transfer', ['domain' => $domainOffer['fqdn']]) }} <strong>{{ $domainPrice($domainOffer['transfer']) }}</strong></span>
+                    </label>
+                    @if ($domainAction === 'transfer')
+                        <x-form.input name="domainEpp" wire:model="domainEpp" :label="__('domains.checkout.epp')" :placeholder="__('domains.transfer.epp_placeholder')" />
+                    @endif
+                @elseif ($taken)
+                    <p class="text-sm">{{ __('domains.checkout.taken_keep', ['domain' => $domainOffer['fqdn']]) }}</p>
+                @else
+                    <p class="text-sm text-base/70">{{ __('domains.checkout.unknown') }}</p>
+                @endif
+            @endif
+        </div>
+        @endif
     </div>
     <div class="flex flex-col gap-2 w-full col-span-1 bg-background-secondary p-3 rounded-md h-fit">
         <h2 class="text-2xl font-semibold  mb-2">

@@ -337,4 +337,17 @@ return [
         'have_one' => 'Έχετε ήδη domain σε άλλον πάροχο;',
         'search_instead' => 'Ψάχνετε νέο domain;',
     ],
+    // The hosting's domain at checkout (Products\Checkout, owner 2026-10-22)
+    'checkout' => [
+        'lead' => 'Για ποιο domain είναι το hosting; Ελέγξτε αν είναι ελεύθερο για να το καταχωρίσετε μαζί, ή αν μπορεί να έρθει σε εμάς.',
+        'free' => 'Το :domain είναι ελεύθερο!',
+        'register' => 'Καταχώριση του :domain μαζί με το hosting:',
+        'hosting_only' => 'Όχι, μόνο το hosting',
+        'taken' => 'Το :domain είναι ήδη κατοχυρωμένο. Αν είναι δικό σας:',
+        'keep' => 'Το κρατώ στον πάροχό του (αλλάζω μόνο τους nameservers)',
+        'transfer' => 'Μεταφορά του :domain σε εμάς:',
+        'epp' => 'Κωδικός EPP / Auth code',
+        'taken_keep' => 'Το :domain είναι ήδη κατοχυρωμένο: στήνουμε το hosting γι’ αυτό· αλλάξτε τους nameservers του στον πάροχό του.',
+        'unknown' => 'Δεν μπορέσαμε να το ελέγξουμε τώρα. Μπορείτε να συνεχίσετε μόνο με το hosting και να προσθέσετε το domain από την αναζήτηση.',
+    ],
 ];

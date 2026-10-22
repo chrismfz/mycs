@@ -19,9 +19,14 @@ use Illuminate\Support\Facades\RateLimiter;
 
 class Cart
 {
+    /** The request's attribute holding a cart made in this request: its cookie reaches only the next one. */
+    private const MADE_NOW = 'cart.made_now';
+
     public static function getOnce()
     {
-        if (!Cookie::has('cart') || !$cart = \App\Models\Cart::where('ulid', Cookie::get('cart'))->first()) {
+        // A cart made earlier in this request is the one, not a second (a hosting and its domain added together).
+        $ulid = request()->attributes->get(self::MADE_NOW) ?? Cookie::get('cart');
+        if (!is_string($ulid) || !$cart = \App\Models\Cart::where('ulid', $ulid)->first()) {
             return new \App\Models\Cart;
         }
 
@@ -54,6 +59,7 @@ class Cart
             $cart->currency_code = session('currency', session('currency', config('settings.default_currency')));
             $cart->save();
             Cookie::queue('cart', $cart->ulid, 60 * 24 * 30); // 30 days
+            request()->attributes->set(self::MADE_NOW, $cart->ulid);
             $cart = \App\Models\Cart::find($cart->id);
         }
 
