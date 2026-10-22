@@ -11,6 +11,7 @@ use App\Models\Product;
 use App\Services\Domains\DomainSearch;
 use App\Services\Domains\Ordering\DomainOffer;
 use App\Services\Domains\Ordering\DomainOrderLine;
+use App\Support\CallerIp;
 use App\Support\CurrentClient;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cookie;
@@ -267,7 +268,7 @@ class Cart
             return sprintf('cart-add:user:%s', Auth::id());
         }
 
-        return sprintf('cart-add:ip:%s', request()->ip());
+        return sprintf('cart-add:ip:%s', CallerIp::key());
     }
 
     public static function remove($index)
@@ -369,11 +370,11 @@ class Cart
 
     public static function applyCoupon($code)
     {
-        if (RateLimiter::tooManyAttempts('apply_coupon_' . request()->ip(), 5)) {
+        if (RateLimiter::tooManyAttempts('apply_coupon_' . CallerIp::key(), 5)) {
             throw new DisplayException(__('Too many attempts. Please try again later.'));
         }
 
-        RateLimiter::hit('apply_coupon_' . request()->ip());
+        RateLimiter::hit('apply_coupon_' . CallerIp::key());
 
         $coupon = self::validateCoupon($code);
 

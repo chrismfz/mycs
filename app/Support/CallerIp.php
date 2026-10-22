@@ -19,6 +19,12 @@ final class CallerIp
     }
 
     /** One caller for a limit: an IPv4 address, or an IPv6 one's /64 (one customer's network: else 2^64 callers). */
+    /** The current request's caller as a rate limit's key: its own address, an IPv6 one by its /64 (AUTHN-2). */
+    public static function key(?Request $request = null): string
+    {
+        return self::bucket(self::of($request ?? request()));
+    }
+
     public static function bucket(string $ip): string
     {
         if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false) {

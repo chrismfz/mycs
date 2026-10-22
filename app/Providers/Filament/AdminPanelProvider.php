@@ -3,6 +3,7 @@
 namespace App\Providers\Filament;
 
 use App\Admin\Auth\EditProfile;
+use App\Admin\Auth\Login;
 use App\Http\Controllers\TicketAttachmentController;
 use App\Http\Middleware\AdminLocale;
 use App\Http\Middleware\LockSession;
@@ -61,7 +62,7 @@ class AdminPanelProvider extends PanelProvider
             // Staff only, with their own guard, login, password reset and optional 2FA (docs/accounts.md, PR 1).
             ->authGuard('staff')
             ->authPasswordBroker('staff')
-            ->login()
+            ->login(Login::class)
             ->passwordReset()
             ->profile(EditProfile::class, isSimple: false)
             ->multiFactorAuthentication([AppAuthentication::make()->recoverable()])

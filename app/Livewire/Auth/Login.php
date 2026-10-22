@@ -4,6 +4,7 @@ namespace App\Livewire\Auth;
 
 use App\Livewire\Component;
 use App\Models\User;
+use App\Support\CallerIp;
 use App\Traits\Captchable;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
@@ -27,22 +28,45 @@ class Login extends Component
         $this->captcha();
         $this->validate();
 
-        $emailKey = strtolower($this->email);
-
-        if (RateLimiter::tooManyAttempts('login:' . $emailKey . ':' . request()->ip(), 5)) {
-            $this->addError('email', __('auth.throttle', [
-                'seconds' => RateLimiter::availableIn('login:' . $emailKey . ':' . request()->ip()),
-            ]));
+        // By the address as it reaches us (an IPv6 one by its /64), never one it names in X-Forwarded-For; and the login
+        // the database finds, across every address, by its id: its collation matches more spellings of an email than
+        // any normalising (AUTHN-2, review of #333). Only failures count towards the login's own limit.
+        $ip = CallerIp::key();
+        $user = User::where('email', trim($this->email))->first();
+        // The address's own count is of failures only (below): many customers behind one office's address sign in.
+        $keys = ['login:' . ($user->id ?? 'none') . ':' . $ip => [5, 900]];
+        if (RateLimiter::tooManyAttempts('login-ip:' . $ip, 30)) {
+            $this->addError('email', __('auth.throttle', ['seconds' => RateLimiter::availableIn('login-ip:' . $ip)]));
 
             return;
         }
+        foreach ($keys as $key => [$max]) {
+            if (RateLimiter::tooManyAttempts($key, $max)) {
+                $this->addError('email', __('auth.throttle', ['seconds' => RateLimiter::availableIn($key)]));
 
-        RateLimiter::increment('login:' . $emailKey . ':' . request()->ip());
+                return;
+            }
+        }
+        $account = $user === null ? null : 'login-account:' . $user->id;
+        if ($account !== null && RateLimiter::tooManyAttempts($account, 20)) {
+            $this->addError('email', __('auth.throttle', ['seconds' => RateLimiter::availableIn($account)]));
 
-        // Manually validate credentials instead of Auth::attempt
-        $user = User::where('email', $this->email)->first();
+            return;
+        }
+        foreach ($keys as $key => [, $decay]) {
+            RateLimiter::increment($key, $decay);
+        }
 
-        if (!$user || !Hash::check($this->password, $user->password)) {
+        try {
+            $valid = $user !== null && Hash::check($this->password, $user->password);
+        } catch (\RuntimeException) {
+            $valid = false; // a hash in an old format (imported): «Forgot password» sets a new one
+        }
+        if (!$valid) {
+            RateLimiter::increment('login-ip:' . $ip, 900);
+            if ($account !== null) {
+                RateLimiter::increment($account, 900);
+            }
             $this->addError('email', __('auth.failed'));
 
             return;
@@ -59,7 +83,7 @@ class Login extends Component
             return $this->redirect(route('2fa'), true);
         }
 
-        RateLimiter::clear('login:' . $emailKey . ':' . request()->ip());
+        RateLimiter::clear('login:' . $user->id . ':' . $ip);
 
         $loginAction->execute($user, $this->remember);
 

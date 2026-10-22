@@ -21,6 +21,7 @@ use App\Services\Domains\Lookup\VisitorKey;
 use App\Services\Domains\Registrars\GrEppRegistrar;
 use App\Services\Money\GatewayLog;
 use App\Support\BootFailure;
+use App\Support\CallerIp;
 use App\Support\CurrentClient;
 use App\Support\Domains\RegistrarTransactions;
 use App\Support\Passport\ScopeRegistry;
@@ -194,7 +195,7 @@ class AppServiceProvider extends ServiceProvider
                 return Limit::perMinute(120)->by('key:' . $hash);
             }
 
-            return Limit::perMinute(60)->by('bad:' . $request->ip());
+            return Limit::perMinute(60)->by('bad:' . CallerIp::key($request));
         });
 
         // Change livewire url
