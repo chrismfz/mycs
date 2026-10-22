@@ -126,6 +126,23 @@ class ServiceUpgrade extends Model implements Auditable
     }
 
     /**
+     * What the days left of the period cost on the new plan, with tax: the customer keeps the service for them, so a
+     * downgrade gives back what was paid less this (DowngradeCredit, G1 of #326).
+     */
+    public function newPriceForDaysLeft(): string
+    {
+        $service = $this->service;
+        $start = $service->currentPeriodStart();
+        if ($start === null) {
+            return '0.00';
+        }
+        $after = LinePricer::invoiceLine($this->newRecurringPrice(), max(1, (int) $service->quantity),
+            OrderPricing::taxRate($service->client, $this->product ?? $service->product))['total'];
+
+        return (string) BigDecimal::max(BigDecimal::of($service->remainingOf($after, $start, Carbon::now())), BigDecimal::zero())->toScale(2);
+    }
+
+    /**
      * The options the service has once the upgrade is applied, [config_option_id => config_value_id]
      * (`ServiceUpgradeService`): all it has, less, on a product change, those the new product does not link (unless the
      * upgrade sets them), with the upgrade's values over them.

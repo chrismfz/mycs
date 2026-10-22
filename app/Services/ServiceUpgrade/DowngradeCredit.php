@@ -26,9 +26,10 @@ final class DowngradeCredit
         $lines = $service->livePeriodLines()->filter(fn (InvoiceItem $line) => $line->invoice?->status === Invoice::STATUS_PAID
             && $line->period_end->startOfDay()->greaterThan($today))->values();
         if ($lines->isEmpty()) {
-            // No paid period at all: one bought with a coupon gave nothing to give back (F1); one imported without its
-            // lines is priced as it renews, as a cycle change prices it.
-            return $service->coupon_id !== null ? BigDecimal::zero() : BigDecimal::of(ChangeCycle::unused($service, $today));
+            // No paid period at all: one bought with a coupon still running gave nothing to give back (F1); one imported
+            // without its lines (a used-up promotion included: G3) is priced as it renews, as a cycle change prices it.
+            return $service->coupon_id !== null && $service->coupon_expired_at === null
+                ? BigDecimal::zero() : BigDecimal::of(ChangeCycle::unused($service, $today));
         }
 
         $paid = BigDecimal::zero();

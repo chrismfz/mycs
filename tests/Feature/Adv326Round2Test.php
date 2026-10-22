@@ -134,6 +134,7 @@ class Adv326Round2Test extends TestCase
 
         $this->downgrade($service, $this->product('2.00'));
 
-        $this->assertEqualsWithDelta(5.33, $this->credit(), 0.011, 'a fully paid imported service lost its downgrade credit');
+        // Its period is 2026-02-21 → 03-21 (28 days, February): (10 − 2) × 20 / 28 = 5.71, all of the difference.
+        $this->assertEqualsWithDelta(5.71, $this->credit(), 0.011, 'a fully paid imported service lost its downgrade credit');
     }
 }
