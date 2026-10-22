@@ -17,7 +17,7 @@ class GuestTicketAttachmentController extends Controller
         abort_if($ticket === null || (bool) config('settings.tickets_disabled', false), 404);
         $file = TicketMessageAttachment::query()->where('uuid', $attachment)
             ->whereIn('ticket_message_id', $ticket->publicMessages()->select('id'))->first();
-        abort_if($file === null || !is_file($file->localPath) || !Guest::shown($file->ticketMessage, $ticket), 404);
+        abort_if($file === null || $file->localPath === null || !Guest::shown($file->ticketMessage, $ticket), 404);
 
         return response()->download($file->localPath, Attachments::safeName($file->filename), [
             'X-Content-Type-Options' => 'nosniff',

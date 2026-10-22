@@ -9,6 +9,8 @@ class TicketAttachmentController extends Controller
 {
     public function download(TicketMessageAttachment $attachment)
     {
+        abort_if($attachment->localPath === null, 404);
+
         // Always a download, never rendered: the type is not trusted to the browser (docs/tickets.md §3 ΣΤ).
         return response()->download($attachment->localPath, Attachments::safeName($attachment->filename), [
             'X-Content-Type-Options' => 'nosniff',

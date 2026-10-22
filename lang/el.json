@@ -931,5 +931,6 @@
     "On a paid renewal": "Σε πληρωμένη ανανέωση",
     "Renew it here": "Ανανέωση εδώ",
     "Transfer it to :label": "Μεταφορά στο :label",
-    "Instead of renewing it here: unlocked, its EPP code read, and transferred there with its nameservers. A transfer that added no year is renewed there after it. Only one-year renewals of active names; refused, it stays here and staff decide.": "Αντί για ανανέωση εδώ: ξεκλείδωμα, κωδικός EPP και μεταφορά εκεί με τους nameservers του. Αν η μεταφορά δεν πρόσθεσε έτος, ανανεώνεται εκεί μετά. Μόνο ανανεώσεις ενός έτους ενεργών domains· αν απορριφθεί, μένει εδώ και αποφασίζει το staff."
+    "Instead of renewing it here: unlocked, its EPP code read, and transferred there with its nameservers. A transfer that added no year is renewed there after it. Only one-year renewals of active names; refused, it stays here and staff decide.": "Αντί για ανανέωση εδώ: ξεκλείδωμα, κωδικός EPP και μεταφορά εκεί με τους nameservers του. Αν η μεταφορά δεν πρόσθεσε έτος, ανανεώνεται εκεί μετά. Μόνο ανανεώσεις ενός έτους ενεργών domains· αν απορριφθεί, μένει εδώ και αποφασίζει το staff.",
+    "This file cannot be attached.": "Αυτό το αρχείο δεν μπορεί να επισυναφθεί."
 }

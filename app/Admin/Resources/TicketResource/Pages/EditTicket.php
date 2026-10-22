@@ -15,6 +15,7 @@ use App\Models\TicketBlockedSender;
 use App\Models\TicketCc;
 use App\Models\TicketDepartment;
 use App\Models\TicketMessage;
+use App\Models\TicketMessageAttachment;
 use App\Support\Tickets\CannedReplyExpander;
 use App\Support\Tickets\GuestLinks;
 use App\Support\Tickets\MergeTickets;
@@ -34,6 +35,7 @@ use Filament\Support\Enums\TextSize;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\File;
+use Illuminate\Validation\ValidationException;
 use MyCS\TicketMail\Attachments;
 
 class EditTicket extends EditRecord
@@ -158,6 +160,12 @@ class EditTicket extends EditRecord
             return;
         }
         $data = $this->form->getState();
+        // Only files just uploaded here, in the tickets' folder: never a path from elsewhere on the disk (`.env`).
+        foreach ($data['attachments'] ?? [] as $attachment) {
+            if (!is_string($attachment) || TicketMessageAttachment::inFolder($attachment) === null) {
+                throw ValidationException::withMessages(['data.attachments' => __('This file cannot be attached.')]);
+            }
+        }
 
         $message = $this->record->messages()->create([
             'staff_id' => Auth::guard('staff')->id(),
@@ -167,7 +175,7 @@ class EditTicket extends EditRecord
 
         // Move attachments
         foreach ($data['attachments'] as $attachment) {
-            $originalPath = storage_path('app/' . $attachment);
+            $originalPath = (string) TicketMessageAttachment::inFolder($attachment);
             $filename = $data['attachment_names'][$attachment];
             $mimeType = File::mimeType($originalPath);
             $filesize = File::size($originalPath);
