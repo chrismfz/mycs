@@ -9,6 +9,7 @@ use App\Http\Middleware\ImpersonateMiddleware;
 use App\Http\Middleware\LockSession;
 use App\Http\Middleware\ProxyMiddleware;
 use App\Http\Middleware\ResolveUserSession;
+use App\Http\Middleware\SecurityHeaders;
 use App\Http\Middleware\SetLocale;
 use App\Http\Middleware\UseWebGuard;
 use App\Models\DebugLog;
@@ -33,6 +34,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->append(ProxyMiddleware::class);
+        $middleware->append(SecurityHeaders::class);
         // zlic.php is a machine contract (CLAUDE.md, review ADV-L4/L7): answered during a deploy too (its own
         // «Remote Check Failed» is what clients fall back on), and its input as sent, never trimmed or nulled. So is the
         // Cardlink vPOS return: its digest signs the values as posted, an empty or padded one included (PR H2a, CR-1).
