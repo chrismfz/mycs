@@ -378,6 +378,25 @@ class PayPal extends Gateway
         return view('gateways.paypal::pay', ['invoice' => $invoice, 'total' => $total, 'order' => $order ?? null, 'clientId' => $this->config('client_id')]);
     }
 
+    /**
+     * A vault charge of ours whose answer was lost (a timeout after PayPal took the money: charge() never kept it): its
+     * capture's webhook still records it, so the customer is not charged again (ADV-6 of #328). Ours when it carries our
+     * invoice_id and was paid from a method its customer saved here: a vault token is usable only by the merchant that
+     * holds it, so the order was made with our credentials, to us.
+     */
+    private static function ourVaultCharge(string $orderID, mixed $order): ?int
+    {
+        $invoice = Invoice::query()->find(GatewayReference::invoiceIdFromPaypal($order->purchase_units[0]->invoice_id ?? null));
+        $vault = $order->payment_source->paypal->attributes->vault->id ?? null;
+        if ($invoice === null || !is_string($vault) || $vault === ''
+            || !BillingAgreement::query()->where('client_id', $invoice->client_id)->where('external_reference', $vault)->exists()) {
+            return null;
+        }
+        self::rememberOrder($orderID, $invoice, $order->purchase_units[0]->payee ?? null);
+
+        return $invoice->id;
+    }
+
     /** An order made here for $invoice, with the payee PayPal gave it: the only kind captured or recorded here. */
     public static function rememberOrder(string $orderID, Invoice $invoice, ?object $payee = null): void
     {
@@ -397,7 +416,7 @@ class PayPal extends Gateway
     {
         $made = DB::table('paypal_orders')->where('order_id', $orderID)->first();
         if ($made === null) {
-            return null;
+            return self::ourVaultCharge($orderID, $order);
         }
         $payee = $order->purchase_units[0]->payee ?? null;
         if ($made->payee_merchant_id !== null && ($payee->merchant_id ?? null) !== $made->payee_merchant_id) {
@@ -460,8 +479,10 @@ class PayPal extends Gateway
         if (($response->status ?? null) !== 'COMPLETED' || !in_array($capture->status ?? null, ['COMPLETED', 'PENDING'], true)) {
             abort(400, 'Failed to capture PayPal order');
         }
-        // Its payee changed between our read and the capture: the money went elsewhere, nothing is ours to record.
-        if (isset($response->purchase_units[0]->payee) && self::madeHere($orderID, $response) !== (int) $invoice->id) {
+        // Its payee changed between our read and the capture: the money went elsewhere, nothing is ours to record. The
+        // capture's answer carries no payee by default: then the order is read again (ADV-5 of #328).
+        $after = isset($response->purchase_units[0]->payee) ? $response : $this->request('get', $url . '/v2/checkout/orders/' . $orderID);
+        if (self::madeHere($orderID, $after) !== (int) $invoice->id) {
             GatewayReference::foreign('PayPal', 'capture to another payee', $capture->id ?? $orderID, $capture->amount->value ?? null, $capture->amount->currency_code ?? null);
             abort(400, 'PayPal order is not associated with an invoice');
         }

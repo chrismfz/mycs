@@ -274,6 +274,7 @@ class PayPalApiErrorsAdversarialTest extends TestCase
             '/v2/checkout/orders/ORDER-1/capture' => Http::response($this->capturedOrder($invoice, 'PENDING'), 201),
             '/v2/checkout/orders/ORDER-1' => Http::sequence()
                 ->push($this->approvedOrder($invoice))
+                ->push($this->capturedOrder($invoice, 'PENDING')) // read again after the capture (its payee: #328)
                 ->push($this->capturedOrder($invoice, 'COMPLETED'))
                 ->push($this->capturedOrder($invoice, 'COMPLETED')),
             '/v1/notifications/verify-webhook-signature' => Http::response(['verification_status' => 'SUCCESS']),
