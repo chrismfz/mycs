@@ -125,10 +125,12 @@
       και το cPanel/WHM API): αντιστοίχιση πακέτων WHM ↔ προϊόντων MyCS από λίστα, χρήση (quota, bandwidth) πίσω στο
       MyCS, addon/parked/sub domains, email accounts (λίστα, δημιουργία), reseller accounts (παρακάτω). Δοκιμή στον
       orion 2026-10-20 (reseller της nixpal): create/suspend/unsuspend/terminate δουλεύουν (`provisioning.md`).
-- [ ] **WHM reseller accounts** στο cPanel extension (`setupreseller`, ACLs, όρια, suspend/terminate): σήμερα μόνο απλοί
-      λογαριασμοί. Μόνο το myip τα έχει (read-only 2026-10-20): **22 ενεργοί** + 1 suspended, 6 πακέτα (Reseller 70: 9,
-      Reseller 120: 6, Reseller 30: 3, …), στους Virgo 5, Earth 5, Mars 4, Orion 3, Titan 3, Rigel 2· η nixpal κανέναν.
-      Πριν το cut-over του myip.
+- [x] ~~**WHM reseller accounts**~~ **έγινε (feat/cpanel-reseller):** ρύθμιση του προϊόντος «Reseller account» με ACL, όρια
+      δίσκου/bandwidth/λογαριασμών και overselling (τα πεδία του WHMCS: configoption 17, 18, 19, 20, 21, 15)· create με
+      `setupreseller`/`setacls`/`setresellerlimits`· suspend/unsuspend με τους λογαριασμούς του· **terminate** ενός reseller
+      με λογαριασμούς μόνο από το staff, με πληκτρολόγηση του username (ποτέ από cron ή ακύρωση)· upgrade με τα νέα όρια.
+      Θέλει root login στον server. Μένουν: η αντιστοίχιση στον importer (μαζί με `cpanel_reseller`)· χρήση (επόμενο PR,
+      κοινό με τους απλούς λογαριασμούς).
 - [ ] Συμφιλίωση της κατάστασης μετά από job του server (το create υπάρχει, #114)· συγχρονισμός χρήσης cPanel.
 - [ ] Modules του myip: Proxmox, Centova, mailcow (το package `mailcow` υπάρχει χωρίς extension).
 

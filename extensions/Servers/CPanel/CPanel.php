@@ -115,6 +115,17 @@ class CPanel extends Server
                 'options' => $packageOptions,
                 'required' => true,
             ],
+            // A WHM reseller (as WHMCS's «Reseller Account» products: myip's 22, 2026-10-22). Its server login must be root.
+            ['name' => 'reseller', 'type' => 'checkbox', 'label' => 'Reseller account',
+                'description' => 'Made a WHM reseller with the limits below. Its server must be logged in as root.'],
+            ['name' => 'reseller_acl', 'type' => 'text', 'label' => 'Reseller ACL list',
+                'description' => 'A privilege list defined in WHM (Edit Reseller Nameservers and Privileges), e.g. «resellers». Empty: none set.'],
+            ['name' => 'reseller_disk_mb', 'type' => 'number', 'label' => 'Reseller disk space (MB)', 'description' => 'Empty or 0: no limit.'],
+            ['name' => 'reseller_bandwidth_mb', 'type' => 'number', 'label' => 'Reseller bandwidth (MB)', 'description' => 'Empty or 0: no limit.'],
+            ['name' => 'reseller_overselling_disk', 'type' => 'checkbox', 'label' => 'Allow disk overselling'],
+            ['name' => 'reseller_overselling_bandwidth', 'type' => 'checkbox', 'label' => 'Allow bandwidth overselling'],
+            ['name' => 'reseller_max_accounts', 'type' => 'number', 'label' => 'Reseller account limit', 'description' => 'Empty or 0: no limit.'],
+            ['name' => 'reseller_owns_itself', 'type' => 'checkbox', 'label' => 'Reseller owns its own account', 'default' => true],
         ];
     }
 
@@ -208,9 +219,14 @@ class CPanel extends Server
         $this->created($service, $username, $properties);
         try {
             $this->applyExtraDisk($service, $username, $this->package($settings, $properties), $properties);
+            // A reseller: made one with its privileges and limits. A step that fails is not a failed create either (the
+            // account exists): staff's Change Package sets it again, all of it (each step is idempotent).
+            if (self::isReseller($settings)) {
+                $this->applyReseller($service, $username, $settings);
+            }
         } catch (Throwable $e) {
             report($e);
-            $error = new Exception('The extra disk space was not set after the account was made: ' . $e->getMessage());
+            $error = new Exception('The account was made, but its extra disk space or reseller setup was not set: ' . $e->getMessage());
             if (ModuleAction::giveUp($service, 'upgrade', $error)) {
                 NotificationHelper::sendSystemEmailNotification("Module action failed: upgrade of service #{$service->id}", e(
                     "{$error->getMessage()}. It is listed in Pending Module Actions as a Change Package: Retry it there once the cause is fixed."
@@ -330,9 +346,10 @@ class CPanel extends Server
             throw new Exception('Service has not been created');
         }
 
-        $this->whm('/suspendacct', [
-            'user' => $properties['cpanel_username'],
-        ]);
+        // A reseller: its own accounts with it (WHM's suspendreseller), as WHMCS for a reseller product.
+        self::isReseller($settings) || self::wasReseller($properties)
+            ? $this->whm('/suspendreseller', ['user' => $properties['cpanel_username']])
+            : $this->whm('/suspendacct', ['user' => $properties['cpanel_username']]);
 
         return true;
     }
@@ -350,9 +367,10 @@ class CPanel extends Server
             throw new Exception('Service has not been created');
         }
 
-        $this->whm('/unsuspendacct', [
-            'user' => $properties['cpanel_username'],
-        ]);
+        // A reseller: WHM unsuspends its accounts with it, also one suspended there for another reason (WHM's rule).
+        self::isReseller($settings) || self::wasReseller($properties)
+            ? $this->whm('/unsuspendreseller', ['user' => $properties['cpanel_username']])
+            : $this->whm('/unsuspendacct', ['user' => $properties['cpanel_username']]);
 
         return true;
     }
@@ -379,9 +397,22 @@ class CPanel extends Server
             return true;
         }
 
-        $this->whm('/removeacct', [
-            'user' => $properties['cpanel_username'],
-        ]);
+        $username = $properties['cpanel_username'];
+        // Whatever its product says now (a product changed since): what WHM has. A reseller's login owns no resellers.
+        $owned = (self::isReseller($settings) || self::wasReseller($properties)) && strtolower(trim((string) $this->config('username'))) === 'root'
+            ? $this->ownedAccounts($username) : [];
+        if ($owned !== []) {
+            // Its customers' accounts go with it (terminatereseller): never on its own (a cron, a cancellation), only by
+            // staff who typed its username in Terminate (owner 2026-10-22: one mistake there deletes other people's sites).
+            if (($properties[self::CONFIRM] ?? null) !== $username) {
+                throw new Exception("cPanel: {$username} is a reseller that owns " . count($owned) . ' other account(s) (' . implode(', ', array_slice($owned, 0, 5))
+                    . (count($owned) > 5 ? ', …' : '') . '). Terminating it deletes them too: staff terminate it from the service, typing its username.');
+            }
+            $this->whm('/terminatereseller', ['user' => $username, 'terminatereseller' => 1]);
+        } else {
+            $this->whm('/removeacct', ['user' => $username]);
+        }
+        $service->properties()->whereIn('key', [self::CONFIRM, self::RESELLER])->delete();
 
         // Delete the properties, and the native username (review R2): the account is gone, a later action must not name
         // it (the same username may belong to another customer's account by then).
@@ -410,8 +441,116 @@ class CPanel extends Server
         }
         // Its extra disk as it is now: added, changed or taken off by this upgrade, or put back after changepackage.
         $this->applyExtraDisk($service, $properties['cpanel_username'], $package, $properties);
+        // Its reseller privileges and limits as its product says now (Reseller 30 → 70: its limits; a product that is no
+        // longer a reseller: unmade, only when it owns no account).
+        if (self::isReseller($settings) || self::wasReseller($properties)) {
+            $this->applyReseller($service, $properties['cpanel_username'], $settings);
+        }
 
         return true;
+    }
+
+    /** The service property staff's Terminate sets (the username typed) to let a reseller's accounts go with it. */
+    public const CONFIRM = 'cpanel_terminate_confirmed';
+
+    /** The service property kept once the account is a WHM reseller (made here, or imported as one). */
+    public const RESELLER = 'cpanel_reseller';
+
+    private static function wasReseller(array $properties): bool
+    {
+        return ($properties[self::RESELLER] ?? null) === '1';
+    }
+
+    private static function isReseller(array $settings): bool
+    {
+        return in_array($settings['reseller'] ?? null, [true, 1, '1', 'on', 'true'], true);
+    }
+
+    /** «70000» → 70000; empty, 0, negative or words → null (no limit). */
+    private static function megabytes(mixed $value): ?int
+    {
+        $text = trim((string) $value);
+
+        return is_numeric($text) && (int) $text > 0 ? (int) $text : null;
+    }
+
+    /**
+     * A reseller product: the account made a WHM reseller (setupreseller, owning itself unless the product says not), its
+     * ACL list (setacls) and its limits (setresellerlimits); each idempotent, all of it set each time (a Retry, a Change
+     * Package). A product that is not a reseller: an account WHM has as a reseller is unmade (unsetupreseller), unless it
+     * owns accounts (refused: staff decide). Needs a root login (WHM refuses a reseller's).
+     */
+    private function applyReseller(Service $service, string $username, array $settings): void
+    {
+        $reseller = self::isReseller($settings);
+        $root = strtolower(trim((string) $this->config('username'))) === 'root';
+        if (!$reseller && !$root) {
+            return; // a reseller's login (nixpal's) makes no resellers, nor may it list them
+        }
+        $is = in_array($username, $this->resellers(), true);
+        if (!$reseller) {
+            if ($is) {
+                $owned = $this->ownedAccounts($username);
+                if ($owned !== []) {
+                    throw new Exception("cPanel: {$username} owns " . count($owned) . ' account(s) and its product is no longer a reseller: move or remove them first');
+                }
+                $this->whm('/unsetupreseller', ['user' => $username]);
+            }
+            $service->properties()->where('key', self::RESELLER)->delete();
+
+            return;
+        }
+        if (!$root) {
+            throw new Exception('cPanel: a reseller account needs this server logged in as root (WHM refuses a reseller\'s login)');
+        }
+        if (!$is) {
+            $owns = !array_key_exists('reseller_owns_itself', $settings) || in_array($settings['reseller_owns_itself'], [true, 1, '1', 'on', 'true'], true);
+            $this->whm('/setupreseller', ['user' => $username, 'makeowner' => $owns ? 1 : 0]);
+        }
+        // Kept at once: suspend, unsuspend and terminate act on it as a reseller whatever its product says later.
+        $service->properties()->updateOrCreate(['key' => self::RESELLER], ['name' => 'WHM reseller', 'value' => '1']);
+        $acl = trim((string) ($settings['reseller_acl'] ?? ''));
+        if ($acl !== '') {
+            $this->whm('/setacls', ['reseller' => $username, 'acllist' => $acl]);
+        }
+        $disk = self::megabytes($settings['reseller_disk_mb'] ?? null);
+        $bandwidth = self::megabytes($settings['reseller_bandwidth_mb'] ?? null);
+        $accounts = self::megabytes($settings['reseller_max_accounts'] ?? null);
+        $oversellDisk = self::isReseller(['reseller' => $settings['reseller_overselling_disk'] ?? null]);
+        $oversellBandwidth = self::isReseller(['reseller' => $settings['reseller_overselling_bandwidth'] ?? null]);
+        $this->whm('/setresellerlimits', [
+            'user' => $username,
+            'enable_resource_limits' => $disk !== null || $bandwidth !== null ? 1 : 0,
+            'diskspace_limit' => $disk ?? 0,
+            'bandwidth_limit' => $bandwidth ?? 0,
+            'enable_overselling' => $oversellDisk || $oversellBandwidth ? 1 : 0,
+            'enable_overselling_diskspace' => $oversellDisk ? 1 : 0,
+            'enable_overselling_bandwidth' => $oversellBandwidth ? 1 : 0,
+            'enable_account_limit' => $accounts !== null ? 1 : 0,
+            'account_limit' => $accounts ?? 0,
+        ]);
+    }
+
+    /** @return list<string> WHM's resellers */
+    private function resellers(): array
+    {
+        $json = $this->whm('/listresellers', []);
+
+        return array_values(array_map('strval', (array) ($json['data']['reseller'] ?? [])));
+    }
+
+    /** @return list<string> the accounts this user owns, other than its own */
+    private function ownedAccounts(string $username): array
+    {
+        $json = $this->whm('/listaccts', ['searchtype' => 'owner', 'searchmethod' => 'exact', 'search' => $username, 'want' => 'user,owner']);
+        $users = [];
+        foreach ((array) ($json['data']['acct'] ?? []) as $account) {
+            if (($account['owner'] ?? null) === $username && ($account['user'] ?? null) !== $username) {
+                $users[] = (string) $account['user'];
+            }
+        }
+
+        return $users;
     }
 
     public function getLoginUrl(Service $service, $settings, $properties): string
