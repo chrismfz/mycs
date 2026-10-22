@@ -6,10 +6,12 @@ use App\Admin\Resources\NotificationTemplateResource\Pages\CreateNotificationTem
 use App\Admin\Resources\NotificationTemplateResource\Pages\EditNotificationTemplate;
 use App\Admin\Resources\NotificationTemplateResource\Pages\ListNotificationTemplates;
 use App\Enums\NotificationEnabledStatus;
+use App\Helpers\NotificationHelper;
 use App\Helpers\TemplateRenderer;
 use App\Models\NotificationTemplate;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\MarkdownEditor;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TagsInput;
 use Filament\Forms\Components\TextInput;
@@ -80,12 +82,21 @@ class NotificationTemplateResource extends Resource
                             ->required()
                             ->rule(TemplateRenderer::rule())
                             ->columnSpanFull(),
+                        // A mail that is a key to an account or carries a secret goes to its recipient only.
+                        Placeholder::make('copies')
+                            ->label('CC / BCC')
+                            ->content('Not for this email: it carries a link that logs in, or a password, for its recipient only.')
+                            ->visible(fn (?NotificationTemplate $record) => self::isPrivate($record)),
                         TagsInput::make('cc')
                             ->placeholder('mail@example.com')
-                            ->nestedRecursiveRules(['required', 'email']),
+                            ->nestedRecursiveRules(['required', 'email'])
+                            ->hidden(fn (?NotificationTemplate $record) => self::isPrivate($record))
+                            ->dehydrated(fn (?NotificationTemplate $record) => !self::isPrivate($record)),
                         TagsInput::make('bcc')
                             ->nestedRecursiveRules(['required', 'email'])
-                            ->placeholder('mail@example.com'),
+                            ->placeholder('mail@example.com')
+                            ->hidden(fn (?NotificationTemplate $record) => self::isPrivate($record))
+                            ->dehydrated(fn (?NotificationTemplate $record) => !self::isPrivate($record)),
                     ]),
                 Section::make('In-App Notification (push)')
                     ->description('Define the title and body of the in-app notification that users will receive.')
@@ -177,5 +188,10 @@ class NotificationTemplateResource extends Resource
             'create' => CreateNotificationTemplate::route('/create'),
             'edit' => EditNotificationTemplate::route('/{record}/edit'),
         ];
+    }
+
+    private static function isPrivate(?NotificationTemplate $record): bool
+    {
+        return $record !== null && in_array($record->key, NotificationHelper::PRIVATE_TEMPLATES, true);
     }
 }
