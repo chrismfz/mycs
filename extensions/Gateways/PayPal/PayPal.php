@@ -106,7 +106,7 @@ class PayPal extends Gateway
         $tokenId = (string) $request->input('approval_token_id');
         $client = CurrentClient::model();
         abort_if($client === null, 403);
-        $asked = Cache::pull(self::SETUP_KEY . $tokenId);
+        $asked = Cache::get(self::SETUP_KEY . $tokenId);
         if (!is_array($asked) || (int) $asked['client'] !== (int) $client->id || (int) $asked['user'] !== (int) Auth::id()) {
             return redirect()->route('account.payment-methods')->with('notification', [
                 'type' => 'error',
@@ -123,6 +123,10 @@ class PayPal extends Gateway
             ],
         ]);
 
+        // Once: only after its owner saved it (another login's try leaves it to them).
+        if (!Cache::pull(self::SETUP_KEY . $tokenId)) {
+            return redirect()->route('account.payment-methods');
+        }
         ExtensionHelper::makeBillingAgreement(
             $client,
             'PayPal',

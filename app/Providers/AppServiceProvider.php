@@ -15,6 +15,7 @@ use App\Models\ApiKey;
 use App\Models\EmailLog;
 use App\Models\Extension;
 use App\Models\OauthClient;
+use App\Models\PaymentGatewayEvent;
 use App\Models\Staff;
 use App\Models\User;
 use App\Services\Domains\Lookup\VisitorKey;
@@ -37,7 +38,6 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Encryption\Encrypter;
 use Illuminate\Foundation\Exceptions\Handler;
 use Illuminate\Foundation\Http\Events\RequestHandled;
-use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
 use Illuminate\Queue\Events\JobAttempted;
 use Illuminate\Queue\Events\JobFailed;
@@ -62,26 +62,61 @@ use Nixpal\DomainTools\Whois\SocketConnector;
 use Nixpal\DomainTools\Whois\StreamSocketConnector;
 use SocialiteProviders\Discord\Provider;
 use SocialiteProviders\Manager\SocialiteWasCalled;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class AppServiceProvider extends ServiceProvider
 {
-    /** A gateway's callbacks per minute from one address: far above what a gateway sends, far below a flood. */
-    public const GATEWAY_CALLBACKS_PER_MINUTE = 300;
+    /**
+     * The callbacks that make us ask the gateway back about each one (security audit PAY-SEC-8): a forged one costs a
+     * call to PayPal or Mollie. Stripe's and Cardlink's are checked here, signed, at no cost: never limited.
+     */
+    public const GATEWAY_CALLBACKS_ASKING_BACK = [
+        'extensions.gateways.paypal.webhook', 'extensions.gateways.mollie.webhook', 'extensions.gateways.paypal_ipn.notify',
+    ];
+
+    /** Refused callbacks a minute from one address before the next ones wait (a genuine one is never refused). */
+    public const GATEWAY_REFUSED_CALLBACKS_PER_MINUTE = 60;
+
+    private static function gatewayCallbackKey(Request $request): string
+    {
+        return 'gateway-callback-refused:' . CallerIp::bucket(CallerIp::of($request));
+    }
 
     /**
-     * The gateways' callbacks (webhooks, IPN, the vPOS return) take anyone's request, and most of them ask the gateway
-     * back about it (security audit PAY-SEC-8): one address gets so many a minute, logged as refused past that.
+     * Only refused callbacks count, as the WHMCS-era IPN's own limit (behind a proxy, every caller may share one
+     * address: a flood of forged ones must not hold back the genuine ones for long). Past the limit a 503 with
+     * Retry-After, which the gateways retry, logged as «throttled». A cache that is down never stops a payment.
      */
     private static function throttleGatewayCallback(Request $request, string $name): void
     {
-        if (!preg_match('/\.(webhook|notify|ipn|return)$/', $name)) {
+        if (!in_array($name, self::GATEWAY_CALLBACKS_ASKING_BACK, true)) {
             return;
         }
-        $key = 'gateway-callback:' . CallerIp::bucket(CallerIp::of($request));
-        if (RateLimiter::tooManyAttempts($key, self::GATEWAY_CALLBACKS_PER_MINUTE)) {
-            throw new ThrottleRequestsException;
+        try {
+            $throttled = RateLimiter::tooManyAttempts(self::gatewayCallbackKey($request), self::GATEWAY_REFUSED_CALLBACKS_PER_MINUTE);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return;
         }
-        RateLimiter::hit($key, 60);
+        if ($throttled) {
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_REJECTED, 'throttled');
+
+            throw new HttpException(503, 'Too many refused callbacks', null, ['Retry-After' => '60']);
+        }
+    }
+
+    private static function countRefusedGatewayCallback(Request $request, int $status): void
+    {
+        if ($status < 400 || $status >= 500 || $status === 429
+            || !in_array((string) $request->route()?->getName(), self::GATEWAY_CALLBACKS_ASKING_BACK, true)) {
+            return;
+        }
+        try {
+            RateLimiter::hit(self::gatewayCallbackKey($request), 60);
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     /**
@@ -252,6 +287,7 @@ class AppServiceProvider extends ServiceProvider
                 $log->unmatched($event->request, $event->response, $gateway);
             }
             $log->finish($event->response);
+            self::countRefusedGatewayCallback($event->request, $event->response->getStatusCode());
         });
 
         // When a member of staff last logged in (the staff list shows it).

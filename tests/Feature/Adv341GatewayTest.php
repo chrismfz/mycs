@@ -60,7 +60,7 @@ class Adv341GatewayTest extends TestCase
         config(['settings.trusted_proxies' => ['*']]);
         $this->stripe();
 
-        for ($i = 0; $i < AppServiceProvider::GATEWAY_CALLBACKS_PER_MINUTE; $i++) {
+        for ($i = 0; $i < AppServiceProvider::GATEWAY_REFUSED_CALLBACKS_PER_MINUTE + 5; $i++) {
             $this->stripeEvent('198.51.100.' . ($i % 250 + 1), signed: false)->assertStatus(400);
         }
 

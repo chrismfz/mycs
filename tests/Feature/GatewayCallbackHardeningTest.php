@@ -5,9 +5,9 @@ namespace Tests\Feature;
 use App\Helpers\ExtensionHelper;
 use App\Models\BillingAgreement;
 use App\Models\Gateway;
+use App\Models\PaymentGatewayEvent;
 use App\Models\User;
 use App\Providers\AppServiceProvider;
-use App\Support\CallerIp;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -83,20 +83,43 @@ class GatewayCallbackHardeningTest extends TestCase
         $this->stripeEvent($time, 'v1=' . str_repeat('0', 64) . ',v0=' . $good)->assertStatus(400);
     }
 
-    public function test_a_flood_of_callbacks_from_one_address_is_refused(): void
+    public function test_refused_callbacks_that_ask_the_gateway_back_wait_past_the_limit(): void
     {
-        $this->stripe();
-        $key = 'gateway-callback:' . CallerIp::bucket('127.0.0.1');
-        for ($i = 0; $i < AppServiceProvider::GATEWAY_CALLBACKS_PER_MINUTE; $i++) {
-            RateLimiter::hit($key, 60);
+        Http::fake(['*' => Http::response(['verification_status' => 'FAILURE', 'access_token' => 'token'])]);
+        $this->paypal();
+
+        for ($i = 0; $i < AppServiceProvider::GATEWAY_REFUSED_CALLBACKS_PER_MINUTE; $i++) {
+            $this->postJson('/extensions/paypal/webhook', ['event_type' => 'PAYMENT.CAPTURE.COMPLETED'])->assertStatus(400);
         }
 
-        $this->stripeEvent(time())->assertStatus(429);
-        $this->post('/modules/gateways/callback/paypal.php')->assertStatus(429);
+        $this->postJson('/extensions/paypal/webhook', ['event_type' => 'PAYMENT.CAPTURE.COMPLETED'])
+            ->assertStatus(503)->assertHeader('Retry-After', '60');
+        $this->assertSame('throttled', PaymentGatewayEvent::query()->latest('id')->first()?->reason);
 
         // Another address is not held up by it.
         $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.9']);
+        $this->postJson('/extensions/paypal/webhook', ['event_type' => 'PAYMENT.CAPTURE.COMPLETED'])->assertStatus(400);
+    }
+
+    public function test_stripe_events_are_never_held_up_by_forged_ones(): void
+    {
+        $this->stripe();
+        for ($i = 0; $i < AppServiceProvider::GATEWAY_REFUSED_CALLBACKS_PER_MINUTE + 5; $i++) {
+            $this->stripeEvent(time(), 'v1=' . str_repeat('0', 64))->assertStatus(400);
+        }
+
         $this->stripeEvent(time())->assertOk();
+    }
+
+    public function test_a_cache_that_is_down_never_stops_a_callback(): void
+    {
+        $this->stripe();
+        RateLimiter::shouldReceive('tooManyAttempts')->andThrow(new \RuntimeException('cache down'));
+        RateLimiter::shouldReceive('hit')->andThrow(new \RuntimeException('cache down'));
+        Http::fake(['*' => Http::response(['verification_status' => 'FAILURE', 'access_token' => 'token'])]);
+        $this->paypal();
+
+        $this->postJson('/extensions/paypal/webhook', ['event_type' => 'X'])->assertStatus(400);
     }
 
     private function paypal(): PayPal
@@ -145,6 +168,18 @@ class GatewayCallbackHardeningTest extends TestCase
 
         $this->approve($owner, 'SETUP-A');
         $this->assertSame(1, BillingAgreement::query()->count(), 'a setup token is saved once');
+    }
+
+    public function test_another_logins_try_leaves_the_setup_to_its_owner(): void
+    {
+        $paypal = $this->paypal();
+        $owner = User::factory()->create();
+        $this->startSetup($paypal, $owner);
+
+        $this->approve(User::factory()->create(), 'SETUP-A');
+        $this->approve($owner, 'SETUP-A');
+
+        $this->assertSame(1, BillingAgreement::query()->where('client_id', $owner->client()->id)->count());
     }
 
     public function test_a_setup_started_by_another_account_saves_nothing(): void
