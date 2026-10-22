@@ -137,6 +137,16 @@ final class RendererTest extends TestCase
         $this->assertSame('', $this->render('{% for x in nothing %}{{ x }}{% endfor %}'));
     }
 
+    public function test_url_keeps_a_safe_address_and_drops_any_other(): void
+    {
+        foreach (['https://example.test/a?b=1', 'http://x.test', 'mailto:a@example.test', 'tel:+3021', '/invoices/7', '#top'] as $url) {
+            $this->assertSame(htmlspecialchars($url, ENT_QUOTES), $this->render('{{ u|url }}', ['u' => $url]), $url);
+        }
+        foreach (['javascript:alert(1)', 'JavaScript:alert(1)', " java\tscript:alert(1)", 'data:text/html,<b>x</b>', 'vbscript:x'] as $url) {
+            $this->assertSame('#', $this->render('{{ u|url }}', ['u' => $url]), $url);
+        }
+    }
+
     public function test_nested_blocks(): void
     {
         $t = '{% for s in services %}{% if s.active %}{% for a in s.addons %}{{ s.name }}:{{ a }} {% endfor %}{% else %}({{ s.name }}) {% endif %}{% endfor %}';

@@ -104,21 +104,61 @@ class TemplateRenderer
 
     /**
      * Staff's Markdown made HTML before the values go in: a customer's name, a ticket's subject or a service's label is
-     * text in the mail, never a link or an image of their own (reviews of #294). Its template tags kept as they are.
+     * text in the mail, never a link or an image of their own (reviews of #294). Its template tags kept as they are:
+     * a tag alone on its line is a block of its own (not part of the HTML or paragraph next to it), and a value in a
+     * link's address is checked as an address (`url`), as Markdown checks one it reads.
      */
     public static function markdown(string $body): string
     {
+        // A key of this call only: staff text that looks like it stays text (adversarial review of #319, A5).
+        $key = 'MYCSTAG' . bin2hex(random_bytes(4)) . 'N';
         $tags = [];
-        $marked = (string) preg_replace_callback('/\{\{.*?\}\}|\{%.*?%\}/s', function (array $m) use (&$tags) {
+        $marked = (string) preg_replace_callback('/\{\{.*?\}\}|\{%.*?%\}/s', function (array $m) use (&$tags, $key) {
             $tags[] = $m[0];
 
-            return 'MYCSTAG' . (count($tags) - 1) . 'X';
-        }, $body);
+            return $key . (count($tags) - 1) . 'X';
+        }, self::blockTagsApart($body));
         $html = Str::markdown($marked, ['allow_unsafe_links' => false]);
-        // A tag alone on its line became a paragraph of its own: the tag, without it.
-        $html = (string) preg_replace('/<p>(MYCSTAG\d+X)<\/p>/', '$1', $html);
+        $k = preg_quote($key, '~');
+        // Tags alone in a paragraph, or in a table row of their own (a {% for %} between its rows): the tags, without it.
+        $html = (string) preg_replace('~<p>((?:' . $k . '\d+X\s*)+)</p>~', '$1', $html);
+        $html = (string) preg_replace('~<tr>\s*<td[^>]*>\s*(' . $k . '\d+X)\s*</td>(?:\s*<td[^>]*>\s*</td>)*\s*</tr>~', '$1', $html);
 
-        return (string) preg_replace_callback('/MYCSTAG(\d+)X/', fn (array $m) => $tags[(int) $m[1]], $html);
+        return (string) preg_replace_callback('~(href="|src=")?' . $k . '(\d+)X~', function (array $m) use ($tags) {
+            $tag = $tags[(int) $m[2]];
+            // A value as a link's address: only a safe one (Markdown checked the key, not the value).
+            if ($m[1] !== '' && str_starts_with($tag, '{{')) {
+                $tag = (string) preg_replace('/\s*\}\}$/', '|url }}', $tag);
+            }
+
+            return $m[1] . $tag;
+        }, $html);
+    }
+
+    /** A line that is one block tag ({% if %}, {% else %}, {% for %}, …) gets blank lines around it, but in a table or a list. */
+    private static function blockTagsApart(string $body): string
+    {
+        // Line ends only: \R (without /u) is also the byte 0x85, which is inside Greek letters.
+        $lines = preg_split('/\r\n|\n|\r/', $body) ?: [];
+        $tag = fn (?string $line): bool => $line !== null && preg_match('/^\s*\{%[^%]*%\}\s*$/', $line) === 1;
+        $sticky = fn (?string $line): bool => $line !== null && preg_match('/^\s*(\||[-*+]\s|\d+[.)]\s)/', $line) === 1;
+        $out = [];
+        $blankNext = false;
+        foreach ($lines as $i => $line) {
+            if ($blankNext && trim($line) !== '') {
+                $out[] = '';
+            }
+            $blankNext = false;
+            if ($tag($line) && !$sticky($lines[$i - 1] ?? null) && !$sticky($lines[$i + 1] ?? null)) {
+                if ($out !== [] && trim((string) end($out)) !== '') {
+                    $out[] = '';
+                }
+                $blankNext = true;
+            }
+            $out[] = $line;
+        }
+
+        return implode("\n", $out);
     }
 
     /** Validation rule (Filament and Validator): the field must parse as a template. */

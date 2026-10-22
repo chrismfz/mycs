@@ -10,7 +10,8 @@ namespace MyCS\MailTemplate;
  * Syntax (a small subset of Twig, so it reads familiar):
  *
  *   {{ invoice.number }}                    value, HTML-escaped when $escape is true
- *   {{ service.expires_at|date("F j, Y") }} filters: date("fmt"), default("x"), upper, lower, raw
+ *   {{ service.expires_at|date("F j, Y") }} filters: date("fmt"), default("x"), upper, lower, raw, url (a link's
+ *   address: http, https, mailto, tel or relative, anything else is "#")
  *   {% if invoice.total %} … {% else %} … {% endif %}
  *   {% if not item.reason %} … {% endif %}
  *   {% if cancellation.type == "end_of_period" %} … {% endif %}   (also !=)
@@ -26,7 +27,7 @@ namespace MyCS\MailTemplate;
  */
 final class Renderer
 {
-    private const FILTERS = ['raw', 'date', 'default', 'upper', 'lower'];
+    private const FILTERS = ['raw', 'date', 'default', 'upper', 'lower', 'url'];
 
     /** @var \Closure(mixed, string): mixed */
     private \Closure $accessor;
@@ -373,11 +374,27 @@ final class Renderer
                     $value = $filter['name'] === 'upper' ? mb_strtoupper($this->stringify($value)) : mb_strtolower($this->stringify($value));
                     $raw = false;
                     break;
+                case 'url':
+                    $value = self::safeUrl($this->stringify($value));
+                    $raw = false;
+                    break;
             }
         }
         $text = $this->stringify($value);
 
         return $escape && !$raw ? htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') : $text;
+    }
+
+    /** A link's address: http, https, mailto, tel or one without a scheme; anything else (javascript:, data:) is "#". */
+    public static function safeUrl(string $url): string
+    {
+        // Browsers ignore control characters and spaces in a scheme (java\tscript:): so does this check.
+        $plain = strtolower((string) preg_replace('/[\x00-\x20\x7F]+/', '', $url));
+        if (preg_match('/^([a-z][a-z0-9+.\-]*):/', $plain, $m) === 1 && !in_array($m[1], ['http', 'https', 'mailto', 'tel'], true)) {
+            return '#';
+        }
+
+        return $url;
     }
 
     /** @param  list<array<string, mixed>>  $scopes */
