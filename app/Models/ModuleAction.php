@@ -9,7 +9,6 @@ use App\Helpers\NotificationHelper;
 use App\Services\Domains\DomainRenewalService;
 use App\Services\Domains\RenewAsTransfer;
 use App\Support\LogText;
-use App\Support\Redact;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Cache;
@@ -121,7 +120,7 @@ class ModuleAction extends Model
             ?? new self(['domain_id' => $domain->id, 'invoice_item_id' => $line?->id, 'action' => $action, 'subject' => $subject, 'status' => self::STATUS_OPEN]);
         $new = !$row->exists;
         $row->fill(['module' => $module, 'attempts' => $row->attempts + 1, 'last_attempt_at' => now(),
-            'last_error' => Str::limit(Redact::text($error->getMessage()), 2000)])->save();
+            'last_error' => Str::limit((string) LogText::of($error->getMessage()), 2000)])->save();
         // Staff told once, when it opens (a registration, transfer or renewal: WHMCS's «Domain Renewal Failed», mail
         // check of 2026-10-21), never on each retry; after it commits, so a rolled-back one tells no one.
         if ($new && in_array($action, self::DOMAIN_ACTIONS, true)) {

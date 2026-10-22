@@ -108,4 +108,17 @@ class LogRedactionTest extends TestCase
         $row = DebugLog::query()->where('type', 'exception')->sole();
         $this->assertStringNotContainsString('whm-Token-1234567890', json_encode($row->context));
     }
+
+    public function test_laravel_log_keeps_the_cause_of_a_masked_exception(): void
+    {
+        $handler = new TestHandler;
+        $logger = new Logger(new Monolog('test', [$handler]));
+        (new RedactSecrets)($logger);
+
+        $logger->error('x', ['exception' => new RuntimeException('Provisioning failed', 0, new RuntimeException('WHM: ' . self::SECRET))]);
+
+        $written = json_encode($handler->getRecords()[0]->context);
+        $this->assertStringContainsString('[previous exception] RuntimeException: WHM', $written);
+        $this->assertStringNotContainsString('whm-Token-1234567890', $written);
+    }
 }

@@ -58,9 +58,20 @@ final class LogText
         // An exception is written from the object itself (its message and trace): as masked text instead.
         return array_map(fn ($value) => match (true) {
             is_string($value) => self::of($value),
-            $value instanceof Throwable => self::of($value::class . ': ' . $value->getMessage() . ' in ' . $value->getFile() . ':' . $value->getLine()
-                . "\n" . $value->getTraceAsString()),
+            $value instanceof Throwable => self::of(self::throwable($value)),
             default => $value,
         }, $context);
+    }
+
+    /** An exception as laravel.log writes it, its causes too (the wrapped one is often the reason). */
+    private static function throwable(Throwable $e): string
+    {
+        $text = '';
+        for ($depth = 0; $e !== null && $depth < 5; $e = $e->getPrevious(), $depth++) {
+            $text .= ($depth > 0 ? "\n[previous exception] " : '') . $e::class . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()
+                . "\n" . $e->getTraceAsString();
+        }
+
+        return $text;
     }
 }
