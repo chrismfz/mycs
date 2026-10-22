@@ -202,18 +202,22 @@ class WhmcsTicketImportTest extends TestCase
         $this->assertStringContainsString('Escalated', $output->fetch());
     }
 
-    /** --dry-run: the same numbers, nothing kept (not a ticket, not a file). */
+    /**
+     * --dry-run: the same numbers, nothing kept (not a ticket, not a file). The folder is shared with the tests running in
+     * parallel, so the file is looked for by its bytes (a PDF comment of its own), not by the folder's listing.
+     */
     public function test_a_dry_run_keeps_nothing(): void
     {
-        file_put_contents("{$this->folder}/123456_report.pdf", Eml::pdf());
+        $marker = '% dry-run-' . bin2hex(random_bytes(8));
+        file_put_contents("{$this->folder}/123456_report.pdf", Eml::pdf() . "{$marker}\n");
         $this->ticket(9, ['attachment' => '123456_report.pdf']);
-        $before = glob(storage_path('app/tickets/uploads/*')) ?: [];
 
         $counts = (new WhmcsTicketImport($this->whmcs, $this->folder, dryRun: true))->run();
 
         $this->assertSame([1, 1], [$counts['tickets'], $counts['files']]);
         $this->assertSame(0, Ticket::query()->count());
-        $this->assertSame($before, glob(storage_path('app/tickets/uploads/*')) ?: [], 'no file written');
+        $this->assertSame([], array_values(array_filter(glob(storage_path('app/tickets/uploads/*')) ?: [],
+            fn (string $file) => str_contains((string) @file_get_contents($file), $marker))), 'no file written');
     }
 
     /** One ticket that fails is counted and skipped; the others come, and the command says so. */
