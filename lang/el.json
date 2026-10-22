@@ -969,5 +969,11 @@
     "Nothing was imported": "Δεν εισήχθη τίποτα",
     "«:product» is priced in :currency, which the import cannot price: give its rate.": "Το «:product» έχει τιμή σε :currency, που η εισαγωγή δεν μπορεί να τιμολογήσει: δώστε την ισοτιμία του.",
     "free or not offered prices kept": "οι δωρεάν ή μη διαθέσιμες τιμές μένουν",
-    "kept: free or not offered": "μένει: δωρεάν ή μη διαθέσιμη"
+    "kept: free or not offered": "μένει: δωρεάν ή μη διαθέσιμη",
+    "Staff online": "Staff σε σύνδεση",
+    "My status": "Η κατάστασή μου",
+    "Available": "Διαθέσιμος",
+    "Busy": "Απασχολημένος",
+    "Away": "Λείπω",
+    "Connected now": "Συνδεδεμένος τώρα"
 }

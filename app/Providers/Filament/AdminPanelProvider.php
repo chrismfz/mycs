@@ -116,6 +116,11 @@ class AdminPanelProvider extends PanelProvider
                 PanelsRenderHook::SIDEBAR_NAV_END,
                 fn (): string => Blade::render('<x-admin-footer />'),
             )
+            // The heartbeat of «Staff online» on every page of the admin (docs/livechat.md §7α, §7β), for staff only.
+            ->renderHook(
+                PanelsRenderHook::BODY_END,
+                fn (): string => auth('staff')->check() ? Blade::render("@livewire('admin.staff-heartbeat')") : '',
+            )
             ->renderHook(
                 'panels::head.end',
                 fn (): string => view('layouts.colors')->render(),
