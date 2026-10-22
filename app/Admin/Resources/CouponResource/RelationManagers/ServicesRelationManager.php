@@ -41,6 +41,8 @@ class ServicesRelationManager extends RelationManager
                     // Takes the coupon off the services (AUTH-9): it deleted the services themselves.
                     BulkAction::make('removeCoupon')
                         ->label('Remove coupon')
+                        // It changes what the services renew at: the services' own permission, not the coupon's (SA-7).
+                        ->authorize(fn (): bool => (bool) auth()->user()?->hasPermission('admin.services.update'))
                         ->requiresConfirmation()
                         ->action(fn (Collection $records) => $records->each(fn ($service) => $service->update(['coupon_id' => null])))
                         ->deselectRecordsAfterCompletion(),
