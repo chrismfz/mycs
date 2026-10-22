@@ -4,7 +4,6 @@ namespace App\Livewire\Auth;
 
 use App\Livewire\Component;
 use App\Models\User;
-use App\Providers\Filament\AdminPanelProvider;
 use App\Traits\Captchable;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
@@ -64,11 +63,9 @@ class Login extends Component
 
         $loginAction->execute($user, $this->remember);
 
-        $intendedUrl = session()->pull('url.intended', default: route('dashboard'));
-        $isAdminRoute = str_starts_with($intendedUrl, url('/' . AdminPanelProvider::PATH . '/'));
-
-        // Redirect normally if it is an admin route, otherwise navigate using livewire
-        return $this->redirect($intendedUrl, navigate: !$isAdminRoute);
+        // A full page load, never a Livewire navigation: the login page's scripts (the staff's analytics) would keep
+        // running on the next page, a private link's too (review of #334).
+        return $this->redirect(session()->pull('url.intended', default: route('dashboard')));
     }
 
     public function render()
