@@ -129,18 +129,6 @@ Route::group(['prefix' => 'products', 'middleware' => 'checkout'], function () {
     // Allow for nested categories
 });
 
-Route::group([
-    'as' => 'passport.',
-    'prefix' => config('passport.path', 'oauth'),
-    'namespace' => '\Laravel\Passport\Http\Controllers',
-], function () {
-    Route::get('/oauth/authorize', [
-        'uses' => 'Laravel\Passport\Http\Controllers\AuthorizationController@authorize',
-        'as' => 'x.authorize',
-        'middleware' => 'web',
-    ]);
-});
-
 // The accountant's income file (ROADMAP 6, review F2 of #280): a plain download for staff, from a signed link.
 Route::get('/' . AdminPanelProvider::PATH . '/reports/income/{year}/{currency}.{format}', IncomeExportController::class)
     ->whereNumber('year')->where('currency', '[A-Z]{3}')->where('format', 'xlsx|csv')

@@ -12,16 +12,7 @@ use App\Http\Controllers\Api\Admin\TicketController;
 use App\Http\Controllers\Api\Admin\TicketMessageController;
 use App\Http\Controllers\Api\Admin\UserController;
 use App\Http\Controllers\Api\DomainPricingController;
-use App\Http\Controllers\Api\ProfileController;
 use Illuminate\Support\Facades\Route;
-
-Route::post('/oauth/token', [
-    'uses' => 'Laravel\Passport\Http\Controllers\AccessTokenController@issueToken',
-    'as' => 'token',
-    'middleware' => 'throttle',
-]);
-
-Route::get('/me', [ProfileController::class, 'me'])->middleware(['auth:api', 'scope:profile']);
 
 // The domain price list for the company's site (D8a): public, cached, 60 a minute per address.
 Route::get('/v1/domain-pricing', DomainPricingController::class)->middleware('throttle:domain-pricing')->name('api.v1.domain-pricing');

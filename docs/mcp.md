@@ -5,7 +5,7 @@ MCP client). It serves the tools of docs/ops.md and is meant for testing and tro
 The design follows Ekdosi's (laravel/mcp, a server class, one tool per question). Auth uses MyCS's own admin API keys.
 
 ## Access
-- **Who:** staff only. Customers' Passport tokens never open it.
+- **Who:** staff only (customers have no OAuth tokens: the Passport server was removed, security audit AUTHN-10).
 - **The key:** an **admin API key** (Admin → API Keys) with the permission **«Use the MCP Server»**.
   - Its owner's role needs «Use the MCP Server» too, and the owner must be active.
   - The key's IP allowlist applies.
@@ -44,8 +44,8 @@ The design follows Ekdosi's (laravel/mcp, a server class, one tool per question)
 - **Errors:** a failing tool returns an MCP error with a masked message, never a stack.
 
 ## OAuth (`App\Services\Mcp\McpOauth`)
-MyCS has its own small OAuth 2.1 server for `/mcp`, for staff only. It is apart from the customers' Passport
-(`/oauth/*`), so a customer's token can never be one for the MCP.
+MyCS has its own small OAuth 2.1 server for `/mcp`, for staff only. There is no other OAuth server in MyCS (the
+customers' Passport was removed), so no other token can be one for the MCP.
 
 - **Discovery:** a 401 from `/mcp` names `/.well-known/oauth-protected-resource/mcp` (RFC 9728). That points to
   `/.well-known/oauth-authorization-server` (RFC 8414).

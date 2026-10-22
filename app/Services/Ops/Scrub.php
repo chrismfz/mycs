@@ -7,7 +7,7 @@ use App\Support\Redact;
 /**
  * Text that leaves the server through the ops tools (docs/ops.md): Redact's rules (stored secrets, cPanel sessions,
  * webhook tokens, secret query keys of any URL in it), plus Authorization headers and the secrets of the app's own
- * config (APP_KEY, database, mail, Passport, AWS). A license key is shown by its prefix and last 4.
+ * config (APP_KEY, database, mail, AWS). A license key is shown by its prefix and last 4.
  */
 final class Scrub
 {
@@ -37,7 +37,7 @@ final class Scrub
     /** @return list<string> */
     private static function configSecrets(): array
     {
-        $values = [config('app.key'), config('passport.private_key'), config('passport.personal_access_client.secret'),
+        $values = [config('app.key'),
             config('services.ses.secret'), config('filesystems.disks.s3.secret')];
         foreach ((array) config('database.connections') as $connection) {
             $values[] = $connection['password'] ?? null;

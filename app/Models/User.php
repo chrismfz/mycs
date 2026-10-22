@@ -14,8 +14,6 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Auth;
-use Laravel\Passport\Contracts\OAuthenticatable;
-use Laravel\Passport\HasApiTokens;
 use OwenIt\Auditing\Contracts\Auditable;
 
 /**
@@ -29,9 +27,9 @@ use OwenIt\Auditing\Contracts\Auditable;
  * A customer login. Never staff (docs/accounts.md, PR 1): staff are App\Models\Staff, with their own guard. Not the
  * account either (PR 2a): services, invoices and credit are a Client's, which logins see through `client_user`.
  */
-class User extends Authenticatable implements Auditable, HasAvatar, OAuthenticatable
+class User extends Authenticatable implements Auditable, HasAvatar
 {
-    use HasApiTokens, HasFactory, Notifiable, Traits\Auditable;
+    use HasFactory, Notifiable, Traits\Auditable;
 
     /**
      * The attributes that are mass assignable.

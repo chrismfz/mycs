@@ -31,7 +31,6 @@
         "flowframe/laravel-trend": "^0.5.0",
         "laravel/framework": "^13.0",
         "laravel/mcp": "^0.9",
-        "laravel/passport": "^13.7",
         "laravel/socialite": "^5.14",
         "laravel/tinker": "^3.0",
         "livewire/livewire": "^4.0",

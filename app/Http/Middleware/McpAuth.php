@@ -16,7 +16,7 @@ use Symfony\Component\HttpFoundation\Response;
  * permission, its owner active with it, its IP allowlist by the connection's address), or an OAuth access token a
  * member of staff approved (McpOauth: checked again on every call, with the key it was approved with). The request then
  * acts as that member of staff (the staff guard, this request only: no session). 120 calls a minute a key or grant.
- * Never the customers' Passport tokens: /mcp is staff's alone. A 401 names the resource metadata, so an OAuth client
+ * Staff's alone: customers have no tokens here (the Passport server was removed). A 401 names the resource metadata, so an OAuth client
  * (the claude.ai connector) finds the way in.
  */
 class McpAuth

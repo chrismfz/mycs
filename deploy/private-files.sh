@@ -26,7 +26,7 @@ for dir in . storage storage/app; do
   if [[ -d "$dir" && -O "$dir" ]]; then chmod 711 "$dir"; fi
 done
 # Secrets: owner only.
-for file in .env .db-credentials storage/oauth-private.key bootstrap/cache/*.php; do
+for file in .env .db-credentials bootstrap/cache/*.php; do
   if [[ -f "$file" && -O "$file" ]]; then chmod 600 "$file"; fi
 done
 # Customer data and the app's working files: owner only, whatever their files' own modes.

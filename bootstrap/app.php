@@ -19,7 +19,6 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Support\Facades\Route;
-use Laravel\Passport\Http\Middleware\CheckTokenForAnyScope;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -45,7 +44,6 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->convertEmptyStringsToNull(except: [fn ($request) => $request->is('zlic.php', 'extensions/cardlink/return')]);
         $middleware->alias([
             'has' => EnsureUserHasPermissions::class,
-            'scope' => CheckTokenForAnyScope::class,
             'api.admin' => AdminApi::class,
             'checkout' => CheckoutParameterMiddleware::class,
             'client.can' => EnsureClientPermission::class,
