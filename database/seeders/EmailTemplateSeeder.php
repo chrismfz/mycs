@@ -963,6 +963,28 @@ class EmailTemplateSeeder extends Seeder
             'edit_preference_message' => 'Tell me when the transfer of a domain of mine is complete',
             'in_app_url' => '{{ urls.domain }}',
         ],
+        'ssl_certificate_issued' => [
+            'subject' => 'Your SSL certificate for {{ common_name }} is ready',
+            'body' => <<<'HTML'
+                # SSL certificate ready
+
+                Dear {{ user.first_name }},
+
+                Your SSL certificate for **{{ common_name }}** has been issued{% if expires %} and is valid until **{{ expires }}**{% endif %}. Install it on your server: you will find the certificate and the intermediate (CA bundle) on the service page.
+
+                <div class="action">
+                	<a class="button button-blue" href="{{ urls.service }}">
+                		View certificate
+                	</a>
+                </div>
+                HTML,
+            'in_app_title' => 'SSL certificate ready: {{ common_name }}',
+            'in_app_body' => 'Your SSL certificate for {{ common_name }} has been issued: install it on your server.',
+            'mail_enabled' => 'choice_on',
+            'in_app_enabled' => 'choice_on',
+            'edit_preference_message' => 'Tell me when an SSL certificate of mine is issued',
+            'in_app_url' => '{{ urls.service }}',
+        ],
         'domain_renewed' => [
             'subject' => '{{ fqdn }} is renewed{% if expires %} until {{ expires }}{% endif %}',
             'body' => <<<'HTML'
@@ -1927,6 +1949,26 @@ class EmailTemplateSeeder extends Seeder
                     HTML,
                 'in_app_title' => 'Το {{ fqdn }} είναι πλέον σε εμάς',
                 'in_app_body' => 'Η μεταφορά του domain σας {{ fqdn }} ολοκληρώθηκε.',
+            ],
+        ],
+        'ssl_certificate_issued' => [
+            'el' => [
+                'subject' => 'Το πιστοποιητικό SSL για το {{ common_name }} είναι έτοιμο',
+                'body' => <<<'HTML'
+                    # Το πιστοποιητικό SSL είναι έτοιμο
+
+                    Αγαπητέ/ή {{ user.first_name }},
+
+                    Το πιστοποιητικό SSL για το **{{ common_name }}** εκδόθηκε{% if expires %} και ισχύει έως **{{ expires }}**{% endif %}. Εγκαταστήστε το στον server σας: το πιστοποιητικό και το ενδιάμεσο (CA bundle) είναι στη σελίδα της υπηρεσίας.
+
+                    <div class="action">
+                    	<a class="button button-blue" href="{{ urls.service }}">
+                    		Προβολή πιστοποιητικού
+                    	</a>
+                    </div>
+                    HTML,
+                'in_app_title' => 'Πιστοποιητικό SSL έτοιμο: {{ common_name }}',
+                'in_app_body' => 'Το πιστοποιητικό SSL για το {{ common_name }} εκδόθηκε: εγκαταστήστε το στον server σας.',
             ],
         ],
         'domain_renewed' => [

@@ -213,17 +213,36 @@ class EditService extends EditRecord
             // An Openprovider SSL order request whose answer was lost and that is not found there (ssl:sync tells it): cleared
             // by staff after checking Openprovider, so the customer may order again (code review 2 of #345).
             Action::make('sslClearRequest')
-                ->label('Clear the unanswered SSL order request')->icon('ri-lock-unlock-line')->color('warning')
+                ->label(fn (Service $record) => SslOrder::query()->where('service_id', $record->id)->whereNotNull('renew_requested_at')->exists()
+                    ? 'Clear the unseen SSL renewal' : 'Clear the unanswered SSL order request')->icon('ri-lock-unlock-line')->color('warning')
                 ->authorize('update')
                 ->visible(fn (Service $record) => ($order = SslOrder::query()->where('service_id', $record->id)->first()) !== null
                     && OpenproviderSsl::stuck($order))
                 ->requiresConfirmation()
-                ->modalDescription('Only after checking Openprovider has no order with this CSR (it is looked for once more first): the customer may then order again, and a second order is charged.')
+                ->modalDescription(fn (Service $record) => SslOrder::query()->where('service_id', $record->id)->whereNotNull('renew_requested_at')->exists()
+                    ? 'Only after checking at Openprovider that this order was NOT renewed (it is looked for once more first): the next sync may then renew it, and that renewal is charged.'
+                    : 'Only after checking Openprovider has no order with this CSR (it is looked for once more first): the customer may then order again, and a second order is charged.')
                 ->action(function (Service $record): void {
                     $order = SslOrder::query()->where('service_id', $record->id)->sole();
                     $server = $record->provisioningServer() ?? throw new Exception('The service has no server');
                     ExtensionHelper::getExtension('server', $server->extension, $server->settings)->clearRequest($order);
-                    Notification::make()->title('The order request was cleared')->success()->send();
+                    Notification::make()->title('The SSL request was cleared')->success()->send();
+                }),
+
+            // An ended certificate (its paid order over, or cancelled): the service waits for a new CSR, and the customer's next
+            // order is a new one, charged (R2-1 of #350).
+            Action::make('sslStartOver')
+                ->label('Start a new SSL order')->icon('ri-restart-line')->color('warning')
+                ->authorize('update')
+                ->visible(fn (Service $record) => ($order = SslOrder::query()->where('service_id', $record->id)->first()) !== null && $order->order_id !== null
+                    && $order->renew_requested_at === null && ($order->order_ends_at?->isPast() || in_array($order->status, ['CAN', 'EXP', 'REJ', 'FAI'], true)))
+                ->requiresConfirmation()
+                ->modalDescription('The certificate\'s order has ended. The service will wait for a new CSR, and the customer\'s next order is charged at Openprovider: only when the customer has paid for it.')
+                ->action(function (Service $record): void {
+                    $order = SslOrder::query()->where('service_id', $record->id)->sole();
+                    $server = $record->provisioningServer() ?? throw new Exception('The service has no server');
+                    ExtensionHelper::getExtension('server', $server->extension, $server->settings)->startOver($order);
+                    Notification::make()->title('The service waits for a new CSR')->success()->send();
                 }),
 
             Action::make('changeStatus')

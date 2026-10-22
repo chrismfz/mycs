@@ -488,6 +488,13 @@ class NotificationHelper
         self::toAccount($client, 'server_unsuspended', $data);
     }
 
+    /** An SSL certificate issued or reissued (OpenproviderSsl): its name, until when, the service page to take it from. */
+    public static function sslCertificateIssuedNotification(Client $client, Service $service, array $data = []): void
+    {
+        $data['service'] = $service;
+        self::toAccount($client, 'ssl_certificate_issued', $data);
+    }
+
     /** A service ended at the end of its period because its customer asked (not «terminated»: sweep modules §21). */
     public static function serviceCancelledNotification(Client $client, Service $service, array $data = []): void
     {

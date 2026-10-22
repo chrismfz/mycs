@@ -31,6 +31,10 @@ use Illuminate\Support\Carbon;
  * @property array<string, mixed>|null $validation
  * @property Carbon|null $synced_at
  * @property string|null $sync_error
+ * @property Carbon|null $renew_requested_at
+ * @property Carbon|null $renew_for
+ * @property list<int>|null $previous_order_ids
+ * @property string|null $notified_hash
  */
 class SslOrder extends Model
 {
@@ -49,6 +53,10 @@ class SslOrder extends Model
             'reissue_at' => 'datetime',
             'order_ends_at' => 'datetime',
             'synced_at' => 'datetime',
+            'renew_requested_at' => 'datetime',
+            'renew_for' => 'datetime',
+            'renew_answered_at' => 'datetime',
+            'previous_order_ids' => 'array',
         ];
     }
 
@@ -68,6 +76,18 @@ class SslOrder extends Model
     public function awaitingConfiguration(): bool
     {
         return $this->order_id === null && $this->requested_at === null;
+    }
+
+    /** Openprovider's statuses of an order no longer waiting for its validation. */
+    public const SETTLED = ['ACT', 'CAN', 'EXP', 'REJ', 'FAI'];
+
+    /**
+     * Ordered and waiting for its validation (a new order, a reissue, a renewal's new order), even while a certificate
+     * is still in use (R2-2 of #350).
+     */
+    public function waiting(): bool
+    {
+        return $this->order_id !== null && !in_array($this->status, self::SETTLED, true);
     }
 
     /** Issued: Openprovider gave its certificate. */
