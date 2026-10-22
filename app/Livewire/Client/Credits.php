@@ -61,6 +61,14 @@ class Credits extends Component
 
     public function updatedAutoApply(bool $value): void
     {
+        // Staff in «Login as client» spend or change the customer's own money (here: its balance paying open invoices on its own) only
+        // with the admin permission the same change needs there (security audit SA-5).
+        if (Actor::impersonating() && !Actor::staffMayAs('pay')) {
+            $this->autoApply = (bool) (CurrentClient::model()->credit_auto_apply ?? true);
+            $this->notify(__('account.notifications.not_while_impersonating_money'), 'error');
+
+            return;
+        }
         CurrentClient::model()?->forceFill(['credit_auto_apply' => $value])->save();
         $this->notify($value ? __('account.credit_auto_apply_on') : __('account.credit_auto_apply_off'), 'success');
     }
