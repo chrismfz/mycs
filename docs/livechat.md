@@ -407,8 +407,14 @@ client area.
 
 ## 11. Υλοποίηση
 **Μικρά PRs, περίπου μία εβδομάδα με tests:**
-0. **πριν από το chat, ξεχωριστό PR** για το session του MyCS: cookies `__Host-`, dummy hash και όριο ανά IP στο
-   login (G4, G9). Αφορά όλο το MyCS, όχι μόνο το chat;
+0. **πριν από το chat, ξεχωριστό PR** για το session του MyCS (G4, G9). Αφορά όλο το MyCS, όχι μόνο το chat:
+   - **#346** (draft, σε adversarial review): cookies `__Host-` για session, remember-me και staff device, ίδιο κόστος
+     hash για άγνωστο email, `regenerate(true)` στο login. Το όριο ανά διεύθυνση σε πολλά emails υπάρχει από το #333;
+   - **#338** (merged): το login μέσω provider θέλει ακριβές και επιβεβαιωμένο email, και το reset link δουλεύει μόνο
+     για τη διεύθυνση όπου στάλθηκε;
+   - μένουν για απόφαση του owner (λίστα στο #346): το «email taken» του register, το «not registered» του OAuth και το
+     πάντα ενεργό remember-me του OAuth. Το σχέδιο του chat δεν εξαρτάται από αυτά, γιατί το login από το popup δεν
+     βάζει ποτέ remember (G5);
 1. μοντέλο, actions και policies, δικαιώματα ανά τμήμα (F3), headers και session (F8), reauth staff (F18);
 2. chat πελάτη στο client area και ουρά στο admin;
 3. επισκέπτης (popup, ALTCHA, token, rate limits) και launcher;
