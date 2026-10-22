@@ -179,6 +179,7 @@
     @include('services.partials.usage')
     @include('services.partials.hosted-domains')
     @include('services.partials.panel-tools')
+    @include('services.partials.ssl')
 
     @if (count($views) > 0)
     <div class="bg-primary-800 rounded-lg mt-2">

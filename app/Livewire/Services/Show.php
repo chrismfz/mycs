@@ -8,6 +8,7 @@ use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
 use App\Models\ClientUser;
 use App\Models\Service;
+use App\Models\SslOrder;
 use App\Models\User;
 use App\Services\Licensing\Licenses;
 use App\Services\Licensing\MycsLicenseRepository;
@@ -55,6 +56,24 @@ class Show extends Component
     /** The domain a new mailbox is made on (cPanel: WHMCS's «Quick Create Email Account»); null: none. */
     #[Locked]
     public ?string $mailboxDomain = null;
+
+    /** An SSL certificate of Openprovider's (its order, CSR and validation on this page). */
+    #[Locked]
+    public bool $hasSsl = false;
+
+    public string $sslCsr = '';
+
+    /** The CSR's name, once checked; the approver addresses Openprovider allows for it. Set here only. */
+    #[Locked]
+    public ?string $sslName = null;
+
+    /** @var list<string> */
+    #[Locked]
+    public array $sslApprovers = [];
+
+    public string $sslMethod = 'dns';
+
+    public ?string $sslApprover = null;
 
     public string $newPassword = '';
 
@@ -111,6 +130,8 @@ class Show extends Component
                 } elseif ($action['type'] === 'password' && $canManage) {
                     $this->canChangePassword = true;
                     $this->passwordHasMysql = !empty($action['mysql']);
+                } elseif ($action['type'] === 'ssl') {
+                    $this->hasSsl = true;
                 } elseif ($action['type'] === 'email' && $canManage && filled($action['domain'] ?? null)) {
                     $this->mailboxDomain = (string) $action['domain'];
                 }
@@ -417,6 +438,103 @@ class Show extends Component
         $this->notify(__('services.cpanel.password_changed'), 'success');
     }
 
+    /** The CSR checked (its name, against the product) before anything is ordered; the approver addresses for it. */
+    public function sslCheck(): void
+    {
+        if (!$this->sslMayOrder()) {
+            return;
+        }
+        $this->validate(['sslCsr' => ['required', 'string', 'max:16384', 'regex:/-----BEGIN (NEW )?CERTIFICATE REQUEST-----/']]);
+        $this->reset('sslName', 'sslApprovers', 'sslApprover');
+        if ($this->sslLimited('check', 20)) {
+            return;
+        }
+        try {
+            $info = ExtensionHelper::callService($this->service, 'decodeCsr', [$this->sslCsr]);
+            $this->sslApprovers = (array) ExtensionHelper::callService($this->service, 'approverEmails', [(string) ($info['common_name'] ?? '')]);
+            $this->sslName = (string) $info['common_name'];
+        } catch (Exception $e) {
+            $this->sslFailed($e);
+        }
+    }
+
+    /** Another CSR is checked again. */
+    public function updatedSslCsr(): void
+    {
+        $this->reset('sslName', 'sslApprovers', 'sslApprover');
+    }
+
+    /** The certificate ordered (charged at Openprovider): once, for the CSR checked, with the validation chosen. */
+    public function sslOrder(): void
+    {
+        if (!$this->sslMayOrder() || $this->sslName === null) {
+            return;
+        }
+        $this->validate([
+            'sslMethod' => ['required', 'in:' . implode(',', SslOrder::METHODS)],
+            'sslApprover' => ['nullable', 'required_if:sslMethod,email', 'in:' . implode(',', $this->sslApprovers ?: [''])],
+        ]);
+        if ($this->sslLimited('order', 5)) {
+            return;
+        }
+        try {
+            if (ExtensionHelper::callService($this->service, 'placeOrder', [$this->sslCsr, $this->sslMethod, $this->sslMethod === 'email' ? $this->sslApprover : null]) !== true) {
+                throw new Exception('the order was not confirmed');
+            }
+        } catch (Exception $e) {
+            $this->sslFailed($e);
+
+            return;
+        }
+        $this->reset('sslCsr', 'sslName', 'sslApprovers', 'sslApprover');
+        $this->notify(__('services.ssl.ordered'), 'success');
+    }
+
+    /** Openprovider's approver email sent again. */
+    public function sslResend(): void
+    {
+        $this->authorize('update', $this->service);
+        if (!$this->hasSsl || $this->service->status !== Service::STATUS_ACTIVE || $this->sslLimited('resend', 3)) {
+            return;
+        }
+        try {
+            ExtensionHelper::callService($this->service, 'resendApproverEmail');
+        } catch (Exception $e) {
+            $this->sslFailed($e);
+
+            return;
+        }
+        $this->notify(__('services.ssl.resent'), 'success');
+    }
+
+    /** `manageproducts`, an active service, a certificate not ordered yet. */
+    private function sslMayOrder(): bool
+    {
+        $this->authorize('update', $this->service);
+
+        return $this->hasSsl && $this->service->status === Service::STATUS_ACTIVE
+            && (SslOrder::query()->where('service_id', $this->service->id)->first()?->awaitingConfiguration() ?? false);
+    }
+
+    private function sslLimited(string $action, int $max): bool
+    {
+        if (RateLimiter::tooManyAttempts($key = "service-ssl-{$action}:" . $this->service->id, $max)) {
+            $this->notify(__('services.ssl.too_many'), 'error');
+
+            return true;
+        }
+        RateLimiter::hit($key, 3600);
+
+        return false;
+    }
+
+    /** Openprovider's refusal told with its reason; anything else (not known) told as such, its detail reported. */
+    private function sslFailed(Exception $e): void
+    {
+        report($e);
+        $this->notify($e instanceof ServerRefused ? __('services.ssl.refused', ['reason' => Redact::text($e->getMessage())]) : __('services.ssl.failed'), 'error');
+    }
+
     /**
      * A mailbox on the service's domain (WHMCS's «Quick Create Email Account»): `manageproducts`, a few an hour; its
      * password is not kept here.
@@ -524,6 +642,7 @@ class Show extends Component
             'canSeeContact' => $canEditContact || $this->canSeeContact(),
             'contactOptions' => $options,
             'licenseFields' => $this->licenseFields(),
+            'sslOrder' => $this->hasSsl ? SslOrder::query()->where('service_id', $this->service->id)->first() : null,
         ])->layoutData([
             'title' => $this->service->label,
             'sidebar' => true,

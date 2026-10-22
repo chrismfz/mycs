@@ -1,0 +1,355 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Exceptions\ServerRefused;
+use App\Helpers\ExtensionHelper;
+use App\Livewire\Services\Show;
+use App\Models\DomainRegistrarConnection;
+use App\Models\Server;
+use App\Models\Service;
+use App\Models\SslOrder;
+use App\Models\User;
+use App\Support\CurrentClient;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\RateLimiter;
+use Livewire\Livewire;
+use MyCS\Extensions\Servers\OpenproviderSsl\OpenproviderSsl;
+use Tests\TestCase;
+
+/**
+ * SSL from Openprovider (owner 2026-10-22, instead of TheSSLStore): paid, the service waits for its CSR; the customer's
+ * CSR checked against the product, the order asked for once (marked before, a lost answer recovered, never a second
+ * order), the hourly sync reading status, dates, certificate and validation; terminate keeps the certificate unless the
+ * product says cancel.
+ */
+class OpenproviderSslTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private const CSR = "-----BEGIN CERTIFICATE REQUEST-----\nMIIBfake\n-----END CERTIFICATE REQUEST-----";
+
+    private User $owner;
+
+    private Service $service;
+
+    private DomainRegistrarConnection $connection;
+
+    /** @var array<string, mixed> what the CSR decodes to */
+    private array $csr = ['subject' => ['common_name' => 'shop.example.test'], 'subject_alternative_name' => ['www.shop.example.test']];
+
+    private bool $wildcardProduct = false;
+
+    /** POST /ssl/orders: 'ok', 'refuse' (400), 'lost' (no answer, the order made) or 'lost-not-made' */
+    private string $orderAnswer = 'ok';
+
+    /** @var array<int, array<string, mixed>> orders at Openprovider */
+    private array $orders = [];
+
+    private int $nextId = 777;
+
+    /** @var list<array{0: string, 1: string, 2: array<string, mixed>}> method, path, payload */
+    private array $calls = [];
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Http::preventStrayRequests();
+        Mail::fake();
+        Queue::fake();
+        config(['settings.default_currency' => 'USD']);
+        $this->connection = DomainRegistrarConnection::query()->create(['registrar' => 'openprovider', 'label' => 'OP', 'is_active' => true, 'mode' => 'production']);
+        $this->connection->storeCredentials(['username' => 'op-user', 'password' => 'op-secret'], ['password']);
+        $server = Server::query()->create(['name' => 'SSL', 'extension' => 'OpenproviderSsl', 'type' => 'server', 'enabled' => true]);
+        $server->settings()->create(['key' => 'connection_id', 'value' => (string) $this->connection->id]);
+        $this->owner = User::factory()->create();
+        $this->owner->client()->ensurePrimaryContact()->forceFill(['country' => 'GR', 'address1' => 'Odos 12', 'city' => 'Athens', 'postcode' => '10000', 'phone' => '+30.2100000000'])->save();
+        $product = $this->createProduct();
+        $product->plan->update(['billing_unit' => 'year', 'billing_period' => 1]);
+        $product->product->update(['server_id' => $server->id]);
+        $product->product->settings()->create(['key' => 'product_id', 'value' => '9']);
+        $this->service = Service::factory()->create(['client_id' => $this->owner->client()->id, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'server_id' => $server->id, 'status' => 'active', 'currency_code' => 'USD', 'price' => 10, 'expires_at' => now()->addYear()]);
+        Http::fake(fn (Request $request) => $this->openprovider($request));
+    }
+
+    private function openprovider(Request $request)
+    {
+        $path = (string) parse_url($request->url(), PHP_URL_PATH);
+        parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+        $this->calls[] = [$request->method(), $path, $request->data() ?: $query];
+        $ok = fn (array $data = []) => Http::response(['code' => 0, 'desc' => '', 'data' => $data]);
+
+        return match (true) {
+            $path === '/v1/auth/login' => $ok(['token' => 'tok']),
+            $path === '/v1/customers' => $ok(['handle' => 'XX123-GR']),
+            $path === '/v1/ssl/csr/decode' => $ok($this->csr),
+            $path === '/v1/ssl/products/9' => $ok(['id' => 9, 'is_wildcard_supported' => $this->wildcardProduct]),
+            $path === '/v1/ssl/approver-emails' => $ok(['results' => ['admin@shop.example.test', 'webmaster@shop.example.test']]),
+            $path === '/v1/ssl/orders' && $request->method() === 'POST' => $this->newOrder($request),
+            $path === '/v1/ssl/orders' => $ok(['results' => array_values(array_filter($this->orders,
+                fn ($o) => $o['common_name'] === ($query['common_name_pattern'] ?? null)))]),
+            (bool) preg_match('#^/v1/ssl/orders/(\d+)$#', $path, $m) => isset($this->orders[(int) $m[1]]) ? $ok($this->orders[(int) $m[1]])
+                : Http::response(['code' => 404, 'desc' => 'not found'], 404),
+            default => $ok(),
+        };
+    }
+
+    private function newOrder(Request $request)
+    {
+        if ($this->orderAnswer === 'refuse') {
+            return Http::response(['code' => 10001, 'desc' => 'Invalid CSR'], 400);
+        }
+        if ($this->orderAnswer !== 'lost-not-made') {
+            $id = $this->nextId++;
+            $this->orders[$id] = ['id' => $id, 'common_name' => 'shop.example.test', 'product_id' => $request['product_id'], 'status' => 'REQ', 'csr' => $request['csr'],
+                'order_date' => now()->format('Y-m-d H:i:s'), 'expiration_date' => '', 'order_ends_at' => now()->addYear()->format('Y-m-d H:i:s'),
+                'reissue_at' => '', 'certificate' => '', 'intermediate_certificate' => '', 'email_approver' => $request['approver_email'] ?? '',
+                'domain_validation_methods' => $request['domain_validation_methods'],
+                'additional_data' => [['domain' => 'shop.example.test', 'dns_record' => '_abc.shop.example.test', 'dns_value' => 'abc.def.sectigo.com',
+                    'file_location' => 'shop.example.test/.well-known/pki-validation/abc.txt', 'file_contents' => "hash\nsectigo.com"]]];
+        }
+        if (str_starts_with($this->orderAnswer, 'lost')) {
+            throw new ConnectionException('timed out');
+        }
+
+        return Http::response(['code' => 0, 'desc' => '', 'data' => ['id' => $id]]);
+    }
+
+    /** @return list<array<string, mixed>> the payloads sent to this method and path */
+    private function sent(string $method, string $path): array
+    {
+        return array_values(array_map(fn ($c) => $c[2], array_filter($this->calls, fn ($c) => $c[0] === $method && $c[1] === $path)));
+    }
+
+    private function order(): SslOrder
+    {
+        return SslOrder::query()->where('service_id', $this->service->id)->sole();
+    }
+
+    private function place(string $method = 'dns', ?string $approver = null): mixed
+    {
+        return ExtensionHelper::callService($this->service->fresh(), 'placeOrder', [self::CSR, $method, $approver]);
+    }
+
+    public function test_paid_it_waits_for_its_csr_and_orders_nothing(): void
+    {
+        ExtensionHelper::createServer($this->service->fresh());
+
+        $this->assertTrue($this->order()->awaitingConfiguration());
+        $this->assertSame([], $this->calls, 'nothing asked of Openprovider, nothing spent');
+    }
+
+    public function test_the_order_is_placed_once_with_its_validation_and_read_back(): void
+    {
+        ExtensionHelper::createServer($this->service->fresh());
+
+        $this->assertTrue($this->place());
+
+        [$sent] = $this->sent('POST', '/v1/ssl/orders');
+        $this->assertSame([9, 1, 'off', ['shop.example.test'], [['host_name' => 'shop.example.test', 'method' => 'dns']], 'XX123-GR', true],
+            [$sent['product_id'], $sent['period'], $sent['autorenew'], $sent['host_names'], $sent['domain_validation_methods'], $sent['organization_handle'], $sent['start_provision']]);
+        $order = $this->order();
+        $this->assertSame([777, 'REQ', 'shop.example.test', 'dns'], [$order->order_id, $order->status, $order->common_name, $order->validation_method]);
+        $this->assertSame('abc.def.sectigo.com', $order->validation['data'][0]['dns_value']);
+        $this->assertNotNull($order->order_ends_at);
+        $this->assertSame('XX123-GR', $order->organization_handle);
+
+        $this->assertInstanceOf(\Exception::class, rescue(fn () => $this->place(), fn ($e) => $e, false), 'never ordered twice');
+        $this->assertCount(1, $this->sent('POST', '/v1/ssl/orders'));
+    }
+
+    public function test_a_csr_the_product_does_not_cover_is_refused_before_anything_is_ordered(): void
+    {
+        ExtensionHelper::createServer($this->service->fresh());
+        $this->csr = ['subject' => ['common_name' => '*.shop.example.test'], 'subject_alternative_name' => []];
+        $this->assertFalse(rescue(fn () => $this->place(), false, false), 'a wildcard on a plain product');
+
+        $this->csr = ['subject' => ['common_name' => 'shop.example.test'], 'subject_alternative_name' => ['other.example.test']];
+        $this->assertFalse(rescue(fn () => $this->place(), false, false), 'another name');
+
+        $this->csr = ['subject' => ['common_name' => 'not a name'], 'subject_alternative_name' => []];
+        $this->assertFalse(rescue(fn () => $this->place(), false, false), 'no name');
+
+        $this->assertSame([], $this->sent('POST', '/v1/ssl/orders'));
+        $this->assertTrue($this->order()->fresh()->awaitingConfiguration());
+    }
+
+    public function test_email_validation_takes_only_an_approver_openprovider_allows(): void
+    {
+        ExtensionHelper::createServer($this->service->fresh());
+
+        $this->assertFalse(rescue(fn () => $this->place('email', 'me@elsewhere.test'), false, false));
+        $this->assertSame([], $this->sent('POST', '/v1/ssl/orders'));
+
+        $this->assertTrue($this->place('email', 'Admin@shop.example.test'));
+        $this->assertSame('admin@shop.example.test', $this->sent('POST', '/v1/ssl/orders')[0]['approver_email']);
+    }
+
+    public function test_a_refusal_takes_the_mark_off_and_it_may_be_tried_again(): void
+    {
+        ExtensionHelper::createServer($this->service->fresh());
+        $this->orderAnswer = 'refuse';
+
+        $e = rescue(fn () => $this->place(), fn ($e) => $e, false);
+        $this->assertInstanceOf(ServerRefused::class, $e);
+        $this->assertStringContainsString('Invalid CSR', $e->getMessage());
+        $this->assertTrue($this->order()->awaitingConfiguration());
+
+        $this->orderAnswer = 'ok';
+        $this->assertTrue($this->place());
+    }
+
+    public function test_a_lost_answer_is_recovered_never_ordered_twice(): void
+    {
+        ExtensionHelper::createServer($this->service->fresh());
+        $this->orderAnswer = 'lost';
+
+        $this->assertFalse(rescue(fn () => $this->place(), false, false));
+        $this->assertNull($this->order()->order_id);
+        $this->assertNotNull($this->order()->requested_at, 'the mark stays: it may have been ordered');
+
+        $this->orderAnswer = 'ok';
+        $this->assertTrue($this->place(), 'the order made is adopted');
+        $this->assertSame(777, $this->order()->order_id);
+        $this->assertCount(1, $this->sent('POST', '/v1/ssl/orders'));
+    }
+
+    public function test_a_lost_answer_not_found_is_never_ordered_again_by_itself(): void
+    {
+        ExtensionHelper::createServer($this->service->fresh());
+        $this->orderAnswer = 'lost-not-made';
+        rescue(fn () => $this->place(), null, false);
+
+        $this->orderAnswer = 'ok';
+        $this->assertFalse(rescue(fn () => $this->place(), false, false));
+        $this->artisan('ssl:sync')->assertExitCode(0);
+
+        $this->assertCount(1, $this->sent('POST', '/v1/ssl/orders'));
+        $this->assertNull($this->order()->order_id);
+    }
+
+    public function test_a_lost_answer_never_adopts_an_order_of_another_csr(): void
+    {
+        // Openprovider's dates may be in another timezone: an earlier order of the same name looks new. Its CSR tells.
+        ExtensionHelper::createServer($this->service->fresh());
+        $this->orders[500] = ['id' => 500, 'common_name' => 'shop.example.test', 'product_id' => 9, 'order_date' => now()->addHours(2)->format('Y-m-d H:i:s'),
+            'csr' => "-----BEGIN CERTIFICATE REQUEST-----\nOTHER\n-----END CERTIFICATE REQUEST-----"];
+        $this->order()->forceFill(['common_name' => 'shop.example.test', 'csr' => self::CSR, 'requested_at' => now()])->save();
+
+        $this->artisan('ssl:sync')->assertExitCode(0);
+        $this->assertNull($this->order()->order_id);
+
+        $this->orders[500]['csr'] = str_replace("\n", "\r\n", self::CSR); // the same CSR, other line endings
+        $this->artisan('ssl:sync')->assertExitCode(0);
+        $this->assertSame(500, $this->order()->order_id);
+    }
+
+    public function test_an_order_of_another_service_is_never_adopted(): void
+    {
+        ExtensionHelper::createServer($this->service->fresh());
+        $other = $this->service->replicate();
+        $other->save();
+        SslOrder::query()->create(['service_id' => $other->id, 'connection_id' => $this->connection->id, 'product_id' => 9, 'order_id' => 777, 'common_name' => 'shop.example.test']);
+        $this->orders[777] = ['id' => 777, 'common_name' => 'shop.example.test', 'product_id' => 9, 'order_date' => now()->format('Y-m-d H:i:s'), 'csr' => self::CSR];
+        $this->order()->forceFill(['common_name' => 'shop.example.test', 'csr' => self::CSR, 'requested_at' => now()])->save();
+
+        $this->artisan('ssl:sync')->assertExitCode(0);
+
+        $this->assertNull($this->order()->order_id);
+    }
+
+    public function test_the_sync_reads_the_issued_certificate_and_keeps_a_failure(): void
+    {
+        ExtensionHelper::createServer($this->service->fresh());
+        $this->place();
+        $this->orders[777] = array_merge($this->orders[777], ['status' => 'ACT', 'certificate' => "-----BEGIN CERTIFICATE-----\nAAA\n-----END CERTIFICATE-----",
+            'intermediate_certificate' => "-----BEGIN CERTIFICATE-----\nBBB\n-----END CERTIFICATE-----", 'expiration_date' => '2027-05-01 10:00:00', 'reissue_at' => '2027-04-15 10:00:00']);
+
+        $this->artisan('ssl:sync')->assertExitCode(0);
+
+        $order = $this->order();
+        $this->assertTrue($order->issued());
+        $this->assertSame(['ACT', '2027-05-01', '2027-04-15'], [$order->status, $order->expires_at->toDateString(), $order->reissue_at->toDateString()]);
+
+        unset($this->orders[777]);
+        $this->artisan('ssl:sync')->assertExitCode(1);
+        $this->assertNotNull($this->order()->sync_error);
+        $this->assertTrue($this->order()->issued(), 'what was read is kept');
+    }
+
+    public function test_terminate_keeps_the_certificate_unless_the_product_says_cancel(): void
+    {
+        ExtensionHelper::createServer($this->service->fresh());
+        $this->place();
+
+        ExtensionHelper::terminateServer($this->service->fresh());
+        $this->assertSame([], $this->sent('POST', '/v1/ssl/orders/777/cancel'));
+
+        $this->service->forceFill(['status' => 'active'])->save();
+        $this->service->product->settings()->create(['key' => 'terminate_mode', 'value' => OpenproviderSsl::CANCEL]);
+        ExtensionHelper::terminateServer($this->service->fresh());
+        $this->assertCount(1, $this->sent('POST', '/v1/ssl/orders/777/cancel'));
+    }
+
+    public function test_one_customer_handle_per_account(): void
+    {
+        ExtensionHelper::createServer($this->service->fresh());
+        $this->place();
+        $second = $this->service->replicate();
+        $second->save();
+        ExtensionHelper::createServer($second->fresh());
+
+        ExtensionHelper::callService($second->fresh(), 'placeOrder', [self::CSR, 'dns', null]);
+
+        $this->assertCount(1, $this->sent('POST', '/v1/customers'));
+        $this->assertSame('XX123-GR', SslOrder::query()->where('service_id', $second->id)->value('organization_handle'));
+    }
+
+    public function test_a_plan_not_in_years_is_refused(): void
+    {
+        $this->service->plan->update(['billing_unit' => 'month', 'billing_period' => 1]);
+
+        $this->assertFalse(rescue(fn () => ExtensionHelper::createServer($this->service->fresh()), false, false));
+        $this->assertSame(0, SslOrder::query()->count());
+    }
+
+    public function test_the_customer_checks_the_csr_then_orders_and_sees_the_certificate(): void
+    {
+        ExtensionHelper::createServer($this->service->fresh());
+        RateLimiter::clear('service-ssl-check:' . $this->service->id);
+        RateLimiter::clear('service-ssl-order:' . $this->service->id);
+        $this->actingAs($this->owner)->withSession($this->loginUser($this->owner, [CurrentClient::SESSION_KEY => $this->service->client_id]));
+
+        $page = Livewire::test(Show::class, ['service' => $this->service])->assertSee(__('services.ssl.check'));
+        $page->set('sslCsr', self::CSR)->call('sslCheck')->assertSet('sslName', 'shop.example.test')
+            ->assertSet('sslApprovers', ['admin@shop.example.test', 'webmaster@shop.example.test']);
+        $this->assertSame([], $this->sent('POST', '/v1/ssl/orders'), 'checking orders nothing');
+        $page->set('sslMethod', 'https')->call('sslOrder')->assertDispatched('notify');
+        $this->assertSame(777, $this->order()->order_id);
+
+        $page = Livewire::test(Show::class, ['service' => $this->service]);
+        $page->assertSee('shop.example.test/.well-known/pki-validation/abc.txt');
+
+        $this->order()->forceFill(['certificate' => "-----BEGIN CERTIFICATE-----\nAAA\n-----END CERTIFICATE-----"])->save();
+        Livewire::test(Show::class, ['service' => $this->service])->assertSee('-----BEGIN CERTIFICATE-----');
+    }
+
+    public function test_the_page_never_orders_with_a_name_it_set_itself_or_an_approver_not_offered(): void
+    {
+        ExtensionHelper::createServer($this->service->fresh());
+        RateLimiter::clear('service-ssl-check:' . $this->service->id);
+        $this->actingAs($this->owner)->withSession($this->loginUser($this->owner, [CurrentClient::SESSION_KEY => $this->service->client_id]));
+        $page = Livewire::test(Show::class, ['service' => $this->service]);
+
+        $this->assertInstanceOf(\Throwable::class, rescue(fn () => $page->set('sslName', 'forged.test'), fn ($e) => $e, false), 'the checked name is locked');
+        $page->set('sslCsr', self::CSR)->call('sslCheck')->set('sslMethod', 'email')->set('sslApprover', 'me@elsewhere.test')->call('sslOrder')
+            ->assertHasErrors('sslApprover');
+        $this->assertSame([], $this->sent('POST', '/v1/ssl/orders'));
+    }
+}
