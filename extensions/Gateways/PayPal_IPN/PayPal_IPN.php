@@ -126,8 +126,32 @@ class PayPal_IPN extends Gateway
         if (strtolower((string) $field('receiver_email')) !== strtolower((string) $this->config('email'))) {
             return response('');
         }
-        if ($field('payment_status') !== 'Completed') {
-            return response('');
+        // Money given or taken back on a payment of ours (security audit PAY-SEC-5): recorded as Stripe's are, once by
+        // its own id, the invoice owed again and staff told (a refund, a chargeback, a chargeback won back).
+        $parent = (string) $field('parent_txn_id');
+        $amount = abs((float) $field('mc_gross'));
+        $reference = (string) $field('txn_id');
+        $backward = in_array($field('payment_status'), ['Refunded', 'Reversed', 'Canceled_Reversal'], true);
+        if ($backward && ($parent === '' || $reference === '')) {
+            return response(''); // nothing to match it to: the gateway log keeps it for staff
+        }
+        switch ($field('payment_status')) {
+            case 'Refunded':
+                ExtensionHelper::refundedAtGateway('PayPal', $parent, $reference, $amount, $field('mc_currency'));
+
+                return response('');
+            case 'Reversed':
+                ExtensionHelper::chargebackAtGateway('PayPal', $parent, $reference, $amount, $field('mc_currency'));
+
+                return response('');
+            case 'Canceled_Reversal':
+                ExtensionHelper::chargebackReversedAtGateway('PayPal', $parent, null, $amount, $field('mc_currency'), $reference !== '' ? $reference : null);
+
+                return response('');
+            case 'Completed':
+                break;
+            default:
+                return response('');
         }
         // Another currency is refused by RecordPaymentService (logged, staff told), not skipped here.
         $invoice = Invoice::find($field('item_number'));
