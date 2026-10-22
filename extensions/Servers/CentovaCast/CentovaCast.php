@@ -9,7 +9,6 @@ use App\Exceptions\ServerRefused;
 use App\Models\Service;
 use App\Support\Services\ServiceUsageRead;
 use Exception;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Str;
 
 /**
@@ -101,6 +100,8 @@ class CentovaCast extends Server implements ReadsServiceUsage
     private static function account(CentovaApi $api, string $username): array
     {
         // A keyword filter: every page read, never only the first hundred matches (ADV-6 of #329).
+        // A page seen already ends it: a Centova that ignores `start` is asked twice, not a hundred times (R2-5 of #329).
+        $seen = [];
         for ($start = 0; $start < 10000; $start += 100) {
             $rows = CentovaApi::rows($api->system('listaccounts', ['start' => $start, 'limit' => 100, 'filter' => $username]));
             foreach ($rows as $row) {
@@ -108,9 +109,11 @@ class CentovaCast extends Server implements ReadsServiceUsage
                     return $row;
                 }
             }
-            if (count($rows) < 100) {
+            $page = md5(serialize(array_column($rows, 'username')));
+            if (count($rows) < 100 || isset($seen[$page])) {
                 break;
             }
+            $seen[$page] = true;
         }
 
         return [];
@@ -123,8 +126,8 @@ class CentovaCast extends Server implements ReadsServiceUsage
     private static function owned(CentovaApi $api, Service $service, array $properties): string
     {
         $username = self::username($service, $properties) ?? throw new Exception('Service has not been created');
-        $others = self::claimants($service, $username, [self::USERNAME])
-            ->whereNotIn('status', [Service::STATUS_CANCELLED, Service::STATUS_TERMINATED])->exists();
+        $others = collect(self::claimants($service, $username, [self::USERNAME]))
+            ->contains(fn (Service $other) => !in_array($other->status, [Service::STATUS_CANCELLED, Service::STATUS_TERMINATED], true));
         if ($others) {
             throw new Exception("Centova Cast: another service here has the account «{$username}»: check them before anything is done");
         }
@@ -159,23 +162,33 @@ class CentovaCast extends Server implements ReadsServiceUsage
      */
     private static function claimedElsewhere(Service $service, string $name): bool
     {
-        return self::claimants($service, $name, [self::USERNAME, self::PENDING])->exists();
+        return self::claimants($service, $name, [self::USERNAME, self::PENDING]) !== [];
     }
 
     /**
-     * The other services here with this name, as their username or one of these properties, compared trimmed and in any
-     * case (an imported « radio» or «Radio» is still «radio»: ADV-4 of #329).
+     * The other services on this Centova with this name, as their username or one of these properties: on it by their own
+     * server or, with none, by their product's (as Service::provisioningServer(), R2-4 of #329); names compared as
+     * username() reads them, trimmed of any whitespace and in any case (ADV-4, R2-3).
      *
      * @param  list<string>  $keys
-     * @return Builder<Service>
+     * @return list<Service>
      */
-    private static function claimants(Service $service, string $name, array $keys)
+    private static function claimants(Service $service, string $name, array $keys): array
     {
+        $serverId = $service->provisioningServer()?->id;
+        if ($serverId === null) {
+            return [];
+        }
         $name = strtolower(trim($name));
+        $same = fn (mixed $value) => is_string($value) && strtolower(trim($value)) === $name;
 
-        return Service::query()->whereKeyNot($service->id)->where('server_id', $service->server_id)->where(fn ($query) => $query
-            ->whereRaw('LOWER(TRIM(username)) = ?', [$name])
-            ->orWhereHas('properties', fn ($property) => $property->whereIn('key', $keys)->whereRaw('LOWER(TRIM(value)) = ?', [$name])));
+        return Service::query()->whereKeyNot($service->id)
+            ->where(fn ($query) => $query->where('server_id', $serverId)
+                ->orWhere(fn ($query) => $query->whereNull('server_id')->whereHas('product', fn ($product) => $product->where('server_id', $serverId))))
+            ->with(['properties' => fn ($property) => $property->whereIn('key', $keys)])
+            ->get()
+            ->filter(fn (Service $other) => $same($other->username) || $other->properties->contains(fn ($property) => $same($property->value)))
+            ->values()->all();
     }
 
     /**
@@ -248,7 +261,7 @@ class CentovaCast extends Server implements ReadsServiceUsage
         if ($username !== '') {
             $existing = self::account($api, $username);
             if ($existing !== [] && !self::claimedElsewhere($service, $username) && self::hasEmail($api, $username, $existing, $email)) {
-                return $this->made($service, $username, $existing);
+                return $this->adopted($api, $service, $username, $existing);
             }
             if ($existing !== [] || self::claimedElsewhere($service, $username)) {
                 $username = ''; // taken since, another service's, or not ours to tell: never adopted
@@ -281,10 +294,11 @@ class CentovaCast extends Server implements ReadsServiceUsage
                 'autostart' => self::on($settings['autostart'] ?? null, true) ? 1 : 0,
             ] + self::limits($settings));
         } catch (ServerRefused $e) {
-            // Refused, yet made (an error after the account was created, code review 3 of #329): kept, never a second one.
+            // Refused, yet made (an error after the account was created, code review 3 of #329): kept, never a second one;
+            // never one another service here has (R2-1).
             $existing = self::account($api, $username);
-            if ($existing !== [] && self::hasEmail($api, $username, $existing, $email)) {
-                return $this->made($service, $username, $existing);
+            if ($existing !== [] && !self::claimedElsewhere($service, $username) && self::hasEmail($api, $username, $existing, $email)) {
+                return $this->adopted($api, $service, $username, $existing);
             }
             $service->properties()->where('key', self::PENDING)->delete();
 
@@ -292,6 +306,20 @@ class CentovaCast extends Server implements ReadsServiceUsage
         }
 
         return $this->made($service, $username, is_array($data['account'] ?? null) ? $data['account'] : []);
+    }
+
+    /**
+     * An account made by an earlier attempt of this create, adopted: its password set to the one kept now, since that
+     * attempt's may have been another (a lost answer, then a new password: R2-2 of #329).
+     */
+    private function adopted(CentovaApi $api, Service $service, string $username, array $account): bool
+    {
+        $password = (string) $service->password;
+        if ($password !== '') {
+            $api->server($username, 'reconfigure', ['adminpassword' => $password]);
+        }
+
+        return $this->made($service, $username, $account);
     }
 
     /** The account kept on the service: its name and where it streams (shown to the customer). */
