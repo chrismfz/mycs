@@ -13,6 +13,7 @@ use Filament\Forms\Components\TagsInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\TimePicker;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Spatie\Color\Factory as ColorFactory;
@@ -298,8 +299,14 @@ class FilamentInput
                     );
                 } elseif ($setting->preserve_filenames ?? true) {
                     // The name stays readable (custom CSS refers to it), never one the web server would run.
+                    // A name already on the disk (an earlier file, or one of this same save) gets a number: never overwritten.
                     $input->getUploadedFileNameForStorageUsing(
-                        fn (TemporaryUploadedFile $file): string => self::storedFileName($file->getClientOriginalName(), $file->getMimeType()),
+                        fn (TemporaryUploadedFile $file, FileUpload $component): string => self::storedFileName(
+                            $file->getClientOriginalName(),
+                            $file->getMimeType(),
+                            fn (string $name): bool => Storage::disk($component->getDiskName())
+                                ->exists(ltrim(($component->getDirectory() ?? '') . '/' . $name, '/')),
+                        ),
                     );
                 }
 
@@ -329,15 +336,26 @@ class FilamentInput
         }
     }
 
-    /** A file's stored name: its own name as a slug, with the extension of what it is (FILE_EXTENSIONS). */
-    public static function storedFileName(string $originalName, ?string $mimeType): string
+    /**
+     * A file's stored name: its own name as a slug, with the extension of what it is (FILE_EXTENSIONS); `-2`, `-3`, …
+     * while `$taken` says the name is used.
+     *
+     * @param  (callable(string): bool)|null  $taken
+     */
+    public static function storedFileName(string $originalName, ?string $mimeType, ?callable $taken = null): string
     {
         $originalName = basename(str_replace('\\', '/', $originalName));
         $name = Str::limit(Str::slug(pathinfo($originalName, PATHINFO_FILENAME)), 100, '') ?: 'file';
         $allowed = self::FILE_EXTENSIONS[(string) $mimeType] ?? ['bin'];
         $own = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
 
-        return $name . '.' . (in_array($own, $allowed, true) ? $own : $allowed[0]);
+        $extension = in_array($own, $allowed, true) ? $own : $allowed[0];
+        $stored = $name . '.' . $extension;
+        for ($n = 2; $taken !== null && $taken($stored); $n++) {
+            $stored = $name . '-' . $n . '.' . $extension;
+        }
+
+        return $stored;
     }
 
     /**

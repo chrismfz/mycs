@@ -5,6 +5,12 @@
 
     RewriteEngine On
 
+    # Only the front controller and the licence endpoint run PHP: any other file named like PHP (an upload under
+    # /storage) is refused. A route that ends in .php (the old PayPal IPN) is no file, and reaches index.php below.
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteCond %{REQUEST_URI} !^/(index|zlic)\.php$
+    RewriteRule \.ph(p[0-9]?|tml|ar|t|ps)(\.|$) - [F,L]
+
     # Handle Authorization Header
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
@@ -19,11 +25,3 @@
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteRule ^ index.php [L]
 </IfModule>
-
-# Only the front controller and the licence endpoint run PHP: a file under /storage (uploads) never does.
-<FilesMatch "\.(php[0-9]?|phtml|phar|pht|phps)$">
-    Require all denied
-</FilesMatch>
-<FilesMatch "^(index|zlic)\.php$">
-    Require all granted
-</FilesMatch>

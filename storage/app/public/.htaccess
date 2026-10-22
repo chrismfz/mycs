@@ -1,4 +1,6 @@
 # Uploads (served as /storage through the public/storage link) are files, never code, whatever their name.
-<FilesMatch "\.(php[0-9]?|phtml|phar|pht|phps|cgi|pl|py|sh|shtml)$">
-    Require all denied
-</FilesMatch>
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule \.ph(p[0-9]?|tml|ar|t|ps)(\.|$) - [F,L]
+    RewriteRule (^|/)\. - [F,L]
+</IfModule>

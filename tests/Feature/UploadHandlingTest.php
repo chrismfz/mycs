@@ -116,6 +116,14 @@ class UploadHandlingTest extends TestCase
         $this->assertSame($stored, FilamentInput::storedFileName($claimed, $type));
     }
 
+    public function test_a_taken_name_gets_a_number(): void
+    {
+        $taken = ['hero.png', 'hero-2.png'];
+
+        $this->assertSame('hero-3.png', FilamentInput::storedFileName('Hero.png', 'image/png', fn (string $name) => in_array($name, $taken, true)));
+        $this->assertSame('logo.png', FilamentInput::storedFileName('logo.png', 'image/png', fn (string $name) => in_array($name, $taken, true)));
+    }
+
     public function test_a_disguised_theme_file_never_lands_under_its_own_name(): void
     {
         Storage::fake('public');
