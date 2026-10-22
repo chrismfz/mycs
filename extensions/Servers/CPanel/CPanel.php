@@ -408,7 +408,7 @@ class CPanel extends Server
                 throw new Exception("cPanel: {$username} is a reseller that owns " . count($owned) . ' other account(s) (' . implode(', ', array_slice($owned, 0, 5))
                     . (count($owned) > 5 ? ', …' : '') . '). Terminating it deletes them too: staff terminate it from the service, typing its username.');
             }
-            $this->whm('/terminatereseller', ['user' => $username, 'terminatereseller' => 1], timeout: self::LONG);
+            $this->whm('/terminatereseller', ['user' => $username, 'terminatereseller' => 1], timeout: self::TERMINATE);
         } else {
             $this->whm('/removeacct', ['user' => $username]);
         }
@@ -453,8 +453,13 @@ class CPanel extends Server
     /** A property key never honoured (a confirmation is never stored: A4 of #315); removed where found. */
     public const CONFIRM = 'cpanel_terminate_confirmed';
 
-    /** Seconds WHM may take over a reseller's accounts (suspend, unsuspend, terminate: code review 1 of #315). */
-    private const LONG = 600;
+    /**
+     * Seconds WHM may take over a reseller's accounts. Suspend/unsuspend run in their jobs (120 s): under it, so the call
+     * ends before the worker is killed (R2-1 of #315); terminate runs in staff's request only (code review 1).
+     */
+    private const LONG = 100;
+
+    private const TERMINATE = 600;
 
     /** @var array{0: int, 1: string}|null staff's typed confirmation, in this request only: [service id, username] */
     private static ?array $confirmed = null;
