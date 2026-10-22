@@ -182,7 +182,25 @@ class DomainSyncService
         $now = $domain->expires_at?->toDateString();
         $pending = in_array($domain->status, self::PENDING, true) && $result->status !== DomainStatus::Active;
         if (!$pending && $result->expiresAt !== null) {
-            if ($now !== null && $result->expiresAt < $now && $this->movesBack($domain, $result->expiresAt, $now)) {
+            if ($now !== null && $result->expiresAt < $now && $this->movesBack($domain, $result->expiresAt, $now)
+                && ($open = $this->billedOnlyFrom($domain, $now, $result->expiresAt)) !== null) {
+                // Back off the period billed from ours, to a day no line bills: that period would be billed again over it
+                // (sweep L3); never refused for a move inside it (ADV-2 of #310).
+                $changes['_warning'] = [null, "the registrar's expiry {$result->expiresAt} is before the period its renewal on invoice #{$open->invoice_id} starts ("
+                    . $open->period_start?->toDateString() . '): not moved back, check it at the registrar'];
+                // Its registrar may delete it before the day its invoice and reminders name: staff told once (code review 2
+                // of #310), not only a sync note.
+                if (Cache::add("domain-expiry-not-moved:{$domain->id}:{$open->id}:{$result->expiresAt}", true, now()->addDays(60))) {
+                    try {
+                        NotificationHelper::sendSystemEmailNotification("Domain expiry to check: {$domain->fqdn}", e("{$domain->fqdn}: its registrar shows "
+                            . "{$result->expiresAt} (the day it goes there), before its renewal on invoice #{$open->invoice_id} starts ("
+                            . $open->period_start?->toDateString() . '). Not moved back here, so its reminders and due date name the later day: '
+                            . 'renew it in time at the registrar, or correct the renewal period.'));
+                    } catch (Throwable $e) {
+                        report($e);
+                    }
+                }
+            } elseif ($now !== null && $result->expiresAt < $now && $this->movesBack($domain, $result->expiresAt, $now)) {
                 $set('expires_at', $now, $result->expiresAt); // the day the name goes there (CNIC: #297)
             } elseif ($now !== null && $result->expiresAt < $now) {
                 // Never back (review F2: a garbled 1970 would have ended a renewed domain in one run).
@@ -270,7 +288,7 @@ class DomainSyncService
         $warning = $changes['_warning'][1] ?? null;
         unset($changes['_warning']);
         $meta = $domain->meta ?? [];
-        unset($meta['not_ours']); // ours again: a «not ours» seen before was not a transfer away
+        unset($meta['not_ours'], $meta['missing_since']); // ours again: a «not ours» seen before was not a transfer away
         // The connection that read it as ours: only that one can later say it left (ADV-3 of #203).
         $meta['read_by'] = $domain->effectiveRegistrarConnection()?->id;
         if ($result->rawStatus !== null) {
@@ -523,6 +541,14 @@ class DomainSyncService
             || $domain->expires_at->copy()->startOfDay()->lessThan(Carbon::parse($line->period_end)->startOfDay()->subDays(3));
     }
 
+    /** The renewal billed from our expiry, when none is billed from theirs: moved back, its period would be billed again. */
+    private function billedOnlyFrom(Domain $domain, string $ours, string $theirs): ?InvoiceItem
+    {
+        $billed = DomainRenewalService::billedLine($domain, Carbon::parse($ours)->startOfDay());
+
+        return $billed !== null && $billed->applied_at === null && DomainRenewalService::billedLine($domain, Carbon::parse($theirs)->startOfDay()) === null ? $billed : null;
+    }
+
     /** Back to its registrar's expiry by at most this much (a garbled date never takes a year off: review F2). */
     public const MAX_BACK_DAYS = 400;
 
@@ -565,6 +591,11 @@ class DomainSyncService
     private function notOurs(Domain $domain, DomainNotFoundAtRegistrar $e): void
     {
         $domain->refresh();
+        // A lapsed one its registrar no longer has, and cannot say where (CNIC's 545: deleted or gone): noted, so the
+        // lifecycle ends it a month past its last stage instead of never (ADV-2 of #308).
+        if ($e->elsewhere === false && in_array($domain->status, self::LAPSED, true) && !isset($domain->meta['missing_since'])) {
+            $domain->forceFill(['meta' => ['missing_since' => now()->toIso8601String()] + ($domain->meta ?? [])])->saveQuietly();
+        }
         if ($e->elsewhere === false || !in_array($domain->status, [DomainStatus::Active, ...self::LAPSED], true)) {
             return;
         }

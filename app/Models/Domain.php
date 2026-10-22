@@ -256,7 +256,9 @@ class Domain extends Model implements Auditable
     {
         $connection = $this->effectiveRegistrarConnection();
 
-        return ($this->grace_ends_on !== null || $this->redemption_ends_on !== null) && $connection !== null && $connection->isUsable();
+        // Its registrar's word while its connection is off for a while too (sweep L4): only a manual one goes by our days.
+        return ($this->grace_ends_on !== null || $this->redemption_ends_on !== null) && $connection !== null
+            && $connection->registrar !== DomainRegistrarConnection::MANUAL;
     }
 
     /**

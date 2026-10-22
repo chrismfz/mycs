@@ -69,7 +69,9 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
     private const DETAIL_KEYS = ['status', 'type', 'creation_date', 'registry_expiration_date', 'renewal_date', 'last_changed',
         'is_lockable', 'is_locked', 'is_private_whois_allowed', 'is_private_whois_enabled', 'is_dnssec_enabled', 'dnssec',
         'autorenew', 'can_renew', 'is_premium', 'is_abusive', 'trade_allowed', 'modify_owner_allowed',
-        'transfer_cancel_supported', 'is_hosted_whois', 'owner_company_name'];
+        'transfer_cancel_supported', 'is_hosted_whois', 'owner_company_name',
+        // Ours: a live registration of the name for another owner, next to this one's tombstone (ADV-3 of #308).
+        'other_live_record'];
 
     /** Openprovider price block → our DomainTldPrice operation (D-6, D-8: a restore is the redemption fee). */
     private const PRICE_KEYS = [
@@ -973,12 +975,20 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
         // stale-id catch below, which is for domain-fetch errors only.
         $this->token($credentials);
 
+        $tombstone = null;
         if ($domain->registrar_domain_id !== null && $domain->registrar_domain_id !== '') {
             try {
                 $data = $this->request($credentials, 'GET', '/v1/domains/' . rawurlencode($domain->registrar_domain_id))->json('data');
                 // Only this domain's record: an id now pointing at another name is not ours (review F1).
+                // A deleted one (DEL past its quarantine) is looked for again by name: lapsed and bought again for the same
+                // owner, the stored id is its tombstone and the new registration would be ended here (sweep G1). Anything
+                // else is its record: live, a DEL still in its quarantine (ours to restore: ADV-4 of #308), a failed
+                // transfer (its outcome: ADV-5 of #308).
                 if (is_array($data) && $this->isRecordOf($data, $domain->fqdn)) {
-                    return $data;
+                    if (!$this->syncResultFrom($data)->deadRecord || ($data['status'] ?? null) !== 'DEL') {
+                        return $data;
+                    }
+                    $tombstone = $data;
                 }
             } catch (RuntimeException) {
                 // Stale/wrong stored id (object re-created under a new id, or a
@@ -989,14 +999,24 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
         }
 
         [$name, $extension] = $this->splitFqdn($domain->fqdn);
-        $results = $this->request($credentials, 'GET', '/v1/domains?full_name=' . rawurlencode($name . '.' . $extension))
-            ->json('data.results');
+        try {
+            $results = $this->request($credentials, 'GET', '/v1/domains?full_name=' . rawurlencode($name . '.' . $extension))
+                ->json('data.results');
+        } catch (RuntimeException $e) {
+            if ($tombstone !== null) {
+                return $tombstone; // read by its id; the search not answering is no reason to read less
+            }
+            throw $e;
+        }
         // Prefer a LIVE record: after a lapse-and-rebuy the account can hold
         // BOTH the lingering DEL tombstone AND the fresh ACT record for the
         // same fqdn (id-ascending puts the tombstone first) — picking the
         // tombstone would disown a registration that was just paid for.
         // Only records of this very name: a search may answer with others (review F1: another domain's id, expiry and
         // nameservers were written onto ours, and a renewal would have charged for it).
+        if (!is_array($results) && $tombstone !== null) {
+            return $tombstone;
+        }
         if (!is_array($results)) {
             // Not its search's answer (a maintenance page, a proxy, a changed API): could not read, never «not ours»
             // (ADV-4 of #203).
@@ -1009,6 +1029,16 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
                 $first = $candidate;
                 break;
             }
+        }
+        if ($tombstone !== null) {
+            // Only a live record of the same owner (its owner handle the domain's registrant here) replaces the tombstone:
+            // one registered for anyone else is never ours (code review 1, ADV-3 of #308), shown to staff instead.
+            $owner = (string) $domain->registrant_handle;
+            $same = $first !== null && $owner !== '' && (string) ($first['owner_handle'] ?? '') === $owner;
+            if (!$same && $first !== null) {
+                $tombstone['other_live_record'] = (string) ($first['id'] ?? '?');
+            }
+            $first = $same ? $first : $tombstone;
         }
         $first ??= $candidates[0] ?? null;
         if (!is_array($first)) {
