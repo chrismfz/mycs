@@ -1,0 +1,8 @@
+# Uploads (served as /storage through the public/storage link) are files, never code, whatever their name: refused
+# by the file a request maps to (never the URI, so /x.php/anything too), in any case.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{REQUEST_FILENAME} \.(ph(p[0-9]?|tml|ar|t|ps)|cgi|pl|py|sh|shtml)(\.|$) [NC]
+    RewriteRule ^ - [F,L]
+    RewriteRule (^|/)\. - [F,L]
+</IfModule>

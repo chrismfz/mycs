@@ -214,8 +214,8 @@ class StaffSplitTest extends TestCase
         $customer = User::factory()->create();
         $ticket = Ticket::factory()->create(['client_id' => $customer->client()->id]);
         $message = TicketMessage::factory()->create(['ticket_id' => $ticket->id, 'user_id' => $customer->id]);
-        $path = 'tickets/staff-split-' . uniqid() . '.txt';
-        File::ensureDirectoryExists(storage_path('app/tickets'));
+        $path = 'tickets/uploads/staff-split-' . uniqid() . '.txt';
+        File::ensureDirectoryExists(storage_path('app/tickets/uploads'));
         File::put(storage_path('app/' . $path), 'x');
         $this->beforeApplicationDestroyed(fn () => File::delete(storage_path('app/' . $path)));
         $attachment = $message->attachments()->create(['filename' => 'a.txt', 'path' => $path, 'filesize' => 1, 'mime_type' => 'text/plain']);

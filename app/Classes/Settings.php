@@ -969,7 +969,7 @@ class Settings
                     'visibility' => 'public',
                     'accept' => ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/svg+xml', 'font/woff', 'font/woff2'],
                     'default' => [],
-                    'description' => 'Images and fonts for the custom CSS and HTML, served as /storage/brand/<file name>.',
+                    'description' => 'Images and fonts for the custom CSS and HTML, served as /storage/brand/<file name>. A name still in this list gets a number (hero-2.png): to replace a file under its own name, remove it from the list and save, then upload the new one.',
                     'section' => 'Files',
                 ],
             ],

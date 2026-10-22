@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\Tickets\TicketFiles;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
 use MyCS\TicketMail\Attachments;
@@ -29,9 +30,19 @@ class TicketMessageAttachment extends Model
         return $this->belongsTo(TicketMessage::class);
     }
 
-    public function getLocalPathAttribute(): string
+    /** The file on disk, only inside the tickets' own folder: a path that leads anywhere else (`..`, a link) has none. */
+    public function getLocalPathAttribute(): ?string
     {
-        return storage_path("app/{$this->path}");
+        return self::inFolder((string) $this->path);
+    }
+
+    /** The real file a stored path names, when it is under tickets/uploads; null otherwise (or when it is missing). */
+    public static function inFolder(string $path): ?string
+    {
+        $root = realpath(storage_path('app/' . TicketFiles::DIRECTORY));
+        $file = realpath(storage_path('app/' . $path));
+
+        return $root !== false && $file !== false && is_file($file) && str_starts_with($file, $root . DIRECTORY_SEPARATOR) ? $file : null;
     }
 
     /** An image a page may show (never SVG: it can carry script). */

@@ -5,6 +5,14 @@
 
     RewriteEngine On
 
+    # Only the front controller and the licence endpoint run PHP: any other file named like PHP is refused, by the
+    # file it maps to (never the URI: /x.php/anything is still x.php). A route that ends in .php (the old PayPal IPN)
+    # is no file, and reaches index.php below. /storage has its own rules (storage/app/public/.htaccess).
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteCond %{REQUEST_FILENAME} \.ph(p[0-9]?|tml|ar|t|ps)(\.|$) [NC]
+    RewriteCond %{REQUEST_FILENAME} !/(index|zlic)\.php$
+    RewriteRule ^ - [F,L]
+
     # Handle Authorization Header
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]

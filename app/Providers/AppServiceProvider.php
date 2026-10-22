@@ -29,6 +29,7 @@ use Dedoc\Scramble\Scramble;
 use Dedoc\Scramble\Support\Generator\OpenApi;
 use Dedoc\Scramble\Support\Generator\SecurityScheme;
 use Exception;
+use Filament\Forms\Components\FileUpload;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -177,6 +178,9 @@ class AppServiceProvider extends ServiceProvider
     {
         // .gr registry sessions end with the request or command (a worker keeps its own: it runs on): review 6 of #187.
         $this->app->terminating(fn () => GrEppRegistrar::reset());
+        // A file field takes a new upload or a path its record already has, never one the browser names: the state is
+        // the client's, and a path in it would reach storage as is. Settings, with no record, name theirs (FilamentInput).
+        FileUpload::configureUsing(fn (FileUpload $upload) => $upload->preventFilePathTampering());
         // The public price list API (D8a): 60 a minute per caller's own address (review R2, App\Support\CallerIp).
         RateLimiter::for('domain-pricing', fn ($request) => Limit::perMinute(60)->by(VisitorKey::of($request)));
         // Our captcha's challenges (docs/captcha.md): a bucket of their own, not shared with other by-IP limits.

@@ -1,0 +1,50 @@
+# MyCS behind nginx (the devbox). Under Apache or LiteSpeed (cPanel) public/.htaccess does the same.
+# Only public/index.php and public/zlic.php run PHP: an uploaded file under /storage is never code, whatever its name.
+server {
+    server_name mycs.example.com;
+    root /var/www/mycs/public;
+    index index.php;
+
+    server_tokens off;
+    client_max_body_size 32M;
+
+    add_header X-Frame-Options            "SAMEORIGIN"                              always;
+    add_header X-Content-Type-Options     "nosniff"                                 always;
+    add_header Referrer-Policy            "strict-origin-when-cross-origin"         always;
+    add_header Permissions-Policy         "geolocation=(), microphone=(), camera=()" always;
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ ^/(index|zlic)\.php$ {
+        try_files $uri =404;
+        fastcgi_pass unix:/run/php-fpm/mycs.sock;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        fastcgi_param DOCUMENT_ROOT $realpath_root;
+        fastcgi_read_timeout 120s;
+    }
+
+    # Any other .php is a route of the application (the old PayPal IPN's /modules/gateways/callback/paypal.php):
+    # the front controller answers it, no file of that name is ever run or served.
+    location ~* \.ph(p[0-9]?|tml|ar|t|ps)(\.|$) { rewrite ^ /index.php last; }
+
+    # Uploads are files, never pages of this site: no PHP, and sandboxed. A location with add_header of its own
+    # inherits none of the server's, so they are all here again.
+    location ^~ /storage/ {
+        add_header X-Frame-Options            "SAMEORIGIN"                              always;
+        add_header X-Content-Type-Options     "nosniff"                                 always;
+        add_header Referrer-Policy            "strict-origin-when-cross-origin"         always;
+        add_header Permissions-Policy         "geolocation=(), microphone=(), camera=()" always;
+        add_header Content-Security-Policy    "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; font-src 'self'; sandbox" always;
+        location ~* \.(ph(p[0-9]?|tml|ar|t|ps)|cgi|pl|py|sh|shtml)(\.|/|$) { return 404; }
+        location ~ /\. { deny all; }
+    }
+
+    location ~ /\.(?!well-known) { deny all; }
+
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    # ssl_certificate / ssl_certificate_key: certbot --nginx
+}
