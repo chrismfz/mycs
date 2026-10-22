@@ -53,6 +53,14 @@ class McpOauthController extends Controller
         }
     }
 
+    /** The admin's member of staff, once 2FA is set up: without it, a password alone approves nothing (review of #344). */
+    private static function staff(): ?Staff
+    {
+        $staff = Auth::guard('staff')->user();
+
+        return $staff instanceof Staff && $staff->hasTwoFactor() ? $staff : null;
+    }
+
     public function show(Request $request): Response
     {
         try {
@@ -65,7 +73,7 @@ class McpOauthController extends Controller
         } catch (OAuthError $e) {
             return self::page('mcp.oauth-error', ['message' => $e->getMessage()], 400);
         }
-        $staff = Auth::guard('staff')->user();
+        $staff = self::staff();
         if (!$staff instanceof Staff) {
             // Back here after logging in to the admin.
             $request->session()->put('url.intended', $request->fullUrl());
@@ -109,7 +117,7 @@ class McpOauthController extends Controller
                 return self::back($request, 'That key may not open the MCP server (from here).');
             }
         } else {
-            $staff = Auth::guard('staff')->user();
+            $staff = self::staff();
             if (!$staff instanceof Staff || !McpAccess::staffMay($staff)) {
                 return self::back($request, 'Log in to the admin as a member of staff with «Use the MCP Server», or paste a key.');
             }

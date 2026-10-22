@@ -28,6 +28,8 @@ class EditStaff extends EditRecord
                 ->action(function (Staff $record): void {
                     $record->saveAppAuthenticationSecret(null);
                     $record->saveAppAuthenticationRecoveryCodes(null);
+                    // Whoever holds a «remember me» of theirs must not be the one to set the new 2FA up (review of #344).
+                    $record->forceFill(['remember_token' => null])->saveQuietly();
                     Notification::make()->success()->title(__('Two-factor authentication was reset.'))->send();
                 }),
             DeleteAction::make(),

@@ -191,4 +191,10 @@ class Staff extends Authenticatable implements Auditable, CanResetPasswordContra
             }
         });
     }
+
+    /** 2FA is set up: the admin, and whatever acts as staff outside it, need it first (security audit, decided 2026-10-22). */
+    public function hasTwoFactor(): bool
+    {
+        return filled($this->app_authentication_secret);
+    }
 }

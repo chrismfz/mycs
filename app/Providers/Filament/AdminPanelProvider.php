@@ -13,6 +13,7 @@ use App\Providers\SettingsProvider;
 use Exception;
 use Filament\Actions\Action;
 use Filament\Auth\MultiFactor\App\AppAuthentication;
+use Filament\Auth\MultiFactor\Http\Middleware\EnsureMultiFactorAuthenticationIsEnabled;
 use Filament\Facades\Filament;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -151,7 +152,7 @@ class AdminPanelProvider extends PanelProvider
             // Ticket attachments for staff: the client area's route is the customers' guard.
             ->authenticatedRoutes(function () {
                 Route::get('ticket-attachments/{attachment:uuid}', [TicketAttachmentController::class, 'download'])
-                    ->name('ticket-attachments.show')->middleware('can:view,attachment');
+                    ->name('ticket-attachments.show')->middleware([EnsureMultiFactorAuthenticationIsEnabled::class, 'can:view,attachment']);
             });
 
         try {
