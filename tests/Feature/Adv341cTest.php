@@ -51,6 +51,12 @@ class Adv341cTest extends TestCase
         (new PayPal_IPN(['email' => 'biz@example.test', 'test_mode' => '1']))->boot();
     }
 
+    /** As PayPal sends it: a form body, its values as they are. */
+    private function ipn(array $fields)
+    {
+        return $this->call('POST', '/extensions/paypal_ipn/notify', [], [], [], ['CONTENT_TYPE' => 'application/x-www-form-urlencoded'], http_build_query($fields));
+    }
+
     private function invoice(): Invoice
     {
         $user = User::factory()->create();
@@ -76,7 +82,7 @@ class Adv341cTest extends TestCase
         $fields = $this->genuine($invoice, ['memo' => '', 'option_name1' => '']);
         $this->paypalChecksTheMessageAsSent($fields);
 
-        $this->post('/extensions/paypal_ipn/notify', $fields)->assertOk();
+        $this->ipn($fields)->assertOk();
 
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
         $this->assertTrue((bool) PaymentGatewayEvent::query()->sole()->signature_verified);
@@ -88,7 +94,7 @@ class Adv341cTest extends TestCase
         $fields = $this->genuine($invoice, ['address_street' => 'Odos 1 ', 'item_name' => 'Invoice #1 ']);
         $this->paypalChecksTheMessageAsSent($fields);
 
-        $this->post('/extensions/paypal_ipn/notify', $fields)->assertOk();
+        $this->ipn($fields)->assertOk();
 
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
     }
@@ -100,7 +106,7 @@ class Adv341cTest extends TestCase
         $fields = $this->genuine($invoice, ['address_street' => 'Odos 1']);
         $this->paypalChecksTheMessageAsSent($fields);
 
-        $this->post('/extensions/paypal_ipn/notify', $fields)->assertOk();
+        $this->ipn($fields)->assertOk();
 
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
     }

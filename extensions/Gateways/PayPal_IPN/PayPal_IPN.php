@@ -5,7 +5,9 @@ namespace MyCS\Extensions\Gateways\PayPal_IPN;
 use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Gateway;
 use App\Helpers\ExtensionHelper;
+use App\Http\Controllers\LegacyPayPalIpnController;
 use App\Models\Invoice;
+use App\Models\PaymentGatewayEvent;
 use App\Services\Money\GatewayLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -88,34 +90,52 @@ class PayPal_IPN extends Gateway
     /** Handle the IPN request */
     public function notify(Request $request): Response
     {
-        // Send the request to PayPal
-        $response = Http::asForm()->post($this->config('test_mode') ? 'https://ipnpb.sandbox.paypal.com/cgi-bin/webscr' : 'https://ipnpb.paypal.com/cgi-bin/webscr', [
-            'cmd' => '_notify-validate',
-        ] + $request->all());
+        // PayPal checks the message as it sent it: the raw body, not the parsed fields (which the app's middleware trims
+        // and nulls), as the WHMCS-era IPN does (LegacyPayPalIpnController).
+        $raw = $request->getContent();
+        if ($raw === '') {
+            $raw = http_build_query($request->request->all());
+        }
+        if (strlen($raw) > LegacyPayPalIpnController::MAX_BYTES) {
+            GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_REJECTED, 'too_large');
 
+            return response('', 413);
+        }
+        $url = $this->config('test_mode') ? 'https://ipnpb.sandbox.paypal.com/cgi-bin/webscr' : 'https://ipnpb.paypal.com/cgi-bin/webscr';
+        try {
+            $response = Http::connectTimeout(5)->timeout(10)->withBody('cmd=_notify-validate&' . $raw, 'application/x-www-form-urlencoded')->post($url);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return response('', 503);
+        }
         // PayPal itself did not answer: it sends the IPN again later. A forged one is refused (400), which counts toward
         // the callbacks' limit (security audit PAY-SEC-8), as the WHMCS-era IPN's own does.
         if (!$response->successful()) {
             return response('', 503);
         }
-        GatewayLog::current()->signature($response->body() == 'VERIFIED');
-        if ($response->body() != 'VERIFIED') {
+        $verified = trim($response->body()) === 'VERIFIED';
+        GatewayLog::current()->signature($verified);
+        if (!$verified) {
             return response('', 400);
         }
+        // The fields as PayPal sent them (the app's middleware trims and nulls the parsed ones).
+        parse_str($raw, $fields);
+        $field = fn (string $key): ?string => is_string($fields[$key] ?? null) ? $fields[$key] : null;
         // Validate owner and amount
-        if (strtolower($request->receiver_email) !== strtolower($this->config('email'))) {
+        if (strtolower((string) $field('receiver_email')) !== strtolower((string) $this->config('email'))) {
             return response('');
         }
-        if ($request->payment_status !== 'Completed') {
+        if ($field('payment_status') !== 'Completed') {
             return response('');
         }
         // Another currency is refused by RecordPaymentService (logged, staff told), not skipped here.
-        $invoice = Invoice::find($request->item_number);
+        $invoice = Invoice::find($field('item_number'));
         if (!$invoice) {
             return response('');
         }
-        ExtensionHelper::addPayment($request->item_number, 'PayPal', $request->mc_gross, $request->mc_fee, transactionId: $request->txn_id, currency: $request->mc_currency,
-            paymentGroup: is_string($request->custom) ? $request->custom : null);
+        ExtensionHelper::addPayment($invoice, 'PayPal', $field('mc_gross'), $field('mc_fee'), transactionId: $field('txn_id'),
+            currency: $field('mc_currency'), paymentGroup: $field('custom'));
 
         return response('');
     }
