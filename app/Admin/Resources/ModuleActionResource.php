@@ -148,7 +148,7 @@ class ModuleActionResource extends Resource
                 Action::make('retryDomain')->label('Retry')->icon('ri-loop-right-line')
                     // Also on a renewal closed «not renewed» whose line is still paid and waiting: only staff renew it then (sweep R5).
                     // The line's latest row only (code review 3 of #306).
-                    ->visible(fn (ModuleAction $record) => $record->action === ModuleAction::DOMAIN_RENEW && ($record->status === ModuleAction::STATUS_OPEN
+                    ->visible(fn (ModuleAction $record) => $record->action === ModuleAction::DOMAIN_RENEW && $record->subject !== ModuleAction::SUBJECT_RELOCK && ($record->status === ModuleAction::STATUS_OPEN
                         || ($record->resolution === ModuleAction::CLOSED_UNRENEWED && $record->invoice_item_id !== null
                             && DomainRenewalService::waitingLines()->whereKey($record->invoice_item_id)->exists()
                             && $record->invoiceItem !== null && DomainRenewalService::closedUnrenewed($record->invoiceItem)
@@ -182,7 +182,7 @@ class ModuleActionResource extends Resource
                         Notification::make()->success()->title($sent > 0 ? 'Queued: it runs in a moment' : 'Nothing to send (ended, switched off or shared): check the row')->send();
                     }),
                 Action::make('resolve')->label(fn (ModuleAction $record) => match ($record->action) {
-                    ModuleAction::DOMAIN_RENEW => 'Renewed by hand',
+                    ModuleAction::DOMAIN_RENEW => $record->subject === ModuleAction::SUBJECT_RELOCK ? 'Locked by hand' : 'Renewed by hand',
                     ModuleAction::DOMAIN_REGISTER, ModuleAction::DOMAIN_TRANSFER => 'Done by hand',
                     ModuleAction::DOMAIN_CONTACT => 'Fixed at the registrar',
                     OptionTasks::ACTION => 'Done',
@@ -193,7 +193,7 @@ class ModuleActionResource extends Resource
                     ->authorize('update')
                     ->requiresConfirmation()
                     ->modalDescription(fn (ModuleAction $record) => match ($record->action) {
-                        ModuleAction::DOMAIN_RENEW => 'Applies its paid renewal: with a registrar API only if the registrar shows it renewed (its expiry is the registrar\'s); with a manual registrar the expiry moves to the end of the paid period.',
+                        ModuleAction::DOMAIN_RENEW => $record->subject === ModuleAction::SUBJECT_RELOCK ? 'Its transfer lock was put on at the registrar by hand: closes it.' : 'Applies its paid renewal: with a registrar API only if the registrar shows it renewed (its expiry is the registrar\'s); with a manual registrar the expiry moves to the end of the paid period.',
                         ModuleAction::DOMAIN_REGISTER, ModuleAction::DOMAIN_TRANSFER => 'Registered or its transfer started at the registrar by hand: the domain counts as sent, the sync takes it on (status, expiry), and its payment as used.',
                         ModuleAction::DOMAIN_CONTACT => 'The contact\'s details were set at the registrar by hand: closes it without sending anything.',
                         OptionTasks::ACTION => 'Done by hand (the IP given or taken back, noted on the service): closes it.',
@@ -208,7 +208,8 @@ class ModuleActionResource extends Resource
                     }),
                 Action::make('close')->label(fn (ModuleAction $record) => $record->action === ModuleAction::DOMAIN_RENEW ? 'Close (not renewed)' : 'Close (stop it)')
                     ->icon('ri-close-line')->color('gray')
-                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && in_array($record->action, ModuleAction::DOMAIN_ACTIONS, true))
+                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && in_array($record->action, ModuleAction::DOMAIN_ACTIONS, true)
+                        && $record->subject !== ModuleAction::SUBJECT_RELOCK)
                     ->authorize('update')
                     ->requiresConfirmation()
                     ->modalDescription(fn (ModuleAction $record) => $record->action === ModuleAction::DOMAIN_RENEW
