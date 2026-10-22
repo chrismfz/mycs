@@ -35,10 +35,17 @@ return [
         'password' => 'Password',
     ],
 
+    'register_taken' => [
+        'subject' => 'Someone tried to register with your email',
+        'body' => 'Someone tried to open an account at :app with this email address, which already has one. If it was you, log in at :login, or set a new password at :reset. If it was not you, you can ignore this message: nothing was changed.',
+        'sent' => 'We have sent an email to :email with the next step. Please check your inbox.',
+    ],
+
     'oauth' => [
         'unverified_google_account' => 'Your Google account\'s email is not verified: verify it at Google, or log in with your password.',
         'unverified_discord_account' => 'Your Discord account is not verified.',
         'unverified_account' => 'Confirm this account\'s email first: reset its password with the link we send you, then log in with your provider again.',
+        'not_logged_in' => 'We could not log you in through this provider. If you have an account, log in with your password (or reset it); if not, register.',
         'account_not_registered' => 'You are not registered on this site.',
     ],
 
