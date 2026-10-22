@@ -187,6 +187,28 @@ class OpenproviderSsl extends Server
         return self::order($service)->product_id ?? (int) ($settings['product_id'] ?? 0);
     }
 
+    /**
+     * Openprovider's SSL products with this account's prices (its reseller cost per period, `with_price`), for the
+     * catalogue page. A read.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function catalogue(): array
+    {
+        [$registrar, $credentials] = $this->openprovider();
+        $rows = [];
+        for ($offset = 0; $offset < 1000; $offset += 100) {
+            $data = $registrar->sslCall($credentials, 'GET', '/v1/ssl/products?' . http_build_query(['with_price' => 'true', 'limit' => 100, 'offset' => $offset]));
+            $page = array_values(array_filter((array) ($data['results'] ?? []), 'is_array'));
+            array_push($rows, ...$page);
+            if (count($page) < 100) {
+                break;
+            }
+        }
+
+        return $rows;
+    }
+
     /** Openprovider changes no certificate's product: a new one is ordered. */
     public function upgradeServer(Service $service, $settings, $properties)
     {

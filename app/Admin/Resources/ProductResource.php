@@ -4,6 +4,7 @@ namespace App\Admin\Resources;
 
 use App\Admin\Resources\ProductResource\Pages\CreateProduct;
 use App\Admin\Resources\ProductResource\Pages\EditProduct;
+use App\Admin\Resources\ProductResource\Pages\ImportSsl;
 use App\Admin\Resources\ProductResource\Pages\ListProducts;
 use App\Classes\FilamentInput;
 use App\Helpers\ExtensionHelper;
@@ -395,6 +396,7 @@ class ProductResource extends Resource
             'index' => ListProducts::route('/'),
             'create' => CreateProduct::route('/create'),
             'edit' => EditProduct::route('/{record}/edit'),
+            'ssl' => ImportSsl::route('/ssl-catalogue'),
         ];
     }
 }
