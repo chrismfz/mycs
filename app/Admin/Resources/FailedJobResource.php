@@ -4,6 +4,7 @@ namespace App\Admin\Resources;
 
 use App\Admin\Resources\FailedJobResource\Pages\ListFailedJobs;
 use App\Models\FailedJob;
+use App\Support\LogText;
 use Exception;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -45,10 +46,11 @@ class FailedJobResource extends Resource
                     // List displayName
                     return $state->displayName;
                 }),
+                // The queue keeps the exception as thrown: shown masked unless «Full logs» (App\Support\LogText).
                 TextColumn::make('exception')->formatStateUsing(function ($state) {
-                    return explode("\n", $state)[0];
+                    return explode("\n", (string) LogText::of($state))[0];
                 })->wrap()->tooltip(function ($state) {
-                    return $state;
+                    return LogText::of($state);
                 })->limit(200),
                 TextColumn::make('failed_at')->dateTime(),
             ])

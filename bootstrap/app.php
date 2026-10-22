@@ -13,6 +13,7 @@ use App\Http\Middleware\SecurityHeaders;
 use App\Http\Middleware\SetLocale;
 use App\Http\Middleware\UseWebGuard;
 use App\Models\DebugLog;
+use App\Support\LogText;
 use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -76,10 +77,11 @@ return Application::configure(basePath: dirname(__DIR__))
                 DebugLog::create([
                     'type' => 'exception',
                     'context' => [
-                        'message' => $exception->getMessage(),
+                        // Masked unless «Full logs» (App\Support\LogText).
+                        'message' => LogText::of($exception->getMessage()),
                         'file' => $exception->getFile(),
                         'line' => $exception->getLine(),
-                        'trace' => $exception->getTraceAsString(),
+                        'trace' => LogText::of($exception->getTraceAsString()),
                     ],
                 ]);
             } catch (Exception $e) {

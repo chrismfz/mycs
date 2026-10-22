@@ -8,6 +8,7 @@ use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Services\Domains\DomainRenewalService;
 use App\Services\Domains\RenewAsTransfer;
+use App\Support\LogText;
 use App\Support\Redact;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -271,7 +272,7 @@ class ModuleAction extends Model
     {
         $row = self::openFor($service, $action) ?? new self(['service_id' => $service->id, 'action' => $action, 'status' => self::STATUS_OPEN]);
         $row->fill(['module' => $module, 'attempts' => $row->attempts + 1, 'last_attempt_at' => now(),
-            'last_error' => Str::limit($error->getMessage(), 2000)])->save();
+            'last_error' => Str::limit((string) LogText::of($error->getMessage()), 2000)])->save();
 
         return $row;
     }

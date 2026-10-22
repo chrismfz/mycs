@@ -1297,6 +1297,16 @@ class Settings
                     'default' => false,
                     'description' => 'Enable debug mode to log HTTP requests and errors',
                 ],
+                [
+                    'name' => 'logs_full',
+                    // What staff read in the logs and the system mails: full admins only.
+                    'permission' => '*',
+                    'label' => 'Full logs',
+                    'type' => 'checkbox',
+                    'database_type' => 'boolean',
+                    'default' => false,
+                    'description' => 'Keep the logs, module action errors and staff mails exactly as received, secrets included (server passwords, tokens, login links). Off: they are masked (********). Turn it on only to see what a server or gateway really answered.',
+                ],
             ],
         ];
 
