@@ -7,12 +7,14 @@ use App\Enums\DomainStatus;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Services\Domains\DomainRenewalService;
+use App\Services\Domains\RenewAsTransfer;
 use App\Support\Redact;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -59,6 +61,15 @@ class ModuleAction extends Model
     public const DOMAIN_REGISTER = 'domain_register';
 
     public const DOMAIN_TRANSFER = 'domain_transfer';
+
+    /** The resolution of a renewal staff closed «not renewed»: its line is then charged only by their Retry. */
+    public const CLOSED_UNRENEWED = 'closed without renewing';
+
+    /** A domain's row for its transfer lock, to be put on again by hand (RenewAsTransfer::lockAtSource). */
+    public const SUBJECT_RELOCK = 'relock';
+
+    /** The resolution of an order staff closed «stop it»: on hold, its unconfirmed request still for them to say. */
+    public const CLOSED_ON_HOLD = 'closed, on hold';
 
     public const DOMAIN_ACTIONS = [self::DOMAIN_RENEW, self::DOMAIN_REGISTER, self::DOMAIN_TRANSFER];
 
@@ -147,27 +158,78 @@ class ModuleAction extends Model
 
     /**
      * Staff close a domain's renewal without it (refunded, ended, or checked at the registrar: the unconfirmed charge was
-     * not done). Its unconfirmed charges are settled as not done, so a later Retry may charge (D5b-2 review 6).
+     * not done). Its line's unconfirmed charges are settled as not done (D5b-2 review 6), and the line is never charged
+     * again on its own, only by staff's Retry (sweep R5/S3). An order's row is put on hold, its unconfirmed request
+     * left as it is: «Not done there» says it was not done (sweep S2). Under the domain's registrar lock: never over a
+     * charge being asked (sweep S4).
+     *
+     * @throws RuntimeException busy: a change to the domain is under way
      */
     public function closeUnrenewed(?Staff $staff): void
     {
         if (!in_array($this->action, self::DOMAIN_ACTIONS, true) || $this->status !== self::STATUS_OPEN) {
             return;
         }
-        // Its own charges: a renewal's (renew, restore), an order's (register, transfer: D8b-2).
-        $actions = $this->action === self::DOMAIN_RENEW ? ['renew', 'restore'] : ['register', 'transfer'];
-        // An order closed is not sent again on its own (code review 3): on hold until staff cancel or refund its order,
-        // or mark it «Not done there» first to retry.
-        if ($this->action !== self::DOMAIN_RENEW && ($domain = Domain::query()->find($this->domain_id)) !== null) {
-            $domain->forceFill(['meta' => ['on_hold' => now()->toIso8601String()] + ($domain->meta ?? [])])->save();
+        $this->underDomainLock(function () use ($staff) {
+            if ($this->refresh()->status !== self::STATUS_OPEN) {
+                return;
+            }
+            // An order closed is not sent again on its own (code review 3): on hold until staff cancel or refund its order,
+            // or mark it «Not done there» first to retry.
+            if ($this->action !== self::DOMAIN_RENEW && ($domain = Domain::query()->find($this->domain_id)) !== null) {
+                $domain->forceFill(['meta' => ['on_hold' => now()->toIso8601String()] + ($domain->meta ?? [])])->save();
+            }
+            if ($this->action === self::DOMAIN_RENEW && $this->invoice_item_id !== null) {
+                // A transfer that replaced the renewal, with no clear answer: left unlocked while it might be under way. Not
+                // done, it is locked again where we unlocked it (adversarial ADV-4 of #307).
+                $transfer = DomainRegistrarLog::query()->where('domain_id', $this->domain_id)->where('status', DomainRegistrarLog::STATUS_PENDING)
+                    ->where('action', 'transfer')->where('request->renewal', true)->where('request->line', $this->invoice_item_id)->exists();
+                self::settleRenewalCharges((int) $this->domain_id, (int) $this->invoice_item_id, DomainRegistrarLog::STATUS_FAILED,
+                    'Checked by staff at the registrar: not done.', $staff);
+                $domain = Domain::query()->find($this->domain_id);
+                if ($transfer && $domain !== null && isset($domain->meta['unlocked_by_us'])) {
+                    RenewAsTransfer::lockAtSource($domain, 'staff closed its transfer: not done');
+                }
+            }
+            $this->forceFill(['status' => self::STATUS_RESOLVED, 'resolved_at' => now(),
+                'resolution' => $this->action === self::DOMAIN_RENEW ? self::CLOSED_UNRENEWED : self::CLOSED_ON_HOLD, 'resolved_by_staff_id' => $staff?->id])->save();
+        });
+    }
+
+    /**
+     * A renewal's unconfirmed charges settled by staff: its own line's (sweep S1), and any whose line no longer waits
+     * (refunded, applied) and that nothing else would ever settle: it would block every later renewal of the domain for
+     * good (adversarial ADV-1/ADV-2 of #306). Another line still waiting keeps its own: its row says it. A renew or
+     * restore, or a transfer that replaced the renewal (RenewAsTransfer, code review 2 of #303).
+     */
+    public static function settleRenewalCharges(int $domainId, int $lineId, string $status, string $why, ?Staff $staff): void
+    {
+        $waiting = DomainRenewalService::waitingLines()->where('reference_id', $domainId)->whereKeyNot($lineId)->pluck('id')->all();
+        DomainRegistrarLog::query()->where('domain_id', $domainId)->where('status', DomainRegistrarLog::STATUS_PENDING)
+            ->where(fn ($q) => $q->whereIn('action', ['renew', 'restore'])->orWhere(fn ($t) => $t->where('action', 'transfer')->where('request->renewal', true)))
+            ->get()->filter(fn (DomainRegistrarLog $log) => !in_array((int) ($log->request['line'] ?? 0), $waiting, true))
+            ->each(fn (DomainRegistrarLog $log) => $log->update(['status' => $status, 'error' => $why, 'staff_id' => $staff?->id]));
+    }
+
+    /** An order's row closed «stop it» (on hold). */
+    public function onHold(): bool
+    {
+        return $this->status === self::STATUS_RESOLVED && $this->resolution === self::CLOSED_ON_HOLD
+            && in_array($this->action, [self::DOMAIN_REGISTER, self::DOMAIN_TRANSFER], true);
+    }
+
+    /** Run under the domain's registrar lock, or throw «busy» (a charge or change under way). */
+    private function underDomainLock(callable $callback): void
+    {
+        $lock = Cache::lock("domain-registrar:{$this->domain_id}", 600);
+        if (!$lock->get()) {
+            throw new RuntimeException(__('domains.manage.busy', ['domain' => (string) Domain::query()->whereKey($this->domain_id)->value('fqdn')]));
         }
-        DomainRegistrarLog::query()->where('domain_id', $this->domain_id)->where('status', DomainRegistrarLog::STATUS_PENDING)
-            ->where(fn ($q) => $q->whereIn('action', $actions)->when($this->action === self::DOMAIN_RENEW,
-                // A transfer that replaced the renewal (RenewAsTransfer) is the renewal's (code review 2 of #303).
-                fn ($q) => $q->orWhere(fn ($t) => $t->where('action', 'transfer')->where('request->renewal', true))))->update(['status' => DomainRegistrarLog::STATUS_FAILED,
-                    'error' => 'Checked by staff at the registrar: not done.', 'staff_id' => $staff?->id, 'updated_at' => now()]);
-        $this->forceFill(['status' => self::STATUS_RESOLVED, 'resolved_at' => now(), 'resolution' => 'closed without renewing',
-            'resolved_by_staff_id' => $staff?->id])->save();
+        try {
+            $callback();
+        } finally {
+            $lock->release();
+        }
     }
 
     /** @return BelongsTo<Staff, $this> */
@@ -223,7 +285,7 @@ class ModuleAction extends Model
     {
         if (self::openFor($service, $action) === null) {
             self::recordFailure($service, $action, $service->provisioningServer()?->extension,
-                $error ?? new \RuntimeException('The job failed before the server answered.'));
+                $error ?? new RuntimeException('The job failed before the server answered.'));
         }
 
         return self::query()->open()->where('service_id', $service->id)->where('action', $action)->whereNull('given_up_at')
@@ -236,13 +298,18 @@ class ModuleAction extends Model
      */
     public function markNotDone(?Staff $staff): void
     {
-        if (!in_array($this->action, [self::DOMAIN_REGISTER, self::DOMAIN_TRANSFER], true) || $this->status !== self::STATUS_OPEN) {
+        // Open, or closed «stop it» with its request still unconfirmed: staff checked it since (adversarial ADV-4 of #306).
+        if (!in_array($this->action, [self::DOMAIN_REGISTER, self::DOMAIN_TRANSFER], true) || !($this->status === self::STATUS_OPEN || $this->onHold())) {
             return;
         }
-        DomainRegistrarLog::query()->where('domain_id', $this->domain_id)->where('status', DomainRegistrarLog::STATUS_PENDING)
-            ->whereIn('action', ['register', 'transfer'])->update(['status' => DomainRegistrarLog::STATUS_FAILED,
-                'error' => 'Checked by staff: not done at the registrar.', 'staff_id' => $staff?->id, 'updated_at' => now()]);
-        $this->forceFill(['last_error' => 'Checked: not done at the registrar. Retry to send it.'])->save();
+        // Its order's requests only, never a transfer that replaced a renewal (RenewAsTransfer: the renewal's row); under
+        // the lock, never over a request being sent (sweep S4).
+        $this->underDomainLock(function () use ($staff) {
+            DomainRegistrarLog::query()->where('domain_id', $this->domain_id)->where('status', DomainRegistrarLog::STATUS_PENDING)
+                ->whereIn('action', ['register', 'transfer'])->whereNull('request->renewal')->update(['status' => DomainRegistrarLog::STATUS_FAILED,
+                    'error' => 'Checked by staff: not done at the registrar.', 'staff_id' => $staff?->id, 'updated_at' => now()]);
+            $this->forceFill(['last_error' => 'Checked: not done at the registrar. Retry to send it.'])->save();
+        });
     }
 
     /**
@@ -253,6 +320,18 @@ class ModuleAction extends Model
     {
         // A domain's renewal: «renewed by hand» applies its paid line only as the registrar shows it (D5b-2 review 6);
         // throws why not, and the row stays open.
+        if ($this->action === self::DOMAIN_RENEW && $this->subject === self::SUBJECT_RELOCK) {
+            // Locked by hand at the registrar: nothing of ours left unlocked.
+            if (($domain = Domain::query()->find($this->domain_id)) !== null && isset($domain->meta['unlocked_by_us'])) {
+                $meta = $domain->meta;
+                unset($meta['unlocked_by_us']);
+                $domain->forceFill(['meta' => $meta])->save();
+            }
+            $this->forceFill(['status' => self::STATUS_RESOLVED, 'resolved_at' => now(), 'resolution' => 'locked by hand',
+                'resolved_by_staff_id' => $staff?->id])->save();
+
+            return;
+        }
         if ($this->action === self::DOMAIN_RENEW) {
             if ($this->invoiceItem !== null && $this->invoiceItem->applied_at === null) {
                 app(DomainRenewalService::class)->markRenewedByHand($this->invoiceItem, $staff);
@@ -290,7 +369,7 @@ class ModuleAction extends Model
                 }
                 $this->invoiceItem?->forceFill(['applied_at' => $this->invoiceItem->applied_at ?? now()])->saveQuietly();
                 DomainRegistrarLog::query()->where('domain_id', $this->domain_id)->where('status', DomainRegistrarLog::STATUS_PENDING)
-                    ->whereIn('action', ['register', 'transfer'])->update(['status' => DomainRegistrarLog::STATUS_OK,
+                    ->whereIn('action', ['register', 'transfer'])->whereNull('request->renewal')->update(['status' => DomainRegistrarLog::STATUS_OK,
                         'error' => 'Done by staff at the registrar.', 'staff_id' => $staff?->id, 'updated_at' => now()]);
                 $this->forceFill(['status' => self::STATUS_RESOLVED, 'resolved_at' => now(), 'resolution' => 'done by hand',
                     'resolved_by_staff_id' => $staff?->id])->save();

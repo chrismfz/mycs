@@ -60,6 +60,7 @@ return [
         'redemption_fee' => 'Τέλος επαναφοράς :domain (περίοδος redemption)',
     ],
     'renew' => [
+        'closed_unrenewed' => 'Το :domain έχει πληρωμένη ανανέωση που το staff έκλεισε «not renewed»: ανανεώνεται με «Retry» σε εκείνη τη γραμμή (Pending Module Actions, Resolved), ή επιστρέφονται τα χρήματα.',
         'renewed_already' => 'Το :domain έχει ήδη ανανεωθεί για την πληρωμένη περίοδό του· ο registrar δείχνει ακόμα :expires: ελέγξτε το στο επόμενο sync.',
         'transfer_unsettled' => 'Το :domain μεταφέρθηκε αντί για ανανέωση και αυτό δεν έχει τακτοποιηθεί ακόμα: πρώτα ελέγχεται στο μητρώο αν η μεταφορά πρόσθεσε το έτος της. Χρησιμοποιήστε το Pending Module Action του, ή περιμένετε.',
         'renewed_unpaid' => 'Το :domain ανανεώθηκε ήδη και το τιμολόγιό του #:invoice δεν έχει πληρωθεί: δεν ανανεώνεται ξανά πριν από αυτό.',

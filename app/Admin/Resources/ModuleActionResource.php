@@ -19,6 +19,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Support\Collection;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -137,18 +138,29 @@ class ModuleActionResource extends Resource
                         };
                     }),
                 Action::make('notDone')->label('Not done there')->icon('ri-arrow-go-back-line')->color('gray')
-                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN
+                    // Also on an order closed «stop it» whose request is still unconfirmed (adversarial ADV-4 of #306).
+                    ->visible(fn (ModuleAction $record) => ($record->status === ModuleAction::STATUS_OPEN || $record->onHold())
                         && in_array($record->action, [ModuleAction::DOMAIN_REGISTER, ModuleAction::DOMAIN_TRANSFER], true))
                     ->authorize('update')
                     ->requiresConfirmation()
                     ->modalDescription('Checked at the registrar: it was not registered (or its transfer not started). Its unconfirmed request is settled as failed, so Retry can send it.')
-                    ->action(fn (ModuleAction $record) => $record->markNotDone(self::staff())),
+                    ->action(fn (ModuleAction $record) => self::orBusy(fn () => $record->markNotDone(self::staff()))),
                 Action::make('retryDomain')->label('Retry')->icon('ri-loop-right-line')
-                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && $record->action === ModuleAction::DOMAIN_RENEW)
+                    // Also on a renewal closed «not renewed» whose line is still paid and waiting: only staff renew it then (sweep R5).
+                    // The line's latest row only (code review 3 of #306).
+                    ->visible(fn (ModuleAction $record) => $record->action === ModuleAction::DOMAIN_RENEW && $record->subject !== ModuleAction::SUBJECT_RELOCK && ($record->status === ModuleAction::STATUS_OPEN
+                        || ($record->resolution === ModuleAction::CLOSED_UNRENEWED && $record->invoice_item_id !== null
+                            && DomainRenewalService::waitingLines()->whereKey($record->invoice_item_id)->exists()
+                            && $record->invoiceItem !== null && DomainRenewalService::closedUnrenewed($record->invoiceItem)
+                            && ModuleAction::query()->where('invoice_item_id', $record->invoice_item_id)->where('action', ModuleAction::DOMAIN_RENEW)->max('id') === $record->id)))
                     ->authorize('update')
                     ->requiresConfirmation()
                     ->modalDescription('Reads the registrar and renews the paid period it lacks (charged to our account there), unless a charge is still unconfirmed.')
                     ->action(function (ModuleAction $record) {
+                        // A closed row retried is open again: its outcome lands on it, and a success completes it (code review 1 of #306).
+                        if ($record->resolution === ModuleAction::CLOSED_UNRENEWED) {
+                            $record->forceFill(['status' => ModuleAction::STATUS_OPEN, 'resolved_at' => null, 'resolution' => null, 'resolved_by_staff_id' => null])->save();
+                        }
                         $outcome = $record->invoice_item_id !== null ? app(DomainRenewalService::class)->renewLine($record->invoice_item_id, self::staff()) : DomainRenewalService::NOTHING;
                         $record->refresh();
                         match ($outcome) {
@@ -170,18 +182,18 @@ class ModuleActionResource extends Resource
                         Notification::make()->success()->title($sent > 0 ? 'Queued: it runs in a moment' : 'Nothing to send (ended, switched off or shared): check the row')->send();
                     }),
                 Action::make('resolve')->label(fn (ModuleAction $record) => match ($record->action) {
-                    ModuleAction::DOMAIN_RENEW => 'Renewed by hand',
+                    ModuleAction::DOMAIN_RENEW => $record->subject === ModuleAction::SUBJECT_RELOCK ? 'Locked by hand' : 'Renewed by hand',
                     ModuleAction::DOMAIN_REGISTER, ModuleAction::DOMAIN_TRANSFER => 'Done by hand',
                     ModuleAction::DOMAIN_CONTACT => 'Fixed at the registrar',
                     OptionTasks::ACTION => 'Done',
                     default => 'Mark resolved',
                 })
                     ->icon('ri-check-line')->color('gray')
-                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN)
+                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN || $record->onHold()) // «Done by hand» after «stop it» (ADV-4 of #306)
                     ->authorize('update')
                     ->requiresConfirmation()
                     ->modalDescription(fn (ModuleAction $record) => match ($record->action) {
-                        ModuleAction::DOMAIN_RENEW => 'Applies its paid renewal: with a registrar API only if the registrar shows it renewed (its expiry is the registrar\'s); with a manual registrar the expiry moves to the end of the paid period.',
+                        ModuleAction::DOMAIN_RENEW => $record->subject === ModuleAction::SUBJECT_RELOCK ? 'Its transfer lock was put on at the registrar by hand: closes it.' : 'Applies its paid renewal: with a registrar API only if the registrar shows it renewed (its expiry is the registrar\'s); with a manual registrar the expiry moves to the end of the paid period.',
                         ModuleAction::DOMAIN_REGISTER, ModuleAction::DOMAIN_TRANSFER => 'Registered or its transfer started at the registrar by hand: the domain counts as sent, the sync takes it on (status, expiry), and its payment as used.',
                         ModuleAction::DOMAIN_CONTACT => 'The contact\'s details were set at the registrar by hand: closes it without sending anything.',
                         OptionTasks::ACTION => 'Done by hand (the IP given or taken back, noted on the service): closes it.',
@@ -196,13 +208,14 @@ class ModuleActionResource extends Resource
                     }),
                 Action::make('close')->label(fn (ModuleAction $record) => $record->action === ModuleAction::DOMAIN_RENEW ? 'Close (not renewed)' : 'Close (stop it)')
                     ->icon('ri-close-line')->color('gray')
-                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && in_array($record->action, ModuleAction::DOMAIN_ACTIONS, true))
+                    ->visible(fn (ModuleAction $record) => $record->status === ModuleAction::STATUS_OPEN && in_array($record->action, ModuleAction::DOMAIN_ACTIONS, true)
+                        && $record->subject !== ModuleAction::SUBJECT_RELOCK)
                     ->authorize('update')
                     ->requiresConfirmation()
                     ->modalDescription(fn (ModuleAction $record) => $record->action === ModuleAction::DOMAIN_RENEW
-                        ? 'Closes it without renewing (refunded, the domain ended, or checked at the registrar: an unconfirmed charge was not done, so a later Retry may charge).'
-                        : 'Stops it: never sent to the registrar on its own again (on hold). Cancel or refund its order separately. To send it again instead, use «Not done there», then Retry.')
-                    ->action(fn (ModuleAction $record) => $record->closeUnrenewed(self::staff())),
+                        ? 'Closes it without renewing (refunded, the domain ended, or checked at the registrar: its unconfirmed charge was not done). Its paid period is then never renewed on its own: only «Retry» on this row (listed under Resolved) renews it.'
+                        : 'Stops it: never sent to the registrar on its own again (on hold). An unconfirmed request stays unconfirmed: if you checked the registrar and it was not done, use «Not done there» first. Cancel or refund its order separately.')
+                    ->action(fn (ModuleAction $record) => self::orBusy(fn () => $record->closeUnrenewed(self::staff()))),
             ])
             ->toolbarActions([
                 BulkAction::make('resolve')->label('Mark resolved')->requiresConfirmation()
@@ -224,6 +237,16 @@ class ModuleActionResource extends Resource
             OptionTasks::ACTION => 'Staff Task',
             default => ucfirst($action),
         };
+    }
+
+    /** A domain's row acted on under its registrar lock: «busy» said, not an error page. */
+    private static function orBusy(callable $action): void
+    {
+        try {
+            $action();
+        } catch (RuntimeException $e) {
+            Notification::make()->warning()->title('Not now')->body($e->getMessage())->send();
+        }
     }
 
     private static function staff(): ?Staff
