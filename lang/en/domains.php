@@ -78,7 +78,12 @@ return [
     // The client area (D7-2).
     'portal' => [
         'bulk' => [
-            'selected' => ':count selected',
+            'not_tried_limit' => 'not tried now (too many changes this minute): try it again in a minute',
+            'too_many_selected' => 'At most :max domains at once: untick some.',
+            'too_many' => 'Too many bulk changes in a short time: please try again in a quarter of an hour.',
+            'not_tried' => 'not tried (the registrar was slow): try it again',
+            'auto_renew_off_confirm' => 'Stop renewing the selected domains? They will expire at their end date.',
+            'selected' => '{1} :count selected|[2,*] :count selected',
             'select_page' => 'Select the domains of this page',
             'renew' => 'Renew together',
             'renew_confirm' => 'One invoice for the next period of the selected domains (auto renew is turned on for them). Continue?',
@@ -94,8 +99,8 @@ return [
             'clear' => 'Clear selection',
             'none_renewable' => 'None of the selected domains can be renewed.',
             'not_renewed' => 'Not renewed now: :domains.',
-            'auto_renew_on' => 'Auto renew turned on for :count domain(s).',
-            'auto_renew_off' => 'Auto renew turned off for :count domain(s).',
+            'auto_renew_on' => '{1} Auto renew turned on for :count domain.|[2,*] Auto renew turned on for :count domains.',
+            'auto_renew_off' => '{1} Auto renew turned off for :count domain.|[2,*] Auto renew turned off for :count domains.',
             'done' => 'Done: :domains.',
             'failed' => 'Not done: :domains',
             'not_lockable' => 'its registrar cannot lock it',

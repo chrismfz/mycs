@@ -92,8 +92,10 @@ class DomainBulkAdversarialTest extends TestCase
     /** @return list<string> every notify message the last call dispatched */
     private function told(Testable $page): array
     {
+        // Told now, or kept for the page it redirects to (notify(..., redirect: true): the session's «notification»).
         return collect(data_get($page->effects, 'dispatches', []))->where('name', 'notify')
-            ->map(fn ($d) => (string) ($d['params'][0]['message'] ?? ''))->values()->all();
+            ->map(fn ($d) => (string) ($d['params'][0]['message'] ?? ''))->values()
+            ->when(session('notification.message') !== null, fn ($told) => $told->push((string) session('notification.message')))->all();
     }
 
     private function renewalLines(): int

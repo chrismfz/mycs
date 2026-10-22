@@ -21,17 +21,17 @@
                 class="w-full md:w-72 bg-background-secondary border border-neutral rounded-lg px-3 py-2 text-sm" />
 
             {{-- Several at once (as WHMCS's renewal cart and «bulkdomain»): what each page does, for the ticked ones. --}}
-            @if ($bulk && count($selected) > 0)
+            @if ($bulk && $tickedCount > 0)
             <div class="bg-background-secondary border border-primary/40 rounded-lg p-3 space-y-3">
                 <div class="flex flex-wrap items-center gap-2 text-sm">
-                    <span class="font-semibold mr-2">{{ __('domains.portal.bulk.selected', ['count' => count($selected)]) }}</span>
+                    <span class="font-semibold mr-2">{{ trans_choice('domains.portal.bulk.selected', $tickedCount, ['count' => $tickedCount]) }}</span>
                     @if ($bulkRenew)
                     <x-button.primary type="button" class="!w-fit" wire:click="bulkRenew" wire:loading.attr="disabled"
                         wire:confirm="{{ __('domains.portal.bulk.renew_confirm') }}">{{ __('domains.portal.bulk.renew') }}</x-button.primary>
                     @endif
                     <x-button.secondary type="button" class="!w-fit" wire:click="bulkAutoRenew(true)" wire:loading.attr="disabled">{{ __('domains.portal.bulk.auto_renew_on_action') }}</x-button.secondary>
                     <x-button.secondary type="button" class="!w-fit" wire:click="bulkAutoRenew(false)" wire:loading.attr="disabled"
-                        wire:confirm="{{ __('domains.portal.auto_renew_off_confirm') }}">{{ __('domains.portal.bulk.auto_renew_off_action') }}</x-button.secondary>
+                        wire:confirm="{{ __('domains.portal.bulk.auto_renew_off_confirm') }}">{{ __('domains.portal.bulk.auto_renew_off_action') }}</x-button.secondary>
                     @if ($bulkRegistrar)
                     <x-button.secondary type="button" class="!w-fit" wire:click="$set('bulkForm', 'nameservers')">{{ __('domains.portal.bulk.nameservers') }}</x-button.secondary>
                     <x-button.secondary type="button" class="!w-fit" wire:click="bulkTransferLock(true)" wire:loading.attr="disabled">{{ __('domains.portal.bulk.lock') }}</x-button.secondary>
@@ -43,12 +43,13 @@
                 @if ($bulkRegistrar && $bulkForm === 'nameservers')
                 <form wire:submit="bulkSetNameservers" class="flex flex-col gap-2">
                     <p class="text-xs text-base/60">{{ __('domains.portal.bulk.nameservers_hint') }}</p>
+                    @error('bulkNameservers') <p class="text-red-500 text-xs">{{ $message }}</p> @enderror
                     @foreach ($bulkNameservers as $i => $ns)
                     <x-form.input wire:model="bulkNameservers.{{ $i }}" name="bulkNameservers.{{ $i }}" :label="__('domains.portal.bulk.nameserver', ['n' => $i + 1])" maxlength="253" />
                     @endforeach
                     <div class="flex gap-2">
                         @if (count($bulkNameservers) < 13)
-                        <x-button.secondary type="button" class="!w-fit" wire:click="$set('bulkNameservers', {{ json_encode(array_merge(array_values($bulkNameservers), [''])) }})">+</x-button.secondary>
+                        <x-button.secondary type="button" class="!w-fit" wire:click="addBulkNameserver">+</x-button.secondary>
                         @endif
                         <x-button.primary type="submit" class="!w-fit" wire:loading.attr="disabled">{{ __('domains.portal.bulk.nameservers_save') }}</x-button.primary>
                     </div>
@@ -65,7 +66,7 @@
                             <th class="pl-4 py-3 w-6">
                                 @php $pageIds = $domains->getCollection()->reject(fn ($d) => $d->status->isTerminal())->pluck('id')->map(fn ($id) => (string) $id)->values()->all(); @endphp
                                 <input type="checkbox" class="rounded" aria-label="{{ __('domains.portal.bulk.select_page') }}"
-                                    @checked($pageIds !== [] && array_diff($pageIds, array_map('strval', $selected)) === [])
+                                    @checked($pageIds !== [] && array_diff($pageIds, array_map('strval', array_filter($selected, 'is_scalar'))) === [])
                                     wire:click="togglePage(@js($pageIds))">
                             </th>
                             @endif

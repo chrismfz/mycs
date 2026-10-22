@@ -21,6 +21,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Validator;
 use InvalidArgumentException;
 use Livewire\Attributes\Url;
 use Livewire\WithPagination;
@@ -49,8 +50,11 @@ class Index extends Component
     #[Url('q', except: '')]
     public string $search = '';
 
-    /** At most this many domains in one bulk action (each is its own registrar call). */
+    /** At most this many domains in one bulk action; more ticked is refused, never cut silently (code review 2). */
     public const BULK_MAX = 20;
+
+    /** Registrar changes stop being asked after this long in one request; the rest are told «not tried» (code review 5). */
+    private const REGISTRAR_DEADLINE_SECONDS = 40;
 
     /** @var list<int|string> the domains ticked (their ids: only the account's own are ever read) */
     public array $selected = [];
@@ -118,7 +122,10 @@ class Index extends Component
      */
     private function ticked(): Collection
     {
-        $ids = array_slice(array_values(array_unique(array_filter(array_map('intval', $this->selected), fn (int $id) => $id > 0))), 0, self::BULK_MAX);
+        $ids = self::ids($this->selected);
+        if (count($ids) > self::BULK_MAX) {
+            throw new DisplayException(__('domains.portal.bulk.too_many_selected', ['max' => self::BULK_MAX]));
+        }
         // An ended one is never acted on (and its policy says so): left out before the rest are authorized.
         $domains = CurrentClient::model()->domains()->whereKey($ids)->orderBy('fqdn')->get()->reject(fn (Domain $domain) => $domain->status->isTerminal())->values();
         foreach ($domains as $domain) {
@@ -129,22 +136,50 @@ class Index extends Component
     }
 
     /**
+     * Positive ids, once each.
+     *
+     * @param  array<int, mixed>  $values
+     * @return list<int>
+     */
+    private static function ids(array $values): array
+    {
+        return array_values(array_unique(array_filter(array_map(fn (mixed $v) => is_int($v) || (is_string($v) && ctype_digit($v)) ? (int) $v : 0, $values),
+            fn (int $id) => $id > 0)));
+    }
+
+    /** The selection as positive ids only, whatever the browser sent (ADV-5: never a broken page, never an array's «1»). */
+    public function updatedSelected(): void
+    {
+        $this->selected = array_map('strval', self::ids($this->selected));
+    }
+
+    /** One more nameserver field (as its page's), keeping what was typed. */
+    public function addBulkNameserver(): void
+    {
+        if (count($this->bulkNameservers) < 13) {
+            $this->bulkNameservers[] = '';
+        }
+    }
+
+    /**
      * The page's domains ticked, or all unticked when they all were (only ids: ticked() reads the account's own).
      *
      * @param  array<int, mixed>  $ids
      */
     public function togglePage(array $ids): void
     {
-        $ids = array_map('strval', array_filter(array_map('intval', $ids), fn (int $id) => $id > 0));
-        $selected = array_map('strval', $this->selected);
-        $this->selected = array_diff($ids, $selected) === [] ? array_values(array_diff($selected, $ids)) : array_values(array_unique(array_merge($selected, $ids)));
+        $ids = array_map('strval', self::ids($ids));
+        $selected = array_map('strval', self::ids($this->selected));
+        // Never past BULK_MAX from here (code review 2): what does not fit is not ticked.
+        $this->selected = array_diff($ids, $selected) === [] ? array_values(array_diff($selected, $ids))
+            : array_slice(array_values(array_unique(array_merge($selected, $ids))), 0, self::BULK_MAX);
     }
 
     /** One bulk action at a time, a few a quarter-hour per login (each may be up to BULK_MAX registrar calls). */
     private function bulkLimited(): bool
     {
         if (RateLimiter::tooManyAttempts($key = 'domain-bulk:' . Auth::id(), 6)) {
-            $this->notify(__('domains.portal.too_many'), 'error');
+            $this->notify(__('domains.portal.bulk.too_many'), 'error');
 
             return true;
         }
@@ -174,7 +209,14 @@ class Index extends Component
     public function bulkRenew()
     {
         abort_unless($this->seesInvoices() && $this->staffMay('admin.invoices.create'), 404);
-        $domains = $this->ticked()->reject(fn (Domain $domain) => $domain->expires_at === null);
+        try {
+            $ticked = $this->ticked();
+        } catch (DisplayException $e) {
+            $this->notify($e->getMessage(), 'error');
+
+            return null;
+        }
+        $domains = $ticked->reject(fn (Domain $domain) => $domain->expires_at === null);
         if ($domains->isEmpty()) {
             $this->notify(__('domains.portal.bulk.none_renewable'), 'error');
 
@@ -183,70 +225,81 @@ class Index extends Component
         if ($this->bulkLimited()) {
             return null;
         }
-        $open = [];
-        $toBill = [];
-        foreach ($domains as $domain) {
-            $line = DomainRenewalService::billedLine($domain, $domain->expires_at->copy()->startOfDay(), payable: true);
-            $line?->invoice?->status === Invoice::STATUS_UNPAID ? $open[$line->invoice_id] = true : $toBill[] = $domain;
-        }
+        $open = fn (Domain $domain) => ($line = DomainRenewalService::billedLine($domain, $domain->expires_at->copy()->startOfDay(), payable: true))
+            ?->invoice?->status === Invoice::STATUS_UNPAID ? $line->invoice_id : null;
+        $toBill = $domains->filter(fn (Domain $domain) => $open($domain) === null)->values();
         $turnedOn = [];
         foreach ($toBill as $domain) {
             if (!$domain->auto_renew) {
-                $domain->update(['auto_renew' => true]);
-                $turnedOn[$domain->id] = $domain;
+                $domain->update(['auto_renew' => true]); // billed only with auto renew on (InvoiceSelectedItems)
+                $turnedOn[$domain->id] = true;
             }
         }
-        $result = ['invoices' => [], 'billed' => [], 'skipped' => [], 'problems' => []];
-        if ($toBill !== []) {
+        if ($toBill->isNotEmpty()) {
             try {
-                $result = (new InvoiceSelectedItems)->handle([], array_map(fn (Domain $domain) => $domain->fresh(), $toBill));
+                (new InvoiceSelectedItems)->handle([], $toBill->map(fn (Domain $domain) => $domain->fresh())->all());
             } catch (Throwable $e) {
-                report($e);
+                report($e); // what was made is read below, never assumed from the failure (code review 1)
             }
         }
-        $billed = array_flip($result['billed']);
-        foreach ($turnedOn as $domain) {
-            if (!isset($billed[$domain->fqdn])) {
-                $domain->update(['auto_renew' => false]); // not billed: as it was
+        // What is on an open renewal invoice now, read again for each (as its page's R9): a renewal made before a
+        // failure, or by another request meanwhile, is renewed; only what is on none goes back to «do not renew».
+        $invoices = [];
+        $notRenewed = $ticked->filter(fn (Domain $domain) => $domain->expires_at === null)->pluck('fqdn')->all();
+        foreach ($domains as $domain) {
+            $invoice = $open($domain->fresh());
+            if ($invoice !== null) {
+                $invoices[$invoice] = true;
+
+                continue;
+            }
+            $notRenewed[] = $domain->fqdn;
+            if (isset($turnedOn[$domain->id])) {
+                $domain->update(['auto_renew' => false]); // as it was
             }
         }
-        $invoices = array_values(array_unique(array_merge($result['invoices'], array_keys($open))));
-        // Those meant to be billed and not billed (one already on an open invoice goes to it: renewed, not to tell).
-        $notRenewed = collect($toBill)->reject(fn (Domain $domain) => isset($billed[$domain->fqdn]))->pluck('fqdn')->all();
+        $redirect = $invoices !== [];
         if ($notRenewed !== []) {
-            $this->notify(__('domains.portal.bulk.not_renewed', ['domains' => implode(', ', $notRenewed)]), 'error');
+            $this->notify(__('domains.portal.bulk.not_renewed', ['domains' => implode(', ', $notRenewed)]), 'error', $redirect);
         }
-        if ($invoices === []) {
+        if (!$redirect) {
             return null;
         }
         $this->selected = [];
+        $ids = array_keys($invoices);
 
-        return count($invoices) === 1 ? $this->redirectRoute('invoices.show', $invoices[0], navigate: true) : $this->redirectRoute('invoices', navigate: true);
+        return count($ids) === 1 ? $this->redirectRoute('invoices.show', $ids[0], navigate: true) : $this->redirectRoute('invoices', navigate: true);
     }
 
     /** Auto renew on or off for the ticked domains (as from each row; off is «do not renew», D-14). */
     public function bulkAutoRenew(bool $on): void
     {
         abort_unless($this->staffMay(), 404);
-        $domains = $this->ticked();
+        try {
+            $domains = $this->ticked();
+        } catch (DisplayException $e) {
+            $this->notify($e->getMessage(), 'error');
+
+            return;
+        }
         foreach ($domains as $domain) {
             $domain->update(['auto_renew' => $on]);
         }
-        $this->notify(__($on ? 'domains.portal.bulk.auto_renew_on' : 'domains.portal.bulk.auto_renew_off', ['count' => $domains->count()]), 'success');
+        $this->notify(trans_choice($on ? 'domains.portal.bulk.auto_renew_on' : 'domains.portal.bulk.auto_renew_off', $domains->count(), ['count' => $domains->count()]), 'success');
     }
 
     /** The same nameservers for the ticked domains, each set at its registrar as from its page; how each went is told. */
     public function bulkSetNameservers(): void
     {
         abort_unless($this->staffMay('admin.domains.manage'), 404);
-        // As the browser sent them (any shape): a host each.
-        $this->bulkNameservers = array_values(array_filter(array_map(fn (mixed $ns) => is_scalar($ns) ? mb_strtolower(trim((string) $ns)) : '', (array) $this->bulkNameservers),
+        // As the browser sent them (any shape): a host each, the empty ones left out; the fields stay as typed, an error
+        // shown above them (code review 4).
+        $hosts = array_values(array_filter(array_map(fn (mixed $ns) => is_scalar($ns) ? mb_strtolower(trim((string) $ns)) : '', (array) $this->bulkNameservers),
             fn (string $ns) => $ns !== ''));
-        $this->validate([
+        Validator::make(['bulkNameservers' => $hosts], [
             'bulkNameservers' => 'array|min:2|max:13',
             'bulkNameservers.*' => ['required', 'string', 'max:253', 'distinct', 'regex:' . DomainManagementService::HOST],
-        ]);
-        $hosts = $this->bulkNameservers;
+        ])->validate();
         $this->atRegistrarEach(fn (DomainManagementService $management, Domain $domain) => $management->setNameservers($domain, $hosts, Actor::current()));
         $this->bulkForm = '';
     }
@@ -271,14 +324,34 @@ class Index extends Component
      */
     private function atRegistrarEach(callable $change): void
     {
-        $domains = $this->ticked();
+        try {
+            $domains = $this->ticked();
+        } catch (DisplayException $e) {
+            $this->notify($e->getMessage(), 'error');
+
+            return;
+        }
         if ($domains->isEmpty() || $this->bulkLimited()) {
             return;
         }
         $management = app(DomainManagementService::class);
         $done = [];
         $failed = [];
+        $deadline = microtime(true) + self::REGISTRAR_DEADLINE_SECONDS;
         foreach ($domains as $domain) {
+            if (microtime(true) > $deadline) {
+                // A slow registrar: the rest are not asked in this request, and said so (code review 5).
+                $failed[$domain->fqdn] = __('domains.portal.bulk.not_tried');
+
+                continue;
+            }
+            // Each registrar change counts toward the single page's limit too (10 a minute per login, ADV-3).
+            if (RateLimiter::tooManyAttempts($portal = 'domain-portal:' . Auth::id(), 10)) {
+                $failed[$domain->fqdn] = __('domains.portal.bulk.not_tried_limit');
+
+                continue;
+            }
+            RateLimiter::hit($portal, 60);
             if (!$management->isManageable($domain)) {
                 $failed[$domain->fqdn] = __('domains.portal.not_manageable');
 
@@ -330,10 +403,14 @@ class Index extends Component
         return view('domains.index', [
             'domains' => $page,
             'toggleable' => $toggleable,
-            // Bulk actions (as each page's): ticking needs `managedomains`; renewing, the invoices too.
-            'bulk' => $toggleable !== [],
-            'bulkRenew' => $toggleable !== [] && $this->seesInvoices() && $this->staffMay('admin.invoices.create'),
-            'bulkRegistrar' => $toggleable !== [] && $this->staffMay('admin.domains.manage'),
+            // Bulk actions (as each page's): ticking needs `managedomains` (the policy, asked of any live domain of the
+            // account, whatever the page shows); renewing, the invoices too.
+            'bulk' => $bulk = $this->staffMay() && ($any = CurrentClient::model()->domains()->get()->first(fn (Domain $d) => !$d->status->isTerminal())) !== null
+                && Gate::allows('update', $any),
+            'bulkRenew' => $bulk && $this->seesInvoices() && $this->staffMay('admin.invoices.create'),
+            'bulkRegistrar' => $bulk && $this->staffMay('admin.domains.manage'),
+            'tickedCount' => $bulk && $this->selected !== [] ? CurrentClient::model()->domains()->whereKey(self::ids($this->selected))->get()
+                ->reject(fn (Domain $d) => $d->status->isTerminal())->count() : 0,
             'counts' => $counts,
         ])->layoutData([
             'title' => __('domains.domains'),

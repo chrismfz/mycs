@@ -196,8 +196,12 @@ class DomainBulkTest extends TestCase
             $ids[] = $this->domain("d{$i}", ['auto_renew' => true])->id;
         }
 
-        Livewire::actingAs($this->user)->test(Index::class)->set('selected', $ids)->call('bulkAutoRenew', false);
-        $this->assertSame(Index::BULK_MAX, Domain::query()->where('auto_renew', false)->count());
+        // More than BULK_MAX: refused and told, never cut silently.
+        Livewire::actingAs($this->user)->test(Index::class)->set('selected', $ids)->call('bulkAutoRenew', false)
+            ->assertDispatched('notify', fn ($name, $params) => str_contains((string) ($params[0]['message'] ?? ''), (string) Index::BULK_MAX));
+        $this->assertSame(0, Domain::query()->where('auto_renew', false)->count());
+        // Ticking a page never goes past it.
+        Livewire::actingAs($this->user)->test(Index::class)->call('togglePage', $ids)->assertCount('selected', Index::BULK_MAX);
 
         RateLimiter::clear('domain-bulk:' . $this->user->id);
         $page = Livewire::actingAs($this->user)->test(Index::class)->set('selected', [$ids[0]])->set('bulkNameservers', ['ns1.example.net', 'ns2.example.net']);
