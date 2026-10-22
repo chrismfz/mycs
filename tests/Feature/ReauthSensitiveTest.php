@@ -96,4 +96,15 @@ class ReauthSensitiveTest extends TestCase
 
         $this->assertSame(['old@example.test', $secret], [$this->user->fresh()->email, $this->user->fresh()->tfa_secret]);
     }
+
+    public function test_two_factor_goes_on_with_the_password_and_the_first_code(): void
+    {
+        $this->as();
+        $page = Livewire::test(Security::class)->call('enableTwoFactor');
+        $secret = $page->get('twoFactorData')['secret'];
+
+        $page->set('enable_password', 'Right-Pass-1')->set('twoFactorCode', $this->code($secret))->call('enableTwoFactor');
+
+        $this->assertSame($secret, $this->user->fresh()->tfa_secret);
+    }
 }

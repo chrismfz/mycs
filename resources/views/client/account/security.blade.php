@@ -75,7 +75,9 @@
                         {{ __('account.two_factor_authentication_secret') }}<br />{{ $twoFactorData['secret'] }}</p>
                 </div>
                 <form wire:submit.prevent="enableTwoFactor">
-                    <x-form.input divClass="mt-8" name="two_factor_code" type="text"
+                    <x-form.input divClass="mt-8" name="enable_password" type="password" :label="__('account.input.current_password')"
+                        wire:model="enable_password" autocomplete="current-password" required />
+                    <x-form.input divClass="mt-4" name="two_factor_code" type="text"
                         :label="__('account.input.two_factor_code')"
                         :placeholder="__('account.input.two_factor_code_placeholder')" wire:model="twoFactorCode" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code"
                         required />

@@ -10,10 +10,10 @@ use App\Models\User;
 use App\Services\Tax\EuVat;
 use App\Support\Actor;
 use App\Support\CurrentClient;
+use App\Support\Reauth;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 class Account extends ComponentWithProperties
@@ -81,8 +81,8 @@ class Account extends ComponentWithProperties
 
                 return;
             }
-            if (!Hash::check($this->email_password, (string) $user->password)) {
-                $this->addError('email_password', __('account.notifications.password_incorrect'));
+            if (($refusal = Reauth::refusal($user, $this->email_password)) !== null) {
+                $this->addError('email_password', $refusal);
 
                 return;
             }
