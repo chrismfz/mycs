@@ -29,4 +29,10 @@ final class AuthCookies
     {
         return self::name('mycs_remember');
     }
+
+    /** The cart: a login takes it into its account, so no other site may set it either (review of #346). */
+    public static function cart(): string
+    {
+        return self::name('cart');
+    }
 }
