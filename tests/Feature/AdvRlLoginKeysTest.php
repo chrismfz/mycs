@@ -115,7 +115,8 @@ class AdvRlLoginKeysTest extends TestCase
     {
         config(['settings.trusted_proxies' => []]);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $staff = Staff::factory()->admin()->create(['email' => 'admin@example.com', 'password' => Hash::make('Right-Pass-1')]);
+        // Without 2FA: the password step alone logs in (with it, the code is asked next).
+        $staff = Staff::factory()->admin()->withoutTwoFactor()->create(['email' => 'admin@example.com', 'password' => Hash::make('Right-Pass-1')]);
 
         // Ten wrong passwords from two addresses (Filament's own limit is 5 a minute per address).
         foreach (['198.51.100.1', '198.51.100.2'] as $attacker) {

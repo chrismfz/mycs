@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Admin\Pages\IncomeReport as Page;
 use App\Http\Controllers\Controller;
+use App\Models\Staff;
 use App\Services\Reports\IncomeReport;
 use Illuminate\Http\Request;
 use OpenSpout\Common\Entity\Cell\NumericCell;
@@ -23,6 +24,9 @@ class IncomeExportController extends Controller
     public function __invoke(Request $request, int $year, string $currency, string $format): BinaryFileResponse|StreamedResponse
     {
         abort_unless(Page::canAccess(), 403);
+        // Outside the panel: its 2FA requirement, here (review of #344).
+        $staff = auth('staff')->user();
+        abort_unless($staff instanceof Staff && $staff->hasTwoFactor(), 403);
         abort_unless(in_array($year, IncomeReport::years(), true), 404);
         abort_unless(array_key_exists($currency, (new Page)->currencies()), 404);
         $report = IncomeReport::year($currency, $year);

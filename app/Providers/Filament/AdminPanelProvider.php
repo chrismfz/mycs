@@ -13,6 +13,7 @@ use App\Providers\SettingsProvider;
 use Exception;
 use Filament\Actions\Action;
 use Filament\Auth\MultiFactor\App\AppAuthentication;
+use Filament\Auth\MultiFactor\Http\Middleware\EnsureMultiFactorAuthenticationIsEnabled;
 use Filament\Facades\Filament;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -59,13 +60,14 @@ class AdminPanelProvider extends PanelProvider
             ->default()
             ->id('admin')
             ->path(self::PATH)
-            // Staff only, with their own guard, login, password reset and optional 2FA (docs/accounts.md, PR 1).
+            // Staff only, with their own guard, login, password reset and 2FA, which every staff member sets up before anything
+            // else in the admin (docs/accounts.md, PR 1; security audit, decided 2026-10-22).
             ->authGuard('staff')
             ->authPasswordBroker('staff')
             ->login(Login::class)
             ->passwordReset()
             ->profile(EditProfile::class, isSimple: false)
-            ->multiFactorAuthentication([AppAuthentication::make()->recoverable()])
+            ->multiFactorAuthentication([AppAuthentication::make()->recoverable()], isRequired: true)
             ->spa()
             // Density, closer to WHMCS (docs/admin-ux.md): the whole width of the screen, a sidebar that folds away
             // (the top menu has the same pages), tighter spacing in density.css.
@@ -150,7 +152,7 @@ class AdminPanelProvider extends PanelProvider
             // Ticket attachments for staff: the client area's route is the customers' guard.
             ->authenticatedRoutes(function () {
                 Route::get('ticket-attachments/{attachment:uuid}', [TicketAttachmentController::class, 'download'])
-                    ->name('ticket-attachments.show')->middleware('can:view,attachment');
+                    ->name('ticket-attachments.show')->middleware([EnsureMultiFactorAuthenticationIsEnabled::class, 'can:view,attachment']);
             });
 
         try {

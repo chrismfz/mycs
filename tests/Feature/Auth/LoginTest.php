@@ -94,7 +94,7 @@ class LoginTest extends TestCase
      */
     public function test_staff_log_in_at_the_admin_and_go_where_they_were_going()
     {
-        Staff::factory()->admin()->create([
+        Staff::factory()->admin()->withoutTwoFactor()->create([
             'email' => 'test@example.test',
             'password' => Hash::make('password'),
         ]);
@@ -111,6 +111,9 @@ class LoginTest extends TestCase
         $this->assertAuthenticated('staff');
         $this->assertGuest('web');
 
+        // 2FA is required in the admin: first its setup, nothing else (security audit, decided 2026-10-22).
+        $this->get('/sysadmin/settings')->assertRedirect('/sysadmin/multi-factor-authentication/set-up');
+        auth('staff')->user()->forceFill(['app_authentication_secret' => 'JBSWY3DPEHPK3PXP'])->save();
         $this->get('/sysadmin/settings')->assertOk();
     }
 
