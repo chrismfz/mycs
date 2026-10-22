@@ -5,7 +5,7 @@
             <p class="text-sm text-base">{{ $announcement->published_at->diffForHumans() }}</p>
         </div>
         <article class="prose dark:prose-invert mb-2 max-w-full">
-            {!! $announcement->content !!}
+            {!! Str::sanitizeHtml((string) $announcement->content) !!}
         </article>
     </div>
 </div>

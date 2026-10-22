@@ -769,6 +769,8 @@ class Settings
                 ],
                 [
                     'name' => 'theme_home_page_text',
+                    // Markdown that may hold raw HTML, shown on this site's origin (the admin's too): custom code.
+                    'permission' => 'admin.settings.custom_code',
                     'label' => 'Home Page Text',
                     'type' => 'markdown',
                     'default' => 'Welcome!',
@@ -1249,6 +1251,14 @@ class Settings
                 ],
             ],
             'other' => [
+                [
+                    'name' => 'gateway_reference',
+                    'label' => 'Gateway reference',
+                    'type' => 'text',
+                    'default' => '',
+                    'validation' => 'nullable|max:40|regex:/^[A-Za-z0-9-]*$/',
+                    'description' => 'This site\'s mark on the payments it starts at Stripe, PayPal and Mollie (letters, digits, dashes). Empty: the site\'s address (e.g. my-nixpal-com). Set it once, before the first payment: a change makes payments still open look like another system\'s (staff are told, nothing is recorded).',
+                ],
                 [
                     'name' => 'default_currency',
                     'label' => 'Default Currency',

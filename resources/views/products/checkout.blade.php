@@ -7,7 +7,7 @@
             @endif
             <div class="max-h-28 overflow-y-auto w-full">
                 <article class="prose dark:prose-invert prose-sm">
-                    {!! $product->description !!}
+                    {!! Str::sanitizeHtml((string) $product->description) !!}
                 </article>
             </div>
         </div>
