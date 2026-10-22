@@ -113,15 +113,26 @@ class PayPal extends Gateway
                 'message' => __('account.payment_method_setup_not_yours'),
             ]);
         }
+        // Two returns at once (a double click): one makes the payment token, the other leaves it to it.
+        $claim = Cache::lock(self::SETUP_KEY . 'claim:' . $tokenId, 60);
+        if (!$claim->get()) {
+            return redirect()->route('account.payment-methods');
+        }
         $url = $this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
-        $request = $this->request('post', $url . '/v3/vault/payment-tokens', [
-            'payment_source' => [
-                'token' => [
-                    'id' => $tokenId,
-                    'type' => 'SETUP_TOKEN',
+        try {
+            $request = $this->request('post', $url . '/v3/vault/payment-tokens', [
+                'payment_source' => [
+                    'token' => [
+                        'id' => $tokenId,
+                        'type' => 'SETUP_TOKEN',
+                    ],
                 ],
-            ],
-        ]);
+            ]);
+        } catch (Throwable $e) {
+            $claim->release(); // its owner may try again
+
+            throw $e;
+        }
 
         // Once: only after its owner saved it (another login's try leaves it to them).
         if (!Cache::pull(self::SETUP_KEY . $tokenId)) {

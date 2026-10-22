@@ -9,6 +9,7 @@ use App\Models\Invoice;
 use App\Services\Money\GatewayLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Symfony\Component\HttpFoundation\Response;
 
 #[ExtensionMeta(
     name: 'PayPal IPN',
@@ -84,35 +85,38 @@ class PayPal_IPN extends Gateway
         return $paypal_url . $query;
     }
 
-    /**
-     * Handle the IPN request
-     *
-     * @return void
-     */
-    public function notify(Request $request)
+    /** Handle the IPN request */
+    public function notify(Request $request): Response
     {
         // Send the request to PayPal
         $response = Http::asForm()->post($this->config('test_mode') ? 'https://ipnpb.sandbox.paypal.com/cgi-bin/webscr' : 'https://ipnpb.paypal.com/cgi-bin/webscr', [
             'cmd' => '_notify-validate',
         ] + $request->all());
 
-        // Check if the response is verified
-        GatewayLog::current()->signature($response->body() == 'VERIFIED');
-        if ($response->body() == 'VERIFIED') {
-            // Validate owner and amount
-            if (strtolower($request->receiver_email) !== strtolower($this->config('email'))) {
-                return;
-            }
-            if ($request->payment_status !== 'Completed') {
-                return;
-            }
-            // Another currency is refused by RecordPaymentService (logged, staff told), not skipped here.
-            $invoice = Invoice::find($request->item_number);
-            if (!$invoice) {
-                return;
-            }
-            ExtensionHelper::addPayment($request->item_number, 'PayPal', $request->mc_gross, $request->mc_fee, transactionId: $request->txn_id, currency: $request->mc_currency,
-                paymentGroup: is_string($request->custom) ? $request->custom : null);
+        // PayPal itself did not answer: it sends the IPN again later. A forged one is refused (400), which counts toward
+        // the callbacks' limit (security audit PAY-SEC-8), as the WHMCS-era IPN's own does.
+        if (!$response->successful()) {
+            return response('', 503);
         }
+        GatewayLog::current()->signature($response->body() == 'VERIFIED');
+        if ($response->body() != 'VERIFIED') {
+            return response('', 400);
+        }
+        // Validate owner and amount
+        if (strtolower($request->receiver_email) !== strtolower($this->config('email'))) {
+            return response('');
+        }
+        if ($request->payment_status !== 'Completed') {
+            return response('');
+        }
+        // Another currency is refused by RecordPaymentService (logged, staff told), not skipped here.
+        $invoice = Invoice::find($request->item_number);
+        if (!$invoice) {
+            return response('');
+        }
+        ExtensionHelper::addPayment($request->item_number, 'PayPal', $request->mc_gross, $request->mc_fee, transactionId: $request->txn_id, currency: $request->mc_currency,
+            paymentGroup: is_string($request->custom) ? $request->custom : null);
+
+        return response('');
     }
 }

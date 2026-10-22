@@ -182,6 +182,23 @@ class GatewayCallbackHardeningTest extends TestCase
         $this->assertSame(1, BillingAgreement::query()->where('client_id', $owner->client()->id)->count());
     }
 
+    public function test_a_second_return_at_the_same_time_makes_no_second_token(): void
+    {
+        $paypal = $this->paypal();
+        $owner = User::factory()->create();
+        $this->startSetup($paypal, $owner);
+        // The first return holds the claim while PayPal answers it.
+        $first = Cache::lock('paypal-vault-setup:claim:SETUP-A', 60);
+        $this->assertTrue($first->get());
+
+        $this->approve($owner, 'SETUP-A');
+
+        Http::assertNotSent(fn ($request) => str_ends_with($request->url(), '/v3/vault/payment-tokens'));
+        $first->release();
+        $this->approve($owner, 'SETUP-A');
+        $this->assertSame(1, BillingAgreement::query()->count());
+    }
+
     public function test_a_setup_started_by_another_account_saves_nothing(): void
     {
         $paypal = $this->paypal();
