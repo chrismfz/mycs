@@ -11,12 +11,12 @@
         <div class="flex-grow space-y-1">
             @if($record->event == 'created')
             <div class="text-sm text-gray-950 dark:text-white">
-                @if(count($record->getModified()) === 0)
+                @if(count(\App\Support\AuditValue::modified($record)) === 0)
                 <span class="text-xs text-gray-950 dark:text-white">
                     No changes
                 </span>
                 @else
-                @foreach ($record->getModified() as $key => $value)
+                @foreach (\App\Support\AuditValue::modified($record) as $key => $value)
                 @if(empty($value['new']))
                 @continue
                 @endif
@@ -33,12 +33,12 @@
             </div>
             @else
             <div class="text-sm text-gray-950 dark:text-white">
-                @if(count($record->getModified()) === 0)
+                @if(count(\App\Support\AuditValue::modified($record)) === 0)
                 <span class="text-xs text-gray-950 dark:text-white">
                     No changes
                 </span>
                 @else
-                @foreach ($record->getModified() as $key => $value)
+                @foreach (\App\Support\AuditValue::modified($record) as $key => $value)
                 @if(empty($value['new']) && empty($value['old']))
                 @continue
                 @endif

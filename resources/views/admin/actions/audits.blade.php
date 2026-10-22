@@ -42,12 +42,12 @@ $audits = $audits->sortByDesc('created_at')->sortByDesc('id');
                 <div class="flex-grow space-y-1">
                     @if($audit->event == 'created')
                     <div class="text-sm text-gray-950 dark:text-white">
-                        @if(count($audit->getModified()) === 0)
+                        @if(count(\App\Support\AuditValue::modified($audit)) === 0)
                         <span class="text-xs text-gray-950 dark:text-white">
                             No changes
                         </span>
                         @else
-                        @foreach ($audit->getModified() as $key => $value)
+                        @foreach (\App\Support\AuditValue::modified($audit) as $key => $value)
                         @if(empty($value['new']))
                         @continue
                         @endif
@@ -64,12 +64,12 @@ $audits = $audits->sortByDesc('created_at')->sortByDesc('id');
                     </div>
                     @elseif($audit->event !== 'extension_action')
                     <div class="text-sm text-gray-950 dark:text-white">
-                        @if(count($audit->getModified()) === 0)
+                        @if(count(\App\Support\AuditValue::modified($audit)) === 0)
                         <span class="text-xs text-gray-950 dark:text-white">
                             No changes
                         </span>
                         @else
-                        @foreach ($audit->getModified() as $key => $value)
+                        @foreach (\App\Support\AuditValue::modified($audit) as $key => $value)
                         <div class="bg-background-secondary rounded">
                             <div class="flex flex-wrap items-center gap-x-2">
                                 <span class="font-semibold">{{ $key }}</span> changed from
