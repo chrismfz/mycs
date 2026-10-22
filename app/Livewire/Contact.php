@@ -6,6 +6,7 @@ use App\Attributes\DisabledIf;
 use App\Models\Ticket;
 use App\Models\TicketBlockedSender;
 use App\Models\TicketDepartment;
+use App\Support\CallerIp;
 use App\Support\CurrentClient;
 use App\Support\Tickets\TicketMailer;
 use App\Traits\Captchable;
@@ -100,7 +101,7 @@ class Contact extends Component
 
         $email = strtolower(trim($this->email));
         // Counted as they are taken (increment, not check-then-hit): two at once never both slip under a limit.
-        $limits = ['contact-ip:' . self::network((string) request()->ip()) => self::PER_IP,
+        $limits = ['contact-ip:' . CallerIp::key() => self::PER_IP,
             'contact-email:' . TicketBlockedSender::base($email) => self::PER_EMAIL, 'contact-all' => self::PER_HOUR];
         $over = false;
         foreach ($limits as $key => $max) {
@@ -191,17 +192,6 @@ class Contact extends Component
 
         return TicketDepartment::query()->get()->flatMap(fn (TicketDepartment $department) => $department->ownAddresses())
             ->map(fn (string $address) => TicketBlockedSender::base($address))->contains($base);
-    }
-
-    /** A network for the limit: an IPv4 address, or an IPv6 /64 (one subscriber's LAN, 2^64 addresses). */
-    private static function network(string $ip): string
-    {
-        $packed = @inet_pton($ip);
-        if ($packed !== false && strlen($packed) === 16) {
-            return bin2hex(substr($packed, 0, 8)) . '::/64';
-        }
-
-        return $ip;
     }
 
     /** One line: no control or format characters (bidi, zero-width), single spaces. */
