@@ -49,6 +49,6 @@ the request's headers). During a deploy the maintenance mode answers 503 (the in
 - **No secrets.** No passwords and no PSK. A license key shows as its prefix and last 4 characters (the full key is a
   login to zlic.php). Of the audit, only which fields changed. Every error text and log line goes through
   `Ops\Scrub`: `Redact`'s rules, secret query keys of any URL in it (a module's API URL may carry its credentials),
-  `Authorization: Bearer/Basic`, and the config's own secrets (APP_KEY, database, mail, Passport, AWS).
+  `Authorization: Bearer/Basic`, and the config's own secrets (APP_KEY, database, mail, AWS).
 - Actions (retry a module action, resend a mail) come with the MCP as **proposals staff approve** in the admin
   (docs/mcp.md), not here.

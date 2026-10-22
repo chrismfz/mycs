@@ -2,10 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\RoleResource\Pages\EditRole;
+use App\Models\Role;
+use App\Models\Staff;
 use App\Models\User;
+use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
@@ -33,5 +38,26 @@ class PassportRemovedTest extends TestCase
         }
         $this->assertTrue(Schema::hasTable('mcp_oauth_clients'));
         $this->assertNull(config('auth.guards.api'));
+    }
+
+    public function test_a_role_keeps_what_its_form_has_no_box_for_and_loses_the_removed(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $this->actingAs(Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner', 'permissions' => ['*']])->id]), 'staff');
+        $role = Role::create(['name' => 'Ops', 'permissions' => ['admin.tickets.viewAny', 'admin.oauth_clients.viewAny', 'extension.gone.view']]);
+
+        Livewire::test(EditRole::class, ['record' => $role->getRouteKey()])
+            ->fillForm(['name' => 'Ops 2'])->call('save')->assertHasNoFormErrors();
+
+        $this->assertEqualsCanonicalizing(['admin.tickets.viewAny', 'extension.gone.view'], $role->fresh()->permissions);
+    }
+
+    public function test_the_migration_takes_its_permissions_out_of_the_roles(): void
+    {
+        $role = Role::create(['name' => 'Old', 'permissions' => ['admin.oauth_clients.create', 'admin.tickets.viewAny']]);
+
+        (require database_path('migrations/2026_12_26_000000_drop_passport_tables.php'))->up();
+
+        $this->assertSame(['admin.tickets.viewAny'], $role->fresh()->permissions);
     }
 }

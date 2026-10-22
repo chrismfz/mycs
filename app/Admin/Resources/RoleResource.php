@@ -35,11 +35,18 @@ class RoleResource extends Resource
 
     protected static string|\BackedEnum|null $activeNavigationIcon = 'ri-shield-user-fill';
 
-    public static function form(Schema $schema): Schema
+    /** @return array<string, string> the permissions a role's form offers: the app's and its extensions' */
+    public static function permissionOptions(): array
     {
         $extensionPermissions = once(fn () => Arr::dot(
             array_merge_recursive(...Event::dispatch('permissions', []))
         ));
+
+        return array_merge(Arr::dot(config('permissions.role')), $extensionPermissions);
+    }
+
+    public static function form(Schema $schema): Schema
+    {
 
         return $schema
             ->components([
@@ -50,7 +57,7 @@ class RoleResource extends Resource
                 // Split permission UI into core and extension
                 CheckboxList::make('permissions')
                     ->label(false)
-                    ->options(array_merge(Arr::dot(config('permissions.role')), $extensionPermissions))
+                    ->options(fn () => self::permissionOptions())
                     ->columns(4)
                     ->bulkToggleable()
                     ->searchable()
