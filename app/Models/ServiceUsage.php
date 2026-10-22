@@ -41,7 +41,10 @@ class ServiceUsage extends Model
             return '—';
         }
 
-        return $mb >= 1024 ? rtrim(rtrim(number_format($mb / 1024, 1, ',', '.'), '0'), ',') . ' GB' : $mb . ' MB';
+        // The reader's decimal mark (code review 9): «1,5 GB» in Greek, «1.5 GB» in English.
+        [$decimal, $thousands] = str_starts_with(app()->getLocale(), 'el') ? [',', '.'] : ['.', ','];
+
+        return $mb >= 1024 ? rtrim(rtrim(number_format($mb / 1024, 1, $decimal, $thousands), '0'), $decimal) . ' GB' : $mb . ' MB';
     }
 
     /** Its share of the limit, 0–100; null: no limit. */

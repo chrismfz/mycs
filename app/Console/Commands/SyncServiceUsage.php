@@ -23,6 +23,7 @@ class SyncServiceUsage extends Command
 
     public function handle(): int
     {
+        $failed = false;
         $services = Service::query()->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
             ->when($this->option('service'), fn ($q, $id) => $q->whereKey((int) $id))
             ->with(['server.settings', 'product.server.settings', 'properties', 'product.settings'])->get();
@@ -40,6 +41,7 @@ class SyncServiceUsage extends Command
             } catch (Throwable $e) {
                 report($e);
                 $this->error("{$server->name}: " . Redact::text($e->getMessage()));
+                $failed = true; // told to the scheduler too (code review 6)
 
                 continue;
             }
@@ -53,6 +55,6 @@ class SyncServiceUsage extends Command
             $this->line("{$server->name}: " . count($read) . ' of ' . $group->count() . ' service(s) read');
         }
 
-        return self::SUCCESS;
+        return $failed ? self::FAILURE : self::SUCCESS;
     }
 }

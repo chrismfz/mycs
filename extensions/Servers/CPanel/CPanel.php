@@ -652,7 +652,16 @@ class CPanel extends Server implements ReadsServiceUsage
     public function usage(array $services): array
     {
         $listed = $this->whm('/listaccts', ['want' => 'user,owner,diskused,disklimit'], timeout: 60)['data']['acct'] ?? null;
-        $bandwidth = $this->whm('/showbw', [], timeout: 60)['data']['acct'] ?? [];
+        // Bandwidth on its own: a login without WHM's show-bandwidth privilege, or a showbw that fails, keeps the disk read
+        // (code review 2 of #316); bandwidth is then not known.
+        try {
+            $bandwidth = $this->whm('/showbw', [], timeout: 60)['data']['acct'] ?? [];
+            $bandwidthRead = true;
+        } catch (Throwable $e) {
+            report($e);
+            $bandwidth = [];
+            $bandwidthRead = false;
+        }
         if (!is_array($listed)) {
             throw new Exception('cPanel listaccts: an answer without its accounts');
         }
@@ -661,12 +670,13 @@ class CPanel extends Server implements ReadsServiceUsage
             $user = strtolower((string) ($account['user'] ?? ''));
             if ($user !== '') {
                 $accounts[$user] = ['owner' => strtolower((string) ($account['owner'] ?? '')), 'disk' => self::mb($account['diskused'] ?? null),
-                    'disk_limit' => self::limit(self::mb($account['disklimit'] ?? null)), 'bw' => null, 'bw_limit' => null];
+                    'disk_limit' => self::limit(self::mb($account['disklimit'] ?? null)), 'bw' => $bandwidthRead ? 0 : null, 'bw_limit' => null];
             }
         }
         foreach ((array) $bandwidth as $row) {
             $user = strtolower((string) ($row['user'] ?? ''));
-            if (isset($accounts[$user])) {
+            // A deleted account of this month (a name made again since) is not this one (code review 5).
+            if (isset($accounts[$user]) && empty($row['deleted'])) {
                 $accounts[$user]['bw'] = self::bytesToMb($row['totalbytes'] ?? null) ?? 0;
                 $accounts[$user]['bw_limit'] = self::limit(self::bytesToMb($row['limit'] ?? null));
             }
@@ -675,7 +685,9 @@ class CPanel extends Server implements ReadsServiceUsage
         $read = [];
         foreach ($services as $service) {
             $properties = $service->properties->pluck('value', 'key')->all();
-            $user = strtolower((string) ($properties['cpanel_username'] ?? ''));
+            // An account imported from WHMCS has its username on the service only (as getServiceProperties reads it:
+            // code review 1 of #316).
+            $user = strtolower((string) ($properties['cpanel_username'] ?? $service->username ?? ''));
             if ($user === '' || !isset($accounts[$user])) {
                 continue;
             }
@@ -685,8 +697,10 @@ class CPanel extends Server implements ReadsServiceUsage
                 $read[$service->id] = new ServiceUsageRead(
                     diskUsedMb: array_sum(array_map(fn ($a) => $a['disk'] ?? 0, $mine)),
                     diskLimitMb: self::megabytes($settings['reseller_disk_mb'] ?? null),
-                    bandwidthUsedMb: array_sum(array_map(fn ($a) => $a['bw'] ?? 0, $mine)),
+                    bandwidthUsedMb: $bandwidthRead ? array_sum(array_map(fn ($a) => $a['bw'] ?? 0, $mine)) : null,
                     bandwidthLimitMb: self::megabytes($settings['reseller_bandwidth_mb'] ?? null),
+                    // Those it owns, as WHM lists them, its own not counted (an approximation of WHM's own count; the
+                    // limits are its product's: code review 4).
                     accounts: count($mine) - 1,
                     accountsLimit: self::megabytes($settings['reseller_max_accounts'] ?? null),
                 );

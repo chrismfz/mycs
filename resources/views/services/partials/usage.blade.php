@@ -1,5 +1,5 @@
 {{-- Its usage as its server last told it (services:usage; WHMCS's «Usage Statistics»): disk, this month's bandwidth, a reseller's accounts. --}}
-@php($usage = $service->usage)
+@php($usage = in_array($service->status, ['active', 'suspended'], true) ? $service->usage : null)
 @if($usage)
 @php($meters = array_filter([
     ['label' => __('services.usage.disk'), 'used' => $usage->disk_used_mb, 'limit' => $usage->disk_limit_mb, 'size' => true],
@@ -19,9 +19,10 @@
                     / {{ $meter['limit'] === null ? __('services.usage.unlimited') : ($meter['size'] ? \App\Models\ServiceUsage::size($meter['limit']) : $meter['limit']) }}
                 </span>
             </div>
+            @php($text = ($meter['size'] ? \App\Models\ServiceUsage::size($meter['used']) : ($meter['used'] ?? '—')) . ' / ' . ($meter['limit'] === null ? __('services.usage.unlimited') : ($meter['size'] ? \App\Models\ServiceUsage::size($meter['limit']) : $meter['limit'])))
             <div class="h-2 rounded-full bg-neutral mt-1 overflow-hidden" role="progressbar" aria-label="{{ $meter['label'] }}"
-                aria-valuemin="0" aria-valuemax="100" @if($percent !== null) aria-valuenow="{{ $percent }}" @endif>
-                <div class="h-2 rounded-full {{ $percent !== null && $percent >= 90 ? 'bg-red-500' : ($percent !== null && $percent >= 75 ? 'bg-orange-500' : 'bg-primary') }}"
+                aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ $percent ?? 0 }}" aria-valuetext="{{ $text }}">
+                <div class="h-2 rounded-full {{ $percent !== null && $percent >= 90 ? 'bg-error' : ($percent !== null && $percent >= 75 ? 'bg-warning' : 'bg-primary') }}"
                     style="width: {{ $percent ?? 0 }}%"></div>
             </div>
         </div>

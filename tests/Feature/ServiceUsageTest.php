@@ -34,6 +34,8 @@ class ServiceUsageTest extends TestCase
 
     private bool $down = false;
 
+    private bool $bandwidthRefused = false;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -49,6 +51,9 @@ class ServiceUsageTest extends TestCase
                 return Http::response([], 503);
             }
             $call = (string) parse_url($request->url(), PHP_URL_PATH);
+            if ($this->bandwidthRefused && str_ends_with($call, '/showbw')) {
+                return Http::response(['metadata' => ['result' => 0, 'reason' => 'Permission denied: show-bandwidth']]);
+            }
 
             return Http::response(['metadata' => ['result' => 1, 'reason' => 'OK'], 'data' => ['acct' => str_ends_with($call, '/showbw') ? $this->bandwidth : $this->accounts]]);
         });
@@ -135,7 +140,7 @@ class ServiceUsageTest extends TestCase
 
         $this->travel(4)->hours();
         $this->down = true;
-        $this->artisan('services:usage')->assertExitCode(0);
+        $this->artisan('services:usage')->assertExitCode(1); // told to the scheduler (code review 6 of #316)
 
         $this->assertEquals($before, $service->usage()->sole()->read_at, 'what was last read, with its time');
     }
@@ -169,5 +174,65 @@ class ServiceUsageTest extends TestCase
 
         $this->actingAs($this->user)->withSession($this->loginUser($this->user, [CurrentClient::SESSION_KEY => $service->client_id]))
             ->get(route('services.show', $service))->assertOk()->assertDontSee(__('services.usage.title'));
+    }
+
+    /** Code review 1 of #316: an account imported from WHMCS has its username on the service only. */
+    public function test_an_imported_account_with_its_username_on_the_service_is_read(): void
+    {
+        $service = $this->service('zonecl');
+        $service->properties()->where('key', 'cpanel_username')->delete();
+        $service->forceFill(['username' => 'zonecl'])->save();
+        $this->accounts = [['user' => 'zonecl', 'owner' => 'root', 'diskused' => '793M', 'disklimit' => '20480M']];
+
+        $this->artisan('services:usage')->assertExitCode(0);
+
+        $this->assertSame(793, $service->usage()->sole()->disk_used_mb);
+    }
+
+    /** Code review 2: a showbw refused (a login without the privilege) keeps the disk read; bandwidth not known. */
+    public function test_a_bandwidth_refused_keeps_the_disk(): void
+    {
+        $service = $this->service('zonecl');
+        $this->accounts = [['user' => 'zonecl', 'owner' => 'root', 'diskused' => '793M', 'disklimit' => '20480M']];
+        $this->bandwidthRefused = true;
+
+        $this->artisan('services:usage')->assertExitCode(0);
+
+        $usage = $service->usage()->sole();
+        $this->assertSame([793, null], [$usage->disk_used_mb, $usage->bandwidth_used_mb]);
+    }
+
+    /** Code review 5: a deleted account of this month with the same name is not this one. */
+    public function test_a_deleted_namesakes_bandwidth_is_not_counted(): void
+    {
+        $service = $this->service('zonecl');
+        $this->accounts = [['user' => 'zonecl', 'owner' => 'root', 'diskused' => '1M', 'disklimit' => '10M']];
+        $this->bandwidth = [['user' => 'zonecl', 'totalbytes' => (string) (10 * 1048576), 'limit' => '0'],
+            ['user' => 'zonecl', 'totalbytes' => (string) (999 * 1048576), 'limit' => '0', 'deleted' => 1]];
+
+        $this->artisan('services:usage')->assertExitCode(0);
+
+        $this->assertSame(10, $service->usage()->sole()->bandwidth_used_mb);
+    }
+
+    /** Code review 3: an ended service shows no usage, whatever was last read. */
+    public function test_an_ended_service_shows_none(): void
+    {
+        $service = $this->service('zonecl');
+        $this->accounts = [['user' => 'zonecl', 'owner' => 'root', 'diskused' => '793M', 'disklimit' => '20480M']];
+        $this->artisan('services:usage')->assertExitCode(0);
+        $service->forceFill(['status' => Service::STATUS_TERMINATED])->save();
+
+        $this->actingAs($this->user)->withSession($this->loginUser($this->user, [CurrentClient::SESSION_KEY => $service->client_id]))
+            ->get(route('services.show', $service))->assertOk()->assertDontSee(__('services.usage.title'));
+    }
+
+    public function test_sizes_use_the_readers_decimal_mark(): void
+    {
+        app()->setLocale('en');
+        $this->assertSame('1.5 GB', ServiceUsage::size(1536));
+        app()->setLocale('el');
+        $this->assertSame('1,5 GB', ServiceUsage::size(1536));
+        $this->assertSame('20 GB', ServiceUsage::size(20480));
     }
 }
