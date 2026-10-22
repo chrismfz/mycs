@@ -31,6 +31,7 @@ use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\GatewayLog;
+use App\Services\Money\GatewayReference;
 use App\Services\Money\MoneyTrail;
 use App\Services\Service\ServerSelector;
 use Exception;
@@ -988,7 +989,11 @@ class ExtensionHelper
         }
         if ($payment === null || $payment->status !== InvoiceTransactionStatus::Succeeded) {
             // Not recorded here yet (or not money yet): kept, and applied when the payment is (applyWaitingRefunds).
-            // A refund of another app on the same gateway account waits for ever, recording nothing.
+            // A refund of another app on the same gateway account waits for ever, recording nothing; one of a payment
+            // this site has no record of at all (a WHMCS-era payment after the cut-over) is also told to staff (S0-6).
+            if ($payment === null) {
+                GatewayReference::foreign($gateway, 'refund', $refundReference, $cents / 100, $currency);
+            }
             GatewayRefund::query()->updateOrCreate(['gateway' => $gateway, 'reference' => $refundReference], [
                 'invoice_transaction_id' => $payment?->id, 'payment_reference' => $paymentReference, 'amount' => $cents / 100,
                 'currency_code' => strtoupper((string) ($currency ?? '')), 'recorded_amount' => 0, 'origin' => GatewayRefund::ORIGIN_WAITING,
@@ -1183,6 +1188,9 @@ class ExtensionHelper
             'invoice_id' => $payment?->invoice_id, 'invoice_transaction_id' => $payment?->id,
         ]);
         if ($payment === null) {
+            // A dispute of a payment this site has no record of (S0-6): staff answer it at the gateway.
+            GatewayReference::foreign($gateway, 'dispute opened', $disputeReference, $amount, $currency);
+
             return;
         }
         // Kept (reference «opened:<id>»): told once, and a won PayPal dispute knows how many disputes the payment had.
@@ -1230,6 +1238,9 @@ class ExtensionHelper
         if ($payment === null || $payment->status !== InvoiceTransactionStatus::Succeeded) {
             // Its payment not money here yet (late webhook, processing): kept, recorded when it is (F7, as refunds).
             $log(PaymentGatewayEvent::OUTCOME_IGNORED, 'chargeback_unknown_payment');
+            if ($payment === null) {
+                GatewayReference::foreign($gateway, 'chargeback', $chargebackReference, $cents / 100, $currency); // S0-6
+            }
             GatewayRefund::query()->updateOrCreate(['gateway' => $gateway, 'reference' => $chargebackReference], [
                 'invoice_transaction_id' => $payment?->id, 'payment_reference' => $paymentReference, 'amount' => $cents / 100,
                 'currency_code' => strtoupper((string) ($currency ?? '')), 'recorded_amount' => 0, 'origin' => GatewayRefund::ORIGIN_CHARGEBACK_WAITING,
@@ -1489,6 +1500,8 @@ class ExtensionHelper
             'invoice_id' => $payment?->invoice_id, 'invoice_transaction_id' => $payment?->id,
         ]);
         if ($payment === null) {
+            GatewayReference::foreign($gateway, 'dispute lost', $resolutionReference, $amount, $currency); // S0-6
+
             return;
         }
         GatewayRefund::query()->firstOrCreate(['gateway' => $gateway, 'reference' => $resolutionReference], [

@@ -28,6 +28,7 @@ return [
         'refunded' => 'refunded',
     ],
     'outcomes' => [
+        'foreign' => 'not made here (check)',
         'received' => 'received',
         'recorded' => 'recorded',
         'ignored' => 'ignored',

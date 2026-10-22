@@ -28,6 +28,7 @@ return [
         'refunded' => 'επιστράφηκε',
     ],
     'outcomes' => [
+        'foreign' => 'όχι από εδώ (για έλεγχο)',
         'received' => 'ελήφθη',
         'recorded' => 'καταγράφηκε',
         'ignored' => 'αγνοήθηκε',

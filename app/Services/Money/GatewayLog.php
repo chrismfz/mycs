@@ -39,6 +39,7 @@ class GatewayLog
     private const RANK = [
         PaymentGatewayEvent::OUTCOME_IGNORED => 1,
         PaymentGatewayEvent::OUTCOME_RECORDED => 2,
+        PaymentGatewayEvent::OUTCOME_FOREIGN => 2,
         PaymentGatewayEvent::OUTCOME_REJECTED => 3,
     ];
 
