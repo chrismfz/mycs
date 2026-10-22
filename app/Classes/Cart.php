@@ -40,6 +40,11 @@ class Cart
 
     public static function clear()
     {
+        // A cart made in this request has no cookie yet (review of #313).
+        if (is_string($made = request()->attributes->get(self::MADE_NOW))) {
+            \App\Models\Cart::where('ulid', $made)->delete();
+            request()->attributes->remove(self::MADE_NOW);
+        }
         if (Cookie::has('cart')) {
             \App\Models\Cart::where('ulid', Cookie::get('cart'))->delete();
             Cookie::queue(Cookie::forget('cart'));
@@ -122,9 +127,12 @@ class Cart
      * A domain to register or transfer (D8b), checked as the shop sells it (DomainOffer: its TLD, its price for the
      * years, free or taken as the operation needs); once per name in the cart. Returns its item id.
      */
-    public static function addDomain(string $fqdn, string $operation, ?int $years = null): int
+    /** @param  bool  $limited  false when it comes with another item that hit the add limit already (a hosting's domain) */
+    public static function addDomain(string $fqdn, string $operation, ?int $years = null, bool $limited = true): int
     {
-        self::checkRateLimit();
+        if ($limited) {
+            self::checkRateLimit();
+        }
         // Checked before a cart is made: a name refused leaves no empty cart behind.
         $currency = self::getOnce()->currency_code ?? session('currency', config('settings.default_currency'));
         $offer = app(DomainOffer::class);

@@ -81,7 +81,7 @@
              taken → transfer it here, or keep it where it is and point it to us. --}}
         @if ($this->asksDomain())
         @php
-            $domainCurrency = \App\Models\Currency::query()->find(\App\Livewire\DomainShop\Search::currency());
+            $domainCurrency = \App\Models\Currency::query()->find($domainOffer['currency'] ?? \App\Livewire\DomainShop\Search::currency());
             $domainPrice = fn (?string $amount, ?int $years = 1) => $amount === null || $domainCurrency === null ? ''
                 : (($years ?? 1) > 1 ? trans_choice('domains.shop.per_years', $years, ['price' => (new \App\Classes\Price(['price' => $amount, 'currency' => $domainCurrency]))->formatted->price, 'years' => $years])
                     : __('domains.shop.per_year', ['price' => (new \App\Classes\Price(['price' => $amount, 'currency' => $domainCurrency]))->formatted->price]));

@@ -124,19 +124,24 @@ class CheckoutDomainStepAdversarialTest extends TestCase
      */
     public function test_the_add_limit_leaves_no_domain_without_its_hosting(): void
     {
-        $page = $this->checkout()->set('checkoutConfig.domain', 'mybusiness.com')->call('checkDomain')->assertSet('domainAction', 'register');
         $key = 'cart-add:ip:' . request()->ip();
-        for ($i = 0; $i < 9; $i++) {
+        for ($i = 0; $i < 10; $i++) {
             RateLimiter::hit($key, 60);
         }
-
         try {
-            $page->call('checkout');
+            $this->checkout()->set('checkoutConfig.domain', 'mybusiness.com')->call('checkDomain')->call('checkout');
         } catch (DisplayException) {
             // too fast, as the page shows it
         }
+        $this->assertSame(0, CartItem::query()->count(), 'too fast: neither, never the domain alone');
 
-        $this->assertSame(0, CartItem::query()->whereNull('product_id')->count(), 'the domain went in, its hosting did not');
+        // Fixed: one «Add to cart» is one hit of the limit, the hosting and its domain together (the 10th still goes in).
+        RateLimiter::clear($key);
+        for ($i = 0; $i < 9; $i++) {
+            RateLimiter::hit($key, 60);
+        }
+        $this->checkout()->set('checkoutConfig.domain', 'mybusiness.com')->call('checkDomain')->call('checkout')->assertHasNoErrors();
+        $this->assertSame(2, CartItem::query()->count());
     }
 
     /**
