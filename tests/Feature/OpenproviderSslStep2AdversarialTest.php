@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Helpers\ExtensionHelper;
 use App\Models\DomainRegistrarConnection;
+use App\Models\Invoice;
 use App\Models\Server;
 use App\Models\Service;
 use App\Models\SslOrder;
@@ -156,8 +157,21 @@ class OpenproviderSslStep2AdversarialTest extends TestCase
         $this->orders[777] = array_merge($this->orders[777], ['status' => 'ACT', 'certificate' => "-----BEGIN CERTIFICATE-----\nAAA\n-----END CERTIFICATE-----",
             'expiration_date' => now('Europe/Amsterdam')->addDays(20)->format('Y-m-d H:i:s'), 'order_ends_at' => now('Europe/Amsterdam')->addDays(20)->format('Y-m-d H:i:s')]);
         $this->service->forceFill(['expires_at' => now()->addDays($paidBeyond ? 385 : 20)])->save();
+        // Paid as the fix reads it (ADV-5): paid invoices' periods, the current one and, when paid beyond, the next.
+        $this->paidPeriod(now()->subDays(345), now()->addDays(20));
+        if ($paidBeyond) {
+            $this->paidPeriod(now()->addDays(20), now()->addDays(385));
+        }
 
         return $this->order();
+    }
+
+    private function paidPeriod(\DateTimeInterface $from, \DateTimeInterface $to): void
+    {
+        $invoice = Invoice::query()->create(['client_id' => $this->service->client_id, 'currency_code' => 'USD', 'due_at' => now()]);
+        $this->service->invoiceItems()->create(['invoice_id' => $invoice->id, 'quantity' => 1, 'price' => 10, 'description' => 'SSL',
+            'period_start' => $from->format('Y-m-d'), 'period_end' => $to->format('Y-m-d')]);
+        Invoice::query()->whereKey($invoice->id)->update(['status' => 'paid']);
     }
 
     private function place(?Service $service = null): mixed
@@ -254,7 +268,8 @@ class OpenproviderSslStep2AdversarialTest extends TestCase
         $this->renewAnswer = 'lost-new';
         $this->artisan('ssl:sync')->assertExitCode(1);
 
-        $this->assertTrue(ExtensionHelper::callService($this->service->fresh(), 'reissue', [self::CSR2, 'dns', null]), 'reissue is not refused meanwhile');
+        // The fix chosen: reissue waits while a renewal is unseen (refused), so the renewal is still found by its CSR.
+        rescue(fn () => ExtensionHelper::callService($this->service->fresh(), 'reissue', [self::CSR2, 'dns', null]), null, false);
         $this->artisan('ssl:sync');
 
         $this->assertSame(900, $this->order()->order_id, 'the renewal made is found whatever CSR a reissue set since (or reissue waits)');

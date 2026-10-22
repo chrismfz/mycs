@@ -50,7 +50,8 @@
             @endif
         </dl>
 
-        @if(!$sslOrder->issued())
+        {{-- Waiting for validation (a new order, a renewal's or a reissue's): what to publish, even while a certificate is in use. --}}
+        @if(!$sslOrder->issued() || ($sslOrder->status !== 'ACT' && filled($sslOrder->validation['data'] ?? null)))
         <div class="mt-3 text-sm">
             <p class="font-semibold">{{ __('services.ssl.validate_title') }}</p>
             @if($sslOrder->validation_method === 'email')
@@ -93,7 +94,8 @@
                 @endforelse
             @endif
         </div>
-        @else
+        @endif
+        @if($sslOrder->issued())
         <div class="mt-3 grid md:grid-cols-2 gap-2">
             <div>
                 <p class="text-sm font-semibold">{{ __('services.ssl.certificate') }}</p>
@@ -107,7 +109,7 @@
             @endif
         </div>
         @can('update', $service)
-        @if(!$sslOrder->order_ends_at || $sslOrder->order_ends_at->isFuture())
+        @if($sslOrder->status === 'ACT' && (!$sslOrder->order_ends_at || $sslOrder->order_ends_at->isFuture()))
         <details class="mt-3">
             <summary class="text-sm font-semibold cursor-pointer">{{ __('services.ssl.reissue_title') }}</summary>
             <p class="text-xs text-base/50 mt-1">{{ __('services.ssl.reissue_hint') }}</p>

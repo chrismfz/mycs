@@ -173,6 +173,14 @@ class OpenproviderSsl extends Server
         if (($settings['terminate_mode'] ?? self::KEEP) !== self::CANCEL || $order === null) {
             return true;
         }
+        if ($order->renew_requested_at !== null) {
+            $this->recoverRenewal($order);
+            $order->refresh();
+            if ($order->renew_requested_at instanceof Carbon) {
+                // A renewal not seen: it may have made a new order. Not ended here, so it is tried again (ADV-9 of #350).
+                throw new Exception('Openprovider SSL: a renewal is still not seen: terminate again later');
+            }
+        }
         if ($order->order_id === null && $order->requested_at !== null && !$this->recover($order)) {
             // An order request still open and not found yet: not ended here, so it is tried again (R2-3 of #345).
             throw new Exception('Openprovider SSL: an order request is still open and its order not found yet: terminate again later');
@@ -182,6 +190,15 @@ class OpenproviderSsl extends Server
         }
         [$registrar, $credentials] = $this->openprovider($order);
         $registrar->sslCall($credentials, 'POST', "/v1/ssl/orders/{$order->order_id}/cancel", ['id' => $order->order_id]);
+        // The order a renewal replaced may still carry a valid certificate: cancelled too, as far as Openprovider lets it (ADV-9 of #350).
+        foreach (array_reverse($order->previous_order_ids ?? []) as $previous) {
+            try {
+                $registrar->sslCall($credentials, 'POST', "/v1/ssl/orders/{$previous}/cancel", ['id' => $previous]);
+            } catch (Throwable $e) {
+                report($e);
+            }
+            break; // the last one replaced: the older ones have ended
+        }
         try {
             $this->sync($order);
         } catch (Throwable $e) {
@@ -389,7 +406,7 @@ class OpenproviderSsl extends Server
         }
         if (self::stuck($order)) {
             // Told, never silent (code review 2 of #345): staff check Openprovider, then clear the request.
-            throw new Exception('Openprovider SSL: an order request was not answered and no such order is found at Openprovider: check it there, then clear the request');
+            throw new StillNotFound('Openprovider SSL: an order request was not answered and no such order is found at Openprovider: check it there, then clear the request');
         }
 
         return false;
@@ -405,9 +422,10 @@ class OpenproviderSsl extends Server
         $order->refresh();
         if ($order->renew_requested_at !== null && self::stuck($order)) {
             // A renewal not seen: looked for once more; found, it is linked and nothing is cleared (never a second charge).
+            // Only Openprovider read and showing nothing permits it: no answer, an error, never clears (code review 1 of #350).
             try {
                 $found = $this->recoverRenewal($order);
-            } catch (Throwable) {
+            } catch (StillNotFound) {
                 $found = false;
             }
             if ($found || $order->fresh()->renew_requested_at === null) {
@@ -423,8 +441,8 @@ class OpenproviderSsl extends Server
         }
         try {
             $found = $this->recover($order);
-        } catch (Throwable $e) {
-            $found = $order->fresh()->order_id !== null; // stuck and not found: the expected exception
+        } catch (StillNotFound) {
+            $found = false; // read, and not found: the one case it may be cleared
         }
         if ($found) {
             throw new Exception("Openprovider SSL: the order was found at Openprovider ({$order->fresh()->order_id}) and linked: nothing cleared");
@@ -451,11 +469,12 @@ class OpenproviderSsl extends Server
         $order->forceFill([
             'status' => $text('status'),
             'common_name' => $text('common_name') ?? $order->common_name,
-            'expires_at' => self::date($data['expiration_date'] ?? null),
+            // A new order or a reissue waiting for its validation gives no certificate yet: the one in use stays (code review 5).
+            'expires_at' => self::date($data['expiration_date'] ?? null) ?? ($text('certificate') === null ? $order->expires_at : null),
             'reissue_at' => self::date($data['reissue_at'] ?? null),
             'order_ends_at' => self::date($data['order_ends_at'] ?? null),
-            'certificate' => $text('certificate'),
-            'intermediate' => $text('intermediate_certificate'),
+            'certificate' => $text('certificate') ?? $order->certificate,
+            'intermediate' => $text('certificate') !== null ? $text('intermediate_certificate') : $order->intermediate,
             'validation' => [
                 'methods' => array_values(array_filter((array) ($data['domain_validation_methods'] ?? []), 'is_array')),
                 'statuses' => is_array($data['domain_validation_statuses'] ?? null) ? $data['domain_validation_statuses'] : [],
@@ -482,6 +501,7 @@ class OpenproviderSsl extends Server
         if ($hash === $order->notified_hash || $service === null || $service->status !== Service::STATUS_ACTIVE) {
             return;
         }
+        $previous = $order->notified_hash;
         $claimed = SslOrder::query()->whereKey($order->id)->where(fn ($q) => $q->whereNull('notified_hash')->orWhere('notified_hash', '!=', $hash))
             ->update(['notified_hash' => $hash]);
         $order->notified_hash = $hash;
@@ -493,6 +513,7 @@ class OpenproviderSsl extends Server
                 'common_name' => (string) $order->common_name, 'expires' => $order->expires_at?->toDateString()]);
         } catch (Throwable $e) {
             report($e);
+            SslOrder::query()->whereKey($order->id)->where('notified_hash', $hash)->update(['notified_hash' => $previous]); // told next time
         }
     }
 
@@ -503,14 +524,15 @@ class OpenproviderSsl extends Server
     public function reissue(Service $service, $settings, $properties, string $csr, string $method, ?string $approverEmail = null): bool
     {
         $order = self::order($service);
-        if ($order?->order_id === null || !$order->issued() || ($order->order_ends_at !== null && $order->order_ends_at->isPast())) {
+        if ($order?->order_id === null || !$order->issued() || $order->status !== 'ACT' || ($order->order_ends_at !== null && $order->order_ends_at->isPast())
+            || $order->renew_requested_at !== null) { // never during a renewal: its order is found by this CSR (ADV-4 of #350)
             throw new ServerRefused(__('services.ssl.reissue_not_now'));
         }
         if (!in_array($method, SslOrder::METHODS, true)) {
             throw new ServerRefused(__('services.ssl.method_invalid'));
         }
         $csrInfo = $this->decodeCsr($service, $settings, $properties, $csr);
-        if ($csrInfo['common_name'] !== $order->common_name) {
+        if ($csrInfo['common_name'] !== strtolower((string) $order->common_name)) {
             throw new ServerRefused(__('services.ssl.reissue_same_name', ['name' => $order->common_name]));
         }
         $approverEmail = $approverEmail !== null ? strtolower(trim($approverEmail)) : null;
@@ -576,22 +598,38 @@ class OpenproviderSsl extends Server
 
             return false;
         }
-        $service = $order->service()->first();
+        $service = $order->service()->with('plan', 'product.settings')->first();
+        // A plan billed again only (never a free or one-time one, whose paid date never moves: code review 4 of #350).
         if ($order->order_id === null || $order->status !== 'ACT' || $order->order_ends_at === null || $service?->status !== Service::STATUS_ACTIVE
-            || $order->order_ends_at->isPast() || $order->order_ends_at->greaterThan(now()->addDays(self::RENEW_DAYS))
-            || $service->expires_at === null || !$service->expires_at->greaterThan($order->order_ends_at->copy()->addDays(self::PAID_BEYOND_DAYS))) {
+            || $service->plan?->type !== 'recurring'
+            || $order->order_ends_at->greaterThan(now()->addDays(self::RENEW_DAYS))
+            // Paid: by paid invoices' periods, never by a date staff moved or an invoice refunded (ADV-5 of #350).
+            || !$service->paidThrough($order->order_ends_at)->greaterThan($order->order_ends_at->copy()->addDays(self::PAID_BEYOND_DAYS))) {
             return false;
         }
-        $claimed = SslOrder::query()->whereKey($order->id)->where('order_id', $order->order_id)->whereNull('renew_requested_at')
-            ->update(['renew_requested_at' => now(), 'renew_for' => $order->order_ends_at, 'updated_at' => now()]);
+        if ($order->order_ends_at->isPast()) {
+            // Paid and ended unrenewed (the sync was down, a suspension in the window): told, a new order is needed (ADV-8).
+            throw new Exception('Openprovider SSL: the order ended unrenewed though its customer has paid: a new certificate must be ordered');
+        }
+        // Its connection resolved before the claim: a claim with nothing asked would only raise a false alarm (code review 7).
+        [$registrar, $credentials] = $this->openprovider($order);
+        // Claimed for this very order end: a process holding an older read never renews again once it has moved (code review 2).
+        $claimed = SslOrder::query()->whereKey($order->id)->where('order_id', $order->order_id)->where('status', 'ACT')
+            ->where('order_ends_at', $order->getRawOriginal('order_ends_at'))->whereNull('renew_requested_at')
+            ->update(['renew_requested_at' => now(), 'renew_for' => $order->getRawOriginal('order_ends_at'), 'updated_at' => now()]);
         if ($claimed !== 1) {
             return false;
         }
         $order->refresh();
-        [$registrar, $credentials] = $this->openprovider($order);
+        $dnsAutomation = in_array($service->product?->settings->pluck('value', 'key')->get('dns_automation'), [true, 1, '1', 'on', 'true'], true);
         try {
-            $data = $registrar->sslCall($credentials, 'POST', "/v1/ssl/orders/{$order->order_id}/renew", ['id' => $order->order_id], charge: true);
+            $data = $registrar->sslCall($credentials, 'POST', "/v1/ssl/orders/{$order->order_id}/renew",
+                ['id' => $order->order_id, 'enable_dns_automation' => $dnsAutomation], charge: true);
         } catch (RegistrarRefused $e) {
+            if (in_array($e->status, [408, 409, 423, 425, 429, 499], true)) {
+                // A timeout or a busy answer (a proxy's, ADV-3 of #350): maybe done. The mark stays; the next sync looks.
+                throw new Exception('Openprovider SSL: the renewal was not answered clearly (' . $e->status . '): it is looked for', 0, $e);
+            }
             $order->forceFill(['renew_requested_at' => null, 'renew_for' => null])->save();
 
             throw new Exception('Openprovider SSL: the renewal was refused: ' . $e->getMessage(), 0, $e);
@@ -599,6 +637,9 @@ class OpenproviderSsl extends Server
         $id = (int) ($data['id'] ?? 0);
         if ($id > 0 && $id !== $order->order_id) {
             $this->adoptRenewal($order, $id);
+        } elseif ($id > 0) {
+            // Answered: renewed, only its end not shown yet. Never cleared into a second charge (ADV-10 of #350).
+            $order->forceFill(['renew_answered_at' => now()])->save();
         }
         try {
             $this->sync($order);
@@ -610,17 +651,21 @@ class OpenproviderSsl extends Server
         return true;
     }
 
-    /** The renewal made a new order: it is the service's now, the old id kept. */
+    /**
+     * The renewal made a new order: it is the service's now, the old id kept, and the renewal seen (a new order may wait
+     * for its validation, with no end yet: never a false alarm, code review 5 of #350).
+     */
     private function adoptRenewal(SslOrder $order, int $id): void
     {
-        $order->forceFill(['previous_order_ids' => array_values(array_unique(array_merge($order->previous_order_ids ?? [], [$order->order_id]))), 'order_id' => $id])->save();
+        $order->forceFill(['previous_order_ids' => array_values(array_unique(array_merge($order->previous_order_ids ?? [], [$order->order_id]))),
+            'order_id' => $id, 'renew_requested_at' => null, 'renew_for' => null, 'renew_answered_at' => null])->save();
     }
 
-    /** The order's end moved past the one renewed: the renewal is done, its mark off. */
+    /** The order's end moved by a period at least (half a year: never a second's drift, code review 3 of #350): renewed. */
     private function renewalSeen(SslOrder $order): bool
     {
-        if ($order->renew_for !== null && $order->order_ends_at !== null && $order->order_ends_at->greaterThan($order->renew_for)) {
-            $order->forceFill(['renew_requested_at' => null, 'renew_for' => null])->save();
+        if ($order->renew_for !== null && $order->order_ends_at !== null && $order->order_ends_at->greaterThan($order->renew_for->copy()->addDays(180))) {
+            $order->forceFill(['renew_requested_at' => null, 'renew_for' => null, 'renew_answered_at' => null])->save();
 
             return true;
         }
@@ -648,20 +693,32 @@ class OpenproviderSsl extends Server
         foreach ((array) ($data['results'] ?? []) as $row) {
             $id = (int) ($row['id'] ?? 0);
             $made = self::date($row['order_date'] ?? null);
+            // (a new order found is the renewal: adoptRenewal marks it seen)
             if ($id <= 0 || $id === $order->order_id || in_array($id, $order->previous_order_ids ?? [], true)
+                || strtolower((string) ($row['common_name'] ?? '')) !== strtolower((string) $order->common_name)
                 || (int) ($row['product_id'] ?? 0) !== $order->product_id || ($row['organization_handle'] ?? null) !== $order->organization_handle
+                // never the order another service of this CSR is waiting for (its answer lost: ADV-11 of #350)
+                || SslOrder::query()->where('connection_id', $order->connection_id)->whereKeyNot($order->id)->whereNull('order_id')
+                    ->whereNotNull('requested_at')->get(['csr'])->contains(fn (SslOrder $other) => self::sameCsr($other->csr, $order->csr))
                 || self::sameCsr($row['csr'] ?? null, $order->csr) === false || $made === null || $made->lessThan($since)
                 || SslOrder::query()->where('connection_id', $order->connection_id)->where('order_id', $id)->whereKeyNot($order->id)->exists()) {
                 continue;
             }
             $this->adoptRenewal($order, $id);
-            $this->sync($order);
-            if ($this->renewalSeen($order)) {
-                return true;
+            try {
+                $this->sync($order);
+            } catch (Throwable $e) {
+                report($e);
             }
+
+            return true;
+        }
+        if ($order->renew_requested_at->lessThan(now()->subHours(self::RENEW_STUCK_HOURS)) && $order->renew_answered_at !== null) {
+            // Openprovider answered it: renewed. Told, never clearable into a second charge (ADV-10 of #350).
+            throw new Exception('Openprovider SSL: Openprovider answered the renewal, yet the order\'s end has not moved after a day: check it there');
         }
         if ($order->renew_requested_at->lessThan(now()->subHours(self::RENEW_STUCK_HOURS))) {
-            throw new Exception('Openprovider SSL: a renewal was asked for and Openprovider does not show it after a day: check the order there, then clear the request');
+            throw new StillNotFound('Openprovider SSL: a renewal was asked for and Openprovider does not show it after a day: check the order there, then clear the request');
         }
 
         return false;
@@ -684,7 +741,7 @@ class OpenproviderSsl extends Server
     public static function stuck(SslOrder $order): bool
     {
         return ($order->order_id === null && $order->requested_at !== null && $order->requested_at->lessThan(now()->subMinutes(self::STUCK_MINUTES)))
-            || ($order->renew_requested_at !== null && $order->renew_requested_at->lessThan(now()->subHours(self::RENEW_STUCK_HOURS)));
+            || ($order->renew_requested_at !== null && $order->renew_answered_at === null && $order->renew_requested_at->lessThan(now()->subHours(self::RENEW_STUCK_HOURS)));
     }
 
     /** The same CSR, whatever its line endings and outer whitespace. */

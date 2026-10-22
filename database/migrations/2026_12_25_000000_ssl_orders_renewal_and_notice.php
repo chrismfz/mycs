@@ -20,8 +20,15 @@ return new class extends Migration
         Schema::table('ssl_orders', function (Blueprint $table) {
             $table->timestamp('renew_requested_at')->nullable();
             $table->timestamp('renew_for')->nullable();
+            $table->timestamp('renew_answered_at')->nullable(); // Openprovider answered the renewal: done, only not shown yet
             $table->json('previous_order_ids')->nullable();
             $table->string('notified_hash', 64)->nullable();
+        });
+        // The certificates issued before this: told already (they were on the page), never mailed after the deploy (code review 6 of #350).
+        DB::table('ssl_orders')->whereNotNull('certificate')->orderBy('id')->chunkById(100, function ($rows) {
+            foreach ($rows as $row) {
+                DB::table('ssl_orders')->where('id', $row->id)->update(['notified_hash' => hash('sha256', trim((string) $row->certificate))]);
+            }
         });
         if (!DB::table('notification_templates')->where('key', self::KEY)->exists()) {
             DB::table('notification_templates')->insert(array_merge(EmailTemplateSeeder::mapping[self::KEY], [
@@ -36,7 +43,7 @@ return new class extends Migration
     {
         DB::table('notification_templates')->where('key', self::KEY)->delete();
         Schema::table('ssl_orders', function (Blueprint $table) {
-            $table->dropColumn(['renew_requested_at', 'renew_for', 'previous_order_ids', 'notified_hash']);
+            $table->dropColumn(['renew_requested_at', 'renew_for', 'renew_answered_at', 'previous_order_ids', 'notified_hash']);
         });
     }
 };

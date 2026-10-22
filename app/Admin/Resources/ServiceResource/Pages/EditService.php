@@ -213,17 +213,20 @@ class EditService extends EditRecord
             // An Openprovider SSL order request whose answer was lost and that is not found there (ssl:sync tells it): cleared
             // by staff after checking Openprovider, so the customer may order again (code review 2 of #345).
             Action::make('sslClearRequest')
-                ->label('Clear the unanswered SSL order request')->icon('ri-lock-unlock-line')->color('warning')
+                ->label(fn (Service $record) => SslOrder::query()->where('service_id', $record->id)->whereNotNull('renew_requested_at')->exists()
+                    ? 'Clear the unseen SSL renewal' : 'Clear the unanswered SSL order request')->icon('ri-lock-unlock-line')->color('warning')
                 ->authorize('update')
                 ->visible(fn (Service $record) => ($order = SslOrder::query()->where('service_id', $record->id)->first()) !== null
                     && OpenproviderSsl::stuck($order))
                 ->requiresConfirmation()
-                ->modalDescription('Only after checking Openprovider has no order with this CSR (it is looked for once more first): the customer may then order again, and a second order is charged.')
+                ->modalDescription(fn (Service $record) => SslOrder::query()->where('service_id', $record->id)->whereNotNull('renew_requested_at')->exists()
+                    ? 'Only after checking at Openprovider that this order was NOT renewed (it is looked for once more first): the next sync may then renew it, and that renewal is charged.'
+                    : 'Only after checking Openprovider has no order with this CSR (it is looked for once more first): the customer may then order again, and a second order is charged.')
                 ->action(function (Service $record): void {
                     $order = SslOrder::query()->where('service_id', $record->id)->sole();
                     $server = $record->provisioningServer() ?? throw new Exception('The service has no server');
                     ExtensionHelper::getExtension('server', $server->extension, $server->settings)->clearRequest($order);
-                    Notification::make()->title('The order request was cleared')->success()->send();
+                    Notification::make()->title('The SSL request was cleared')->success()->send();
                 }),
 
             Action::make('changeStatus')

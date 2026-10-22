@@ -7,6 +7,7 @@ use App\Helpers\ExtensionHelper;
 use App\Livewire\Services\Show;
 use App\Models\DomainRegistrarConnection;
 use App\Models\EmailLog;
+use App\Models\Invoice;
 use App\Models\Server;
 use App\Models\Service;
 use App\Models\SslOrder;
@@ -162,8 +163,21 @@ class OpenproviderSslTest extends TestCase
         $this->orders[777] = array_merge($this->orders[777], ['status' => 'ACT', 'certificate' => "-----BEGIN CERTIFICATE-----\nAAA\n-----END CERTIFICATE-----",
             'expiration_date' => now('Europe/Amsterdam')->addDays(20)->format('Y-m-d H:i:s'), 'order_ends_at' => now('Europe/Amsterdam')->addDays(20)->format('Y-m-d H:i:s')]);
         $this->service->forceFill(['expires_at' => now()->addDays($paidBeyond ? 385 : 20)])->save();
+        $this->paidPeriod(now()->subDays(345), now()->addDays(20));
+        if ($paidBeyond) {
+            $this->paidPeriod(now()->addDays(20), now()->addDays(385));
+        }
 
         return $this->order();
+    }
+
+    /** A paid invoice line for this service's period: what «paid beyond the order's end» is read from. */
+    private function paidPeriod(\DateTimeInterface $from, \DateTimeInterface $to): void
+    {
+        $invoice = Invoice::query()->create(['client_id' => $this->service->client_id, 'currency_code' => 'USD', 'due_at' => now()]);
+        $this->service->invoiceItems()->create(['invoice_id' => $invoice->id, 'quantity' => 1, 'price' => 10, 'description' => 'SSL',
+            'period_start' => $from->format('Y-m-d'), 'period_end' => $to->format('Y-m-d')]);
+        Invoice::query()->whereKey($invoice->id)->update(['status' => 'paid']); // as a payment would (the observer allows none created paid)
     }
 
     /** @return list<array<string, mixed>> the payloads sent to this method and path */
@@ -444,6 +458,10 @@ class OpenproviderSslTest extends TestCase
         $this->assertSame([], $this->sent('POST', '/v1/ssl/orders/777/renew'), 'not paid beyond the order: never renewed');
 
         $this->service->forceFill(['expires_at' => now()->addDays(385)])->save();
+        $this->artisan('ssl:sync')->assertExitCode(0);
+        $this->assertSame([], $this->sent('POST', '/v1/ssl/orders/777/renew'), 'a date moved, nothing paid: never renewed');
+
+        $this->paidPeriod(now()->addDays(20), now()->addDays(385));
         $this->artisan('ssl:sync')->assertExitCode(0);
         $this->artisan('ssl:sync')->assertExitCode(0);
 

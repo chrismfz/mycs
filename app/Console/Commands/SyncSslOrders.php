@@ -13,7 +13,8 @@ use Throwable;
 /**
  * Every certificate ordered at Openprovider read again (extension OpenproviderSsl): its status, dates, certificate (a
  * reissue's too, told to the customer once) and what to publish to validate; an order request whose answer was lost
- * looked for and adopted; an order renewed (charged) once its customer has paid beyond its end, never twice. A failure is kept on the order and told.
+ * looked for and adopted; an order renewed (charged) once its customer has paid beyond its end, never twice. A failure is
+ * kept on the order and told.
  */
 class SyncSslOrders extends Command
 {

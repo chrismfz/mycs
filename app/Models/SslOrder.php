@@ -55,6 +55,7 @@ class SslOrder extends Model
             'synced_at' => 'datetime',
             'renew_requested_at' => 'datetime',
             'renew_for' => 'datetime',
+            'renew_answered_at' => 'datetime',
             'previous_order_ids' => 'array',
         ];
     }
