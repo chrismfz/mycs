@@ -152,15 +152,32 @@ class TemplateRenderer
         while (($open = strpos($html, '<', $at)) !== false) {
             $out .= substr($html, $at, $open - $at);
             $next = $html[$open + 1] ?? '';
-            if ($next === '!' || $next === '?') {
-                // A comment to its "-->", anything else of the kind (CDATA, a doctype) to its ">", as a browser ends them,
-                // copied as they are. Outlook's conditional comment holds tags it shows: read on inside it.
-                $conditional = substr_compare($html, '<!--[if', $open, 7, true) === 0;
-                $end = str_starts_with(substr($html, $open, 4), '<!--') && !$conditional
-                    ? (($close = strpos($html, '-->', $open + 4)) === false ? $length : $close + 3)
-                    : (($close = strpos($html, '>', $open + 2)) === false ? $length : $close + 1);
+            if (str_starts_with(substr($html, $open, 4), '<!--')) {
+                // A comment ends where a browser ends it: at once ("<!-->", "<!--->"), or at the first "-->" or "--!>".
+                $end = self::commentEnd($html, $open, $length);
+                if (substr_compare($html, '<!--[if', $open, 7, true) === 0 && ($opened = strpos($html, '>', $open)) !== false && $opened < $end) {
+                    // Outlook's conditional comment holds tags it shows: checked, but never past the comment's end.
+                    $close = strrpos(substr($html, 0, $end), '--') ?: $end;
+                    $out .= substr($html, $open, $opened + 1 - $open) . self::safeAddresses(substr($html, $opened + 1, $close - $opened - 1)) . substr($html, $close, $end - $close);
+                } else {
+                    $out .= substr($html, $open, $end - $open);
+                }
+                $at = $end;
+
+                continue;
+            }
+            if ($next === '!' || $next === '?' || ($next === '/' && !ctype_alpha($html[$open + 2] ?? ''))) {
+                // Anything else of the kind (CDATA, a doctype, "</ x>") ends at its first ">", as a browser ends it.
+                $end = ($close = strpos($html, '>', $open + 2)) === false ? $length : $close + 1;
                 $out .= substr($html, $open, $end - $open);
                 $at = $end;
+
+                continue;
+            }
+            if ($next === '/') {
+                // An end tag: its attributes are read (and ignored) by a browser, so they end where it says.
+                [$tag, $at] = self::safeTag($html, $open + 1, $length);
+                $out .= '<' . $tag;
 
                 continue;
             }
@@ -175,6 +192,23 @@ class TemplateRenderer
         }
 
         return $out . substr($html, $at);
+    }
+
+    /** Where a comment that opens at `$open` ends (after its last character). */
+    private static function commentEnd(string $html, int $open, int $length): int
+    {
+        foreach (['>', '->'] as $abrupt) {
+            if (substr($html, $open + 4, strlen($abrupt)) === $abrupt) {
+                return $open + 4 + strlen($abrupt);
+            }
+        }
+        $ends = array_filter([strpos($html, '-->', $open + 4), strpos($html, '--!>', $open + 4)], fn ($at) => $at !== false);
+        if ($ends === []) {
+            return $length;
+        }
+        $at = min($ends);
+
+        return $at + (substr($html, $at, 3) === '-->' ? 3 : 4);
     }
 
     /**
