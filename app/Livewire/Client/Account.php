@@ -8,10 +8,13 @@ use App\Livewire\Traits\EditsContact;
 use App\Models\Client;
 use App\Models\User;
 use App\Services\Tax\EuVat;
+use App\Support\Actor;
 use App\Support\CurrentClient;
+use App\Support\Reauth;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class Account extends ComponentWithProperties
 {
@@ -60,12 +63,31 @@ class Account extends ComponentWithProperties
         return $this->getAttributesForProperties();
     }
 
+    /** The login's current password, asked only when its email changes (security audit AUTHN-1). */
+    public string $email_password = '';
+
     public function submit()
     {
         $validatedData = $this->validate();
 
         /** @var User $user */
         $user = Auth::user();
+        // A new login email is a new way into the account (a password reset goes there): its owner's own password, never
+        // staff in «Login as client» (AUTHN-1, AUTHN-6). The old address is told.
+        $oldEmail = (string) $user->email;
+        if (Str::lower(trim((string) $validatedData['email'])) !== Str::lower($oldEmail)) {
+            if (Actor::impersonating()) {
+                $this->addError('email', __('account.notifications.not_while_impersonating'));
+
+                return;
+            }
+            if (($refusal = Reauth::refusal($user, $this->email_password)) !== null) {
+                $this->addError('email_password', $refusal);
+
+                return;
+            }
+        }
+        $this->reset('email_password');
         $client = CurrentClient::allows('profile') ? CurrentClient::model() : null;
         // All of it or nothing (code review of #247): the account's details refused (a domain's contact, P1b-1) leave the
         // login's name as it was too.
@@ -90,6 +112,9 @@ class Account extends ComponentWithProperties
         // If email was changed, we should mark it as unverified and send a new verification email
         if ($emailChanged) {
             NotificationHelper::emailVerificationNotification($user);
+            NotificationHelper::sendSystemEmailNotification(__('account.notifications.email_changed_subject'), e(__('account.notifications.email_changed_body', [
+                'site' => config('app.name'), 'old' => $oldEmail, 'new' => $user->email,
+            ])), [], $oldEmail);
         }
 
         // A new EU VAT number is charged VAT until VIES finds it valid (PR G): the customer is told.

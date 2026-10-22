@@ -4,6 +4,7 @@ namespace App\Livewire\Auth;
 
 use App\Actions\Auth\Login;
 use App\Attributes\DisabledIf;
+use App\Livewire\Client\AcceptInvite;
 use App\Livewire\ComponentWithProperties;
 use App\Livewire\Traits\EditsContact;
 use App\Models\Client;
@@ -46,7 +47,7 @@ class Register extends ComponentWithProperties
      */
     private function forInvite(): bool
     {
-        return str_starts_with((string) session('url.intended'), url('/invite/'));
+        return session()->has(AcceptInvite::SESSION_KEY) || str_starts_with((string) session('url.intended'), url('/invite'));
     }
 
     public function rules()

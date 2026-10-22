@@ -65,12 +65,13 @@
 **myip:**
 - [ ] cPanel: λογαριασμοί reseller (22), αλλαγή κωδικού (staff και πελάτης, 39 τον χρόνο), αργότερα συγχρονισμός χρήσης.
 - [x] ~~mailcow (10 υπηρεσίες)~~ **έγινε (feat/mailcow):** extension πάνω στο `packages/mailcow`, το port του δικού μας module του WHMCS: domain, DKIM και domain admin ανά υπηρεσία· suspend/terminate με την πολιτική του προϊόντος (`lock_only` από προεπιλογή, όπως όλα τα MyMail του myip· `delete_all` μόνο αν το λέει το προϊόν)· SSO, αλλαγή κωδικού, χρήση (mailboxes), domains του admin στο search. Κάθε ενέργεια μόνο στον δικό της domain admin (υπάρχει και διαχειρίζεται το domain της υπηρεσίας). Το unsuspend ξεκλειδώνει μόνο ό,τι κλείδωσε το suspend της (`mailcow_locked_by_us`). Μένουν, στον importer: τα MyMail (configoption 1–16), το `username`/κωδικός, και για όσες είναι suspended στο WHMCS (κλειδωμένες από το module του) το `mailcow_locked_by_us`, αλλιώς το unsuspend δεν τις ξεκλειδώνει. Κανόνας λειτουργίας: ένας domain admin ανά πελάτη (ένας admin που μοιράζεται domains δύο πελατών περνά τον έλεγχο και για τους δύο). Δοκιμή live στο mymail (με άδεια).
+- [x] ~~Centova Cast (9 υπηρεσίες)~~ **έγινε (feat/centova):** extension `CentovaCast` πάνω στο XML API του Centova (`api.php`), όπως το δικό του module του WHMCS (ανοιχτός κώδικας του Centova, μόνο για τις κλήσεις): account από το template του προϊόντος, suspend = `setstatus disabled` (μόνο αν ήταν ενεργό· το unsuspend ενεργοποιεί μόνο ό,τι απενεργοποίησε το suspend, `centova_disabled_by_us`, και ξαναξεκινά το stream αν έπαιζε), terminate = απενεργοποίηση από προεπιλογή (μένουν τα media), διαγραφή μόνο αν το λέει το προϊόν· αλλαγή κωδικού, αλλαγή πακέτου (τα όρια του προϊόντος· το Centova εφαρμόζει template μόνο στη δημιουργία, άρα πακέτο μόνο με template = ρητό σφάλμα· ένα όριο κενό στο νέο πακέτο κρατά την τιμή του παλιού, άρα τα πακέτα που αλλάζουν μεταξύ τους ορίζουν όλα τα όρια), σύνδεση στο panel, χρήση (μία κλήση `usage`). Κάθε ενέργεια μόνο σε account που το Centova έχει με αυτό ακριβώς το όνομα και καμία άλλη υπηρεσία δεν διεκδικεί. **Για τον importer (βάση του myip, 2026-10-22, read-only):** 1 server (`admin`, θύρα 2199), 9 υπηρεσίες Active, ετήσιες, καμία suspended· όνομα account = `tblhosting.username` (όχι το custom field `username`, που διαφέρει σε 3 από τις 9: να ελεγχθούν απέναντι στο `listaccounts` του Centova πριν το import)· το `tblhosting.domain` κρατά `host:port`, όχι domain (δεν γίνεται domain της υπηρεσίας)· `port` και `servertype` από τα custom fields σε properties (`centova_port`, `centova_servertype`), με έλεγχο ότι ο τύπος είναι IceCast/ShoutCast/ShoutCast2 (σε μία είναι λάθος τιμή)· `sourcepassword` δεν μεταφέρεται (το έχει το Centova)· προϊόντα: configoption1 → `template`, configoption6 → `autostart`. **Δοκιμή live στο stream: εντάξει (2026-10-22, `docs/provisioning.md`).**
 - [ ] Proxmox (8 VPS): extension ή χειροκίνητο προϊόν (χωρίς start/stop και console για τον πελάτη): **απόφαση υπευθύνου**.
 - [ ] Product addons: ~~επιλογές της υπηρεσίας~~ έγινε (#296)· **μένει** η αντιστοίχιση στον importer (`importer.md`).
 - [ ] Μικροί κανόνες από τα hooks: email στο staff σε υπερπληρωμή· email σε κάθε suspend με τον λόγο· αυτόματη ακύρωση
       απλήρωτων «Add Funds» μετά από 30 μέρες· έλεγχος ότι το
       Openprovider κρατά τους nameservers του πελάτη μετά από transfer· έλεγχος μεταγραφής ελληνικών στοιχείων επαφής.
-- [ ] Αργότερα ή χειροκίνητα ως τότε: TheSSLStore (12), Centova (9, τα πεδία του στις σημειώσεις), ngm (1), Hetzner (1),
+- [ ] Αργότερα ή χειροκίνητα ως τότε: TheSSLStore (12), ngm (1), Hetzner (1),
       quotes (3 τον χρόνο), downloads (4), unblockip,
       PaymentsTrackingMatch (αντιστοίχιση των emails της τράπεζας).
 - [ ] **Ekdosi bridge** και custom fields (ΑΦΜ, ΔΟΥ, «Θα ήθελα τιμολόγιο», «Γκρινιάρης»): **τελευταίο** (ο υπεύθυνος,
@@ -143,7 +144,7 @@
     - root token για τους servers του myip, πριν τους resellers;
     - συμφιλίωση της κατάστασης μετά από job του server (το create υπάρχει, #114);
     - αργότερα: λίστα και διαχείριση email/domains μέσα από το MyCS, αν χρειαστεί.
-- [ ] Modules του myip: Proxmox, Centova (mailcow έγινε), TheSSLStore (12, ξεχασμένο ως 2026-10-22); ngm και Hetzner ως χειροκίνητα προϊόντα.
+- [ ] Modules του myip: Proxmox (mailcow, Centova έγιναν), TheSSLStore (12, ξεχασμένο ως 2026-10-22); ngm και Hetzner ως χειροκίνητα προϊόντα.
 
 ### Licensing (`licensing.md`)
 - [ ] **Ποιοι χτυπάνε χωρίς να πρέπει** (ο υπεύθυνος, 2026-10-20): οθόνη του staff με

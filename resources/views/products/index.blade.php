@@ -22,7 +22,7 @@
         <h1 class="text-3xl md:text-4xl font-bold">{{ $category->name }}</h1>
         @if (filled(strip_tags((string) $category->description)))
         <article class="mt-3 prose dark:prose-invert text-base/80">
-            {!! $category->description !!}
+            {!! Str::sanitizeHtml((string) $category->description) !!}
         </article>
         @endif
     </header>
@@ -65,7 +65,7 @@
                     <h2 class="text-lg font-bold group-hover:text-secondary">{{ $childCategory->name }}</h2>
                     @if (theme('show_category_description', true) && filled(strip_tags((string) $childCategory->description)))
                     <article class="mt-2 prose prose-sm dark:prose-invert">
-                        {!! $childCategory->description !!}
+                        {!! Str::sanitizeHtml((string) $childCategory->description) !!}
                     </article>
                     @endif
                     <span class="mt-auto pt-4 text-sm font-semibold text-secondary">{{ __('common.button.view') }} →</span>
@@ -119,7 +119,7 @@
                     @endphp
                     <div x-data="{ all: false }" class="mt-4">
                         <article x-ref="list" class="prose prose-sm dark:prose-invert {{ $features > 6 ? '[&_li:nth-of-type(n+7)]:hidden' : '' }}">
-                            {!! $product->description !!}
+                            {!! Str::sanitizeHtml((string) $product->description) !!}
                         </article>
                         @if ($features > 6)
                         <button type="button" x-show="!all" x-on:click="all = true; $refs.list.classList.remove('[&_li:nth-of-type(n+7)]:hidden')" class="mt-1 text-sm text-secondary hover:underline">

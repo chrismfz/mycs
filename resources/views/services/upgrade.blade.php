@@ -38,7 +38,7 @@
                     </div>
                     @endif
                     <article class="prose dark:prose-invert">
-                        {!! $service->product->description !!}
+                        {!! Str::sanitizeHtml((string) $service->product->description) !!}
                     </article>
                     <h3 class="text-lg font-semibold mb-2">
                         @if($service->plan->type == 'recurring')
@@ -81,7 +81,7 @@
                     </div>
                     @endif
                     <article class="prose dark:prose-invert">
-                        {!! $product->description !!}
+                        {!! Str::sanitizeHtml((string) $product->description) !!}
                     </article>
                     <h3 class="text-lg font-semibold mb-2">
                         @if($service->plan->type == 'recurring')

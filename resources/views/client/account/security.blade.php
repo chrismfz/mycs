@@ -50,15 +50,17 @@
             <h5 class="text-lg font-bold pb-3">{{ __('account.two_factor_authentication') }}</h5>
             @if ($twoFactorEnabled)
             <p class="text-sm text-primary-100">{{ __('account.two_factor_authentication_enabled') }}</p>
-            <x-button.primary class="w-full mt-4" x-on:click="$store.confirmation.confirm({
-                                title: '{{ __('account.two_factor_authentication_disable') }}',
-                                message: '{{ __('account.two_factor_authentication_disable_description') }}',
-                                confirmText: '{{ __('account.confirm') }}',
-                                cancelText: '{{ __('account.cancel') }}',
-                                callback: () => $wire.disableTwoFactor()
-                            })">
-                {{ __('account.two_factor_authentication_disable') }}
-            </x-button.primary>
+            {{-- Off only with the password and a code from the app (AUTHN-1). --}}
+            <form wire:submit.prevent="disableTwoFactor" class="mt-4 flex flex-col gap-2">
+                <p class="text-sm text-primary-100">{{ __('account.two_factor_authentication_disable_description') }}</p>
+                <x-form.input name="disable_password" type="password" :label="__('account.input.current_password')"
+                    wire:model="disable_password" autocomplete="current-password" required />
+                <x-form.input name="disable_code" type="text" :label="__('account.input.two_factor_code')"
+                    :placeholder="__('account.input.two_factor_code_placeholder')" wire:model="disable_code" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" required />
+                <x-button.primary class="w-full" type="submit">
+                    {{ __('account.two_factor_authentication_disable') }}
+                </x-button.primary>
+            </form>
             @else
             <p class="text-sm text-primary-100">{{ __('account.two_factor_authentication_description') }}</p>
             <x-button.primary wire:click="enableTwoFactor" class="w-full mt-4">
@@ -73,7 +75,9 @@
                         {{ __('account.two_factor_authentication_secret') }}<br />{{ $twoFactorData['secret'] }}</p>
                 </div>
                 <form wire:submit.prevent="enableTwoFactor">
-                    <x-form.input divClass="mt-8" name="two_factor_code" type="text"
+                    <x-form.input divClass="mt-8" name="enable_password" type="password" :label="__('account.input.current_password')"
+                        wire:model="enable_password" autocomplete="current-password" required />
+                    <x-form.input divClass="mt-4" name="two_factor_code" type="text"
                         :label="__('account.input.two_factor_code')"
                         :placeholder="__('account.input.two_factor_code_placeholder')" wire:model="twoFactorCode" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code"
                         required />

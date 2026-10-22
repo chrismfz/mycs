@@ -53,8 +53,12 @@ class ClientUsersCodeReviewTest extends TestCase
         Session::put('2fa', ['user_id' => $invitee->id, 'remember' => false, 'expires' => now()->addMinutes(5)]);
         $code = (new TwoFactorAuth(new EndroidQrCodeProvider, config('app.name')))->getCode($secret);
 
+        // Back to the invitation without its secret in the URL (#334): the session keeps it, encrypted.
         Livewire::test(Tfa::class)->set('code', $code)->call('verify')
-            ->assertRedirect(route('invites.accept', ['token' => $token]));
+            ->assertRedirect(route('invites.continue'));
+        $this->actingAs($invitee);
+        Livewire::test(AcceptInvite::class)->call('accept');
+        $this->assertTrue($client->fresh()->users()->whereKey($invitee->id)->exists(), 'accepted from /invite');
     }
 
     /** CR-3: in «Login as client» an invitation is recorded (and mailed) as the customer's, not the staff member's. */
