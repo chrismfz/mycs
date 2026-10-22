@@ -11,6 +11,7 @@ use App\Models\DomainTldPrice;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\User;
+use App\Services\Domains\DomainRenewalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Carbon;
@@ -178,5 +179,19 @@ class DomainSweepBillingTest extends TestCase
         $this->cron();
 
         $this->assertCount(1, $this->renewalLines($domain), 'one open renewal invoice for one year, never a second overlapping it');
+    }
+
+    /**
+     * Code review 3 of #310: a renewal transferred (RenewAsTransfer) from CNIC's renewal date (2026-10-25 → 2027-10-25,
+     * applied when the target took it), the target then showing CNIC's paid-until (2026-12-01, 37 days on): still this
+     * year's, never billed again; last year's (the start past the middle of its period) is not.
+     */
+    public function test_an_applied_line_counts_in_the_first_half_of_its_period_only(): void
+    {
+        $domain = $this->domain(['registrar_connection_id' => $this->cnic()->id, 'expires_at' => '2026-12-01']);
+        $transfer = $this->line($domain, '2026-10-25', '2027-10-25', Invoice::STATUS_PAID, true);
+
+        $this->assertSame($transfer->id, DomainRenewalService::billedLine($domain, Carbon::parse('2026-12-01'))?->id);
+        $this->assertNull(DomainRenewalService::billedLine($domain, Carbon::parse('2027-10-01')), 'past its middle: last year\'s');
     }
 }

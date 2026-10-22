@@ -183,10 +183,23 @@ class DomainSyncService
         $pending = in_array($domain->status, self::PENDING, true) && $result->status !== DomainStatus::Active;
         if (!$pending && $result->expiresAt !== null) {
             if ($now !== null && $result->expiresAt < $now && $this->movesBack($domain, $result->expiresAt, $now)
-                && ($open = $this->renewalBeyond($domain, $result->expiresAt)) !== null) {
-                // Back past where an open or paid renewal starts: that period would be billed again over it (sweep L3).
+                && ($open = $this->billedOnlyFrom($domain, $now, $result->expiresAt)) !== null) {
+                // Back off the period billed from ours, to a day no line bills: that period would be billed again over it
+                // (sweep L3); never refused for a move inside it (ADV-2 of #310).
                 $changes['_warning'] = [null, "the registrar's expiry {$result->expiresAt} is before the period its renewal on invoice #{$open->invoice_id} starts ("
                     . $open->period_start?->toDateString() . '): not moved back, check it at the registrar'];
+                // Its registrar may delete it before the day its invoice and reminders name: staff told once (code review 2
+                // of #310), not only a sync note.
+                if (Cache::add("domain-expiry-not-moved:{$domain->id}:{$open->id}:{$result->expiresAt}", true, now()->addDays(60))) {
+                    try {
+                        NotificationHelper::sendSystemEmailNotification("Domain expiry to check: {$domain->fqdn}", e("{$domain->fqdn}: its registrar shows "
+                            . "{$result->expiresAt} (the day it goes there), before its renewal on invoice #{$open->invoice_id} starts ("
+                            . $open->period_start?->toDateString() . '). Not moved back here, so its reminders and due date name the later day: '
+                            . 'renew it in time at the registrar, or correct the renewal period.'));
+                    } catch (Throwable $e) {
+                        report($e);
+                    }
+                }
             } elseif ($now !== null && $result->expiresAt < $now && $this->movesBack($domain, $result->expiresAt, $now)) {
                 $set('expires_at', $now, $result->expiresAt); // the day the name goes there (CNIC: #297)
             } elseif ($now !== null && $result->expiresAt < $now) {
@@ -528,12 +541,12 @@ class DomainSyncService
             || $domain->expires_at->copy()->startOfDay()->lessThan(Carbon::parse($line->period_end)->startOfDay()->subDays(3));
     }
 
-    /** A renewal not applied yet, on a live invoice, whose period starts past a period from $expiry (the same within a month). */
-    private function renewalBeyond(Domain $domain, string $expiry): ?InvoiceItem
+    /** The renewal billed from our expiry, when none is billed from theirs: moved back, its period would be billed again. */
+    private function billedOnlyFrom(Domain $domain, string $ours, string $theirs): ?InvoiceItem
     {
-        return $domain->invoiceItems()->whereNull('kind')->whereNull('applied_at')
-            ->whereDate('period_start', '>', Carbon::parse($expiry)->addDays(DomainRenewalService::SAME_PERIOD_DAYS)->toDateString())
-            ->whereHas('invoice', fn ($invoice) => $invoice->whereNotIn('status', [Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED]))->first();
+        $billed = DomainRenewalService::billedLine($domain, Carbon::parse($ours)->startOfDay());
+
+        return $billed !== null && $billed->applied_at === null && DomainRenewalService::billedLine($domain, Carbon::parse($theirs)->startOfDay()) === null ? $billed : null;
     }
 
     /** Back to its registrar's expiry by at most this much (a garbled date never takes a year off: review F2). */
