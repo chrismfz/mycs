@@ -116,15 +116,18 @@ class ServiceContactReviewTest extends TestCase
         $lw->fillForm(['contact_id' => $c->id])->call('create')->assertHasNoFormErrors(['contact_id']);
     }
 
-    public function test_filament_edit_offers_the_new_clients_contacts_after_changing_client(): void
+    public function test_filament_edit_no_longer_changes_the_client_moving_does(): void
     {
-        $service = $this->service(User::factory()->create()->client());
+        // Since #355 (owner 2026-10-23) the client is not edited in the form: «Move to another client» moves the service
+        // with its unpaid invoices (MoveToClientTest). A client sent with the form is not saved.
+        $a = User::factory()->create()->client();
+        $service = $this->service($a);
         $b = User::factory()->create()->client();
-        $new = $this->contact($b);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Svc' . uniqid(), 'permissions' => ['*']])->id]);
         $this->livewireAs($staff)->test(EditService::class, ['record' => $service->getRouteKey()])
-            ->fillForm(['client_id' => $b->id, 'contact_id' => $new->id])->call('save')->assertHasNoFormErrors();
-        $this->assertSame($new->id, (int) $service->fresh()->contact_id);
+            ->assertFormFieldIsDisabled('client_id')
+            ->fillForm(['client_id' => $b->id])->call('save');
+        $this->assertSame($a->id, (int) $service->fresh()->client_id);
     }
 }

@@ -4,6 +4,7 @@ namespace App\Admin\Resources\ServiceResource\Pages;
 
 use App\Admin\Actions\AuditAction;
 use App\Admin\Actions\InvoiceSelectedItemsAction;
+use App\Admin\Components\ClientComponent;
 use App\Admin\Concerns\RemembersRecent;
 use App\Admin\Resources\ServiceResource;
 use App\Exceptions\DisplayException;
@@ -11,10 +12,12 @@ use App\Exceptions\NothingToDoOnServer;
 use App\Exceptions\ServerRefused;
 use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
+use App\Models\Client;
 use App\Models\License;
 use App\Models\Plan;
 use App\Models\Service;
 use App\Models\SslOrder;
+use App\Services\Clients\MoveToClient;
 use App\Services\Licensing\Licenses;
 use App\Services\Money\MoneyTrail;
 use App\Services\Service\DeleteService;
@@ -33,6 +36,7 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Schemas\Components\Utilities\Get;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rules\Password;
 use Livewire\Attributes\Locked;
 use MyCS\Extensions\Servers\CPanel\CPanel;
@@ -227,6 +231,34 @@ class EditService extends EditRecord
                     $server = $record->provisioningServer() ?? throw new Exception('The service has no server');
                     ExtensionHelper::getExtension('server', $server->extension, $server->settings)->clearRequest($order);
                     Notification::make()->title('The SSL request was cleared')->success()->send();
+                }),
+
+            // To another client (owner 2026-10-23, as WHMCS's «Move»): with its invoices not paid yet; staff with its own
+            // permission, confirmed.
+            Action::make('moveToClient')
+                ->label('Move to another client')->icon('ri-arrow-left-right-line')->color('gray')
+                ->visible(fn () => (bool) Auth::guard('staff')->user()?->hasPermission('admin.services.move'))
+                ->schema([
+                    ClientComponent::picker('to_client_id')->label('Move to client'),
+                ])
+                ->requiresConfirmation()
+                ->modalDescription('The service moves to the other client. Its unpaid invoices go with it (one that also bills other items is split: its lines for this service go to a new invoice of the new client); paid ones stay. Its related contact is cleared. A note is left on both accounts.')
+                ->action(function (array $data, Service $record, Action $action): void {
+                    $staff = Auth::guard('staff')->user();
+                    abort_unless((bool) $staff?->hasPermission('admin.services.move'), 403);
+                    $to = Client::query()->findOrFail((int) $data['to_client_id']);
+                    try {
+                        $result = app(MoveToClient::class)->service($record, $to, $staff);
+                    } catch (DisplayException $e) {
+                        Notification::make()->title('Not moved')->body($e->getMessage())->danger()->send();
+                        $action->halt();
+
+                        return;
+                    }
+                    $told = trim(($result['moved'] !== [] ? count($result['moved']) . ' unpaid invoice(s) moved with it. ' : '')
+                        . ($result['split'] !== [] ? count($result['split']) . ' new invoice(s) issued to the new client for its lines.' : ''));
+                    Notification::make()->title('Moved to ' . $to->name)->body($told !== '' ? $told : null)->success()->send();
+                    $this->redirect(static::getResource()::getUrl('edit', ['record' => $record]));
                 }),
 
             // An ended certificate (its paid order over, or cancelled): the service waits for a new CSR, and the customer's next
