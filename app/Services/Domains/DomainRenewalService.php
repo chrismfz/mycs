@@ -85,13 +85,18 @@ class DomainRenewalService
 
         // Its period covers $start (adversarial ADV-7 of #174: not a later year past a hole), within the days an expiry moves
         // by a sync (D5b-1 review: a period a day off is the same one).
+        // One renewed already (applied) counts while $start falls in the first half of its period: past that it is last
+        // year's, ending after an expiry the sync moved back (CNIC's renewal date: sweep L1, never billed, nor reminded, nor
+        // renewed); before it, this year's, wherever the expiry moved (a period of two years: ADV-1 of #310; a transfer line
+        // from CNIC's renewal date, the target showing its paid-until: code review 3 of #310). One still to renew covers it.
         return $domain->invoiceItems()->whereNull('kind')->whereDate('period_end', '>', $start->toDateString())
             ->whereDate('period_start', '<=', $start->copy()->addDays(self::SAME_PERIOD_DAYS)->toDateString())
             ->when($payable, fn ($q) => $q->whereHas('invoice', fn ($invoice) => $invoice->whereNotIn('status', $dead)))
             // Cancelled: billed only if given up (Δ3); one cancelled before its period started is billed again (ADV-4).
             ->when(!$payable, fn ($q) => $q->where(fn ($kept) => $kept->whereNotNull('forgone_at')
                 ->orWhereHas('invoice', fn ($invoice) => $invoice->where('status', '!=', Invoice::STATUS_CANCELLED))))
-            ->orderByDesc('id')->first();
+            ->orderByDesc('id')->get()->first(fn (InvoiceItem $line) => $line->applied_at === null || $line->period_start === null
+                || $start->lessThan(Carbon::parse($line->period_start)->addDays(intdiv((int) Carbon::parse($line->period_start)->diffInDays(Carbon::parse($line->period_end), true), 2))));
     }
 
     /**
