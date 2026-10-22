@@ -32,6 +32,12 @@ abstract class TestCase extends BaseTestCase
         // parallel run never migrates (each process switches to its own after the boot), or from whatever a serial run
         // left there. Read them from the database this test sees.
         SettingsProvider::reload();
+
+        // The tickets' folder, made once here and quietly: the parallel processes' tests made it at the same moment, and
+        // the loser's mkdir() («File exists») failed its test (CI, #323).
+        if (!is_dir(storage_path('app/tickets/uploads'))) {
+            @mkdir(storage_path('app/tickets/uploads'), 0755, true);
+        }
     }
 
     /**
