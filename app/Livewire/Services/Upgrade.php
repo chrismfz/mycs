@@ -14,8 +14,11 @@ use App\Models\ServiceUpgrade;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
+use App\Services\ServiceUpgrade\DowngradeCredit;
 use App\Services\ServiceUpgrade\ServiceUpgradeService;
+use Brick\Math\BigDecimal;
 use Carbon\Carbon;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -225,6 +228,13 @@ class Upgrade extends Component
             if ($price->price <= 0) {
                 // The credit as priced, before the service changes.
                 $gross = $upgrade->grossPrice();
+                // Never more than what is left of what was paid, less what earlier downgrades gave back (DowngradeCredit),
+                // read before the change: a first-cycle coupon or an offer did not pay the renewal price (P-1, #326).
+                // From what was paid, less what the days left cost on the new plan (the customer keeps them), read
+                // before the change (DowngradeCredit: P-1, #326).
+                $credit = DowngradeCredit::credit($service, CarbonImmutable::now(),
+                    BigDecimal::of(number_format(abs((float) $gross->price), 2, '.', '')), BigDecimal::of($upgrade->newPriceForDaysLeft()));
+                $until = $service->expires_at;
                 // Refused when the service stopped running meanwhile: no credit for a downgrade that did not happen.
                 if (!(new ServiceUpgradeService)->handle($upgrade)) {
                     DB::rollBack();
@@ -243,9 +253,11 @@ class Upgrade extends Component
 
                 // The difference of a downgrade becomes account credit, through the ledger (docs/money-trail.md §2),
                 // with its tax: the unused period was paid with tax, and credit pays invoices with tax (Δ1).
-                $cents = RecordPaymentService::toCents(abs((float) $gross->price));
+                $cents = RecordPaymentService::toCents((string) $credit);
                 if ($cents > 0) {
                     (new CreditLedger)->add((int) $service->client_id, $price->currency->code, $cents, MoneyTrail::CAUSE_DOWNGRADE, MoneyTrail::SOURCE_SYSTEM);
+                    // Kept with the downgrade: a later one in the same days gives back only what is left (F2 of #326).
+                    $upgrade->forceFill(['credit_cents' => $cents, 'credit_until' => $until])->save();
                 }
 
                 DB::commit();

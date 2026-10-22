@@ -15,6 +15,10 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 use MyCS\Pricing\LinePricer;
 use OwenIt\Auditing\Contracts\Auditable;
 
+/**
+ * @property int|null $credit_cents what a downgrade gave back as credit (DowngradeCredit)
+ * @property \Illuminate\Support\Carbon|null $credit_until the end of the days it was given for
+ */
 #[ObservedBy([ServiceUpgradeObserver::class])]
 class ServiceUpgrade extends Model implements Auditable
 {
@@ -27,6 +31,13 @@ class ServiceUpgrade extends Model implements Auditable
     public const STATUS_CANCELLED = 'cancelled';
 
     public $guarded = [];
+
+    /** @return array<string, string> */
+    protected function casts(): array
+    {
+        // A downgrade's credit and the day it was given for (DowngradeCredit).
+        return ['credit_cents' => 'integer', 'credit_until' => 'date'];
+    }
 
     /** @return BelongsTo<Service, $this> */
     public function service(): BelongsTo
@@ -112,6 +123,23 @@ class ServiceUpgrade extends Model implements Auditable
         // A downgrade has an expiry (one without is never negative, calculatePrice).
         return $this->makePrice($start === null ? 0.0
             : (float) $service->remainingOf($difference, $start, Carbon::now()));
+    }
+
+    /**
+     * What the days left of the period cost on the new plan, with tax: the customer keeps the service for them, so a
+     * downgrade gives back what was paid less this (DowngradeCredit, G1 of #326).
+     */
+    public function newPriceForDaysLeft(): string
+    {
+        $service = $this->service;
+        $start = $service->currentPeriodStart();
+        if ($start === null) {
+            return '0.00';
+        }
+        $after = LinePricer::invoiceLine($this->newRecurringPrice(), max(1, (int) $service->quantity),
+            OrderPricing::taxRate($service->client, $this->product ?? $service->product))['total'];
+
+        return (string) BigDecimal::max(BigDecimal::of($service->remainingOf($after, $start, Carbon::now())), BigDecimal::zero())->toScale(2);
     }
 
     /**
