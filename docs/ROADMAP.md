@@ -131,7 +131,7 @@
       με λογαριασμούς μόνο από το staff, με πληκτρολόγηση του username (ποτέ από cron ή ακύρωση)· upgrade με τα νέα όρια.
       Θέλει root login στον server. Μένουν: η αντιστοίχιση στον importer (μαζί με `cpanel_reseller`)· χρήση (επόμενο PR,
       κοινό με τους απλούς λογαριασμούς).
-- [ ] Συμφιλίωση της κατάστασης μετά από job του server (το create υπάρχει, #114)· συγχρονισμός χρήσης cPanel.
+- [ ] Συμφιλίωση της κατάστασης μετά από job του server (το create υπάρχει, #114)· ~~συγχρονισμός χρήσης cPanel~~ **έγινε (feat/service-usage):** δίσκος και bandwidth του μήνα κάθε 4 ώρες (`services:usage`, δύο κλήσεις ανά server), για απλούς λογαριασμούς και resellers (σύνολα των λογαριασμών τους, όρια του προϊόντος), στη σελίδα της υπηρεσίας του πελάτη και του staff με «Τελευταία ενημέρωση».
 - [ ] Modules του myip: Proxmox, Centova, mailcow (το package `mailcow` υπάρχει χωρίς extension).
 
 ### Licensing (`licensing.md`)

@@ -1010,6 +1010,12 @@ class Service extends Model implements Auditable
         return OrderPricing::line(['price' => (string) $price, 'setup_fee' => '0.00', 'options' => (string) $options], $discount, $this->client, $this->product, $groupPercent)->netPrice;
     }
 
+    /** @return HasOne<ServiceUsage, $this> its usage as its server last told it (services:usage) */
+    public function usage(): HasOne
+    {
+        return $this->hasOne(ServiceUsage::class);
+    }
+
     /** @return HasMany<ServiceUpgrade, $this> */
     public function upgrade(): HasMany
     {
