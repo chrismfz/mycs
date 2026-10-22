@@ -23,6 +23,7 @@ use Livewire\Attributes\Locked;
 use Livewire\Attributes\Renderless;
 use Livewire\Attributes\Url;
 use MyCS\Extensions\Servers\CPanel\WhmRefused;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 
 class Show extends Component
 {
@@ -291,11 +292,35 @@ class Show extends Component
             return;
         }
         $result = ExtensionHelper::callService($this->service, $function);
-        // If its a response, return it
+        // A redirect, as an address or as a response: only to a web page (panelUrl).
+        if ($result instanceof RedirectResponse) {
+            $result = $result->getTargetUrl();
+        }
         if (!is_string($result)) {
             return $result;
         }
-        $this->redirect($result);
+        if (($url = self::panelUrl($result)) === null) {
+            $this->notify(__('This action is not allowed'), 'error');
+
+            return;
+        }
+        $this->redirect($url);
+    }
+
+    /**
+     * An address a server gave to open its panel, if it is a web page: http(s) with a host, nothing else (a server
+     * that answers `javascript:` would run it on this site, where the customer and staff are signed in).
+     */
+    public static function panelUrl(string $url): ?string
+    {
+        $url = trim($url);
+        $parts = parse_url($url);
+        if (preg_match('/[\x00-\x20\x7F]/', $url) === 1 || !is_array($parts) || !in_array(strtolower($parts['scheme'] ?? ''), ['https', 'http'], true)
+            || ($parts['host'] ?? '') === '' || isset($parts['user']) || isset($parts['pass'])) {
+            return null;
+        }
+
+        return $url;
     }
 
     /**
@@ -322,8 +347,10 @@ class Show extends Component
 
             return;
         }
-        if (is_string($url) && $url !== '') {
+        if (is_string($url) && ($url = self::panelUrl($url)) !== null) {
             $this->redirect($url);
+        } else {
+            $this->notify(__('services.cpanel.failed'), 'error');
         }
     }
 
