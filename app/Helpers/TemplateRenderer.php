@@ -136,18 +136,46 @@ class TemplateRenderer
         return self::safeAddresses($html);
     }
 
-    /** Every address an attribute opens (href, src, …), as it is with its values in: a javascript: or data: one is "#". */
+    /**
+     * Every address an attribute opens (href, src, srcset, …), as it is with its values in and as a browser reads it: a
+     * javascript: or data: one is "#". An image may also be inline (cid:, a data: PNG, JPEG, GIF or WebP).
+     */
     private static function safeAddresses(string $html): string
     {
         return (string) preg_replace_callback(
-            '~(\s(?:href|src|action|formaction|background|poster|xlink:href)\s*=\s*)("[^"]*"|\'[^\']*\'|[^\s>]+)~i',
+            // After a space, a "/" or a quote: a browser reads <a/href=…> and <a title="t"href=…> as well.
+            '~(?<=[\s/"\'])((?:href|src|srcset|action|formaction|background|poster|xlink:href)\s*=\s*)("[^"]*"|\'[^\']*\'|[^\s>]+)~i',
             function (array $m) {
-                $value = html_entity_decode(trim($m[2], '"\''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                $name = strtolower((string) strtok($m[1], " \t\n\r\f="));
+                $value = self::attributeText(trim($m[2], '"\''));
+                $addresses = $name === 'srcset'
+                    ? array_map(fn (string $candidate) => (string) strtok(trim($candidate), " \t\n\r\f"), explode(',', $value))
+                    : [$value];
+                foreach ($addresses as $address) {
+                    $image = in_array($name, ['src', 'srcset', 'poster', 'background'], true)
+                        && preg_match('~^\s*(cid:|data:image/(png|jpe?g|gif|webp)[;,])~i', $address) === 1;
+                    if (!$image && $address !== '#' && Renderer::safeUrl($address) === '#') {
+                        return $m[1] . '"#"';
+                    }
+                }
 
-                return Renderer::safeUrl($value) === '#' && $value !== '#' ? $m[1] . '"#"' : $m[0];
+                return $m[0];
             },
             $html,
         );
+    }
+
+    /**
+     * An attribute's value as a browser decodes it. A numeric character reference needs no ";" there, and where it
+     * ends is the browser's to say: an address with one is no address of ours ("javascript:" is what it hides).
+     */
+    private static function attributeText(string $value): string
+    {
+        if (preg_match('/&#(x[0-9a-f]+|[0-9]+)(?!;)/i', $value) === 1) {
+            return 'javascript:';
+        }
+
+        return html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
     }
 
     /** Validation rule (Filament and Validator): the field must parse as a template. */

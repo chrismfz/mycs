@@ -140,4 +140,15 @@ class MailCopiesTest extends TestCase
         $this->assertStringNotContainsString('href="https://evil.example', $html);
         $this->assertStringContainsString('Third &amp; last', $html);
     }
+
+    public function test_inline_images_and_messenger_links_are_kept(): void
+    {
+        $html = TemplateRenderer::renderMarkdown('<img src="cid:logo"> <img src="data:image/png;base64,iVBOR"> <a href="viber://chat?number=30">V</a> <a href="sms:+3021">S</a>', []);
+
+        $this->assertStringContainsString('src="cid:logo"', $html);
+        $this->assertStringContainsString('src="data:image/png;base64,iVBOR"', $html);
+        $this->assertStringContainsString('href="viber://chat?number=30"', $html);
+        $this->assertStringContainsString('href="sms:+3021"', $html);
+        $this->assertStringContainsString('href="#"', TemplateRenderer::renderMarkdown('<a href="data:image/png;base64,x">x</a>', []));
+    }
 }
