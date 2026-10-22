@@ -18,7 +18,7 @@
 #   4. DB snapshot (rollback point) → storage/app/db-snapshots/ (keeps $SNAPSHOT_KEEP)
 #   5. checkout the target
 #   6. composer install (--no-dev unless COMPOSER_DEV=1, e.g. on the devbox)
-#   7. migrate --force; passport:keys once if missing
+#   7. migrate --force (and the old Passport keys removed)
 #   8. npm ci && npm run build
 #   9. optimize (config/route/view/event caches), then private files (deploy/private-files.sh)
 #  10. maintenance mode OFF, queue worker back, smoke check of APP_URL
@@ -177,10 +177,8 @@ fi
 # --- 7. database ---------------------------------------------------------------
 log "Database migrations"
 $ART migrate --force
-if ! ls storage/oauth-private.key >/dev/null 2>&1; then
-  log "Generating Passport keys (first time on this host)"
-  $ART passport:keys -n
-fi
+# No Passport any more (security audit AUTHN-10): its keys, if a host still has them, are no use to anyone.
+rm -f storage/oauth-private.key storage/oauth-public.key
 
 # --- 8. assets -----------------------------------------------------------------
 if [[ -f package-lock.json ]]; then
