@@ -112,10 +112,14 @@ return [
             'sub' => 'subdomain',
         ],
     ],
+    'mailcow' => [
+        'login' => 'Login to mailcow',
+    ],
     'usage' => [
         'title' => 'Usage',
         'disk' => 'Disk space',
         'bandwidth' => 'Bandwidth (this month)',
+        'mailboxes' => 'Mailboxes',
         'accounts' => 'Accounts',
         'unlimited' => 'unlimited',
         'read_at' => 'Last updated :when',

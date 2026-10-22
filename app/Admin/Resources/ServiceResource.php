@@ -296,7 +296,7 @@ class ServiceResource extends Resource
                             ->state(fn (Service $record) => self::meter($record->usage?->disk_used_mb, $record->usage?->disk_limit_mb, true)),
                         TextEntry::make('usage_bandwidth')->label('Bandwidth (this month)')
                             ->state(fn (Service $record) => self::meter($record->usage?->bandwidth_used_mb, $record->usage?->bandwidth_limit_mb, true)),
-                        TextEntry::make('usage_accounts')->label('Accounts (reseller)')
+                        TextEntry::make('usage_accounts')->label(fn (Service $record) => $record->usage?->accounts_kind === 'mailboxes' ? 'Mailboxes' : 'Accounts (reseller)')
                             ->visible(fn (Service $record) => $record->usage?->accounts !== null)
                             ->state(fn (Service $record) => self::meter($record->usage?->accounts, $record->usage?->accounts_limit, false)),
                         TextEntry::make('usage_read_at')->label('Last updated')->columnSpanFull()
@@ -474,6 +474,8 @@ class ServiceResource extends Resource
             ->label('Delete selected')
             ->icon('heroicon-o-trash')
             ->color('danger')
+            // Filament authorizes only its own DeleteBulkAction: this one asks the policy itself (deleteAny, then each).
+            ->authorize(fn (): bool => (bool) auth()->user()?->can('deleteAny', Service::class))
             ->requiresConfirmation()
             ->schema([
                 Checkbox::make('deleteExtensionServer')->label('Also trigger deletion of server (running services)')->default(true),
@@ -482,6 +484,11 @@ class ServiceResource extends Resource
                 $kept = [];
                 foreach ($records as $service) {
                     /** @var Service $service */
+                    if (!auth()->user()?->can('delete', $service)) {
+                        $kept[] = "#{$service->id}: " . __('You do not have access to this area of the account.');
+
+                        continue;
+                    }
                     try {
                         (new DeleteService)->handle($service, (bool) ($data['deleteExtensionServer'] ?? false));
                     } catch (Throwable $e) {

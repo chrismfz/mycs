@@ -28,8 +28,29 @@ use Throwable;
 )]
 class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
 {
+    /** WHM calls that only read: they may name a protected account (its usage, its packages). */
+    /** WHM calls on a reseller that act on every account it owns as well. */
+    private const CASCADES = ['/suspendreseller', '/unsuspendreseller', '/terminatereseller'];
+
+    private const READS = ['/accountsummary', '/listaccts', '/listresellers', '/listpkgs', '/getpkginfo', '/get_domain_info', '/showbw', '/version'];
+
     private function request($endpoint, $method = 'get', $data = [], int $timeout = 30)
     {
+        // An account this server keeps from MyCS (MyCS's own, staff's, root): never changed, suspended, removed or
+        // logged into by a module action, whatever a service's record says (an import, a typo, a username reused).
+        $named = array_filter([$data['user'] ?? null, $data['username'] ?? null, $data['reseller'] ?? null, $data['cpanel_jsonapi_user'] ?? null], 'is_string');
+        foreach ($named as $user) {
+            if (!in_array($endpoint, self::READS, true) && in_array(strtolower(trim($user)), $this->protectedAccounts(), true)) {
+                throw new Exception("cPanel: {$user} is a protected account on this server (Protected accounts): MyCS does not act on it.");
+            }
+        }
+        // A reseller's call reaches the accounts it owns too: none of them may be protected (A1 of #322).
+        if (in_array($endpoint, self::CASCADES, true) && is_string($data['user'] ?? null)) {
+            $owned = array_intersect(array_map('strtolower', $this->ownedAccounts($data['user'])), $this->protectedAccounts());
+            if ($owned !== []) {
+                throw new Exception("cPanel: {$data['user']} owns a protected account (" . implode(', ', $owned) . '): MyCS does not act on it.');
+            }
+        }
         // A pasted token or host often carries a space or line break, which WHM answers as a bad token.
         $host = rtrim(trim((string) $this->config('host')), '/');
         if ($host === '') {
@@ -93,7 +114,23 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
                 'required' => true,
                 'encrypted' => true,
             ],
+            [
+                'name' => 'protected_accounts',
+                'type' => 'text',
+                'placeholder' => 'mycs, staffmail',
+                'label' => 'Protected accounts',
+                'description' => 'cPanel usernames MyCS never changes, suspends, removes or logs into (e.g. the account MyCS itself runs in), comma-separated. root always is.',
+                'required' => false,
+            ],
         ];
+    }
+
+    /** @return list<string> */
+    private function protectedAccounts(): array
+    {
+        $listed = array_map(fn (string $user) => strtolower(trim($user)), explode(',', (string) $this->config('protected_accounts')));
+
+        return array_values(array_unique(['root', ...array_filter($listed, fn (string $user) => $user !== '')]));
     }
 
     /**
@@ -683,7 +720,7 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
             // (`manageproducts`), each checked again there.
             ['type' => 'shortcuts', 'items' => array_map(fn (string $app, string $icon) => ['app' => $app, 'icon' => $icon,
                 'label' => __('services.cpanel.shortcuts.' . $app)], array_keys(self::SHORTCUTS), self::SHORTCUTS)],
-            ['type' => 'password', 'function' => 'changePassword'],
+            ['type' => 'password', 'function' => 'changePassword', 'mysql' => true],
             ['type' => 'email', 'function' => 'createEmailAccount', 'domain' => (string) $service->domain],
         ];
     }

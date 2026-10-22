@@ -50,14 +50,17 @@ MYCS_ADMIN_PASSWORD='…' php artisan mycs:install --no-interaction \
 ```
 Επιλογές: `--language=el`, `--timezone=Europe/Athens`, `--currency=EUR|USD`.
 
-Μετά: cron `* * * * * php artisan schedule:run`, queue worker (systemd), mail (SMTP/SPF/DKIM), TLS.
+Μετά: `deploy/private-files.sh` (το cached config, το `.env`, τα logs, τα PDF, τα tickets και τα snapshots μόνο για τον
+χρήστη της εφαρμογής· το ξανατρέχει κάθε `deploy/update.sh`), cron `* * * * * php artisan schedule:run`, queue worker
+(systemd), mail (SMTP/SPF/DKIM), TLS. Σε server cPanel όπου τρέχει και το ίδιο το MyCS: ο λογαριασμός του στα
+«Protected accounts» του server, για να μην τον αγγίζει ποτέ ένα module action.
 
 ## Ενημέρωση
 ```bash
 su - mycs -c 'cd /var/www/mycs && deploy/update.sh'        # ή deploy/update.sh <tag|branch>
 ```
 Πριν αλλάξει οτιδήποτε, κρατά **snapshot της βάσης** στο `storage/app/db-snapshots/` (τα τελευταία 10), και μετά:
-maintenance mode, queue drain, checkout, composer, migrate, build, caches, smoke check.
+maintenance mode, queue drain, checkout, composer, migrate, build, caches, private files, smoke check.
 
 ## Αν κάτι πάει στραβά
 Δεν υπάρχει αυτόματο rollback (απόφαση 2026-10-11: προσεκτικές ενημερώσεις + backup). Το όνομα του snapshot

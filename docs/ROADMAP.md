@@ -64,7 +64,7 @@
 
 **myip:**
 - [ ] cPanel: λογαριασμοί reseller (22), αλλαγή κωδικού (staff και πελάτης, 39 τον χρόνο), αργότερα συγχρονισμός χρήσης.
-- [ ] mailcow (10 υπηρεσίες): server extension πάνω στο `packages/mailcow`.
+- [x] ~~mailcow (10 υπηρεσίες)~~ **έγινε (feat/mailcow):** extension πάνω στο `packages/mailcow`, το port του δικού μας module του WHMCS: domain, DKIM και domain admin ανά υπηρεσία· suspend/terminate με την πολιτική του προϊόντος (`lock_only` από προεπιλογή, όπως όλα τα MyMail του myip· `delete_all` μόνο αν το λέει το προϊόν)· SSO, αλλαγή κωδικού, χρήση (mailboxes), domains του admin στο search. Κάθε ενέργεια μόνο στον δικό της domain admin (υπάρχει και διαχειρίζεται το domain της υπηρεσίας). Το unsuspend ξεκλειδώνει μόνο ό,τι κλείδωσε το suspend της (`mailcow_locked_by_us`). Μένουν, στον importer: τα MyMail (configoption 1–16), το `username`/κωδικός, και για όσες είναι suspended στο WHMCS (κλειδωμένες από το module του) το `mailcow_locked_by_us`, αλλιώς το unsuspend δεν τις ξεκλειδώνει. Κανόνας λειτουργίας: ένας domain admin ανά πελάτη (ένας admin που μοιράζεται domains δύο πελατών περνά τον έλεγχο και για τους δύο). Δοκιμή live στο mymail (με άδεια).
 - [ ] Proxmox (8 VPS): extension ή χειροκίνητο προϊόν (χωρίς start/stop και console για τον πελάτη): **απόφαση υπευθύνου**.
 - [ ] Product addons: ~~επιλογές της υπηρεσίας~~ έγινε (#296)· **μένει** η αντιστοίχιση στον importer (`importer.md`).
 - [ ] Μικροί κανόνες από τα hooks: email στο staff σε υπερπληρωμή· email σε κάθε suspend με τον λόγο· αυτόματη ακύρωση
@@ -121,21 +121,29 @@
 - [ ] Έλεγχος σε πραγματικό browser (`audit-browser.md`, δεν έχει γραφτεί).
 
 ### Provisioning
-- [x] **cPanel, τα βασικά του πελάτη (feat/cpanel-client-basics):** σύνδεση στο Webmail, «Γρήγορες συντομεύσεις» (Email, Προωθήσεις,
-      Αυτόματοι ανταποκριτές, File Manager, Αντίγραφα, Domains, Cron, MySQL, phpMyAdmin, Awstats) με σύνδεση στη σελίδα τους,
-      αλλαγή κωδικού (πελάτης και staff, στον server και κρυπτογραφημένα εδώ), γρήγορη δημιουργία email στο domain της υπηρεσίας.
-- [ ] **cPanel «σαν WHMCS/Blesta»** (ο υπεύθυνος, 2026-10-20: σήμερα το extension είναι πολύ «dummy»· ιδέες από το Blesta
-      και το cPanel/WHM API): αντιστοίχιση πακέτων WHM ↔ προϊόντων MyCS από λίστα, χρήση (quota, bandwidth) πίσω στο
-      MyCS, addon/parked/sub domains, email accounts (λίστα, δημιουργία), reseller accounts (παρακάτω). Δοκιμή στον
-      orion 2026-10-20 (reseller της nixpal): create/suspend/unsuspend/terminate δουλεύουν (`provisioning.md`).
-- [x] ~~**WHM reseller accounts**~~ **έγινε (feat/cpanel-reseller):** ρύθμιση του προϊόντος «Reseller account» με ACL, όρια
-      δίσκου/bandwidth/λογαριασμών και overselling (τα πεδία του WHMCS: configoption 17, 18, 19, 20, 21, 15)· create με
-      `setupreseller`/`setacls`/`setresellerlimits`· suspend/unsuspend με τους λογαριασμούς του· **terminate** ενός reseller
-      με λογαριασμούς μόνο από το staff, με πληκτρολόγηση του username (ποτέ από cron ή ακύρωση)· upgrade με τα νέα όρια.
-      Θέλει root login στον server. Μένουν: η αντιστοίχιση στον importer (μαζί με `cpanel_reseller`)· χρήση (επόμενο PR,
-      κοινό με τους απλούς λογαριασμούς).
-- [ ] Συμφιλίωση της κατάστασης μετά από job του server (το create υπάρχει, #114)· ~~συγχρονισμός χρήσης cPanel~~ **έγινε (feat/service-usage):** δίσκος και bandwidth του μήνα κάθε 4 ώρες (`services:usage`, δύο κλήσεις ανά server), για απλούς λογαριασμούς και resellers (σύνολα των λογαριασμών τους, όρια του προϊόντος), στη σελίδα της υπηρεσίας του πελάτη και του staff με «Τελευταία ενημέρωση».
-- [ ] Modules του myip: Proxmox, Centova, mailcow (το package `mailcow` υπάρχει χωρίς extension).
+- [x] **cPanel: «ΟΚ» (ο υπεύθυνος, 2026-10-22)**, δοκιμασμένο live στον orion (`provisioning.md`, «Δοκιμή live 2026-10-22»):
+  - **Resellers (#315):**
+    - ρύθμιση «Reseller account» με ACL, όρια και overselling (configoption 15, 17–21 του WHMCS);
+    - suspend/unsuspend μαζί με τους λογαριασμούς του;
+    - **terminate με λογαριασμούς μόνο από το staff, πληκτρολογώντας το username, μόνο σε εκείνο το request** (ποτέ από cron, ακύρωση, Retry ή αποθηκευμένη σήμανση);
+    - θέλει **root** token στον server.
+  - **Χρήση (#316):** δίσκος και bandwidth του μήνα κάθε 4 ώρες (`services:usage`), για απλούς λογαριασμούς και resellers.
+  - **Βασικά του πελάτη (#318):**
+    - Webmail και cPanel με ένα κλικ;
+    - 10 συντομεύσεις, με τα ονόματα του Jupiter, ελεγμένες live;
+    - αλλαγή κωδικού (πελάτης και staff), με checkbox «Αλλαγή και του κωδικού MySQL» (απενεργοποιημένο, όπως στο WHM);
+    - γρήγορο email στο domain της υπηρεσίας.
+  - **Domains κάθε λογαριασμού (#320):**
+    - κύριο, addon, alias και subdomains, και των πελατών ενός reseller, μαζί με τη χρήση;
+    - εμφανίζονται στον πελάτη και στο staff;
+    - **global search από οποιοδήποτε domain**, με Client / Account / Server;
+    - **μόνο πληροφοριακά**: δεν τα διαβάζει ποτέ μια παραγγελία ή μια δημιουργία, άρα ένα addon μπορεί να πάρει δικό του hosting.
+  - **Μένουν:**
+    - στον importer: `reseller`/`cpanel_reseller` και τα όρια από τα configoption, και το username ως έχει (η χρήση και τα domains το διαβάζουν και από `services.username`);
+    - root token για τους servers του myip, πριν τους resellers;
+    - συμφιλίωση της κατάστασης μετά από job του server (το create υπάρχει, #114);
+    - αργότερα: λίστα και διαχείριση email/domains μέσα από το MyCS, αν χρειαστεί.
+- [ ] Modules του myip: Proxmox, Centova (mailcow έγινε), TheSSLStore (12, ξεχασμένο ως 2026-10-22); ngm και Hetzner ως χειροκίνητα προϊόντα.
 
 ### Licensing (`licensing.md`)
 - [ ] **Ποιοι χτυπάνε χωρίς να πρέπει** (ο υπεύθυνος, 2026-10-20): οθόνη του staff με

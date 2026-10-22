@@ -175,6 +175,29 @@ Modules για το myip:
 - **suspend / unsuspend / terminate:** εντάξει, επαληθευμένα με `accountsummary`· στο τέλος ο λογαριασμός δεν υπάρχει.
 - Η υπηρεσία δοκιμής (#3) μένει terminated στο devbox.
 
+## Δοκιμή live 2026-10-22 (ο υπεύθυνος έδωσε την άδεια)
+Υπηρεσία δοκιμής **#4** («Wordpress V16», πελάτης #2 «MyCS cPanel test», `mycs-test-2.dummy-domain.tld`) στον orion, με τον
+reseller της nixpal. **Μένει ως reference** (ο υπεύθυνος): λογαριασμός με test mailbox, addon, alias και subdomain.
+- **create:** εντάξει, μέσα από `ExtensionHelper::createServer`.
+- **χρήση:** `listaccts`/`showbw` με το login του reseller δίνουν 0 MB / 16 GB, bandwidth χωρίς όριο.
+- **domains:** `get_domain_info` με το login του reseller επιστρέφει όλα τα domains των λογαριασμών του (42), με `user` και
+  `user_owner`. Τα addon, alias και subdomain της δοκιμής διαβάστηκαν με τον σωστό τύπο, μαζί με το «κρυφό» subdomain του addon.
+- **πελάτης (Chrome, «Login as client»):**
+  - οι συντομεύσεις ανοίγουν τη σωστή σελίδα του cPanel: Email Accounts, Domains (`Domains_domains`), Manage My Databases
+    (`Database_MySQL`);
+  - το Webmail ανοίγει στο :2096.
+  - Τα ονόματα των σελίδων είναι τα `implements` του `/usr/local/cpanel/base/frontend/jupiter/dynamicui.conf`.
+- **email και κωδικός:**
+  - το `add_pop` έφτιαξε mailbox (quota 1 GB), που φαίνεται στο cPanel;
+  - το `passwd` (και με `db_pass_update`) άλλαξε τον κωδικό, και ο αποθηκευμένος ταιριάζει;
+  - ένας αδύναμος κωδικός απορρίπτεται από το WHM με τον λόγο του (strength 65).
+- **staff:** «Usage», «Hosted domains», «Change password on server», και το global search από ένα alias βρίσκει την υπηρεσία
+  με Client / Account / Server.
+- **Σημειώσεις:**
+  - μια σελίδα του admin τερματίζει το «Login as client» (AUTH-19): για δοκιμή χρειάζονται χωριστά tabs/κύκλοι;
+  - ο κανόνας μας για τον κωδικό (10+ χαρακτήρες, κεφαλαία, πεζά, αριθμοί) δεν φτάνει πάντα το 65 του WHM: τότε ο πελάτης
+    βλέπει την άρνηση του WHM με τον λόγο της.
+
 ## Επιλογές αντί για τα addons του WHMCS (2026-10-21)
 
 Τα product addons του WHMCS γίνονται **επιλογές της ίδιας της υπηρεσίας** (configurable options). Ανανεώνονται μαζί της, με τον ίδιο κύκλο και την ίδια λήξη. Ο πελάτης τις προσθέτει, τις αλλάζει ή τις αφαιρεί με την αναβάθμιση, με αναλογική χρέωση. Στο myip ήταν 15 ενεργά addons (2026-10-21): 11 Dedicated IP, 3 extra χώρος, 1 System Maintenance. Στη nixpal κανένα.

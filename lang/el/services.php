@@ -112,10 +112,14 @@ return [
             'sub' => 'subdomain',
         ],
     ],
+    'mailcow' => [
+        'login' => 'Σύνδεση στο mailcow',
+    ],
     'usage' => [
         'title' => 'Χρήση',
         'disk' => 'Χώρος δίσκου',
         'bandwidth' => 'Bandwidth (τρέχων μήνας)',
+        'mailboxes' => 'Mailboxes',
         'accounts' => 'Λογαριασμοί',
         'unlimited' => 'απεριόριστο',
         'read_at' => 'Τελευταία ενημέρωση :when',

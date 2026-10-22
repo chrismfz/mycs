@@ -20,7 +20,7 @@
 #   6. composer install (--no-dev unless COMPOSER_DEV=1, e.g. on the devbox)
 #   7. migrate --force; passport:keys once if missing
 #   8. npm ci && npm run build
-#   9. optimize (config/route/view/event caches)
+#   9. optimize (config/route/view/event caches), then private files (deploy/private-files.sh)
 #  10. maintenance mode OFF, queue worker back, smoke check of APP_URL
 #
 # Env overrides:
@@ -192,6 +192,10 @@ fi
 # --- 9. caches -----------------------------------------------------------------
 log "Caching config / routes / views / events"
 $ART optimize
+
+# The cached config holds APP_KEY and the database password: never readable by another user of the host.
+log "Private files"
+bash deploy/private-files.sh "$APP_DIR"
 
 # --- 10. back up ---------------------------------------------------------------
 trap - ERR

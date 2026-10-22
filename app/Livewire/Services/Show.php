@@ -3,6 +3,7 @@
 namespace App\Livewire\Services;
 
 use App\Exceptions\DisplayException;
+use App\Exceptions\ServerRefused;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
 use App\Models\ClientUser;
@@ -22,7 +23,6 @@ use Illuminate\Validation\Rules\Password;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Renderless;
 use Livewire\Attributes\Url;
-use MyCS\Extensions\Servers\CPanel\WhmRefused;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 
 use function Livewire\store;
@@ -47,6 +47,10 @@ class Show extends Component
     /** The server changes the account's password (cPanel: WHMCS's «Change Password»). */
     #[Locked]
     public bool $canChangePassword = false;
+
+    /** Its password change may change the MySQL user's too (cPanel's «db_pass_update»; not mailcow). */
+    #[Locked]
+    public bool $passwordHasMysql = false;
 
     /** The domain a new mailbox is made on (cPanel: WHMCS's «Quick Create Email Account»); null: none. */
     #[Locked]
@@ -106,6 +110,7 @@ class Show extends Component
                     $this->shortcuts = array_values((array) ($action['items'] ?? []));
                 } elseif ($action['type'] === 'password' && $canManage) {
                     $this->canChangePassword = true;
+                    $this->passwordHasMysql = !empty($action['mysql']);
                 } elseif ($action['type'] === 'email' && $canManage && filled($action['domain'] ?? null)) {
                     $this->mailboxDomain = (string) $action['domain'];
                 }
@@ -401,7 +406,7 @@ class Show extends Component
         RateLimiter::hit($key, 900);
         try {
             // Never «may fail»: that path reports the error unredacted and returns null (a refusal told as success).
-            if (ExtensionHelper::callService($this->service, 'changePassword', [$password, $this->changeMysqlToo]) !== true) {
+            if (ExtensionHelper::callService($this->service, 'changePassword', [$password, $this->passwordHasMysql && $this->changeMysqlToo]) !== true) {
                 throw new Exception('the server did not confirm the change');
             }
         } catch (Exception $e) {
@@ -457,7 +462,7 @@ class Show extends Component
     {
         $reason = Redact::values($e->getMessage(), [$password]);
         report(new Exception($reason));
-        if ($e instanceof WhmRefused) {
+        if ($e instanceof ServerRefused) {
             $this->notify(__('services.cpanel.' . $refused, ['reason' => $reason]), 'error');
 
             return;
