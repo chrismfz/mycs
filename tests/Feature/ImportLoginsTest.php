@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Console\Commands\ImportFromWhmcs;
+use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\User;
 use App\Services\Import\WhmcsSecondFactor;
@@ -123,5 +124,30 @@ class ImportLoginsTest extends TestCase
         $this->assertNull($read(json_encode(['secret' => 'not base32!'])));
         $this->assertNull($read('O:8:"stdClass":0:{}'), 'no object is made from it');
         $this->assertNull((new WhmcsSecondFactor(fn () => self::SECRET))->secret('duosecurity', 'x'), 'another kind of 2FA');
+    }
+
+    public function test_a_zero_date_and_an_account_whose_owner_is_gone(): void
+    {
+        $this->whmcs->exec("UPDATE tblusers SET email_verified_at = '0000-00-00 00:00:00' WHERE id = 8");
+        $this->whmcs->exec("INSERT INTO tblclients VALUES (301, 'Gone', 'Owner', '', 'gone@company.test', NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'GR',
+            0, 0, 0, 0, 1, '2024-01-01 00:00:00', '2025-01-01 00:00:00')");
+        $this->whmcs->exec("INSERT INTO tblusers_clients VALUES (3, 999, 301, 1, NULL, NULL, '2024-01-01 00:00:00', NULL)");
+
+        $this->import($this->decrypting());
+
+        $this->assertNull(User::query()->findOrFail(8)->email_verified_at);
+        $this->assertNull(Client::query()->find(301), 'an account with no owner to log in is not made');
+    }
+
+    public function test_a_token_that_is_not_the_standard_totp_is_not_guessed(): void
+    {
+        $token = fn (array $extra) => json_encode(['tokendata' => base64_encode(serialize($extra + ['tokenkey' => bin2hex('12345678901234567890'), 'tokentype' => 'TOTP']))]);
+        $read = fn (string $plain) => (new WhmcsSecondFactor(fn () => $plain))->secret('totp', 'x');
+
+        $this->assertSame('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', $read($token([])), 'the RFC 6238 test key, hex to base32');
+        $this->assertNull($read($token(['tokenalgorithm' => 'SHA256'])));
+        $this->assertNull($read($token(['tokentimer' => 60])));
+        $this->assertNull($read($token(['tokentype' => 'HOTP'])));
+        $this->assertNull($read('JBSWY3DPEHPK3PXPJBSWY3DP'), 'a bare string is not taken for a secret');
     }
 }

@@ -57,14 +57,46 @@ final class WhmcsSecondFactor
         if (!is_string($plain) || $plain === '') {
             return null;
         }
-        $settings = json_decode($plain, true);
-        if (!is_array($settings)) {
-            $settings = @unserialize($plain, ['allowed_classes' => false]);
+        $settings = self::settings($plain);
+        // WHMCS's totp module (ga4php): the key as hex in a serialized token, base64 in `tokendata`.
+        if (is_string($settings['tokendata'] ?? null)) {
+            $token = self::settings((string) base64_decode($settings['tokendata'], true));
+            $hex = $token['tokenkey'] ?? null;
+            $standard = strtoupper((string) ($token['tokentype'] ?? 'TOTP')) === 'TOTP' && (int) ($token['tokentimer'] ?? 30) === 30
+                && strtoupper((string) ($token['tokenalgorithm'] ?? 'SHA1')) === 'SHA1';
+            $secret = $standard && is_string($hex) && $hex !== '' && strlen($hex) % 2 === 0 && ctype_xdigit($hex) ? self::base32((string) hex2bin($hex)) : '';
+        } else {
+            $secret = $settings['secret'] ?? $settings['tokensecret'] ?? null;
+            $secret = is_string($secret) ? strtoupper(str_replace([' ', '='], '', trim($secret))) : '';
         }
-        $secret = is_array($settings) ? ($settings['secret'] ?? $settings['tokensecret'] ?? null) : $plain;
-        $secret = is_string($secret) ? strtoupper(str_replace([' ', '='], '', trim($secret))) : '';
 
-        // A base32 secret as the authenticator apps take it.
+        // A base32 secret as the authenticator apps take it; anything else is not guessed (a wrong one locks out).
         return preg_match('/^[A-Z2-7]{16,128}$/', $secret) === 1 ? $secret : null;
+    }
+
+    /** @return array<mixed> JSON or serialized settings (never an object made from them), or none */
+    private static function settings(string $text): array
+    {
+        $settings = json_decode($text, true);
+        if (!is_array($settings)) {
+            $settings = @unserialize($text, ['allowed_classes' => false]);
+        }
+
+        return is_array($settings) ? $settings : [];
+    }
+
+    private static function base32(string $bytes): string
+    {
+        $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+        $bits = '';
+        foreach (str_split($bytes) as $byte) {
+            $bits .= str_pad(decbin(ord($byte)), 8, '0', STR_PAD_LEFT);
+        }
+        $out = '';
+        foreach (str_split($bits, 5) as $chunk) {
+            $out .= $alphabet[bindec(str_pad($chunk, 5, '0'))];
+        }
+
+        return $out;
     }
 }

@@ -288,7 +288,7 @@ class ImportFromWhmcs extends Command
                     'email' => $record['email'],
                     'password' => $record['password'],
                     'tfa_secret' => $secret !== null ? Crypt::encryptString($secret) : null,
-                    'email_verified_at' => ($record['email_verified_at'] ?? null) ?: null,
+                    'email_verified_at' => str_starts_with((string) ($record['email_verified_at'] ?? ''), '0000') ? null : (($record['email_verified_at'] ?? null) ?: null),
                     'created_at' => $date($record['created_at'] ?? null),
                     'updated_at' => $date($record['updated_at'] ?? null),
                 ];
@@ -316,7 +316,7 @@ class ImportFromWhmcs extends Command
 
             foreach ($records as $record) {
                 // An account always has its owner in WHMCS (docs/accounts.md: exactly one each): one without is skipped.
-                $stmt = $this->pdo->prepare('SELECT auth_user_id FROM tblusers_clients WHERE client_id = :client_id AND owner = 1 LIMIT 1');
+                $stmt = $this->pdo->prepare('SELECT auth_user_id FROM tblusers_clients WHERE client_id = :client_id AND owner = 1 AND auth_user_id IN (SELECT id FROM tblusers) LIMIT 1');
                 $stmt->bindValue(':client_id', $record['id'], PDO::PARAM_INT);
                 $stmt->execute();
                 if (!$stmt->fetch(PDO::FETCH_ASSOC)) {
