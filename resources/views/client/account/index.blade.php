@@ -12,6 +12,12 @@
             <x-form.input name="email" type="email" :label="__('general.input.email')"
                 :placeholder="__('general.input.email_placeholder')" required wire:model="email" dirty />
 
+            {{-- Asked only for a new email (its owner's password): a password reset goes to that address. --}}
+            <div x-data="{ was: @js(auth()->user()->email) }" x-show="($wire.email || '').toLowerCase().trim() !== was.toLowerCase()" x-cloak>
+                <x-form.input name="email_password" type="password" :label="__('account.input.password_to_change_email')"
+                    wire:model="email_password" autocomplete="current-password" />
+            </div>
+
         </div>
 
         @if($canEditDetails)

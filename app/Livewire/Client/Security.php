@@ -4,6 +4,8 @@ namespace App\Livewire\Client;
 
 use App\Livewire\Component;
 use App\Models\UserSession;
+use App\Support\Actor;
+use App\Support\Reauth;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Session;
@@ -46,8 +48,8 @@ class Security extends Component
     {
         $this->validate();
 
-        if (!Hash::check($this->current_password, Auth::user()->password)) {
-            return $this->notify(__('account.notifications.password_incorrect'), 'error');
+        if (($refusal = Reauth::refusal(Auth::user(), $this->current_password)) !== null) {
+            return $this->notify($refusal, 'error');
         }
 
         Auth::user()->update([
@@ -62,12 +64,26 @@ class Security extends Component
         $this->reset('current_password', 'password', 'password_confirmation');
     }
 
+    /** Asked to turn two-factor authentication on: the password with the first code (review of #332). */
+    public string $enable_password = '';
+
     public function enableTwoFactor()
     {
+        if (Actor::impersonating()) {
+            return $this->notify(__('account.notifications.not_while_impersonating'), 'error');
+        }
+        // On already: never replaced here (turned off first, with the password and a code: F1 of #332).
+        if (Auth::user()->tfa_secret) {
+            return $this->notify(__('account.notifications.two_factor_enabled'), 'error');
+        }
         if ($this->showEnableTwoFactor) {
             $this->validate([
                 'twoFactorCode' => 'required|string',
             ]);
+            if (($refusal = Reauth::refusal(Auth::user(), $this->enable_password)) !== null) {
+                return $this->notify($refusal, 'error');
+            }
+            $this->reset('enable_password');
 
             $tfa = new TwoFactorAuth(new EndroidQrCodeProvider, config('app.name'));
             if ($tfa->verifyCode($this->twoFactorData['secret'], $this->twoFactorCode)) {
@@ -97,8 +113,26 @@ class Security extends Component
         }
     }
 
+    /** Asked to turn two-factor authentication off: the password and a code from the app (AUTHN-1). */
+    public string $disable_password = '';
+
+    public string $disable_code = '';
+
     public function disableTwoFactor()
     {
+        if (Actor::impersonating()) {
+            return $this->notify(__('account.notifications.not_while_impersonating'), 'error');
+        }
+        $user = Auth::user();
+        $tfa = new TwoFactorAuth(new EndroidQrCodeProvider, config('app.name'));
+        if (($refusal = Reauth::refusal($user, $this->disable_password)) !== null) {
+            return $this->notify($refusal, 'error');
+        }
+        if (!is_string($user->tfa_secret) || !$tfa->verifyCode($user->tfa_secret, preg_replace('/\s+/', '', $this->disable_code))) {
+            return $this->notify(__('account.notifications.two_factor_code_incorrect'), 'error');
+        }
+        $this->reset('disable_password', 'disable_code');
+
         Auth::user()->update([
             'tfa_secret' => null,
         ]);
