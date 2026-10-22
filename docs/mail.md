@@ -41,6 +41,12 @@ The send itself keeps the row. Queue events do not, except the queue's last fail
   that failed without ever going out and were not resent yet. Rows from before the audit are skipped. It runs by hand
   only and is never scheduled.
 
+## Στον πελάτη: «Τα email μου» (2026-10-22)
+`/account/emails` (`Client\Emails`), με την άδεια `emails` του WHMCS («Προβολή email»· ο owner την έχει πάντα). Δείχνει
+τα **sent** του λογαριασμού, τα νεότερα πρώτα, και ανοίγει το καθένα όπως το κρατά το log: κωδικοί και links σύνδεσης
+μασκαρισμένα, σε `iframe sandbox` (κανένα script, τα links σε νέα καρτέλα). Όχι τα failed/pending (δεν έφτασαν),
+όχι τα `system` του staff, όχι ό,τι ξαναέστειλε το staff σε διεύθυνση staff.
+
 ## Kept
 `email_logs` rows are kept for 90 days (`cronjob_delete_email_logs`).
 

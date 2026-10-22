@@ -222,6 +222,12 @@ class Navigation
                                 'priority' => 50,
                             ],
                             [
+                                'name' => __('account.emails.title'),
+                                'url' => route('account.emails'),
+                                'condition' => CurrentClient::allows('emails'),
+                                'priority' => 52,
+                            ],
+                            [
                                 'name' => __('navigation.contacts'),
                                 'url' => route('account.contacts'),
                                 'condition' => CurrentClient::allows('contacts'),
