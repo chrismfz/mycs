@@ -55,7 +55,7 @@ $audits = $audits->sortByDesc('created_at')->sortByDesc('id');
                             <div class="flex flex-wrap items-center gap-x-2">
                                 <span class="font-semibold">{{ $key }}</span>
                                 <p class="text-green-300 p-1 rounded font-mono">
-                                    {{ $value['new'] ?? '' }}
+                                    {{ is_scalar($value['new'] ?? '') || ($value['new'] ?? null) === null ? ($value['new'] ?? '') : json_encode($value['new'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) }}
                                 </p>
                             </div>
                         </div>
@@ -74,11 +74,11 @@ $audits = $audits->sortByDesc('created_at')->sortByDesc('id');
                             <div class="flex flex-wrap items-center gap-x-2">
                                 <span class="font-semibold">{{ $key }}</span> changed from
                                 <p class="text-red-300 p-1 rounded font-mono">
-                                    {{ $value['old'] ?? '' }}
+                                    {{ is_scalar($value['old'] ?? '') || ($value['old'] ?? null) === null ? ($value['old'] ?? '') : json_encode($value['old'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) }}
                                 </p>
                                 <p class="font-medium">-></p>
                                 <p class="text-green-300 p-1 rounded font-mono">
-                                    {{ $value['new'] ?? '' }}
+                                    {{ is_scalar($value['new'] ?? '') || ($value['new'] ?? null) === null ? ($value['new'] ?? '') : json_encode($value['new'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) }}
                                 </p>
                             </div>
                         </div>

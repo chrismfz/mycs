@@ -96,8 +96,10 @@ class Unlock extends Command
         $staff->auditEvent = 'unlocked_from_console';
         $staff->isCustomEvent = true;
         $staff->auditCustomOld = [];
-        $staff->auditCustomNew = ['changes' => $changes, 'host' => gethostname()];
+        $staff->auditCustomNew = ['changes' => implode(', ', $changes), 'host' => (string) gethostname()];
         event(new AuditCustom($staff));
+        $staff->isCustomEvent = false; // a later save of this instance audits as usual
+        $staff->auditCustomNew = [];
         Log::warning('Staff unlocked from the console', ['staff_id' => $staff->id, 'changes' => $changes]);
         NotificationHelper::sendSystemEmailNotification('A member of staff was unlocked from the console', e(
             "{$who}: " . implode(', ', $changes) . ', on ' . gethostname() . ' at ' . now()->toDateTimeString() . '. If nobody here did it, the server itself is in other hands.'

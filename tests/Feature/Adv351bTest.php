@@ -4,8 +4,10 @@ namespace Tests\Feature;
 
 use App\Models\Staff;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
+use OwenIt\Auditing\Events\AuditCustom;
 use Tests\TestCase;
 
 /** Adversarial re-review of #351 (abcb104a: the unlock's custom audit event). */
@@ -30,5 +32,20 @@ class Adv351bTest extends TestCase
 
         $this->assertStringContainsString('unlocked_from_console', $html);
         $this->assertStringContainsString('2FA reset', $html);
+    }
+
+    public function test_an_audit_with_a_list_value_still_renders(): void
+    {
+        $staff = Staff::factory()->admin()->create();
+        $staff->auditEvent = 'probe';
+        $staff->isCustomEvent = true;
+        $staff->auditCustomOld = ['tags' => ['a']];
+        $staff->auditCustomNew = ['tags' => ['a', 'b <c>']];
+        event(new AuditCustom($staff));
+        Config::set('audit.console', true);
+
+        $html = view('admin.actions.audits', ['record' => $staff->fresh(), 'children' => []])->render();
+
+        $this->assertStringContainsString('[&quot;a&quot;,&quot;b &lt;c&gt;&quot;]', $html, 'printed as JSON, escaped');
     }
 }
