@@ -7,6 +7,7 @@ use App\Livewire\Component;
 use App\Models\Ticket;
 use App\Models\TicketDepartment;
 use App\Support\CurrentClient;
+use App\Support\Knowledgebase\KbSearch;
 use App\Support\Tickets\TicketFiles;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
@@ -23,7 +24,7 @@ class Create extends Component
 
     public string $message;
 
-    public string $subject;
+    public string $subject = '';
 
     public ?int $department = null;
 
@@ -88,6 +89,7 @@ class Create extends Component
         return view('tickets.create', [
             'departments' => TicketDepartment::query()->offered()->get(['id', 'name']),
             'services' => CurrentClient::allows('products') ? CurrentClient::model()->services()->orderBy('id', 'desc')->get() : collect(),
+            'suggestions' => KbSearch::find($this->subject, 5),
         ])->layoutData([
             'title' => __('ticket.create_ticket'),
             'sidebar' => true,

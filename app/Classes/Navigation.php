@@ -5,6 +5,7 @@ namespace App\Classes;
 use App\Helpers\EventHelper;
 use App\Models\Category;
 use App\Models\DomainTld;
+use App\Models\KbArticle;
 use App\Models\User;
 use App\Services\Domains\Ordering\DomainOffer;
 use App\Support\Actor;
@@ -44,6 +45,13 @@ class Navigation
                     ],
                     'condition' => $domains,
                     'icon' => 'ri-global',
+                ],
+                [
+                    // The knowledgebase (docs/knowledgebase.md), once it has an article to read.
+                    'name' => __('navigation.knowledgebase'),
+                    'url' => route('kb.index'),
+                    'icon' => 'ri-book-open',
+                    'condition' => self::hasKnowledgebase(),
                 ],
                 [
                     // A ticket to support: a guest's by the contact form (docs/tickets.md §3 Ζ), a login's as «New ticket».
@@ -93,9 +101,18 @@ class Navigation
                 $links[] = ['name' => __('navigation.new_order'), 'children' => $order, 'icon' => 'ri-add-circle-line',
                     'active' => collect($order)->contains(fn ($child) => (bool) ($child['active'] ?? false))];
             }
+            if (self::hasKnowledgebase()) {
+                $links[] = ['name' => __('navigation.knowledgebase'), 'url' => route('kb.index'), 'icon' => 'ri-book-open',
+                    'active' => request()->routeIs('kb.*')];
+            }
 
             return $links;
         });
+    }
+
+    private static function hasKnowledgebase(): bool
+    {
+        return once(fn () => KbArticle::query()->published()->exists());
     }
 
     // Get navigation items for user dropdown menu

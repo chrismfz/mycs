@@ -31,6 +31,7 @@
 - **Αποθηκευμένοι τρόποι πληρωμής:** Stripe (customer + pm), PayPal vault (13/15 ελεγμένα), ανά πελάτη· η αυτόματη
   χρέωση διαλέγει τον σωστό.
 - **Tickets:** πλήθος ανά τμήμα/status, **με συνημμένα** και replies· predefined replies.
+- **Knowledgebase:** άρθρα και κατηγορίες με τα ids του WHMCS, συνδέσεις, tags, μεταφράσεις, εικόνες στο MyCS (`knowledgebase.md`).
 - **Licensing (nixpal):** πλήθος ανά status· `zlic.php` byte-for-byte στα fixtures· shadow-run.
 - **Pending υπηρεσίες με μόνο ακυρωμένα τιμολόγια** (BIL-12, #75): στο πρώτο run του cron μετά το cut-over
   ακυρώνονται όλες μαζί (παλαιότερες από `cronjob_order_cancel` ημέρες) και το stock τους επιστρέφει. Να μετρηθούν

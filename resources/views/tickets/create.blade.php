@@ -3,7 +3,20 @@
 <div class="bg-primary-800 p-6 rounded-lg mt-2">
     <h1 class="text-2xl font-semibold mb-2">{{ __('ticket.create_ticket') }}</h1>
     <div class="grid grid-cols-2 gap-4">
-        <x-form.input wire:model="subject" label="{{ __('ticket.subject') }}" name="subject" required />
+        <div>
+            <x-form.input wire:model.live.debounce.600ms="subject" label="{{ __('ticket.subject') }}" name="subject" required />
+            {{-- Articles that may answer it, as WHMCS's «Knowledgebase suggestions» (docs/knowledgebase.md). --}}
+            @if ($suggestions->isNotEmpty())
+            <div class="mt-2 text-sm">
+                <p class="text-base/60">{{ __('knowledgebase.suggestions') }}</p>
+                <ul class="list-disc ms-5">
+                    @foreach ($suggestions as $suggestion)
+                    <li><a href="{{ $suggestion->url() }}" target="_blank" rel="noopener" class="underline">{{ $suggestion->localized('title') }}</a></li>
+                    @endforeach
+                </ul>
+            </div>
+            @endif
+        </div>
         @if (count($departments) > 0)
             <x-form.select wire:model="department" label="{{ __('ticket.department') }}" name="department" required>
                 <option value="">{{ __('ticket.select_department') }}</option>

@@ -14,6 +14,7 @@ use App\Models\Role;
 use App\Models\Service;
 use App\Models\Setting;
 use App\Providers\SettingsProvider;
+use App\Services\Import\WhmcsKnowledgebaseImport;
 use App\Services\Import\WhmcsMassPay;
 use App\Services\Import\WhmcsTicketImport;
 use App\Services\Licensing\WhmcsLicensingImport;
@@ -98,6 +99,7 @@ class ImportFromWhmcs extends Command
             $this->importProducts();
             $this->importPromotions();
             $this->importTickets();
+            $this->importKnowledgebase();
             $this->importOrders();
             $this->importServices();
             $this->importLicensing();
@@ -742,6 +744,15 @@ class ImportFromWhmcs extends Command
         }
         if (ImportWhmcsTickets::report($this, (new WhmcsTicketImport($this->pdo, is_string($folder) && $folder !== '' ? $folder : null))->run()) !== self::SUCCESS) {
             $this->warn('Tickets: see above; app:import-whmcs-tickets can be run again on its own.');
+        }
+    }
+
+    /** The knowledgebase (docs/knowledgebase.md); also on its own: app:import-whmcs-knowledgebase. */
+    private function importKnowledgebase()
+    {
+        $this->info('Importing the knowledgebase... (' . $this->count('tblknowledgebase') . ' records)');
+        if (ImportWhmcsKnowledgebase::report($this, (new WhmcsKnowledgebaseImport($this->pdo))->run()) !== self::SUCCESS) {
+            $this->warn('Knowledgebase: see above; app:import-whmcs-knowledgebase can be run again on its own.');
         }
     }
 

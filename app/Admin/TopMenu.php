@@ -35,6 +35,8 @@ use App\Admin\Resources\GatewayResource;
 use App\Admin\Resources\HttpLogResource;
 use App\Admin\Resources\InvoiceResource;
 use App\Admin\Resources\InvoiceTransactions\InvoiceTransactionResource;
+use App\Admin\Resources\KbArticleResource;
+use App\Admin\Resources\KbCategoryResource;
 use App\Admin\Resources\LicenseResource;
 use App\Admin\Resources\McpCallResource;
 use App\Admin\Resources\McpOauthGrantResource;
@@ -109,6 +111,8 @@ class TopMenu
             [TicketBlockedSenderResource::class, 'index', 'Blocked Senders'],
             [CannedReplyResource::class, 'index', 'Predefined Replies'],
             [CannedReplyCategoryResource::class, 'index', 'Reply Categories'],
+            [KbArticleResource::class, 'index', 'Knowledgebase'],
+            [KbCategoryResource::class, 'index', 'Knowledgebase Categories'],
         ],
         'Reports' => [
             [RevenueForecast::class],

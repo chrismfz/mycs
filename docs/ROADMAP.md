@@ -49,19 +49,19 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       PayPal) αρνείται. Domain: οι επαφές του αντιγράφονται στον νέο πελάτη, τα handles μένουν· τίποτα στον registrar
       (η αλλαγή κατόχου στο μητρώο είναι το G8-5). Σημείωση και στους δύο λογαριασμούς. Το πεδίο «Client» της φόρμας της
       υπηρεσίας δεν αλλάζει πια με edit.
-- [ ] **Knowledgebase: απόφαση υπευθύνου.** ~2.500 επισκέπτες/μήνα (κυρίως από Google) στο `/clients/knowledgebase`.
-      (α) μένει στα sites των εταιρειών και φτιάχνεται ο **χάρτης 301** (βλ. «Cut-over»)· ή (β) KB μέσα στο MyCS
-      (κατηγορίες, άρθρα el/en, αναζήτηση, ίδια URLs ή 301, προτάσεις στο άνοιγμα ticket).
-      Editor: ο MarkdownEditor ή ο RichEditor του Filament (χωρίς νέο πακέτο). **Import από το WHMCS:** `tblknowledgebase`
-      (άρθρα, σειρά, προβολές), `tblknowledgebasecats` (κατηγορίες, με γονέα), `tblknowledgebaselinks` (άρθρο ↔ κατηγορία),
-      `tblknowledgebasetags`, και οι μεταφράσεις στο `tbldynamic_translations`· τα URLs των άρθρων κρατιούνται ή γίνονται 301.
+- [x] ~~**Knowledgebase**~~ **έγινε (feat/knowledgebase, αποφάσεις υπευθύνου 2026-10-23, `knowledgebase.md`):** μέσα στο
+      MyCS, δημόσια, **στα ίδια URLs με το WHMCS** (`/knowledgebase/{id}/{slug}.html`, κατηγορίες, tags)· τα
+      `/clients/knowledgebase/...` και το `knowledgebase.php` κάνουν 301. RichEditor (HTML, sanitized), γλώσσα του
+      instance με προαιρετική μετάφραση, αναζήτηση χωρίς τόνους, προτάσεις στο άνοιγμα ticket, μόνο προβολές. Import με
+      τα ίδια ids, εικόνες στο MyCS, parity (`app:import-whmcs-knowledgebase`, και στο πλήρες import).
 - [ ] Whois από το admin: υπάρχει ανά domain (κουμπί «WHOIS» στο domain, ανοίγει το `/whois`)· μένει, αν χρειαστεί, φόρμα
       στο μενού Domains του admin (80 χρήσεις/μήνα στο WHMCS).
 - [ ] Ένδειξη SSL δίπλα σε κάθε domain στο portal (το `ssl-check` του WHMCS, 90 πελάτες/μήνα)· μπορεί να δένει με το SSL.
 
 ### Cut-over (myip, και ό,τι ισχύει για τη nixpal)
-- [ ] **Χάρτης 301 για τα URLs που φέρνουν κίνηση** από Google: `/clients/knowledgebase/...` (~2.500/μήνα) στις σελίδες
-      της KB, `/clients/store/...` (~640/μήνα) στα προϊόντα του MyCS, `/clients/announcements`. Αλλιώς χάνεται η κίνηση.
+- [ ] **Χάρτης 301 για τα URLs που φέρνουν κίνηση** από Google: `/clients/knowledgebase/...` (~2.500/μήνα): τα 301
+      υπάρχουν στο MyCS (`knowledgebase.md`), μένει το rewrite του `/clients/knowledgebase` του myip.gr προς το
+      MyCS· `/clients/store/...` (~640/μήνα) στα προϊόντα του MyCS, `/clients/announcements`. Αλλιώς χάνεται η κίνηση.
 - [ ] Freeze, import, DNS/rewrites, προώθηση του IPN του PayPal (το endpoint υπάρχει, `routes/legacy.php`), dump του
       WHMCS για αρχείο· οι ρυθμίσεις του myip από το `settings-map.md`· **G8-2** καθάρισμα των `533_`/`c60_`· η
       αρίθμηση συνεχίζει από τον τελευταίο του WHMCS (> 32.476 στις 2026-10-11· ξαναδιαβάζεται τη μέρα).
