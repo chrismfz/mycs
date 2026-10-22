@@ -363,6 +363,8 @@ class Show extends Component
         try {
             $url = ExtensionHelper::callService($this->service, 'getLoginUrl', [$app]);
         } catch (Exception $e) {
+            // A redirect asked for before the failure goes nowhere (ADV-2 of #323).
+            store($this)->set('redirect', null);
             report($e);
             $this->notify(__('services.cpanel.failed'), 'error');
 
