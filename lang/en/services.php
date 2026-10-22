@@ -101,6 +101,17 @@ return [
             'Stats_AWStats' => 'Awstats',
         ],
     ],
+    'hosted' => [
+        'title' => 'Domains on this account',
+        'account' => 'Account :account',
+        'subdomains' => ':count subdomain(s)',
+        'types' => [
+            'main' => 'main',
+            'addon' => 'addon',
+            'parked' => 'alias',
+            'sub' => 'subdomain',
+        ],
+    ],
     'usage' => [
         'title' => 'Usage',
         'disk' => 'Disk space',

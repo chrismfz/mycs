@@ -1010,6 +1010,12 @@ class Service extends Model implements Auditable
         return OrderPricing::line(['price' => (string) $price, 'setup_fee' => '0.00', 'options' => (string) $options], $discount, $this->client, $this->product, $groupPercent)->netPrice;
     }
 
+    /** @return HasMany<ServiceHostedDomain, $this> the domains its account hosts, as its server last told them */
+    public function hostedDomains(): HasMany
+    {
+        return $this->hasMany(ServiceHostedDomain::class)->orderByRaw("CASE type WHEN 'main' THEN 0 WHEN 'addon' THEN 1 WHEN 'parked' THEN 2 ELSE 3 END")->orderBy('domain');
+    }
+
     /** @return HasOne<ServiceUsage, $this> its usage as its server last told it (services:usage) */
     public function usage(): HasOne
     {

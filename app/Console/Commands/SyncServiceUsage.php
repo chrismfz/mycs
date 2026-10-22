@@ -2,12 +2,15 @@
 
 namespace App\Console\Commands;
 
+use App\Contracts\ReadsHostedDomains;
 use App\Contracts\ReadsServiceUsage;
 use App\Helpers\ExtensionHelper;
 use App\Models\Service;
+use App\Models\ServiceHostedDomain;
 use App\Models\ServiceUsage;
 use App\Support\Redact;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
@@ -19,7 +22,7 @@ class SyncServiceUsage extends Command
 {
     protected $signature = 'services:usage {--service= : one service (its id)}';
 
-    protected $description = 'Read the disk and bandwidth usage of every live service from its server (cPanel)';
+    protected $description = 'Read the disk and bandwidth usage, and the domains each account hosts, of every live service from its server (cPanel)';
 
     public function handle(): int
     {
@@ -53,8 +56,44 @@ class SyncServiceUsage extends Command
                 ]);
             }
             $this->line("{$server->name}: " . count($read) . ' of ' . $group->count() . ' service(s) read');
+            if ($extension instanceof ReadsHostedDomains && !$this->domains($extension, $group->values()->all(), $server->name)) {
+                $failed = true;
+            }
         }
 
         return $failed ? self::FAILURE : self::SUCCESS;
+    }
+
+    /**
+     * Each service's hosted domains replaced by what its server tells now (a domain gone there goes here); a service not
+     * found there keeps what it had. A server that fails keeps them all. Returns whether it was read.
+     *
+     * @param  list<Service>  $services
+     */
+    private function domains(ReadsHostedDomains $extension, array $services, string $server): bool
+    {
+        try {
+            $read = $extension->hostedDomains($services);
+        } catch (Throwable $e) {
+            report($e);
+            $this->error("{$server} (domains): " . Redact::text($e->getMessage()));
+
+            return false;
+        }
+        foreach ($read as $serviceId => $domains) {
+            DB::transaction(function () use ($serviceId, $domains) {
+                $now = now();
+                $keep = [];
+                foreach ($domains as $entry) {
+                    $keep[] = $entry['domain'];
+                    ServiceHostedDomain::query()->updateOrCreate(['service_id' => $serviceId, 'domain' => $entry['domain']],
+                        ['type' => $entry['type'], 'account' => $entry['account'], 'read_at' => $now]);
+                }
+                ServiceHostedDomain::query()->where('service_id', $serviceId)->whereNotIn('domain', $keep)->delete();
+            });
+        }
+        $this->line("{$server}: domains of " . count($read) . ' service(s) read');
+
+        return true;
     }
 }
