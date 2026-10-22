@@ -14,8 +14,11 @@ use App\Models\ServiceUpgrade;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
+use App\Services\ServiceUpgrade\ChangeCycle;
 use App\Services\ServiceUpgrade\ServiceUpgradeService;
+use Brick\Math\BigDecimal;
 use Carbon\Carbon;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -225,6 +228,9 @@ class Upgrade extends Component
             if ($price->price <= 0) {
                 // The credit as priced, before the service changes.
                 $gross = $upgrade->grossPrice();
+                // Never more than what is left of what was paid for the period (a first-cycle coupon, an offer: the
+                // renewal price was not paid), as a cycle change (ChangeCycle::unused), read before the change: P-1.
+                $paid = BigDecimal::of(ChangeCycle::unused($service, CarbonImmutable::now()));
                 // Refused when the service stopped running meanwhile: no credit for a downgrade that did not happen.
                 if (!(new ServiceUpgradeService)->handle($upgrade)) {
                     DB::rollBack();
@@ -243,7 +249,8 @@ class Upgrade extends Component
 
                 // The difference of a downgrade becomes account credit, through the ledger (docs/money-trail.md §2),
                 // with its tax: the unused period was paid with tax, and credit pays invoices with tax (Δ1).
-                $cents = RecordPaymentService::toCents(abs((float) $gross->price));
+                $credit = BigDecimal::min(BigDecimal::of(number_format(abs((float) $gross->price), 2, '.', '')), $paid);
+                $cents = RecordPaymentService::toCents((string) $credit);
                 if ($cents > 0) {
                     (new CreditLedger)->add((int) $service->client_id, $price->currency->code, $cents, MoneyTrail::CAUSE_DOWNGRADE, MoneyTrail::SOURCE_SYSTEM);
                 }
