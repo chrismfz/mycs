@@ -108,10 +108,11 @@ final class SslCatalog
                 if ($converted === null) {
                     continue; // never a silent conversion
                 }
-                $out[$currency][$years] = [
-                    'price' => TldPriceMath::round(TldPriceMath::withMargin($converted, $options->marginType, $options->margin), $options->rounding),
-                    'cost' => TldPriceMath::cents($converted),
-                ];
+                $price = TldPriceMath::round(TldPriceMath::withMargin($converted, $options->marginType, $options->margin), $options->rounding);
+                if (bccomp($price, '0', 2) <= 0) {
+                    continue; // never a free price written (R2-3 of #348: a rate typed too small)
+                }
+                $out[$currency][$years] = ['price' => $price, 'cost' => TldPriceMath::cents($converted)];
             }
         }
 
@@ -133,6 +134,12 @@ final class SslCatalog
         return $rate === null || $rate === '' ? null : TldPriceMath::convert($cost['cost'], $rate);
     }
 
+    /** A price the import keeps as it is: free (0.00) or not offered (none), with keepFreeAndClosed (D-6). */
+    public static function keeps(?string $price, TldImportOptions $options): bool
+    {
+        return $options->keepFreeAndClosed && ($price === null || bccomp($price, '0', 2) === 0);
+    }
+
     /** The margin a price leaves over a cost, in percent of the cost (one decimal); none for no cost. */
     public static function marginPercent(string $price, string $cost): ?string
     {
@@ -145,10 +152,10 @@ final class SslCatalog
 
     /**
      * The live (not retired) MyCS products of this SSL server, by their Openprovider product id: all of them (two with one
-     * id are both repriced and both shown, ADV-3 of #348), each with its prices now, the lowest where two plans have the
-     * same years (ADV-10).
+     * id are both repriced and both shown, ADV-3 of #348), each with every price now of each currency and years (two plans
+     * of the same years: both, ADV-10, R2-1), null for a price not offered.
      *
-     * @return array<int, list<array{product: Product, prices: array<string, array<int, string>>}>> id => products
+     * @return array<int, list<array{product: Product, prices: array<string, array<int, list<string|null>>>}>> id => products
      */
     public static function linked(Server $server): array
     {
@@ -166,11 +173,7 @@ final class SslCatalog
                     continue;
                 }
                 foreach ($plan->prices as $price) {
-                    if ($price->price !== null) {
-                        $now = $prices[$price->currency_code][$years] ?? null;
-                        $amount = number_format((float) $price->price, 2, '.', '');
-                        $prices[$price->currency_code][$years] = $now === null || bccomp($amount, $now, 2) < 0 ? $amount : $now;
-                    }
+                    $prices[$price->currency_code][$years][] = $price->price === null ? null : number_format((float) $price->price, 2, '.', '');
                 }
             }
             $out[$id][] = ['product' => $product, 'prices' => $prices];
@@ -209,8 +212,9 @@ final class SslCatalog
                 }
                 foreach ($linked[$id] ?? [] as $existing) {
                     foreach ($existing['prices'] as $currency => $byYears) {
-                        foreach ($byYears as $years => $price) {
-                            if ($years <= $options->years && isset($entry['costs'][$years]) && bccomp($price, '0', 2) > 0 && !isset($prices[$currency][$years])) {
+                        foreach ($byYears as $years => $all) {
+                            $priced = array_filter($all, fn (?string $price) => $price !== null && bccomp($price, '0', 2) > 0); // each plan's own (R2-1)
+                            if ($years <= $options->years && isset($entry['costs'][$years]) && $priced !== [] && !isset($prices[$currency][$years])) {
                                 throw new InvalidArgumentException(__('«:product» is priced in :currency, which the import cannot price: give its rate.', [
                                     'product' => $existing['product']->name, 'currency' => $currency]));
                             }
@@ -248,7 +252,7 @@ final class SslCatalog
                         continue;
                     }
                     $row = $plan->prices()->where('currency_code', $currency)->first();
-                    if ($row !== null && $options->keepFreeAndClosed && ($row->price === null || bccomp((string) $row->price, '0', 2) === 0)) {
+                    if ($row !== null && self::keeps($row->price === null ? null : (string) $row->price, $options)) {
                         continue; // a free or not-offered price is a decision (D-6)
                     }
                     $plan->prices()->updateOrCreate(['currency_code' => $currency], ['price' => $byYears[$years]['price']]);

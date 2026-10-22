@@ -190,11 +190,11 @@ class ImportSsl extends Page implements HasForms
         $rows = [];
         foreach ($this->fetched as $id => $entry) {
             $products = array_column($linked[$id] ?? [], 'product');
-            $now = [];
+            $now = []; // currency => years => every price now of its products and plans (null: not offered)
             foreach ($linked[$id] ?? [] as $existing) {
                 foreach ($existing['prices'] as $currency => $byYears) {
-                    foreach ($byYears as $years => $price) {
-                        $now[$currency][$years] = isset($now[$currency][$years]) && bccomp($now[$currency][$years], $price, 2) <= 0 ? $now[$currency][$years] : $price;
+                    foreach ($byYears as $years => $all) {
+                        $now[$currency][$years] = array_merge($now[$currency][$years] ?? [], $all);
                     }
                 }
             }
@@ -206,11 +206,19 @@ class ImportSsl extends Page implements HasForms
                 foreach ($years as $y) {
                     $cost = isset($entry['costs'][$y]) ? SslCatalog::cost($entry['costs'][$y], $currency, $options) : null;
                     $cost = $cost !== null ? TldPriceMath::cents($cost) : null;
-                    $priceNow = $now[$currency][$y] ?? null;
+                    $all = $now[$currency][$y] ?? [];
+                    $amounts = array_values(array_filter($all, fn ($p) => $p !== null));
+                    usort($amounts, fn ($a, $b) => bccomp($a, $b, 2));
+                    $low = $amounts[0] ?? null;
+                    $high = $amounts !== [] ? end($amounts) : null;
                     $priceNew = $new[$currency][$y]['price'] ?? null;
-                    $lines[] = ['currency' => $currency, 'years' => $y, 'cost' => $cost, 'now' => $priceNow,
-                        'now_margin' => $priceNow !== null && $cost !== null ? SslCatalog::marginPercent($priceNow, $cost) : null,
-                        'new' => $priceNew, 'new_margin' => $priceNew !== null && $cost !== null ? SslCatalog::marginPercent($priceNew, $cost) : null];
+                    // A free or not-offered price now is kept by the import (D-6): told, never shown as the new one (R2-2 of #348).
+                    $kept = array_values(array_filter($all, fn ($p) => SslCatalog::keeps($p, $options)));
+                    $lines[] = ['currency' => $currency, 'years' => $y, 'cost' => $cost, 'now' => $low, 'now_high' => $high !== $low ? $high : null,
+                        'now_margin' => $low !== null && $cost !== null ? SslCatalog::marginPercent($low, $cost) : null,
+                        'new' => $kept !== [] && count($kept) === count($all) ? null : $priceNew,
+                        'new_margin' => $priceNew !== null && $cost !== null ? SslCatalog::marginPercent($priceNew, $cost) : null,
+                        'kept_free' => $kept !== []];
                 }
             }
             $rows[] = $entry + [

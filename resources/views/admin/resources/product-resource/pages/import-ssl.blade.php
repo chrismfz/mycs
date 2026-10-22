@@ -67,7 +67,7 @@
                                         <td class="py-2 pr-3 whitespace-nowrap">{{ $line['cost'] ?? '—' }}</td>
                                         <td class="py-2 pr-3 whitespace-nowrap">
                                             @if ($line['now'] !== null)
-                                                {{ $line['now'] }}
+                                                {{ $line['now'] }}@if ($line['now_high']) – {{ $line['now_high'] }}@endif
                                                 @if ($line['now_margin'] !== null)
                                                 <span class="text-xs {{ (float) $line['now_margin'] < 0 ? 'text-danger-600' : 'text-gray-500' }}">({{ $line['now_margin'] }}%)</span>
                                                 @endif
@@ -77,7 +77,10 @@
                                         </td>
                                         <td class="py-2 whitespace-nowrap font-medium">
                                             @if ($line['new'] !== null)
-                                                {{ $line['new'] }} <span class="text-xs text-gray-500">({{ $line['new_margin'] }}%)</span>
+                                                {{ $line['new'] }} @if ($line['new_margin'] !== null)<span class="text-xs text-gray-500">({{ $line['new_margin'] }}%)</span>@endif
+                                                @if ($line['kept_free'])<span class="block text-xs font-normal text-warning-600">{{ __('free or not offered prices kept') }}</span>@endif
+                                            @elseif ($line['kept_free'])
+                                                <span class="text-xs font-normal text-warning-600">{{ __('kept: free or not offered') }}</span>
                                             @else
                                                 <span class="text-xs font-normal text-warning-600">{{ __('kept (no rate or not chosen)') }}</span>
                                             @endif

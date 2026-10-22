@@ -139,7 +139,7 @@ class SslCatalogTest extends TestCase
         $this->assertSame(1, Product::query()->count());
         $this->assertSame('11.53', (string) $product->plans()->where('billing_unit', 'year')->sole()->prices()->value('price'));
         $this->assertSame('1.00', number_format((float) $monthly->prices()->value('price'), 2), 'another plan untouched');
-        $this->assertSame(['EUR' => [1 => '11.53']], SslCatalog::linked($this->server)[9][0]['prices']);
+        $this->assertSame(['EUR' => [1 => ['11.53']]], SslCatalog::linked($this->server)[9][0]['prices']);
     }
 
     public function test_a_price_in_a_currency_with_no_rate_stops_the_import_and_a_free_price_is_kept(): void
