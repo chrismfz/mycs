@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\User;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\RateLimiter;
 use RobThree\Auth\Providers\Qr\EndroidQrCodeProvider;
@@ -34,25 +35,31 @@ final class Totp
     public static function accept(User $user, ?string $secret, string $code): bool
     {
         $code = (string) preg_replace('/\s+/', '', $code);
+        // Counted before it is checked (parallel requests never slip more past the limit), cleared when it is right.
+        RateLimiter::hit(self::limitKey($user), self::LOCKOUT_SECONDS);
         $step = 0;
         if (!is_string($secret) || $secret === '' || !(new TwoFactorAuth(new EndroidQrCodeProvider, config('app.name')))->verifyCode($secret, $code, 1, null, $step)) {
-            RateLimiter::hit(self::limitKey($user), self::LOCKOUT_SECONDS);
-
             return false;
         }
 
-        // Under a lock: two requests with the same code at once, one is accepted.
-        return (bool) Cache::lock('totp-step-lock:' . $user->id, 5)->block(3, function () use ($user, $step) {
-            $last = Cache::get('totp-step:' . $user->id);
-            if (is_int($last) && $step <= $last) {
-                RateLimiter::hit(self::limitKey($user), self::LOCKOUT_SECONDS);
+        // Under a lock: two requests with the same code at once, one is accepted. A lock not had in time refuses.
+        try {
+            return (bool) Cache::lock('totp-step-lock:' . $user->id, 5)->block(3, fn () => self::claim($user, $step));
+        } catch (LockTimeoutException) {
+            return false;
+        }
+    }
 
-                return false;
-            }
-            Cache::put('totp-step:' . $user->id, $step, now()->addMinutes(10));
-            RateLimiter::clear(self::limitKey($user));
+    private static function claim(User $user, int $step): bool
+    {
+        // Redis gives a stored number back as a string (review of #360).
+        $last = Cache::get('totp-step:' . $user->id);
+        if (is_numeric($last) && $step <= (int) $last) {
+            return false;
+        }
+        Cache::put('totp-step:' . $user->id, $step, now()->addMinutes(10));
+        RateLimiter::clear(self::limitKey($user));
 
-            return true;
-        });
+        return true;
     }
 }
