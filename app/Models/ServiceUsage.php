@@ -16,11 +16,12 @@ use Illuminate\Support\Carbon;
  * @property int|null $bandwidth_limit_mb
  * @property int|null $accounts
  * @property int|null $accounts_limit
+ * @property string $accounts_kind accounts (a reseller's) or mailboxes
  * @property Carbon $read_at
  */
 class ServiceUsage extends Model
 {
-    protected $fillable = ['service_id', 'disk_used_mb', 'disk_limit_mb', 'bandwidth_used_mb', 'bandwidth_limit_mb', 'accounts', 'accounts_limit', 'read_at'];
+    protected $fillable = ['service_id', 'disk_used_mb', 'disk_limit_mb', 'bandwidth_used_mb', 'bandwidth_limit_mb', 'accounts', 'accounts_limit', 'accounts_kind', 'read_at'];
 
     protected function casts(): array
     {

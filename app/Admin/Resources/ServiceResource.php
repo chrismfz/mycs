@@ -296,7 +296,7 @@ class ServiceResource extends Resource
                             ->state(fn (Service $record) => self::meter($record->usage?->disk_used_mb, $record->usage?->disk_limit_mb, true)),
                         TextEntry::make('usage_bandwidth')->label('Bandwidth (this month)')
                             ->state(fn (Service $record) => self::meter($record->usage?->bandwidth_used_mb, $record->usage?->bandwidth_limit_mb, true)),
-                        TextEntry::make('usage_accounts')->label('Accounts (reseller)')
+                        TextEntry::make('usage_accounts')->label(fn (Service $record) => $record->usage?->accounts_kind === 'mailboxes' ? 'Mailboxes' : 'Accounts (reseller)')
                             ->visible(fn (Service $record) => $record->usage?->accounts !== null)
                             ->state(fn (Service $record) => self::meter($record->usage?->accounts, $record->usage?->accounts_limit, false)),
                         TextEntry::make('usage_read_at')->label('Last updated')->columnSpanFull()

@@ -64,7 +64,7 @@
 
 **myip:**
 - [ ] cPanel: λογαριασμοί reseller (22), αλλαγή κωδικού (staff και πελάτης, 39 τον χρόνο), αργότερα συγχρονισμός χρήσης.
-- [ ] mailcow (10 υπηρεσίες): server extension πάνω στο `packages/mailcow`.
+- [x] ~~mailcow (10 υπηρεσίες)~~ **έγινε (feat/mailcow):** extension πάνω στο `packages/mailcow`, το port του δικού μας module του WHMCS: domain, DKIM και domain admin ανά υπηρεσία· suspend/terminate με την πολιτική του προϊόντος (`lock_only` από προεπιλογή, όπως όλα τα MyMail του myip· `delete_all` μόνο αν το λέει το προϊόν)· SSO, αλλαγή κωδικού, χρήση (mailboxes), domains του admin στο search. Μένουν: η αντιστοίχιση των MyMail (configoption 1–16) και του `username`/κωδικού στον importer· δοκιμή live στο mymail (με άδεια).
 - [ ] Proxmox (8 VPS): extension ή χειροκίνητο προϊόν (χωρίς start/stop και console για τον πελάτη): **απόφαση υπευθύνου**.
 - [ ] Product addons: ~~επιλογές της υπηρεσίας~~ έγινε (#296)· **μένει** η αντιστοίχιση στον importer (`importer.md`).
 - [ ] Μικροί κανόνες από τα hooks: email στο staff σε υπερπληρωμή· email σε κάθε suspend με τον λόγο· αυτόματη ακύρωση
@@ -143,7 +143,7 @@
     - root token για τους servers του myip, πριν τους resellers;
     - συμφιλίωση της κατάστασης μετά από job του server (το create υπάρχει, #114);
     - αργότερα: λίστα και διαχείριση email/domains μέσα από το MyCS, αν χρειαστεί.
-- [ ] Modules του myip: Proxmox, Centova, mailcow (το package `mailcow` υπάρχει χωρίς extension).
+- [ ] Modules του myip: Proxmox, Centova (mailcow έγινε), TheSSLStore (12, ξεχασμένο ως 2026-10-22); ngm και Hetzner ως χειροκίνητα προϊόντα.
 
 ### Licensing (`licensing.md`)
 - [ ] **Ποιοι χτυπάνε χωρίς να πρέπει** (ο υπεύθυνος, 2026-10-20): οθόνη του staff με
