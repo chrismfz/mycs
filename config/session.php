@@ -1,5 +1,7 @@
 <?php
 
+use App\Support\AuthCookies;
+
 return [
 
     /*
@@ -125,7 +127,10 @@ return [
     |
     */
 
-    'cookie' => 'mycs_session',
+    // __Host- whenever the cookie is Secure with no Domain (App\Support\AuthCookies): no sibling domain can set it.
+    'cookie' => (AuthCookies::prefixed(
+        (bool) env('SESSION_SECURE_COOKIE', str_starts_with((string) env('APP_URL', ''), 'https://')), env('SESSION_DOMAIN')
+    ) ? AuthCookies::PREFIX : '') . 'mycs_session',
 
     /*
     |--------------------------------------------------------------------------

@@ -6,9 +6,11 @@ use App\Livewire\Component;
 use App\Models\User;
 use App\Support\CallerIp;
 use App\Traits\Captchable;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Support\Str;
 use Livewire\Attributes\Validate;
 
 class Login extends Component
@@ -22,6 +24,12 @@ class Login extends Component
     public string $password = '';
 
     public bool $remember = false;
+
+    /** A hash of nothing anyone knows, made once with the current cost. */
+    private static function unknownLoginHash(): string
+    {
+        return Cache::rememberForever('login-unknown-hash:' . config('hashing.driver'), fn () => Hash::make(Str::random(40)));
+    }
 
     public function submit(\App\Actions\Auth\Login $loginAction)
     {
@@ -58,7 +66,8 @@ class Login extends Component
         }
 
         try {
-            $valid = $user !== null && Hash::check($this->password, $user->password);
+            // An unknown email costs the same hash check: the time taken never tells whether it has an account (G9).
+            $valid = Hash::check($this->password, $user === null ? self::unknownLoginHash() : (string) $user->password) && $user !== null;
         } catch (\RuntimeException) {
             $valid = false; // a hash in an old format (imported): «Forgot password» sets a new one
         }

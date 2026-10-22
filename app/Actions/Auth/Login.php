@@ -5,6 +5,7 @@ namespace App\Actions\Auth;
 use App\Events\Auth\Login as LoginEvent;
 use App\Models\User;
 use App\Models\UserSession;
+use App\Support\AuthCookies;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cookie;
@@ -14,7 +15,8 @@ class Login
 {
     public function execute(User $user, bool $remember = false): void
     {
-        Session::regenerate();
+        // A new id, the old one's record gone (what was in it, an intended URL, comes along).
+        Session::regenerate(true);
 
         // Create user session token - middleware will handle actual login
         $userSession = UserSession::create([
@@ -30,7 +32,7 @@ class Login
         Auth::guard('web')->login($user);
 
         if ($remember) {
-            Cookie::queue('mycs_remember', $userSession->ulid, 60 * 24 * 30); // 30 days
+            Cookie::queue(AuthCookies::remember(), $userSession->ulid, 60 * 24 * 30); // 30 days
         }
 
         event(new LoginEvent($user));

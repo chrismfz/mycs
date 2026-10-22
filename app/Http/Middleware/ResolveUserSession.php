@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Actions\Auth\Logout;
 use App\Models\UserSession;
+use App\Support\AuthCookies;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -27,7 +28,7 @@ class ResolveUserSession
         }
 
         if (!$token) {
-            $id = Cookie::get('mycs_remember');
+            $id = Cookie::get(AuthCookies::remember());
 
             if ($id) {
                 $token = UserSession::findValid($id);

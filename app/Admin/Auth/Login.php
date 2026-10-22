@@ -3,6 +3,7 @@
 namespace App\Admin\Auth;
 
 use App\Models\Staff;
+use App\Support\AuthCookies;
 use App\Support\CallerIp;
 use DanHarrin\LivewireRateLimiting\Exceptions\TooManyRequestsException;
 use Filament\Auth\Http\Responses\Contracts\LoginResponse;
@@ -35,7 +36,7 @@ class Login extends FilamentLogin
         // The member the database finds (its collation matches more spellings than any normalising: review of #333).
         $staff = Staff::query()->where('email', trim((string) ($this->data['email'] ?? '')))->first();
         $key = $staff === null ? null : 'staff-login-account:' . $staff->id;
-        $known = $staff !== null && (string) request()->cookie(self::DEVICE_COOKIE) === (string) $staff->id;
+        $known = $staff !== null && (string) request()->cookie(AuthCookies::name(self::DEVICE_COOKIE)) === (string) $staff->id;
         if ($key !== null && !$known && RateLimiter::tooManyAttempts($key, self::ACCOUNT_FAILURES)) {
             $this->getRateLimitedNotification(new TooManyRequestsException(static::class, 'authenticate', CallerIp::of(request()), RateLimiter::availableIn($key)))?->send();
 
@@ -52,7 +53,7 @@ class Login extends FilamentLogin
             throw $e;
         }
         if ($response !== null && $staff !== null) {
-            Cookie::queue(self::DEVICE_COOKIE, (string) $staff->id, 60 * 24 * 90, null, null, null, true, false, 'lax');
+            Cookie::queue(AuthCookies::name(self::DEVICE_COOKIE), (string) $staff->id, 60 * 24 * 90, null, null, null, true, false, 'lax');
         }
 
         return $response;

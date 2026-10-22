@@ -3,6 +3,7 @@
 namespace App\Actions\Auth;
 
 use App\Models\UserSession;
+use App\Support\AuthCookies;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\Session;
@@ -21,7 +22,7 @@ class Logout
         // Clear session and cookie
         Session::invalidate();
         Session::regenerateToken();
-        Cookie::queue(Cookie::forget('mycs_remember'));
+        Cookie::queue(Cookie::forget(AuthCookies::remember()));
 
         // One session for both: invalidated, so neither the customer nor staff stay logged in it.
         Auth::guard('web')->logout();
