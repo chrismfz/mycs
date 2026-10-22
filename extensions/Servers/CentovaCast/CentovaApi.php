@@ -104,7 +104,7 @@ final class CentovaApi
         }
         $previous = libxml_use_internal_errors(true);
         try {
-            $root = simplexml_load_string($body, SimpleXMLElement::class, LIBXML_NONET);
+            $root = simplexml_load_string(self::htmlEntities($body), SimpleXMLElement::class, LIBXML_NONET);
         } finally {
             libxml_clear_errors();
             libxml_use_internal_errors($previous);
@@ -116,6 +116,27 @@ final class CentovaApi
         $data = isset($response->data) ? self::toArray($response->data) : [];
 
         return [strtolower((string) $response['type']), trim((string) ($response->message ?? '')), is_array($data) ? $data : []];
+    }
+
+    /**
+     * Centova writes HTML's named entities in its XML (a Greek organization as `&Iota;&Mu;…`, live on stream 2026-10-22),
+     * which XML does not know: each becomes its character, XML's own five are left as they are, an unknown one is kept
+     * as text, and so is a bare «&». Otherwise one such account made the whole `listaccounts` answer unreadable.
+     */
+    private static function htmlEntities(string $body): string
+    {
+        return (string) preg_replace_callback('/&(?:#[0-9]+;|#x[0-9A-Fa-f]+;|([A-Za-z][A-Za-z0-9]{0,31});)?/', function (array $match) {
+            if (!isset($match[1])) {
+                // A numeric reference is XML's own; a bare «&» (Rock & Roll) is text.
+                return $match[0] === '&' ? '&amp;' : $match[0];
+            }
+            if (in_array($match[1], ['amp', 'lt', 'gt', 'quot', 'apos'], true)) {
+                return $match[0];
+            }
+            $character = html_entity_decode($match[0], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+            return $character !== $match[0] ? htmlspecialchars($character, ENT_XML1 | ENT_QUOTES, 'UTF-8') : '&amp;' . $match[1] . ';';
+        }, $body);
     }
 
     /** @return array<string, mixed>|string */

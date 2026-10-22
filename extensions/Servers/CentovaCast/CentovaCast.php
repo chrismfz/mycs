@@ -346,9 +346,13 @@ class CentovaCast extends Server implements ReadsServiceUsage
     {
         $api = $this->api();
         $username = self::owned($api, $service, $properties);
-        // One row, as Centova documents it (or its fields alone); not read: nothing assumed (code review 1 of #329).
+        // One row, as Centova documents it, or its fields alone; not read: nothing assumed (code review 1 of #329).
         $answer = $api->server($username, 'enabled');
         $enabled = $answer['enabled'] ?? (CentovaApi::rows($answer)[0]['enabled'] ?? null);
+        // Centova 3.3 answers each value in a `<field>` (`<enabled><field>1</field></enabled>`, live on stream 2026-10-22).
+        if (is_array($enabled) && array_key_exists('field', $enabled)) {
+            $enabled = $enabled['field'];
+        }
         if (!is_scalar($enabled) || !in_array((string) $enabled, ['0', '1'], true)) {
             throw new Exception("Centova Cast: whether «{$username}» is enabled could not be read");
         }

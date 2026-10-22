@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
 use Livewire\Livewire;
+use MyCS\Extensions\Servers\CentovaCast\CentovaApi;
 use MyCS\Extensions\Servers\CentovaCast\CentovaCast;
 use Tests\TestCase;
 
@@ -83,7 +84,8 @@ class CentovaCastExtensionTest extends TestCase
 
     private static function fields(array $row): string
     {
-        return implode('', array_map(fn ($k, $v) => "<{$k}>" . htmlspecialchars((string) $v, ENT_XML1) . "</{$k}>", array_keys($row), $row));
+        // `organization` raw, as Centova writes it (HTML entities and all).
+        return implode('', array_map(fn ($k, $v) => "<{$k}>" . ($k === 'organization' ? (string) $v : htmlspecialchars((string) $v, ENT_XML1)) . "</{$k}>", array_keys($row), $row));
     }
 
     private function centova(Request $request)
@@ -122,7 +124,8 @@ class CentovaCastExtensionTest extends TestCase
             }),
             'system.info' => Http::response(self::xml('success', implode('', array_map(fn ($a) => '<row>' . self::fields(['username' => $a['username'], 'state' => 'up', 'expected' => 'up']) . '</row>', $this->accounts)))),
             'system.usage' => Http::response(self::xml('success', '<row>' . self::fields(['username' => 'radio', 'diskquota' => 1000, 'transferlimit' => -1, 'diskusage' => 120, 'transferusage' => 4500]) . '</row>')),
-            'server.enabled' => $this->enabledUnreadable ? Http::response(self::xml('success', '<row><username>radio</username></row>')) : Http::response(self::xml('success', '<row>' . self::fields(['enabled' => ($this->accounts[$user]['status'] ?? '') === 'enabled' ? 1 : 0, 'username' => $user, 'reseller' => 0]) . '</row>')),
+            'server.enabled' => $this->enabledUnreadable ? Http::response(self::xml('success', '<row><username>radio</username></row>')) : Http::response(self::xml('success', // as Centova 3.3 answers it live: each value in a <field>
+                '<enabled><field>' . (($this->accounts[$user]['status'] ?? '') === 'enabled' ? 1 : 0) . "</field> </enabled> <username><field>{$user}</field> </username> <reseller><field>0</field> </reseller>")),
             'server.getaccount' => Http::response(self::xml('success', '<account>' . self::fields($this->accounts[$user] + ['maxclients' => 100, 'title' => 'Old & Gold']) . '</account>')),
             'server.reconfigure' => tap($ok, fn () => $this->accounts[$user] = array_merge($this->accounts[$user], array_diff_key($args, ['password' => 1]))),
             default => $ok,
@@ -331,6 +334,20 @@ class CentovaCastExtensionTest extends TestCase
         $page = Livewire::test(Show::class, ['service' => $this->service]);
         $page->assertSee('stream.test:9250')->assertSee('radio');
         $page->call('goto', 'getLoginUrl')->assertRedirect(self::API . '/login/index.php');
+    }
+
+    public function test_html_entities_in_an_answer_are_read_as_their_characters(): void
+    {
+        // As stream answered live (2026-10-22): a Greek organization in HTML's named entities, not known to XML.
+        $this->made();
+        $this->accounts['radio']['organization'] = '&Iota;&Mu;&Phi; &amp; &Theta;&nbsp;x &bogus; 5 &lt; 6 Rock & Roll &x; &#913;';
+
+        ExtensionHelper::suspendServer($this->service->fresh());
+
+        $this->assertSame('disabled', $this->accounts['radio']['status'], 'the account found in the listaccounts answer');
+        $read = (new \ReflectionMethod(CentovaApi::class, 'parse'))->invoke(null,
+            '<centovacast><response type="success"><message>OK</message><data><row><organization>&Iota;&Mu;&Phi; &amp; &Theta;&nbsp;x &bogus; 5 &lt; 6 Rock & Roll &x; &#913;</organization></row></data></response></centovacast>');
+        $this->assertSame("ΙΜΦ & Θ\u{00A0}x &bogus; 5 < 6 Rock & Roll &x; Α", $read[2]['row']['organization']);
     }
 
     public function test_usage_from_one_call(): void
