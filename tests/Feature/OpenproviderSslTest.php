@@ -605,6 +605,25 @@ class OpenproviderSslTest extends TestCase
         $this->assertCount(1, $this->sent('POST', '/v1/ssl/orders'), 'nothing ordered again');
     }
 
+    public function test_staff_start_a_new_order_only_for_an_ended_one(): void
+    {
+        $this->issued(paidBeyond: false);
+        $this->artisan('ssl:sync')->assertExitCode(0);
+        $server = $this->service->provisioningServer();
+        $extension = ExtensionHelper::getExtension('server', $server->extension, $server->settings);
+
+        $this->assertFalse(rescue(fn () => $extension->startOver($this->order()) ?? true, false, false), 'a live order never starts over');
+
+        $this->orders[777]['status'] = 'EXP';
+        $this->artisan('ssl:sync')->assertExitCode(0);
+        $extension->startOver($this->order());
+
+        $order = $this->order();
+        $this->assertTrue($order->awaitingConfiguration());
+        $this->assertSame([777], $order->previous_order_ids);
+        $this->assertNull($order->certificate);
+    }
+
     public function test_a_plan_not_in_years_is_refused(): void
     {
         $this->service->plan->update(['billing_unit' => 'month', 'billing_period' => 1]);

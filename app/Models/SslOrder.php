@@ -78,6 +78,18 @@ class SslOrder extends Model
         return $this->order_id === null && $this->requested_at === null;
     }
 
+    /** Openprovider's statuses of an order no longer waiting for its validation. */
+    public const SETTLED = ['ACT', 'CAN', 'EXP', 'REJ', 'FAI'];
+
+    /**
+     * Ordered and waiting for its validation (a new order, a reissue, a renewal's new order), even while a certificate
+     * is still in use (R2-2 of #350).
+     */
+    public function waiting(): bool
+    {
+        return $this->order_id !== null && !in_array($this->status, self::SETTLED, true);
+    }
+
     /** Issued: Openprovider gave its certificate. */
     public function issued(): bool
     {

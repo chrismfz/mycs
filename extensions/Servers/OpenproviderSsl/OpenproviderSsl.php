@@ -454,6 +454,26 @@ class OpenproviderSsl extends Server
         }
     }
 
+    /**
+     * Staff, for an order that has ended (its end passed, or cancelled, expired, rejected, failed): the service waits for
+     * a new CSR again, its old order kept in previous_order_ids. The customer's next order is a new one (charged): staff
+     * only, when the customer has paid for it (R2-1 of #350).
+     */
+    public function startOver(SslOrder $order): void
+    {
+        $order->refresh();
+        $ended = $order->order_id !== null && ($order->order_ends_at?->isPast() || in_array($order->status, ['CAN', 'EXP', 'REJ', 'FAI'], true));
+        if (!$ended || $order->renew_requested_at !== null) {
+            throw new Exception('Openprovider SSL: only an ended order, with no renewal pending, starts over');
+        }
+        $order->forceFill([
+            'previous_order_ids' => array_values(array_unique(array_merge($order->previous_order_ids ?? [], [$order->order_id]))),
+            'order_id' => null, 'requested_at' => null, 'status' => null, 'common_name' => null, 'host_names' => null, 'csr' => null,
+            'validation_method' => null, 'approver_email' => null, 'validation' => null, 'expires_at' => null, 'reissue_at' => null,
+            'order_ends_at' => null, 'certificate' => null, 'intermediate' => null, 'sync_error' => null, 'notified_hash' => null,
+        ])->save();
+    }
+
     /** What Openprovider tells of the order now: its status, dates, certificate and what to publish to validate. */
     public function sync(SslOrder $order): void
     {
@@ -470,11 +490,12 @@ class OpenproviderSsl extends Server
             'status' => $text('status'),
             'common_name' => $text('common_name') ?? $order->common_name,
             // A new order or a reissue waiting for its validation gives no certificate yet: the one in use stays (code review 5).
-            'expires_at' => self::date($data['expiration_date'] ?? null) ?? ($text('certificate') === null ? $order->expires_at : null),
+            'expires_at' => self::date($data['expiration_date'] ?? null) ?? ($text('certificate') === null && $text('status') !== 'CAN' ? $order->expires_at : null),
             'reissue_at' => self::date($data['reissue_at'] ?? null),
             'order_ends_at' => self::date($data['order_ends_at'] ?? null),
-            'certificate' => $text('certificate') ?? $order->certificate,
-            'intermediate' => $text('certificate') !== null ? $text('intermediate_certificate') : $order->intermediate,
+            // …but never a cancelled (revoked) order's (R2-5 of #350).
+            'certificate' => $text('certificate') ?? ($text('status') === 'CAN' ? null : $order->certificate),
+            'intermediate' => $text('certificate') !== null ? $text('intermediate_certificate') : ($text('status') === 'CAN' ? null : $order->intermediate),
             'validation' => [
                 'methods' => array_values(array_filter((array) ($data['domain_validation_methods'] ?? []), 'is_array')),
                 'statuses' => is_array($data['domain_validation_statuses'] ?? null) ? $data['domain_validation_statuses'] : [],
@@ -565,7 +586,7 @@ class OpenproviderSsl extends Server
     public function changeApproverEmail(Service $service, $settings, $properties, string $approverEmail): bool
     {
         $order = self::order($service);
-        if ($order?->order_id === null || $order->validation_method !== 'email' || $order->issued()) {
+        if ($order === null || !$order->waiting() || $order->validation_method !== 'email') {
             throw new ServerRefused(__('services.ssl.resend_not_now'));
         }
         $approverEmail = strtolower(trim($approverEmail));
@@ -600,16 +621,22 @@ class OpenproviderSsl extends Server
         }
         $service = $order->service()->with('plan', 'product.settings')->first();
         // A plan billed again only (never a free or one-time one, whose paid date never moves: code review 4 of #350).
-        if ($order->order_id === null || $order->status !== 'ACT' || $order->order_ends_at === null || $service?->status !== Service::STATUS_ACTIVE
-            || $service->plan?->type !== 'recurring'
-            || $order->order_ends_at->greaterThan(now()->addDays(self::RENEW_DAYS))
-            // Paid: by paid invoices' periods, never by a date staff moved or an invoice refunded (ADV-5 of #350).
-            || !$service->paidThrough($order->order_ends_at)->greaterThan($order->order_ends_at->copy()->addDays(self::PAID_BEYOND_DAYS))) {
+        if ($order->order_id === null || $order->order_ends_at === null || $service?->status !== Service::STATUS_ACTIVE
+            || $service->plan?->type !== 'recurring' || $order->order_ends_at->greaterThan(now()->addDays(self::RENEW_DAYS))) {
+            return false;
+        }
+        // Paid: by paid invoices' periods (never a date staff moved, an invoice refunded: ADV-5), for the whole period
+        // Openprovider renews, the order's years, less a month's slack (never 3 years renewed with one paid: R2-3).
+        $paidThrough = $service->paidThrough($order->order_ends_at);
+        if (!$paidThrough->greaterThan($order->order_ends_at->copy()->addDays(self::PAID_BEYOND_DAYS))) {
             return false;
         }
         if ($order->order_ends_at->isPast()) {
-            // Paid and ended unrenewed (the sync was down, a suspension in the window): told, a new order is needed (ADV-8).
-            throw new Exception('Openprovider SSL: the order ended unrenewed though its customer has paid: a new certificate must be ordered');
+            // Paid and ended unrenewed, whatever its status (EXP…): told; staff start a new order (ADV-8, R2-1).
+            throw new Exception('Openprovider SSL: the order ended unrenewed though its customer has paid: start a new order for it');
+        }
+        if ($order->status !== 'ACT' || !$paidThrough->greaterThanOrEqualTo($order->order_ends_at->copy()->addYears(max(1, $order->period))->subDays(self::PAID_BEYOND_DAYS))) {
+            return false; // not issued, or paid for less than the order's period: never renewed beyond what is paid
         }
         // Its connection resolved before the claim: a claim with nothing asked would only raise a false alarm (code review 7).
         [$registrar, $credentials] = $this->openprovider($order);
@@ -697,9 +724,11 @@ class OpenproviderSsl extends Server
             if ($id <= 0 || $id === $order->order_id || in_array($id, $order->previous_order_ids ?? [], true)
                 || strtolower((string) ($row['common_name'] ?? '')) !== strtolower((string) $order->common_name)
                 || (int) ($row['product_id'] ?? 0) !== $order->product_id || ($row['organization_handle'] ?? null) !== $order->organization_handle
-                // never the order another service of this CSR is waiting for (its answer lost: ADV-11 of #350)
-                || SslOrder::query()->where('connection_id', $order->connection_id)->whereKeyNot($order->id)->whereNull('order_id')
-                    ->whereNotNull('requested_at')->get(['csr'])->contains(fn (SslOrder $other) => self::sameCsr($other->csr, $order->csr))
+                // never the order a live service of this CSR is waiting for, made since its request (ADV-11, R2-4 of #350)
+                || SslOrder::query()->where('connection_id', $order->connection_id)->whereKeyNot($order->id)->whereNull('order_id')->whereNotNull('requested_at')
+                    ->whereHas('service', fn ($q) => $q->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED]))->get(['csr', 'requested_at'])
+                    ->contains(fn (SslOrder $other) => self::sameCsr($other->csr, $order->csr) && $made !== null
+                        && !$made->lessThan($other->requested_at->copy()->subMinutes(self::RECOVERY_WINDOW_MINUTES)))
                 || self::sameCsr($row['csr'] ?? null, $order->csr) === false || $made === null || $made->lessThan($since)
                 || SslOrder::query()->where('connection_id', $order->connection_id)->where('order_id', $id)->whereKeyNot($order->id)->exists()) {
                 continue;
@@ -728,7 +757,7 @@ class OpenproviderSsl extends Server
     public function resendApproverEmail(Service $service, $settings, $properties): bool
     {
         $order = self::order($service);
-        if ($order?->order_id === null || $order->validation_method !== 'email' || $order->issued()) {
+        if ($order === null || !$order->waiting() || $order->validation_method !== 'email') {
             throw new ServerRefused(__('services.ssl.resend_not_now'));
         }
         [$registrar, $credentials] = $this->openprovider($order);

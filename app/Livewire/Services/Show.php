@@ -567,7 +567,7 @@ class Show extends Component
         $this->authorize('update', $this->service);
         $order = SslOrder::query()->where('service_id', $this->service->id)->first();
 
-        return $this->hasSsl && $this->service->status === Service::STATUS_ACTIVE && $order?->order_id !== null && !$order->issued()
+        return $this->hasSsl && $this->service->status === Service::STATUS_ACTIVE && $order !== null && $order->waiting()
             && $order->validation_method === 'email' ? $order : null;
     }
 

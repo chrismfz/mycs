@@ -229,6 +229,22 @@ class EditService extends EditRecord
                     Notification::make()->title('The SSL request was cleared')->success()->send();
                 }),
 
+            // An ended certificate (its paid order over, or cancelled): the service waits for a new CSR, and the customer's next
+            // order is a new one, charged (R2-1 of #350).
+            Action::make('sslStartOver')
+                ->label('Start a new SSL order')->icon('ri-restart-line')->color('warning')
+                ->authorize('update')
+                ->visible(fn (Service $record) => ($order = SslOrder::query()->where('service_id', $record->id)->first()) !== null && $order->order_id !== null
+                    && $order->renew_requested_at === null && ($order->order_ends_at?->isPast() || in_array($order->status, ['CAN', 'EXP', 'REJ', 'FAI'], true)))
+                ->requiresConfirmation()
+                ->modalDescription('The certificate\'s order has ended. The service will wait for a new CSR, and the customer\'s next order is charged at Openprovider: only when the customer has paid for it.')
+                ->action(function (Service $record): void {
+                    $order = SslOrder::query()->where('service_id', $record->id)->sole();
+                    $server = $record->provisioningServer() ?? throw new Exception('The service has no server');
+                    ExtensionHelper::getExtension('server', $server->extension, $server->settings)->startOver($order);
+                    Notification::make()->title('The service waits for a new CSR')->success()->send();
+                }),
+
             Action::make('changeStatus')
                 ->label('Trigger Extension Action')
                 ->schema([

@@ -51,7 +51,7 @@
         </dl>
 
         {{-- Waiting for validation (a new order, a renewal's or a reissue's): what to publish, even while a certificate is in use. --}}
-        @if(!$sslOrder->issued() || ($sslOrder->status !== 'ACT' && filled($sslOrder->validation['data'] ?? null)))
+        @if(!$sslOrder->issued() || $sslOrder->waiting())
         <div class="mt-3 text-sm">
             <p class="font-semibold">{{ __('services.ssl.validate_title') }}</p>
             @if($sslOrder->validation_method === 'email')
