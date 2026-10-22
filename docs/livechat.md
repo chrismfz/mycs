@@ -1,7 +1,8 @@
 # Live chat: πελάτες, επισκέπτες (pre-sales) και operators (σχέδιο, 2026-10-22)
 
-> Κατάσταση: **σχέδιο, προς έγκριση από τον owner.** Δεν έχει γραφτεί κώδικας. Σχετικά: `tickets.md` (guest links,
-> μοντέλο ασφάλειας), `captcha.md` (ALTCHA), `settings-map.md`.
+> Κατάσταση: **σχέδιο, προς έγκριση από τον owner.** Δεν έχει γραφτεί κώδικας. Έγινε threat-model review του σχεδίου
+> (2026-10-22, §13). Οι κανόνες του §13 είναι μέρος του §3, και τα tests του μέρος του §9. Σχετικά: `tickets.md`
+> (guest links, μοντέλο ασφάλειας), `captcha.md` (ALTCHA), `settings-map.md`.
 
 ## 0. Γιατί
 Στις 22/10/2026 ένας αυτοματοποιημένος scanner επιτέθηκε στο chat.myip.gr (Live Helper Chat 4.90v, στον rigel) και
@@ -27,6 +28,12 @@
 - **ALTCHA:** proof-of-work captcha στον δικό μας server, χωρίς εξωτερική υπηρεσία (`app/Services/Captcha/Altcha.php`).
 - **Rate limits ανά επισκέπτη:** `VisitorKey` (`app/Services/Domains/Lookup/VisitorKey.php`).
 - **Redis** για cache και queue, **υποχρεωτικό 2FA για το staff** και audit log.
+
+**Τι δεν υπάρχει** (review, §13):
+- **Δικαιώματα staff ανά τμήμα.** Τα tickets ελέγχονται με το γενικό `admin.tickets.viewAny` (`TicketPolicy`). Το
+  `ticket_department_staff` είναι λίστα ειδοποιήσεων (`notifyStaff`), όχι λίστα πρόσβασης.
+- **CSP στην εφαρμογή.** Το `X-Frame-Options: SAMEORIGIN` το βάζει σήμερα ο web server, όχι η εφαρμογή.
+- **Reauth για staff.** Το `App\Support\Reauth` καλύπτει μόνο πελάτες.
 
 ## 2. Εύρος
 **Μέσα:**
@@ -62,18 +69,26 @@
   στους browsers όλων των άλλων operators.
 
 Δεν υπάρχει «έμπιστο» πεδίο που τυπώνεται χωρίς escape:
-- Η έξοδος γίνεται μόνο με Blade `{{ }}`, ή με το markdown των tickets (`html_input => escape`,
-  `allow_unsafe_links => false`). Ισχύει για μηνύματα, σημειώσεις, δωμάτιο staff, ονόματα, emails και ονόματα αρχείων.
-- **Κανένα** `{!! !!}`, `->html()`, `HtmlString` ή `->formatStateUsing()` που επιστρέφει HTML με δεδομένα χρήστη.
-  Ισχύει και για τα Filament columns, τα infolists, τα notifications και τα emails.
+- Η έξοδος γίνεται μόνο με Blade `{{ }}`, ή με **έναν** helper, `ChatText::render()`. Ισχύει για μηνύματα, σημειώσεις,
+  δωμάτιο staff, ονόματα, emails και ονόματα αρχείων. Ο helper (F5):
+  - κάνει escape στο HTML και δεν επιτρέπει unsafe links;
+  - **δεν** αποδίδει εικόνες (ούτε remote, ούτε `data:`), μόνο κείμενο;
+  - δίνει στα links `rel="noopener noreferrer nofollow"` και `target="_blank"`, και δείχνει ολόκληρο το URL;
+  - αφαιρεί χαρακτήρες `\p{Cf}` (bidi, zero-width).
+- Το `{!! ChatText::render(...) !!}` είναι το **μόνο** επιτρεπτό `{!! !!}` στα views του chat, και το ελέγχει ένα test με
+  grep. **Κανένα** άλλο `{!! !!}`, `->html()`, `HtmlString` ή `->formatStateUsing()` που επιστρέφει HTML με δεδομένα
+  χρήστη. Ισχύει και για τα Filament columns, τα infolists, τα notifications (το `body()` του Filament δεν κάνει escape,
+  F21) και τα emails.
+- Το badge ρόλου (επισκέπτης, πελάτης, staff) έρχεται πάντα από το `author_type`, ποτέ από το όνομα (F24).
 - Δεδομένα χρήστη δεν μπαίνουν σε `href`, `src`, `style` ή JS. Το email εμφανίζεται ως απλό κείμενο, χωρίς link
   `mailto:`.
 - Ίδια όρια μήκους και ίδιος έλεγχος (§3 Β) για επισκέπτη, πελάτη και staff.
 
 **Β. Ελάχιστα πεδία, με έλεγχο στον server.**
 - Ο επισκέπτης δίνει μόνο **όνομα** και **email**, και τα δύο προαιρετικά:
-  - όνομα έως 60 χαρακτήρες, χωρίς χαρακτήρες ελέγχου;
-  - email με τον κανόνα `email` του Laravel και όριο 190 χαρακτήρων. **Ό,τι δεν περνά τον έλεγχο απορρίπτεται και δεν
+  - όνομα έως 60 χαρακτήρες, χωρίς χαρακτήρες ελέγχου ή `\p{Cf}` (όπως το `Guest::reply`);
+  - email που περνά το `Contact::mailable()` και έχει έως 190 χαρακτήρες. Ο σκέτος κανόνας `email` του Laravel
+    δέχεται quoted local parts με εισαγωγικά και κενά (F6). **Ό,τι δεν περνά τον έλεγχο απορρίπτεται και δεν
     αποθηκεύεται** (το LHC το αποθήκευε όπως ήταν).
 - Ο πελάτης δεν δίνει κανένα στοιχείο: όνομα και email έρχονται από τον λογαριασμό του.
 - Μήνυμα έως 2.000 χαρακτήρες, χωρίς χαρακτήρες ελέγχου εκτός από αλλαγή γραμμής (για όλους).
@@ -83,16 +98,25 @@
 **Γ. Καμία πρόσβαση με κλειδί στο URL.**
 - Ο επισκέπτης παίρνει τυχαίο token 256 bit, που αποθηκεύεται **hashed** (όπως στο `TicketGuestLink`), δένεται με το
   session του και λήγει (ρύθμιση, default 24 ώρες από το τελευταίο μήνυμα).
-- Το chat id **δεν** αρκεί για πρόσβαση: κάθε αίτημα ελέγχεται με policy (πελάτης = κάτοχος, επισκέπτης = token του
-  session, staff = δικαίωμα στο τμήμα).
+- Το chat id **δεν** αρκεί για πρόσβαση: κάθε αίτημα, **και κάθε poll**, ελέγχεται με policy:
+  - πελάτης: ο λογαριασμός μέσω `owns()`, με δικαίωμα περιοχής `chat` (F10);
+  - επισκέπτης: το token του session;
+  - staff: **νέο** δικαίωμα ανά τμήμα (`chat_department_staff`) και permissions `admin.chats.view`, `.link`,
+    `.delete`, `.search` (F3).
+- Το token ζει **μόνο** στο session του server, ποτέ σε Livewire property ή στο HTML (F7).
+- Το session ανανεώνεται (`regenerate`) όταν ξεκινά chat επισκέπτη (F8). Το token σβήνεται από το session στο κλείσιμο,
+  στο login και στο logout (F22).
 - Κανένα token ή hash δεν γράφεται σε log, σε URL ή σε μήνυμα σφάλματος.
 
 **Δ. Η ταυτότητα έρχεται μόνο από το session.**
 - Ένα email επισκέπτη **δεν** συνδέεται ποτέ αυτόματα με πελάτη, γιατί ο καθένας μπορεί να γράψει το email ενός πελάτη
   μας. Στο UI φαίνεται ως «email χωρίς επιβεβαίωση».
-- Ο operator δεν δίνει στοιχεία λογαριασμού, κωδικούς ή τιμολόγια σε ανώνυμο chat. Για τέτοια θέματα ο επισκέπτης κάνει
-  login, ή ο operator του στέλνει link επιβεβαίωσης στο email (ο μηχανισμός των guest tickets). Η οδηγία φαίνεται στον
-  operator στο ανώνυμο chat.
+- Ο operator δεν δίνει στοιχεία λογαριασμού, κωδικούς ή τιμολόγια σε ανώνυμο chat. Για τέτοια θέματα ο επισκέπτης
+  **κάνει login**. Η οδηγία φαίνεται στον operator στο ανώνυμο chat.
+- **Ένα link στο email δεν αποδεικνύει ποιος γράφει στο chat** (F1). Αν ο επισκέπτης γράψει το email ενός πελάτη, ο
+  πελάτης μπορεί να κάνει κλικ στο link από συνήθεια. Η επιβεβαίωση email σε chat γίνεται μόνο με κωδικό από το email
+  που ο επισκέπτης γράφει **μέσα στο chat**. Ο κωδικός είναι μίας χρήσης, για αυτό το chat και αυτό το email, και λήγει
+  σε 15 λεπτά.
 - Αν ο επισκέπτης συνδεθεί κατά τη διάρκεια του chat, το chat **δεν** περνά αυτόματα στον λογαριασμό. Ο πελάτης
   ανοίγει νέο chat.
 - Ένα ανώνυμο chat συνδέεται με πελάτη **μόνο χειροκίνητα από το staff** (§6α), με καταγραφή στο audit.
@@ -167,7 +191,11 @@
 - Ανοίγει στο ίδιο το domain του MyCS (first-party):
   - κανονικό session, Livewire και CSRF;
   - χωρίς CORS, χωρίς third-party cookies, χωρίς χαλάρωση του `frame-ancestors`.
-- Κρατά `frame-ancestors 'none'`. Αν ένα από τα sites παραβιαστεί, δεν μπορεί να διαβάσει τίποτα από το chat.
+- Η εφαρμογή στέλνει `frame-ancestors 'none'` και `X-Frame-Options: DENY` στο `/chat` και στο admin, με middleware
+  (F8). Σήμερα υπάρχει μόνο `SAMEORIGIN` από τον web server. Αν ένα από τα sites παραβιαστεί, δεν μπορεί να διαβάσει
+  τίποτα από το chat.
+- Το `GET /chat` δεν αλλάζει τίποτα. Chat ξεκινά μόνο με POST και CSRF. Το τμήμα επιλέγεται στον server: πρέπει να
+  δέχεται chat, να μην είναι `hidden`, και για επισκέπτη να μην είναι `clients_only`. Αλλιώς πάει στο default (F17).
 - Ο πελάτης που είναι ήδη συνδεδεμένος στο MyCS μπαίνει στο chat ως πελάτης. Η σελίδα του δείχνει ποιος είναι, και
   υπάρχει επιλογή «συνέχεια ως επισκέπτης».
 
@@ -211,19 +239,31 @@
 - **Ανώνυμα chats:**
   - στο admin, λίστα «Chats» με φίλτρα (τμήμα, operator, site, ημερομηνία, ανώνυμα ή πελατών) και αναζήτηση σε όνομα,
     email και κείμενο;
-  - ο επισκέπτης δεν έχει πρόσβαση μετά τη λήξη του token. Μπορεί να ζητήσει αντίγραφο στο email του, που στέλνεται
-    μόνο αν το email επιβεβαιωθεί με link.
+  - ο επισκέπτης δεν έχει πρόσβαση μετά τη λήξη του token. Μπορεί να ζητήσει αντίγραφο στο email του, μία φορά ανά chat
+    (F11):
+    - το email επιβεβαίωσης δεν περιέχει κείμενο ή όνομα από τον επισκέπτη;
+    - το link ανοίγει σελίδα με κουμπί POST, γιατί οι scanners του mail ακολουθούν τα GET;
+    - το μυστικό του link κρύβεται στο `email_logs` και το mail δεν ξαναστέλνεται από το log;
+    - το αντίγραφο δεν περιέχει εσωτερικές σημειώσεις.
 - **Σύνδεση ανώνυμου chat με πελάτη:**
-  - μόνο από το staff, με κουμπί «Σύνδεση με πελάτη» και αφού επιβεβαιωθεί η ταυτότητα (π.χ. με email από τον
-    λογαριασμό);
-  - καταγράφεται στο audit. Από εκεί και πέρα το chat φαίνεται στην καρτέλα του πελάτη, με σήμανση «ξεκίνησε ανώνυμα»;
-  - βοήθημα: στη σελίδα του πελάτη, «υπάρχουν N ανώνυμα chats με αυτό το email». Είναι μόνο ένδειξη, χωρίς σύνδεση και
-    χωρίς να το βλέπει ο πελάτης.
+  - μόνο από το staff με το `admin.chats.link`, με κουμπί «Σύνδεση με πελάτη», με reauth (F18), και **μόνο σε κλειστό
+    chat**;
+  - η σύνδεση κόβει ατομικά την πρόσβαση του επισκέπτη: το token ανακαλείται, όπως το `GuestLinks::revoke` στα tickets,
+    και μένει μόνο η σήμανση `started_anonymously` (F2);
+  - καταγράφεται στο audit. Από εκεί και πέρα το chat φαίνεται στην καρτέλα του πελάτη στο admin, με σήμανση
+    «ξεκίνησε ανώνυμα». **Δεν** φαίνεται στο client area του πελάτη, εκτός αν το staff το μοιραστεί ρητά (F2);
+  - βοήθημα: στη σελίδα του πελάτη, «υπάρχουν N ανώνυμα chats με αυτό το email». Μετρά **μόνο** chats όπου το email
+    επιβεβαιώθηκε με κωδικό (§3 Δ). Είναι μόνο ένδειξη, χωρίς σύνδεση και χωρίς να το βλέπει ο πελάτης.
 - **Διατήρηση:**
   - default: **κανένα chat δεν σβήνεται αυτόματα**;
   - η IP σβήνεται σε 30 ημέρες (ρύθμιση), γιατί χρειάζεται μόνο για κατάχρηση;
-  - διαγραφή ενός chat (π.χ. αίτημα GDPR) μόνο από admin με δικαίωμα, με λόγο, και καταγραφή στο audit χωρίς το
-    περιεχόμενο.
+  - διαγραφή ενός chat (π.χ. αίτημα GDPR) μόνο από admin με δικαίωμα, με reauth και λόγο, και καταγραφή στο audit χωρίς
+    το περιεχόμενο;
+  - η διαγραφή σβήνει και ό,τι αντίγραφο υπάρχει αλλού: αρχεία, εγγραφές στα `audits`, τα `email_logs` του αντιγράφου
+    και τα full-text entries. Γι' αυτό τα μοντέλα του chat **δεν** είναι Auditable με όλα τους τα πεδία (όπως το
+    `TicketMessage`). Γράφουν ρητά audit events μόνο με ids (F12);
+  - η IP υπάρχει και σε sessions, rate-limiter keys και logs του web server. Το «σβήνεται σε 30 ημέρες» αφορά μόνο τον
+    πίνακα `chats`, και τα backups έχουν τη δική τους διάρκεια.
 
 ## 7. Ροές
 **Επισκέπτης:**
@@ -241,7 +281,7 @@ client area.
 2. Ανάληψη, μεταφορά σε άλλον operator ή τμήμα, εσωτερικές σημειώσεις, block.
 3. Στο chat πελάτη βλέπει δίπλα τα βασικά του λογαριασμού (υπηρεσίες, ανοιχτά tickets), όπως στα tickets.
 4. Στο κλείσιμο: προαιρετικά «Δημιουργία ticket από chat». Για πελάτη, ticket στον λογαριασμό του. Για επισκέπτη, guest
-   ticket μόνο αν το email επιβεβαιωθεί.
+   ticket μόνο αν το email επιβεβαιωθεί με κωδικό μέσα στο chat (§3 Δ). Ένα μόνο mail, χωρίς τις σημειώσεις (F4).
 5. Δωμάτιο staff: κοινή λίστα μηνυμάτων με polling (κανόνας Α ισχύει κι εδώ).
 
 ## 8. Ρυθμίσεις (`settings-map.md`)
@@ -278,6 +318,8 @@ client area.
 - **Διατήρηση:** κανένα chat δεν σβήνεται αυτόματα. Η IP σβήνεται μετά τη λήξη της. Η διαγραφή από admin γράφεται στο
   audit χωρίς περιεχόμενο.
 
+Επιπλέον, κάθε γραμμή του πίνακα του §13 έχει το δικό της test.
+
 ## 10. Review
 Δεν αγγίζει χρήματα, άρα κατά το `CLAUDE.md` αρκεί ανεξάρτητο code review. Λόγω του περιστατικού της 22/10, προτείνεται
 **και adversarial review** στα §3 Α–Ζ, με τους ίδιους κανόνες (failing tests που μένουν στο PR, πίνακας ευρημάτων ως
@@ -285,7 +327,7 @@ client area.
 
 ## 11. Υλοποίηση
 **Μικρά PRs, περίπου μία εβδομάδα με tests:**
-1. μοντέλο, actions και policies;
+1. μοντέλο, actions και policies, δικαιώματα ανά τμήμα (F3), headers και session (F8), reauth staff (F18);
 2. chat πελάτη στο client area και ουρά στο admin;
 3. επισκέπτης (popup, ALTCHA, token, rate limits) και launcher;
 4. ιστορικό: καρτέλα πελάτη, λίστα chats, σύνδεση με πελάτη;
@@ -314,3 +356,51 @@ client area.
 3. Launcher: αντίγραφο μέσα στον κώδικα κάθε site (προτείνεται) ή `<script src>` από το MyCS με SRI;
 4. Tawk.to στο `unblock.myip.gr`: να φύγει τώρα (§4); Χρειάζεται chat εκεί μέχρι να βγει το MyCS;
 5. Πρέπει να ανοίξουμε το παλιό inbox του Tawk.to για chats που δεν απαντήθηκαν;
+
+## 13. Threat model: ευρήματα review (2026-10-22)
+Ανεξάρτητος reviewer, χωρίς το context του συγγραφέα, διάβασε το σχέδιο και τον κώδικα που επικαλείται, με ρόλους
+επιτιθέμενου: ανώνυμος επισκέπτης, πελάτης με νέο λογαριασμό, παραβιασμένος πελάτης, παραβιασμένος ή κακόβουλος
+operator, παραβιασμένο marketing site.
+- **CONFIRMED:** ελέγχθηκε στον κώδικα ή στο κείμενο του σχεδίου.
+- **PLAUSIBLE:** λογικό, αλλά επαληθεύεται μόνο στην υλοποίηση.
+
+Όσα αλλάζουν κείμενο αλλού έχουν περαστεί εκεί (§1, §3, §4, §6α). Οι κανόνες και τα tests αυτού του πίνακα είναι
+υποχρεωτικοί για την υλοποίηση.
+
+| # | Σοβ. | Εύρημα | Κανόνας | Test | Κατάσταση |
+|---|---|---|---|---|---|
+| F1 | υψηλή | Ένα link επιβεβαίωσης στο email αποδεικνύει τον κάτοχο του inbox, όχι αυτόν που γράφει στο chat | Κωδικός από το email που γράφεται **μέσα στο chat**: μίας χρήσης, για αυτό το chat και αυτό το email, λήγει σε 15 λεπτά (§3 Δ) | Το link ή ο κωδικός από άλλο session δεν επιβεβαιώνει το chat | CONFIRMED (σχέδιο) |
+| F2 | υψηλή | Η σύνδεση με πελάτη δεν κόβει τον επισκέπτη και βάζει κείμενο τρίτου στον λογαριασμό | Σύνδεση μόνο σε κλειστό chat. Ανάκληση token ατομικά. Δεν φαίνεται στο client area χωρίς ρητό share. Η ένδειξη «N chats» μετρά μόνο επιβεβαιωμένα (§6α) | Poll ή send μετά τη σύνδεση δίνει 403. Σύνδεση σε ενεργό chat απορρίπτεται | CONFIRMED (`GuestLinks::revoke`) |
+| F3 | υψηλή | Δεν υπάρχουν δικαιώματα staff ανά τμήμα. Το `ticket_department_staff` είναι λίστα ειδοποιήσεων | Νέο `chat_department_staff` και permissions `admin.chats.view`, `.link`, `.delete`, `.search` σε ουρά, προβολή, actions, λίστα, αναζήτηση και counts (§3 Γ) | Operator χωρίς το τμήμα X: 403 ή not-found σε όλα τα παραπάνω και στα συνημμένα | CONFIRMED (`TicketPolicy`, `TicketDepartment::notifyStaff`) |
+| F4 | υψηλή | Το «ticket από chat» θα έστελνε ένα mail ανά μήνυμα (`TicketMessageCreatedListener`) και θα έκανε δημόσιες τις σημειώσεις | Ένα ticket με σύνοψη ή ήσυχο transcript, χωρίς events ανά μήνυμα. Οι σημειώσεις περνούν `is_internal` ή καθόλου. Κείμενο επισκέπτη με `sender_vouched = false`, εκτός αν έγινε F1. Ένα μόνο mail | Chat με 5 μηνύματα staff και 2 σημειώσεις: ≤ 1 mail, και οι σημειώσεις δεν εμφανίζονται πουθενά δημόσια | CONFIRMED |
+| F5 | μεσαία | Ο κανόνας του markdown αντιφάσκει, και αφήνει remote εικόνες (tracking pixel στους operators), autolinks και phishing | Ένας helper `ChatText::render()`: χωρίς εικόνες, links με `rel`, `\p{Cf}` αφαιρούνται. Grep test για το `{!! !!}` (§3 Α) | `![](…)`, `<img>`, `javascript:`, `data:` και σκέτο URL: κανένα `<img>`, κανένα επικίνδυνο href | CONFIRMED (views) |
+| F6 | μεσαία | Ο σκέτος κανόνας `email` δέχεται quoted local parts με payload. Οι bidi και zero-width χαρακτήρες δεν καλύπτονται | `Contact::mailable()`. Αφαίρεση `[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\p{Cf}]` (§3 Β) | Email `"x\" onmouseover…"@a.gr` και όνομα με U+202E απορρίπτονται | CONFIRMED |
+| F7 | μεσαία | Livewire: token στο snapshot, public fields που αλλάζει ο client, σημειώσεις σε public arrays, polls χωρίς authz, upload endpoint, `svg` στα `preview_mimes` | Token μόνο στο session. `#[Locked]` σε chat id και τμήμα. Ρόλος και `internal` μόνο από τον server. Μηνύματα ως computed. Policy σε κάθε poll. Οι components επισκέπτη χωρίς `WithFileUploads`. `svg` εκτός `preview_mimes` | POST `internal=true` αγνοείται. Το snapshot δεν έχει token ή σημειώσεις. Poll μετά από block δίνει τίποτα | CONFIRMED (`Guest.php`, `livewire.php`) |
+| F8 | μεσαία | Η εφαρμογή δεν στέλνει headers κατά του framing (μόνο ο web server στέλνει `SAMEORIGIN`). Sibling hosts στο `.myip.gr` μπορούν να στήσουν cookie (cookie tossing) για session fixation | Middleware με `frame-ancestors 'none'` και `X-Frame-Options: DENY`. `session()->regenerate()` στο `StartChat`. Έλεγχος ότι το `SESSION_DOMAIN` είναι κενό και τα cookies `secure` | Headers υπάρχουν. Το session id αλλάζει στην έναρξη chat | CONFIRMED (headers). Το cookie tossing PLAUSIBLE |
+| F9 | μεσαία | Οι guards πελάτη και staff μοιράζονται το session. Το «Login as client» θα έγραφε ως πελάτης | Οι components των operators μένουν μέσα στο Filament, με `Auth::guard('staff')` ρητά. Σε impersonation, κανένα chat πελάτη, ή αποθήκευση ως staff με σήμανση | Ίδιος browser με πελάτη και staff: κανένα μπέρδεμα ρόλου | CONFIRMED (`UseWebGuard`, `ImpersonateMiddleware`) |
+| F10 | μεσαία | Δεν ορίζεται ποια logins ενός λογαριασμού βλέπουν τα chats | Chats ανά λογαριασμό, μέσω `owns()` με δικαίωμα `chat`, έλεγχος σε κάθε poll, `user_id` σε κάθε μήνυμα | Login χωρίς δικαίωμα ή με ανακληθέν grant: 403 και στο επόμενο poll | CONFIRMED (`BasePolicy::owns`) |
+| F11 | μεσαία | Το αντίγραφο με email γίνεται mailbomb, το επιβεβαιώνουν scanners μέσω GET, και το link μένει στο `email_logs` | Ένα ανά chat, limits ανά διεύθυνση, IP και ημέρα. Mail χωρίς κείμενο επισκέπτη. Επιβεβαίωση με POST. Masking στο log, χωρίς resend (§6α) | Δεύτερο αίτημα δεν στέλνει. Το GET δεν στέλνει. Το log δείχνει `********` | CONFIRMED (`NotificationHelper`) |
+| F12 | μεσαία | Περιεχόμενο chat θα αντιγραφόταν σε audits και debug logs όπου η διαγραφή δεν φτάνει | Όχι Auditable με όλα τα πεδία, ρητά audit events μόνο με ids. Errors χωρίς SQL bindings. Η διαγραφή φτάνει σε audits, `email_logs` και αρχεία (§6α) | Μετά από διαγραφή GDPR, κανένα body σε `audits`, `email_logs` ή `debug_logs` | CONFIRMED (`TicketMessage` Auditable) |
+| F13 | μεσαία | Rate limits: πραγματική IP πίσω από proxy, CGNAT, IPv6, και races στο check-then-insert | Έλεγχος του `CallerIp` στο deploy. Blocks με `CallerIp::bucket` (/64), σύντομα από default. Πρώτα increment, μετά έλεγχος, ανά call. `Cache::lock` στην έναρξη | 50 sends σε ένα request σταματούν στο όριο. Δύο παράλληλα `StartChat` φτιάχνουν ένα chat | CONFIRMED (κώδικας). Το proxy setup PLAUSIBLE |
+| F14 | μεσαία | Το route του ALTCHA δίνει 404 όταν έχει επιλεγεί άλλο captcha | Το chat επισκέπτη χρησιμοποιεί πάντα ALTCHA, με δικό του route. Αν δεν λειτουργεί, δεν ανοίγει chat επισκέπτη (fail closed) | Με `captcha = recaptcha`, το chat θέλει ακόμα ALTCHA. Replay απορρίπτεται | CONFIRMED (`routes/web.php`) |
+| F15 | μεσαία | Το polling με `id > last` χάνει μηνύματα που κάνουν commit εκτός σειράς, και ξεχνά εύκολα το `internal = 0` | Επικάλυψη στο poll (π.χ. τα τελευταία 20 ids) με dedup. Πελάτης και επισκέπτης διαβάζουν μόνο μέσω `publicMessages()` | Δύο inserts με αντίστροφο commit φτάνουν και τα δύο. Κανένα `internal` σε πελάτη ή επισκέπτη | PLAUSIBLE |
+| F16 | μεσαία | Και οι άλλες αλλαγές κατάστασης έχουν races (transfer, close, link, post, auto-close) | Κάθε action σε transaction με `lockForUpdate` και έλεγχο προϋποθέσεων μέσα στο lock. Το auto-close ως conditional update | Close και post ταυτόχρονα: ποτέ post μετά το close (MariaDB) | PLAUSIBLE |
+| F17 | μεσαία | Το `dept` μπορεί να δείξει κρυφό ή `clients_only` τμήμα. Ένα GET που ξεκινά chat είναι CSRF | Το τμήμα επιλέγεται στον server. Το `src` αντιστοιχίζεται σε λίστα. Chat μόνο με POST (§4) | Επισκέπτης με κρυφό `dept` καταλήγει στο default. Το GET δεν φτιάχνει chat | CONFIRMED (`TicketDepartment`) |
+| F18 | μεσαία | Η ανοιχτή ουρά κρατά το session του staff ζωντανό για πάντα. Δεν υπάρχει reauth για staff | Απόλυτο όριο στο session του staff (π.χ. 12 ώρες) και idle timer που αγνοεί τα polls. Reauth (κωδικός ή TOTP) για σύνδεση με πελάτη, διαγραφή και block στο CFM | Μετά το όριο, το poll δίνει 401. Διαγραφή χωρίς πρόσφατο reauth απορρίπτεται | CONFIRMED (`Reauth` μόνο για πελάτες) |
+| F19 | μεσαία | Import του LHC: payloads, HTML ή BBCode, paths αρχείων από τη βάση, re-run μετά από διαγραφή | Τα όνομα και email περνούν από το §3 Β, το HTML γίνεται κείμενο. Τα αρχεία διαβάζονται με έλεγχο realpath, χωρίς symlinks, με `Attachments::refusal`. Κλειδί το LHC id, με tombstones. Χωρίς tokens, σήμανση `imported` | Το email-payload γίνεται null. Το path `../../.env` παραλείπεται. Re-run δεν επαναφέρει ό,τι σβήστηκε | PLAUSIBLE |
+| F20 | χαμηλή | Τα system messages («μεταφέρθηκε στον X», «συνδέθηκε με Y») και τα κενά στα ids αποκαλύπτουν εσωτερικά | Τα system messages είναι από default ορατά μόνο στο staff. Τα raw ids δεν φαίνονται στον επισκέπτη | Ο επισκέπτης δεν βλέπει όνομα staff ή πελάτη | PLAUSIBLE |
+| F21 | χαμηλή | Οι browser notifications δείχνουν περιεχόμενο στο lock screen. Το `body()` του Filament δεν κάνει escape | OS notification μόνο «Νέο chat – τμήμα». Τα δεδομένα χρήστη περνούν από `e()` | Όνομα `<a href=//e>` βγαίνει escaped | PLAUSIBLE |
+| F22 | χαμηλή | Ο κύκλος ζωής του token δεν ορίζεται απέναντι στο session (login, logout, κοινός υπολογιστής) | Το token σβήνεται στο κλείσιμο, στο login και στο logout. Πραγματική διάρκεια = min(token, session) (§3 Γ) | Μετά από login, το popup δεν δείχνει το ανώνυμο chat | CONFIRMED (`Login`, `Logout`) |
+| F23 | χαμηλή | Το δωμάτιο staff δεν έχει δικαιώματα, διατήρηση ή όρια | Permissions `admin.chat_room.view` και `.post`, ίδια όρια και ίδιο escape, ένταξη στη διαγραφή του F12 | Staff χωρίς δικαίωμα: 403 και στο poll | PLAUSIBLE |
+| F24 | χαμηλή | Ο επισκέπτης παριστάνει τον operator με το όνομά του («MyIP Support», homoglyphs) | Το badge έρχεται από το `author_type`, και αφαιρούνται οι `\p{Cf}` (§3 Α) | Επισκέπτης με όνομα σαν το brand εμφανίζεται με badge «Επισκέπτης» παντού | PLAUSIBLE |
+
+**Υποθέσεις του σχεδίου που ελέγχθηκαν και ισχύουν:**
+- **Guest links:** token 256 bit, μόνο SHA-256 στη βάση, λήξη και revoke (`GuestLinks`).
+- **`VisitorKey` / `CallerIp`:** δεν εμπιστεύεται το `X-Forwarded-For` χωρίς δηλωμένο proxy, και ομαδοποιεί το IPv6 ανά /64.
+- **ALTCHA:** μίας χρήσης με ατομικό `Cache::add`, λήξη μέσα στην υπογραφή, όριο payload 8 KB.
+- **Συνημμένα:** σερβίρονται ως download με `nosniff` και CSP sandbox. Ο τύπος ελέγχεται με libmagic, χωρίς SVG ή HTML.
+- **Markdown των tickets:** escape παντού.
+- **Session:** Redis, κρυπτογραφημένο, `http_only` και `secure` (έλεγχος στο live 2026-10-22). Regenerate στο login,
+  invalidate στο logout.
+- **Livewire:** όρια payload και `legacy_model_binding` off.
+- **Gate denials:** επιστρέφουν «not found».
