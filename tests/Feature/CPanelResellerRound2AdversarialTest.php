@@ -60,7 +60,12 @@ class CPanelResellerRound2AdversarialTest extends TestCase
             $this->timeouts[$call] = $options['timeout'] ?? null;
 
             return Http::response(['metadata' => ['result' => 1, 'reason' => 'OK'],
-                'data' => $call === 'listresellers' ? ['reseller' => ['resel1']] : []]);
+                // listaccts: the accounts the reseller owns, read before a reseller call (protected accounts, #322).
+                'data' => match ($call) {
+                    'listresellers' => ['reseller' => ['resel1']],
+                    'listaccts' => ['acct' => []],
+                    default => [],
+                }]);
         });
     }
 
