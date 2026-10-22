@@ -97,6 +97,18 @@ class CartOwnerTest extends TestCase
         $this->assertTrue(collect(Cookie::getQueuedCookies())->contains(fn ($c) => $c->getName() === AuthCookies::cart() && $c->getValue() === null));
     }
 
+    public function test_a_login_that_drops_another_accounts_cart_brings_back_its_own(): void
+    {
+        $this->cookie($this->cartOf(User::factory()->create()));
+        $user = User::factory()->create();
+        $own = $this->cartOf($user);
+        $this->as($user);
+
+        event(new Login($user));
+
+        $this->assertTrue(collect(Cookie::getQueuedCookies())->contains(fn ($c) => $c->getName() === AuthCookies::cart() && $c->getValue() === $own->ulid));
+    }
+
     public function test_a_login_takes_a_cart_of_no_account_into_its_own(): void
     {
         $cart = $this->cartOf(null);

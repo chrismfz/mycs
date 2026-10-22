@@ -32,7 +32,10 @@ class UserAuthListener
                 if ($cart !== null && ($cart->client_id === null || (int) $cart->client_id === (int) $client?->id)) {
                     $cart->client_id = $client?->id;
                     $cart->save();
-                } elseif ($cart !== null) {
+                } elseif (($own = $client?->cart) !== null) {
+                    // Not this account's (or gone): the account's own cart instead.
+                    Cookie::queue(AuthCookies::cart(), $own->ulid, 60 * 24 * 30);
+                } else {
                     Cookie::queue(Cookie::forget(AuthCookies::cart()));
                 }
             } elseif ($cart = CurrentClient::defaultFor($event->user)?->cart) {
