@@ -222,7 +222,7 @@ class GatewayLogAdversarialTest extends TestCase
     {
         $this->stripe();
         Http::fake(['https://api.stripe.com/v1/setup_intents/*' => Http::response([
-            'id' => 'seti_' . str_repeat('a', 24), 'status' => 'succeeded', 'metadata' => ['user_id' => 999999],
+            'id' => 'seti_' . str_repeat('a', 24), 'status' => 'succeeded', 'metadata' => ['mycs' => GatewayReference::mark(), 'user_id' => 999999],
         ])]);
 
         $this->signedIn()->get('/extensions/stripe/setup-agreement?setup_intent=seti_' . str_repeat('a', 24))->assertForbidden();

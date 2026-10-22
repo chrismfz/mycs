@@ -5,6 +5,7 @@ namespace App\Services\Money;
 use App\Helpers\NotificationHelper;
 use App\Models\Invoice;
 use App\Models\PaymentGatewayEvent;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 /**
@@ -61,10 +62,13 @@ final class GatewayReference
         GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_FOREIGN, Str::limit($what, 60, ''), [
             'amount' => $amount, 'currency_code' => $currency, 'external_id' => $reference,
         ]);
-        $message = sprintf('The %s gateway sent an event (%s) for a payment this site did not make or has no record of%s%s. Nothing was recorded here: check it at the gateway (and in the old system, for a payment made before the move) and act by hand.',
+        $message = sprintf('The %s gateway sent an event (%s) for a payment this site did not make or has no record of%s%s. Nothing was recorded here. If its payment reaches this site later, a refund or chargeback held for it is applied then by itself: do not also act on it by hand. Otherwise check it at the gateway (and in the old system, for a payment made before the move).',
             $gateway, $what, $reference !== null ? ' (gateway id ' . $reference . ')' : '',
             is_numeric($amount) ? ', ' . number_format((float) $amount, 2, '.', '') . ' ' . strtoupper((string) $currency) : '');
         PaymentsLog::warning($message, ['gateway' => $gateway, 'reference' => $reference]);
-        NotificationHelper::sendSystemEmailNotification('Gateway event for a payment not made here', e($message));
+        // Once a day for the same event: an unsigned webhook (Mollie's) can be posted again and again (#328).
+        if (Cache::add('gateway-foreign:' . hash('sha256', $gateway . '|' . $what . '|' . ($reference ?? '')), true, now()->addDay())) {
+            NotificationHelper::sendSystemEmailNotification('Gateway event for a payment not made here', e($message));
+        }
     }
 }

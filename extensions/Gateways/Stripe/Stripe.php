@@ -254,6 +254,10 @@ class Stripe extends Gateway
             case 'payment_intent.processing':
                 $paymentIntent = $event->data->object; // contains a StripePaymentIntent
                 if (!isset($paymentIntent->metadata->invoice_id)) {
+                    // A subscription's invoice pays through its own events; any other is no payment of ours (S0-6).
+                    if (empty($paymentIntent->invoice) && $event->type !== 'payment_intent.processing') {
+                        GatewayReference::foreign('Stripe', $event->type, $paymentIntent->id ?? null, isset($paymentIntent->amount) ? $paymentIntent->amount / 100 : null, $paymentIntent->currency ?? null);
+                    }
                     break;
                 }
                 if (!GatewayReference::isOurs($paymentIntent->metadata->mycs ?? null)) {
@@ -267,6 +271,10 @@ class Stripe extends Gateway
             case 'payment_intent.succeeded':
                 $paymentIntent = $event->data->object; // contains a StripePaymentIntent
                 if (!isset($paymentIntent->metadata->invoice_id)) {
+                    // A subscription's invoice pays through its own events; any other is no payment of ours (S0-6).
+                    if (empty($paymentIntent->invoice) && $event->type !== 'payment_intent.processing') {
+                        GatewayReference::foreign('Stripe', $event->type, $paymentIntent->id ?? null, isset($paymentIntent->amount) ? $paymentIntent->amount / 100 : null, $paymentIntent->currency ?? null);
+                    }
                     break;
                 }
                 if (!GatewayReference::isOurs($paymentIntent->metadata->mycs ?? null)) {
@@ -279,6 +287,10 @@ class Stripe extends Gateway
             case 'payment_intent.payment_failed':
                 $paymentIntent = $event->data->object; // contains a StripePaymentIntent
                 if (!isset($paymentIntent->metadata->invoice_id)) {
+                    // A subscription's invoice pays through its own events; any other is no payment of ours (S0-6).
+                    if (empty($paymentIntent->invoice) && $event->type !== 'payment_intent.processing') {
+                        GatewayReference::foreign('Stripe', $event->type, $paymentIntent->id ?? null, isset($paymentIntent->amount) ? $paymentIntent->amount / 100 : null, $paymentIntent->currency ?? null);
+                    }
                     break;
                 }
                 if (!GatewayReference::isOurs($paymentIntent->metadata->mycs ?? null)) {
@@ -768,7 +780,7 @@ class Stripe extends Gateway
 
         $setupIntent = $this->request('get', '/setup_intents/' . $request->input('setup_intent'));
 
-        if ($setupIntent->status !== 'succeeded') {
+        if ($setupIntent->status !== 'succeeded' || !GatewayReference::isOurs($setupIntent->metadata->mycs ?? null)) {
             return redirect()->route('account.payment-methods')->with('notification', [
                 'type' => 'danger',
                 'message' => 'Could not add payment method, setup not completed successfully.',

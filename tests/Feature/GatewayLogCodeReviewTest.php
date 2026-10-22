@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
+use MyCS\Extensions\Gateways\PayPal\PayPal;
 use MyCS\Extensions\Gateways\Stripe\Stripe;
 use Tests\TestCase;
 
@@ -172,6 +173,7 @@ class GatewayLogCodeReviewTest extends TestCase
                 'payments' => ['captures' => [['id' => 'CAP1', 'amount' => ['value' => '100.00', 'currency_code' => 'EUR']]]],
             ]]]),
         ]);
+        PayPal::rememberOrder('ORDER1', $invoice); // made here
         ExtensionHelper::getExtension('gateway', 'PayPal', $gateway->fresh()->settings)->boot();
 
         $this->postJson('/extensions/paypal/webhook', ['event_type' => 'PAYMENT.CAPTURE.COMPLETED', 'resource' => [
