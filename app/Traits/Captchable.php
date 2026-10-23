@@ -12,8 +12,12 @@ trait Captchable
 
     private $is_valid = false;
 
-    public function updated()
+    public function updated($name = null)
     {
+        // Solved (or a new token): the error of the try before is no longer so (owner 2026-10-23: still shown after it).
+        if ($name === 'captcha') {
+            $this->resetErrorBag('captcha');
+        }
         // ALTCHA is checked when the form is sent, not on every field's update: a solution counts once, and a live
         // field's update before the submit would spend it (docs/captcha.md).
         if (config('settings.captcha') === 'altcha') {
@@ -55,7 +59,7 @@ trait Captchable
         }
 
         if (!$this->captcha) {
-            throw ValidationException::withMessages(['captcha' => 'The CAPTCHA is required.']);
+            throw ValidationException::withMessages(['captcha' => __('auth.captcha_required')]);
         }
 
         if (config('settings.captcha') == 'turnstile') {
@@ -106,7 +110,7 @@ trait Captchable
             return $this->is_valid = true;
         }
 
-        throw ValidationException::withMessages(['captcha' => 'The CAPTCHA was invalid.']);
+        throw ValidationException::withMessages(['captcha' => __('auth.captcha_invalid')]);
     }
 
     // Google Recaptcha
@@ -122,7 +126,7 @@ trait Captchable
             return $this->is_valid = true;
         }
 
-        throw ValidationException::withMessages(['captcha' => 'The CAPTCHA was invalid.']);
+        throw ValidationException::withMessages(['captcha' => __('auth.captcha_invalid')]);
     }
 
     // hCaptcha
@@ -138,6 +142,6 @@ trait Captchable
             return $this->is_valid = true;
         }
 
-        throw ValidationException::withMessages(['captcha' => 'The CAPTCHA was invalid.']);
+        throw ValidationException::withMessages(['captcha' => __('auth.captcha_invalid')]);
     }
 }

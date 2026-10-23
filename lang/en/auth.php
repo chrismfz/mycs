@@ -66,6 +66,7 @@ return [
         'not_received' => 'If you did not receive the email you can request another verification email.',
         'request_another' => 'Resend verification email',
     ],
+    'captcha_required' => 'Please confirm you are not a robot.',
     'captcha_invalid' => 'The CAPTCHA was invalid or has expired. Try again.',
     'remember_me' => 'Remember me',
 ];

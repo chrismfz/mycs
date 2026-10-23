@@ -12,10 +12,11 @@
 @script
 <script>
     const widget = $wire.$el.querySelector('altcha-widget');
-    // Solved: the payload goes with the form's next request (as the other captchas' tokens).
+    // Solved: the payload is sent now, so the error of the try before goes (Captchable::updated); counted only when the
+    // form is sent (an update calls no action).
     widget.addEventListener('statechange', (ev) => {
         if (ev.detail.state === 'verified') {
-            $wire.set('captcha', ev.detail.payload, false);
+            $wire.set('captcha', ev.detail.payload);
         }
     });
     // A solution counts once: after this form was sent (a failed login, a validation error) solve a new one. Only this
