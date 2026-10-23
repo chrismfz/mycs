@@ -66,15 +66,18 @@ _env() { { grep -E "^$1=" .env || true; } | tail -1 | cut -d= -f2- | sed -E 's/^
 COMPOSER_DEV="${COMPOSER_DEV:-$(_env DEPLOY_COMPOSER_DEV)}"
 # Production never gets dev packages (Debugbar, Ignition) nor debug output (security audit SEC-13): refused, unless
 # ALLOW_DEV_IN_PRODUCTION=1 says it is meant (a one-off on a box that is not really production). APP_ENV and APP_DEBUG
-# as Laravel reads them (phpdotenv: quotes, comments, `export`, CRLF), and debug on as Laravel's env() has it: anything
-# but false/0/empty/null (review of #392).
-_app_env=""; _app_debug=""
-if _parsed="$($PHP -r 'require "vendor/autoload.php"; $e = Dotenv\Dotenv::parse((string) file_get_contents(".env")); echo strtolower(trim((string) ($e["APP_ENV"] ?? ""))), "\n", strtolower(trim((string) ($e["APP_DEBUG"] ?? ""))), "\n";' 2>/dev/null)"; then
-  _app_env="$(printf '%s\n' "$_parsed" | sed -n 1p)"; _app_debug="$(printf '%s\n' "$_parsed" | sed -n 2p)"
-else
-  _app_env="$(_env APP_ENV | tr -d "\r'\"" | tr '[:upper:]' '[:lower:]' | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//')"
-  _app_debug="$(_env APP_DEBUG | tr -d "\r'\"" | tr '[:upper:]' '[:lower:]' | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//')"
+# as Laravel reads them (phpdotenv: quotes, comments, `export`, CRLF, untrimmed inside quotes), and debug on as
+# Laravel's env() has it: anything but false/0/empty/null (review of #392).
+# Read by tag, PHP's own warnings kept off stdout; when PHP cannot read it, refused (review of #392): there is no
+# telling then whether this is production.
+_parsed="$($PHP -d display_errors=stderr -d display_startup_errors=0 -r 'require "vendor/autoload.php"; $e = Dotenv\Dotenv::parse((string) file_get_contents(".env")); echo "\nMYCS_GUARD_ENV=", strtolower((string) ($e["APP_ENV"] ?? "")), "\nMYCS_GUARD_DEBUG=", strtolower((string) ($e["APP_DEBUG"] ?? "")), "\n";' 2>/dev/null || true)"
+if ! grep -q '^MYCS_GUARD_ENV=' <<<"$_parsed" || ! grep -q '^MYCS_GUARD_DEBUG=' <<<"$_parsed"; then
+  if [[ "${ALLOW_DEV_IN_PRODUCTION:-0}" != "1" ]]; then
+    fail "Cannot read .env as Laravel does ($PHP with vendor/autoload.php): APP_ENV and APP_DEBUG unknown. Fix PHP/vendor or .env (or ALLOW_DEV_IN_PRODUCTION=1)."; exit 1
+  fi
 fi
+_app_env="$(sed -n 's/^MYCS_GUARD_ENV=//p' <<<"$_parsed" | tail -1)"
+_app_debug="$(sed -n 's/^MYCS_GUARD_DEBUG=//p' <<<"$_parsed" | tail -1)"
 if [[ "$_app_env" == "production" && "${ALLOW_DEV_IN_PRODUCTION:-0}" != "1" ]]; then
   if [[ "${COMPOSER_DEV:-0}" == "1" ]]; then
     fail "APP_ENV=production with COMPOSER_DEV/DEPLOY_COMPOSER_DEV=1: dev packages would be installed. Unset it (or ALLOW_DEV_IN_PRODUCTION=1)."; exit 1

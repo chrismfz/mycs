@@ -7,8 +7,7 @@ use Tests\TestCase;
 
 /**
  * deploy/update.sh refuses dev packages and debug output on production (security audit SEC-13), before it touches
- * anything: run in an empty checkout that only has its .env, it stops at once. (Only refusals are run: past the
- * guard the script would go on to deploy.)
+ * anything: run in an empty checkout that only has its .env, it stops at once. Past the guard, a fake git stops it.
  */
 class DeployProductionGuardTest extends TestCase
 {
@@ -23,6 +22,10 @@ class DeployProductionGuardTest extends TestCase
         File::put($this->dir . '/artisan', '');
         // The parser the guard asks (phpdotenv): the app's own vendor.
         symlink(base_path('vendor'), $this->dir . '/vendor');
+        // Past the guard the script's first step is git: a git that only says so stops it there.
+        File::makeDirectory($this->dir . '/bin');
+        File::put($this->dir . '/bin/git', "#!/bin/sh\necho PAST-THE-GUARD\nexit 97\n");
+        chmod($this->dir . '/bin/git', 0700);
     }
 
     protected function tearDown(): void
@@ -36,7 +39,7 @@ class DeployProductionGuardTest extends TestCase
     {
         File::put($this->dir . '/.env', $env);
         $prefix = implode(' ', array_map(fn ($k, $v) => $k . '=' . escapeshellarg($v), array_keys($vars), $vars));
-        exec('cd ' . escapeshellarg($this->dir) . ' && env -u COMPOSER_DEV -u ALLOW_DEV_IN_PRODUCTION -u APP_DIR -u MYCS_UPDATE_COPY ' . $prefix . ' bash deploy/update.sh --help-not-a-ref 2>&1 < /dev/null', $out, $code);
+        exec('cd ' . escapeshellarg($this->dir) . ' && PATH=' . escapeshellarg($this->dir . '/bin:' . getenv('PATH')) . ' env -u COMPOSER_DEV -u ALLOW_DEV_IN_PRODUCTION -u APP_DIR -u MYCS_UPDATE_COPY ' . $prefix . ' bash deploy/update.sh --help-not-a-ref 2>&1 < /dev/null', $out, $code);
 
         return [$code, implode("\n", $out)];
     }
@@ -71,5 +74,35 @@ class DeployProductionGuardTest extends TestCase
             $this->assertSame(1, $code, json_encode($env) . ': ' . $out);
             $this->assertStringContainsString('APP_DEBUG=true', $out);
         }
+    }
+
+    public function test_a_correct_production_env_passes_the_guard(): void
+    {
+        foreach (["APP_ENV=production\nAPP_DEBUG=false\n", "APP_ENV=production\n", "APP_ENV=production\nAPP_DEBUG=0 # off\n"] as $env) {
+            [$code, $out] = $this->deploy($env);
+            $this->assertSame(97, $code, json_encode($env) . ': ' . $out);
+            $this->assertStringContainsString('PAST-THE-GUARD', $out);
+        }
+    }
+
+    /** PHP's warnings on stdout do not move the values; a PHP that cannot read .env is refused (review of #392). */
+    public function test_php_noise_or_failure_never_lets_debug_through(): void
+    {
+        File::put($this->dir . '/bin/noisy-php', "#!/bin/sh\necho 'Warning: PHP Startup: something'\nexec " . PHP_BINARY . " \"\$@\"\n");
+        chmod($this->dir . '/bin/noisy-php', 0700);
+        [$code, $out] = $this->deploy("APP_ENV=production\nAPP_DEBUG=true\n", ['PHP' => $this->dir . '/bin/noisy-php']);
+        $this->assertSame(1, $code, $out);
+        $this->assertStringContainsString('APP_DEBUG=true', $out);
+
+        [$code, $out] = $this->deploy("APP_ENV=production\nAPP_DEBUG=false\n", ['PHP' => 'false']);
+        $this->assertSame(1, $code, $out);
+        $this->assertStringContainsString('Cannot read .env', $out);
+    }
+
+    public function test_a_space_inside_quotes_is_debug_on_as_for_laravel(): void
+    {
+        [$code, $out] = $this->deploy("APP_ENV=production\nAPP_DEBUG=\" false\"\n");
+
+        $this->assertSame(1, $code, $out);
     }
 }
