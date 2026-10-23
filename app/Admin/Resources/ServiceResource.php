@@ -25,6 +25,7 @@ use App\Models\ServiceUsage;
 use App\Services\Licensing\Licenses;
 use App\Services\Ops\Scrub;
 use App\Services\Service\DeleteService;
+use App\Support\AdminBadge;
 use App\Support\LicenseKeyMask;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -84,7 +85,7 @@ class ServiceResource extends Resource
 
     public static function getNavigationBadge(): ?string
     {
-        return Service::where('status', 'pending')->count() ?: null;
+        return AdminBadge::label('services.pending', fn () => Service::query()->where('status', 'pending')->count());
     }
 
     public static function getNavigationBadgeColor(): ?string
@@ -464,9 +465,9 @@ class ServiceResource extends Resource
                     ->options(Service::statusOptions()),
                 SelectFilter::make('client')
                     ->label('Client')
-                    ->relationship('client', 'id')
-                    ->getOptionLabelFromRecordUsing(fn ($record) => ClientComponent::optionLabel($record))
-                    ->searchable(),
+                    ->attribute('client_id')->searchable()
+                    ->getSearchResultsUsing(fn (string $search): array => ClientComponent::searchResults($search))
+                    ->getOptionLabelUsing(fn ($value) => ClientComponent::labelOf($value)),
                 SelectFilter::make('product')
                     ->label('Product')
                     ->relationship('product', 'name')

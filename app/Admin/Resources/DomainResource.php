@@ -12,6 +12,7 @@ use App\Enums\DomainStatus;
 use App\Models\Client;
 use App\Models\Domain;
 use App\Services\Domains\DomainManagementService;
+use App\Support\AdminBadge;
 use App\Support\Domains\DnssecRecord;
 use App\Support\Domains\RegistryStatuses;
 use Closure;
@@ -111,8 +112,9 @@ class DomainResource extends Resource
                     ->query(fn ($query) => $query->whereNotNull('meta->not_ours')),
                 Filter::make('expiring')->label(__('Expiring in 60 days'))
                     ->query(fn (Builder $query) => $query->whereBetween('expires_at', [today(), today()->addDays(60)])),
-                SelectFilter::make('client')->label(__('Client'))->relationship('client', 'id')->searchable()
-                    ->getOptionLabelFromRecordUsing(fn (Client $record) => ClientComponent::optionLabel($record)),
+                SelectFilter::make('client')->label(__('Client'))->attribute('client_id')->searchable()
+                    ->getSearchResultsUsing(fn (string $search): array => ClientComponent::searchResults($search))
+                    ->getOptionLabelUsing(fn ($value) => ClientComponent::labelOf($value)),
             ])
             ->recordActions([ViewAction::make()]);
     }
@@ -408,9 +410,7 @@ class DomainResource extends Resource
     /** Domains whose registrar says they are not ours: staff's to confirm (the sync only notes it). */
     public static function getNavigationBadge(): ?string
     {
-        $count = Domain::query()->whereNotNull('meta->not_ours')->whereNotIn('status', DomainStatus::terminalValues())->count();
-
-        return $count > 0 ? (string) $count : null;
+        return AdminBadge::label('domains.not_ours', fn () => Domain::query()->whereNotNull('meta->not_ours')->whereNotIn('status', DomainStatus::terminalValues())->count());
     }
 
     public static function getNavigationBadgeColor(): ?string

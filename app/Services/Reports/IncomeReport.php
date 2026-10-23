@@ -48,7 +48,7 @@ final class IncomeReport
         $lines = self::lines($ids);
         $notes = DB::table('adjustment_notes')->whereIn('invoice_id', $ids === [] ? [0] : $ids)->where('status', AdjustmentNoteStatus::Active->value)
             ->where('created_at', '<', $until)->groupBy('invoice_id')->selectRaw('invoice_id, SUM(amount) AS amount')->pluck('amount', 'invoice_id');
-        foreach ((clone $paid)->with(['snapshot', 'client.primaryContact', 'transactions.gateway'])->orderBy('paid_at')->orderBy('id')->lazy(500) as $invoice) {
+        foreach ((clone $paid)->with(['snapshot', 'client.primaryContact', 'client.ownerGrant.user', 'transactions.gateway'])->orderBy('paid_at')->orderBy('id')->lazy(500) as $invoice) {
             $line = $lines[$invoice->id] ?? null;
             if ($line === null) {
                 continue; // a credit purchase only: not income
@@ -62,7 +62,7 @@ final class IncomeReport
             ->where('created_at', '>=', $from)->where('created_at', '<', $until)
             ->whereHas('invoice', fn ($query) => $query->whereIn('status', [Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED])
                 ->where('currency_code', $currency)->where('paid_at', '<', $from))
-            ->with(['invoice.snapshot', 'invoice.client.primaryContact'])->orderBy('created_at')->orderBy('id')->get();
+            ->with(['invoice.snapshot', 'invoice.client.primaryContact', 'invoice.client.ownerGrant.user'])->orderBy('created_at')->orderBy('id')->get();
         $theirLines = self::lines($later->pluck('invoice_id')->unique()->values()->all());
         foreach ($later as $note) {
             $line = $theirLines[$note->invoice_id] ?? null;

@@ -42,15 +42,33 @@ class ClientComponent extends Select
         return Select::make($name)
             ->label(__('Client'))
             ->searchable()
-            ->getOptionLabelUsing(fn ($value) => ($client = Client::query()->find((int) $value)) !== null ? self::optionLabel($client) : null)
-            ->getSearchResultsUsing(fn (string $search): array => Client::query()
-                ->where(fn (Builder $query) => $query->whereKey((int) $search)->orWhere(fn (Builder $query) => self::search($query, $search, '')))
-                ->with(['primaryContact', 'ownerGrant.user'])
-                ->limit(50)
-                ->get()
-                ->mapWithKeys(fn (Client $client) => [$client->id => self::optionLabel($client)])
-                ->toArray())
+            ->getOptionLabelUsing(fn ($value) => self::labelOf($value))
+            ->getSearchResultsUsing(fn (string $search): array => self::searchResults($search))
             ->required();
+    }
+
+    /**
+     * Up to 50 accounts for a search (by id, name or email) as id => label: for a picker or a list's filter, which
+     * never loads every account up front (a filter that did made a query per account: review of the admin's speed).
+     *
+     * @return array<int, string>
+     */
+    public static function searchResults(string $search): array
+    {
+        return Client::query()
+            ->where(fn (Builder $query) => $query->whereKey((int) $search)->orWhere(fn (Builder $query) => self::search($query, $search, '')))
+            ->with(['primaryContact', 'ownerGrant.user'])
+            ->limit(50)
+            ->get()
+            ->mapWithKeys(fn (Client $client) => [$client->id => self::optionLabel($client)])
+            ->toArray();
+    }
+
+    public static function labelOf(mixed $id): ?string
+    {
+        $client = is_numeric($id) ? Client::query()->with(['primaryContact', 'ownerGrant.user'])->find((int) $id) : null;
+
+        return $client !== null ? self::optionLabel($client) : null;
     }
 
     /**

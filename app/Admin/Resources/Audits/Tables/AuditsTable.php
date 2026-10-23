@@ -9,6 +9,7 @@ use App\Support\AuditSummary;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Enums\PaginationMode;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -104,8 +105,9 @@ class AuditsTable
             ->recordActions([
                 ViewAction::make(),
             ])
-            ->defaultSort(function (Builder $query) {
-                return $query->orderBy('created_at', 'desc')->orderBy('id', 'desc');
-            });
+            // Newest first by the primary key (rows are written in time order): no sort of the whole table. Pages without a
+            // total, which would count millions of rows on every page.
+            ->defaultSort(fn (Builder $query) => $query->orderBy('id', 'desc'))
+            ->paginationMode(PaginationMode::Simple);
     }
 }

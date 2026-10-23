@@ -14,6 +14,7 @@ use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\TicketQuarantineResource;
 use App\Admin\Resources\TicketResource;
 use App\Models\Invoice;
+use App\Support\AdminBadge;
 use Filament\Facades\Filament;
 use Filament\Pages\Page;
 use Filament\Resources\Resource;
@@ -91,7 +92,7 @@ class AdminSidebar
                 if ($own !== null) {
                     // A queue with its own count: [model, scope, color].
                     [$model, $scope, $ownColor] = $own;
-                    $count = $model::query()->{$scope}()->count();
+                    $count = AdminBadge::count($model . '.' . $scope, fn () => $model::query()->{$scope}()->count());
                     [$badge, $color] = [$count > 0 ? $count : null, $ownColor];
                 } else {
                     [$badge, $color] = $counted[$base] ?? ($clusterUrl !== null ? ($counted[$clusterUrl] ?? null) : null)

@@ -110,7 +110,8 @@ class Invoice extends Model implements Auditable
     public static function whereOverdue(Builder $query): Builder
     {
         return $query->where('status', self::STATUS_UNPAID)->whereNotNull('client_id')->whereNotNull('due_at')
-            ->whereDate('due_at', '<', today()->toDateString())
+            // A plain comparison, not whereDate: due_at is a date, and DATE(due_at) could use no index.
+            ->where('due_at', '<', today()->toDateString())
             ->whereDoesntHave('transactions', fn ($transactions) => $transactions->where('status', InvoiceTransactionStatus::Processing))
             // «Add funds»: it has lines and every one is credit.
             ->whereNot(fn ($addFunds) => $addFunds->whereHas('items')

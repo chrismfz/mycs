@@ -266,7 +266,8 @@ class CronJob extends Command
                 // What it tells staff is mailed also when a step of it fails (review F7).
                 try {
                     $billUntil = now()->addDays((int) config('settings.cronjob_invoice', 7));
-                    $ids = Service::whereIn('status', ['active', 'suspended'])->where('expires_at', '<', $billUntil)->pluck('id');
+                    // In id order, never the index's: the renewals are invoiced in the same order whatever the plan.
+                    $ids = Service::whereIn('status', ['active', 'suspended'])->where('expires_at', '<', $billUntil)->orderBy('id')->pluck('id');
                     foreach ($ids as $id) {
                         try {
                             // One short transaction per service, on a fresh locked row: a payment committed
@@ -442,6 +443,7 @@ class CronJob extends Command
                 $ids = Service::whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
                     ->where('expires_at', '<=', now()->endOfDay())
                     ->whereHas('cancellation', fn ($query) => $query->where('type', 'end_of_period'))
+                    ->orderBy('id')
                     ->pluck('id');
                 foreach ($ids as $id) {
                     try {
@@ -477,12 +479,12 @@ class CronJob extends Command
                 // hold that just committed).
                 $requiresInvoice = (bool) config('settings.cronjob_suspend_requires_invoice', false);
                 if ($requiresInvoice) {
-                    $notices = $this->suspendable()->whereDoesntHave('invoices', fn ($query) => $query->where('invoices.status', Invoice::STATUS_UNPAID))->pluck('id');
+                    $notices = $this->suspendable()->whereDoesntHave('invoices', fn ($query) => $query->where('invoices.status', Invoice::STATUS_UNPAID))->orderBy('id')->pluck('id');
                     foreach ($notices as $id) {
                         $this->notices["services_suspended #{$id}"] = new DisplayException("Service #{$id} is past due with no open invoice: not suspended (bill it, or set its due date).");
                     }
                 }
-                foreach ($this->suspendable(overdueInvoice: $requiresInvoice)->pluck('id') as $id) {
+                foreach ($this->suspendable(overdueInvoice: $requiresInvoice)->orderBy('id')->pluck('id') as $id) {
                     try {
                         $done = DB::transaction(function () use ($id, $requiresInvoice) {
                             $service = $this->suspendable(overdueInvoice: $requiresInvoice)->whereKey($id)->lockForUpdate()->first();
@@ -515,7 +517,7 @@ class CronJob extends Command
                 // Terminate services Termination Days past due (as WHMCS), suspended for non-payment, and suspended at
                 // least «minimum days suspended» ago (1 by default: never on the day of the suspension, audit sweep
                 // BIL-4). One service per transaction (BIL-10), the rule read again under its lock.
-                foreach ($this->terminable()->pluck('id') as $id) {
+                foreach ($this->terminable()->orderBy('id')->pluck('id') as $id) {
                     try {
                         $done = DB::transaction(function () use ($id) {
                             $service = $this->terminable()->whereKey($id)->lockForUpdate()->first();
