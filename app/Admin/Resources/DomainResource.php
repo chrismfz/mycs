@@ -114,7 +114,8 @@ class DomainResource extends Resource
                     ->query(fn (Builder $query) => $query->whereBetween('expires_at', [today(), today()->addDays(60)])),
                 SelectFilter::make('client')->label(__('Client'))->attribute('client_id')->searchable()
                     ->getSearchResultsUsing(fn (string $search): array => ClientComponent::searchResults($search))
-                    ->getOptionLabelUsing(fn ($value) => ClientComponent::labelOf($value)),
+                    ->getOptionLabelUsing(fn ($value) => ClientComponent::labelOf($value))
+                    ->indicateUsing(fn (array $data) => filled($data['value'] ?? null) ? __('Client') . ': ' . ClientComponent::labelOf($data['value']) : null),
             ])
             ->recordActions([ViewAction::make()]);
     }

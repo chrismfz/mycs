@@ -44,8 +44,11 @@ return new class extends Migration
 
     public function down(): void
     {
-        // MariaDB let the foreign key on ticket_id use the new (ticket_id, created_at) index and dropped its own: back first.
-        Schema::table('ticket_messages', fn (Blueprint $blueprint) => $blueprint->index('ticket_id'));
+        // MariaDB let the foreign key on ticket_id use the new (ticket_id, created_at) index and dropped its own: back first,
+        // once (a second rollback finds it already there: review of #408).
+        if (!Schema::hasIndex('ticket_messages', ['ticket_id'])) {
+            Schema::table('ticket_messages', fn (Blueprint $blueprint) => $blueprint->index('ticket_id'));
+        }
         foreach (self::INDEXES as $table => $indexes) {
             Schema::table($table, function (Blueprint $blueprint) use ($indexes) {
                 foreach ($indexes as $columns) {

@@ -283,7 +283,7 @@ class CronJob extends Command
                     $domainsUntil = now()->addDays(RenewalBilling::domainInvoiceDays());
                     // Off until its registrar renewal is live (D5b-2, review 2): never an invoice nothing would act on.
                     $domains = !config('settings.domain_billing_enabled', true) ? collect() : Domain::query()->whereIn('status', array_map(fn (DomainStatus $s) => $s->value, RenewalBilling::BILLED_DOMAINS))
-                        ->where('auto_renew', true)->whereNotNull('expires_at')->where('expires_at', '<', $domainsUntil)->pluck('id');
+                        ->where('auto_renew', true)->whereNotNull('expires_at')->where('expires_at', '<', $domainsUntil)->orderBy('id')->pluck('id');
                     foreach ($domains as $id) {
                         try {
                             $number += DB::transaction(fn () => $billing->billDomainRenewal($id, $domainsUntil));
@@ -327,7 +327,7 @@ class CronJob extends Command
                 // 0 disables (an order placed a minute ago would go, with the invoice its customer may be paying).
                 // Off by default (owner 2026-10-19): as WHMCS, only staff cancel an order, from Pending Orders.
                 $days = (int) config('settings.cronjob_order_cancel', 0);
-                $ids = $days <= 0 ? collect() : $this->unpaidOrders($days)->pluck('id');
+                $ids = $days <= 0 ? collect() : $this->unpaidOrders($days)->orderBy('id')->pluck('id');
                 if ($days > 0) {
                     foreach ($this->orderPartPaid($days)->pluck('id') as $partPaid) {
                         $this->notices["orders_cancelled #{$partPaid}"] = new DisplayException("Service #{$partPaid} is an order part paid and not started: not cancelled (refund it, or take the rest and start it).");

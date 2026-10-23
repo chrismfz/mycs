@@ -467,7 +467,8 @@ class ServiceResource extends Resource
                     ->label('Client')
                     ->attribute('client_id')->searchable()
                     ->getSearchResultsUsing(fn (string $search): array => ClientComponent::searchResults($search))
-                    ->getOptionLabelUsing(fn ($value) => ClientComponent::labelOf($value)),
+                    ->getOptionLabelUsing(fn ($value) => ClientComponent::labelOf($value))
+                    ->indicateUsing(fn (array $data) => filled($data['value'] ?? null) ? __('Client') . ': ' . ClientComponent::labelOf($data['value']) : null),
                 SelectFilter::make('product')
                     ->label('Product')
                     ->relationship('product', 'name')
