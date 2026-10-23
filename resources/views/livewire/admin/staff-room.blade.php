@@ -1,14 +1,27 @@
 <div wire:poll.5s.visible class="flex h-full flex-col gap-3">
     @if ($canView)
+    <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-100">
+        @if ($peer || $former)
+        {{ __('Private with :name', ['name' => ($peer ?? $former)->name]) }}
+        <span class="ms-2 text-xs font-normal text-gray-500 dark:text-gray-400">{{ __('Only the two of you read this.') }}</span>
+        @if ($former)
+        <span class="ms-2 text-xs font-normal text-warning-600">{{ __('This member can no longer receive messages.') }}</span>
+        @endif
+        @else
+        {{ __('Staff room') }}
+        @endif
+    </h3>
     {{-- Follows new messages while the reader is at the bottom; marks them seen only while the tab is in front. --}}
     <div class="flex max-h-[60vh] min-h-64 flex-col gap-3 overflow-y-auto rounded-lg border border-gray-200 p-3 dark:border-white/10"
+        wire:key="staff-thread-{{ $thread->id }}"
+        data-thread-id="{{ (int) $thread->id }}"
         data-last-id="{{ (int) $messages->last()?->id }}"
         x-data="{
             atBottom: true,
             told: 0,
             seen() {
                 const id = Number(this.$el.dataset.lastId);
-                if (document.visibilityState === 'visible' && id > this.told) { this.told = id; $wire.markSeen(id) }
+                if (document.visibilityState === 'visible' && id > this.told) { this.told = id; $wire.markSeen(Number(this.$el.dataset.threadId), id) }
             },
         }"
         x-init="

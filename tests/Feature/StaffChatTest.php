@@ -138,7 +138,7 @@ class StaffChatTest extends TestCase
         Livewire::test(StaffRoom::class);
         $this->assertSame(2, StaffChat::unread($me), 'rendering (a poll from a tab in the background) marks nothing read');
 
-        Livewire::test(StaffRoom::class)->call('markSeen', PHP_INT_MAX);
+        Livewire::test(StaffRoom::class)->call('markSeen', StaffChat::room()->id, PHP_INT_MAX);
         $this->assertSame(0, StaffChat::unread($me));
         $this->assertSame(0, StaffChat::unread($other), 'their own messages never count');
     }
