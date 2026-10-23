@@ -64,9 +64,10 @@ class PublicLookupGuardTest extends TestCase
 
     public function test_past_everyones_limit_nothing_is_asked(): void
     {
-        for ($i = 0; $i < PublicLookups::GLOBAL; $i++) {
-            RateLimiter::hit('domain-lookups:public', 600);
-        }
+        RateLimiter::increment('domain-lookups:public', 600, PublicLookups::GLOBAL - 3);
+        // A search checks up to 7 names: 3 left are not enough for one.
+        Livewire::test(Search::class)->set('query', 'example')->call('search')->assertSet('error', __('domains.shop.busy'));
+        RateLimiter::increment('domain-lookups:public', 600, 3);
 
         Livewire::test(Whois::class)->set('query', 'example.com')->set('captcha', 'solved')->call('lookup')
             ->assertSet('error', __('domains.shop.busy'))->assertSet('answer', null);

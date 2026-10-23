@@ -40,8 +40,16 @@ class Whois extends Component
     #[Locked]
     public ?string $fqdn = null;
 
+    /** The captchas that send their form by itself (reCAPTCHA v3 calls submit()): the lookup. */
+    public function submit(): void
+    {
+        $this->lookup();
+    }
+
     public function lookup(): void
     {
+        // One solution, one lookup: a captcha found valid earlier in this request counts no more (code review).
+        $this->is_valid = false;
         $this->answer = null;
         $this->error = null;
         // A full name, any registry: «https://www.example.co.uk/page» → example.co.uk (IDN as punycode).

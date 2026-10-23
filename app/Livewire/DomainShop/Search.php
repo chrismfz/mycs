@@ -62,7 +62,7 @@ class Search extends Component
         }
         RateLimiter::hit($key, 600);
         // Everyone's lookups together (PublicLookups): many addresses at once never reach the registries unbounded.
-        if (!PublicLookups::take()) {
+        if (!PublicLookups::take(DomainSearch::ALTERNATIVES + 1)) {
             $this->error = __('domains.shop.busy');
 
             return;

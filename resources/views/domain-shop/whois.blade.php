@@ -4,7 +4,7 @@
         <p class="text-base/60">{{ __('domains.shop.whois_lead') }}</p>
     </div>
 
-    <form wire:submit="lookup" class="flex gap-2">
+    <form id="whois" wire:submit="lookup" class="flex gap-2">
         <input type="search" wire:model="query" maxlength="255" placeholder="example.com"
             class="flex-grow bg-background-secondary border border-neutral rounded-lg px-4 py-3 text-lg" />
         <x-button.primary class="!w-fit px-6" type="submit" wire:loading.attr="disabled">{{ __('domains.shop.lookup') }}</x-button.primary>

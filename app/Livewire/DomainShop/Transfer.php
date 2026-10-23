@@ -86,7 +86,7 @@ class Transfer extends Component
             return;
         }
         RateLimiter::hit($key, 600);
-        if (!PublicLookups::take()) {
+        if (!PublicLookups::take(DomainSearch::ALTERNATIVES + 1)) {
             $this->error = __('domains.shop.busy');
 
             return;
