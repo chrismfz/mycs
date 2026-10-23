@@ -68,6 +68,8 @@ final class Proposals
             throw new InvalidArgumentException('Your role may not ask for this.');
         }
         [$payload, $summary] = self::check($type, $payload);
+        // Without format characters from a customer's subject: a bidi override reorders what staff read (re-review of #423).
+        $summary = (string) preg_replace('/\p{Cf}/u', '', $summary);
         // The same request, already waiting (whoever asked): one to approve. Who asks again follows it with `proposal`,
         // which shows what the caller may decide too (review R1).
         $open = McpProposal::query()->where('type', $type)->where('status', McpProposal::STATUS_PENDING)->where('expires_at', '>', now())
