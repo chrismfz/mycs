@@ -2,9 +2,8 @@
 
 namespace App\Admin\Resources\Audits\Schemas;
 
-use App\Admin\Resources\Audits\Tables\AuditsTable;
-use App\Admin\Resources\UserResource;
 use App\Models\Audit;
+use App\Support\AuditSummary;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Components\ViewEntry;
 use Filament\Schemas\Schema;
@@ -16,16 +15,19 @@ class AuditInfolist
         return $schema
             ->components([
                 TextEntry::make('user_id')
-                    ->url(fn (Audit $record): string => $record->user_id ? UserResource::getUrl('edit', [$record->user_id]) : '')
-                    ->formatStateUsing(fn (Audit $record): string => $record->user ? $record->user->name : 'User #' . $record->user_id)
-                    ->placeholder('System'),
+                    ->label('User')
+                    ->state(fn (Audit $record): string => AuditSummary::actor($record))
+                    ->helperText(fn (Audit $record): ?string => AuditSummary::actorKind($record))
+                    ->url(fn (Audit $record): ?string => AuditSummary::actorUrl($record)),
                 TextEntry::make('event')
-                    ->formatStateUsing(fn (Audit $record): string => $record->event . ' - ' . class_basename($record->auditable_type) . ' (' . $record->auditable_id . ')')
-                    ->url(function (Audit $record) {
-                        if ($record->event != 'deleted' && isset(AuditsTable::TYPE_TO_RESOURCE[class_basename($record->auditable_type)])) {
-                            return AuditsTable::TYPE_TO_RESOURCE[class_basename($record->auditable_type)]::getUrl('edit', [$record->auditable_id]);
-                        }
-                    }),
+                    ->label('Log Entry')
+                    ->state(fn (Audit $record): string => AuditSummary::verb($record->event) . ' ' . AuditSummary::subject($record))
+                    ->url(fn (Audit $record): ?string => AuditSummary::subjectUrl($record)),
+                TextEntry::make('client')
+                    ->label('Client')
+                    ->state(fn (Audit $record): ?string => AuditSummary::client($record)?->name)
+                    ->url(fn (Audit $record): ?string => AuditSummary::clientUrl(AuditSummary::client($record)))
+                    ->placeholder('—'),
                 TextEntry::make('user_agent'),
                 TextEntry::make('ip_address'),
                 TextEntry::make('url'),
