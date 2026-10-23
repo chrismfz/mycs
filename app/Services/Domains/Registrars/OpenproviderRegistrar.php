@@ -3,6 +3,7 @@
 namespace App\Services\Domains\Registrars;
 
 use App\Contracts\DomainRegistrar;
+use App\Contracts\ListsTldPricing;
 use App\Contracts\ManagesDnssec;
 use App\Contracts\ReadsAccountBalance;
 use App\Contracts\UpdatesContacts;
@@ -16,6 +17,7 @@ use App\Services\Domains\Pricing\TldPriceMath;
 use App\Services\Domains\RegistrarNotAsked;
 use App\Services\Domains\RegistrarOutcomeUnknown;
 use App\Services\Domains\RegistrarRefused;
+use App\Services\Domains\TldNotOffered;
 use App\Support\Domains\AvailabilityResult;
 use App\Support\Domains\DnssecRecord;
 use App\Support\Domains\DomainChanges;
@@ -29,6 +31,7 @@ use App\Support\Domains\RegistrarDomainPage;
 use App\Support\Domains\RegistrarDomainRecord;
 use App\Support\Domains\TldPricing;
 use Illuminate\Contracts\Encryption\DecryptException;
+use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -49,7 +52,7 @@ use Throwable;
  * variant is legacy XML-RPC) → bearer, ~24h TTL. We cache it for 6h keyed by
  * (endpoint × username) and re-login ONCE on a 401 mid-flight.
  */
-class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAccountBalance, UpdatesContacts
+class OpenproviderRegistrar implements DomainRegistrar, ListsTldPricing, ManagesDnssec, ReadsAccountBalance, UpdatesContacts
 {
     private const PRODUCTION_URL = 'https://api.openprovider.eu';
 
@@ -72,6 +75,17 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
         'transfer_cancel_supported', 'is_hosted_whois', 'owner_company_name',
         // Ours: a live registration of the name for another owner, next to this one's tombstone (ADV-3 of #308).
         'other_live_record'];
+
+    /** Its envelope's code for a TLD it does not sell («invalid extension»), answered with an HTTP 500 (live, 2026-10-24). */
+    private const INVALID_EXTENSION = 307;
+
+    /** Requests in flight at once when reading many TLDs (a TLD read takes it ~2s, a page of 500 ~6s: live, 2026-10-24). */
+    private const POOL_SIZE = 6;
+
+    /** TLDs per page of its list (2,040 TLDs on 2026-10-24), and at most this many pages: never an endless loop. */
+    private const TLD_PAGE = 500;
+
+    private const MAX_TLD_PAGES = 40;
 
     /** Openprovider price block → our DomainTldPrice operation (D-6, D-8: a restore is the redemption fee). */
     private const PRICE_KEYS = [
@@ -753,11 +767,117 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
             throw new RuntimeException('Κενό TLD για άντληση τιμών.');
         }
 
-        $data = $this->request($credentials, 'GET', '/v1/tlds/' . rawurlencode($tld) . '?with_price=true')->json('data');
-        $prices = is_array($data) && is_array($data['prices'] ?? null) ? $data['prices'] : null;
-        if ($prices === null) {
+        // Its «invalid extension» comes as an HTTP 500: read it before the 5xx becomes a failure.
+        return $this->pricingFrom($tld, $this->tldData($tld, $this->request($credentials, 'GET', self::tldPath($tld), tolerateStatus: 500)));
+    }
+
+    public function getTldPricingMany(array $tlds, DomainRegistrarCredentials $credentials): array
+    {
+        $paths = [];
+        foreach ($tlds as $tld) {
+            $tld = mb_strtolower(ltrim(trim($tld), '.'));
+            if ($tld !== '') {
+                $paths[$tld] = self::tldPath($tld);
+            }
+        }
+        $responses = $this->pooled($credentials, $paths);
+        $out = [];
+        foreach (array_keys($paths) as $tld) { // as asked, not as answered
+            $response = $responses[$tld] ?? new RuntimeException('Το Openprovider δεν απάντησε για το .' . $tld . '.');
+            try {
+                if (!$response instanceof Response) {
+                    throw $response;
+                }
+                $out[$tld] = $this->pricingFrom($tld, $this->tldData($tld, $response));
+            } catch (TldNotOffered) {
+                // not sold there: left out, as the interface says
+            } catch (Throwable $e) {
+                $out[$tld] = $e->getMessage();
+            }
+        }
+
+        return $out;
+    }
+
+    public function listTldPricing(DomainRegistrarCredentials $credentials): array
+    {
+        $first = $this->request($credentials, 'GET', self::listPath(0));
+        $total = $first->json('data.total');
+        if (!is_int($total) || $total < 0 || !is_array($first->json('data.results'))) {
+            throw new RuntimeException('Το Openprovider δεν επέστρεψε τη λίστα των TLDs.');
+        }
+        $pages = [$first];
+        $offsets = range(self::TLD_PAGE, max(self::TLD_PAGE, min($total, self::TLD_PAGE * self::MAX_TLD_PAGES) - 1), self::TLD_PAGE);
+        $rest = [];
+        foreach ($total > self::TLD_PAGE ? $offsets : [] as $offset) {
+            $rest['page' . $offset] = self::listPath($offset); // a string key: a numeric one would become an int
+        }
+        $responses = $this->pooled($credentials, $rest);
+        foreach (array_keys($rest) as $offset) {
+            $response = $responses[$offset] ?? new RuntimeException('Το Openprovider δεν απάντησε για μια σελίδα των TLDs.');
+            if (!$response instanceof Response) {
+                throw $response;
+            }
+            $pages[] = $this->checked($response);
+        }
+
+        $out = [];
+        foreach ($pages as $page) {
+            $results = $page->json('data.results');
+            foreach (is_array($results) ? $results : [] as $result) {
+                $name = is_array($result) && is_string($result['name'] ?? null) ? mb_strtolower(trim($result['name'])) : '';
+                // Only what it sells now; a garbled entry is skipped, never guessed.
+                if ($name === '' || ($result['status'] ?? 'ACT') !== 'ACT' || !is_array($result['prices'] ?? null)) {
+                    continue;
+                }
+                $out[$name] = $this->pricingFrom($name, $result);
+            }
+        }
+        if (count($out) === 0 && $total > 0) {
+            throw new RuntimeException('Το Openprovider δεν επέστρεψε τιμές στη λίστα των TLDs.');
+        }
+        ksort($out);
+
+        return $out;
+    }
+
+    private static function tldPath(string $tld): string
+    {
+        return '/v1/tlds/' . rawurlencode($tld) . '?with_price=true';
+    }
+
+    private static function listPath(int $offset): string
+    {
+        return '/v1/tlds?with_price=true&limit=' . self::TLD_PAGE . '&offset=' . $offset;
+    }
+
+    /**
+     * One TLD's answer: its data, or TldNotOffered where it does not sell the TLD (code 307 in an HTTP 500), or the failure.
+     *
+     * @return array<string, mixed>
+     */
+    private function tldData(string $tld, Response $response): array
+    {
+        $code = $response->json('code');
+        if (is_numeric($code) && (int) $code === self::INVALID_EXTENSION) {
+            throw new TldNotOffered(__('Openprovider does not offer .:tld.', ['tld' => $tld]));
+        }
+        $data = $this->checked($response)->json('data');
+        if (!is_array($data) || !is_array($data['prices'] ?? null)) {
             throw new RuntimeException('Το Openprovider δεν επέστρεψε τιμές για το .' . $tld . '.');
         }
+
+        return $data;
+    }
+
+    /**
+     * One TLD's costs from its data (the single answer and the list's entries have the same shape).
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function pricingFrom(string $tld, array $data): TldPricing
+    {
+        $prices = (array) $data['prices'];
 
         $costs = [];
         foreach (self::PRICE_KEYS as $opKey => $operation) {
@@ -1135,6 +1255,12 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
             return $response;
         }
 
+        return $this->checked($response, $charge);
+    }
+
+    /** A response as request() judges it: a failure or an error in its envelope throws (below). */
+    private function checked(Response $response, bool $charge = false): Response
+    {
         if ($response->failed()) {
             $desc = $response->json('desc');
 
@@ -1254,6 +1380,35 @@ class OpenproviderRegistrar implements DomainRegistrar, ManagesDnssec, ReadsAcco
     private static function cents(int|float|string $amount): string
     {
         return number_format(round((float) $amount, 2), 2, '.', '');
+    }
+
+    /**
+     * Several GETs in parallel, POOL_SIZE at a time, with one re-login on a 401 as request(): key => its Response, or the
+     * Throwable that stopped it (no answer). Reads only: never a charge.
+     *
+     * @param  array<string, string>  $paths  key => path
+     * @return array<string, Response|Throwable>
+     */
+    private function pooled(DomainRegistrarCredentials $credentials, array $paths): array
+    {
+        $send = function (array $paths) use ($credentials): array {
+            $token = $this->token($credentials);
+            $base = $this->baseUrl($credentials);
+
+            return Http::pool(fn (Pool $pool) => array_map(
+                fn (string $key) => $pool->as($key)->withToken($token)->acceptJson()
+                    ->timeout($this->timeout)->connectTimeout(min(10, $this->timeout))->get($base . $paths[$key]),
+                array_keys($paths),
+            ), self::POOL_SIZE);
+        };
+        $out = $paths === [] ? [] : $send($paths);
+        $expired = array_filter($out, fn ($r) => $r instanceof Response && $r->status() === 401);
+        if ($expired !== []) {
+            Cache::forget($this->tokenCacheKey($credentials));
+            $out = array_replace($out, $send(array_intersect_key($paths, $expired)));
+        }
+
+        return $out;
     }
 
     private function send(DomainRegistrarCredentials $credentials, string $token, string $method, string $path, array $payload): Response

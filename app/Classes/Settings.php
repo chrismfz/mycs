@@ -4,6 +4,7 @@ namespace App\Classes;
 
 use App\Admin\Actions\ResetColorsAction;
 use App\Admin\Actions\SendTestEmailAction;
+use App\Admin\Resources\DomainTldResource\Pages\ImportTlds;
 use App\Helpers\TemplateRenderer;
 use App\Models\Client;
 use App\Models\Currency;
@@ -1113,6 +1114,17 @@ class Settings
                     'default' => '',
                     'required' => false,
                     'validation' => ['nullable', 'regex:/^\s*([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]\.?\s*$/'],
+                ],
+                // The «Popular» button of TLD Import & Pricing Sync (owner 2026-10-24): which TLDs it fetches.
+                [
+                    'name' => 'domain_popular_tlds',
+                    'section' => 'Ordering',
+                    'label' => 'Popular TLDs',
+                    'type' => 'text',
+                    'default' => ImportTlds::POPULAR_TLDS,
+                    'required' => false,
+                    'validation' => ['nullable', 'max:2000'],
+                    'description' => 'The TLDs the «Popular» button of TLD Import & Pricing Sync fetches, separated by commas or spaces, without the dot.',
                 ],
                 // Domains billed at all (D5b): on; off only while another system still bills them (a migration, D-12) or in
                 // an emergency at a registrar.

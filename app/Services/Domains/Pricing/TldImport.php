@@ -2,13 +2,16 @@
 
 namespace App\Services\Domains\Pricing;
 
+use App\Contracts\ListsTldPricing;
 use App\Models\Currency;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainTld;
 use App\Models\DomainTldPrice;
 use App\Services\Domains\DomainRegistrarFactory;
+use App\Services\Domains\TldNotOffered;
 use App\Support\Domains\TldPricing;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 use Throwable;
 
 /**
@@ -21,13 +24,17 @@ use Throwable;
  */
 class TldImport
 {
+    /** The operations the import page shows, in its order. */
+    public const GRID_OPERATIONS = ['register', 'renew', 'transfer', 'grace', 'redemption'];
+
     /** The operations the import prices, and whether they are priced per year. */
     private const OPERATIONS = ['register' => true, 'renew' => true, 'transfer' => false, 'grace' => false, 'redemption' => false];
 
     public function __construct(private readonly DomainRegistrarFactory $factory) {}
 
     /**
-     * The registrar's costs, per TLD: its TldPricing, or the reason it could not be read (one TLD never stops the rest).
+     * The registrar's costs, per TLD: its TldPricing, or the reason it could not be read (one TLD never stops the rest). A
+     * TLD the registrar does not offer is left out.
      *
      * @param  list<string>  $tlds
      * @return array<string, TldPricing|string>
@@ -36,10 +43,15 @@ class TldImport
     {
         $adapter = $this->factory->for($connection);
         $credentials = $this->factory->credentialsFor($connection);
+        if ($adapter instanceof ListsTldPricing) {
+            return $adapter->getTldPricingMany($tlds, $credentials); // in parallel: ~2s for a dozen, not ~2s each
+        }
         $out = [];
         foreach ($tlds as $tld) {
             try {
                 $out[$tld] = $adapter->getTldPricing($tld, $credentials);
+            } catch (TldNotOffered) {
+                // not sold there: left out
             } catch (Throwable $e) {
                 $out[$tld] = $e->getMessage();
             }
@@ -48,15 +60,37 @@ class TldImport
         return $out;
     }
 
+    /** Whether the connection's registrar can list every TLD it offers (fetchAll). */
+    public function canListAll(DomainRegistrarConnection $connection): bool
+    {
+        return $this->factory->for($connection) instanceof ListsTldPricing;
+    }
+
+    /**
+     * Every TLD the registrar offers, with its costs (Openprovider: ~2,000 in pages of 500, a few at a time). Reads only.
+     *
+     * @return array<string, TldPricing>
+     */
+    public function fetchAll(DomainRegistrarConnection $connection): array
+    {
+        $adapter = $this->factory->for($connection);
+        if (!$adapter instanceof ListsTldPricing) {
+            throw new InvalidArgumentException(__('This registrar cannot list its TLDs.'));
+        }
+
+        return $adapter->listTldPricing($this->factory->credentialsFor($connection));
+    }
+
     /**
      * The prices the import would write for one TLD: currency => operation => years => price (and the cost behind it).
      *
+     * @param  ?list<string>  $currencies  only these (the page's preview: one query, not one per TLD); null: all of MyCS's
      * @return array<string, array<string, array<int, array{price: string, cost: string, cost_currency: string}>>>
      */
-    public function prices(TldPricing $pricing, TldImportOptions $options): array
+    public function prices(TldPricing $pricing, TldImportOptions $options, ?array $currencies = null): array
     {
         $out = [];
-        foreach (Currency::query()->orderBy('code')->pluck('code') as $currency) {
+        foreach ($currencies ?? Currency::query()->orderBy('code')->pluck('code')->all() as $currency) {
             foreach (self::OPERATIONS as $operation => $perYear) {
                 // The fees after expiry (D5a: the restore fee is the grace stage's where the TLD has no redemption).
                 if (in_array($operation, ['grace', 'redemption'], true) && !$options->redemptionFee) {
