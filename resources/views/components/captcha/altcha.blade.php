@@ -21,10 +21,10 @@
     });
     // A solution counts once: after this form was sent (a failed login, a validation error) solve a new one. Only this
     // component's requests that call an action, not a live field's update (code review of #222); cleaned up with it.
-    // Livewire 4 sends a live $wire.set as a «$set» call: not the form sent, so never this reset (owner 2026-10-23: the
+    // Livewire 4 sends a live $wire.set as a «$set» call (and an event as «__dispatch»): not the form sent, so never this reset (owner 2026-10-23: the
     // solution was cleared the moment it was found, and no form ever passed).
     $wire.$hook('commit', ({ commit, succeed }) => {
-        if (!(commit.calls ?? []).some((call) => !String(call.method ?? '').startsWith('$'))) {
+        if (!(commit.calls ?? []).some((call) => !/^(\$|__)/.test(String(call.method ?? '')))) {
             return;
         }
         succeed(() => {

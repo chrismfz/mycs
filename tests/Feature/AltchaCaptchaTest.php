@@ -192,7 +192,7 @@ class AltchaCaptchaTest extends TestCase
         $script = (string) file_get_contents(resource_path('views/components/captcha/altcha.blade.php'));
 
         $this->assertStringContainsString("\$wire.set('captcha', ev.detail.payload)", $script);
-        $this->assertStringContainsString(".some((call) => !String(call.method ?? '').startsWith('$'))", $script);
+        $this->assertStringContainsString(".some((call) => !/^(\\$|__)/.test(String(call.method ?? '')))", $script);
         $this->assertStringNotContainsString('if (!(commit.calls ?? []).length)', $script);
     }
 }
