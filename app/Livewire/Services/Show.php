@@ -11,7 +11,6 @@ use App\Models\Service;
 use App\Models\SslOrder;
 use App\Models\User;
 use App\Services\Licensing\Licenses;
-use App\Services\Licensing\MycsLicenseRepository;
 use App\Services\Money\MoneyTrail;
 use App\Services\ServiceUpgrade\ChangeCycle;
 use App\Support\Actor;
@@ -262,12 +261,7 @@ class Show extends Component
      */
     private function licenseFields(): array
     {
-        if ($this->service->license === null) {
-            return [];
-        }
-        $reported = MycsLicenseRepository::fieldNames((string) (ExtensionHelper::settingsToArray($this->service->product->settings)['custom_fields'] ?? ''));
-
-        return $this->service->properties()->whereIn('key', $reported)->where('value', '!=', '')->pluck('value', 'name')->all();
+        return Licenses::reportedFields($this->service);
     }
 
     public function changeView($view)

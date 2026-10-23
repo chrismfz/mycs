@@ -1,5 +1,8 @@
 <div class="container mt-14 space-y-4">
     <x-navigation.breadcrumb />
+    <input type="search" wire:model.live.debounce.400ms="search" maxlength="100" placeholder="{{ __('services.search_placeholder') }}"
+        aria-label="{{ __('services.search') }}"
+        class="w-full sm:max-w-sm bg-background-secondary border border-neutral rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
     @forelse ($services as $service)
     <a href="{{ route('services.show', $service) }}" wire:navigate>
         <div class="bg-background-secondary hover:bg-background-secondary/80 border border-neutral p-4 rounded-lg mb-4">
@@ -38,11 +41,23 @@
                 </x-tooltip>
                 @endif
             </div>
+            {{-- What tells it apart: its IP and the fields its license reports (owner 2026-10-23). --}}
+            @php($glance = \App\Livewire\Services\Index::glance($service))
+            @if ($glance['ip'] !== null || $glance['fields'] !== [])
+            <div class="text-sm text-base/60 flex flex-wrap gap-x-4 gap-y-1 mt-1">
+                @if ($glance['ip'] !== null)
+                <span><span class="text-base/80">{{ $service->license ? __('services.license.valid_ips') : __('services.dedicated_ip') }}:</span> {{ $glance['ip'] }}</span>
+                @endif
+                @foreach ($glance['fields'] as $name => $value)
+                <span><span class="text-base/80">{{ $name }}:</span> {{ \Illuminate\Support\Str::limit($value, 80) }}</span>
+                @endforeach
+            </div>
+            @endif
         </div>
     </a>
     @empty
     <div class="bg-background-secondary border border-neutral p-4 rounded-lg">
-        <p class="text-base text-sm">{{ __('services.no_services') }}</p>
+        <p class="text-base text-sm">{{ $search !== '' ? __('services.no_match', ['search' => $search]) : __('services.no_services') }}</p>
     </div>
     @endforelse
 

@@ -204,6 +204,9 @@ return [
     'update_label' => 'Αποθήκευση',
 
     'domain' => 'Domain',
+    'search' => 'Αναζήτηση υπηρεσιών',
+    'search_placeholder' => 'Αναζήτηση με όνομα, domain, IP ή σχόλια…',
+    'no_match' => 'Καμία υπηρεσία δεν ταιριάζει με «:search».',
     'dedicated_ip' => 'Αποκλειστική IP',
     'assigned_ips' => 'Επιπλέον IPs',
     'username' => 'Όνομα χρήστη',

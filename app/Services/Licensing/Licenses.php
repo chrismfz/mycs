@@ -23,6 +23,26 @@ class Licenses
     public const LOG_DAYS = 90;
 
     /**
+     * The fields a license's product reports (its «custom_fields» setting, e.g. nixpal's «comments»), as the customer
+     * filled them: [name => value], empty ones left out. Read from the service's relations (loaded once for a list).
+     *
+     * @return array<string, string>
+     */
+    public static function reportedFields(Service $service): array
+    {
+        if ($service->license === null || $service->product === null) {
+            return [];
+        }
+        $names = MycsLicenseRepository::fieldNames((string) (ExtensionHelper::settingsToArray($service->product->settings)['custom_fields'] ?? ''));
+        if ($names === []) {
+            return [];
+        }
+
+        return $service->properties->whereIn('key', $names)->filter(fn ($property) => trim((string) $property->value) !== '')
+            ->mapWithKeys(fn ($property) => [(string) ($property->name ?: $property->key) => (string) $property->value])->all();
+    }
+
+    /**
      * The service's license, made on its first creation (an existing one is kept, with its key, and made Active).
      *
      * @param  array<string, mixed>  $settings  the product's NixpalLicensing settings
