@@ -19,6 +19,14 @@ class TicketMessage extends Model implements Auditable
 {
     use HasFactory, Traits\Auditable;
 
+    /**
+     * The message itself is the ticket's, kept with it: an audit row copying every body (a mail's original HTML too,
+     * past the audit's 64 KB column) would only grow the audit log. Who did what still shows.
+     *
+     * @var list<string>
+     */
+    protected $auditExclude = ['message', 'body_original'];
+
     protected $fillable = [
         'ticket_id',
         'user_id',
