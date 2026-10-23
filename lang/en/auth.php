@@ -35,6 +35,8 @@ return [
         'password' => 'Password',
     ],
 
+    'register_throttle' => 'Too many registrations from this network. Please try again in :seconds seconds.',
+
     'register_taken' => [
         'subject' => 'Someone tried to register with your email',
         'body' => 'Someone tried to open an account at :app with this email address, which already has one. If it was you, log in at :login, or set a new password at :reset. If it was not you, you can ignore this message: nothing was changed.',

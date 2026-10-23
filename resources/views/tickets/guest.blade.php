@@ -28,7 +28,7 @@
                             <time datetime="{{ $message->created_at->toIso8601String() }}" class="text-base/60">{{ $message->created_at->diffForHumans() }}</time>
                         </header>
                         <div class="prose dark:prose-invert max-w-none mt-2">
-                            {!! Str::markdown((string) $message->message, ['html_input' => 'escape', 'allow_unsafe_links' => false, 'renderer' => ['soft_break' => '<br>']]) !!}
+                            {!! \App\Support\TicketText::html((string) $message->message) !!}
                         </div>
                         @if ($message->attachments->isNotEmpty() && \App\Livewire\Tickets\Guest::shown($message, $ticket))
                             <ul class="mt-2 text-sm">

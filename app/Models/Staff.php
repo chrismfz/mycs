@@ -189,9 +189,17 @@ class Staff extends Authenticatable implements Auditable, CanResetPasswordContra
     protected static function booted(): void
     {
         static::updated(function (self $staff) {
-            if ($staff->wasChanged('password')) {
+            // A new password or 2FA (a reset, or set up again), or a disabled member: whoever approved by session a grant
+            // with the old ones loses it (security audit API-6).
+            $why = match (true) {
+                $staff->wasChanged('password') => 'Password changed',
+                $staff->wasChanged('app_authentication_secret') => '2FA changed',
+                $staff->wasChanged('active') && !$staff->active => 'Staff member disabled',
+                default => null,
+            };
+            if ($why !== null) {
                 McpOauthGrant::query()->where('staff_id', $staff->id)->where('approved_by', 'session')->whereNull('revoked_at')->get()
-                    ->each(fn (McpOauthGrant $grant) => $grant->revoke('Password changed'));
+                    ->each(fn (McpOauthGrant $grant) => $grant->revoke($why));
             }
         });
     }

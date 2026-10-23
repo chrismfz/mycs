@@ -87,13 +87,7 @@
                         </div>
                     </div>
                     <div class="mt-2 prose dark:prose-invert break-words overflow-x-auto max-w-full">
-                        {!! Str::markdown($message->message, [
-                            'html_input' => 'escape',
-                            'allow_unsafe_links' => false,
-                            'renderer' => [
-                                'soft_break' => "<br>"
-                            ]
-                        ]) !!}
+                        {!! \App\Support\TicketText::html((string) $message->message) !!}
                     </div>
                     <div class="flex flex-wrap gap-x-2">
                     @foreach($message->attachments as $attachment)

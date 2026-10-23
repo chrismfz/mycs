@@ -25,6 +25,9 @@ class McpOauthController extends Controller
 {
     public const REGISTER_PER_HOUR = 10;
 
+    /** Registrations an hour from everyone together (security audit API-4: an IPv6 /64 is many addresses). */
+    public const REGISTER_PER_HOUR_ALL = 100;
+
     public const KEY_TRIES = 10; // a quarter of an hour, by address
 
     public const TOKEN_PER_MINUTE = 60;
@@ -42,12 +45,18 @@ class McpOauthController extends Controller
     public function register(Request $request): JsonResponse
     {
         $ip = CallerIp::of($request);
-        if (RateLimiter::tooManyAttempts($limit = 'mcp-register:' . $ip, self::REGISTER_PER_HOUR)) {
+        if (RateLimiter::tooManyAttempts($limit = 'mcp-register:' . CallerIp::bucket($ip), self::REGISTER_PER_HOUR)
+            || RateLimiter::tooManyAttempts('mcp-register:all', self::REGISTER_PER_HOUR_ALL)) {
             return response()->json(['error' => 'slow_down', 'error_description' => 'Too many registrations.'], 429);
         }
         RateLimiter::hit($limit, 3600);
         try {
-            return response()->json(McpOauth::register($request->json()->all(), $ip), 201);
+            $client = McpOauth::register($request->json()->all(), $ip);
+            // Only a client that was made counts for everyone: refused ones would let a few networks block the rest
+            // (review of #369).
+            RateLimiter::hit('mcp-register:all', 3600);
+
+            return response()->json($client, 201);
         } catch (OAuthError $e) {
             return response()->json($e->body(), $e->status);
         }
@@ -106,7 +115,7 @@ class McpOauthController extends Controller
         $key = null;
         if ($request->filled('api_key')) {
             $ip = CallerIp::of($request);
-            if (RateLimiter::tooManyAttempts($limit = 'mcp-consent:' . $ip, self::KEY_TRIES)) {
+            if (RateLimiter::tooManyAttempts($limit = 'mcp-consent:' . CallerIp::bucket($ip), self::KEY_TRIES)) {
                 return self::back($request, 'Too many tries: wait a quarter of an hour.');
             }
             $key = McpAccess::keyFromBearer((string) $request->input('api_key'));
@@ -129,7 +138,7 @@ class McpOauthController extends Controller
     public function token(Request $request): JsonResponse
     {
         $ip = CallerIp::of($request);
-        if (RateLimiter::tooManyAttempts($limit = 'mcp-token:' . $ip, self::TOKEN_PER_MINUTE)) {
+        if (RateLimiter::tooManyAttempts($limit = 'mcp-token:' . CallerIp::bucket($ip), self::TOKEN_PER_MINUTE)) {
             return response()->json(['error' => 'slow_down', 'error_description' => 'Too many requests.'], 429);
         }
         RateLimiter::hit($limit, 60);

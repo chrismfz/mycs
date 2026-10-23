@@ -74,6 +74,8 @@ final class AuthenticationResultsTest extends TestCase
         $this->assertFalse($this->authenticated(['mymail.myip.test; spf=pass smtp.mailfrom="x;dmarc=pass header.from=example.com y"@evil.test; dmarc=fail header.from=example.com']));
         $this->assertFalse($this->authenticated(['mymail.myip.test; spf=pass smtp.mailfrom="a\\";dmarc=pass header.from=example.com"@evil.test']));
         $this->assertFalse($this->authenticated(['mymail.myip.test; dmarc=pass'], 'maria@example.com'), 'no header.from: no pass');
-        $this->assertTrue($this->authenticated(['mymail.myip.test; dkim=pass header.d=mail.example.com'], 'maria@example.com'), 'a subdomain aligns');
+        // A subdomain's pass never vouches for its parent's address: a third party may control it (security audit API-10).
+        $this->assertFalse($this->authenticated(['mymail.myip.test; dkim=pass header.d=mail.example.com'], 'maria@example.com'), 'a subdomain does not align');
+        $this->assertFalse($this->authenticated(['mymail.myip.test; spf=pass smtp.mailfrom=x@tenant.example.com'], 'maria@example.com'));
     }
 }

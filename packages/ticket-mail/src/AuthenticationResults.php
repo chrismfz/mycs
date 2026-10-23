@@ -6,8 +6,9 @@ namespace MyCS\TicketMail;
  * Who really sent a mail (docs/tickets.md §3 Β), from the Authentication-Results (RFC 8601) of OUR receiving server
  * only. Any sender can write an Authentication-Results header, also with our authserv-id; our server adds its own on
  * top. So only the topmost one counts, and only when its authserv-id is ours: a forged one below it is ignored, and a
- * mail where ours is missing is unauthenticated. A From is authenticated by DMARC pass for its domain, or by DKIM or
- * SPF pass of a domain aligned with it (the same, or a parent of it).
+ * mail where ours is missing is unauthenticated. A From is authenticated by DMARC pass for its domain (which allows
+ * a related domain, checked by our server with the public suffix list), or by DKIM or SPF pass of its domain or a
+ * parent of it (never a subdomain of it: a third party may control one).
  */
 final class AuthenticationResults
 {
@@ -41,7 +42,11 @@ final class AuthenticationResults
                 'spf' => self::domainOf($result['props']['smtp.mailfrom'] ?? ''),
                 default => null,
             };
-            if ($domain !== null && self::aligned($fromDomain, $domain, $result['method'] === 'dmarc')) {
+            // DMARC's own pass names exactly the From's domain (our server already allowed a related one, with the public
+            // suffix list). A DKIM or SPF pass: the same domain, or a parent of the From's (its owner signs for all of
+            // it), never a subdomain of it, which a third party may control (security audit API-10).
+            $parent = $result['method'] !== 'dmarc' && $domain !== null && str_contains($domain, '.') && str_ends_with($fromDomain, '.' . $domain);
+            if ($domain !== null && ($domain === $fromDomain || $parent)) {
                 return new AuthVerdict(true, $result['method'] . '_pass');
             }
         }
@@ -132,18 +137,6 @@ final class AuthenticationResults
         $statements[] = $current;
 
         return $statements;
-    }
-
-    /** Aligned (DMARC relaxed alignment): the same domain, a parent or a subdomain of it. DMARC's own: the same. */
-    private static function aligned(string $fromDomain, string $domain, bool $exact): bool
-    {
-        if ($fromDomain === $domain) {
-            return true;
-        }
-
-        // The same organisation either way (relaxed alignment, without the public suffix list): a parent with a dot of
-        // its own (never a bare TLD), or a subdomain of the From's domain. mail.example.com and example.com align.
-        return !$exact && ((str_contains($domain, '.') && str_ends_with($fromDomain, '.' . $domain)) || str_ends_with($domain, '.' . $fromDomain));
     }
 
     /** The domain of an address (or a domain as such), lower case; null when there is none. */

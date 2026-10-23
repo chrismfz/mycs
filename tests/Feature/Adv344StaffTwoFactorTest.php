@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Role;
+use App\Models\Setting;
 use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
@@ -34,6 +35,8 @@ class Adv344StaffTwoFactorTest extends TestCase
     public function test_adv344_1_mcp_consent_needs_2fa_set_up(): void
     {
         $staff = Staff::factory()->withoutTwoFactor()->create(['role_id' => Role::create(['name' => 'All', 'permissions' => ['*']])->id]);
+        Setting::query()->updateOrCreate(['key' => 'mcp_oauth_redirect_hosts', 'settingable_type' => null, 'settingable_id' => null], ['value' => 'example.test', 'type' => 'string']);
+        config(['settings.mcp_oauth_redirect_hosts' => 'example.test']);
         $clientId = $this->postJson('/mcp/oauth/register', ['client_name' => 'Claude', 'redirect_uris' => [self::REDIRECT]])->assertCreated()->json('client_id');
         $verifier = str_repeat('v', 43);
         $query = ['response_type' => 'code', 'client_id' => $clientId, 'redirect_uri' => self::REDIRECT,
