@@ -211,7 +211,7 @@ class InvoiceMergeSplitAdversarialTest extends TestCase
     public function test_e_adv_4_merge_respects_immutable_invoices(): void
     {
         [$a, $b] = $this->two();
-        config(['settings.immutable_invoices_enabled' => true]);
+        $this->setting('immutable_invoices_enabled', true, 'boolean'); // a row: the first request's flush keeps it
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $staff = Staff::factory()->admin()->create();
 

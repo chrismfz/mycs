@@ -15,10 +15,6 @@ class FlushCacheListener
         if ($event->setting->settingable_type !== null || in_array($event->setting->key, Setting::COUNTERS, true)) {
             return;
         }
-        static $flushed = false;
-        if (!$flushed) {
-            app()->terminating(fn () => SettingsProvider::flushCache());
-            $flushed = true;
-        }
+        SettingsProvider::flushLater();
     }
 }

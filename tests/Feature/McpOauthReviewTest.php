@@ -129,7 +129,7 @@ class McpOauthReviewTest extends TestCase
      */
     public function test_mcpo3_a_staff_session_the_admin_would_end_by_ip_lock_cannot_approve(): void
     {
-        config(['settings.session_validation' => 'ip_admin']);
+        $this->storeSettings(['session_validation' => 'ip_admin']);
         $clientId = $this->client();
 
         $location = $this->actingAs($this->staff(), 'staff')

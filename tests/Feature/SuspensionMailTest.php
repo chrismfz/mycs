@@ -93,7 +93,7 @@ class SuspensionMailTest extends TestCase
     public function test_staff_holding_a_service_the_cron_suspended_is_told_as_staffs_in_greek_too(): void
     {
         $this->service->forceFill(['status' => 'suspended', 'dunning_suspended_at' => now(), 'suspend_reason' => 'Overdue on Payment'])->save();
-        config(['settings.app_language' => 'el']);
+        $this->storeSettings(['app_language' => 'el']);
 
         $this->staffSuspends();
 

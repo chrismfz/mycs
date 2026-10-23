@@ -42,17 +42,20 @@ abstract class TestCase extends BaseTestCase
     }
 
     /**
-     * Settings as rows, read back into config. A config() set in setUp() does not last: in the first test of a process
-     * the seeder saves settings, and their flush (FlushCacheListener) reloads them from the database when the test's
-     * first request terminates.
+     * Settings as rows, read back into config. A config() does not last past a saved setting: its flush
+     * (FlushCacheListener) reloads the settings from the database when the test's next request terminates.
      *
      * @param  array<string, mixed>  $settings
      */
     protected function storeSettings(array $settings): void
     {
         foreach ($settings as $key => $value) {
-            Setting::query()->updateOrCreate(['key' => $key, 'settingable_type' => null],
-                is_array($value) ? ['value' => json_encode($value), 'type' => 'array'] : ['value' => $value, 'type' => 'string']);
+            // The type as the value's (the seeder's database_type), so it reads back as given: Saving encodes it.
+            $type = match (true) {
+                is_array($value) => 'array', is_bool($value) => 'boolean', is_int($value) => 'integer',
+                is_float($value) => 'float', default => 'string',
+            };
+            Setting::query()->updateOrCreate(['key' => $key, 'settingable_type' => null], ['value' => $value, 'type' => $type]);
         }
         SettingsProvider::reload();
     }

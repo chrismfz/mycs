@@ -19,13 +19,13 @@ use App\Models\Role;
 use App\Models\Setting;
 use App\Models\Staff;
 use App\Models\User;
+use App\Providers\SettingsProvider;
 use App\Services\Invoice\RecordPaymentService;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail as MailFacade;
-use ReflectionProperty;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -174,13 +174,10 @@ class NotificationsAfterCommitTest extends TestCase
     /** EVT-13: moving a numbering counter does not flush the settings cache (nor restart the queue workers). */
     public function test_a_counter_does_not_flush_the_settings_cache(): void
     {
-        $callbacks = new ReflectionProperty(app(), 'terminatingCallbacks');
-        $before = count($callbacks->getValue(app()));
-
         $counter = Setting::query()->updateOrCreate(['key' => 'invoice_number', 'settingable_type' => null], ['value' => 41]);
         (new FlushCacheListener)->handle(new Saved($counter));
 
-        $this->assertCount($before, $callbacks->getValue(app()));
+        $this->assertFalse(SettingsProvider::flushPending());
     }
 
     /** EVT-13: the settings page shows the counter as stored, not as cached. */
