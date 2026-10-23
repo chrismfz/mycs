@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Domains;
 
+use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\DomainResource;
 use App\Admin\Resources\DomainResource\Pages\ViewDomain;
 use App\Enums\DomainStatus;
@@ -99,5 +100,22 @@ class DomainPageCompactTest extends TestCase
             $page->assertActionVisible(substr($name, strlen('command_')));
         }
         $this->assertNotContains('command_recall', $names, 'only what this domain is offered');
+    }
+
+    public function test_back_to_its_client_on_the_same_line_as_the_list_which_holds_no_block(): void
+    {
+        $this->domain('alpha.gr');
+        $beta = $this->domain('beta.gr');
+        $client = $beta->client;
+
+        $page = Livewire::test(ViewDomain::class, ['record' => $beta->getRouteKey()]);
+        $html = (string) $page->instance()->getSubheading()->toHtml();
+        $this->assertStringContainsString('← #' . $client->id . ' ' . e($client->name), $html);
+        $this->assertStringContainsString(ClientResource::getUrl('view', ['record' => $client]), $html);
+        // Filament prints it in a <p>: a <div> there would close it and drop the arrows to a line of their own.
+        $this->assertStringNotContainsString('<div', $html);
+
+        $alone = Domain::factory()->create(['client_id' => User::factory()->create()->clients()->firstOrFail()->id, 'sld' => 'solo', 'tld' => 'gr', 'fqdn' => 'solo.gr']);
+        $this->get(DomainResource::getUrl('view', ['record' => $alone]))->assertOk()->assertSee('← #' . $alone->client_id)->assertDontSee(__("This client's domains"));
     }
 }
