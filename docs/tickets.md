@@ -112,7 +112,8 @@ email επιβεβαίωσης στον επισκέπτη με τον αριθ�
 - `ticket_blocked_senders`, `ticket_poll_runs`.
 - `ticket_mail_imports`: κάθε mail που διάβασε το polling και τι έγινε (νέο ticket, απάντηση, καραντίνα με τον λόγο,
   blocked), με το ticket ή την καραντίνα· το Ticket Mail Import Log του WHMCS (owner 2026-10-23). Ένα mail που
-  ξαναδιαβάζεται (ίδιο Message-ID) δεν γράφεται δεύτερη φορά. Κρατιέται 90 μέρες, όσο και η καραντίνα που τελείωσε·
+  ξαναδιαβάζεται (ίδιο Message-ID) δεν γράφεται δεύτερη φορά. Κρατιέται όσο λέει το `retention_ticket_mail_imports_days` (90 μέρες εξ ορισμού, όσο και η καραντίνα που
+  τελείωσε· ημερήσιος cron, `App\Support\Retention`)·
   τις γραμμές καραντίνας τις βλέπει μόνο όποιος βλέπει την καραντίνα.
 - Ό,τι σήμερα υποθέτει πελάτη (policies, listener ειδοποιήσεων, admin infolist/στήλες/φίλτρα, ClientSummary, API,
   `TemplateRenderer`, `Client::tickets()`): χειρίζεται τον επισκέπτη (λίστα στο σημερινό inventory).
@@ -218,7 +219,8 @@ email επιβεβαίωσης στον επισκέπτη με τον αριθ�
   επισκέπτη· 10 νέα/ώρα ανά αποστολέα.
 - Καραντίνα (Tickets → Mail Quarantine, δικαίωμα `ticket_quarantine`): ανάγνωση ως κείμενο, «Attach to a ticket»
   (ξένος αποστολέας → «(Από x@y)» μπροστά), «Open a new ticket» (επισκέπτη ή σε λογαριασμό), «Dismiss», «Block the
-  sender». Μία φορά η καθεμία (κλείδωμα γραμμής). Το raw στον ιδιωτικό δίσκο· τα χειρισμένα σβήνονται σε 90 μέρες.
+  sender». Μία φορά η καθεμία (κλείδωμα γραμμής). Το raw στον ιδιωτικό δίσκο· τα χειρισμένα σβήνονται όσο λέει το
+  `retention_ticket_quarantine_days` (90 μέρες εξ ορισμού, από το `handled_at`· τα pending μένουν).
   Blocked Senders: διεύθυνση ή `@domain`.
 - Ίδιοι κανόνες αρχείων στο portal και στο admin· τα αρχεία κατεβαίνουν πάντα ως `attachment` με `nosniff` και
   sandbox CSP· προεπισκόπηση μόνο jpeg/png/gif/webp.

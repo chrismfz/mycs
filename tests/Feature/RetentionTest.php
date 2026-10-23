@@ -177,4 +177,21 @@ class RetentionTest extends TestCase
             $this->assertNotNull(DB::table('audits')->find($id));
         }
     }
+
+    /** The ticket mail import log and the Login History by their own settings, and the handled quarantine by its setting
+     * only (the mail fetch no longer deletes it after a fixed 90 days). */
+    public function test_the_import_log_the_login_history_and_the_quarantine_follow_their_settings(): void
+    {
+        config(['settings.retention_ticket_mail_imports_days' => 30, 'settings.retention_login_attempts_days' => 0, 'settings.retention_ticket_quarantine_days' => 365]);
+        $import = DB::table('ticket_mail_imports')->insertGetId(['outcome' => 'opened', 'created_at' => now()->subDays(31)]);
+        $attempt = DB::table('login_attempts')->insertGetId(['area' => 'client', 'result' => 'failed', 'created_at' => now()->subYears(2)]);
+        $quarantine = DB::table('ticket_quarantine')->insertGetId(['reason' => 'spam', 'status' => 'dismissed', 'handled_at' => now()->subDays(100), 'created_at' => now()->subDays(100), 'updated_at' => now()]);
+
+        Retention::pruneAll();
+        $this->artisan('app:fetch-emails')->run();
+
+        $this->assertNull(DB::table('ticket_mail_imports')->find($import));
+        $this->assertNotNull(DB::table('login_attempts')->find($attempt), '0 keeps it');
+        $this->assertNotNull(DB::table('ticket_quarantine')->find($quarantine), 'kept 365 days, whatever the mail fetch');
+    }
 }

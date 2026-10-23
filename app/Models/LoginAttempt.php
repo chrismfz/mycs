@@ -3,15 +3,13 @@
 namespace App\Models;
 
 use App\Support\CallerIp;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\MassPrunable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Cache;
 use Throwable;
 
 /**
  * One sign-in, good or not, to the client area or the admin (Login History, owner 2026-10-23). The address is kept as
- * typed only when it is an address (a password typed into it never is); the password never. Kept 90 days.
+ * typed only when it is an address (a password typed into it never is); the password never. Kept by its retention (Settings → Cronjob → Data Retention, App\Support\Retention).
  *
  * @property int $id
  * @property string $area
@@ -24,8 +22,6 @@ use Throwable;
  */
 class LoginAttempt extends Model
 {
-    use MassPrunable;
-
     public const UPDATED_AT = null;
 
     public const CLIENT = 'client';
@@ -53,8 +49,6 @@ class LoginAttempt extends Model
         self::FAILED_2FA => 'Wrong 2FA code',
         self::THROTTLED => 'Too many attempts',
     ];
-
-    public const DAYS = 90;
 
     protected $fillable = ['area', 'user_id', 'staff_id', 'email', 'ip_address', 'user_agent', 'result'];
 
@@ -106,12 +100,6 @@ class LoginAttempt extends Model
         } finally {
             self::$quiet = $was;
         }
-    }
-
-    /** @return Builder<static> */
-    public function prunable(): Builder
-    {
-        return static::query()->where('created_at', '<', now()->subDays(self::DAYS));
     }
 
     /** @return BelongsTo<User, $this> */

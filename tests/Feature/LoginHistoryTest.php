@@ -12,6 +12,7 @@ use App\Models\LoginAttempt;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Models\User;
+use App\Support\Retention;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Session;
@@ -127,13 +128,14 @@ class LoginHistoryTest extends TestCase
         $this->get(LoginAttemptResource::getUrl('index'))->assertForbidden();
     }
 
+    /** Kept 90 days by default, with the other logs (Settings → Cronjob → Data Retention, App\Support\Retention). */
     public function test_it_is_kept_ninety_days(): void
     {
         $old = LoginAttempt::query()->create(['area' => LoginAttempt::CLIENT, 'result' => LoginAttempt::FAILED]);
-        $old->forceFill(['created_at' => now()->subDays(LoginAttempt::DAYS + 1)])->save();
+        $old->forceFill(['created_at' => now()->subDays(91)])->save();
         $new = LoginAttempt::query()->create(['area' => LoginAttempt::CLIENT, 'result' => LoginAttempt::FAILED]);
 
-        $this->artisan('model:prune', ['--model' => [LoginAttempt::class]])->assertSuccessful();
+        Retention::pruneAll();
 
         $this->assertSame([$new->id], LoginAttempt::query()->pluck('id')->all());
     }

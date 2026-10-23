@@ -13,7 +13,6 @@ use App\Console\Commands\ScheduleHeartbeatCommand;
 use App\Console\Commands\SyncServiceUsage;
 use App\Console\Commands\SyncSslOrders;
 use App\Console\Commands\VatRecheck;
-use App\Models\LoginAttempt;
 use Illuminate\Support\Facades\Schedule;
 
 Schedule::command(ScheduleHeartbeatCommand::class)->description('Updates the last scheduler run time')->everyMinute()->onOneServer();
@@ -29,7 +28,6 @@ Schedule::command(ReadBalances::class)->description('Reads what is left with eac
 Schedule::command(SyncCosts::class)->description('Reads the registrars\' costs for the TLDs (never a price)')->weeklyOn(1, '05:30')->withoutOverlapping()->onOneServer();
 Schedule::command(GatewayLogPrune::class)->description('Deletes refused gateway requests that moved no money, after 90 days')->dailyAt('06:15')->withoutOverlapping()->onOneServer();
 Schedule::command(RegistrarDebugLogPrune::class)->description('Deletes registrar debug log files (contacts\' details) after 14 days')->dailyAt('06:20')->withoutOverlapping()->onOneServer();
-Schedule::command('model:prune', ['--model' => [LoginAttempt::class]])->description('Deletes the Login History after ' . LoginAttempt::DAYS . ' days')->dailyAt('06:25')->withoutOverlapping()->onOneServer();
 // The mail audit (docs/mail.md): mails stuck in sending or pending are marked failed, for staff to resend.
 Schedule::command(MailSweep::class)->description('Marks mails stuck on their way out as failed')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
 // EU VAT (PR G, docs/eu-vat.md): pending numbers until VIES answers, the others monthly. Nothing when EU VAT is off.
