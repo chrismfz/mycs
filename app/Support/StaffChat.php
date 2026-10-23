@@ -214,6 +214,37 @@ class StaffChat
         return array_filter($counts);
     }
 
+    /**
+     * What a notification may say of the member's unread messages (docs/livechat.md §7γ, F21): who wrote, never what.
+     * `latest` is the newest unread message id, so a browser notifies once per new message; `with` opens its thread.
+     *
+     * @return array{total: int, latest: int, title: ?string, with: ?int}
+     */
+    public static function news(Staff $staff): array
+    {
+        $counts = self::unreadByThread($staff);
+        if ($counts === []) {
+            return ['total' => 0, 'latest' => 0, 'title' => null, 'with' => null];
+        }
+        $latest = 0;
+        $newestKey = null;
+        foreach ($counts as $key => $count) {
+            $threadId = $key === 'room' ? self::room()->id : (int) StaffThread::query()->where('direct_key', self::pairKey($staff->id, (int) $key))->value('id');
+            $id = (int) StaffMessage::query()->where('thread_id', $threadId)->where('staff_id', '!=', $staff->id)->max('id');
+            if ($id > $latest) {
+                [$latest, $newestKey] = [$id, $key];
+            }
+        }
+        $total = min(self::UNREAD_CAP + 1, array_sum($counts));
+        $title = match (true) {
+            count($counts) > 1 => trans_choice('{1} :count new message in the staff chat|[2,*] :count new messages in the staff chat', $total, ['count' => $total]),
+            $newestKey === 'room' => __('New message in the staff room'),
+            default => __('Message from :name', ['name' => (string) Staff::query()->find((int) $newestKey)?->name]),
+        };
+
+        return ['total' => $total, 'latest' => $latest, 'title' => $title, 'with' => is_int($newestKey) ? $newestKey : null];
+    }
+
     private static function countUnread(Staff $staff, int $threadId): int
     {
         $read = (int) DB::table('staff_thread_members')->where(['thread_id' => $threadId, 'staff_id' => $staff->id])->value('last_read_message_id');
