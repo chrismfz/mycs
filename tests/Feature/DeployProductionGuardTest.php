@@ -116,4 +116,17 @@ class DeployProductionGuardTest extends TestCase
         $this->assertSame(1, $code, $out);
         $this->assertStringContainsString('APP_DEBUG=true', $out);
     }
+
+    /** Without APP_ENV, Laravel is in production (config/app.php's default); quotes inside quotes are Laravel's too. */
+    public function test_a_missing_app_env_is_production(): void
+    {
+        foreach (["APP_DEBUG=true\n", "APP_ENV=\"'production'\"\nAPP_DEBUG=true\n", "APP_ENV=local\nAPP_DEBUG=\"false\nMYCS_GUARD=0 0\n\"\n"] as $env) {
+            [$code, $out] = $this->deploy($env, str_contains($env, 'local') ? ['APP_ENV' => 'production'] : []);
+            $this->assertSame(1, $code, json_encode($env) . ': ' . $out);
+            $this->assertStringContainsString('APP_DEBUG=true', $out);
+        }
+
+        [$code] = $this->deploy("APP_ENV=production\nAPP_DEBUG=\"'0'\"\n");
+        $this->assertSame(97, $code, "'0' in quotes is debug off for Laravel");
+    }
 }

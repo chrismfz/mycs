@@ -68,16 +68,15 @@ COMPOSER_DEV="${COMPOSER_DEV:-$(_env DEPLOY_COMPOSER_DEV)}"
 # ALLOW_DEV_IN_PRODUCTION=1 says it is meant (a one-off on a box that is not really production). APP_ENV and APP_DEBUG
 # as Laravel reads them (phpdotenv: quotes, comments, `export`, CRLF, untrimmed inside quotes), and debug on as
 # Laravel's env() has it: anything but false/0/empty/null (review of #392).
-# PHP decides, as Laravel would, and prints only two digits on a line of its own: no value of .env is echoed, so none
-# can shift or forge the answer (multi-line values, review of #392). The process environment wins over .env, as in
-# Laravel. When PHP cannot tell, refused: there is no knowing then whether this is production.
+# Laravel's own Env decides, as config/app.php reads it (`env('APP_ENV', 'production')`, `(bool) env('APP_DEBUG',
+# false)`: the process environment over .env, its conversions and quotes), and PHP prints only two digits on a line of
+# its own: no value of .env is echoed, so none can shift or forge the answer (review of #392). When PHP cannot tell,
+# refused: there is no knowing then whether this is production.
 _parsed="$($PHP -d display_errors=stderr -d display_startup_errors=0 -r '
   require "vendor/autoload.php";
-  $file = Dotenv\Dotenv::parse((string) file_get_contents(".env"));
-  $get = fn (string $key) => getenv($key) !== false ? getenv($key) : ($file[$key] ?? null);
-  $debug = $get("APP_DEBUG");
-  $debug = match (is_string($debug) ? strtolower($debug) : $debug) { "true", "(true)" => true, "false", "(false)", "empty", "(empty)", "null", "(null)", null => false, default => (bool) $debug };
-  echo "\nMYCS_GUARD=", strtolower((string) $get("APP_ENV")) === "production" ? 1 : 0, " ", $debug ? 1 : 0, "\n";' 2>&1 || true)"
+  Dotenv\Dotenv::create(Illuminate\Support\Env::getRepository(), getcwd())->safeLoad();
+  $env = Illuminate\Support\Env::get("APP_ENV", "production");
+  echo "\nMYCS_GUARD=", strtolower((string) $env) === "production" ? 1 : 0, " ", (bool) Illuminate\Support\Env::get("APP_DEBUG", false) ? 1 : 0, "\n";' 2>&1 || true)"
 _answer="$(grep -E '^MYCS_GUARD=[01] [01]$' <<<"$_parsed" | tail -1 || true)"
 if [[ -z "$_answer" ]]; then
   if [[ "${ALLOW_DEV_IN_PRODUCTION:-0}" != "1" ]]; then
