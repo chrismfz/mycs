@@ -3,6 +3,7 @@
 namespace App\Admin\Resources\ProductResource\Pages;
 
 use App\Admin\Actions\AuditAction;
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\ProductResource;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
@@ -19,6 +20,8 @@ use Illuminate\Support\Str;
 
 class EditProduct extends EditRecord
 {
+    use TwoColumnForm;
+
     protected static string $resource = ProductResource::class;
 
     protected function getHeaderActions(): array

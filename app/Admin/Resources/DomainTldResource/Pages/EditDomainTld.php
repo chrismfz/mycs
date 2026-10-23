@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\DomainTldResource\Pages;
 
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\DomainTldResource;
 use App\Exceptions\DisplayException;
 use App\Models\DomainTld;
@@ -11,6 +12,8 @@ use Filament\Resources\Pages\EditRecord;
 
 class EditDomainTld extends EditRecord
 {
+    use TwoColumnForm;
+
     protected static string $resource = DomainTldResource::class;
 
     protected function getHeaderActions(): array

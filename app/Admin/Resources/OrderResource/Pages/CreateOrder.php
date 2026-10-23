@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\OrderResource\Pages;
 
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\OrderResource;
 use App\Exceptions\DisplayException;
 use App\Models\Client;
@@ -22,6 +23,8 @@ use Illuminate\Database\Eloquent\Model;
  */
 class CreateOrder extends CreateRecord
 {
+    use TwoColumnForm;
+
     protected static string $resource = OrderResource::class;
 
     protected function handleRecordCreation(array $data): Model

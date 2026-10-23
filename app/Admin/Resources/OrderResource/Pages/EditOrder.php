@@ -3,6 +3,7 @@
 namespace App\Admin\Resources\OrderResource\Pages;
 
 use App\Admin\Concerns\RemembersRecent;
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\OrderResource;
 use App\Exceptions\DisplayException;
 use App\Models\Order;
@@ -23,6 +24,7 @@ use Throwable;
 class EditOrder extends EditRecord
 {
     use RemembersRecent;
+    use TwoColumnForm;
 
     protected static string $resource = OrderResource::class;
 

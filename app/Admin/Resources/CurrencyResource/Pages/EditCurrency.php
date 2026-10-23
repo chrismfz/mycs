@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\CurrencyResource\Pages;
 
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\CurrencyResource;
 use App\Models\Cart;
 use App\Models\Currency;
@@ -14,6 +15,8 @@ use Filament\Resources\Pages\EditRecord;
 
 class EditCurrency extends EditRecord
 {
+    use TwoColumnForm;
+
     protected static string $resource = CurrencyResource::class;
 
     protected function getHeaderActions(): array

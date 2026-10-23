@@ -2,11 +2,14 @@
 
 namespace App\Admin\Resources\BulkMailResource\Pages;
 
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\BulkMailResource;
 use Filament\Resources\Pages\CreateRecord;
 
 class CreateBulkMail extends CreateRecord
 {
+    use TwoColumnForm;
+
     protected static string $resource = BulkMailResource::class;
 
     /** A draft: staff preview, test and send it from its page. */

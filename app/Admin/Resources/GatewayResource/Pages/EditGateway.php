@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\GatewayResource\Pages;
 
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\GatewayResource;
 use App\Helpers\ExtensionHelper;
 use App\Models\Extension;
@@ -12,6 +13,8 @@ use Illuminate\Support\Arr;
 
 class EditGateway extends EditRecord
 {
+    use TwoColumnForm;
+
     protected static string $resource = GatewayResource::class;
 
     protected function getHeaderActions(): array

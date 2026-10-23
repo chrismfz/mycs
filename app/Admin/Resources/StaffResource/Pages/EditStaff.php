@@ -3,6 +3,7 @@
 namespace App\Admin\Resources\StaffResource\Pages;
 
 use App\Admin\Actions\AuditAction;
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\StaffResource;
 use App\Models\Staff;
 use Filament\Actions\Action;
@@ -12,6 +13,8 @@ use Filament\Resources\Pages\EditRecord;
 
 class EditStaff extends EditRecord
 {
+    use TwoColumnForm;
+
     protected static string $resource = StaffResource::class;
 
     protected function getHeaderActions(): array

@@ -2,12 +2,15 @@
 
 namespace App\Admin\Resources\NotificationTemplateResource\Pages;
 
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\NotificationTemplateResource;
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
 
 class EditNotificationTemplate extends EditRecord
 {
+    use TwoColumnForm;
+
     protected static string $resource = NotificationTemplateResource::class;
 
     protected function getHeaderActions(): array

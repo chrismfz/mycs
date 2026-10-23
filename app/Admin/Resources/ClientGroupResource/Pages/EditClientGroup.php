@@ -2,12 +2,15 @@
 
 namespace App\Admin\Resources\ClientGroupResource\Pages;
 
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\ClientGroupResource;
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
 
 class EditClientGroup extends EditRecord
 {
+    use TwoColumnForm;
+
     protected static string $resource = ClientGroupResource::class;
 
     protected function getHeaderActions(): array

@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\InvoiceResource\Pages;
 
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\InvoiceResource;
 use App\Models\Invoice;
 use App\Services\Invoice\RecordPaymentService;
@@ -10,6 +11,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class CreateInvoice extends CreateRecord
 {
+    use TwoColumnForm;
+
     protected static string $resource = InvoiceResource::class;
 
     /**

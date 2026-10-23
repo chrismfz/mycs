@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\GatewayResource\Pages;
 
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\GatewayResource;
 use App\Helpers\ExtensionHelper;
 use Arr;
@@ -10,6 +11,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class CreateGateway extends CreateRecord
 {
+    use TwoColumnForm;
+
     protected static string $resource = GatewayResource::class;
 
     protected function mutateFormDataBeforeCreate(array $data): array

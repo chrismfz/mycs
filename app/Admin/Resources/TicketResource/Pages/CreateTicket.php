@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\TicketResource\Pages;
 
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\TicketResource;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Database\Eloquent\Model;
@@ -9,6 +10,8 @@ use Illuminate\Support\Facades\Auth;
 
 class CreateTicket extends CreateRecord
 {
+    use TwoColumnForm;
+
     protected static string $resource = TicketResource::class;
 
     protected function handleRecordCreation(array $data): Model

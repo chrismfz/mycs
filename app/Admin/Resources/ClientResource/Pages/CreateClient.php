@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\ClientResource\Pages;
 
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\ClientResource;
 use App\Models\Client;
 use App\Models\Staff;
@@ -15,6 +16,8 @@ use Illuminate\Support\Facades\DB;
 /** A new account with its owner, as WHMCS «Add New Client» (docs/accounts.md, PR 2a). */
 class CreateClient extends CreateRecord
 {
+    use TwoColumnForm;
+
     protected static string $resource = ClientResource::class;
 
     protected function handleRecordCreation(array $data): Model

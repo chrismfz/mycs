@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\OfferResource\Pages;
 
+use App\Admin\Concerns\TwoColumnForm;
 use App\Admin\Resources\OfferResource;
 use App\Models\Offer;
 use Filament\Actions\Action;
@@ -10,6 +11,8 @@ use Filament\Resources\Pages\EditRecord;
 
 class EditOffer extends EditRecord
 {
+    use TwoColumnForm;
+
     protected static string $resource = OfferResource::class;
 
     protected function getHeaderActions(): array
