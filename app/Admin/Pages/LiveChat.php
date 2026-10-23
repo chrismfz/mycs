@@ -8,8 +8,8 @@ use Filament\Pages\Page;
 use Illuminate\Support\Facades\Auth;
 
 /**
- * «Live chat» (docs/livechat.md §7α), step 2 of §11: the team and the staff's shared room. The customers' queue and
- * chats come in step 3, on this same page.
+ * «Live chat» (docs/livechat.md §7α), step 2 of §11: the team, the staff's shared room and private threads of two. The
+ * customers' queue and chats come in step 3, on this same page.
  */
 class LiveChat extends Page
 {
@@ -40,7 +40,7 @@ class LiveChat extends Page
         return __('Live chat');
     }
 
-    /** The room's messages from others not yet seen (§7γ «Αδιάβαστα»). */
+    /** Messages from others not yet seen, in the room and the member's private threads (§7γ «Αδιάβαστα»). */
     public static function getNavigationBadge(): ?string
     {
         $staff = Auth::user();
