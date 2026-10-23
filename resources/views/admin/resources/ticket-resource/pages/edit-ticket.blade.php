@@ -106,7 +106,7 @@
                 </div>
                 @endforeach
             </div>
-            @foreach ($this->drafts() as $draft)
+            @foreach ($drafts as $draft)
                 {{-- An MCP agent's draft (Proposals::TICKET_REPLY): the text as written, never sent by itself. --}}
                 <x-filament::section class="mt-4" wire:key="draft-{{ $draft->id }}" :heading="__('Drafted reply (MCP)')"
                     :description="__('By :who, :when. Read it all, links included, before you use it: it may carry what a customer wrote.', ['who' => $draft->proposer?->name ?? '—', 'when' => $draft->created_at?->diffForHumans()])">

@@ -125,4 +125,24 @@ class McpTicketReplyDraftTest extends TestCase
             }
         }
     }
+
+    public function test_a_ticket_holds_a_few_drafts_at_most(): void
+    {
+        $ticket = Ticket::factory()->create();
+        for ($i = 1; $i <= Proposals::DRAFTS_PER_TICKET; $i++) {
+            Proposals::propose(Proposals::TICKET_REPLY, ['ticket_id' => $ticket->id, 'message' => "Draft {$i}"], $this->staff(['*']));
+        }
+
+        $this->expectException(InvalidArgumentException::class);
+        Proposals::propose(Proposals::TICKET_REPLY, ['ticket_id' => $ticket->id, 'message' => 'One more'], $this->staff(['*']));
+    }
+
+    public function test_a_merged_ticket_shows_no_drafts(): void
+    {
+        $ticket = Ticket::factory()->create();
+        Proposals::propose(Proposals::TICKET_REPLY, ['ticket_id' => $ticket->id, 'message' => 'Draft'], $this->staff(['*']));
+        $ticket->forceFill(['merged_into_id' => Ticket::factory()->create()->id])->save();
+
+        $this->assertCount(0, Proposals::draftsFor($ticket->id));
+    }
 }

@@ -146,14 +146,22 @@ class EditTicket extends EditRecord
      * Replies an MCP agent drafted on this ticket (Proposals::TICKET_REPLY): shown above the reply box, text as written
      * (escaped, links as plain text), never sent by themselves.
      *
+     * Not a public method: Livewire answers those to the browser, whole models with their proposer (review of #423).
+     *
      * @return Collection<int, McpProposal>
      */
-    public function drafts(): Collection
+    private function drafts(): Collection
     {
         $staff = Auth::guard('staff')->user();
 
         return $staff instanceof Staff && $staff->hasPermission(Proposals::permission(Proposals::TICKET_REPLY)) && $this->record instanceof Ticket
             ? Proposals::draftsFor($this->record->id) : collect();
+    }
+
+    /** @return array<string, mixed> */
+    protected function getViewData(): array
+    {
+        return ['drafts' => $this->drafts()];
     }
 
     /** Into the reply box, after what staff already wrote: staff change it and send it, or not. */

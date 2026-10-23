@@ -47,6 +47,9 @@ final class Proposals
      */
     public const TICKET_REPLY = 'ticket_reply';
 
+    /** Drafts waiting on one ticket at most. */
+    public const DRAFTS_PER_TICKET = 3;
+
     /** A drafted reply's longest. */
     public const DRAFT_MAX = 20000;
 
@@ -68,13 +71,17 @@ final class Proposals
         // The same request, already waiting (whoever asked): one to approve. Who asks again follows it with `proposal`,
         // which shows what the caller may decide too (review R1).
         $open = McpProposal::query()->where('type', $type)->where('status', McpProposal::STATUS_PENDING)->where('expires_at', '>', now())
-            ->get()->first(fn (McpProposal $proposal) => $proposal->payload == $payload);
+            // The very same request: strict, never PHP's loose «100» == «1e2» (review of #423).
+            ->get()->first(fn (McpProposal $proposal) => json_encode($proposal->payload) === json_encode($payload));
         if ($open !== null) {
             return $open;
         }
         $pending = McpProposal::query()->where('proposed_by', $staff->id)->where('status', McpProposal::STATUS_PENDING)->where('expires_at', '>', now());
         if ($pending->count() >= self::PENDING_PER_PROPOSER) {
             throw new InvalidArgumentException('Too many of your proposals are waiting: staff decide those first.');
+        }
+        if ($type === self::TICKET_REPLY && self::draftsFor((int) $payload['ticket_id'])->count() >= self::DRAFTS_PER_TICKET) {
+            throw new InvalidArgumentException('This ticket already has ' . self::DRAFTS_PER_TICKET . ' drafts waiting: staff use or discard those first.');
         }
 
         return McpProposal::query()->create(['type' => $type, 'payload' => $payload, 'summary' => $summary, 'proposed_by' => $staff->id,
@@ -126,6 +133,10 @@ final class Proposals
     /** @return Collection<int, McpProposal> the drafts still open on a ticket */
     public static function draftsFor(int $ticketId): Collection
     {
+        if (Ticket::query()->find($ticketId)?->isMerged() ?? true) {
+            return collect(); // merged since: its thread goes on in the other ticket
+        }
+
         return McpProposal::query()->with('proposer')->where('type', self::TICKET_REPLY)->where('status', McpProposal::STATUS_PENDING)
             ->where('expires_at', '>', now())->orderBy('id')->get()
             ->filter(fn (McpProposal $proposal) => (int) ($proposal->payload['ticket_id'] ?? 0) === $ticketId)->values();
@@ -276,7 +287,8 @@ final class Proposals
         if ($ticket->isMerged()) {
             throw new InvalidArgumentException("Ticket #{$ticket->id} was merged into another: draft there.");
         }
-        $message = trim((string) ($payload['message'] ?? ''));
+        // Without format characters (bidi overrides, zero-width): they can hide or reorder what a link says (review of #423).
+        $message = trim((string) preg_replace('/\p{Cf}/u', '', (string) ($payload['message'] ?? '')));
         if ($message === '' || mb_strlen($message) > self::DRAFT_MAX) {
             throw new InvalidArgumentException('The draft is empty, or longer than ' . self::DRAFT_MAX . ' characters.');
         }

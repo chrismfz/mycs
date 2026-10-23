@@ -12,6 +12,7 @@ use App\Models\Ticket;
 use App\Services\Mcp\Proposals;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Exceptions\MethodNotFoundException;
 use Tests\TestCase;
 
 /** Adversarial review of the MCP ticket reply drafts (propose_ticket_reply, «Use the draft»). */
@@ -104,7 +105,13 @@ class AdvMcpTicketDraftTest extends TestCase
         $proposer = $this->staff(['*']);
         Proposals::propose(Proposals::TICKET_REPLY, ['ticket_id' => $ticket->id, 'message' => 'Draft'], $proposer);
 
-        $page = $this->livewireAs($this->staff(['*']))->test(EditTicket::class, ['record' => $ticket->id])->call('drafts');
+        $page = $this->livewireAs($this->staff(['*']))->test(EditTicket::class, ['record' => $ticket->id]);
+        $page->assertSee('Draft'); // still shown on the page
+        try {
+            $page->call('drafts');
+        } catch (MethodNotFoundException) {
+            return; // fixed: not callable from the browser at all
+        }
 
         $this->assertStringNotContainsString($proposer->email, (string) json_encode($page->effects['returns'] ?? []));
     }
