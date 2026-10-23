@@ -20,6 +20,7 @@ use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\UserAuthenticationLog;
 use App\Services\Invoice\RecordPaymentService;
+use App\Support\LicenseKeyMask;
 
 /**
  * The client's «Summary» in the admin, as WHMCS's client profile: its details, its invoices by status, its services,
@@ -130,7 +131,7 @@ class ClientSummary
     /** @return array{counts: array<string, int>, rows: list<array<string, mixed>>} */
     private static function services(Client $client): array
     {
-        $services = Service::query()->where('client_id', $client->id)->with(['product', 'plan', 'currency'])->orderByRaw("status = 'active' desc")->orderByDesc('id')->get();
+        $services = Service::query()->where('client_id', $client->id)->with(['product', 'plan', 'currency', 'license'])->orderByRaw("status = 'active' desc")->orderByDesc('id')->get();
         $counts = array_fill_keys(array_keys(Service::statusOptions()), 0);
         foreach ($services as $service) {
             $counts[$service->status] = ($counts[$service->status] ?? 0) + 1;
@@ -141,7 +142,7 @@ class ClientSummary
             'rows' => $services->map(fn (Service $service) => [
                 'id' => $service->id,
                 'product' => $service->product?->name,
-                'domain' => $service->domain,
+                'domain' => LicenseKeyMask::domain($service), // a license's key, masked for staff who see keys so
                 'amount' => (string) $service->formattedPrice, // as Products/Services shows it: with tax, what a renewal charges
                 'cycle' => self::cycle($service->plan),
                 'created' => $service->created_at,

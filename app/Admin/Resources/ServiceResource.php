@@ -109,8 +109,24 @@ class ServiceResource extends Resource
         $term = mb_strtolower(trim($search));
         // The hosted domain the term matches, loaded with the results (its account, for a reseller's customer: L1).
         $query->with(['liveHostedDomains' => fn ($q) => $q->where('domain', 'like', '%' . $term . '%')]);
-        // A domain that is its license's key: found by the whole key only, by staff who see keys masked (review of #368).
-        LicenseKeyMask::withoutPartialKeyMatches($query, $search);
+    }
+
+    /**
+     * Each word of the search, on the domain: one that is its license's key is matched by the whole key only, for staff
+     * who see keys masked (review of #368); every other attribute as Filament does.
+     *
+     * @param  array<string>  $searchAttributes
+     */
+    protected static function applyGlobalSearchAttributeConstraint(Builder $query, string $search, array $searchAttributes, bool &$isFirst): Builder
+    {
+        if ($searchAttributes === ['domain'] && !LicenseKeyMask::shown()) {
+            LicenseKeyMask::whereDomainLike($query, $search, $isFirst ? 'and' : 'or');
+            $isFirst = false;
+
+            return $query;
+        }
+
+        return parent::applyGlobalSearchAttributeConstraint($query, $search, $searchAttributes, $isFirst);
     }
 
     /** An IDN typed in Unicode (ελλάδα.gr) found as the server keeps it, in punycode (code review L4). */

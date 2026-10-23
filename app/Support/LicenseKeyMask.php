@@ -31,28 +31,19 @@ final class LicenseKeyMask
     }
 
     /** `domain LIKE %search%`, except that a domain which is its license's key is only matched whole when masked. */
-    public static function whereDomainLike(Builder $query, string $search): Builder
+    public static function whereDomainLike(Builder $query, string $search, string $boolean = 'and'): Builder
     {
         if (self::shown()) {
-            return $query->where('services.domain', 'like', "%{$search}%");
+            return $query->where('services.domain', 'like', "%{$search}%", $boolean);
         }
 
-        return $query->where(fn (Builder $match) => $match->where('services.domain', trim($search))
-            ->orWhere(fn (Builder $part) => $part->where('services.domain', 'like', "%{$search}%")->whereDoesntHave('license', self::keyIsDomain(...))));
-    }
-
-    /** For a search over many columns (ctrl+k): no row whose key-domain matched only in part. */
-    public static function withoutPartialKeyMatches(Builder $query, string $search): void
-    {
-        if (self::shown()) {
-            return;
-        }
-        $query->whereNot(fn (Builder $partial) => $partial->where('services.domain', 'like', "%{$search}%")
-            ->where('services.domain', '!=', trim($search))->whereHas('license', self::keyIsDomain(...)));
+        return $query->where(fn (Builder $match) => $match->whereRaw('lower(services.domain) = ?', [mb_strtolower(trim($search))])
+            ->orWhere(fn (Builder $part) => $part->where('services.domain', 'like', "%{$search}%")->whereDoesntHave('license', self::keyIsDomain(...))), boolean: $boolean);
     }
 
     private static function keyIsDomain(Builder $license): void
     {
-        $license->whereColumn('licenses.license_key', 'services.domain');
+        // Case aside, as the screen compares (SQLite's = is case-sensitive, MariaDB's collation is not).
+        $license->whereRaw('lower(licenses.license_key) = lower(services.domain)');
     }
 }

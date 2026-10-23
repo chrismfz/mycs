@@ -58,6 +58,7 @@ class ModuleActionResource extends Resource
     {
         return $table
             ->defaultSort('id', 'desc')
+            ->modifyQueryUsing(fn ($query) => $query->with(['service.product', 'service.license', 'service.client', 'domain.client', 'invoiceItem']))
             ->columns([
                 // A service's action, or a domain's (D5b-2: its renewal at the registrar).
                 TextColumn::make('for')->label('For')

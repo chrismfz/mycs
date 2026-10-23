@@ -96,10 +96,16 @@ class StaffHardeningTest extends TestCase
         $this->livewireAs($masked)->test(ListService::class)
             ->assertCanSeeTableRecords([$service])->assertDontSee($key)
             ->searchTable('ZCAgent-01234')->assertCanNotSeeTableRecords([$service])
+            ->searchTable('"ZCAgent-01234"')->assertCanNotSeeTableRecords([$service])
             ->searchTable($key)->assertCanSeeTableRecords([$service]); // the search box holds what they typed, the key whole
 
         $this->actingAs($masked, 'staff');
-        $this->assertCount(0, ServiceResource::getGlobalSearchResults('ZCAgent-01234'));
+        foreach (['ZCAgent-01234', '"ZCAgent-01234"', 'ZCAgent-01234 ZCAgent'] as $part) {
+            $this->assertCount(0, ServiceResource::getGlobalSearchResults($part), $part);
+        }
+        // Found by its other attributes, and by the whole key in any case.
+        $this->assertCount(1, ServiceResource::getGlobalSearchResults((string) $service->id));
+        $this->assertCount(1, ServiceResource::getGlobalSearchResults(strtoupper($key)));
         $titles = ServiceResource::getGlobalSearchResults($key)->map(fn ($r) => (string) $r->title)->implode(' ');
         $this->assertStringContainsString('#' . $service->id, $titles);
         $this->assertStringNotContainsString($key, $titles);
