@@ -11,6 +11,7 @@ use App\Services\Domains\DomainRenewalService;
 use App\Services\Domains\Ordering\DomainOrderFulfilment;
 use App\Services\Service\OptionTasks;
 use App\Services\Service\RetryModuleAction;
+use App\Support\AdminBadge;
 use App\Support\LicenseKeyMask;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -44,9 +45,7 @@ class ModuleActionResource extends Resource
 
     public static function getNavigationBadge(): ?string
     {
-        $open = ModuleAction::query()->open()->count();
-
-        return $open > 0 ? (string) $open : null;
+        return AdminBadge::label('module_actions.open', fn () => ModuleAction::query()->open()->count());
     }
 
     public static function getNavigationBadgeColor(): ?string

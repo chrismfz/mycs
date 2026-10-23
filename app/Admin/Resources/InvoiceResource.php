@@ -22,6 +22,7 @@ use App\Models\Invoice;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Services\Invoice\RecordPaymentService;
+use App\Support\AdminBadge;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
@@ -105,7 +106,7 @@ class InvoiceResource extends Resource
 
     public static function getNavigationBadge(): ?string
     {
-        return static::getModel()::where('status', Invoice::STATUS_UNPAID)->count() ?: null;
+        return AdminBadge::label('invoices.unpaid', fn () => Invoice::query()->where('status', Invoice::STATUS_UNPAID)->count());
     }
 
     public static function getNavigationBadgeColor(): ?string
@@ -256,7 +257,7 @@ class InvoiceResource extends Resource
         return $table
             // The account's name is its owner's (until the contacts, PR 3): loaded with the rows, not per row.
             // Lines and payments too: whether an unpaid one is overdue reads them (Invoice::daysOverdue), not a query a row.
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user', 'latestEmailLog', 'items', 'transactions']))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user', 'latestEmailLog', 'items', 'transactions', 'adjustmentNotes', 'currency']))
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')

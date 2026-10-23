@@ -11,6 +11,7 @@ use App\Admin\Search\SearchTitle;
 use App\Models\Client;
 use App\Models\Staff;
 use App\Models\Ticket;
+use App\Support\AdminBadge;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -52,7 +53,7 @@ class TicketResource extends Resource
     public static function getNavigationBadge(): ?string
     {
         // Waiting on us: new tickets and the customers' answers (docs/tickets.md §5).
-        return Ticket::whereIn('status', Ticket::AWAITING_STAFF)->count() ?: null;
+        return AdminBadge::label('tickets.awaiting', fn () => Ticket::query()->whereIn('status', Ticket::AWAITING_STAFF)->count());
     }
 
     public static function getNavigationBadgeColor(): ?string
@@ -224,11 +225,14 @@ class TicketResource extends Resource
                         ->orWhere('guest_name', 'like', '%' . str_replace(['%', '_'], ['\\%', '\\_'], $search) . '%'))),
             ])
             ->filters([
+                // Searched, never every account loaded up front (one query per account before).
                 SelectFilter::make('client')
                     ->label('Client')
-                    ->relationship('client', 'id')
-                    ->indicateUsing(fn ($data) => $data['value'] ? 'Client: ' . Client::find($data['value'])?->name : null)
-                    ->getOptionLabelFromRecordUsing(fn (Client $record) => ClientComponent::optionLabel($record)),
+                    ->attribute('client_id')
+                    ->searchable()
+                    ->getSearchResultsUsing(fn (string $search): array => ClientComponent::searchResults($search))
+                    ->getOptionLabelUsing(fn ($value) => ClientComponent::labelOf($value))
+                    ->indicateUsing(fn ($data) => $data['value'] ? 'Client: ' . Client::find($data['value'])?->name : null),
                 SelectFilter::make('priority')
                     ->options([
                         'low' => 'Low',

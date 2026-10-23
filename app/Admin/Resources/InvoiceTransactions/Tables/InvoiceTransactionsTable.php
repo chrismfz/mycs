@@ -11,6 +11,7 @@ use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
 class InvoiceTransactionsTable
@@ -18,6 +19,8 @@ class InvoiceTransactionsTable
     public static function configure(Table $table): Table
     {
         return $table
+            // Each row's amounts are formatted in its invoice's currency: loaded with the page, not a query a row.
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['invoice.currency', 'gateway']))
             ->columns([
                 TextColumn::make('invoice_id')
                     ->url(fn (InvoiceTransaction $record): string => InvoiceResource::getUrl(config('settings.immutable_invoices_enabled', false) ? 'view' : 'edit', ['record' => $record->invoice_id]))
@@ -56,7 +59,7 @@ class InvoiceTransactionsTable
             ->filters([
                 //
             ])
-            ->defaultSort('created_at', 'desc')
+            ->defaultSort('id', 'desc') // as created, by the primary key
             ->recordActions([
                 DeleteAction::make()
                     ->visible(fn (InvoiceTransaction $record): bool => DeleteInvoiceTransaction::allowed($record->invoice))

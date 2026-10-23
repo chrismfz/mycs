@@ -18,6 +18,7 @@ use App\Models\Order;
 use App\Models\Plan;
 use App\Models\Product;
 use App\Services\Order\OrderPricing;
+use App\Support\AdminBadge;
 use Brick\Math\BigDecimal;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
@@ -285,9 +286,7 @@ class OrderResource extends Resource
     /** Pending Orders (Σ1-b2): waiting for staff's Accept, or for a service to be set up. */
     public static function getNavigationBadge(): ?string
     {
-        $pending = Order::query()->where('status', Order::STATUS_PENDING)->count();
-
-        return $pending > 0 ? (string) $pending : null;
+        return AdminBadge::label('orders.pending', fn () => Order::query()->where('status', Order::STATUS_PENDING)->count());
     }
 
     public static function getNavigationBadgeColor(): ?string
@@ -299,7 +298,7 @@ class OrderResource extends Resource
     {
         return $table
             // The account's name is its owner's (until the contacts, PR 3): loaded with the rows, not per row.
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user', 'invoice']))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user', 'invoice', 'services.client', 'services.product', 'domains', 'currency']))
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')

@@ -3,6 +3,7 @@
 namespace App\Admin\Clusters;
 
 use App\Models\Invoice;
+use App\Support\AdminBadge;
 use Filament\Clusters\Cluster;
 
 class InvoiceCluster extends Cluster
@@ -17,7 +18,7 @@ class InvoiceCluster extends Cluster
 
     public static function getNavigationBadge(): ?string
     {
-        return Invoice::where('status', Invoice::STATUS_UNPAID)->count() ?: null;
+        return AdminBadge::label('invoices.unpaid', fn () => Invoice::query()->where('status', Invoice::STATUS_UNPAID)->count());
     }
 
     public static function getNavigationBadgeColor(): ?string

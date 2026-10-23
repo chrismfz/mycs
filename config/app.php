@@ -76,6 +76,9 @@ return [
 
     'timezone' => env('APP_TIMEZONE', 'UTC'),
 
+    // How long the admin menu's counts are kept (App\Support\AdminBadge); 0 counts on every page.
+    'admin_badge_cache_seconds' => (int) env('ADMIN_BADGE_CACHE_SECONDS', 30),
+
     /*
     |--------------------------------------------------------------------------
     | Application Locale Configuration
