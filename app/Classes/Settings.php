@@ -1373,6 +1373,8 @@ class Settings
                     'default' => McpOauth::GRANT_DAYS,
                     'required' => true,
                     'min_value' => 0,
+                    'max_value' => McpOauth::MAX_GRANT_DAYS,
+                    'validation' => 'integer',
                     'description' => 'Days an approved MCP connector keeps working, however often it is used; then staff approve it again. 0: until revoked (Other → MCP OAuth Grants, a new password or 2FA, ending the session that approved it). Automation Status warns while it is 0.',
                 ],
                 [

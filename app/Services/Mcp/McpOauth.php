@@ -34,9 +34,16 @@ final class McpOauth
      */
     public const GRANT_DAYS = 365;
 
+    /** The setting's longest: ten years (more would overflow into «already past»). */
+    public const MAX_GRANT_DAYS = 3650;
+
+    /** Whole days from 0 to MAX_GRANT_DAYS; anything else (empty, 0.5, a typo) is the default, never «until revoked». */
     public static function grantDays(): int
     {
-        return max(0, (int) config('settings.mcp_grant_days', self::GRANT_DAYS));
+        $value = config('settings.mcp_grant_days');
+        $days = is_int($value) ? $value : (is_string($value) && preg_match('/^\s*\d+\s*$/', $value) === 1 ? (int) $value : null);
+
+        return $days !== null && $days <= self::MAX_GRANT_DAYS ? $days : self::GRANT_DAYS;
     }
 
     public const ACCESS_PREFIX = 'mcpat_';

@@ -2,11 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Pages\Settings;
 use App\Models\McpOauthGrant;
 use App\Models\Setting;
 use App\Models\Staff;
 use App\Services\Mcp\McpOauth;
 use App\Services\Ops\Health;
+use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -42,7 +44,7 @@ class McpGrantLifetimeTest extends TestCase
         return [$grant, $clientId, (string) $tokens['refresh_token']];
     }
 
-    /** Stored as staff save it: the settings are read again on later requests. */
+    /** Stored in the settings table: the settings are read again on later requests. */
     private function days(int $days): void
     {
         Setting::query()->updateOrCreate(['key' => 'mcp_grant_days', 'settingable_type' => null, 'settingable_id' => null], ['value' => (string) $days, 'type' => 'integer']);
@@ -79,5 +81,35 @@ class McpGrantLifetimeTest extends TestCase
         $this->assertNull($grant->fresh()->revoked_at);
         $this->assertSame(0, McpOauth::grantDays());
         $this->assertStringContainsString('MCP grants never expire', Health::report()['checks']['runtime']['detail']);
+    }
+
+    /** Only whole days count: anything else is the default, never «until revoked» (review of #420). */
+    public function test_a_value_that_is_not_whole_days_is_the_default(): void
+    {
+        foreach (['0.5', '0.9', '', ' ', 'abc', '1e30', '99999', null] as $value) {
+            config(['settings.mcp_grant_days' => $value]);
+            $this->assertSame(McpOauth::GRANT_DAYS, McpOauth::grantDays(), var_export($value, true));
+        }
+        config(['settings.mcp_grant_days' => '0']);
+        $this->assertSame(0, McpOauth::grantDays());
+        config(['settings.mcp_grant_days' => ' 30 ']);
+        $this->assertSame(30, McpOauth::grantDays());
+    }
+
+    /** The Settings page saves whole days from 0 to 3650 only (review of #420). */
+    public function test_the_settings_page_refuses_a_decimal_or_too_many_days(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        Setting::query()->updateOrCreate(['key' => 'system_email_address', 'settingable_type' => null, 'settingable_id' => null], ['value' => 'billing@example.test', 'type' => 'string']);
+        config(['settings.system_email_address' => 'billing@example.test']);
+        $page = fn () => $this->livewireAs(Staff::factory()->admin()->create())->test(Settings::class);
+        $stored = fn () => Setting::query()->where('key', 'mcp_grant_days')->whereNull('settingable_type')->value('value');
+
+        foreach (['0.5', '3651'] as $value) {
+            $page()->set('data.mcp_grant_days', $value)->call('save')->assertHasErrors('data.mcp_grant_days');
+            $this->assertNotSame($value, $stored());
+        }
+        $page()->set('data.mcp_grant_days', '0')->call('save')->assertHasNoErrors();
+        $this->assertSame('0', $stored());
     }
 }
