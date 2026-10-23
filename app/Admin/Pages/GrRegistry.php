@@ -10,6 +10,7 @@ use App\Services\Domains\DomainRegistrarFactory;
 use App\Services\Domains\RegistrarBalances;
 use App\Services\Domains\Registrars\GrEppRegistrar;
 use App\Support\Domains\AvailabilityResult;
+use App\Support\Redact;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Illuminate\Support\Collection;
@@ -89,7 +90,13 @@ class GrRegistry extends Page
         $this->checkError = null;
         $names = collect(preg_split('/[\s,;]+/', mb_strtolower(mb_substr($this->names, 0, 2000))) ?: [])
             ->map(fn ($name) => trim((string) preg_replace('#^[a-z][a-z0-9+.-]*://(www\.)?#', '', (string) $name), ' ./'))
-            ->filter(fn ($name) => $name !== '' && (str_ends_with($name, '.gr') || str_ends_with($name, '.ελ')))->unique()->values();
+            // A .ελ typed in punycode (from an address bar) is one too (ADV-2 of #394): sent as typed, the registrar's
+            // Rules::name turns it to Unicode.
+            ->filter(function ($name) {
+                $plain = str_contains($name, 'xn--') ? (string) (idn_to_utf8($name, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46) ?: $name) : $name;
+
+                return $name !== '' && (str_ends_with($plain, '.gr') || str_ends_with($plain, '.ελ'));
+            })->unique()->values();
         if ($names->isEmpty()) {
             $this->checkError = __('domains.gr_registry.check_none');
 
@@ -121,7 +128,9 @@ class GrRegistry extends Page
             }
             $results = $registrar->checkAvailabilityMany($names->all(), $factory->credentialsFor($connection));
         } catch (Throwable $e) {
-            $this->checkError = mb_substr($e->getMessage(), 0, 300);
+            // Its credentials hidden, as the balance's errors (review ADV-1 of #394): the text goes to the browser.
+            report($e);
+            $this->checkError = mb_substr(Redact::values(Redact::text($e->getMessage()), array_filter($connection->credentials(), 'is_string')), 0, 300);
 
             return;
         }
@@ -191,7 +200,10 @@ class GrRegistry extends Page
      */
     private function hosts(): Collection
     {
-        return Domain::query()->whereNotNull('meta->child_hosts')->where('tld', 'like', '%gr')->orderBy('fqdn')->limit(50)->get()
+        // Read with none (hosts: []) never fill the limit (ADV-3 of #394); .gr and .ελ.
+        return Domain::query()->where('meta->child_hosts->hosts', 'like', '%name%')
+            ->where(fn ($q) => $q->whereIn('tld', ['gr', 'ελ'])->orWhere('tld', 'like', '%.gr'))
+            ->orderBy('fqdn')->limit(50)->get()
             ->flatMap(fn (Domain $domain) => collect($domain->meta['child_hosts']['hosts'] ?? [])->map(fn ($host) => [
                 'host' => (string) ($host['name'] ?? $host['host'] ?? ''),
                 'addresses' => array_values(array_map('strval', (array) ($host['addresses'] ?? []))),
