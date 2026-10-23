@@ -2,17 +2,20 @@
 
 namespace App\Admin\Widgets;
 
+use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ModuleActionResource;
 use App\Admin\Resources\OrderResource;
 use App\Classes\Price;
 use App\Enums\DashboardPeriod;
 use App\Enums\InvoiceTransactionStatus;
+use App\Models\Credit;
 use App\Models\Currency;
 use App\Models\InvoiceTransaction;
 use App\Models\ModuleAction;
 use App\Models\Order;
 use App\Models\Service;
 use App\Models\Ticket;
+use App\Services\Admin\ClientSummary;
 use Filament\Widgets\StatsOverviewWidget as BaseWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
 use Flowframe\Trend\Trend;
@@ -46,6 +49,7 @@ class Overview extends BaseWidget
             // Fewer new tickets is the good outcome, so the trend color is inverted
             $this->getData(Ticket::class, 'Tickets', lowerIsBetter: true),
             $this->getData(Service::class, 'Services'),
+            $this->clientsWithCredit(),
             $this->pendingModuleActions(),
         ]);
     }
@@ -70,6 +74,26 @@ class Overview extends BaseWidget
             ->description($pending === 0 ? 'Nothing waiting' : 'Waiting to be accepted or set up')
             ->color($pending === 0 ? 'gray' : 'warning')
             ->url(OrderResource::getUrl('index', ['tab' => 'pending']));
+    }
+
+    /**
+     * Account credit nobody uses yet (owner 2026-10-23): a double transfer recorded twice, an overpayment, credit kept by
+     * the customer's choice. Gray at zero; the list opens on the accounts that have it.
+     */
+    private function clientsWithCredit(): ?Stat
+    {
+        if (!ClientResource::canViewAny() || !auth()->user()?->hasPermission('admin.credits.viewAny')) {
+            return null;
+        }
+        $credits = Credit::query()->where('amount', '>', 0)
+            ->selectRaw('currency_code, COUNT(DISTINCT client_id) as clients, SUM(amount) as total')->groupBy('currency_code')->get();
+        $clients = Credit::query()->where('amount', '>', 0)->distinct()->count('client_id');
+        $totals = $credits->map(fn (Credit $row) => ClientSummary::money((int) round((float) $row->getAttribute('total') * 100), (string) $row->currency_code))->implode(', ');
+
+        return Stat::make(__('Clients with credit'), (string) $clients)
+            ->description($clients === 0 ? __('No unused credit') : $totals)
+            ->color($clients === 0 ? 'gray' : 'info')
+            ->url(ClientResource::getUrl('index', ['filters' => ['with_credit' => ['value' => '1']]]));
     }
 
     /** WHMCS's dashboard counter: failed server actions waiting for staff (Σ1), always there, gray at zero. */
