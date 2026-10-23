@@ -210,8 +210,9 @@ class TicketResource extends Resource
                 // seen at once, and sorted by.
                 TextColumn::make('last_reply_at')
                     ->label('Last Reply')
-                    ->sortable()
-                    ->state(fn (Ticket $record) => $record->last_reply_at)
+                    // Those with no reply yet (a merged one: its messages are its survivor's) last, either way (review).
+                    ->sortable(query: fn (Builder $query, string $direction) => $query->orderByRaw('last_reply_at IS NULL')
+                        ->orderBy('last_reply_at', $direction))
                     ->formatStateUsing(fn ($state) => self::sinceShort($state))
                     ->tooltip(fn (Ticket $record) => $record->last_reply_at ? Carbon::parse($record->last_reply_at)->format('d/m/Y H:i') : null),
                 // A guest's ticket names its guest (docs/tickets.md §3 Δ): no account behind it.
