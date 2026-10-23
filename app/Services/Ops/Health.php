@@ -13,6 +13,7 @@ use App\Models\ModuleAction;
 use App\Models\Setting;
 use App\Models\TicketDepartment;
 use App\Models\TicketQuarantine;
+use App\Services\Mcp\McpOauth;
 use App\Support\StaffTwoFactor;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Carbon;
@@ -157,6 +158,9 @@ final class Health
         }
         if ($web && $opcache && !filter_var(ini_get('opcache.validate_permission'), FILTER_VALIDATE_BOOLEAN)) {
             $found[] = [self::WARN, 'opcache.validate_permission is off: another site on this server can run scripts cached from this one'];
+        }
+        if (McpOauth::grantDays() === 0) {
+            $found[] = [self::WARN, 'MCP grants never expire (Settings: MCP grant lifetime 0): a forgotten connector keeps working until revoked'];
         }
         if (!StaffTwoFactor::required()) {
             $found[] = [self::WARN, 'Staff 2FA is optional (Settings: Require 2FA for staff): a stolen staff password alone opens the admin'];

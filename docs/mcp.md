@@ -78,7 +78,8 @@ customers' Passport was removed), so no other token can be one for the MCP.
   - An access token (`mcpat_…`) lasts an hour.
   - A refresh token (`mcprt_…`) lasts 90 days and is rotated on every use. **Any** refresh token the grant already
     used, coming back, revokes the grant: someone kept a copy. So does a code used twice. A grant ends a year after
-    its approval, however often refreshed.
+    its approval, however often refreshed: the setting «MCP grant lifetime» (days; 0 keeps it until revoked, and
+    Automation Status warns while it is 0).
   - A new password revokes the grants that login approved.
   - Only hashes are stored.
 - **Checked on every call:** the member of staff must be active with «Use the MCP Server». A grant approved with a key
