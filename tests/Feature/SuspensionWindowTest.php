@@ -146,7 +146,8 @@ class SuspensionWindowTest extends TestCase
 
         config(['settings.cronjob_dunning_days' => ['6', '7'], 'settings.cronjob_dunning_from' => '10:30']);
         $this->assertTrue(DunningWindow::isOpen(Carbon::parse('2026-10-24 10:30:00')));
-        $this->assertFalse(DunningWindow::isOpen(Carbon::parse('2026-10-24 10:29:00')));
+        $this->assertTrue(DunningWindow::isOpen(Carbon::parse('2026-10-24 10:00:00')), 'on the hour: 10:30 opens at 10:00');
+        $this->assertFalse(DunningWindow::isOpen(Carbon::parse('2026-10-24 09:59:00')));
         $this->assertFalse(DunningWindow::isOpen(Carbon::parse('2026-10-26 12:00:00')));
         $this->assertSame('2026-10-31', DunningWindow::firstDayFrom(Carbon::parse('2026-10-26'))->toDateString());
     }

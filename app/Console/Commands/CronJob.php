@@ -100,6 +100,9 @@ class CronJob extends Command
     {
         // One run at a time (audit sweep BIL-16): a manual run overlapping the scheduled one would cancel orders and give
         // stock back twice. The lock outlives a crashed run by 2 hours at most.
+        if ($this->option('dunning-only') && DunningWindow::always()) {
+            return self::SUCCESS; // every day at any hour: the daily run does them, as before #411
+        }
         $lock = Cache::lock('app:cron-job', 7200);
         if (!$lock->get()) {
             if ($this->option('dunning-only')) {
@@ -138,6 +141,11 @@ class CronJob extends Command
         $this->runCronJob('credit_applied', fn () => (new CreditAutoApply)->sweep(function (int $userId, Throwable $e) {
             $this->failures["credit_applied user #{$userId}"] = $e;
         }), transaction: false, quietWhenNone: true);
+        // The daily run may come later today (at 14:00, 22:00): what it does before the suspensions is done here first, so
+        // a card that pays today or a cancellation due today comes before a suspension (round 2 of #411). Each is once a
+        // day where it is done (AutoCharge per invoice, a cancellation ends its service): the daily run finds them done.
+        $this->runCronJob('invoices_charged', fn () => $this->chargeInvoices(), transaction: false, quietWhenNone: true);
+        $this->runCronJob('cancellations_processed', fn () => $this->processCancellations(), transaction: false, quietWhenNone: true);
         $this->runCronJob('services_suspended', fn () => $this->suspendServices(), transaction: false, quietWhenNone: true);
         $this->runCronJob('services_terminated', fn () => $this->terminateServices(), transaction: false, quietWhenNone: true);
         try {
@@ -389,14 +397,7 @@ class CronJob extends Command
 
             // Saved payment methods are charged on the due date and declined charges tried again (PR H, decision 5): after
             // the renewals (one due today is charged in the same run), before the reminders and the suspensions.
-            $this->runCronJob('invoices_charged', function () {
-                $charged = (new AutoCharge)->run(function (int $id, Throwable $e) {
-                    $this->failures["invoices_charged #{$id}"] = $e;
-                });
-                $this->successFullCharges += $charged;
-
-                return $charged;
-            }, transaction: false);
+            $this->runCronJob('invoices_charged', fn () => $this->chargeInvoices(), transaction: false);
 
             // Saved payment methods expiring this month (PR H2b, WHMCS CCDaySendExpiryNotices).
             $this->runCronJob('card_expiry_notices', function () {
@@ -519,27 +520,7 @@ class CronJob extends Command
                 return $number;
             }, transaction: false);
 
-            $this->runCronJob('cancellations_processed', function ($number = 0) {
-                // Cancellation requests «at the end of the billing period», on that day (WHMCS: Process Cancellation
-                // Requests): the service ends as the customer asked, before anything would suspend it as unpaid.
-                // Day-granular like WHMCS: due today ends at this run. A service without an expiry (one-time, free)
-                // has no end of period; its request waits for staff.
-                $ids = Service::whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
-                    ->where('expires_at', '<=', now()->endOfDay())
-                    ->whereHas('cancellation', fn ($query) => $query->where('type', 'end_of_period'))
-                    ->orderBy('id')
-                    ->pluck('id');
-                foreach ($ids as $id) {
-                    try {
-                        $number += DB::transaction(fn () => $this->endAsRequested($id));
-                    } catch (Throwable $e) {
-                        report($e);
-                        $this->failures["cancellations_processed #{$id}"] = $e;
-                    }
-                }
-
-                return $number;
-            }, transaction: false);
+            $this->runCronJob('cancellations_processed', fn () => $this->processCancellations(), transaction: false);
 
             // Payment reminders before the due date and overdue notices (Σ4): before the suspensions, so a last notice
             // goes out before its service is suspended. Each invoice on its own.
@@ -670,6 +651,41 @@ class CronJob extends Command
 
         // Remove old debug logs
         DebugLog::where('created_at', '<', now()->subDays(30))->delete();
+    }
+
+    /** Saved cards and agreements charged (AutoCharge: once a day per invoice): the daily run's step, and the hourly one's. */
+    private function chargeInvoices(): int
+    {
+        $charged = (new AutoCharge)->run(function (int $id, Throwable $e) {
+            $this->failures["invoices_charged #{$id}"] = $e;
+        });
+        $this->successFullCharges += $charged;
+
+        return $charged;
+    }
+
+    /** End-of-period cancellations ended on their day: the daily run's step, and the hourly one's. */
+    private function processCancellations(int $number = 0): int
+    {
+        // Cancellation requests «at the end of the billing period», on that day (WHMCS: Process Cancellation
+        // Requests): the service ends as the customer asked, before anything would suspend it as unpaid.
+        // Day-granular like WHMCS: due today ends at this run. A service without an expiry (one-time, free)
+        // has no end of period; its request waits for staff.
+        $ids = Service::whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])
+            ->where('expires_at', '<=', now()->endOfDay())
+            ->whereHas('cancellation', fn ($query) => $query->where('type', 'end_of_period'))
+            ->orderBy('id')
+            ->pluck('id');
+        foreach ($ids as $id) {
+            try {
+                $number += DB::transaction(fn () => $this->endAsRequested($id));
+            } catch (Throwable $e) {
+                report($e);
+                $this->failures["cancellations_processed #{$id}"] = $e;
+            }
+        }
+
+        return $number;
     }
 
     /** Suspend services Suspend Days past due: the daily run's step, and the hourly one's (DunningWindow). */

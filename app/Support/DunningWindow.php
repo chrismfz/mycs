@@ -24,12 +24,15 @@ final class DunningWindow
         return $days === [] ? self::ALL_DAYS : $days;
     }
 
-    /** The minute of the day it opens («10:00» = 600); 0 when unset or unreadable. */
+    /**
+     * The minute of the day it opens, on the hour («10:00» = 600; «10:30» opens at 10:00, as the hourly run checks at
+     * :05 and a later minute would slip to the next hour, at 23 to never: round 2 of #411); 0 when unset or unreadable.
+     */
     public static function fromMinute(): int
     {
         $from = (string) config('settings.cronjob_dunning_from', '00:00');
 
-        return preg_match('/^(\d{1,2}):(\d{2})/', $from, $m) === 1 ? min(23, (int) $m[1]) * 60 + min(59, (int) $m[2]) : 0;
+        return preg_match('/^(\d{1,2}):(\d{2})/', $from, $m) === 1 ? min(23, (int) $m[1]) * 60 : 0;
     }
 
     public static function isOpen(?Carbon $at = null): bool

@@ -569,7 +569,7 @@ class Settings
                     'type' => 'time',
                     'default' => '00:00',
                     'required' => true,
-                    'description' => 'Not before this time on those days (e.g. 10:00): they are checked every hour, so they also happen when the daily run is at night.',
+                    'description' => 'Not before this hour on those days (e.g. 10:00; minutes count as the full hour): they are checked every hour, so they also happen when the daily run is at night. Cards are charged and end-of-period cancellations ended first, as in the daily run.',
                 ],
                 [
                     'name' => 'cronjob_paid_not_applied_days',
