@@ -1073,5 +1073,6 @@
     "As the registry writes it. A registrar never renames a domain: if it answers with another name, the sync says so.": "Όπως το γράφει το μητρώο. Ένας registrar δεν μετονομάζει ποτέ domain: αν απαντά με άλλο όνομα, το λέει το sync.",
     "Where it is (moved by hand). Then it is read from there, if it has an API.": "Πού βρίσκεται (μεταφέρθηκε με το χέρι). Μετά διαβάζεται από εκεί, αν έχει API.",
     "One a line. Only for a domain kept by hand: one at a registrar changes them there (Nameservers).": "Ένας ανά γραμμή. Μόνο για domain που κρατάμε με το χέρι· ένα σε registrar τους αλλάζει εκεί (Nameservers).",
-    "Empty: the TLD's renew price (shown). From its next renewal invoice; one already made keeps its price.": "Κενό: η τιμή ανανέωσης του TLD (φαίνεται). Από το επόμενο τιμολόγιο ανανέωσης· όποιο έχει ήδη βγει κρατά την τιμή του."
+    "Empty: the TLD's renew price (shown). From its next renewal invoice; one already made keeps its price.": "Κενό: η τιμή ανανέωσης του TLD (φαίνεται). Από το επόμενο τιμολόγιο ανανέωσης· όποιο έχει ήδη βγει κρατά την τιμή του.",
+    "Sync": "Sync"
 }
