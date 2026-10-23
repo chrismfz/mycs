@@ -1180,5 +1180,11 @@
     "As usual: not renewing what the cron billed (an active service is suspended on its date, with no invoice to pay, unless «Suspend only with an overdue invoice» is on); farther periods invoiced early are billed at their time": "Κανονικά: δεν ανανεώνεται ό,τι τιμολόγησε το cron (μια ενεργή υπηρεσία αναστέλλεται στην ημερομηνία της, χωρίς τιμολόγιο να πληρωθεί, εκτός αν είναι ενεργό το «Suspend only with an overdue invoice»)· όσες περίοδοι τιμολογήθηκαν νωρίτερα τιμολογούνται στην ώρα τους",
     "Re-issue: bill them all again (a new invoice, another price, a mistake)": "Επανέκδοση: τιμολογούνται όλες ξανά (νέο τιμολόγιο, άλλη τιμή, λάθος)",
     "Give them all up (not renewing)": "Εγκαταλείπονται όλες (δεν ανανεώνεται)",
-    "A duplicate with no payment on it: delete it instead.": "Διπλό τιμολόγιο χωρίς πληρωμή: διαγράψτε το αντί να το ακυρώσετε."
+    "A duplicate with no payment on it: delete it instead.": "Διπλό τιμολόγιο χωρίς πληρωμή: διαγράψτε το αντί να το ακυρώσετε.",
+    "Drafted reply (MCP)": "Προσχέδιο απάντησης (MCP)",
+    "By :who, :when. Read it all, links included, before you use it: it may carry what a customer wrote.": "Από :who, :when. Διαβάστε το ολόκληρο, και τα links, πριν το χρησιμοποιήσετε: μπορεί να μεταφέρει ό,τι έγραψε ένας πελάτης.",
+    "Discard": "Απόρριψη",
+    "Use the draft": "Χρήση του προσχεδίου",
+    "This draft is no longer waiting.": "Το προσχέδιο δεν είναι πια σε αναμονή.",
+    "The draft is in the reply box: read it, change it, then send it.": "Το προσχέδιο είναι στο πλαίσιο απάντησης: διαβάστε το, αλλάξτε το και μετά στείλτε το."
 }

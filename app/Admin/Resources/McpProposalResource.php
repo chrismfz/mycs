@@ -77,9 +77,13 @@ class McpProposalResource extends Resource
                 ]),
             ])
             ->recordActions([
+                // A drafted reply is used from its ticket, never sent by approving it.
+                Action::make('openTicket')->label('Open the ticket')->icon('ri-chat-1-line')
+                    ->visible(fn (McpProposal $record) => $record->type === Proposals::TICKET_REPLY && $record->isOpen())
+                    ->url(fn (McpProposal $record) => TicketResource::getUrl('edit', ['record' => (int) ($record->payload['ticket_id'] ?? 0)])),
                 Action::make('approve')->label('Approve')->icon('ri-check-line')->color('success')->requiresConfirmation()
                     ->modalDescription(fn (McpProposal $record) => $record->summary)
-                    ->visible(fn (McpProposal $record) => $record->isOpen())
+                    ->visible(fn (McpProposal $record) => $record->isOpen() && $record->type !== Proposals::TICKET_REPLY)
                     ->authorize(fn (McpProposal $record) => self::staff()?->can('decide', $record) ?? false)
                     ->action(function (McpProposal $record): void {
                         try {
