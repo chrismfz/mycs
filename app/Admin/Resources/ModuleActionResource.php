@@ -11,6 +11,7 @@ use App\Services\Domains\DomainRenewalService;
 use App\Services\Domains\Ordering\DomainOrderFulfilment;
 use App\Services\Service\OptionTasks;
 use App\Services\Service\RetryModuleAction;
+use App\Support\LicenseKeyMask;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Notifications\Notification;
@@ -57,12 +58,13 @@ class ModuleActionResource extends Resource
     {
         return $table
             ->defaultSort('id', 'desc')
+            ->modifyQueryUsing(fn ($query) => $query->with(['service.product', 'service.license', 'service.client', 'domain.client', 'invoiceItem']))
             ->columns([
                 // A service's action, or a domain's (D5b-2: its renewal at the registrar).
                 TextColumn::make('for')->label('For')
                     ->state(fn (ModuleAction $record) => $record->domain_id !== null
                         ? ($record->domain->fqdn ?? '#' . $record->domain_id) . ($record->invoiceItem ? ' · invoice #' . $record->invoiceItem->invoice_id : '')
-                        : '#' . $record->service_id . ' ' . ($record->service->product->name ?? '') . ($record->service?->domain ? ' (' . $record->service->domain . ')' : ''))
+                        : '#' . $record->service_id . ' ' . ($record->service->product->name ?? '') . ($record->service?->domain ? ' (' . LicenseKeyMask::domain($record->service) . ')' : ''))
                     ->url(fn (ModuleAction $record) => $record->domain_id !== null ? DomainResource::getUrl('view', ['record' => $record->domain_id])
                         : ServiceResource::getUrl('edit', ['record' => $record->service_id])),
                 TextColumn::make('client')->label('Client')->state(fn (ModuleAction $record) => $record->service !== null ? $record->service->client?->name : $record->domain?->client?->name),

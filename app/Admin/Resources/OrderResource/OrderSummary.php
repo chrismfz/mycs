@@ -12,6 +12,7 @@ use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
 use App\Models\Order;
 use App\Models\Service;
+use App\Support\LicenseKeyMask;
 
 /**
  * What the order page shows above its form, as WHMCS's order view (owner 2026-10-19): the order's payment and its items,
@@ -73,7 +74,7 @@ final class OrderSummary
             return [
                 'item' => 'Product/Service',
                 'description' => trim(($service->product->name ?? $service->label) . ($service->quantity > 1 ? ' × ' . $service->quantity : '')
-                    . "\n" . ($service->domain ?? '')),
+                    . "\n" . (LicenseKeyMask::domain($service) ?? '')),
                 // A link only for staff who may open it (code review: no link to a 403).
                 'url' => ServiceResource::canEdit($service) ? ServiceResource::getUrl('edit', ['record' => $service->id], panel: 'admin') : null,
                 'cycle' => $service->plan->name ?? '—',

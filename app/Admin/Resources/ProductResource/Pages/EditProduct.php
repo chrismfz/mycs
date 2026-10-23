@@ -26,6 +26,8 @@ class EditProduct extends EditRecord
         return [
             Action::make('duplicate')
                 ->label('Duplicate')
+                // A new product, with the original's settings (encrypted ones too): the create permission (SA-7).
+                ->authorize(fn (): bool => (bool) auth()->user()?->hasPermission('admin.products.create'))
                 ->requiresConfirmation()
                 ->action(function (Product $record) {
                     $new_record = $record->replicate();

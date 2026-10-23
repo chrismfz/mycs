@@ -21,7 +21,9 @@ use App\Models\Product;
 use App\Models\Service;
 use App\Models\ServiceUsage;
 use App\Services\Licensing\Licenses;
+use App\Services\Ops\Scrub;
 use App\Services\Service\DeleteService;
+use App\Support\LicenseKeyMask;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
@@ -98,7 +100,7 @@ class ServiceResource extends Resource
     /** Its client, server and count of hosted domains with the results, not one query each (code review M2 of #320). */
     public static function getGlobalSearchEloquentQuery(): Builder
     {
-        return parent::getGlobalSearchEloquentQuery()->with(['client', 'product.server', 'server'])
+        return parent::getGlobalSearchEloquentQuery()->with(['client', 'product.server', 'server', 'license'])
             ->withCount(['liveHostedDomains as hosted_main_count' => fn ($q) => $q->where('type', '!=', 'sub')]);
     }
 
@@ -107,6 +109,24 @@ class ServiceResource extends Resource
         $term = mb_strtolower(trim($search));
         // The hosted domain the term matches, loaded with the results (its account, for a reseller's customer: L1).
         $query->with(['liveHostedDomains' => fn ($q) => $q->where('domain', 'like', '%' . $term . '%')]);
+    }
+
+    /**
+     * Each word of the search, on the domain: one that is its license's key is matched by the whole key only, for staff
+     * who see keys masked (review of #368); every other attribute as Filament does.
+     *
+     * @param  array<string>  $searchAttributes
+     */
+    protected static function applyGlobalSearchAttributeConstraint(Builder $query, string $search, array $searchAttributes, bool &$isFirst): Builder
+    {
+        if ($searchAttributes === ['domain'] && !LicenseKeyMask::shown()) {
+            LicenseKeyMask::whereDomainLike($query, $search, $isFirst ? 'and' : 'or');
+            $isFirst = false;
+
+            return $query;
+        }
+
+        return parent::applyGlobalSearchAttributeConstraint($query, $search, $searchAttributes, $isFirst);
     }
 
     /** An IDN typed in Unicode (ελλάδα.gr) found as the server keeps it, in punycode (code review L4). */
@@ -142,7 +162,7 @@ class ServiceResource extends Resource
     public static function getGlobalSearchResultTitle(Model $record): string|Htmlable
     {
         return $record instanceof Service
-            ? '#' . $record->id . ' ' . ($record->product->name ?? '') . ($record->domain ? ' · ' . $record->domain : '')
+            ? '#' . $record->id . ' ' . ($record->product->name ?? '') . ($record->domain ? ' · ' . LicenseKeyMask::domain($record) : '')
             : '#' . $record->getKey();
     }
 
@@ -271,7 +291,9 @@ class ServiceResource extends Resource
                     ->columnSpanFull()
                     ->visible(fn (?Service $record) => $record?->license !== null)
                     ->schema([
-                        TextEntry::make('license.license_key')->label('License key')->copyable()->fontFamily('mono'),
+                        TextEntry::make('license.license_key')->label('License key')->fontFamily('mono')
+                            ->formatStateUsing(fn ($state) => auth()->user()?->hasPermission('admin.services.update') ? $state : Scrub::licenseKey($state)) // SA-11
+                            ->copyable(fn (): bool => (bool) auth()->user()?->hasPermission('admin.services.update')),
                         TextEntry::make('license.status')->label('Status')->badge()->color(fn (?string $state) => match ($state) {
                             License::STATUS_ACTIVE => 'success', License::STATUS_EXPIRED => 'danger', default => 'warning',
                         }),
@@ -356,7 +378,7 @@ class ServiceResource extends Resource
     {
         return $table
             // The account's name is its owner's (until the contacts, PR 3): loaded with the rows, not per row.
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user']))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['client.primaryContact', 'client.ownerGrant.user', 'license']))
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -372,9 +394,10 @@ class ServiceResource extends Resource
                 // «Who has IP x» (abuse): the domain, the dedicated IP and the assigned IPs are searched.
                 TextColumn::make('domain')
                     ->label('Domain')
+                    ->formatStateUsing(fn (Service $record) => LicenseKeyMask::domain($record))
                     ->description(fn (Service $record) => $record->dedicated_ip)
-                    ->searchable(query: fn (Builder $query, string $search) => $query->where(fn ($match) => $match
-                        ->where('domain', 'like', "%{$search}%")->orWhere('dedicated_ip', 'like', "%{$search}%")->orWhere('assigned_ips', 'like', "%{$search}%")))
+                    ->searchable(query: fn (Builder $query, string $search) => $query->where(fn ($match) => LicenseKeyMask::whereDomainLike($match, $search)
+                        ->orWhere('dedicated_ip', 'like', "%{$search}%")->orWhere('assigned_ips', 'like', "%{$search}%")))
                     ->toggleable(),
                 TextColumn::make('status')
                     ->badge()

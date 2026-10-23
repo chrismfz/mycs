@@ -21,6 +21,7 @@ use MyCS\Extensions\Others\Affiliates\Listeners\RewardAffiliate;
 use MyCS\Extensions\Others\Affiliates\Livewire\Affiliates\Affiliate as AffiliateComponent;
 use MyCS\Extensions\Others\Affiliates\Middleware\AffiliatesMiddleware;
 use MyCS\Extensions\Others\Affiliates\Models\Affiliate;
+use MyCS\Extensions\Others\Affiliates\Models\AffiliateOrder;
 
 #[ExtensionMeta(
     name: 'Affiliates',
@@ -97,6 +98,7 @@ class Affiliates extends Extension
         });
 
         Gate::policy(Affiliate::class, Policies\AffiliatePolicy::class);
+        Gate::policy(AffiliateOrder::class, Policies\AffiliateOrderPolicy::class);
 
         ExtensionHelper::registerMiddleware(AffiliatesMiddleware::class);
 

@@ -3,6 +3,7 @@
 namespace App\Admin\Resources;
 
 use App\Admin\Resources\McpCallResource\Pages\ListMcpCalls;
+use App\Classes\PermissionGuard;
 use App\Models\McpCall;
 use Filament\Resources\Resource;
 use Filament\Tables\Columns\TextColumn;
@@ -29,7 +30,10 @@ class McpCallResource extends Resource
                 TextColumn::make('created_at')->label('When')->dateTime()->sortable(),
                 TextColumn::make('staff.name')->label('Staff'),
                 TextColumn::make('tool')->searchable(),
-                TextColumn::make('arguments')->state(fn (McpCall $record) => json_encode($record->arguments ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))->limit(80),
+                // What was looked up (emails, domains, license keys) needed each tool's own permission: shown to full
+                // admins only, whoever else sees the call list (security audit SA-11).
+                TextColumn::make('arguments')->state(fn (McpCall $record) => PermissionGuard::isFullAdmin(auth()->user())
+                    ? json_encode($record->arguments ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : __('(hidden)'))->limit(80),
                 TextColumn::make('outcome')->badge()->color(fn (string $state) => match ($state) {
                     'ok' => 'success',
                     'error' => 'warning',

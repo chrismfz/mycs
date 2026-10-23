@@ -69,6 +69,9 @@ class AdminPanelProvider extends PanelProvider
             ->login(Login::class)
             ->passwordReset()
             ->profile(EditProfile::class, isSimple: false)
+            // A resource or relation manager with no policy (or no method for the action) is refused, never opened by
+            // default (security audit SA-12).
+            ->strictAuthorization()
             ->multiFactorAuthentication([AppAuthentication::make()->recoverable()], isRequired: true)
             ->spa()
             // Density, closer to WHMCS (docs/admin-ux.md): the whole width of the screen, a sidebar that folds away
