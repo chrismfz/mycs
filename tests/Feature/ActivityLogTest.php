@@ -124,7 +124,7 @@ class ActivityLogTest extends TestCase
     {
         $auditor = Staff::factory()->create(['role_id' => Role::create(['name' => 'Audit', 'permissions' => ['admin.audit.viewAny']])->id]);
         $this->actingAs($auditor, 'staff');
-        $this->assertSame([__('Activity Log')], array_map(fn ($item) => $item->getLabel(), Logs::navigation()));
+        $this->assertSame([__('Activity Log'), __('Login History')], array_map(fn ($item) => $item->getLabel(), Logs::navigation()));
         $this->get(AuditResource::getUrl('index'))->assertOk();
     }
 
@@ -148,5 +148,15 @@ class ActivityLogTest extends TestCase
         Livewire::test(ListAudits::class)->assertOk();
         $contacts = collect(DB::getQueryLog())->filter(fn (array $q) => str_contains($q['query'], 'from "contacts"'))->count();
         $this->assertLessThanOrEqual(5, $contacts); // one per kind of subject, not one per row
+    }
+
+    /** A switch turned off reads 0, not empty (owner 2026-10-23). */
+    public function test_a_switch_turned_off_reads_0(): void
+    {
+        $audit = new Audit(['event' => 'updated', 'auditable_type' => Domain::class, 'auditable_id' => 1,
+            'old_values' => ['auto_renew' => true], 'new_values' => ['auto_renew' => false]]);
+        $audit->setRelation('auditable', null);
+
+        $this->assertSame('Auto renew: 1 → 0', AuditSummary::changes($audit));
     }
 }

@@ -275,6 +275,10 @@ final class AuditSummary
     /** A value as short as it reads: a date without its midnight, a long text cut. */
     private static function value(mixed $value): string
     {
+        // A switch turned off is 0, not an empty value (owner 2026-10-23: «1 → —»).
+        if ($value === false) {
+            return '0';
+        }
         $text = AuditValue::text($value);
         if (preg_match('/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}):\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/', $text, $m) === 1) {
             return $m[2] === '00:00' ? $m[1] : "{$m[1]} {$m[2]}";
