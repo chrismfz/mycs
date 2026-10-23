@@ -8,6 +8,7 @@ use App\Classes\Settings;
 use App\Enums\AdjustmentNoteStatus;
 use App\Enums\AdjustmentNoteType;
 use App\Enums\InvoiceTransactionStatus;
+use App\Helpers\NotificationHelper;
 use App\Models\Traits\HasProperties;
 use App\Observers\InvoiceObserver;
 use App\Services\Billing\RenewalBilling;
@@ -283,7 +284,8 @@ class Invoice extends Model implements Auditable
         $this->adjustmentNotes()->create([
             'type' => AdjustmentNoteType::Credit->value,
             'amount' => -1 * abs($this->total),
-            'description' => $description ?? 'Automatic credit note generated after overdue invoice cancellation.',
+            // Without a reason: in the customer's language (the invoice's PDF), not English (ROADMAP).
+            'description' => $description ?? __('invoices.cancellation_reasons.automatic', [], NotificationHelper::localeFor($this->client)),
             'is_cancellation' => true, // voided when the invoice is reopened (InvoiceObserver)
         ]);
     }

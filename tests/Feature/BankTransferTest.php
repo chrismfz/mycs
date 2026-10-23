@@ -126,8 +126,10 @@ class BankTransferTest extends TestCase
         $migration = require database_path('migrations/2026_12_14_000000_bank_transfer_in_invoice_mail.php');
         $default = EmailTemplateSeeder::mapping['new_invoice_created'];
         $block = '/\n *\{% if bank_transfer %\}.*?\{% endif %\}\n/s';
-        $old = preg_replace($block, '', $default['body']);
-        $oldEl = preg_replace($block, '', EmailTemplateSeeder::translations['new_invoice_created']['el']['body']);
+        // As it was then: without the credit line a later migration adds (2026_12_29, «Total») either.
+        $credit = '/\n *\{% if credit %\}.*?\{% endif %\}/s';
+        $old = preg_replace([$block, $credit], ['', ''], $default['body']);
+        $oldEl = preg_replace([$block, $credit], ['', ''], EmailTemplateSeeder::translations['new_invoice_created']['el']['body']);
         $translations = ['el' => ['body' => $oldEl] + EmailTemplateSeeder::translations['new_invoice_created']['el']];
         DB::table('notification_templates')->where('key', 'new_invoice_created')
             ->update(['body' => $old, 'translations' => json_encode($translations, JSON_UNESCAPED_UNICODE)]);
