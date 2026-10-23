@@ -31,6 +31,9 @@ final class StaffSessions
     /** `last_seen_at` is written at most this often. */
     public const TOUCH_EVERY = 60;
 
+    /** A remembered row counts as dead (its session gone) only when not seen for this long. */
+    public const SWEEP_QUIET_MINUTES = 5;
+
     /** Ended rows are kept this many days, as the record of who ended what (the audit keeps it too). */
     public const KEEP_ENDED_DAYS = 30;
 
@@ -155,7 +158,9 @@ final class StaffSessions
             // (one laptop leaves a row per remembered return: review of #375).
             $handler = self::store($request)->getHandler();
             $sessions = $sessions->merge(self::open($staff)->where('remembered', true)->whereNotIn('ulid', $sessions->pluck('ulid'))->get()
-                ->filter(fn (StaffSession $row) => $row->session_id !== $currentId && $row->ulid !== self::store($request)->get(self::SESSION_KEY)
+                // Quiet a while too: a remembered return writes its row before its new session reaches the store.
+                ->filter(fn (StaffSession $row) => ($row->last_seen_at === null || $row->last_seen_at->lt(now()->subMinutes(self::SWEEP_QUIET_MINUTES)))
+                    && $row->session_id !== $currentId && $row->ulid !== self::store($request)->get(self::SESSION_KEY)
                     && (!is_string($row->session_id) || $row->session_id === '' || (string) $handler->read($row->session_id) === '')));
         }
         foreach ($sessions as $row) {

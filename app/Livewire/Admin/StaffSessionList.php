@@ -42,8 +42,12 @@ class StaffSessionList extends Component
         if ($row === null || $this->isCurrent($row)) {
             return; // this browser logs out with «Sign out»
         }
-        StaffSessions::end($member, [$row], auth('staff')->user(), request());
-        Notification::make()->success()->title(__('The session was ended.'))->send();
+        // Dead remembered rows of the member go with it (StaffSessions::end): the count says so.
+        $count = StaffSessions::end($member, [$row], auth('staff')->user(), request());
+        Notification::make()->success()->title($count > 1
+            ? trans_choice('{0} No other session was open.|{1} One session was ended.|[2,*] :count sessions were ended.', $count)
+                . ' ' . __('Remembered sessions no longer open on any browser were ended with it.')
+            : __('The session was ended.'))->send();
     }
 
     /** Every session but this browser's (all of them, on another member's page). */

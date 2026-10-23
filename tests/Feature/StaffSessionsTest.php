@@ -9,6 +9,7 @@ use App\Models\McpOauthGrant;
 use App\Models\Setting;
 use App\Models\Staff;
 use App\Models\StaffSession;
+use App\Services\Mcp\McpOauth;
 use App\Support\AuthCookies;
 use App\Support\StaffSessions;
 use Filament\Facades\Filament;
@@ -273,6 +274,7 @@ class StaffSessionsTest extends TestCase
     {
         $staff = $this->member();
         $older = $this->otherSession($staff, ['session_id' => 'long-gone', 'remembered' => true, 'created_at' => now()->subDays(9), 'last_seen_at' => now()->subDays(8)]);
+        $returning = $this->otherSession($staff, ['session_id' => 'not-saved-yet', 'remembered' => true, 'last_seen_at' => now()]);
         $newest = $this->otherSession($staff, ['session_id' => 'live-one', 'remembered' => true]);
         $alive = $this->otherSession($staff, ['session_id' => 'still-here', 'remembered' => true]);
         $this->app['session']->driver()->getHandler()->write('still-here', serialize(['x' => 1]));
@@ -283,5 +285,19 @@ class StaffSessionsTest extends TestCase
         $this->assertNotNull($older->fresh()->ended_at);
         $this->assertNotNull($grant->fresh()->revoked_at);
         $this->assertNull($alive->fresh()->ended_at, 'a remembered browser whose session is alive is listed until ended');
+        $this->assertNull($returning->fresh()->ended_at, 'a remembered return whose session is not saved yet is not taken for dead');
+    }
+
+    /** A code approved in a session ended before its exchange: no live connector comes of it (review of #375). */
+    public function test_a_grant_of_an_ended_session_is_dead(): void
+    {
+        $staff = $this->member();
+        $row = $this->otherSession($staff);
+        $grant = $this->grant($staff, $row->ulid);
+        $this->assertNotNull(McpOauth::grantAlive($grant));
+
+        $row->forceFill(['ended_at' => now()])->save();
+
+        $this->assertNull(McpOauth::grantAlive($grant->fresh()));
     }
 }

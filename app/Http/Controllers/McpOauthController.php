@@ -132,8 +132,8 @@ class McpOauthController extends Controller
                 return self::back($request, 'Log in to the admin as a member of staff with «Use the MCP Server», or paste a key.');
             }
             // Its session's row (one from before the rows has none yet): the consent is tied to it (StaffSessions).
-            if ($request->hasSession()) {
-                StaffSessions::check($staff, $request);
+            if ($request->hasSession() && !StaffSessions::check($staff, $request)) {
+                return self::back($request, 'This session was ended: log in to the admin again.');
             }
         }
 

@@ -993,5 +993,7 @@
     "Ending a session also ends «Remember me» on every browser of this member: each one asks for the password and 2FA again.": "Ο τερματισμός μιας συνεδρίας λήγει και το «Να με θυμάσαι» σε κάθε browser του μέλους: ο καθένας ζητά ξανά κωδικό και 2FA.",
     "The session was ended.": "Η συνεδρία τερματίστηκε.",
     "{0} No other session was open.|{1} One session was ended.|[2,*] :count sessions were ended.": "{0} Δεν υπήρχε άλλη ανοιχτή συνεδρία.|{1} Τερματίστηκε μία συνεδρία.|[2,*] Τερματίστηκαν :count συνεδρίες.",
-    "Your session was ended.": "Η συνεδρία σας τερματίστηκε."
+    "Your session was ended.": "Η συνεδρία σας τερματίστηκε.",
+    "Remembered sessions no longer open on any browser were ended with it.": "Μαζί της τερματίστηκαν και απομνημονευμένες συνεδρίες που δεν είναι πια ανοιχτές σε κανέναν browser.",
+    "This session was ended: log in to the admin again.": "Η συνεδρία τερματίστηκε: συνδεθείτε ξανά στο admin."
 }
