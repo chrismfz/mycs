@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Classes\Price;
 use App\Enums\InvoiceTransactionStatus;
+use App\Exceptions\DisplayException;
 use App\Models\Traits\HasProperties;
 use App\Observers\ServiceObserver;
 use App\Redactors\FullRedactor;
@@ -430,7 +431,22 @@ class Service extends Model implements Auditable
      * @param  array<string, mixed>  $attributes
      * @param  array<string, mixed>|null  $baseline
      */
-    public function applyStaffChanges(array $attributes, ?array $baseline = null): void
+    /**
+     * Why moving this service to $plan needs staff to confirm it, or null: a live service on a plan billed every cycle,
+     * at a price, moved to a free or one-time plan is not billed again, for good (billing-cursor §5).
+     */
+    public static function endsBillingRefusal(self $service, ?Plan $plan): ?string
+    {
+        $current = $service->plan_id === null ? null : Plan::query()->find($service->plan_id);
+        if ($plan === null || $current === null || $current->type !== 'recurring' || !in_array($plan->type, ['free', 'one-time'], true)
+            || !in_array($service->status, [self::STATUS_ACTIVE, self::STATUS_SUSPENDED], true) || (float) $service->price <= 0) {
+            return null;
+        }
+
+        return __('This service is billed every cycle: on a free or one-time plan it is never billed again. Confirm it to change the plan.');
+    }
+
+    public function applyStaffChanges(array $attributes, ?array $baseline = null, bool $endsBilling = false): void
     {
         $probe = (new self)->setRawAttributes($baseline ?? $this->getAttributes(), true);
         $probe->fill($attributes);
@@ -439,10 +455,16 @@ class Service extends Model implements Auditable
             return;
         }
 
-        DB::transaction(function () use ($changes) {
+        DB::transaction(function () use ($changes, $endsBilling) {
             $locked = self::query()->whereKey($this->getKey())->lockForUpdate()->firstOrFail();
             // The probe's dirty values are stored values (cast already: an encrypted password is its ciphertext): put
             // them as they are, not through the casts again (review R1/F1: the password was encrypted twice).
+            // A paying service moved to a free or one-time plan is never billed again (billing-cursor §5): only when staff
+            // say so ($endsBilling), never by changing the plan alone.
+            if (array_key_exists('plan_id', $changes) && !$endsBilling
+                && ($refusal = self::endsBillingRefusal($locked, Plan::query()->find($changes['plan_id']))) !== null) {
+                throw new DisplayException($refusal);
+            }
             $locked->setRawAttributes(array_merge($locked->getAttributes(), $changes));
             if (($changes['status'] ?? null) === self::STATUS_SUSPENDED) {
                 $locked->dunning_suspended_at = null;

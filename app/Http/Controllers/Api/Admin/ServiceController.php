@@ -14,6 +14,7 @@ use App\Models\Service;
 use App\Services\Service\DeleteService;
 use Dedoc\Scramble\Attributes\Group;
 use Dedoc\Scramble\Attributes\QueryParameter;
+use Illuminate\Support\Arr;
 use Spatie\QueryBuilder\QueryBuilder;
 
 #[Group(name: 'Services', weight: 3)]
@@ -79,7 +80,12 @@ class ServiceController extends ApiController
         // Validate and update the service. Only the fields sent are validated («sometimes»), so a status of
         // suspended in the request is staff's explicit hold, also over a billing suspension.
         $data = $request->validated();
-        $service->applyStaffChanges($data);
+        try {
+            // A paying service to a free or one-time plan only with «ends_billing» (billing-cursor §5).
+            $service->applyStaffChanges(Arr::except($data, ['ends_billing']), null, (bool) ($data['ends_billing'] ?? false));
+        } catch (DisplayException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
         if (($data['status'] ?? null) === Service::STATUS_SUSPENDED) {
             $service->placeOnHold();
         }

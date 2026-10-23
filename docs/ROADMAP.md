@@ -94,11 +94,11 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       σήμερα ή νωρίτερα, όσο το τιμολόγιο είναι draft ή απλήρωτο (ένα πληρωμένο το μετρούν οι αναφορές στη χρονιά του),
       και η λήξη ποτέ πριν από αυτό· μόνο από τη φόρμα, ποτέ με fill. (INV-8, INV-10 έγιναν· «Group Similar Line Items»
       απορρίφθηκε, `billing-cursor.md`.)
-- [ ] Πακέτο που γίνεται free ή one-time (`billing-cursor.md` §5)· ημέρες πριν τη λήξη ανά κύκλο.
-- [ ] Ανανεώσεις υπηρεσιών on demand από τον πελάτη (ρύθμιση του WHMCS, `settings-map.md`).
+- [x] ~~Πακέτο που γίνεται free ή one-time~~ **έγινε (fix/plan-becomes-free):** κλειδώνει, ή «Never bill it again»
+      (`billing-cursor.md` §5). Μένουν οι ημέρες πριν τη λήξη ανά κύκλο.
 - [x] ~~Οι 30 ημέρες του «paid not applied»~~ **έγινε:** ρύθμιση `cronjob_paid_not_applied_days` (Settings → Cron, «Paid but
       not applied: protected days», 30, από 1 έως 365).
-- [ ] Πληρωμές: μοναδικό κλειδί στο `transaction_id`· minor units στο Stripe (PAY-16)· fallback του Stripe (#1260 του
+- [ ] Πληρωμές: μοναδικό κλειδί στο `transaction_id` (υπάρχει index και έλεγχος πριν την εγγραφή· λείπει μόνο το unique στη βάση)· fallback του Stripe (#1260 του
       upstream)· SEPA (υπάρχει κώδικας, όχι δοκιμή). (Η ανοχή υπογραφής του Stripe, PAY-14, έγινε: #341.)
 - [ ] Tests incomplete: `BillingCursorMoneyTest` γραμμές 173 και 224 (μάλλον διορθώθηκαν: έλεγχος και αφαίρεση),
       285 «τιμολόγιο που δημιουργείται πληρωμένο ανανεώνει» (ανοιχτό).
@@ -216,4 +216,5 @@ Late fees, billable items, affiliates (το extension του upstream μένει
 issues, fraud modules, φόρος δεύτερου επιπέδου, premium domains, δωρεάν domain με hosting, «Group Similar Line Items»,
 server status, TheSSLStore (SSL μέσω Openprovider). Επίσης: custom fields προϊόντος (Σ1-c), Δ4 `completed`, G2 (ανοιχτά
 τιμολόγια όταν αλλάζει το καθεστώς ΦΠΑ), η ένδειξη SSL δίπλα σε κάθε domain του portal (το `ssl-check` του WHMCS:
-περιττοί έλεγχοι και φόρτος, ο υπεύθυνος 2026-10-23).
+περιττοί έλεγχοι και φόρτος, ο υπεύθυνος 2026-10-23), οι ανανεώσεις on demand από τον πελάτη (κλειστές στο myip, ποτέ
+σε χρήση), τα minor units του Stripe για νομίσματα χωρίς δεκαδικά (μόνο ευρώ, PAY-16).

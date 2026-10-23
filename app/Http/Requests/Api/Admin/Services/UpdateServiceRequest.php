@@ -59,6 +59,8 @@ class UpdateServiceRequest extends AdminApiRequest
                 }
             }],
             'order_id' => 'sometimes|nullable|exists:orders,id',
+            // A paying service moved to a free or one-time plan is never billed again: said so (billing-cursor §5).
+            'ends_billing' => 'sometimes|boolean',
         ];
     }
 }

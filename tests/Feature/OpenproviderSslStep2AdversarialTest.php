@@ -298,6 +298,8 @@ class OpenproviderSslStep2AdversarialTest extends TestCase
     public function test_adv6_a_free_plan_is_never_renewed_at_our_cost(): void
     {
         $this->issued(paidBeyond: true);
+        // A free service: its price 0 too (a plan paid for every cycle does not become free under it, billing-cursor §5).
+        $this->service->forceFill(['price' => 0])->save();
         $this->service->plan->update(['type' => 'free', 'price' => 0]);
 
         $this->artisan('ssl:sync');

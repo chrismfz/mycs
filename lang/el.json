@@ -1025,5 +1025,8 @@
     "Sound: on": "Ήχος: ναι",
     "Sound: off": "Ήχος: όχι",
     "Test notification": "Δοκιμαστική ειδοποίηση",
-    "99+ new messages in the staff chat": "99+ νέα μηνύματα στο chat του staff"
+    "99+ new messages in the staff chat": "99+ νέα μηνύματα στο chat του staff",
+    "Not saved": "Δεν αποθηκεύτηκε",
+    "This service is billed every cycle: on a free or one-time plan it is never billed again. Confirm it to change the plan.": "Η υπηρεσία χρεώνεται σε κάθε κύκλο: σε πλάνο δωρεάν ή εφάπαξ δεν θα χρεωθεί ποτέ ξανά. Επιβεβαιώστε το για να αλλάξει το πλάνο.",
+    "{1} A service pays for this plan every cycle: move it to another plan first.|[2,*] :count services pay for this plan every cycle: move them to another plan first.": "{1} Μια υπηρεσία πληρώνει αυτό το πλάνο σε κάθε κύκλο: μεταφέρετέ τη πρώτα σε άλλο πλάνο.|[2,*] :count υπηρεσίες πληρώνουν αυτό το πλάνο σε κάθε κύκλο: μεταφέρετέ τες πρώτα σε άλλο πλάνο."
 }
