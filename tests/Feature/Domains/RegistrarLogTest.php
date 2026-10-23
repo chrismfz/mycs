@@ -123,4 +123,51 @@ class RegistrarLogTest extends TestCase
         $this->get(DomainRegistrarLogResource::getUrl('index'))->assertForbidden();
         $this->assertNotContains(__('Registrar Log'), array_map(fn ($item) => $item->getLabel(), Logs::navigation()));
     }
+
+    /** The same failure in every batch (a registrar down) is logged once, when it began; its end is logged too. */
+    public function test_a_repeated_failure_is_logged_once_and_its_end_once(): void
+    {
+        $domain = $this->domain();
+        $this->answers = [new RuntimeException('Registrar down'), new RuntimeException('Registrar down'), new RuntimeException('Registrar down'),
+            new DomainSyncResult(expiresAt: '2026-10-31', registrarDomainId: '42', status: DomainStatus::Active)];
+        foreach (range(1, 3) as $ignored) {
+            try {
+                app(DomainSyncService::class)->sync($domain->fresh());
+            } catch (RuntimeException) {
+            }
+        }
+        app(DomainSyncService::class)->sync($domain->fresh());
+
+        $logs = DomainRegistrarLog::query()->where('domain_id', $domain->id)->orderBy('id')->get();
+        $this->assertSame([DomainRegistrarLog::STATUS_FAILED, DomainRegistrarLog::STATUS_OK], $logs->pluck('status')->all());
+        $this->assertNull($domain->fresh()->sync_error);
+    }
+
+    /** R1 of #404: a sync that only warns changes nothing, so it writes nothing, batch after batch. */
+    public function test_a_sync_that_only_warns_writes_no_row_each_time(): void
+    {
+        $domain = $this->domain();
+        $answer = new DomainSyncResult(expiresAt: '1970-01-01', registrarDomainId: '42', status: DomainStatus::Active);
+        $this->answers = [$answer, $answer, $answer];
+        foreach (range(1, 3) as $ignored) {
+            app(DomainSyncService::class)->sync($domain->fresh());
+        }
+
+        $this->assertSame('2026-10-31', $domain->fresh()->expires_at->toDateString()); // nothing changed
+        $this->assertSame(0, DomainRegistrarLog::query()->where('domain_id', $domain->id)->where('action', 'sync')->count());
+    }
+
+    /** R2 of #404: every other writer of this log masks its error (Redact::text); the sync's failure too. */
+    public function test_a_sync_failure_is_masked_as_every_other_registrar_log_error(): void
+    {
+        $domain = $this->domain();
+        $this->answers = [new RuntimeException('HTTP 500 for s_pw=Hunter2Secret&command=StatusDomain')];
+        try {
+            app(DomainSyncService::class)->sync($domain->fresh());
+        } catch (RuntimeException) {
+        }
+
+        $error = (string) DomainRegistrarLog::query()->where('domain_id', $domain->id)->where('action', 'sync')->value('error');
+        $this->assertStringNotContainsString('Hunter2Secret', $error);
+    }
 }
