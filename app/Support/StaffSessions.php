@@ -168,7 +168,7 @@ final class StaffSessions
             if ($row->staff_id !== $staff->id || $row->ended_at !== null) {
                 continue;
             }
-            $row->forceFill(['ended_at' => now(), 'ended_by_staff_id' => $by->id])->save();
+            $row->forceFill(['ended_at' => now(), 'ended_by_staff_id' => $by->id, 'terminated' => true])->save();
             $ulids[] = $row->ulid;
             $since = $since === null || ($row->created_at !== null && $row->created_at->lt($since)) ? $row->created_at : $since;
             if (is_string($row->session_id) && $row->session_id !== '' && $row->session_id !== $currentId) {

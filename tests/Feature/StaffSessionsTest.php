@@ -317,6 +317,21 @@ class StaffSessionsTest extends TestCase
         $this->assertSame(0, McpOauthCode::query()->count());
     }
 
+    /** «End» committed between the code's claim and its grant: the grant is dead (review of #375). */
+    public function test_an_end_racing_the_exchange_leaves_no_live_connector(): void
+    {
+        [$staff, $clientId, $code, $verifier] = $this->consent();
+        $this->app['session.store']->setId(str_repeat('d', 40)); // «End» from another browser
+        McpOauthGrant::creating(function () use ($staff) {
+            StaffSessions::end($staff, StaffSessions::open($staff)->get(), $staff, request());
+        });
+
+        $this->postJson('/mcp/oauth/token', ['grant_type' => 'authorization_code', 'client_id' => $clientId, 'code' => $code,
+            'redirect_uri' => 'https://claude.example.test/cb', 'code_verifier' => $verifier])->assertStatus(400);
+
+        $this->assertSame(0, McpOauthGrant::query()->whereNull('revoked_at')->count());
+    }
+
     /** Signing out of the admin is not «End»: the connector approved in that browser keeps working. */
     public function test_a_logout_keeps_the_connector(): void
     {

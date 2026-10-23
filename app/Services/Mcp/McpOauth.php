@@ -344,6 +344,12 @@ final class McpOauth
             return $staff !== null && $staff->id === $grant->staff_id ? $staff : null;
         }
 
+        // Approved in a browser session ended with «End» (a sign-out leaves it alone): dead, whenever it was made, so
+        // an exchange or refresh racing «End» never outlives it (review of #375).
+        if ($grant->staff_session !== null && StaffSession::query()->where('ulid', $grant->staff_session)->where('terminated', true)->exists()) {
+            return null;
+        }
+
         return McpAccess::staffMay($grant->staff) ? $grant->staff : null;
     }
 }

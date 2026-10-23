@@ -21,6 +21,7 @@ use Illuminate\Support\Carbon;
  * @property ?Carbon $last_seen_at
  * @property ?Carbon $ended_at
  * @property ?int $ended_by_staff_id
+ * @property bool $terminated
  */
 class StaffSession extends Model
 {
@@ -28,7 +29,7 @@ class StaffSession extends Model
 
     public $timestamps = false;
 
-    protected $fillable = ['staff_id', 'session_id', 'ip_address', 'user_agent', 'remembered', 'created_at', 'last_seen_at', 'ended_at', 'ended_by_staff_id'];
+    protected $fillable = ['staff_id', 'session_id', 'ip_address', 'user_agent', 'remembered', 'created_at', 'last_seen_at', 'ended_at', 'ended_by_staff_id', 'terminated'];
 
     protected $hidden = ['session_id'];
 
@@ -36,6 +37,7 @@ class StaffSession extends Model
     {
         return [
             'remembered' => 'boolean',
+            'terminated' => 'boolean',
             'created_at' => 'datetime',
             'last_seen_at' => 'datetime',
             'ended_at' => 'datetime',

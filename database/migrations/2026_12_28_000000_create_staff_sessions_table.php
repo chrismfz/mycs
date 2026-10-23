@@ -21,6 +21,8 @@ return new class extends Migration
             $table->timestamp('created_at')->nullable();
             $table->timestamp('last_seen_at')->nullable();
             $table->timestamp('ended_at')->nullable();
+            // Ended with «End» (not a sign-out): what the session approved is dead with it.
+            $table->boolean('terminated')->default(false);
             $table->foreignId('ended_by_staff_id')->nullable()->constrained('staff')->nullOnDelete();
             $table->index(['staff_id', 'ended_at']);
         });
