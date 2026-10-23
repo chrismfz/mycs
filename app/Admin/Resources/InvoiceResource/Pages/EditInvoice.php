@@ -113,7 +113,9 @@ class EditInvoice extends EditRecord
         // Its issue date (INV-17): set here, never by fill(); only while it is a draft or unpaid.
         $issued = self::issuedAt($data['created_at'] ?? null);
         $invoice = $this->record;
-        if ($issued !== null && $invoice instanceof Invoice && InvoiceResource::issueDateEditable($invoice)
+        // Open by its status read now ($current, above), not as the page loaded it: one paid meanwhile keeps its
+        // date (code review 2).
+        if ($issued !== null && $invoice instanceof Invoice && in_array($current ?? $invoice->getOriginal('status'), [Invoice::STATUS_DRAFT, Invoice::STATUS_UNPAID], true)
             && $issued->toDateString() !== $invoice->created_at?->toDateString()) {
             $invoice->created_at = $issued;
         }

@@ -7,6 +7,7 @@ use App\Models\Invoice;
 use App\Services\Invoice\RecordPaymentService;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 
 class CreateInvoice extends CreateRecord
 {
@@ -29,6 +30,14 @@ class CreateInvoice extends CreateRecord
             $invoice->created_at = $issued;
         }
         $invoice->save();
+        // Dated before today but mailed today: its «due soon» reminder, which the cron would send today as well, counts
+        // as sent with it (adversarial ADV-2; PaymentReminders skips an invoice issued today for that reason).
+        $before = (int) config('settings.cronjob_payment_reminder', 6);
+        if ($issued !== null && $issued->isBefore(today()) && $invoice->send_create_email && $invoice->status === Invoice::STATUS_UNPAID
+            && $before > 0 && $invoice->due_at !== null && $invoice->due_at->isAfter(today()) && $invoice->due_at->lte(today()->addDays($before))) {
+            DB::table('invoice_reminders')->insertOrIgnore(['invoice_id' => $invoice->id, 'kind' => 'due', 'days' => 0,
+                'due_on' => $invoice->due_at->toDateString(), 'sent_at' => now()]);
+        }
 
         return $invoice;
     }

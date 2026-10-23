@@ -126,7 +126,11 @@ class InvoiceResource extends Resource
                     ->required()
                     // Not before its issue date, while that is staff's to set (an old one, imported, stays as it is).
                     ->rule(fn (Get $get, ?Invoice $record) => function (string $attribute, mixed $value, \Closure $fail) use ($get, $record) {
-                        if (($record === null || self::issueDateEditable($record)) && filled($get('created_at')) && filled($value)
+                        // On a new one, or when staff move either date (adversarial ADV-1, code review 1): a renewal billed late
+                        // is due before it was issued, and its other fields still save.
+                        $moved = $record === null || ($get('created_at') !== null && Carbon::parse($get('created_at'))->toDateString() !== $record->created_at?->toDateString())
+                            || ($value !== null && Carbon::parse($value)->toDateString() !== $record->due_at?->toDateString());
+                        if ($moved && ($record === null || self::issueDateEditable($record)) && filled($get('created_at')) && filled($value)
                             && Carbon::parse($value)->startOfDay()->lt(Carbon::parse($get('created_at'))->startOfDay())) {
                             $fail(__('The due date cannot be before the issue date.'));
                         }
