@@ -364,15 +364,47 @@ class ProductResource extends Resource
             ]);
     }
 
+    /** Auto Setup in a word, as WHMCS's list. */
+    private const AUTOSETUP_SHORT = [
+        Product::AUTOSETUP_ORDER => 'On order',
+        Product::AUTOSETUP_PAYMENT => 'On payment',
+        Product::AUTOSETUP_ACCEPT => 'On accept',
+        Product::AUTOSETUP_NEVER => 'Off',
+    ];
+
+    /** How it is paid, from its plans: Free, One Time, Recurring, or those it mixes. */
+    public static function payType(Product $product): string
+    {
+        $names = ['free' => __('Free'), 'one-time' => __('One Time'), 'recurring' => __('Recurring')];
+        $types = $product->plans->pluck('type')->unique()->sort()->values();
+
+        return $types->isEmpty() ? '—' : $types->map(fn ($type) => $names[$type] ?? (string) $type)->implode(', ');
+    }
+
     public static function table(Table $table): Table
     {
         return $table
+            // As WHMCS's product list (owner 2026-10-23): what sets it up, how it is paid, its stock, when it is set up,
+            // whether it is shown; read with the rows.
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['server', 'plans']))
             ->columns([
                 TextColumn::make('name')->searchable(query: function (Builder $query, string $search): Builder {
                     return $query->where('products.name', 'like', "%{$search}%");
                 }),
-                TextColumn::make('slug'),
+                TextColumn::make('slug')->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('category.name')->searchable(),
+                TextColumn::make('type')->label('Type')
+                    ->state(fn (Product $record) => $record->server !== null ? $record->server->extension : __('Other')),
+                TextColumn::make('pay_type')->label('Pay Type')
+                    ->state(fn (Product $record) => self::payType($record)),
+                TextColumn::make('stock')->label('Stock')
+                    ->state(fn (Product $record) => $record->stock === null ? '∞' : (string) $record->stock),
+                TextColumn::make('autosetup')->label('Auto Setup')
+                    ->formatStateUsing(fn (?string $state) => self::AUTOSETUP_SHORT[$state ?? Product::AUTOSETUP_PAYMENT] ?? (string) $state)
+                    ->default(Product::AUTOSETUP_PAYMENT),
+                TextColumn::make('visibility')->label('Shown')->badge()
+                    ->state(fn (Product $record) => $record->retired ? __('Retired') : ($record->hidden ? __('Hidden') : __('Listed')))
+                    ->color(fn (string $state) => $state === __('Listed') ? 'success' : 'gray'),
             ])
             ->filters([
                 SelectFilter::make('category')

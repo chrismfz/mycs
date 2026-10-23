@@ -1025,5 +1025,10 @@
     "Sound: on": "Ήχος: ναι",
     "Sound: off": "Ήχος: όχι",
     "Test notification": "Δοκιμαστική ειδοποίηση",
-    "99+ new messages in the staff chat": "99+ νέα μηνύματα στο chat του staff"
+    "99+ new messages in the staff chat": "99+ νέα μηνύματα στο chat του staff",
+    "Retired": "Αποσυρμένο",
+    "Hidden": "Κρυφό",
+    "Listed": "Ορατό",
+    "One Time": "Εφάπαξ",
+    "Recurring": "Επαναλαμβανόμενο"
 }
