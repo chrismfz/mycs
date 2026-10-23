@@ -13,6 +13,7 @@ use App\Jobs\Server\SuspendJob;
 use App\Jobs\Server\TerminateJob;
 use App\Logging\WriteFailures;
 use App\Models\BulkMail;
+use App\Models\Credit;
 use App\Models\CronStat;
 use App\Models\DebugLog;
 use App\Models\Domain;
@@ -367,6 +368,24 @@ class CronJob extends Command
                 }
 
                 return $number;
+            }, transaction: false);
+
+            // «Add Funds» never paid (a hook of myip's WHMCS, owner 2026-10-23): after as many days, an open invoice that only
+            // buys account credit is cancelled, as any the app gives up on (CancelOpenInvoices: one with money on it is
+            // left to staff). 0 (default) never, as WHMCS.
+            $this->runCronJob('add_funds_cancelled', function () {
+                $days = (int) config('settings.cronjob_add_funds_cancel', 0);
+                if ($days <= 0) {
+                    return 0;
+                }
+                $invoices = Invoice::query()->where('status', Invoice::STATUS_UNPAID)->where('created_at', '<', now()->subDays($days))
+                    ->whereHas('items', fn ($line) => $line->where('reference_type', Credit::class))
+                    ->whereDoesntHave('items', fn ($line) => $line->where(fn ($line) => $line->whereNull('reference_type')->orWhere('reference_type', '!=', Credit::class)))
+                    ->orderBy('id')->get();
+                $left = CancelOpenInvoices::handle($invoices, __('invoices.cancellation_reasons.add_funds_unpaid'));
+                $this->leftOpen($left);
+
+                return $invoices->count() - count($left);
             }, transaction: false);
 
             $this->runCronJob('upgrade_invoices_updated', function ($number = 0) {

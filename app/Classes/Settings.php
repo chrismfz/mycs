@@ -650,6 +650,16 @@ class Settings
                     'description' => 'Not in WHMCS, where only staff cancel an order (Pending Orders). 0 (default): never, as WHMCS. Or days after which a new order that was never paid is cancelled, with its invoice.',
                 ],
                 [
+                    'name' => 'cronjob_add_funds_cancel',
+                    'section' => 'Billing Settings',
+                    'label' => 'Cancel unpaid «Add Funds» after',
+                    'type' => 'number',
+                    'default' => 0,
+                    'required' => true,
+                    'min_value' => 0,
+                    'description' => 'Not in WHMCS (a hook at myip: 30). 0 (default): never. Or days after which an invoice that only buys account credit and was never paid is cancelled.',
+                ],
+                [
                     'name' => 'cronjob_payment_reminder',
                     'section' => 'Billing Settings',
                     'label' => 'Invoice Unpaid Reminder',
