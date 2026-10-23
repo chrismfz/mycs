@@ -9,6 +9,7 @@ use App\Models\CartItem;
 use App\Models\Currency;
 use App\Models\DomainTld;
 use App\Services\Domains\DomainSearch;
+use App\Services\Domains\Lookup\PublicLookups;
 use App\Services\Domains\Lookup\VisitorKey;
 use App\Services\Domains\Ordering\DomainOffer;
 use Illuminate\Support\Facades\RateLimiter;
@@ -85,6 +86,11 @@ class Transfer extends Component
             return;
         }
         RateLimiter::hit($key, 600);
+        if (!PublicLookups::take()) {
+            $this->error = __('domains.shop.busy');
+
+            return;
+        }
         $currency = Search::currency();
         $results = app(DomainSearch::class)->search($this->query, $currency);
         if ($results === null) {
@@ -174,6 +180,11 @@ class Transfer extends Component
         $key = 'domain-search-hits:' . VisitorKey::of(request());
         if (RateLimiter::remaining($key, Search::LIMIT) < count($names)) {
             $this->error = __('domains.shop.too_many');
+
+            return;
+        }
+        if (!PublicLookups::take(count($names))) {
+            $this->error = __('domains.shop.busy');
 
             return;
         }

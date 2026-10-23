@@ -5,19 +5,26 @@ namespace App\Livewire\DomainShop;
 use App\Livewire\Component;
 use App\Models\DomainTld;
 use App\Services\Domains\Lookup\DomainLookup;
+use App\Services\Domains\Lookup\PublicLookups;
 use App\Services\Domains\Lookup\VisitorKey;
+use App\Traits\Captchable;
 use Illuminate\Support\Facades\RateLimiter;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
 use Nixpal\DomainTools\DomainName;
 
 /**
+ * A lookup asks for the captcha (ours, ALTCHA, when none is chosen: owner 2026-10-23), counts towards the public pages'
+ * shared limit (PublicLookups), and a link (?domain=) fills the name in without asking: one press, one lookup.
+ *
  * Public whois (D8a): who has a name, from its registry (RDAP, else port 43 with personal data masked; .gr and .ελ from
  * the registry's WHOIS API, G6 of grepp). Registrar, dates, status, nameservers, DNSSEC: what the registry publishes. At most 10 per 10 minutes per
  * address; answers cached an hour.
  */
 class Whois extends Component
 {
+    use Captchable;
+
     public const LIMIT = 10;
 
     #[Url('domain', except: '')]
@@ -32,13 +39,6 @@ class Whois extends Component
 
     #[Locked]
     public ?string $fqdn = null;
-
-    public function mount(): void
-    {
-        if (trim($this->query) !== '') {
-            $this->lookup();
-        }
-    }
 
     public function lookup(): void
     {
@@ -60,7 +60,14 @@ class Whois extends Component
 
             return;
         }
+        // Not a script's: the captcha (a solution counts once), then everyone's limit together.
+        $this->requireCaptchaOrAltcha();
         RateLimiter::hit($key, 600);
+        if (!PublicLookups::take()) {
+            $this->error = __('domains.shop.busy');
+
+            return;
+        }
         $this->fqdn = $fqdn;
         $result = app(DomainLookup::class)->whois($fqdn);
         $this->answer = [

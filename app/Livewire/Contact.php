@@ -15,7 +15,6 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 use Symfony\Component\Mime\Address;
 
@@ -97,7 +96,7 @@ class Contact extends Component
             'department' => ['required', 'integer', Rule::in($departments->pluck('id')->all())],
             'message' => 'required|string|max:10000',
         ]);
-        $this->requireCaptcha();
+        $this->requireCaptchaOrAltcha();
 
         $email = strtolower(trim($this->email));
         // Counted as they are taken (increment, not check-then-hit): two at once never both slip under a limit.
@@ -137,31 +136,6 @@ class Contact extends Component
 
         $this->reset(['name', 'subject', 'message', 'website']);
         $this->sent = true;
-    }
-
-    /**
-     * The captcha: the one chosen in Settings, and our ALTCHA when none is (it needs no keys): a public form that mails
-     * any address typed in never opens without one (review of #251).
-     */
-    private function requireCaptcha(): void
-    {
-        if (in_array(config('settings.captcha'), [null, '', 'disabled'], true)) {
-            if ($this->captcha === '') {
-                throw ValidationException::withMessages(['captcha' => __('auth.captcha_invalid')]);
-            }
-            $this->altcha($this->captcha);
-
-            return;
-        }
-        $this->captcha();
-    }
-
-    /** The captcha this page shows: the chosen one, or ours. */
-    public static function captchaKind(): string
-    {
-        $kind = (string) config('settings.captcha');
-
-        return in_array($kind, ['', 'disabled'], true) ? 'altcha' : $kind;
     }
 
     /** An address we may mail: one mailbox at a host with a dot, no comment, no address literal, as Symfony will send it. */

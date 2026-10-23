@@ -9,6 +9,17 @@
             class="flex-grow bg-background-secondary border border-neutral rounded-lg px-4 py-3 text-lg" />
         <x-button.primary class="!w-fit px-6" type="submit" wire:loading.attr="disabled">{{ __('domains.shop.lookup') }}</x-button.primary>
     </form>
+    {{-- The captcha a lookup asks for: the chosen one, or ours (Captchable::requireCaptchaOrAltcha). --}}
+    <div class="flex flex-col items-center">
+        @if (\App\Livewire\DomainShop\Whois::captchaKind() === 'altcha' && config('settings.captcha') !== 'altcha')
+        <div wire:ignore><x-captcha.altcha /></div>
+        @else
+        <x-captcha :form="'whois'" />
+        @endif
+        @error('captcha')
+        <p class="text-red-500 text-xs mt-1">{{ $message }}</p>
+        @enderror
+    </div>
 
     @if ($error)
     <p class="text-center text-error">{{ $error }}</p>

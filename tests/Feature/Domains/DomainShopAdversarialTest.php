@@ -8,6 +8,7 @@ use App\Models\Currency;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainTld;
 use App\Models\DomainTldPrice;
+use App\Services\Captcha\Altcha;
 use App\Services\Domains\DomainSearch;
 use App\Services\Domains\Lookup\LaravelTransport;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -45,6 +46,14 @@ class DomainShopAdversarialTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // A lookup asks for the captcha (2026-10-23): «solved» is a solution here.
+        $this->app->instance(Altcha::class, new class extends Altcha
+        {
+            public function verify(string $payload): bool
+            {
+                return $payload === 'solved';
+            }
+        });
         Cache::flush();
         Http::preventStrayRequests();
         // Hosts resolve without DNS here: the fake registries are public, «internal» ones are not.
@@ -177,7 +186,7 @@ class DomainShopAdversarialTest extends TestCase
         $component->set('query', 'c')->call('search')->assertSet('error', __('domains.shop.too_many'))->assertSet('results', null);
         $this->get('/domain-search?domain=d')->assertSee(__('domains.shop.too_many'));
 
-        $whois = Livewire::test(Whois::class);
+        $whois = Livewire::test(Whois::class)->set('captcha', 'solved');
         for ($i = 0; $i < Whois::LIMIT; $i++) {
             $whois->set('query', "n{$i}.com")->call('lookup');
         }
@@ -245,7 +254,7 @@ class DomainShopAdversarialTest extends TestCase
     public function test_adv6_whois_of_a_sub_domain_does_not_say_it_is_unregistered(): void
     {
         $this->fake();
-        Livewire::test(Whois::class)->set('query', 'mail.nixpal.com')->call('lookup')
+        Livewire::test(Whois::class)->set('captcha', 'solved')->set('query', 'mail.nixpal.com')->call('lookup')
             ->assertDontSee(__('domains.shop.whois_free'));
     }
 
@@ -256,19 +265,19 @@ class DomainShopAdversarialTest extends TestCase
         $this->fake(rdap: function (string $url) use (&$down) {
             return $down && str_contains($url, 'rdap.example/domain/nixpal.com') ? Http::response('busy', 503) : null;
         });
-        Livewire::test(Whois::class)->set('query', 'nixpal.com')->call('lookup')
+        Livewire::test(Whois::class)->set('captcha', 'solved')->set('query', 'nixpal.com')->call('lookup')
             ->assertDontSee('Openprovider');
 
         $down = false;
         $this->travel(5)->minutes();
-        Livewire::test(Whois::class)->set('query', 'nixpal.com')->call('lookup')->assertSee('Openprovider');
+        Livewire::test(Whois::class)->set('captcha', 'solved')->set('query', 'nixpal.com')->call('lookup')->assertSee('Openprovider');
     }
 
     /** ADV-8: a .ελ name (punycode xn--qxam) escapes the «not supported» list and goes out to IANA/registries. */
     public function test_adv8_dot_el_in_greek_is_unsupported_without_any_query(): void
     {
         $this->fake();
-        Livewire::test(Whois::class)->set('query', 'παράδειγμα.ελ')->call('lookup')
+        Livewire::test(Whois::class)->set('captcha', 'solved')->set('query', 'παράδειγμα.ελ')->call('lookup')
             ->assertSet('answer.status', 'unsupported');
         $this->assertSame([], $this->socketQueries, 'port 43 queried for a TLD listed as unsupported');
         $this->assertCount(0, Http::recorded(fn (Request $r) => str_contains($r->url(), 'xn--qxam')));
@@ -310,10 +319,10 @@ class DomainShopAdversarialTest extends TestCase
         $this->fake();
         Livewire::test(Search::class)->set('query', str_repeat('a', 10000))->call('search')->assertSet('error', __('domains.shop.not_a_name'));
         Livewire::test(Search::class)->set('query', str_repeat('ab.', 2000) . 'com')->call('search');
-        Livewire::test(Whois::class)->set('query', str_repeat('a', 10000) . '.com')->call('lookup')->assertSet('error', __('domains.shop.not_a_full_name'));
-        Livewire::test(Whois::class)->set('query', "nixpal.com\r\nhelp")->call('lookup');
-        Livewire::test(Whois::class)->set('query', "nixpal.com\x00.evil")->call('lookup');
-        Livewire::test(Whois::class)->set('query', 'ex ample.com')->call('lookup')->assertSet('error', __('domains.shop.not_a_full_name'));
+        Livewire::test(Whois::class)->set('captcha', 'solved')->set('query', str_repeat('a', 10000) . '.com')->call('lookup')->assertSet('error', __('domains.shop.not_a_full_name'));
+        Livewire::test(Whois::class)->set('captcha', 'solved')->set('query', "nixpal.com\r\nhelp")->call('lookup');
+        Livewire::test(Whois::class)->set('captcha', 'solved')->set('query', "nixpal.com\x00.evil")->call('lookup');
+        Livewire::test(Whois::class)->set('captcha', 'solved')->set('query', 'ex ample.com')->call('lookup')->assertSet('error', __('domains.shop.not_a_full_name'));
         foreach ($this->socketQueries as [$host, $query]) {
             $this->assertDoesNotMatchRegularExpression('/[\r\n\x00 ]/', $query);
         }
@@ -332,12 +341,12 @@ class DomainShopAdversarialTest extends TestCase
             'nameservers' => [['ldhName' => '"><script>alert(2)</script>']],
             'entities' => [['roles' => ['registrar'], 'vcardArray' => ['vcard', [['fn', [], 'text', '<script>alert(3)</script>']]]]],
         ])) : null);
-        Livewire::test(Whois::class)->set('query', 'nixpal.com')->call('lookup')
+        Livewire::test(Whois::class)->set('captcha', 'solved')->set('query', 'nixpal.com')->call('lookup')
             ->assertDontSee('<script>alert', false)->assertDontSee('<img src=x', false)->assertSee('&lt;script&gt;alert(3)', false);
 
         // Port 43 text (a TLD without RDAP).
         $this->socketAnswers = ['whois.iana.org' => "whois: whois.nic.xyz\n", 'whois.nic.xyz' => "Domain: a.xyz\nRegistrar: <script>alert(4)</script>\nRegistrant Email: owner@a.xyz\nRegistrant Phone: +30.2100000000\n"];
-        Livewire::test(Whois::class)->set('query', 'a.xyz')->call('lookup')
+        Livewire::test(Whois::class)->set('captcha', 'solved')->set('query', 'a.xyz')->call('lookup')
             ->assertDontSee('<script>alert(4)', false)->assertDontSee('owner@a.xyz')->assertDontSee('2100000000');
 
         Livewire::test(Search::class)->set('query', '<script>alert(5)</script>')->call('search')->assertDontSee('<script>alert(5)', false);
@@ -364,7 +373,7 @@ class DomainShopAdversarialTest extends TestCase
             'ldhName' => 'thin.com', 'entities' => [],
             'links' => [['rel' => 'related', 'type' => 'application/rdap+json', 'href' => 'https://169.254.169.254/latest/meta-data/']],
         ])) : null);
-        Livewire::test(Whois::class)->set('query', 'thin.com')->call('lookup');
+        Livewire::test(Whois::class)->set('captcha', 'solved')->set('query', 'thin.com')->call('lookup');
 
         $this->assertCount(0, Http::recorded(fn (Request $r) => str_contains($r->url(), '169.254.169.254')), 'link-local metadata address fetched');
     }
@@ -377,8 +386,8 @@ class DomainShopAdversarialTest extends TestCase
             '*' => Http::response([], 404),
         ]);
         $this->socketAnswers = ['whois.iana.org' => "whois: whois.nic.xyz\n", 'whois.nic.xyz' => "Domain: a.xyz\n"];
-        Livewire::test(Whois::class)->set('query', 'a.xyz')->call('lookup');
-        Livewire::test(Whois::class)->set('query', 'a.xyz:43@127.0.0.1')->call('lookup');
+        Livewire::test(Whois::class)->set('captcha', 'solved')->set('query', 'a.xyz')->call('lookup');
+        Livewire::test(Whois::class)->set('captcha', 'solved')->set('query', 'a.xyz:43@127.0.0.1')->call('lookup');
 
         $this->assertCount(0, Http::recorded(fn (Request $r) => str_contains($r->url(), '127.0.0.1')));
         $this->assertSame(['whois.iana.org', 'whois.nic.xyz'], array_values(array_unique(array_column($this->socketQueries, 0))));

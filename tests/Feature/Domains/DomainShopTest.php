@@ -8,6 +8,7 @@ use App\Models\Currency;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainTld;
 use App\Models\DomainTldPrice;
+use App\Services\Captcha\Altcha;
 use App\Services\Domains\DomainSearch;
 use App\Services\Domains\Lookup\LaravelTransport;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -39,6 +40,14 @@ class DomainShopTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // A lookup asks for the captcha (2026-10-23): «solved» is a solution here.
+        $this->app->instance(Altcha::class, new class extends Altcha
+        {
+            public function verify(string $payload): bool
+            {
+                return $payload === 'solved';
+            }
+        });
         Cache::flush();
         Http::preventStrayRequests();
         // Hosts resolve without DNS here: the fake registries are public, «internal» ones are not.
@@ -121,11 +130,11 @@ class DomainShopTest extends TestCase
     {
         $this->fake();
 
-        Livewire::test(Whois::class)->set('query', 'NIXPAL.COM')->call('lookup')
+        Livewire::test(Whois::class)->set('captcha', 'solved')->set('query', 'NIXPAL.COM')->call('lookup')
             ->assertSee('Openprovider')->assertSee('ns1.myip.gr')->assertSee('2027-11-17');
-        Livewire::test(Whois::class)->set('query', 'nixpal.eu')->call('lookup')->assertSee(__('domains.shop.whois_free'));
-        Livewire::test(Whois::class)->set('query', 'nixpal.gr')->call('lookup')->assertSee(__('domains.shop.whois_unsupported'));
-        Livewire::test(Whois::class)->set('query', 'nixpal')->call('lookup')->assertSet('error', __('domains.shop.not_a_full_name'));
+        Livewire::test(Whois::class)->set('captcha', 'solved')->set('query', 'nixpal.eu')->call('lookup')->assertSee(__('domains.shop.whois_free'));
+        Livewire::test(Whois::class)->set('captcha', 'solved')->set('query', 'nixpal.gr')->call('lookup')->assertSee(__('domains.shop.whois_unsupported'));
+        Livewire::test(Whois::class)->set('captcha', 'solved')->set('query', 'nixpal')->call('lookup')->assertSet('error', __('domains.shop.not_a_full_name'));
     }
 
     public function test_the_price_list_page_and_its_json_api(): void

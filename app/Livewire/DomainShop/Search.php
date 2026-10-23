@@ -7,6 +7,7 @@ use App\Exceptions\DisplayException;
 use App\Livewire\Component;
 use App\Models\Currency;
 use App\Services\Domains\DomainSearch;
+use App\Services\Domains\Lookup\PublicLookups;
 use App\Services\Domains\Lookup\VisitorKey;
 use Illuminate\Support\Facades\RateLimiter;
 use Livewire\Attributes\Locked;
@@ -60,6 +61,12 @@ class Search extends Component
             return;
         }
         RateLimiter::hit($key, 600);
+        // Everyone's lookups together (PublicLookups): many addresses at once never reach the registries unbounded.
+        if (!PublicLookups::take()) {
+            $this->error = __('domains.shop.busy');
+
+            return;
+        }
         $search = app(DomainSearch::class);
         $this->results = $search->search($this->query, self::currency());
         if ($this->results) {

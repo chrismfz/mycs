@@ -32,7 +32,7 @@
                     <label for="website">Website</label>
                     <input type="text" id="website" name="website" wire:model="website" tabindex="-1" autocomplete="off" />
                 </div>
-                {{-- The chosen captcha, or ours when none is (App\Livewire\Contact::requireCaptcha). --}}
+                {{-- The chosen captcha, or ours when none is (Captchable::requireCaptchaOrAltcha). --}}
                 @if (\App\Livewire\Contact::captchaKind() === 'altcha' && config('settings.captcha') !== 'altcha')
                     <div class="flex flex-col justify-center mt-2">
                         <div wire:ignore><x-captcha.altcha /></div>
