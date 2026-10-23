@@ -17,6 +17,9 @@ class SettingsProvider extends ServiceProvider
 {
     private const CACHE_KEY = 'settings.rows';
 
+    /** A setting was saved since the settings were last read from the database: flush when the app terminates. */
+    private const FLUSH_PENDING = 'settings.flush-pending';
+
     /**
      * Register services.
      */
@@ -33,6 +36,25 @@ class SettingsProvider extends ServiceProvider
     public function boot(): void
     {
         $this->getSettings();
+
+        // Once per app, flushing only if still pending: a flush or reload meanwhile already read what was saved (the
+        // seeder flushes at its end; a test reloads in setUp() and its config() stays past its first request).
+        $this->app->terminating(function () {
+            if (self::flushPending()) {
+                self::flushCache();
+            }
+        });
+    }
+
+    /** A setting was saved: flush the settings when the app terminates, unless they are read again before. */
+    public static function flushLater(): void
+    {
+        app()->instance(self::FLUSH_PENDING, true);
+    }
+
+    public static function flushPending(): bool
+    {
+        return app()->bound(self::FLUSH_PENDING);
     }
 
     public static function getSettings($force = false): void
@@ -84,12 +106,14 @@ class SettingsProvider extends ServiceProvider
     /** The settings again from the database, past the cached rows (tests: the database is switched after the boot). */
     public static function reload(): void
     {
+        app()->forgetInstance(self::FLUSH_PENDING);
         Cache::forget(self::CACHE_KEY);
         self::getSettings(true);
     }
 
     public static function flushCache()
     {
+        app()->forgetInstance(self::FLUSH_PENDING);
         Cache::forget(self::CACHE_KEY);
         Cache::forget('settings');
         // Restart queue worker
