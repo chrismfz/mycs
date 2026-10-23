@@ -10,6 +10,7 @@ use App\Livewire\ComponentWithProperties;
 use App\Livewire\Traits\EditsContact;
 use App\Models\Client;
 use App\Models\User;
+use App\Support\CallerIp;
 use App\Traits\Captchable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -34,6 +35,11 @@ class Register extends ComponentWithProperties
     public string $password_confirmation = '';
 
     public bool $tos = false;
+
+    /** Registrations an hour from one network (an IPv6 /64), and from everyone together (API-9). */
+    public const PER_NETWORK_HOUR = 5;
+
+    public const ALL_HOUR = 100;
 
     public function mount()
     {
@@ -74,7 +80,19 @@ class Register extends ComponentWithProperties
     {
         $this->captcha();
 
+        // Registration mails strangers (a verification, the owner of an address taken) and opens accounts: so many an
+        // hour from one network, and from everyone together (security audit API-9, captcha off by default).
+        $network = 'register:' . CallerIp::key();
+        if (RateLimiter::tooManyAttempts($network, self::PER_NETWORK_HOUR) || RateLimiter::tooManyAttempts('register:all', self::ALL_HOUR)) {
+            $this->addError('email', __('auth.register_throttle', ['seconds' => max(RateLimiter::availableIn($network), RateLimiter::availableIn('register:all'))]));
+
+            return;
+        }
+
         $validatedData = $this->validate();
+        // Counted once the form is valid: a typo costs no try, and only a valid one mails or opens an account.
+        RateLimiter::hit($network, 3600);
+        RateLimiter::hit('register:all', 3600);
 
         // An address that already has an account (security audit, owner's decision 2026-10-23): never «taken», which
         // tells anyone whose address it is. The page answers «we sent you an email»; the owner is told how to log in

@@ -82,6 +82,9 @@ final class McpOauth
             if (!is_string($uri) || !self::acceptableRedirect($uri)) {
                 throw new OAuthError('invalid_redirect_uri', 'A redirect URI must be https, or http on localhost, without a fragment.');
             }
+            if (!self::allowedHost($uri)) {
+                throw new OAuthError('invalid_redirect_uri', 'This site does not send authorizations to that host (Settings: MCP OAuth redirect hosts).');
+            }
         }
         foreach (['grant_types', 'response_types'] as $list) {
             if (isset($data[$list]) && (!is_array($data[$list]) || array_diff($data[$list], ['authorization_code', 'refresh_token', 'code']) !== [])) {
@@ -98,6 +101,27 @@ final class McpOauth
         return ['client_id' => $client->client_id, 'client_name' => $client->name, 'redirect_uris' => $client->redirect_uris,
             'grant_types' => ['authorization_code', 'refresh_token'], 'response_types' => ['code'], 'token_endpoint_auth_method' => 'none',
             'client_id_issued_at' => $client->created_at?->getTimestamp()];
+    }
+
+    /** The hosts an MCP client may be sent back to when none is set: Claude's, and this computer's (a local client). */
+    public const DEFAULT_REDIRECT_HOSTS = 'claude.ai, claude.com, localhost, 127.0.0.1, [::1]';
+
+    /**
+     * Anyone can register a client with any name (open dynamic registration), so a phished staff member's one click
+     * would send a grant to the phisher's host: only the hosts staff allow, or their subdomains (security audit API-5).
+     */
+    public static function allowedHost(string $uri): bool
+    {
+        $host = strtolower((string) parse_url($uri, PHP_URL_HOST));
+        $listed = config('settings.mcp_oauth_redirect_hosts');
+        $allowed = array_filter(array_map(fn (string $h) => strtolower(trim($h)), explode(',', is_string($listed) && trim($listed) !== '' ? $listed : self::DEFAULT_REDIRECT_HOSTS)));
+        foreach ($allowed as $entry) {
+            if ($host === $entry || str_ends_with($host, '.' . ltrim($entry, '.'))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -144,6 +168,10 @@ final class McpOauth
         }
         if (!in_array($redirect, $client->redirect_uris, true)) {
             throw new OAuthError('invalid_request', 'The redirect URI is not one the client registered.');
+        }
+        // A client registered before its host was taken off the list: refused here too, never redirected to.
+        if (!self::allowedHost($redirect)) {
+            throw new OAuthError('invalid_request', 'This site does not send authorizations to that host (Settings: MCP OAuth redirect hosts).');
         }
         $state = is_string($query['state'] ?? null) ? mb_substr($query['state'], 0, 500) : null;
         $request = new AuthorizeRequest($client, $redirect, self::str($query['code_challenge'] ?? null), $state);

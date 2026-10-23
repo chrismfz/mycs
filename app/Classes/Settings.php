@@ -11,6 +11,7 @@ use App\Models\Setting;
 use App\Models\TaxRate;
 use App\Rules\Cidr;
 use App\Rules\TicketReferenceMask;
+use App\Services\Mcp\McpOauth;
 use App\Services\Tax\EuVat;
 use App\Support\CurrentClient;
 use DateTimeZone;
@@ -1296,6 +1297,16 @@ class Settings
                     'database_type' => 'boolean',
                     'default' => false,
                     'description' => 'Enable debug mode to log HTTP requests and errors',
+                ],
+                [
+                    'name' => 'mcp_oauth_redirect_hosts',
+                    // Where the MCP server may send a staff member's authorization: full admins only (API-5).
+                    'permission' => '*',
+                    'label' => 'MCP OAuth redirect hosts',
+                    'type' => 'text',
+                    'default' => McpOauth::DEFAULT_REDIRECT_HOSTS,
+                    'validation' => 'nullable|max:500',
+                    'description' => 'The hosts (and their subdomains) an MCP client may be sent back to with a staff member\'s authorization, comma-separated. Anyone can register an MCP client under any name: only these hosts can receive a grant. Empty: Claude\'s (claude.ai, claude.com) and this computer.',
                 ],
                 [
                     'name' => 'logs_full',

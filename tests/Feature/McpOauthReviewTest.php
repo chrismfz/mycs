@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\McpOauthClient;
 use App\Models\McpOauthGrant;
 use App\Models\Role;
+use App\Models\Setting;
 use App\Models\Staff;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -24,6 +25,9 @@ class McpOauthReviewTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // The tests' clients come back to example.test hosts (the allowed list: security audit API-5).
+        Setting::query()->updateOrCreate(['key' => 'mcp_oauth_redirect_hosts', 'settingable_type' => null, 'settingable_id' => null], ['value' => 'example.test, localhost, 127.0.0.1', 'type' => 'string']);
+        config(['settings.mcp_oauth_redirect_hosts' => 'example.test, localhost, 127.0.0.1']);
         $this->verifier = str_repeat('v', 20) . bin2hex(random_bytes(16));
     }
 

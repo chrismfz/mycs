@@ -6,11 +6,17 @@ use App\Classes\PermissionGuard;
 use App\Models\ApiKey;
 use App\Support\CallerIp;
 use Closure;
+use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Symfony\Component\HttpFoundation\Response;
 
-class AdminApi
+/** Marked as authentication (AuthenticatesRequests): it runs before route-model binding, so a request without a key
+ * learns nothing about which records exist (404 or 401: security audit API-8). */
+class AdminApi implements AuthenticatesRequests
 {
+    public const BAD_PER_MINUTE = 60;
+
     /**
      * Handle an incoming request.
      *
@@ -18,14 +24,24 @@ class AdminApi
      */
     public function handle(Request $request, Closure $next): Response
     {
+        // Running first, before the route's throttle, it limits the requests without a valid key itself: so many a
+        // minute from one network (review of PR #90, R1).
+        $bad = 'admin-api-bad:' . CallerIp::key($request);
+        if (RateLimiter::tooManyAttempts($bad, self::BAD_PER_MINUTE)) {
+            return response()->json(['error' => 'Too many requests.'], 429, ['Retry-After' => RateLimiter::availableIn($bad)]);
+        }
+
         // Validate bearers token
         if (!$request->bearerToken()) {
+            RateLimiter::hit($bad, 60);
+
             return response()->json(['error' => 'The request is missing a valid bearer token.'], 401);
         }
 
         $token = ApiKey::where('token', hash('sha256', $request->bearerToken()))
             ->where('enabled', true)
-            ->firstOr(function () {
+            ->firstOr(function () use ($bad) {
+                RateLimiter::hit($bad, 60);
                 abort(401, 'The provided API key is invalid or has been disabled.');
             });
 
