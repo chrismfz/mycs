@@ -118,4 +118,15 @@ class DomainPageCompactTest extends TestCase
         $alone = Domain::factory()->create(['client_id' => User::factory()->create()->clients()->firstOrFail()->id, 'sld' => 'solo', 'tld' => 'gr', 'fqdn' => 'solo.gr']);
         $this->get(DomainResource::getUrl('view', ['record' => $alone]))->assertOk()->assertSee('← #' . $alone->client_id)->assertDontSee(__("This client's domains"));
     }
+
+    /** ADV-1 of #407: nothing to show (no client link, one domain) is no subheading, not an empty <span> in a <p>. */
+    public function test_adv1_nothing_to_show_is_no_subheading(): void
+    {
+        $this->actingAs(Staff::factory()->create(['role_id' => Role::create(['name' => 'Domains only', 'permissions' => ['admin.domains.viewAny']])->id]), 'staff');
+        $only = $this->domain('alone.gr');
+
+        $page = Livewire::test(ViewDomain::class, ['record' => $only->getRouteKey()]);
+        $this->assertFalse(ClientResource::canView($only->client), 'the premise: this staff may not open the client');
+        $this->assertNull($page->instance()->getSubheading(), 'an empty switcher still marks the header «has subheading» and prints an empty <p>');
+    }
 }
