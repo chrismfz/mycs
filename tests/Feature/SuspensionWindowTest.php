@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Console\Commands\CronJob;
 use App\Models\CronStat;
 use App\Models\Invoice;
 use App\Models\Service;
@@ -150,5 +151,24 @@ class SuspensionWindowTest extends TestCase
         $this->assertFalse(DunningWindow::isOpen(Carbon::parse('2026-10-24 09:59:00')));
         $this->assertFalse(DunningWindow::isOpen(Carbon::parse('2026-10-26 12:00:00')));
         $this->assertSame('2026-10-31', DunningWindow::firstDayFrom(Carbon::parse('2026-10-26'))->toDateString());
+    }
+
+    /** Staff unsuspend a service the cron suspended: held through that day only; the next working day the rule applies. */
+    public function test_an_unsuspend_holds_through_the_day_only(): void
+    {
+        $service = $this->service(['expires_at' => '2026-10-21']);
+        Setting::query()->updateOrCreate(['key' => CronJob::DUNNING_READY, 'settingable_type' => CronStat::class],
+            ['value' => '2026-10-26 03:00:00', 'type' => 'string']);
+        $this->at('2026-10-26 10:05:00');
+        $this->artisan('app:cron-job', ['--dunning-only' => true])->assertExitCode(0);
+        $this->at('2026-10-26 10:30:00');
+        $service->fresh()->applyStaffChanges(['status' => Service::STATUS_ACTIVE]);
+        $this->assertSame('2026-10-26', Carbon::parse($service->fresh()->suspend_hold_until)->toDateString());
+
+        Setting::query()->where('key', CronJob::DUNNING_READY)->update(['value' => '2026-10-27 03:00:00']);
+        $this->at('2026-10-27 10:05:00');
+        $this->artisan('app:cron-job', ['--dunning-only' => true])->assertExitCode(0);
+
+        $this->assertSame(Service::STATUS_SUSPENDED, $service->fresh()->status, 'still unpaid the next day: suspended');
     }
 }

@@ -108,6 +108,12 @@ class CronJob extends Command
                 return self::SUCCESS; // the daily run is on: it does them, or the next hour does
             }
             $this->error('Another cron run is in progress: not started.');
+            // Today's renewals, charges and reminders did not run: staff are told, not left to Health a day later (review
+            // of #411). Run it again by hand once the other run is over.
+            NotificationHelper::sendSystemEmailNotification('Cron Job: the daily run did not start', <<<'HTML'
+                The daily run found another run of the cron in progress (or the lock of one that crashed, for up to two hours) and did not start: today's invoices, charges and reminders are not done.<br>
+                Run it again once the other is over: <code>php artisan app:cron-job</code>.
+                HTML);
 
             return self::FAILURE;
         }
@@ -144,6 +150,10 @@ class CronJob extends Command
         // a card that pays today or a cancellation due today comes before a suspension (round 2 of #411). Each is once a
         // day where it is done (AutoCharge per invoice, a cancellation ends its service): the daily run finds them done.
         $this->runCronJob('invoices_charged', fn () => $this->chargeInvoices(), transaction: false, quietWhenNone: true);
+        if ($this->successFullCharges > 0) {
+            // In the dashboard's «Invoices Charged», as the daily run's (review of #411).
+            CronStat::create(['key' => 'invoice_charged', 'value' => $this->successFullCharges, 'date' => now()->toDateString()]);
+        }
         $this->runCronJob('cancellations_processed', fn () => $this->processCancellations(), transaction: false, quietWhenNone: true);
         $this->runCronJob('services_suspended', fn () => $this->suspendServices(), transaction: false, quietWhenNone: true);
         $this->runCronJob('services_terminated', fn () => $this->terminateServices(), transaction: false, quietWhenNone: true);
@@ -610,6 +620,10 @@ class CronJob extends Command
             }
 
             if ($this->notices !== []) {
+                // The hourly run does not tell them again today (review of #411).
+                foreach (array_keys($this->notices) as $key) {
+                    Cache::put('cron-dunning-told:' . Carbon::today()->toDateString() . ':notice:' . $key, true, 86400);
+                }
                 $notices = e(implode("\n", array_map(fn ($key, $notice) => "{$key}: {$notice->getMessage()}", array_keys($this->notices), $this->notices)));
                 NotificationHelper::sendSystemEmailNotification('Cron Job: needs staff attention', <<<HTML
                     The cron job left these for staff:<br>
@@ -621,6 +635,11 @@ class CronJob extends Command
                 throw reset($this->failures);
             }
         } catch (Throwable $e) {
+            // It ran, with errors: Health and the Automation status say so, not «not run for days» (review of #411).
+            if ($this->failures !== []) {
+                Setting::updateOrCreate(['key' => 'last_cron_run', 'settingable_type' => CronStat::class],
+                    ['value' => now()->toDateTimeString(), 'type' => 'string']);
+            }
             $message = e(implode("\n", array_map(fn ($key, $failure) => "{$key}: {$failure->getMessage()}", array_keys($this->failures), $this->failures)) ?: $e->getMessage());
             NotificationHelper::sendSystemEmailNotification('Cron Job Error', <<<HTML
                 An error occurred while running the cron job:<br>
@@ -866,6 +885,7 @@ class CronJob extends Command
         $cutoff = today()->subDays(self::days('cronjob_order_suspend', 8))->toDateString();
         $query = $this->unheldWithNoPaymentOnItsWay(Service::query()->where('status', Service::STATUS_ACTIVE))
             ->whereDate('expires_at', '<', $cutoff)
+
             ->whereDoesntHave('plan', fn ($plan) => $plan->whereIn('type', ['free', 'one-time']));
 
         return !$overdueInvoice ? $query : $query->whereHas('invoices', fn ($invoices) => $invoices
