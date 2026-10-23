@@ -168,6 +168,21 @@ class ServiceResource extends Resource
             : '#' . $record->getKey();
     }
 
+    /**
+     * A dedicated IPv4 set here that is not the one its server says (both known). cPanel tells the account's IPv4 only:
+     * an IPv6 set here is not compared (code review of #389); the addresses compared as addresses, not as text.
+     */
+    public static function ipDiffers(Service $service): bool
+    {
+        $mine = (string) $service->dedicated_ip;
+        $theirs = (string) $service->usage?->server_ip;
+        if (!filter_var($mine, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) || !filter_var($theirs, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return false;
+        }
+
+        return inet_pton($mine) !== inet_pton($theirs);
+    }
+
     public static function form(Schema $schema): Schema
     {
         return $schema
@@ -327,6 +342,12 @@ class ServiceResource extends Resource
                             ->state(fn (Service $record) => self::meter($record->usage?->accounts, $record->usage?->accounts_limit, false)),
                         TextEntry::make('usage_read_at')->label('Last updated')->columnSpanFull()
                             ->state(fn (Service $record) => $record->usage?->read_at?->format('d/m/Y H:i')),
+                        // The IP the server says (cPanel), and whether the service's dedicated IP agrees (owner 2026-10-23).
+                        TextEntry::make('usage_server_ip')->label('IP on the server')
+                            ->visible(fn (?Service $record) => filled($record?->usage?->server_ip))
+                            ->state(fn (?Service $record) => $record?->usage?->server_ip)
+                            ->color(fn (?Service $record) => $record !== null && self::ipDiffers($record) ? 'danger' : null)
+                            ->helperText(fn (?Service $record) => $record !== null && self::ipDiffers($record) ? 'Not the dedicated IP set here (' . $record->dedicated_ip . ').' : null),
                     ]),
                 // The domains its account hosts (services:usage; owner 2026-10-22), a reseller's by account.
                 Section::make('Hosted domains')
@@ -428,6 +449,11 @@ class ServiceResource extends Resource
                     ->relationship('product', 'name')
                     ->searchable()
                     ->preload(),
+                // Its dedicated IP set here is not the one its server says (owner 2026-10-23).
+                Filter::make('ip_differs')->label('IP differs from the server')
+                    // IPv4 only, as cPanel tells it (an IPv6 set here is never «different»).
+                    ->query(fn (Builder $query) => $query->whereNotNull('dedicated_ip')->where('dedicated_ip', '!=', '')->where('dedicated_ip', 'not like', '%:%')
+                        ->whereHas('usage', fn (Builder $usage) => $usage->whereNotNull('server_ip')->whereColumn('service_usages.server_ip', '!=', 'services.dedicated_ip'))),
                 Filter::make('expires_at')
                     ->form([
                         DatePicker::make('expires_from')->label('Expires From'),

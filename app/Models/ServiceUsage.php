@@ -10,6 +10,7 @@ use Illuminate\Support\Carbon;
  * A service's usage as its server last told it (services:usage).
  *
  * @property int $service_id
+ * @property string|null $server_ip
  * @property int|null $disk_used_mb
  * @property int|null $disk_limit_mb
  * @property int|null $bandwidth_used_mb
@@ -21,7 +22,7 @@ use Illuminate\Support\Carbon;
  */
 class ServiceUsage extends Model
 {
-    protected $fillable = ['service_id', 'disk_used_mb', 'disk_limit_mb', 'bandwidth_used_mb', 'bandwidth_limit_mb', 'accounts', 'accounts_limit', 'accounts_kind', 'read_at'];
+    protected $fillable = ['service_id', 'disk_used_mb', 'disk_limit_mb', 'bandwidth_used_mb', 'bandwidth_limit_mb', 'accounts', 'accounts_limit', 'accounts_kind', 'server_ip', 'read_at'];
 
     protected function casts(): array
     {
