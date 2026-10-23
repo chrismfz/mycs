@@ -1024,6 +1024,16 @@ class Settings
                     'default' => true,
                     'description' => 'Off: no «Transfer it to us» in the search.',
                 ],
+                // A .gr domain's change of holder (G8-5b, owner 2026-10-23): one price for a name change and a transfer.
+                [
+                    'name' => 'domain_gr_owner_change_price',
+                    'section' => 'Ordering',
+                    'label' => '.gr change of holder: price',
+                    'type' => 'number',
+                    'default' => 0,
+                    'min_value' => 0,
+                    'description' => 'Charged, as entered (with tax, as the TLD prices), in the default currency, for a .gr name change or transfer to another holder. 0: staff send it without an invoice only.',
+                ],
                 // WHMCS «Default Auto Renewal Setting».
                 [
                     'name' => 'domain_default_auto_renew',

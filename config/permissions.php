@@ -102,6 +102,8 @@ return [
                 'renew' => 'Renew Domains Now (before payment)',
                 // To another client, with its invoices not paid yet and its contacts copied (owner 2026-10-23).
                 'move' => 'Move Domains to Another Client',
+                // A .gr change of holder (G8-5b): charged, never recalled at the registry.
+                'owner_change' => 'Change a .gr Domain\'s Holder',
             ],
             // The TLDs sold and their prices (docs/domains.md D-6, D-7).
             'domain_tlds' => [

@@ -7,16 +7,19 @@ use App\Admin\Components\ClientComponent;
 use App\Admin\Concerns\RemembersRecent;
 use App\Admin\Pages\WhoisLookup;
 use App\Admin\Resources\DomainResource;
+use App\Contracts\ChangesOwner;
 use App\Enums\DomainStatus;
 use App\Exceptions\DisplayException;
 use App\Models\Client;
 use App\Models\Contact;
 use App\Models\Domain;
+use App\Models\DomainOwnerChange;
 use App\Models\Staff;
 use App\Services\Billing\RenewalBilling;
 use App\Services\Clients\MoveToClient;
 use App\Services\Domains\DomainLifecycle;
 use App\Services\Domains\DomainManagementService;
+use App\Services\Domains\DomainOwnerChanges;
 use App\Services\Domains\DomainRenewalService;
 use App\Services\Domains\DomainRenewalYears;
 use App\Services\Domains\DomainSyncService;
@@ -26,7 +29,9 @@ use App\Support\Domains\DnssecRecord;
 use Closure;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
+use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -34,8 +39,10 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\HtmlString;
 use Throwable;
 
@@ -54,6 +61,49 @@ class ViewDomain extends ViewRecord
     private static function can(string $permission): bool
     {
         return (bool) Auth::guard('staff')->user()?->hasPermission($permission);
+    }
+
+    private static function contactLabel(Contact $contact): string
+    {
+        return trim(($contact->company_name ? $contact->company_name . ' · ' : '') . $contact->first_name . ' ' . $contact->last_name)
+            . ' <' . $contact->email . '> #' . $contact->client_id;
+    }
+
+    /** The open change of holder's next steps (G8-5b), each for the state it is in. @return list<Action> */
+    private static function ownerChangeActions(): array
+    {
+        $open = fn (Domain $record) => DomainOwnerChanges::openFor($record);
+        $in = fn (Domain $record, string ...$statuses) => self::can('admin.domains.owner_change') && in_array($open($record)?->status, $statuses, true);
+        $run = function (Closure $do, string $done) {
+            try {
+                $do();
+                Notification::make()->success()->title($done)->send();
+            } catch (Throwable $e) {
+                Notification::make()->danger()->title(__('domains.owner_change.title'))->body($e->getMessage())->send();
+            }
+        };
+
+        return [
+            Action::make('ownerChangeApproved')->label(__('domains.owner_change.approved'))->icon('heroicon-o-check')
+                ->visible(fn (Domain $record) => $in($record, DomainOwnerChange::STATUS_AWAITING_EETT))->requiresConfirmation()
+                ->action(fn (Domain $record) => $run(fn () => app(DomainOwnerChanges::class)->approved($open($record)), __('domains.owner_change.statuses.done'))),
+            Action::make('ownerChangeRetry')->label(__('domains.owner_change.retry'))->icon('heroicon-o-arrow-path')
+                ->visible(fn (Domain $record) => $in($record, DomainOwnerChange::STATUS_REFUSED))->requiresConfirmation()
+                ->action(fn (Domain $record) => $run(fn () => app(DomainOwnerChanges::class)->retry($open($record)), __('domains.owner_change.retry'))),
+            Action::make('ownerChangeDoneThere')->label(__('domains.owner_change.done_there'))->icon('heroicon-o-check-badge')
+                ->visible(fn (Domain $record) => $in($record, DomainOwnerChange::STATUS_UNKNOWN))->requiresConfirmation()
+                ->action(fn (Domain $record) => $run(fn () => app(DomainOwnerChanges::class)->doneThere($open($record)), __('domains.owner_change.statuses.done'))),
+            Action::make('ownerChangeCancel')->label(__('domains.owner_change.cancel'))->icon('heroicon-o-x-mark')->color('danger')
+                ->visible(fn (Domain $record) => $in($record, DomainOwnerChange::STATUS_AWAITING_PAYMENT, DomainOwnerChange::STATUS_DUE,
+                    DomainOwnerChange::STATUS_REFUSED, DomainOwnerChange::STATUS_UNKNOWN))
+                ->schema([Textarea::make('reason')->label(__('domains.owner_change.cancel_reason'))->required()->maxLength(500)])
+                ->action(fn (Domain $record, array $data) => $run(fn () => app(DomainOwnerChanges::class)->cancel($open($record), (string) $data['reason']),
+                    __('domains.owner_change.statuses.cancelled'))),
+            Action::make('ownerChangeDeclaration')->label(__('domains.owner_change.download'))->icon('heroicon-o-document-arrow-down')->color('gray')
+                ->visible(fn (Domain $record) => self::can('admin.domains.owner_change') && filled($open($record)?->declaration_path))
+                ->action(fn (Domain $record) => Storage::disk(DomainOwnerChanges::DISK)->download($open($record)->declaration_path,
+                    $open($record)->declaration_name ?: basename($open($record)->declaration_path))),
+        ];
     }
 
     private static function staff(): ?Staff
@@ -351,6 +401,58 @@ class ViewDomain extends ViewRecord
                         fn () => app(DomainManagementService::class)->resumeNotTransferredAway($record, self::staff() ?? throw new \RuntimeException('No staff.')),
                         __('Resumed.'),
                     )),
+
+                // A .gr change of holder (G8-5b): a name change or a transfer, charged, sent once paid, never recalled.
+                Action::make('ownerChange')->label(__('domains.owner_change.title'))->icon('heroicon-o-user-group')->color('warning')
+                    ->visible(fn (Domain $record) => self::can('admin.domains.owner_change') && DomainOwnerChanges::openFor($record) === null
+                        && app(DomainManagementService::class)->changesOwner($record))
+                    ->modalWidth('2xl')
+                    ->schema(fn (Domain $record) => [
+                        Radio::make('kind')->label(__('domains.owner_change.kind'))->required()->live()
+                            ->options([ChangesOwner::NAME => __('domains.owner_change.kind_name'), ChangesOwner::OWNER => __('domains.owner_change.kind_owner')]),
+                        Select::make('contact_id')->label(__('domains.owner_change.holder'))->helperText(__('domains.owner_change.holder_help'))->required()
+                            ->searchable()
+                            ->options(fn (Get $get) => $get('kind') === ChangesOwner::NAME
+                                ? Contact::query()->where('client_id', $record->client_id)->whereKeyNot((int) $record->registrant_contact_id)->get()
+                                    ->mapWithKeys(fn (Contact $contact) => [$contact->id => self::contactLabel($contact)])->all()
+                                : [])
+                            ->getSearchResultsUsing(fn (Get $get, string $search) => $get('kind') === ChangesOwner::NAME ? [] : Contact::query()
+                                ->whereKeyNot((int) $record->registrant_contact_id)
+                                ->where(fn ($q) => $q->where('first_name', 'like', "%{$search}%")->orWhere('last_name', 'like', "%{$search}%")
+                                    ->orWhere('company_name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%"))
+                                ->limit(25)->get()->mapWithKeys(fn (Contact $contact) => [$contact->id => self::contactLabel($contact)])->all())
+                            ->getOptionLabelUsing(fn ($value) => ($contact = Contact::query()->find($value)) ? self::contactLabel($contact) : null),
+                        FileUpload::make('declaration')->label(__('domains.owner_change.declaration'))->helperText(__('domains.owner_change.declaration_help'))
+                            ->disk(DomainOwnerChanges::DISK)->directory(DomainOwnerChanges::DIRECTORY)->visibility('private')
+                            ->acceptedFileTypes(['application/pdf', 'image/png', 'image/jpeg'])->maxSize(10240)
+                            ->storeFileNamesIn('declaration_name')
+                            ->required(fn (Get $get) => $get('kind') === ChangesOwner::OWNER),
+                        Hidden::make('declaration_name'),
+                        Toggle::make('move')->label(__('domains.owner_change.move'))->default(true)
+                            ->visible(fn (Get $get) => $get('kind') === ChangesOwner::OWNER && filled($get('contact_id'))
+                                && (int) Contact::query()->whereKey($get('contact_id'))->value('client_id') !== (int) $record->client_id),
+                        Toggle::make('send_now')->label(__('domains.owner_change.send_now'))
+                            ->helperText(__('domains.owner_change.send_now_help', ['price' => DomainOwnerChanges::price() ?? '—']))
+                            ->default(DomainOwnerChanges::price() === null),
+                        TextInput::make('confirm')->label(__('domains.owner_change.confirm'))->helperText(__('domains.owner_change.confirm_help'))
+                            ->required()->rule(fn () => function (string $attribute, mixed $value, Closure $fail) use ($record) {
+                                if (mb_strtolower(trim((string) $value)) !== mb_strtolower($record->fqdn)) {
+                                    $fail(__('domains.owner_change.confirm_mismatch', ['domain' => $record->fqdn]));
+                                }
+                            }),
+                    ])
+                    ->action(function (Domain $record, array $data) {
+                        try {
+                            $change = app(DomainOwnerChanges::class)->request($record, Contact::query()->findOrFail($data['contact_id']), (string) $data['kind'],
+                                self::staff() ?? throw new \RuntimeException('No staff.'), $data['declaration'] ?? null, $data['declaration_name'] ?? null,
+                                (bool) ($data['move'] ?? false), (bool) ($data['send_now'] ?? false));
+                            Notification::make()->success()->title(__('domains.owner_change.requested'))
+                                ->body(__($change->free ? 'domains.owner_change.requested_now' : 'domains.owner_change.requested_invoice'))->send();
+                        } catch (Throwable $e) {
+                            Notification::make()->danger()->title(__('domains.owner_change.title'))->body($e->getMessage())->send();
+                        }
+                    }),
+                ...self::ownerChangeActions(),
 
                 // A registration recalled within 5 days (the .gr registry, G5a of grepp): its payment refunded separately.
                 Action::make('recall')->label(__('Recall the registration'))->icon('heroicon-o-arrow-uturn-left')->color('danger')
