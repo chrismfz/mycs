@@ -70,8 +70,10 @@ return [
         'rules' => ['required', 'file', 'max:20480'],
         'directory' => null,   // Example: 'tmp'                      | Default: 'livewire-tmp'
         'middleware' => null,  // Example: 'throttle:5,1'             | Default: 'throttle:60,1'
+        // Never svg (docs/livechat.md §3 ΣΤ, F7): no temporary URL for an SVG in progress, even though the preview route
+        // serves as a download with nosniff today. Defense in depth, in case a view ever calls temporaryUrl().
         'preview_mimes' => [   // Supported file types for temporary pre-signed file URLs...
-            'png', 'gif', 'bmp', 'svg', 'wav', 'mp4',
+            'png', 'gif', 'bmp', 'wav', 'mp4',
             'mov', 'avi', 'wmv', 'mp3', 'm4a',
             'jpg', 'jpeg', 'mpga', 'webp', 'wma',
         ],
