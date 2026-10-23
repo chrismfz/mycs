@@ -30,6 +30,19 @@ class StaffRoom extends Component
         $this->reset('body');
     }
 
+    /**
+     * The browser calls this only while the tab is in front (review of #373): a poll from a tab in the background must
+     * not mark the room read. It moves the member's own mark only, so the browser saying so is harmless.
+     */
+    public function markSeen(int $upTo): void
+    {
+        $staff = auth('staff')->user();
+        if ($staff instanceof Staff && StaffChat::canView($staff)) {
+            $room = StaffChat::room();
+            StaffChat::markRead($staff, $room, min($upTo, (int) $room->messages()->max('id')));
+        }
+    }
+
     public function render(): View
     {
         $staff = auth('staff')->user();
@@ -37,9 +50,7 @@ class StaffRoom extends Component
         $canView = StaffChat::canView($staff);
         $messages = collect();
         if ($canView && $staff !== null) {
-            $room = StaffChat::room();
-            $messages = StaffChat::messages($room);
-            StaffChat::markRead($staff, $room, $messages->last()?->id);
+            $messages = StaffChat::messages(StaffChat::room());
         }
 
         return view('livewire.admin.staff-room', [

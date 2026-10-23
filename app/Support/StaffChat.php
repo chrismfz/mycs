@@ -24,7 +24,8 @@ class StaffChat
 
     public static function canView(?Staff $staff): bool
     {
-        return $staff !== null && $staff->active && $staff->hasPermission('admin.staff_chat.view');
+        // Past the mandatory 2FA set-up too, as for «Staff online» (review of #373).
+        return $staff !== null && StaffPresence::mayBeOnline($staff) && $staff->hasPermission('admin.staff_chat.view');
     }
 
     public static function canPost(?Staff $staff): bool
@@ -56,7 +57,8 @@ class StaffChat
     /** Null when sent; else what to tell the member. */
     public static function post(Staff $staff, StaffThread $thread, string $text): ?string
     {
-        if (!self::canPost($staff)) {
+        // The room only, for now: a private thread (step 2b) checks its two members first (review of #373).
+        if (!self::canPost($staff) || $thread->kind !== StaffThread::ROOM) {
             return __('You may not write here.');
         }
         $body = ChatText::clean($text);
@@ -88,7 +90,10 @@ class StaffChat
         DB::table('staff_thread_members')->where($row)->where('last_read_message_id', '<', $upTo)->update(['last_read_message_id' => $upTo]);
     }
 
-    /** Messages of others in the room the member has not seen. */
+    /** The badge counts up to this many; more show as «99+» (review of #373: a member who never reads the room). */
+    public const UNREAD_CAP = 99;
+
+    /** Messages of others in the room the member has not seen, up to UNREAD_CAP + 1. */
     public static function unread(Staff $staff): int
     {
         if (!self::canView($staff)) {
@@ -100,6 +105,9 @@ class StaffChat
         }
         $read = (int) DB::table('staff_thread_members')->where(['thread_id' => $room->id, 'staff_id' => $staff->id])->value('last_read_message_id');
 
-        return $room->messages()->where('id', '>', $read)->where('staff_id', '!=', $staff->id)->count();
+        return DB::query()->fromSub(
+            $room->messages()->toBase()->select('id')->where('id', '>', $read)->where('staff_id', '!=', $staff->id)->limit(self::UNREAD_CAP + 1),
+            'unread',
+        )->count();
     }
 }

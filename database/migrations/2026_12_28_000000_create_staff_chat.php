@@ -47,7 +47,8 @@ return new class extends Migration
     {
         foreach (DB::table('roles')->get(['id', 'permissions']) as $role) {
             $permissions = json_decode((string) $role->permissions, true);
-            if (!is_array($permissions) || in_array('*', $permissions, true)) {
+            // A role with every permission needs nothing; one left empty on purpose stays empty (review of #373).
+            if (!is_array($permissions) || $permissions === [] || in_array('*', $permissions, true)) {
                 continue;
             }
             $merged = array_values(array_unique([...$permissions, ...self::PERMISSIONS]));

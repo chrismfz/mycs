@@ -1,7 +1,22 @@
 <div wire:poll.5s.visible class="flex h-full flex-col gap-3">
     @if ($canView)
+    {{-- Follows new messages while the reader is at the bottom; marks them seen only while the tab is in front. --}}
     <div class="flex max-h-[60vh] min-h-64 flex-col gap-3 overflow-y-auto rounded-lg border border-gray-200 p-3 dark:border-white/10"
-        x-data x-init="$el.scrollTop = $el.scrollHeight" x-on:livewire:update.window="$nextTick(() => $el.scrollTop = $el.scrollHeight)">
+        data-last-id="{{ (int) $messages->last()?->id }}"
+        x-data="{
+            atBottom: true,
+            told: 0,
+            seen() {
+                const id = Number(this.$el.dataset.lastId);
+                if (document.visibilityState === 'visible' && id > this.told) { this.told = id; $wire.markSeen(id) }
+            },
+        }"
+        x-init="
+            $el.scrollTop = $el.scrollHeight; seen();
+            $el.addEventListener('scroll', () => atBottom = $el.scrollHeight - $el.scrollTop - $el.clientHeight < 40);
+            new MutationObserver(() => { if (atBottom) $el.scrollTop = $el.scrollHeight; seen() }).observe($el, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-last-id'] });
+        "
+        x-on:visibilitychange.document="seen()">
         @forelse ($messages as $message)
         <div @class(['flex flex-col', 'items-end' => $message->staff_id === $me?->id, 'items-start' => $message->staff_id !== $me?->id])>
             <div class="text-xs text-gray-500 dark:text-gray-400">
@@ -22,7 +37,7 @@
     <form wire:submit="send" class="flex flex-col gap-1">
         <div class="flex items-end gap-2">
             <textarea wire:model="body" rows="2" maxlength="{{ \App\Support\ChatText::MAX }}"
-                x-on:keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); $wire.send() }"
+                x-on:keydown.enter="if (!$event.shiftKey && !$event.isComposing) { $event.preventDefault(); $wire.send() }"
                 class="block w-full rounded-lg border-gray-300 text-sm dark:border-white/10 dark:bg-gray-900"
                 placeholder="{{ __('Write a message…') }}"></textarea>
             <x-filament::button type="submit">{{ __('Send') }}</x-filament::button>

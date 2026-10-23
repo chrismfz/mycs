@@ -10,14 +10,20 @@ use Illuminate\Support\HtmlString;
  * its line breaks; a bare http(s) address becomes a link that shows its whole address and opens elsewhere. No markdown,
  * no images, no HTML of anyone's.
  *
- * render() is the one `{!! !!}` the chat's views may use (ChatTextTest checks the views).
+ * render() is the one `{!! !!}` the chat's views may use (StaffChatTest checks the views).
  */
 class ChatText
 {
     public const MAX = 2000;
 
-    /** Control characters but the line break, and Unicode format characters (\p{Cf}). */
-    private const STRIP = '/[\x00-\x09\x0B-\x1F\x7F\p{Cf}]/u';
+    /**
+     * Control characters but the line break, and Unicode format characters (\p{Cf}); the zero-width joiner only where
+     * it does not join two pictographs (an emoji sequence such as 👩‍💻 keeps it: review of #373).
+     */
+    private const STRIP = '/[\x00-\x09\x0B-\x1F\x7F]|(?!(?<=\p{Extended_Pictographic})\x{200D}(?=\p{Extended_Pictographic}))\p{Cf}/u';
+
+    /** A bare address, found in the raw text (never in escaped text, where it would swallow `&quot;`: review of #373). */
+    private const URL = '~(https?://[^\s<>"\'`]+)~i';
 
     /** The text as it will be kept, or null when nothing is left to send. */
     public static function clean(string $text): ?string
@@ -30,19 +36,19 @@ class ChatText
 
     public static function render(string $text): HtmlString
     {
-        $escaped = e((string) preg_replace(self::STRIP, '', $text));
-        $linked = preg_replace_callback(
-            '~\bhttps?://[^\s<>"\']+~i',
-            function (array $match): string {
-                // Trailing punctuation belongs to the sentence, not the address.
-                $url = rtrim($match[0], '.,;:!?)');
-                $rest = substr($match[0], strlen($url));
+        $html = '';
+        foreach (preg_split(self::URL, (string) preg_replace(self::STRIP, '', $text), -1, PREG_SPLIT_DELIM_CAPTURE) ?: [] as $index => $piece) {
+            if ($index % 2 === 0) {
+                $html .= e($piece);
 
-                return '<a href="' . $url . '" target="_blank" rel="noopener noreferrer nofollow" class="underline break-all">' . $url . '</a>' . $rest;
-            },
-            $escaped,
-        );
+                continue;
+            }
+            // Trailing punctuation belongs to the sentence, not the address.
+            $url = rtrim($piece, '.,;:!?)');
+            $html .= '<a href="' . e($url) . '" target="_blank" rel="noopener noreferrer nofollow" class="underline break-all">' . e($url) . '</a>'
+                . e(substr($piece, strlen($url)));
+        }
 
-        return new HtmlString(nl2br((string) $linked, false));
+        return new HtmlString(nl2br($html, false));
     }
 }

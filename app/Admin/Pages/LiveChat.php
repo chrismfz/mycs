@@ -46,6 +46,10 @@ class LiveChat extends Page
         $staff = Auth::user();
         $unread = $staff instanceof Staff ? StaffChat::unread($staff) : 0;
 
-        return $unread > 0 ? (string) $unread : null;
+        return match (true) {
+            $unread === 0 => null,
+            $unread > StaffChat::UNREAD_CAP => StaffChat::UNREAD_CAP . '+',
+            default => (string) $unread,
+        };
     }
 }

@@ -7,6 +7,7 @@ use App\Livewire\Admin\StaffRoom;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Models\StaffMessage;
+use App\Models\StaffThread;
 use App\Support\ChatText;
 use App\Support\StaffChat;
 use Filament\Facades\Filament;
@@ -135,6 +136,9 @@ class StaffChatTest extends TestCase
         $this->assertSame('2', LiveChat::getNavigationBadge());
 
         Livewire::test(StaffRoom::class);
+        $this->assertSame(2, StaffChat::unread($me), 'rendering (a poll from a tab in the background) marks nothing read');
+
+        Livewire::test(StaffRoom::class)->call('markSeen', PHP_INT_MAX);
         $this->assertSame(0, StaffChat::unread($me));
         $this->assertSame(0, StaffChat::unread($other), 'their own messages never count');
     }
@@ -183,11 +187,87 @@ class StaffChatTest extends TestCase
     /** ChatText::render is the one unescaped output the chat's views may use (§3 Α, F5). */
     public function test_the_chat_views_print_raw_html_only_through_chattext(): void
     {
-        foreach (glob(resource_path('views/livewire/admin/staff-*.blade.php')) as $view) {
+        foreach ([...glob(resource_path('views/livewire/admin/staff-*.blade.php')), resource_path('views/admin/pages/live-chat.blade.php')] as $view) {
             preg_match_all('/\{!!(.*?)!!\}/s', (string) file_get_contents($view), $raw);
             foreach ($raw[1] as $expression) {
                 $this->assertMatchesRegularExpression('/^\s*\\\\App\\\\Support\\\\ChatText::render\(/', $expression, basename($view));
             }
         }
+    }
+
+    /** Review of #373, R1: an address touched by a quote, a bracket or `&` links to itself and shows as written. */
+    public function test_a_quoted_or_bracketed_address_links_to_itself_and_shows_as_written(): void
+    {
+        foreach (['"https://example.com"', '<https://example.com>', "'https://example.com'", 'https://example.com/&'] as $text) {
+            $html = ChatText::render($text)->toHtml();
+            $this->assertStringContainsString('href="https://example.com' . (str_ends_with($text, '&') ? '/&amp;' : '') . '"', $html, $text);
+            $this->assertSame($text, html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5), $text);
+        }
+        $this->assertStringNotContainsString('<svg', ChatText::render('http://a.b/<svg onload=alert(1)>')->toHtml());
+    }
+
+    /** Review of #373, R2: the room listens only to events Livewire really dispatches. */
+    public function test_the_room_listens_only_to_events_livewire_dispatches(): void
+    {
+        $view = (string) file_get_contents(resource_path('views/livewire/admin/staff-room.blade.php'));
+        $js = (string) file_get_contents(base_path('vendor/livewire/livewire/dist/livewire.js'));
+        $this->assertStringNotContainsString('livewire:update', $view);
+        $this->assertStringContainsString('MutationObserver', $view, 'follows new messages without a Livewire event');
+        preg_match_all('/x-on:(livewire:[a-z-]+)/', $view, $events);
+        foreach ($events[1] as $event) {
+            $this->assertStringContainsString('"' . $event . '"', $js, "Livewire never dispatches {$event}");
+        }
+    }
+
+    /** Review of #373, R3: a member still on the mandatory 2FA set-up neither reads nor writes. */
+    public function test_a_member_without_2fa_set_up_does_not_read_the_room(): void
+    {
+        StaffChat::post($this->member(), StaffChat::room(), 'the new root password is in the vault');
+        $pending = Staff::factory()->withoutTwoFactor()->create(['role_id' => Role::create(['name' => 'P' . uniqid(), 'permissions' => self::ALL])->id]);
+        $this->actAs($pending);
+
+        $this->assertFalse(StaffChat::canView($pending));
+        Livewire::test(StaffRoom::class)->assertDontSee('root password');
+        $this->assertNotNull(StaffChat::post($pending, StaffChat::room(), 'hi'));
+    }
+
+    /** Review of #373, R5: an emoji sequence keeps its joiner; a joiner anywhere else goes. */
+    public function test_emoji_sequences_survive_and_a_lone_joiner_goes(): void
+    {
+        $this->assertSame("👩\u{200D}💻", ChatText::clean("👩\u{200D}💻"));
+        $this->assertSame('ab', ChatText::clean("a\u{200D}b"));
+    }
+
+    /** Review of #373, R6: the badge stops counting at 99. */
+    public function test_the_badge_stops_counting_at_99(): void
+    {
+        $me = $this->member();
+        $room = StaffChat::room();
+        $other = $this->member();
+        foreach (range(1, StaffChat::UNREAD_CAP + 5) as $i) {
+            $room->messages()->create(['staff_id' => $other->id, 'body' => 'm' . $i]);
+        }
+        $this->actAs($me);
+
+        $this->assertSame(StaffChat::UNREAD_CAP + 1, StaffChat::unread($me));
+        $this->assertSame('99+', LiveChat::getNavigationBadge());
+    }
+
+    /** Review of #373, R7: post() writes only to the room until private threads check their members (step 2b). */
+    public function test_post_refuses_any_thread_but_the_room(): void
+    {
+        $pair = StaffThread::query()->create(['kind' => 'direct', 'direct_key' => '1-2']);
+
+        $this->assertNotNull(StaffChat::post($this->member(), $pair, 'hi'));
+        $this->assertSame(0, StaffMessage::query()->count());
+    }
+
+    /** Review of #373, R8: a role left empty on purpose gets nothing. */
+    public function test_an_empty_role_stays_empty(): void
+    {
+        $empty = Role::create(['name' => 'Empty' . uniqid(), 'permissions' => []]);
+        (require database_path('migrations/2026_12_28_000000_create_staff_chat.php'))->grantToEveryRole();
+
+        $this->assertSame([], $empty->fresh()->permissions);
     }
 }
