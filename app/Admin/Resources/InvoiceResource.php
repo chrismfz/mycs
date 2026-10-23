@@ -63,7 +63,6 @@ class InvoiceResource extends Resource
 {
     protected static ?string $model = Invoice::class;
 
-    /** Its name in «Recently viewed» (the sidebar shows its kind beside it). */
     /**
      * What a cancellation does to the periods it bills (Δ3a, ADV-4), the same on the list and the invoice's page. Said as
      * what happens to the service (owner 2026-10-24): «as usual» to re-issue an invoice left an active service suspended
@@ -80,6 +79,7 @@ class InvoiceResource extends Resource
         ];
     }
 
+    /** Its name in «Recently viewed» (the sidebar shows its kind beside it). */
     public static function getRecordTitle(?Model $record): string|Htmlable|null
     {
         if (!$record instanceof Invoice) {
