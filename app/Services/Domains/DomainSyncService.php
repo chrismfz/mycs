@@ -6,12 +6,15 @@ use App\Enums\DomainStatus;
 use App\Helpers\NotificationHelper;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
+use App\Models\DomainRegistrarLog;
 use App\Models\DomainTld;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\ModuleAction;
+use App\Models\Staff;
 use App\Services\Domains\Lookup\DomainLookup;
 use App\Services\Domains\Ordering\DomainOrderFulfilment;
+use App\Support\Actor;
 use App\Support\Domains\DomainSyncResult;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -89,6 +92,7 @@ class DomainSyncService
             } catch (Throwable $e) {
                 if ($write) {
                     $this->bookkeep($domain, mb_substr($e->getMessage(), 0, 1000));
+                    $this->logSync($domain, DomainRegistrarLog::STATUS_FAILED, error: mb_substr($e->getMessage(), 0, 1000));
                     if ($e instanceof DomainNotFoundAtRegistrar) {
                         $this->notOurs($domain, $e);
                         $this->registrationGone($domain, $e);
@@ -102,6 +106,9 @@ class DomainSyncService
                 // As stored now, under the lock: not the caller's copy, maybe read before another sync (code review 3 of #293).
                 $before = DB::table('domains')->where('id', $domain->id)->first(['status', 'registrar_domain_id']);
                 $this->apply($domain, $result, $changes);
+                if ($changes !== []) {
+                    $this->logSync($domain, DomainRegistrarLog::STATUS_OK, changes: $changes);
+                }
                 if ($before !== null) {
                     $this->transferOutcome($domain, DomainStatus::tryFrom((string) $before->status), $before->registrar_domain_id, $result);
                 }
@@ -663,6 +670,34 @@ class DomainSyncService
         $domain->forceFill(['meta' => $meta])->save();
         ModuleAction::domainFailed($domain, DomainOrderFulfilment::lineOf($domain), $domain->effectiveRegistrarConnection()?->registrar,
             new RuntimeException(__('domains.order.registration_gone', ['domain' => $domain->fqdn, 'said' => $e->getMessage()])), ModuleAction::DOMAIN_REGISTER);
+    }
+
+    /**
+     * A sync in the registrar log (owner 2026-10-23): each failure, not only the last one the domain keeps, and each
+     * change it brought (also in the domain's audit). A sync that found nothing new writes nothing. Never the sync's
+     * own failure.
+     *
+     * @param  array<string, array{0: mixed, 1: mixed}>  $changes
+     */
+    private function logSync(Domain $domain, string $status, array $changes = [], ?string $error = null): void
+    {
+        if (!$domain->exists) {
+            return;
+        }
+        try {
+            $actor = Actor::current();
+            DomainRegistrarLog::query()->create([
+                'domain_id' => $domain->id,
+                'registrar_connection_id' => $domain->effectiveRegistrarConnection()?->id,
+                'staff_id' => $actor instanceof Staff ? $actor->id : null,
+                'action' => 'sync',
+                'status' => $status,
+                'response' => $changes === [] ? null : array_map(fn (array $change) => ['from' => $change[0], 'to' => $change[1]], $changes),
+                'error' => $error,
+            ]);
+        } catch (Throwable $e) {
+            report($e);
+        }
     }
 
     /** When it was read and what went wrong: bookkeeping, not a change of the domain (no audit, no updated_at). */

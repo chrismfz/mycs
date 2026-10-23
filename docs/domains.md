@@ -128,6 +128,9 @@
   της επόμενης περιόδου, auto-renew/do-not-renew, overrides (grace/redemption/fee/τιμή). Το όνομα δεν είναι unique:
   ένα domain που τελείωσε μένει (D-18) και το όνομα μπορεί να ξανάρθει· unique είναι το `live_fqdn` (= fqdn όσο δεν
   έχει τελειώσει, αλλιώς null).
+  Το `sync_error` κρατά μόνο το τελευταίο σφάλμα· το ιστορικό είναι στο `domain_registrar_logs` (action `sync`): κάθε
+  αποτυχία του sync, και κάθε sync που άλλαξε κάτι (`response` = πεδίο → from/to). Sync χωρίς αλλαγή δεν γράφει τίποτα.
+  Όλα τα logs όλων των domains: Utilities → Registrar Log (owner 2026-10-23).
 - `domain_contacts` → **όχι** (D-3): `registrant/admin/tech/billing_contact_id` στο domain (admin: η κύρια επαφή,
   D-20) και handle ανά ρόλο. Επαφή που είναι ρόλος σε ενεργό domain δεν αρχειοθετείται.
 - `domain_reminders`: ποια ειδοποίηση στάλθηκε για ποια λήξη (όπως το `invoice_reminders`), ώστε να μη στέλνεται δύο φορές.
