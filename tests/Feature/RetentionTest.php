@@ -3,6 +3,10 @@
 namespace Tests\Feature;
 
 use App\Admin\Pages\SystemCleanup;
+use App\Models\ClientGroup;
+use App\Models\Domain;
+use App\Models\DomainTldPrice;
+use App\Models\Service;
 use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
@@ -34,8 +38,8 @@ class RetentionTest extends TestCase
     public function test_each_log_is_pruned_by_its_setting_and_zero_keeps_it(): void
     {
         config(['settings.retention_audits_days' => 10, 'settings.retention_debug_logs_days' => 0]);
-        $old = $this->log('audits', now()->subDays(11)->toDateTimeString(), ['event' => 'updated', 'auditable_type' => 'x', 'auditable_id' => 1]);
-        $new = $this->log('audits', now()->subDays(9)->toDateTimeString(), ['event' => 'updated', 'auditable_type' => 'x', 'auditable_id' => 1]);
+        $old = $this->log('audits', now()->subDays(11)->toDateTimeString(), ['event' => 'updated', 'auditable_type' => Ticket::class, 'auditable_id' => 1]);
+        $new = $this->log('audits', now()->subDays(9)->toDateTimeString(), ['event' => 'updated', 'auditable_type' => Ticket::class, 'auditable_id' => 1]);
         $debug = $this->log('debug_logs', now()->subYears(3)->toDateTimeString(), ['type' => 'http', 'context' => '{}']);
 
         $deleted = Retention::pruneAll();
@@ -141,5 +145,36 @@ class RetentionTest extends TestCase
         $this->assertNotNull(TicketMessageAttachment::query()->find($openFile->id));
         $this->assertNotNull(TicketMessageAttachment::query()->find($recentFile->id));
         Storage::disk('local')->delete([$openFile->path, $recentFile->path]);
+    }
+
+    /** A charge at the registrar is what was paid there, whatever its status: never pruned (review of #410). */
+    public function test_registrar_charges_are_kept_and_other_calls_go(): void
+    {
+        $old = now()->subDays(400)->toDateTimeString();
+        $renew = $this->log('domain_registrar_logs', $old, ['action' => 'renew', 'status' => 'ok']);
+        $failed = $this->log('domain_registrar_logs', $old, ['action' => 'transfer', 'status' => 'failed']);
+        $sync = $this->log('domain_registrar_logs', $old, ['action' => 'sync', 'status' => 'ok']);
+
+        Retention::pruneAll();
+
+        $this->assertNotNull(DB::table('domain_registrar_logs')->find($renew));
+        $this->assertNotNull(DB::table('domain_registrar_logs')->find($failed));
+        $this->assertNull(DB::table('domain_registrar_logs')->find($sync));
+    }
+
+    /** Only the listed kinds of audit go: a service's or domain's amounts, and any model not listed, stay (review of #410). */
+    public function test_only_listed_audits_are_pruned(): void
+    {
+        $old = now()->subYears(5)->toDateTimeString();
+        $audit = fn (string $type) => $this->log('audits', $old, ['event' => 'updated', 'auditable_type' => $type, 'auditable_id' => 1]);
+        $ticket = $audit(Ticket::class);
+        $kept = array_map($audit, [Service::class, Domain::class, DomainTldPrice::class, ClientGroup::class, 'App\\Models\\SomethingNew']);
+
+        Retention::pruneAll();
+
+        $this->assertNull(DB::table('audits')->find($ticket));
+        foreach ($kept as $id) {
+            $this->assertNotNull(DB::table('audits')->find($id));
+        }
     }
 }

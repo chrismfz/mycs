@@ -15,7 +15,7 @@
                         <th class="py-2 pe-4">{{ __('Log') }}</th>
                         <th class="py-2 pe-4 text-right">{{ __('Entries') }}</th>
                         <th class="py-2 pe-4 text-right">{{ __('Size') }}</th>
-                        <th class="py-2 pe-4">{{ __('Oldest') }}</th>
+                        <th class="py-2 pe-4">{{ __('First entry') }}</th>
                         <th class="py-2 pe-4">{{ __('Kept') }}</th>
                         <th class="py-2"></th>
                     </tr>

@@ -2,23 +2,29 @@
 
 namespace App\Support;
 
-use App\Models\AdjustmentNote;
-use App\Models\BillingAgreement;
-use App\Models\Coupon;
-use App\Models\Credit;
-use App\Models\Invoice;
-use App\Models\InvoiceItem;
-use App\Models\InvoiceTransaction;
+use App\Models\ApiKey;
+use App\Models\BulkMail;
+use App\Models\Category;
+use App\Models\ClientNote;
+use App\Models\ConfigOption;
+use App\Models\Contact;
+use App\Models\CustomProperty;
+use App\Models\DomainRegistrarConnection;
+use App\Models\DomainTld;
+use App\Models\License;
+use App\Models\McpOauthGrant;
+use App\Models\McpProposal;
 use App\Models\Notification;
-use App\Models\Offer;
-use App\Models\Order;
-use App\Models\Plan;
-use App\Models\Price;
-use App\Models\ProductUpgrade;
-use App\Models\ServiceUpgrade;
-use App\Models\Setting;
-use App\Models\TaxRate;
+use App\Models\NotificationTemplate;
+use App\Models\Product;
+use App\Models\Property;
+use App\Models\Role;
+use App\Models\Staff;
+use App\Models\Ticket;
+use App\Models\TicketDepartment;
+use App\Models\TicketMessage;
 use App\Models\TicketQuarantine;
+use App\Models\User;
 use Closure;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
@@ -41,12 +47,18 @@ final class Retention
     public const MAX_PER_RUN = 100_000;
 
     /**
-     * The money audit: kept for ever (docs/money-trail.md §6), whatever the audit log's retention. MoneyHistory builds an
-     * invoice's history from it (review of #410).
+     * The audits the audit log's retention may delete: of these models only. Every other model's audit is kept for ever,
+     * the money audit first of all (docs/money-trail.md §6: invoices, payments, credit, prices, services' and domains'
+     * amounts and dates, discounts, gateways...), and a model audited later is kept until someone adds it here (review
+     * of #410: a list of what to keep missed some).
      */
-    public const MONEY_AUDITS = [Invoice::class, InvoiceItem::class, InvoiceTransaction::class, Credit::class, AdjustmentNote::class,
-        BillingAgreement::class, Order::class, Offer::class, ServiceUpgrade::class, ProductUpgrade::class, Price::class, Plan::class,
-        TaxRate::class, Coupon::class, Setting::class];
+    public const PRUNABLE_AUDITS = [Staff::class, Role::class, Ticket::class, TicketMessage::class, TicketDepartment::class, Product::class,
+        Category::class, ConfigOption::class, Contact::class, ClientNote::class, CustomProperty::class, Property::class, NotificationTemplate::class,
+        BulkMail::class, ApiKey::class, License::class, McpProposal::class, McpOauthGrant::class, User::class, DomainRegistrarConnection::class,
+        DomainTld::class];
+
+    /** Registrar calls that charged (or may have): read as state (renewed, transferred, years paid), never a log. */
+    public const REGISTRAR_CHARGES = ['register', 'transfer', 'renew', 'restore'];
 
     /**
      * key => [table, date column, setting, default days, label, what it is, and what of it is never a log (`keep`)]. Rows
@@ -60,13 +72,13 @@ final class Retention
             'email_logs' => ['table' => 'email_logs', 'column' => 'created_at', 'setting' => 'cronjob_delete_email_logs', 'default' => 90,
                 'label' => 'Email log', 'description' => 'Every mail sent, with its body: what a customer was sent and when.'],
             'audits' => ['table' => 'audits', 'column' => 'created_at', 'setting' => 'retention_audits_days', 'default' => 730,
-                'label' => 'Audit log', 'description' => 'Who changed what in the admin and the client area (the records\' «Audit» tab). The money audit (invoices, payments, credit, prices, taxes) is kept for ever.',
-                'keep' => fn (Builder $query) => $query->whereNotIn('auditable_type', self::MONEY_AUDITS)],
+                'label' => 'Audit log', 'description' => 'Who changed what in the admin and the client area (the records\' «Audit» tab). Only staff, tickets, catalogue and similar changes go; the money audit and every other model\'s are kept for ever.',
+                'keep' => fn (Builder $query) => $query->whereIn('auditable_type', self::PRUNABLE_AUDITS)],
             'debug_logs' => ['table' => 'debug_logs', 'column' => 'created_at', 'setting' => 'retention_debug_logs_days', 'default' => 30,
                 'label' => 'HTTP and error logs', 'description' => 'Outgoing HTTP calls and application errors (System → HTTP log, Error log).'],
             'domain_registrar_logs' => ['table' => 'domain_registrar_logs', 'column' => 'created_at', 'setting' => 'retention_registrar_logs_days', 'default' => 180,
-                'label' => 'Registrar log', 'description' => 'Each call to a domain registrar, with its request and answer. A charge still pending at the registrar is kept (it guards against renewing twice).',
-                'keep' => fn (Builder $query) => $query->where('status', '!=', 'pending')],
+                'label' => 'Registrar log', 'description' => 'Each call to a domain registrar, with its request and answer. Charges (register, transfer, renew, restore) are kept whatever their status: they are what was paid at the registrar.',
+                'keep' => fn (Builder $query) => $query->whereNotIn('action', self::REGISTRAR_CHARGES)->where('status', '!=', 'pending')],
             'notifications' => ['table' => 'notifications', 'column' => 'created_at', 'setting' => 'retention_notifications_days', 'default' => 180,
                 'label' => 'Notifications', 'description' => 'The in-app notices of customers and staff.'],
             'user_authentication_logs' => ['table' => 'user_authentication_logs', 'column' => 'last_used_at', 'setting' => 'retention_login_logs_days', 'default' => 365,
@@ -113,15 +125,16 @@ final class Retention
      * Each log by its setting: key => rows deleted (only those with a retention and a table).
      *
      * @param  list<string>  $except  logs pruned elsewhere (the cron's email log step)
+     * @param  int  $max  rows a table at most (a web click does fewer than the cron)
      * @return array<string, int>
      */
-    public static function pruneAll(array $except = []): array
+    public static function pruneAll(array $except = [], int $max = self::MAX_PER_RUN): array
     {
         $deleted = [];
         foreach (array_diff(array_keys(self::logs()), $except) as $key) {
             $days = self::days($key);
             if ($days > 0) {
-                $deleted[$key] = self::pruneBefore($key, now()->subDays($days));
+                $deleted[$key] = self::pruneBefore($key, now()->subDays($days), $max);
             }
         }
 
@@ -129,7 +142,7 @@ final class Retention
     }
 
     /** Rows of one log older than $before (strictly), in chunks; how many went. */
-    public static function pruneBefore(string $key, Carbon $before): int
+    public static function pruneBefore(string $key, Carbon $before, int $max = self::MAX_PER_RUN): int
     {
         $log = self::logs()[$key] ?? throw new \InvalidArgumentException("Unknown log: {$key}");
         if (!Schema::hasTable($log['table'])) {
@@ -145,17 +158,17 @@ final class Retention
             default => fn (array $ids) => DB::table($log['table'])->whereIn('id', $ids)->delete(),
         };
 
-        return self::inChunks($query, $delete);
+        return self::inChunks($query, $delete, $max);
     }
 
     /**
      * @param  Closure(): Builder  $query  the rows to go
      * @param  Closure(list<int>): int  $delete
      */
-    private static function inChunks(Closure $query, Closure $delete): int
+    private static function inChunks(Closure $query, Closure $delete, int $max): int
     {
         $total = 0;
-        while ($total < self::MAX_PER_RUN) {
+        while ($total < $max) {
             $ids = $query()->orderBy('id')->limit(self::CHUNK)->pluck('id')->map(fn ($id) => (int) $id)->all();
             if ($ids === []) {
                 break;
@@ -183,7 +196,7 @@ final class Retention
         return [
             'rows' => $estimate ?? DB::table($log['table'])->count(),
             'estimated' => $estimate !== null,
-            // The first row's date (ids grow with time): by the primary key, never a scan of a date without an index.
+            // The first entry's date (by the primary key, never a scan of a date without an index): roughly the oldest.
             'oldest' => ($oldest = DB::table($log['table'])->orderBy('id')->value($log['column'])) !== null ? (string) $oldest : null,
             'bytes' => $bytes,
         ];

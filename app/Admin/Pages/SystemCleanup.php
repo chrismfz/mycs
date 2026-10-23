@@ -33,6 +33,9 @@ class SystemCleanup extends Page
 
     protected string $view = 'admin.pages.system-cleanup';
 
+    /** Rows a log at most per click: a web request stays short (the cron does more a run). */
+    public const PER_CLICK = 20_000;
+
     public static function getNavigationLabel(): string
     {
         return __('System Cleanup');
@@ -79,7 +82,7 @@ class SystemCleanup extends Page
                 ->modalDescription(__('Deletes what each log keeps no longer, by its setting (as the daily cron does). Logs set to 0 are kept.'))
                 ->authorize(fn () => self::canAccess())
                 ->action(function () {
-                    $deleted = Retention::pruneAll();
+                    $deleted = Retention::pruneAll(max: self::PER_CLICK);
                     self::record('retention', array_sum($deleted));
                     Notification::make()->success()->title(__(':count entries deleted.', ['count' => array_sum($deleted)]))->send();
                 }),
@@ -104,10 +107,10 @@ class SystemCleanup extends Page
                 abort_unless(array_key_exists($key, Retention::logs()), 404);
                 $before = Carbon::parse($data['before'])->startOfDay();
                 // One run's worth a click (as the cron's): millions of rows never hold a web request past its time.
-                $deleted = Retention::pruneBefore($key, $before);
+                $deleted = Retention::pruneBefore($key, $before, self::PER_CLICK);
                 self::record($key, $deleted, $before);
                 Notification::make()->success()->title(__(':count entries deleted.', ['count' => $deleted]))
-                    ->body($deleted >= Retention::MAX_PER_RUN ? __('More remain: run it again.') : null)->send();
+                    ->body($deleted >= self::PER_CLICK ? __('More remain: run it again.') : null)->send();
             });
     }
 
