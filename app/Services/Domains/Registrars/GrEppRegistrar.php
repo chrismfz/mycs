@@ -279,6 +279,11 @@ class GrEppRegistrar implements ChangesOwner, DomainRegistrar, EmailsAuthCode, M
                 'statuses' => implode(', ', $info->statuses) ?: 'ok',
                 'regulator_statuses' => implode(', ', $info->regulatorStatuses) ?: null,
                 'status_reasons' => $info->statusReasons !== [] ? implode('; ', array_map(fn ($s, $r) => "{$s}: {$r}", array_keys($info->statusReasons), $info->statusReasons)) : null,
+                // Read and dropped until 2026-10-23 (owner: «what else do we hide?»): who sponsors it, its last transfer, the
+                // hosts under it (their names; their addresses are read by «Read child nameservers»).
+                'sponsor' => $info->clientId,
+                'transferred' => $info->transferred?->format('Y-m-d H:i') . ($info->transferred !== null ? ' UTC' : ''),
+                'hosts' => $info->hosts !== [] ? implode(', ', array_map('strval', $info->hosts)) : null,
                 'protocol' => $info->protocol,
                 'punycode' => $info->punycode,
                 'bundle' => $info->bundle !== [] ? implode(', ', array_map(fn ($b) => "{$b->name} ({$b->recordType}" . ($b->chargeable ? ', chargeable' : '') . ')', $info->bundle)) : null,

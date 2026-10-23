@@ -14,6 +14,7 @@ use App\Models\Domain;
 use App\Services\Domains\DomainManagementService;
 use App\Support\Domains\DnssecRecord;
 use App\Support\Domains\RegistryStatuses;
+use Closure;
 use Filament\Actions\ViewAction;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Resources\Resource;
@@ -141,8 +142,33 @@ class DomainResource extends Resource
         'handles' => 'Handles at the registrar',
     ];
 
+    /**
+     * CentralNic Reseller's record (its StatusDomain, as the sync keeps it, lower case): shown under its own labels, not
+     * Openprovider's (owner 2026-10-23: only its status showed).
+     */
+    private const CNIC_DETAILS = [
+        'status' => 'Status at the registrar',
+        'rgp_status' => 'RGP status',
+        'paiduntil_date' => 'Paid until',
+        'registration_expiration_date' => 'Expires at the registry',
+        'renewal_date' => 'Renewal date',
+        'renewalmode' => 'Renewal mode',
+        'transfermode' => 'Transfer mode',
+        'x-transferlock-until' => 'Transfer lock until',
+        'x-registry-lock' => 'Registry lock',
+        'x-time-to-suspension' => 'Time to suspension',
+        'x-whoisprivacy' => 'WHOIS privacy',
+        'zone' => 'Zone',
+        'created_date' => 'Created',
+        'updated_date' => 'Last changed',
+        'is_lockable' => 'Lockable',
+        'handles' => 'Handles at the registrar',
+    ];
+
     /** The .gr registry's record fields shown (G8-3), in this order: what staff look up in grweb today. */
     private const REGISTRY_DETAILS = [
+        'sponsor' => 'Sponsoring registrar',
+        'transferred' => 'Last transfer',
         'protocol' => 'Protocol',
         'roid' => 'ROID',
         'bundle' => 'Forms (.gr / .ελ)',
@@ -204,7 +230,7 @@ class DomainResource extends Resource
     {
         $yesNo = fn (?bool $state) => $state === null ? '—' : ($state ? __('Yes') : __('No'));
 
-        $domain = Section::make(__('domains.domain'))->columns(['default' => 1, 'sm' => 2, '2xl' => 3])->schema([
+        $domain = Section::make(__('domains.domain'))->columns(['default' => 1, 'xl' => 2])->schema([
             TextEntry::make('fqdn')->label(__('domains.domain')),
             TextEntry::make('status')->label(__('Status'))->badge(),
             TextEntry::make('client.name')->label(__('Client')),
@@ -246,22 +272,29 @@ class DomainResource extends Resource
             Domain::ROLES,
         ));
 
-        // All the registrar told the last sync (D4b): what staff would otherwise look up in its panel.
-        $registrar = Section::make(__('At the registrar'))->columns(['default' => 1, 'sm' => 2, '2xl' => 3])->collapsible()
-            ->visible(fn (Domain $record) => !empty($record->meta['registrar'] ?? null) && !self::fromGrRegistry($record))
-            ->schema(array_map(
-                fn (string $key, string $label) => TextEntry::make("registrar_{$key}")->label(__($label))
-                    ->state(function (Domain $record) use ($key, $yesNo) {
-                        $value = $record->meta['registrar'][$key] ?? null;
+        // All the registrar told the last sync (D4b): what staff would otherwise look up in its panel, under each registrar's
+        // own labels (owner 2026-10-23: CentralNic's showed only its status), open, not folded.
+        $isCnic = fn (Domain $record) => $record->effectiveRegistrarConnection()?->registrar === 'cnic';
+        $kept = fn (string $prefix, array $labels, Closure $when) => array_map(
+            fn (string $key, string $label) => TextEntry::make("{$prefix}_{$key}")->label(__($label))
+                ->visible($when)
+                ->state(function (Domain $record) use ($key, $yesNo) {
+                    $value = $record->meta['registrar'][$key] ?? null;
 
-                        return is_bool($value) ? $yesNo($value) : ($value === null || $value === '' ? '—' : (string) $value);
-                    }),
-                array_keys(self::REGISTRAR_DETAILS),
-                self::REGISTRAR_DETAILS,
-            ));
+                    return is_bool($value) ? $yesNo($value) : ($value === null || $value === '' ? '—' : (string) $value);
+                }),
+            array_keys($labels),
+            $labels,
+        );
+        $registrar = Section::make(__('At the registrar'))->columns(['default' => 1, 'sm' => 2])
+            ->visible(fn (Domain $record) => !empty($record->meta['registrar'] ?? null) && !self::fromGrRegistry($record))
+            ->schema([
+                ...$kept('registrar', self::REGISTRAR_DETAILS, fn (Domain $record) => !$isCnic($record)),
+                ...$kept('cnic', self::CNIC_DETAILS, $isCnic),
+            ]);
 
         // The .gr registry's record (G8-3): its statuses, the EETT's above them, in words; its protocol, forms and DS check.
-        $registry = Section::make(__('At the .gr registry'))->collapsible()
+        $registry = Section::make(__('At the .gr registry'))
             ->visible(fn (Domain $record) => self::fromGrRegistry($record))
             ->schema([
                 TextEntry::make('registry_statuses')->label(__('Status at the registry'))->listWithLineBreaks()
@@ -279,15 +312,17 @@ class DomainResource extends Resource
                 )),
             ]);
 
-        // Two columns that each flow on their own: no gap beside a short section (D4c).
+        // As the mockup (owner 2026-10-23): the domain and the registrar's side by side, everything open; under them its
+        // contacts and child nameservers; its notes last. The registrar's commands are one row above (ViewDomain).
         return $schema->columns(1)->components([
+            // The registrar's commands in one row, as WHMCS's «Registrar Commands»: each opens the page's own action.
+            Section::make()->compact()->schema([
+                Actions::make(fn ($livewire) => method_exists($livewire, 'registrarCommands') ? $livewire->registrarCommands() : [])
+                    ->label(__('Registrar'))->key('registrar_commands'),
+            ])->visible(fn ($livewire) => method_exists($livewire, 'registrarCommands') && $livewire->registrarCommands() !== []),
             Grid::make(['default' => 1, 'lg' => 2])->schema([
                 Group::make([
                     $domain,
-                    $contacts,
-                    Section::make(__('Admin notes'))->schema([
-                        TextEntry::make('notes')->hiddenLabel()->placeholder('—')->prose(),
-                    ]),
                 ]),
                 Group::make([
                     Section::make(__('Nameservers'))->schema([
@@ -308,27 +343,17 @@ class DomainResource extends Resource
                                 ->state(fn (Domain $record) => collect($record->meta['transferred_away'] ?? [])->map(fn ($v, $k) => "{$k}: " . (is_scalar($v) ? (string) $v : json_encode($v)))->values()->all()),
                         ]),
                     // What its transfer to us did (its roles replaced, or why not; its owner): kept apart from the sync's.
-                    Section::make(__('Transfer to us'))->collapsible()
+                    Section::make(__('Transfer to us'))
                         ->visible(fn (Domain $record) => is_array($record->meta['transfer'] ?? null))
                         ->schema([
                             TextEntry::make('transfer_notes')->hiddenLabel()->listWithLineBreaks()
                                 ->state(fn (Domain $record) => collect($record->meta['transfer'] ?? [])->map(fn ($v, $k) => "{$k}: " . (is_scalar($v) ? (string) $v : json_encode($v)))->values()->all()),
                         ]),
-                    // As last read from the registrar (its «Read child nameservers»): the forgotten ones too.
-                    Section::make(__('Child nameservers'))->collapsible()
-                        ->visible(fn (Domain $record) => isset($record->meta['child_hosts']))
-                        ->description(fn (Domain $record) => ($record->meta['child_hosts']['stale'] ?? false)
-                            ? __('Out of date (changed after it was read): read again.')
-                            : __('Read :when', ['when' => (string) ($record->meta['child_hosts']['read_at'] ?? '—')]))
-                        ->schema([
-                            TextEntry::make('child_hosts')->hiddenLabel()->placeholder(__('None at the registrar.'))->listWithLineBreaks()->fontFamily('mono')
-                                ->state(fn (Domain $record) => collect($record->meta['child_hosts']['hosts'] ?? [])->filter(fn ($h) => is_array($h))
-                                    ->map(fn (array $h) => ($h['name'] ?? '?') . '  ' . implode(', ', (array) ($h['addresses'] ?? []))
-                                        . (($h['read'] ?? true) === false ? '  (' . __('not read') . ')' : (($h['linked'] ?? false) ? '  (' . __('in use') . ')' : '')))->values()->all()),
-                        ]),
+                    $registrar,
+                    $registry,
                     // DNSSEC (G8-4b): its records as last read from the registrar (DS at the .gr registry, DNSKEYs at
                     // Openprovider), and what the registrar said of the last change (the .gr registry's check).
-                    Section::make(__('DNSSEC'))->collapsible()
+                    Section::make(__('DNSSEC'))
                         ->visible(fn (Domain $record) => is_array($record->meta['dnssec'] ?? null))
                         ->description(fn (Domain $record) => match (true) {
                             (bool) ($record->meta['dnssec']['stale'] ?? false) => __('Out of date (changed after it was read): read again.'),
@@ -350,9 +375,29 @@ class DomainResource extends Resource
                                 ->state(fn (Domain $record) => (string) ($record->meta['dnssec']['note'] ?? '')
                                     . (is_string($record->meta['dnssec']['note_at'] ?? null) ? ' (' . $record->meta['dnssec']['note_at'] . ')' : '')),
                         ]),
-                    $registrar,
-                    $registry,
                 ]),
+            ]),
+            Grid::make(['default' => 1, 'lg' => 2])->schema([
+                $contacts,
+                // As last read from the registrar (its «Read child nameservers»): the forgotten ones too.
+                Section::make(__('Child nameservers'))
+                    ->visible(fn (Domain $record) => isset($record->meta['child_hosts']) || self::detail($record, 'hosts') !== '')
+                    ->description(fn (Domain $record) => match (true) {
+                        !isset($record->meta['child_hosts']) => __('Names from the last sync; «Read child nameservers» reads their addresses.'),
+                        (bool) ($record->meta['child_hosts']['stale'] ?? false) => __('Out of date (changed after it was read): read again.'),
+                        default => __('Read :when', ['when' => (string) ($record->meta['child_hosts']['read_at'] ?? '—')]),
+                    })
+                    ->schema([
+                        TextEntry::make('child_hosts')->hiddenLabel()->placeholder(__('None at the registrar.'))->listWithLineBreaks()->fontFamily('mono')
+                            ->state(fn (Domain $record) => !isset($record->meta['child_hosts'])
+                                ? array_values(array_filter(array_map('trim', explode(',', self::detail($record, 'hosts')))))
+                                : collect($record->meta['child_hosts']['hosts'] ?? [])->filter(fn ($h) => is_array($h))
+                                    ->map(fn (array $h) => ($h['name'] ?? '?') . '  ' . implode(', ', (array) ($h['addresses'] ?? []))
+                                        . (($h['read'] ?? true) === false ? '  (' . __('not read') . ')' : (($h['linked'] ?? false) ? '  (' . __('in use') . ')' : '')))->values()->all()),
+                    ]),
+            ]),
+            Section::make(__('Admin notes'))->schema([
+                TextEntry::make('notes')->hiddenLabel()->placeholder('—')->prose(),
             ]),
         ]);
     }
