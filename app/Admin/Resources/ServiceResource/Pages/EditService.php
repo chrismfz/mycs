@@ -25,6 +25,7 @@ use App\Services\Licensing\Licenses;
 use App\Services\Money\MoneyTrail;
 use App\Services\Service\DeleteService;
 use App\Services\ServiceUpgrade\ChangeCycle;
+use App\Support\LicenseKeyMask;
 use App\Support\Redact;
 use Exception;
 use Filament\Actions\Action;
@@ -123,17 +124,23 @@ class EditService extends EditRecord
         if (!$record instanceof Service) {
             return null;
         }
-        $services = Service::query()->where('client_id', $record->client_id)->with('product:id,name')->orderBy('id')
-            ->limit(self::CLIENT_SERVICES)->get(['id', 'client_id', 'product_id', 'domain', 'status']);
+        // A window around this one (review of #405: past the first 200, it lost its own place and its ‹ ›).
+        $own = fn () => Service::query()->where('client_id', $record->client_id);
+        $half = intdiv(self::CLIENT_SERVICES, 2);
+        $services = $own()->where('id', '<', $record->id)->orderByDesc('id')->limit($half)->pluck('id')
+            ->reverse()->push($record->id)->merge($own()->where('id', '>', $record->id)->orderBy('id')->limit($half)->pluck('id'));
         if ($services->count() < 2) {
             return null;
         }
+        $services = Service::query()->whereIn('id', $services->all())->with(['product:id,name', 'license'])->orderBy('id')
+            ->get(['id', 'client_id', 'product_id', 'domain', 'status']);
         $at = $services->search(fn (Service $service) => $service->is($record));
         $url = fn (?Service $service) => $service === null ? null : ServiceResource::getUrl('edit', ['record' => $service]);
 
         return new HtmlString(view('admin.resources.service-resource.client-services', [
             'services' => $services->map(fn (Service $service) => [
-                'label' => '#' . $service->id . ' ' . ($service->product->name ?? '') . ($service->domain ? ' · ' . $service->domain : ''),
+                // A license's «domain» is its key: masked as the search shows it.
+                'label' => '#' . $service->id . ' ' . ($service->product->name ?? '') . ($service->domain ? ' · ' . LicenseKeyMask::domain($service) : ''),
                 'url' => $url($service), 'current' => $service->is($record),
                 'status' => Service::statusLabel($service->status), 'ended' => in_array($service->status, Service::ENDED_STATUSES, true),
             ])->all(),
@@ -141,7 +148,7 @@ class EditService extends EditRecord
             'next' => $url($at !== false ? ($services[$at + 1] ?? null) : null),
             // Only for staff who may open the client, as the Client field.
             'tab' => $record->client !== null && ClientResource::canView($record->client) ? ClientResource::getUrl('services', ['record' => $record->client_id]) : null,
-            'total' => Service::query()->where('client_id', $record->client_id)->count(),
+            'total' => $own()->count(), // a window shows part of them
         ])->render());
     }
 
