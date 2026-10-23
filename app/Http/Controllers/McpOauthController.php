@@ -129,7 +129,11 @@ class McpOauthController extends Controller
         } else {
             $staff = self::staff();
             if (!$staff instanceof Staff || !McpAccess::staffMay($staff)) {
-                return self::back($request, 'Log in to the admin as a member of staff with «Use the MCP Server», or paste a key.');
+                $member = Auth::guard('staff')->user();
+
+                return self::back($request, $member instanceof Staff && !$member->hasTwoFactor()
+                    ? 'Set up 2FA in your admin profile first: approving an MCP connector needs it, even when staff 2FA is optional.'
+                    : 'Log in to the admin as a member of staff with «Use the MCP Server», or paste a key.');
             }
             // Its session's row (one from before the rows has none yet): the consent is tied to it (StaffSessions).
             if ($request->hasSession() && !StaffSessions::check($staff, $request)) {

@@ -74,12 +74,12 @@ class StaffPresence
     }
 
     /**
-     * Only a member who is fully in the admin counts: active, with a role, and past the mandatory 2FA set-up. One on
-     * the set-up page is not yet in (review of #362).
+     * Only a member who is fully in the admin counts: active, with a role, and past the 2FA set-up when it is required
+     * (StaffTwoFactor). One on the set-up page is not yet in (review of #362).
      */
     public static function mayBeOnline(Staff $staff): bool
     {
-        return $staff->active && $staff->role_id !== null && $staff->hasTwoFactor();
+        return $staff->active && $staff->role_id !== null && StaffTwoFactor::satisfied($staff);
     }
 
     public static function canView(?Staff $staff): bool

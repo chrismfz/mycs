@@ -7,6 +7,7 @@ use App\Admin\Auth\EditProfile;
 use App\Admin\Auth\Login;
 use App\Http\Controllers\TicketAttachmentController;
 use App\Http\Middleware\AdminLocale;
+use App\Http\Middleware\EnsureStaffTwoFactor;
 use App\Http\Middleware\LockSession;
 use App\Http\Middleware\TrackStaffSession;
 use App\Http\Middleware\UseStaffGuard;
@@ -17,7 +18,6 @@ use App\Support\StaffChat;
 use App\Support\StaffPresence;
 use Exception;
 use Filament\Actions\Action;
-use Filament\Auth\MultiFactor\Http\Middleware\EnsureMultiFactorAuthenticationIsEnabled;
 use Filament\Facades\Filament;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -75,6 +75,8 @@ class AdminPanelProvider extends PanelProvider
             // default (security audit SA-12).
             ->strictAuthorization()
             ->multiFactorAuthentication([AppAuthentication::make()->recoverable()], isRequired: true)
+            // Required in the routes, decided per request by the setting «Require 2FA for staff» (StaffTwoFactor).
+            ->multiFactorAuthenticationRequiredMiddlewareName(EnsureStaffTwoFactor::class)
             ->spa()
             // Density, closer to WHMCS (docs/admin-ux.md): the whole width of the screen, a sidebar that folds away
             // (the top menu has the same pages), tighter spacing in density.css.
@@ -169,7 +171,7 @@ class AdminPanelProvider extends PanelProvider
             // Ticket attachments for staff: the client area's route is the customers' guard.
             ->authenticatedRoutes(function () {
                 Route::get('ticket-attachments/{attachment:uuid}', [TicketAttachmentController::class, 'download'])
-                    ->name('ticket-attachments.show')->middleware([EnsureMultiFactorAuthenticationIsEnabled::class, 'can:view,attachment']);
+                    ->name('ticket-attachments.show')->middleware([EnsureStaffTwoFactor::class, 'can:view,attachment']);
             });
 
         try {
