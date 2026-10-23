@@ -41,7 +41,7 @@ final class McpOauth
     public static function grantDays(): int
     {
         $value = config('settings.mcp_grant_days');
-        $days = is_int($value) ? $value : (is_string($value) && preg_match('/^\s*\d+\s*$/', $value) === 1 ? (int) $value : null);
+        $days = is_int($value) ? ($value >= 0 ? $value : null) : (is_string($value) && preg_match('/^\s*\d+\s*$/', $value) === 1 ? (int) $value : null);
 
         return $days !== null && $days <= self::MAX_GRANT_DAYS ? $days : self::GRANT_DAYS;
     }

@@ -86,7 +86,7 @@ class McpGrantLifetimeTest extends TestCase
     /** Only whole days count: anything else is the default, never «until revoked» (review of #420). */
     public function test_a_value_that_is_not_whole_days_is_the_default(): void
     {
-        foreach (['0.5', '0.9', '', ' ', 'abc', '1e30', '99999', null] as $value) {
+        foreach (['0.5', '0.9', '', ' ', 'abc', '1e30', '99999', null, -5, '-5', '-0'] as $value) {
             config(['settings.mcp_grant_days' => $value]);
             $this->assertSame(McpOauth::GRANT_DAYS, McpOauth::grantDays(), var_export($value, true));
         }
