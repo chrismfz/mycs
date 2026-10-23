@@ -317,6 +317,12 @@ class AppServiceProvider extends ServiceProvider
                 StaffSessions::started($event->user, $event->remember, request());
             }
         });
+        // The row of a staff login keeps its session's current id and when it was last seen, whatever the route.
+        Event::listen(function (RequestHandled $event) {
+            if ($event->request->hasSession()) {
+                StaffSessions::touch($event->request->session(), $event->request);
+            }
+        });
         Event::listen(function (Logout $event) {
             if ($event->guard === 'staff' && $event->user instanceof Staff) {
                 StaffSessions::loggedOut($event->user, request());

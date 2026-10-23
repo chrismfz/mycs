@@ -98,13 +98,16 @@ class AdvStaffSessionsTest extends TestCase
         $store->regenerate();
         $live = $store->getId();
         $store->save();
+        // That login request ends (fix of #375: the row takes the session's id at the end of every request).
+        StaffSessions::touch($store, request());
         $row = StaffSession::query()->sole();
         $handler = $store->getHandler();
         $this->assertNotSame('', (string) $handler->read($live));
 
         // An admin elsewhere ends it before that browser's next panel request.
         $admin = $this->staff(['admin.staff.viewAny', 'admin.staff.sessions']);
-        StaffSessions::end($staff, [$row], $admin, request());
+        $store->setId(str_repeat('a', 40)); // the admin's own request runs in another session
+        StaffSessions::end($staff, [$row->fresh()], $admin, request());
 
         $this->assertSame('', (string) $handler->read($live), 'the live session (with the staff login) is still in the store after it was ended');
     }

@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Models\McpOauthGrant;
 use App\Models\Staff;
 use App\Models\StaffSession;
 use Illuminate\Contracts\Session\Session;
@@ -87,14 +88,33 @@ final class StaffSessions
             return true;
         }
 
-        $id = self::store($request)->getId();
-        if ($row->session_id !== $id || $row->last_seen_at === null || $row->last_seen_at->lt(now()->subSeconds(self::TOUCH_EVERY))) {
-            // Not through the model: no event for a page view.
-            StaffSession::query()->toBase()->where('id', $row->id)->whereNull('ended_at')
-                ->update(['session_id' => $id, 'last_seen_at' => now(), 'ip_address' => CallerIp::of($request)]);
-        }
-
         return true;
+    }
+
+    /** Whether this session's row of $staff was ended (the staff guard asks, on every request that uses it). */
+    public static function endedIn(Staff $staff, Session $session): bool
+    {
+        $ulid = $session->get(self::SESSION_KEY);
+
+        return is_string($ulid) && StaffSession::query()->where('ulid', $ulid)->where('staff_id', $staff->id)->whereNotNull('ended_at')->exists();
+    }
+
+    /**
+     * At the end of every request of a session with a row (the admin's, the customer area's, the export, the MCP
+     * consent): the row keeps the session's current id (a login regenerates it after its row was written) and when it
+     * was last seen. One conditional update, not through the model.
+     */
+    public static function touch(Session $session, Request $request): void
+    {
+        $ulid = $session->get(self::SESSION_KEY);
+        if (!is_string($ulid)) {
+            return;
+        }
+        $id = $session->getId();
+        StaffSession::query()->toBase()->where('ulid', $ulid)->whereNull('ended_at')
+            ->where(fn ($query) => $query->whereNull('session_id')->orWhere('session_id', '!=', $id)
+                ->orWhereNull('last_seen_at')->orWhere('last_seen_at', '<', now()->subSeconds(self::TOUCH_EVERY)))
+            ->update(['session_id' => $id, 'last_seen_at' => now(), 'ip_address' => CallerIp::of($request)]);
     }
 
     /**
@@ -125,12 +145,14 @@ final class StaffSessions
     public static function end(Staff $staff, iterable $sessions, Staff $by, Request $request): int
     {
         $ended = 0;
+        $since = null;
         $currentId = self::store($request)->getId();
         foreach ($sessions as $row) {
             if ($row->staff_id !== $staff->id || $row->ended_at !== null) {
                 continue;
             }
             $row->forceFill(['ended_at' => now(), 'ended_by_staff_id' => $by->id])->save();
+            $since = $since === null || ($row->created_at !== null && $row->created_at->lt($since)) ? $row->created_at : $since;
             if (is_string($row->session_id) && $row->session_id !== '' && $row->session_id !== $currentId) {
                 try {
                     self::store($request)->getHandler()->destroy($row->session_id);
@@ -144,6 +166,12 @@ final class StaffSessions
         if ($ended === 0) {
             return 0;
         }
+
+        // The MCP connectors those logins could have approved (a lost laptop's): those approved by session since the
+        // earliest of them started, as a new password does (Staff::booted).
+        McpOauthGrant::query()->where('staff_id', $staff->id)->where('approved_by', 'session')->whereNull('revoked_at')
+            ->when($since !== null, fn ($query) => $query->where('created_at', '>=', $since))
+            ->get()->each(fn (McpOauthGrant $grant) => $grant->revoke('Session ended'));
 
         $staff->forceFill(['remember_token' => Str::random(60)])->saveQuietly();
         $mine = $by->is($staff) ? self::current($staff, $request) : null;
