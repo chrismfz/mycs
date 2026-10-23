@@ -19,11 +19,14 @@ use App\Support\StaffPresence;
 use Exception;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
+use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\DateTimePicker;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
 use Filament\Notifications\Livewire\Notifications;
+use Filament\Pages\BasePage;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Schemas\Schema;
@@ -91,6 +94,13 @@ class AdminPanelProvider extends PanelProvider
                     ->defaultPaginationPageOption(fn () => $table->getPaginationPageOptions() === self::PAGE_OPTIONS ? 50 : null)
                     ->defaultDateDisplayFormat('d/m/Y')->defaultDateTimeDisplayFormat('d/m/Y H:i'));
                 Schema::configureUsing(fn (Schema $schema) => $schema->defaultDateDisplayFormat('d/m/Y')->defaultDateTimeDisplayFormat('d/m/Y H:i'));
+                // The pickers too (owner 2026-10-23: «11/22/2026», the browser's own picker in its own locale): ours, d/m/Y,
+                // the week from Monday.
+                DatePicker::configureUsing(fn (DatePicker $picker) => $picker->native(false)->displayFormat('d/m/Y')->firstDayOfWeek(1));
+                DateTimePicker::configureUsing(fn (DateTimePicker $picker) => $picker->native(false)->displayFormat('d/m/Y H:i')->firstDayOfWeek(1));
+                // A page's form and details with the label beside the field, as WHMCS (owner 2026-10-23, docs/admin-ux.md):
+                // about half the height. Modals and filters keep theirs above (Filament: page forms only).
+                BasePage::inlineLabels();
             })
             ->colors([
                 'primary' => Color::Blue,

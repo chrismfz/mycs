@@ -86,3 +86,53 @@
         @apply pe-4;
     }
 }
+
+/*
+ * Forms, as WHMCS (owner 2026-10-23): the label beside its field (BasePage::inlineLabels), in a column of its own width
+ * rather than a third of the row; less space between fields; a field's help in small type right under it.
+ */
+.fi-sc {
+    @apply gap-4;
+}
+
+.fi-fo-field,
+.fi-fo-field-content-col {
+    @apply gap-y-1;
+}
+
+@media (width >= 40rem) {
+    .fi-fo-field.fi-fo-field-has-inline-label {
+        grid-template-columns: minmax(8rem, 11rem) minmax(0, 1fr);
+        @apply gap-x-3;
+
+        & .fi-fo-field-content-col {
+            grid-column: auto;
+        }
+
+        & .fi-fo-field-label-col {
+            @apply pt-1.5;
+        }
+    }
+}
+
+.fi-fo-field-content-col > .fi-sc .fi-sc-text,
+.fi-fo-field-content-col > .fi-sc-text {
+    @apply text-xs leading-4;
+}
+
+/* An empty table: one line, not a block with an icon (owner 2026-10-23). */
+.fi-ta-empty-state {
+    @apply px-4 py-3;
+
+    & .fi-ta-empty-state-icon-bg {
+        @apply hidden;
+    }
+
+    & .fi-ta-empty-state-content {
+        @apply mx-0 max-w-none justify-items-start text-start;
+    }
+
+    & .fi-ta-empty-state-heading {
+        @apply text-sm font-normal text-gray-500 dark:text-gray-400;
+    }
+}
