@@ -90,6 +90,9 @@ class CronJob extends Command
     /** @var list<int> services terminated for non-payment in this run (committed): the staff digest */
     private array $terminated = [];
 
+    /** When a daily run last got to the suspensions (the hourly run's gate). */
+    public const DUNNING_READY = 'cron_dunning_ready_at';
+
     /**
      * Execute the console command.
      */
@@ -121,16 +124,20 @@ class CronJob extends Command
      */
     private function runDunning(): int
     {
-        // Every day at any hour: the daily run does them, as before. Otherwise only after today's daily run: its credit
-        // applied and payments finished first, as the daily run's own order has it.
-        $daily = Setting::query()->where('key', 'last_cron_run')->where('settingable_type', CronStat::class)->value('value');
-        if (DunningWindow::always() || !DunningWindow::isOpen() || $daily === null || Carbon::parse((string) $daily)->lt(Carbon::today())) {
+        // Every day at any hour: the daily run does them, as before. Otherwise only once a daily run of the last day has
+        // reached them (its payments finished, its renewals billed), whatever failed after (review of #411).
+        if (DunningWindow::always() || !DunningWindow::isOpen() || !self::dailyRunReachedDunning()) {
             return self::SUCCESS;
         }
         Config::set('audit.console', true);
         $this->failures = $this->notices = $this->suspended = $this->terminated = [];
         WriteFailures::forget();
 
+        // Credit that came in since the daily run (a staff adjustment, a downgrade) pays first, as in the daily run: a
+        // customer with credit is not suspended while it sits unused (decision 5, review of #411).
+        $this->runCronJob('credit_applied', fn () => (new CreditAutoApply)->sweep(function (int $userId, Throwable $e) {
+            $this->failures["credit_applied user #{$userId}"] = $e;
+        }), transaction: false, quietWhenNone: true);
         $this->runCronJob('services_suspended', fn () => $this->suspendServices(), transaction: false, quietWhenNone: true);
         $this->runCronJob('services_terminated', fn () => $this->terminateServices(), transaction: false, quietWhenNone: true);
         try {
@@ -138,18 +145,52 @@ class CronJob extends Command
         } catch (Throwable $e) {
             report($e);
         }
-        if ($this->failures !== []) {
-            $message = e(implode("\n", array_map(fn ($key, $failure) => "{$key}: {$failure->getMessage()}", array_keys($this->failures), $this->failures)));
-            NotificationHelper::sendSystemEmailNotification('Cron Job Error', <<<HTML
-                An error occurred while suspending or terminating services:<br>
-                <pre>{$message}.</pre><br>
-                Please check the system and application logs for more details.
+        // Told once a day, not every hour the window is open (review of #411).
+        $once = fn (string $key) => Cache::add('cron-dunning-told:' . Carbon::today()->toDateString() . ':' . $key, true, 86400);
+        $notices = array_filter($this->notices, fn ($notice, string $key) => $once('notice:' . $key), ARRAY_FILTER_USE_BOTH);
+        if ($notices !== []) {
+            $text = e(implode("\n", array_map(fn ($key, $notice) => "{$key}: {$notice->getMessage()}", array_keys($notices), $notices)));
+            NotificationHelper::sendSystemEmailNotification('Cron Job: needs staff attention', <<<HTML
+                The cron job left these for staff:<br>
+                <pre>{$text}</pre>
                 HTML);
+        }
+        if ($this->failures !== []) {
+            $failures = array_filter($this->failures, fn ($failure, string $key) => $once('failure:' . $key), ARRAY_FILTER_USE_BOTH);
+            if ($failures !== []) {
+                $message = e(implode("\n", array_map(fn ($key, $failure) => "{$key}: {$failure->getMessage()}", array_keys($failures), $failures)));
+                NotificationHelper::sendSystemEmailNotification('Cron Job Error', <<<HTML
+                    An error occurred while suspending or terminating services:<br>
+                    <pre>{$message}.</pre><br>
+                    Please check the system and application logs for more details.
+                    HTML);
+            }
 
             return self::FAILURE;
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * A daily run of the last 24 hours got to the suspensions' place (DUNNING_READY, or a whole run: last_cron_run). An
+     * unreadable or future time counts as none: the hour waits (review of #411).
+     */
+    private static function dailyRunReachedDunning(): bool
+    {
+        $times = Setting::query()->whereIn('key', [self::DUNNING_READY, 'last_cron_run'])->where('settingable_type', CronStat::class)->pluck('value');
+        foreach ($times as $time) {
+            try {
+                $at = Carbon::parse((string) $time);
+            } catch (Throwable) {
+                continue;
+            }
+            if ($at->lte(Carbon::now()) && $at->gt(Carbon::now()->subDay())) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function runSteps()
@@ -510,6 +551,11 @@ class CronJob extends Command
             $this->runCronJob('domain_reminders', fn () => (new DomainReminders)->send(function (int $id, Throwable $e) {
                 $this->notices["domain_reminders #{$id}"] = new DisplayException("Domain #{$id}: its expiry notice could not be sent: {$e->getMessage()}. Tried again on the next run.");
             }), transaction: false);
+
+            // The hourly run may do them from here on: payments finished, renewals billed, credit applied. A failure in a
+            // step before or after (one domain, one invoice) no longer holds them back for the day (review of #411).
+            Setting::updateOrCreate(['key' => self::DUNNING_READY, 'settingable_type' => CronStat::class],
+                ['value' => now()->toDateTimeString(), 'type' => 'string']);
 
             // On the days and from the hour staff set (DunningWindow); otherwise the hourly run does them then.
             if (DunningWindow::isOpen()) {

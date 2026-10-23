@@ -560,7 +560,7 @@ class Settings
                     'database_type' => 'array',
                     'options' => [1 => 'Monday', 2 => 'Tuesday', 3 => 'Wednesday', 4 => 'Thursday', 5 => 'Friday', 6 => 'Saturday', 7 => 'Sunday'],
                     'default' => [1, 2, 3, 4, 5, 6, 7],
-                    'description' => 'Not in WHMCS (it needed cron tricks). Automatic suspensions and terminations only on these days, so someone is there to undo one the same day; what falls on another day waits for the next of these. The rest of the daily run (invoices, reminders) runs every day.',
+                    'description' => 'Not in WHMCS (it needed cron tricks). Automatic suspensions and terminations only on these days, so someone is there to undo one the same day; what falls on another day waits for the next of these. None chosen is every day. The rest of the daily run (invoices, reminders) runs every day.',
                 ],
                 [
                     'name' => 'cronjob_dunning_from',
