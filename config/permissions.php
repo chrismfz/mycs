@@ -88,6 +88,8 @@ return [
                 'deleteAny' => 'Bulk Delete Services',
                 // To another client, with its invoices not paid yet (owner 2026-10-23).
                 'move' => 'Move Services to Another Client',
+                // Into the account's panel signed in, as its owner (owner 2026-10-23): audited.
+                'sso' => 'Log in to a Service\'s Panel',
             ],
             // Domains (docs/domains.md): seen in D1; their actions come with D2–D5.
             'domains' => [

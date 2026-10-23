@@ -39,9 +39,11 @@ use Filament\Forms\Components\Toggle;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\Actions;
 use Filament\Schemas\Components\Component;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
 use Filament\Support\RawJs;
 use Filament\Tables\Columns\TextColumn;
@@ -186,129 +188,179 @@ class ServiceResource extends Resource
 
     public static function form(Schema $schema): Schema
     {
-        return $schema
-            ->components([
-                Select::make('product_id')
-                    ->label('Product')
-                    ->required()
-                    ->relationship(
-                        name: 'product',
-                        titleAttribute: 'name',
-                        modifyQueryUsing: fn (Builder $query) => $query->with('category')
-                    )
-                    ->getOptionLabelFromRecordUsing(fn (Product $product) => "{$product->name} - {$product->category->name} (#{$product->id})")
-                    ->searchable()
-                    ->live()
-                    ->preload()
-                    ->placeholder('Select the product'),
-                Select::make('plan_id')
-                    ->label('Plan')
-                    ->required()
-                    ->relationship('plan', 'name', fn (Builder $query, Get $get) => $query->where('priceable_id', $get('product_id'))->where('priceable_type', Product::class))
-                    ->searchable()
-                    ->preload()
-                    ->disabled(fn (Get $get) => !$get('product_id'))
-                    ->live()
-                    ->placeholder('Select the plan'),
-                // A paying service moved to a free or one-time plan is never billed again (billing-cursor §5): said so.
-                Toggle::make('ends_billing')->label('Never bill it again')->dehydrated()
-                    ->helperText('This service is billed every cycle; on a free or one-time plan it stays without being billed again. Or set its price to 0 in the same save.')
-                    ->visible(fn (Get $get, ?Service $record) => $record !== null && filled($get('plan_id')) && (int) $get('plan_id') !== (int) $record->plan_id
-                        && Service::endsBillingRefusal($record, Plan::query()->find($get('plan_id'))) !== null),
-                // Chosen when the service is made; afterwards it moves with «Move to another client» (its invoices with it),
-                // never by editing the field (owner 2026-10-23).
-                ClientComponent::make('client_id')->disabledOn('edit'),
-                Select::make('status')
-                    ->label('Status')
-                    ->required()
-                    ->options(Service::statusOptions())
-                    ->default(Service::STATUS_PENDING),
-                // Only where it means something (WHMCS: no service with more than 1 at nixpal): the product allows a
-                // quantity, or the service has one. Hidden, it is kept as it is.
-                TextInput::make('quantity')
-                    ->label('Quantity')
-                    ->required()
-                    ->default(1)
-                    ->placeholder('Enter the quantity')
-                    ->hidden(fn (?Service $record) => $record !== null && (int) $record->quantity <= 1
-                        && ($record->product->allow_quantity ?? 'disabled') === 'disabled'),
-                DatePicker::make('expires_at')
-                    ->label('Expires At')
-                    ->required(fn (Get $get) => $get('plan')?->type != 'one-time' && $get('plan')?->type != 'free' && $get('status') !== 'pending')
-                    ->placeholder('Select the expiration date'),
-                DatePicker::make('suspend_hold_until')
-                    ->label('Do Not Suspend Until')
-                    ->helperText('While set to a future date, the cronjob neither suspends nor terminates this service, even if it is overdue (through that day). This does not affect manual suspension or termination.')
-                    ->minDate(now())
-                    ->nullable()
-                    ->placeholder('Select a date to hold off suspension until'),
-                Select::make('coupon_id')
-                    ->label('Coupon')
-                    ->relationship('coupon', 'code')
-                    ->searchable()
-                    ->preload()
-                    ->placeholder('Select the coupon'),
-                Select::make('currency_code')
-                    ->options(function (Get $get, ?string $state) {
-                        $pricing = collect($get('../../pricing'))->pluck('currency_code');
-                        if ($state !== null) {
-                            $pricing = $pricing->filter(function ($code) use ($state) {
-                                return $code !== $state;
-                            });
-                        }
-                        $pricing = $pricing->filter(function ($code) {
-                            return $code !== null;
-                        });
+        // As WHMCS's product page, compact (owner 2026-10-23, the mockup): its usage and hosts on one line, then the billing
+        // and the account on the server side by side, labels beside the fields, the help behind ⓘ.
+        $hint = fn (string $text) => ['heroicon-o-information-circle', $text];
 
-                        return Currency::whereNotIn('code', $pricing)->pluck('code', 'code');
-                    })
-                    ->live()
-                    ->default(config('settings.default_currency'))
-                    ->required(),
-                // Never follows the account's group discount (ROADMAP 5, reviews of #272): staff's price stays.
-                Toggle::make('price_locked')
-                    ->label(__('Keep this price'))
-                    ->helperText(__('A change of the customer\'s group never reprices it.'))
-                    ->default(false),
-                TextInput::make('price')
-                    ->required()
-                    ->label('Price')
-                    // Suffix based on chosen currency
-                    ->prefix(fn (Get $get) => Currency::where('code', $get('currency_code'))->first()?->prefix)
-                    ->suffix(fn (Get $get) => Currency::where('code', $get('currency_code'))->first()?->suffix)
-                    ->live(onBlur: true)
-                    ->mask(RawJs::make(
-                        <<<'JS'
-                            $money($input, '.', '', 2)
-                        JS
-                    ))
-                    ->numeric()
-                    ->minValue(0)
-                    ->hintAction(
-                        Action::make('Recalculate Price')
-                            ->action(function (Component $component, Service $service) {
-                                if ($service) {
-                                    Notification::make('Price Recalculated')
-                                        ->title('The price has been successfully recalculated')
-                                        ->success()
-                                        ->send();
-                                    // Update the form field
-                                    $component->state($service->calculatePrice());
+        return $schema
+            ->columns(2)
+            ->components([
+                // Its usage as its server last told it (services:usage, every 4 hours) and the domains its account hosts, one line.
+                View::make('admin.resources.service-resource.summary-line')->columnSpanFull()
+                    ->visible(fn (?Service $record) => $record !== null && ($record->usage !== null || $record->hostedDomains()->exists()))
+                    ->viewData(fn (?Service $record) => $record === null ? [] : self::summaryLine($record)),
+                Section::make('Billing')
+                    ->columnSpan(1)
+                    ->schema([
+                        Select::make('product_id')
+                            ->label('Product')
+                            ->required()
+                            ->relationship(
+                                name: 'product',
+                                titleAttribute: 'name',
+                                modifyQueryUsing: fn (Builder $query) => $query->with('category')
+                            )
+                            ->getOptionLabelFromRecordUsing(fn (Product $product) => "{$product->name} - {$product->category->name} (#{$product->id})")
+                            ->searchable()
+                            ->live()
+                            ->preload()
+                            ->placeholder('Select the product'),
+                        Select::make('plan_id')
+                            ->label('Plan')
+                            ->required()
+                            ->relationship('plan', 'name', fn (Builder $query, Get $get) => $query->where('priceable_id', $get('product_id'))->where('priceable_type', Product::class))
+                            ->searchable()
+                            ->preload()
+                            ->disabled(fn (Get $get) => !$get('product_id'))
+                            ->live()
+                            ->placeholder('Select the plan'),
+                        // A paying service moved to a free or one-time plan is never billed again (billing-cursor §5): said so.
+                        Toggle::make('ends_billing')->label('Never bill it again')->dehydrated()
+                            ->helperText('This service is billed every cycle; on a free or one-time plan it stays without being billed again. Or set its price to 0 in the same save.')
+                            ->visible(fn (Get $get, ?Service $record) => $record !== null && filled($get('plan_id')) && (int) $get('plan_id') !== (int) $record->plan_id
+                                && Service::endsBillingRefusal($record, Plan::query()->find($get('plan_id'))) !== null),
+                        // Chosen when the service is made; afterwards it moves with «Move to another client» (its invoices with it),
+                        // never by editing the field (owner 2026-10-23).
+                        ClientComponent::make('client_id')->disabledOn('edit'),
+                        Select::make('status')
+                            ->label('Status')
+                            ->required()
+                            ->options(Service::statusOptions())
+                            ->default(Service::STATUS_PENDING),
+                        // Only where it means something (WHMCS: no service with more than 1 at nixpal): the product allows a
+                        // quantity, or the service has one. Hidden, it is kept as it is.
+                        TextInput::make('quantity')
+                            ->label('Quantity')
+                            ->required()
+                            ->default(1)
+                            ->placeholder('Enter the quantity')
+                            ->hidden(fn (?Service $record) => $record !== null && (int) $record->quantity <= 1
+                                && ($record->product->allow_quantity ?? 'disabled') === 'disabled'),
+                        DatePicker::make('expires_at')
+                            ->label('Expires At')
+                            ->required(fn (Get $get) => $get('plan')?->type != 'one-time' && $get('plan')?->type != 'free' && $get('status') !== 'pending')
+                            ->placeholder('Select the expiration date'),
+                        DatePicker::make('suspend_hold_until')
+                            ->label('Do Not Suspend Until')
+                            ->hintIcon(...$hint('While set to a future date, the cronjob neither suspends nor terminates this service, even if it is overdue (through that day). This does not affect manual suspension or termination.'))
+                            ->minDate(now())
+                            ->nullable()
+                            ->placeholder('dd/mm/yyyy'),
+                        Select::make('coupon_id')
+                            ->label('Coupon')
+                            ->relationship('coupon', 'code')
+                            ->searchable()
+                            ->preload()
+                            ->placeholder('Select the coupon'),
+                        Select::make('currency_code')
+                            ->options(function (Get $get, ?string $state) {
+                                $pricing = collect($get('../../pricing'))->pluck('currency_code');
+                                if ($state !== null) {
+                                    $pricing = $pricing->filter(function ($code) use ($state) {
+                                        return $code !== $state;
+                                    });
                                 }
+                                $pricing = $pricing->filter(function ($code) {
+                                    return $code !== null;
+                                });
+
+                                return Currency::whereNotIn('code', $pricing)->pluck('code', 'code');
                             })
-                            ->label('Recalculate Price')
-                            ->icon('ri-refresh-line')
-                    ),
-                // A gateway subscription of the old kind (Billing Agreement replaced it): shown only on a service that has one
-                // (nixpal: 5 PayPal ones).
-                TextInput::make('subscription_id')
-                    ->label('Subscription ID (deprecated)')
-                    ->hidden(fn (?Service $record) => blank($record?->subscription_id))
-                    ->nullable()
-                    ->placeholder('Enter the subscription ID')
-                    ->hintAction(
-                        CancelSubscriptionAction::make(),
-                    ),
+                            ->live()
+                            ->default(config('settings.default_currency'))
+                            ->required(),
+                        TextInput::make('price')
+                            ->required()
+                            ->label('Price')
+                            // Suffix based on chosen currency
+                            ->prefix(fn (Get $get) => Currency::where('code', $get('currency_code'))->first()?->prefix)
+                            ->suffix(fn (Get $get) => Currency::where('code', $get('currency_code'))->first()?->suffix)
+                            ->live(onBlur: true)
+                            ->mask(RawJs::make(
+                                <<<'JS'
+                                $money($input, '.', '', 2)
+                            JS
+                            ))
+                            ->numeric()
+                            ->minValue(0)
+                            ->hintAction(
+                                Action::make('Recalculate Price')
+                                    ->action(function (Component $component, Service $service) {
+                                        if ($service) {
+                                            Notification::make('Price Recalculated')
+                                                ->title('The price has been successfully recalculated')
+                                                ->success()
+                                                ->send();
+                                            // Update the form field
+                                            $component->state($service->calculatePrice());
+                                        }
+                                    })
+                                    ->label('Recalculate Price')
+                                    ->icon('ri-refresh-line')
+                            ),
+                        // Never follows the account's group discount (ROADMAP 5, reviews of #272): staff's price stays.
+                        Toggle::make('price_locked')
+                            ->label(__('Keep this price'))
+                            ->hintIcon(...$hint(__('A change of the customer\'s group never reprices it.')))
+                            ->default(false),
+                        // A gateway subscription of the old kind (Billing Agreement replaced it): shown only on a service that has one
+                        // (nixpal: 5 PayPal ones).
+                        TextInput::make('subscription_id')
+                            ->label('Subscription ID (deprecated)')
+                            ->hidden(fn (?Service $record) => blank($record?->subscription_id))
+                            ->nullable()
+                            ->placeholder('Enter the subscription ID')
+                            ->hintAction(
+                                CancelSubscriptionAction::make(),
+                            ),
+                    ]),
+                // WHMCS's product details (tblhosting): read by the server modules, shown to the customer.
+                Section::make('Account on the server')
+                    ->columnSpan(1)
+                    ->schema([
+                        // Which server it lives on (WHMCS's «Server»): the record only, nothing is moved on the servers.
+                        // Servers of the product's module only (a cPanel account never «moves» to a Proxmox server by mistake).
+                        Select::make('server_id')->label('Server')->nullable()
+                            ->relationship('server', 'name', fn (Builder $query, ?Service $record) => $query
+                                ->when($record->product->server->extension ?? $record->server->extension ?? null, fn ($servers, $module) => $servers->where('extension', $module)))
+                            ->hintIcon(...$hint('The server this account is on (e.g. after moving it with WHM\'s Transfer Tool). Changing it moves nothing: it records where the account is, and every action goes there from now on.')),
+                        TextInput::make('domain')->label('Domain')->maxLength(255),
+                        TextInput::make('username')->label('Username')->maxLength(255),
+                        // Hidden from serialization, so filled from the record here (else a save would wipe it); emptied,
+                        // it is cleared (review F3).
+                        TextInput::make('password')->label('Password')->password()->revealable()->maxLength(255)
+                            ->afterStateHydrated(fn (TextInput $component, ?Service $record) => $component->state(rescue(fn () => $record?->password, null, false)))
+                            ->dehydrateStateUsing(fn (?string $state) => filled($state) ? $state : null),
+                        TextInput::make('dedicated_ip')->label('Dedicated IP')->ip()->maxLength(45),
+                        Textarea::make('assigned_ips')->label('Assigned IPs')->placeholder('One per line')->rows(2),
+                        // The contact of the account it concerns (a domain's owner, a site's company): information
+                        // only; the invoice stays the account's (docs/accounts.md 3b).
+                        Select::make('contact_id')->label('Related contact')->nullable()
+                            // The form's account (create page, or a client changed on the form: review 3).
+                            ->relationship('contact', 'id', fn (Builder $query, Get $get) => $query
+                                ->where('client_id', $get('client_id'))->whereNull('archived_at'))
+                            ->getOptionLabelFromRecordUsing(fn (Contact $contact) => $contact->displayName() . ($contact->email ? " <{$contact->email}>" : ''))
+                            ->hintIcon(...$hint('Who this service is for, among the account\'s contacts. Information only: the invoice stays the account\'s.')),
+                        TextInput::make('suspend_reason')->label('Suspension Reason')->maxLength(255)
+                            ->hintIcon(...$hint('Shown to the customer while the service is suspended.')),
+                        // The server's commands in one row, as WHMCS's «Module Commands»: each opens the page's own action
+                        // (its checks, its confirmation, the reseller's username for a terminate) at that command.
+                        Actions::make(collect(self::MODULE_COMMANDS)->map(fn (string $label, string $command) => Action::make('module_' . $command)
+                            ->label($label)->size('sm')->color($command === 'terminate' ? 'danger' : 'gray')->outlined()
+                            ->alpineClickHandler("\$wire.mountAction('changeStatus', { action: '{$command}' })"))->values()->all())
+                            ->label('Module')
+                            ->visible(fn (?Service $record, string $operation) => $operation === 'edit' && $record?->provisioningServer() !== null),
+                    ]),
                 // Its nixpal license (L2, WHMCS's licensing «Manage License»): key, bindings, and signs of life beyond WHMCS.
                 Section::make('License')
                     ->columns(3)
@@ -334,74 +386,38 @@ class ServiceResource extends Resource
                         TextEntry::make('license_checks')->label('Checks, last 30 days')->columnSpanFull()
                             ->state(fn (Service $record) => self::licenseChecks($record)),
                     ]),
-                // Its usage as its server last told it (services:usage, every 4 hours; owner 2026-10-22).
-                Section::make('Usage')
-                    ->columns(3)
-                    ->columnSpanFull()
-                    ->visible(fn (?Service $record) => $record?->usage !== null)
-                    ->schema([
-                        TextEntry::make('usage_disk')->label('Disk space')
-                            ->state(fn (Service $record) => self::meter($record->usage?->disk_used_mb, $record->usage?->disk_limit_mb, true)),
-                        TextEntry::make('usage_bandwidth')->label('Bandwidth (this month)')
-                            ->state(fn (Service $record) => self::meter($record->usage?->bandwidth_used_mb, $record->usage?->bandwidth_limit_mb, true)),
-                        TextEntry::make('usage_accounts')->label(fn (Service $record) => $record->usage?->accounts_kind === 'mailboxes' ? 'Mailboxes' : 'Accounts (reseller)')
-                            ->visible(fn (Service $record) => $record->usage?->accounts !== null)
-                            ->state(fn (Service $record) => self::meter($record->usage?->accounts, $record->usage?->accounts_limit, false)),
-                        TextEntry::make('usage_read_at')->label('Last updated')->columnSpanFull()
-                            ->state(fn (Service $record) => $record->usage?->read_at?->format('d/m/Y H:i')),
-                        // The IP the server says (cPanel), and whether the service's dedicated IP agrees (owner 2026-10-23).
-                        TextEntry::make('usage_server_ip')->label('IP on the server')
-                            ->visible(fn (?Service $record) => filled($record?->usage?->server_ip))
-                            ->state(fn (?Service $record) => $record?->usage?->server_ip)
-                            ->color(fn (?Service $record) => $record !== null && self::ipDiffers($record) ? 'danger' : null)
-                            ->helperText(fn (?Service $record) => $record !== null && self::ipDiffers($record) ? 'Not the dedicated IP set here (' . $record->dedicated_ip . ').' : null),
-                    ]),
-                // The domains its account hosts (services:usage; owner 2026-10-22), a reseller's by account.
-                Section::make('Hosted domains')
-                    ->columnSpanFull()
-                    ->collapsible()
-                    ->visible(fn (?Service $record) => $record !== null && $record->hostedDomains()->exists())
-                    ->schema([
-                        TextEntry::make('hosted_domains')->hiddenLabel()
-                            ->state(fn (Service $record) => $record->hostedDomains->groupBy('account')->map(fn ($domains, $account) => "{$account}: "
-                                . $domains->map(fn ($d) => $d->domain . ($d->type === 'main' ? '' : " ({$d->type})"))->implode(', '))->implode("\n"))
-                            ->extraAttributes(['class' => 'whitespace-pre-line']),
-                    ]),
-                // WHMCS's product details (tblhosting): read by the server modules, shown to the customer.
-                Section::make('Account')
-                    ->columns(2)
-                    ->columnSpanFull()
-                    ->schema([
-                        // Which server it lives on (WHMCS's «Server»): the record only, nothing is moved on the servers.
-                        // Servers of the product's module only (a cPanel account never «moves» to a Proxmox server by mistake).
-                        Select::make('server_id')->label('Server')->nullable()
-                            ->relationship('server', 'name', fn (Builder $query, ?Service $record) => $query
-                                ->when($record->product->server->extension ?? $record->server->extension ?? null, fn ($servers, $module) => $servers->where('extension', $module)))
-                            ->helperText('The server this account is on (e.g. after moving it with WHM\'s Transfer Tool). Changing it moves nothing: it records where the account is, and every action goes there from now on.')
-                            ->columnSpanFull(),
-                        // The contact of the account it concerns (a domain's owner, a site's company): information
-                        // only; the invoice stays the account's (docs/accounts.md 3b).
-                        Select::make('contact_id')->label('Related contact')->nullable()
-                            // The form's account (create page, or a client changed on the form: review 3).
-                            ->relationship('contact', 'id', fn (Builder $query, Get $get) => $query
-                                ->where('client_id', $get('client_id'))->whereNull('archived_at'))
-                            ->getOptionLabelFromRecordUsing(fn (Contact $contact) => $contact->displayName() . ($contact->email ? " <{$contact->email}>" : ''))
-                            ->helperText('Who this service is for, among the account\'s contacts. Information only: the invoice stays the account\'s.')
-                            ->columnSpanFull(),
-                        TextInput::make('domain')->label('Domain')->maxLength(255),
-                        TextInput::make('dedicated_ip')->label('Dedicated IP')->ip()->maxLength(45),
-                        TextInput::make('username')->label('Username')->maxLength(255),
-                        // Hidden from serialization, so filled from the record here (else a save would wipe it); emptied,
-                        // it is cleared (review F3).
-                        TextInput::make('password')->label('Password')->password()->revealable()->maxLength(255)
-                            ->afterStateHydrated(fn (TextInput $component, ?Service $record) => $component->state(rescue(fn () => $record?->password, null, false)))
-                            ->dehydrateStateUsing(fn (?string $state) => filled($state) ? $state : null),
-                        Textarea::make('assigned_ips')->label('Assigned IPs')->helperText('One per line.')->rows(3),
-                        TextInput::make('suspend_reason')->label('Suspension Reason')->maxLength(255)
-                            ->helperText('Shown to the customer while the service is suspended.'),
-                        Textarea::make('notes')->label('Admin Notes')->helperText('Staff only.')->rows(3)->columnSpanFull(),
-                    ]),
+                Textarea::make('notes')->label('Admin Notes')->hintIcon(...$hint('Staff only.'))->rows(2)->columnSpanFull(),
             ]);
+    }
+
+    /** WHMCS's «Module Commands», in its order: the page's «Trigger Extension Action» at each. */
+    public const MODULE_COMMANDS = ['create' => 'Create', 'suspend' => 'Suspend', 'unsuspend' => 'Unsuspend', 'upgrade' => 'Change package', 'terminate' => 'Terminate'];
+
+    /**
+     * Its usage and hosts for the one line above the form: what its server last told (services:usage).
+     *
+     * @return array<string, mixed>
+     */
+    public static function summaryLine(Service $record): array
+    {
+        $usage = $record->usage;
+        // A reseller's by account, as before (ADV-2 of #400): «acct: a, b»; one account's, the names alone.
+        $byAccount = $record->hostedDomains->groupBy('account');
+        $hosted = $byAccount->count() > 1
+            ? $byAccount->map(fn ($domains, $account) => "{$account}: " . $domains->map(fn ($d) => $d->domain . ($d->type === 'main' ? '' : " ({$d->type})"))->implode(', '))->values()
+            : $record->hostedDomains->map(fn ($d) => $d->domain . ($d->type === 'main' ? '' : " ({$d->type})"))->values();
+
+        return [
+            'disk' => $usage === null ? null : self::meter($usage->disk_used_mb, $usage->disk_limit_mb, true),
+            'diskPercent' => $usage === null ? null : ServiceUsage::percent($usage->disk_used_mb, $usage->disk_limit_mb),
+            'bandwidth' => $usage === null ? null : self::meter($usage->bandwidth_used_mb, $usage->bandwidth_limit_mb, true),
+            'accounts' => $usage?->accounts === null ? null : [$usage->accounts_kind === 'mailboxes' ? 'Mailboxes' : 'Accounts', self::meter($usage->accounts, $usage->accounts_limit, false)],
+            'ip' => $usage?->server_ip,
+            'ipDiffers' => self::ipDiffers($record),
+            'dedicatedIp' => $record->dedicated_ip,
+            'readAt' => $usage?->read_at?->format('d/m/Y H:i'),
+            'hosted' => $hosted->all(),
+        ];
     }
 
     public static function table(Table $table): Table
