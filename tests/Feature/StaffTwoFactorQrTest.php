@@ -20,9 +20,10 @@ class StaffTwoFactorQrTest extends TestCase
 
         $uri = AppAuthentication::make()->generateQrCodeDataUri('JBSWY3DPEHPK3PXP');
 
-        $this->assertStringStartsWith('data:image/svg+xml;base64,', $uri);
-        $svg = (string) base64_decode(substr($uri, strlen('data:image/svg+xml;base64,')), true);
-        $this->assertStringContainsString('<svg', $svg, 'the image itself, not another data URI');
+        // A PNG with imagick (CI), an SVG without (the devbox): either way the image itself, encoded once.
+        $this->assertMatchesRegularExpression('#^data:image/(png|svg\+xml);base64,#', $uri);
+        $image = (string) base64_decode(substr($uri, strpos($uri, ',') + 1), true);
+        $this->assertTrue(str_starts_with($image, "\x89PNG") || str_contains($image, '<svg'), 'the image itself, not another data URI');
     }
 
     public function test_the_admin_panel_uses_it(): void
