@@ -225,6 +225,11 @@ final class AutoCharge
     /** The day of the last try before the suspension: the day before it, or the last retry day set before it (ADV-8). */
     private static function lastTry(?int $suspend = null): int
     {
+        // A suspension a window postponed is tried every day up to its morning: that morning is the last try (round 4
+        // of #411), whatever the retry days.
+        if ($suspend !== null && $suspend > self::suspendDays()) {
+            return $suspend;
+        }
         $suspend ??= self::suspendDays();
         $days = self::retryDays();
         if ($days === []) {
