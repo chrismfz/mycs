@@ -33,6 +33,8 @@ return [
     'current_device' => 'Current device',
 
     'input' => [
+        'language' => 'Language of emails and invoices',
+        'language_default' => 'Default (:language)',
         'password_to_change_email' => 'Current password (to change the email)',
         'amount_placeholder' => 'e.g. 50.00',
         'current_password' => 'Current password',

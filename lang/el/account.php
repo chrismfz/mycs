@@ -33,6 +33,8 @@ return [
     'current_device' => 'Αυτή η συσκευή',
 
     'input' => [
+        'language' => 'Γλώσσα των email και των τιμολογίων',
+        'language_default' => 'Προεπιλογή (:language)',
         'password_to_change_email' => 'Τρέχων κωδικός (για αλλαγή του email)',
         'amount_placeholder' => 'π.χ. 50.00',
         'current_password' => 'Τρέχων κωδικός',

@@ -11,6 +11,7 @@ use App\Livewire\Traits\EditsContact;
 use App\Models\Client;
 use App\Models\User;
 use App\Support\CallerIp;
+use App\Support\Locales;
 use App\Traits\Captchable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -117,9 +118,12 @@ class Register extends ComponentWithProperties
                 'last_name' => $this->last_name,
                 'email' => $this->email,
                 'password' => Hash::make($this->password),
+                // The language it signed up in (docs/accounts.md): its pages', and its account's mails'.
+                'language' => Locales::allowed(app()->getLocale()) !== Locales::main() ? Locales::allowed(app()->getLocale()) : null,
             ]);
             if (!$this->forInvite()) {
                 $client = Client::openFor($user);
+                $client->forceFill(['language' => $user->language])->save();
                 // The account's details (its primary contact, PR 3a): the login's name and email where left empty.
                 $client->primaryContact?->update(array_filter($this->contactValues(), fn ($value) => $value !== null && $value !== []));
                 if (array_key_exists('properties', $validatedData)) {

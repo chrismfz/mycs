@@ -23,6 +23,7 @@ use OwenIt\Auditing\Contracts\Auditable;
  * account's; the logins that see it are users (`client_user`, WHMCS `tblusers_clients`). The id is the WHMCS client
  * id. Its details (name, email, address, country) are its primary contact's (PR 3a), as tblclients holds them.
  *
+ * @property string|null $language
  * @property-read string $name
  * @property-read string|null $email
  * @property-read string|null $first_name
@@ -36,6 +37,8 @@ class Client extends Model implements Auditable
     use HasFactory, HasProperties, Traits\Auditable;
 
     protected $fillable = [
+        // Its mails' and PDFs' language (docs/accounts.md); null: the instance's.
+        'language',
         'credit_auto_apply',
         'tax_exempt',
         'separate_invoices',
