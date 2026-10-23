@@ -14,7 +14,6 @@ use App\Services\Money\PaymentsLog;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Throwable;
 
 /**
  * Renew a service after an invoice line is paid (docs/billing-cursor.md).
@@ -143,26 +142,15 @@ class RenewServiceService
         }
         // Its product is set up by staff (Auto Setup «on accept» or «never», Σ1-b): paid, it waits for them, pending.
         $waitsForStaff = $service->status === Service::STATUS_PENDING && $service->product !== null && !$service->product->setsUpOnPayment();
-        if (!$manualHold && $service->status === Service::STATUS_SUSPENDED && !$service->provisioningServer()) {
-            // No server to unsuspend (UnsuspendJob mails it otherwise): the customer told it was suspended is told it
-            // is active again. After commit; a failing mail never undoes the renewal.
-            $id = $service->id;
-            DB::afterCommit(function () use ($id) {
-                try {
-                    $renewed = Service::query()->find($id);
-                    if ($renewed?->client !== null) {
-                        NotificationHelper::serverUnsuspendedNotification($renewed->client, $renewed);
-                    }
-                } catch (Throwable $e) {
-                    report($e);
-                }
-            });
+        // Suspended for non-payment, now paid: the unsuspension goes through the queue also without a server (its job
+        // only mails then), behind the cron's suspension still queued, so a suspension the worker never did is told
+        // nothing either (combined review of #411 and #418). Dispatched after commit: nothing runs on a rollback.
+        if (!$manualHold && $service->status === Service::STATUS_SUSPENDED) {
+            UnsuspendJob::dispatch($service)->afterCommit();
         }
         if (!$manualHold && $service->provisioningServer()) {
             // Dispatched after commit: the worker sees the renewed service, and nothing runs on a rollback.
-            if ($service->status == Service::STATUS_SUSPENDED) {
-                UnsuspendJob::dispatch($service)->afterCommit();
-            } elseif ($service->status == Service::STATUS_PENDING && !$waitsForStaff) {
+            if ($service->status == Service::STATUS_PENDING && !$waitsForStaff) {
                 CreateJob::dispatch($service)->afterCommit();
             }
         }

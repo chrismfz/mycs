@@ -139,11 +139,8 @@ class ViewInvoice extends ViewRecord
                     // them all up («not renewing»).
                     Radio::make('periods')
                         ->label('Its periods')
-                        ->options([
-                            'auto' => 'As usual: those the cron has billed are given up, farther ones (invoiced early) are billed at their time',
-                            'keep' => 'Bill them all again (to re-issue it)',
-                            'give_up' => 'Give them all up (not renewing)',
-                        ])
+                        ->options(InvoiceResource::cancelPeriods())
+                        ->helperText(__('A duplicate with no payment on it: delete it instead.'))
                         ->default('auto')
                         ->required(),
                 ])

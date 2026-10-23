@@ -20,8 +20,8 @@ Schedule::command(CronJob::class)->description('Runs daily to send out invoices,
 // Suspensions and terminations on their days and from their hour (Settings → Automation): the daily run may be at night.
 Schedule::command(CronJob::class, ['--dunning-only'])->description('Suspends and terminates overdue services, on the days and from the time set')->hourlyAt(5)->withoutOverlapping(60)->onOneServer();
 Schedule::command(FetchTicketMail::class)->description('Reads the departments\' mailboxes into tickets (those with polling on)')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
-// The money check (docs/money-trail.md §5, MT-3): read-only, staff mailed when it finds something new. Before the
-// cron's run, so it sees the night's payments and yesterday's run. One task of the scheduler to come (ROADMAP).
+// The money check (docs/money-trail.md §5, MT-3): read-only, staff mailed when it finds something new. In the morning,
+// after the night's cron run and payments (cronjob_time, 00:00 on the devbox). One task of the scheduler to come (ROADMAP).
 Schedule::command(MoneyCheckCommand::class)->description('Checks that the money adds up (read-only)')->dailyAt('06:30')->withoutOverlapping()->onOneServer();
 Schedule::command(SyncDomains::class, ['--scheduled'])->description('Syncs a batch of domains with their registrars (its hours and size in Settings → Domains) and moves them by their dates')->everyTenMinutes()->withoutOverlapping(60)->onOneServer();
 Schedule::command(SyncServiceUsage::class)->description('Reads every live service\'s disk and bandwidth usage from its server (cPanel)')->cron('17 */4 * * *')->withoutOverlapping(60)->onOneServer();

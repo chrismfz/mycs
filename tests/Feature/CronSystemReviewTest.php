@@ -139,7 +139,7 @@ class CronSystemReviewTest extends TestCase
         $this->assertTrue($hourly->get(), 'precondition: the hourly run holds the lock');
 
         try {
-            $this->artisan('app:cron-job')->assertExitCode(1);
+            $this->artisan('app:cron-job')->assertExitCode(1); // it waits for the lock (0 s in tests: TestCase)
         } finally {
             $hourly->release();
         }

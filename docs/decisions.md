@@ -89,7 +89,7 @@ Tests για κάθε συνδυασμό.
 - Όπως στο WHMCS: πριν τη λήξη (π.χ. 10 και 5 ημέρες) και μετά (1η, 2η, τελική).
 - Από το Ekdosi: `Services/Reminders/*` + `InvoiceReminder` (στάδια pre_due/first/second/final, review ή auto, πρότυπα
   el/en, opt-out ανά πελάτη, όριο υπολοίπου). Το upstream δεν έχει τίποτα (η ρύθμιση `cronjob_invoice_reminder` δεν
-  χρησιμοποιείται).
+  χρησιμοποιείται· η γραμμή της σβήστηκε το 2026-10-24, migration `forget_cronjob_invoice_reminder`).
 
 ## 11–12. Domains και tickets
 - **Παίρνουμε τη λογική από το Ekdosi.**

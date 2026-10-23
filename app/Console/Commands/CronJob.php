@@ -52,6 +52,7 @@ use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use App\Support\DunningWindow;
 use App\Support\Retention;
 use Illuminate\Console\Command;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -89,6 +90,9 @@ class CronJob extends Command
     /** @var list<int> services terminated for non-payment in this run (committed): the staff digest */
     private array $terminated = [];
 
+    /** How long the daily run waits for a run in progress (the hourly one) before it gives up its day, in seconds. */
+    public static int $lockWait = 600;
+
     /** When a daily run last got to the suspensions (the hourly run's gate). */
     public const DUNNING_READY = 'cron_dunning_ready_at';
 
@@ -106,6 +110,19 @@ class CronJob extends Command
         if (!$lock->get()) {
             if ($this->option('dunning-only')) {
                 return self::SUCCESS; // the daily run is on: it does them, or the next hour does
+            }
+            // The hourly run may hold it a few minutes (it charges cards): the daily run waits for it rather than give
+            // up its day (combined review of #411 and #418).
+            try {
+                $lock->block(self::$lockWait);
+
+                try {
+                    return $this->runSteps();
+                } finally {
+                    $lock->release();
+                }
+            } catch (LockTimeoutException) {
+                // still held: told below
             }
             $this->error('Another cron run is in progress: not started.');
             // Today's renewals, charges and reminders did not run: staff are told, not left to Health a day later (review
