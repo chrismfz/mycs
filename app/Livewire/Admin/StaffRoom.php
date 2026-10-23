@@ -50,11 +50,12 @@ class StaffRoom extends Component
      * The browser calls this only while the tab is in front (review of #373): a poll from a tab in the background must
      * not mark the conversation read. It moves the member's own mark only, so the browser saying so is harmless.
      */
-    public function markSeen(int $upTo): void
+    public function markSeen(int $threadId, int $upTo): void
     {
         $staff = $this->me();
         $thread = $staff ? $this->thread($staff) : null;
-        if ($staff !== null && $thread !== null) {
+        // Message ids run across every thread: a late call from the thread just left must not mark this one (review of #377).
+        if ($staff !== null && $thread !== null && $thread->id === $threadId) {
             StaffChat::markRead($staff, $thread, min($upTo, (int) $thread->messages()->max('id')));
         }
     }
@@ -64,10 +65,13 @@ class StaffRoom extends Component
         $staff = $this->me();
         $thread = $staff ? $this->thread($staff) : null;
         $peer = $staff && $thread?->kind === StaffChat::DIRECT ? StaffChat::peerOf($staff, $thread) : null;
+        $former = $staff && $thread?->kind === StaffChat::DIRECT && $peer === null ? Staff::query()->find($this->with) : null;
 
         return view('livewire.admin.staff-room', [
             'canView' => $thread !== null,
-            'canPost' => StaffChat::canPost($staff),
+            // A thread with someone who left is read-only (§7γ): its history stays, nothing more goes in.
+            'canPost' => StaffChat::canPost($staff) && $former === null,
+            'former' => $former,
             'me' => $staff,
             'thread' => $thread,
             'peer' => $peer,
@@ -89,7 +93,7 @@ class StaffRoom extends Component
             return StaffChat::room();
         }
         $peer = Staff::query()->find($this->with);
-        $thread = $peer instanceof Staff ? StaffChat::direct($staff, $peer) : null;
+        $thread = $peer instanceof Staff ? (StaffChat::direct($staff, $peer) ?? StaffChat::formerDirect($staff, $peer->id)) : null;
         if ($thread === null) {
             $this->with = null;
 

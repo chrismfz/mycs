@@ -41,5 +41,18 @@
             </button>
         </li>
         @endforeach
+        @foreach ($others as $other)
+        @php $count = $unread[$other->id] ?? 0; @endphp
+        <li>
+            <button type="button" wire:click="$dispatch('staff-chat-open', { with: {{ (int) $other->id }} })" title="{{ __('Message') }}"
+                class="flex w-full items-center gap-2 rounded-lg px-1 py-1 text-start text-sm hover:bg-gray-50 dark:hover:bg-white/5">
+                <img src="{{ $other->avatar }}" alt="" class="size-7 rounded-full opacity-60">
+                <span class="min-w-0 flex-1 truncate text-gray-600 dark:text-gray-300">{{ $other->name }}</span>
+                @if ($count > 0)
+                <x-filament::badge color="danger" size="sm">{{ $count > \App\Support\StaffChat::UNREAD_CAP ? \App\Support\StaffChat::UNREAD_CAP . '+' : $count }}</x-filament::badge>
+                @endif
+            </button>
+        </li>
+        @endforeach
     </ul>
 </div>

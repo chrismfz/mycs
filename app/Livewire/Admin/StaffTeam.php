@@ -20,9 +20,14 @@ class StaffTeam extends Component
         $staff = auth('staff')->user();
         $staff = $staff instanceof Staff ? $staff : null;
 
+        $roster = StaffPresence::canView($staff) ? StaffPresence::roster() : [];
+        $listed = array_map(fn (array $member) => $member['staff']->id, $roster);
+
         return view('livewire.admin.staff-team', [
             'me' => $staff,
-            'roster' => StaffPresence::canView($staff) ? StaffPresence::roster() : [],
+            'roster' => $roster,
+            // Whoever the member has a private thread with and the roster does not show (no «Staff online», or they left).
+            'others' => $staff ? array_values(array_filter(StaffChat::peers($staff), fn (Staff $peer) => !in_array($peer->id, $listed, true))) : [],
             'canChat' => StaffChat::canView($staff),
             'unread' => $staff ? StaffChat::unreadByThread($staff) : [],
         ]);

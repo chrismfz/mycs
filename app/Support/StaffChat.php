@@ -53,12 +53,54 @@ class StaffChat
         if ($me->id === $peer->id || !self::canView($me) || !self::canView($peer)) {
             return null;
         }
-        $thread = self::thread(self::DIRECT, min($me->id, $peer->id) . '-' . max($me->id, $peer->id));
-        foreach ([$me->id, $peer->id] as $id) {
-            DB::table('staff_thread_members')->insertOrIgnore(['thread_id' => $thread->id, 'staff_id' => $id, 'last_read_message_id' => 0]);
+        $thread = self::thread(self::DIRECT, self::pairKey($me->id, $peer->id));
+        // Its two members once, not on every poll (review of #377).
+        if ($thread->wasRecentlyCreated || DB::table('staff_thread_members')->where('thread_id', $thread->id)->count() < 2) {
+            foreach ([$me->id, $peer->id] as $id) {
+                DB::table('staff_thread_members')->insertOrIgnore(['thread_id' => $thread->id, 'staff_id' => $id, 'last_read_message_id' => 0]);
+            }
         }
 
         return $thread;
+    }
+
+    /**
+     * The member's thread with someone who can no longer use the chat (left, or lost the permission): read-only, its
+     * history stays (§7γ), and nothing is made. Null when the two never talked.
+     */
+    public static function formerDirect(Staff $me, int $peerId): ?StaffThread
+    {
+        if ($me->id === $peerId) {
+            return null;
+        }
+        $thread = StaffThread::query()->where('direct_key', self::pairKey($me->id, $peerId))->first();
+
+        return $thread !== null && self::isMember($me, $thread) ? $thread : null;
+    }
+
+    /**
+     * Everyone the member has a private thread with, by id, whether or not they can still use the chat: so a member
+     * without «Staff online», or one whose peer left, still finds the thread (review of #377).
+     *
+     * @return array<int, Staff>
+     */
+    public static function peers(Staff $staff): array
+    {
+        if (!self::canView($staff)) {
+            return [];
+        }
+        $ids = DB::table('staff_thread_members as me')
+            ->join('staff_threads as t', 't.id', '=', 'me.thread_id')
+            ->join('staff_thread_members as peer', fn ($join) => $join->on('peer.thread_id', '=', 'me.thread_id')->on('peer.staff_id', '!=', 'me.staff_id'))
+            ->where('me.staff_id', $staff->id)->where('t.kind', self::DIRECT)
+            ->pluck('peer.staff_id');
+
+        return Staff::query()->whereKey($ids)->get()->keyBy('id')->all();
+    }
+
+    private static function pairKey(int $a, int $b): string
+    {
+        return min($a, $b) . '-' . max($a, $b);
     }
 
     /** The room for everyone who may use the chat; a private thread for its two members only. */

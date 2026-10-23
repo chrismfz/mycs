@@ -124,7 +124,7 @@ class StaffDirectMessagesTest extends TestCase
 
         Livewire::test(StaffTeam::class)->assertSeeInOrder([__('Staff room'), '1', $haris->name, '2']);
 
-        Livewire::test(StaffRoom::class)->call('open', $haris->id)->call('markSeen', PHP_INT_MAX);
+        Livewire::test(StaffRoom::class)->call('open', $haris->id)->call('markSeen', StaffChat::direct($me, $haris)->id, PHP_INT_MAX);
         $this->assertSame(['room' => 1], StaffChat::unreadByThread($me), 'reading one thread leaves the others');
     }
 
@@ -175,5 +175,21 @@ class StaffDirectMessagesTest extends TestCase
         }
 
         $this->assertNotNull(StaffChat::post($me, StaffChat::direct($me, $peer), 'one too many'));
+    }
+
+    /** Review of #377: the thread with a member who left opens read-only, its history there, from the Team list. */
+    public function test_the_thread_with_a_member_who_left_opens_read_only_with_its_history(): void
+    {
+        $me = $this->member();
+        $peer = $this->member(attributes: ['first_name' => 'Gone']);
+        StaffChat::post($peer, StaffChat::direct($peer, $me), 'see you');
+        $peer->forceFill(['active' => false])->save();
+        $this->actAs($me);
+
+        Livewire::test(StaffTeam::class)->assertSee('Gone');
+        Livewire::test(StaffRoom::class)->call('open', $peer->id)
+            ->assertSee('see you')->assertSee(__('This member can no longer receive messages.'))
+            ->assertDontSeeHtml('wire:submit="send"');
+        $this->assertSame(1, StaffThread::query()->where('kind', StaffChat::DIRECT)->count(), 'opening it made nothing new');
     }
 }
