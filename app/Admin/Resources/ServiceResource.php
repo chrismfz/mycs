@@ -168,6 +168,12 @@ class ServiceResource extends Resource
             : '#' . $record->getKey();
     }
 
+    /** A dedicated IP set here that is not the one its server says (both known). */
+    public static function ipDiffers(Service $service): bool
+    {
+        return filled($service->dedicated_ip) && filled($service->usage?->server_ip) && $service->dedicated_ip !== $service->usage->server_ip;
+    }
+
     public static function form(Schema $schema): Schema
     {
         return $schema
@@ -327,6 +333,12 @@ class ServiceResource extends Resource
                             ->state(fn (Service $record) => self::meter($record->usage?->accounts, $record->usage?->accounts_limit, false)),
                         TextEntry::make('usage_read_at')->label('Last updated')->columnSpanFull()
                             ->state(fn (Service $record) => $record->usage?->read_at?->format('d/m/Y H:i')),
+                        // The IP the server says (cPanel), and whether the service's dedicated IP agrees (owner 2026-10-23).
+                        TextEntry::make('usage_server_ip')->label('IP on the server')
+                            ->visible(fn (?Service $record) => filled($record?->usage?->server_ip))
+                            ->state(fn (?Service $record) => $record?->usage?->server_ip)
+                            ->color(fn (?Service $record) => $record !== null && self::ipDiffers($record) ? 'danger' : null)
+                            ->helperText(fn (?Service $record) => $record !== null && self::ipDiffers($record) ? 'Not the dedicated IP set here (' . $record->dedicated_ip . ').' : null),
                     ]),
                 // The domains its account hosts (services:usage; owner 2026-10-22), a reseller's by account.
                 Section::make('Hosted domains')
@@ -428,6 +440,10 @@ class ServiceResource extends Resource
                     ->relationship('product', 'name')
                     ->searchable()
                     ->preload(),
+                // Its dedicated IP set here is not the one its server says (owner 2026-10-23).
+                Filter::make('ip_differs')->label('IP differs from the server')
+                    ->query(fn (Builder $query) => $query->whereNotNull('dedicated_ip')->where('dedicated_ip', '!=', '')
+                        ->whereHas('usage', fn (Builder $usage) => $usage->whereNotNull('server_ip')->whereColumn('service_usages.server_ip', '!=', 'services.dedicated_ip'))),
                 Filter::make('expires_at')
                     ->form([
                         DatePicker::make('expires_from')->label('Expires From'),

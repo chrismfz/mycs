@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\ServiceResource;
 use App\Models\Server;
 use App\Models\Service;
 use App\Models\ServiceUsage;
@@ -237,5 +238,28 @@ class ServiceUsageTest extends TestCase
         app()->setLocale('el');
         $this->assertSame('1,5 GB', ServiceUsage::size(1536));
         $this->assertSame('20 GB', ServiceUsage::size(20480));
+    }
+
+    /** The IP the server says (owner 2026-10-23), kept beside the dedicated IP; one that differs is found by staff. */
+    public function test_the_servers_ip_is_kept_and_a_different_dedicated_ip_is_found(): void
+    {
+        $same = $this->service('sameip');
+        $same->update(['dedicated_ip' => '203.0.113.5']);
+        $differs = $this->service('otherip');
+        $differs->update(['dedicated_ip' => '203.0.113.6']);
+        $shared = $this->service('sharedip');
+        $this->accounts = [
+            ['user' => 'sameip', 'owner' => 'root', 'diskused' => '1M', 'disklimit' => 'unlimited', 'ip' => '203.0.113.5'],
+            ['user' => 'otherip', 'owner' => 'root', 'diskused' => '1M', 'disklimit' => 'unlimited', 'ip' => '198.51.100.9'],
+            ['user' => 'sharedip', 'owner' => 'root', 'diskused' => '1M', 'disklimit' => 'unlimited', 'ip' => 'not an ip'],
+        ];
+
+        $this->artisan('services:usage')->assertExitCode(0);
+
+        $this->assertSame(['203.0.113.5', '198.51.100.9', null], [$same->usage()->sole()->server_ip, $differs->usage()->sole()->server_ip, $shared->usage()->sole()->server_ip]);
+        $this->assertSame([false, true, false], [ServiceResource::ipDiffers($same->fresh()), ServiceResource::ipDiffers($differs->fresh()), ServiceResource::ipDiffers($shared->fresh())]);
+        $found = Service::query()->whereNotNull('dedicated_ip')->where('dedicated_ip', '!=', '')
+            ->whereHas('usage', fn ($usage) => $usage->whereNotNull('server_ip')->whereColumn('service_usages.server_ip', '!=', 'services.dedicated_ip'))->pluck('id')->all();
+        $this->assertSame([$differs->id], $found);
     }
 }

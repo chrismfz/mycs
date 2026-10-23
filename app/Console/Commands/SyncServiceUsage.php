@@ -52,7 +52,8 @@ class SyncServiceUsage extends Command
                 ServiceUsage::query()->updateOrCreate(['service_id' => $serviceId], [
                     'disk_used_mb' => $usage->diskUsedMb, 'disk_limit_mb' => $usage->diskLimitMb,
                     'bandwidth_used_mb' => $usage->bandwidthUsedMb, 'bandwidth_limit_mb' => $usage->bandwidthLimitMb,
-                    'accounts' => $usage->accounts, 'accounts_limit' => $usage->accountsLimit, 'accounts_kind' => $usage->accountsKind, 'read_at' => now(),
+                    'accounts' => $usage->accounts, 'accounts_limit' => $usage->accountsLimit, 'accounts_kind' => $usage->accountsKind,
+                    'server_ip' => $usage->ip, 'read_at' => now(),
                 ]);
             }
             $this->line("{$server->name}: " . count($read) . ' of ' . $group->count() . ' service(s) read');

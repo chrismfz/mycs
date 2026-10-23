@@ -799,7 +799,7 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
      */
     public function usage(array $services): array
     {
-        $listed = $this->whm('/listaccts', ['want' => 'user,owner,diskused,disklimit'], timeout: 60)['data']['acct'] ?? null;
+        $listed = $this->whm('/listaccts', ['want' => 'user,owner,diskused,disklimit,ip'], timeout: 60)['data']['acct'] ?? null;
         // Bandwidth on its own: a login without WHM's show-bandwidth privilege, or a showbw that fails, keeps the disk read
         // (code review 2 of #316); bandwidth is then not known.
         try {
@@ -818,7 +818,9 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
             $user = strtolower((string) ($account['user'] ?? ''));
             if ($user !== '') {
                 $accounts[$user] = ['owner' => strtolower((string) ($account['owner'] ?? '')), 'disk' => self::mb($account['diskused'] ?? null),
-                    'disk_limit' => self::limit(self::mb($account['disklimit'] ?? null)), 'bw' => $bandwidthRead ? 0 : null, 'bw_limit' => null];
+                    'disk_limit' => self::limit(self::mb($account['disklimit'] ?? null)), 'bw' => $bandwidthRead ? 0 : null, 'bw_limit' => null,
+                    // Its IP on the server (owner 2026-10-23): beside the service's dedicated IP, to see they agree.
+                    'ip' => filter_var($account['ip'] ?? null, FILTER_VALIDATE_IP) ?: null];
             }
         }
         foreach ((array) $bandwidth as $row) {
@@ -851,13 +853,14 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
                     // limits are its product's: code review 4).
                     accounts: count($mine) - 1,
                     accountsLimit: self::megabytes($settings['reseller_max_accounts'] ?? null),
+                    ip: $accounts[$user]['ip'],
                 );
 
                 continue;
             }
             $account = $accounts[$user];
             $read[$service->id] = new ServiceUsageRead(diskUsedMb: $account['disk'], diskLimitMb: $account['disk_limit'],
-                bandwidthUsedMb: $account['bw'], bandwidthLimitMb: $account['bw_limit']);
+                bandwidthUsedMb: $account['bw'], bandwidthLimitMb: $account['bw_limit'], ip: $account['ip']);
         }
 
         return $read;
