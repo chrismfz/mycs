@@ -263,4 +263,30 @@ class TldImportGridTest extends TestCase
         $this->expectException(CannotUpdateLockedPropertyException::class);
         $page->set('fetchKey', 'forged');
     }
+
+    public function test_all_needs_no_tlds_typed_and_fetch_asks_for_them(): void
+    {
+        $this->fake([self::PROD . '/v1/tlds?with_price=true&limit=500&offset=0' => Http::response(['code' => 0, 'data' => ['total' => 2, 'results' => [
+            $this->tld('com', '11.23', '9.80'), $this->tld('ΕΛ', '10.00', '10.00'),
+        ]]])]);
+        DomainTld::query()->create(['tld' => 'xn--qxam']);
+
+        $page = $this->page()->fillForm(['tlds' => ''])->call('fetch')->assertNotified(__('Type the TLDs to fetch.'));
+        $this->assertSame([], $page->instance()->fetched());
+
+        $page->call('fetchAll')->assertHasNoFormErrors();
+        $rows = $page->instance()->grid()['rows'];
+        $this->assertSame(['xn--qxam', 'com'], array_keys($rows), 'an IDN in one form with MyCS\'s: found, first');
+        $this->assertTrue($rows['xn--qxam']['exists']);
+    }
+
+    public function test_a_list_shorter_than_its_total_fails_rather_than_hiding_tlds(): void
+    {
+        $this->fake([self::PROD . '/v1/tlds?with_price=true&limit=500&offset=0' => Http::response(['code' => 0, 'data' => ['total' => 3, 'results' => [
+            $this->tld('com', '11.23', '9.80'),
+        ]]])]);
+
+        $this->expectExceptionMessage('1 από τα 3');
+        $this->adapter()->listTldPricing(app(DomainRegistrarFactory::class)->credentialsFor($this->op));
+    }
 }

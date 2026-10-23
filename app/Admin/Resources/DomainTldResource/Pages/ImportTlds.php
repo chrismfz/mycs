@@ -53,9 +53,6 @@ class ImportTlds extends Page implements HasForms
     /** How long a fetch is kept for the page (a list of every TLD is ~16 s to read again). */
     private const KEEP_SECONDS = 3 * 3600;
 
-    /** The «Popular TLDs» setting's default (owner 2026-10-24). */
-    public const POPULAR_TLDS = 'com, net, org, info, biz, eu, gr, com.gr, io, co, me, xyz, online, site, store, shop, app, dev, tech, cloud';
-
     /** The rows per page staff may choose. */
     public const PER_PAGE = [50, 100, 250];
 
@@ -147,7 +144,7 @@ class ImportTlds extends Page implements HasForms
         return $schema->statePath('data')->columns(1)->components([
             Section::make(__('Registrar and TLDs'))->columns(2)->schema([
                 Select::make('connection_id')->label(__('Registrar'))->options(fn () => self::connections())->required()->live(),
-                Textarea::make('tlds')->label('TLDs')->rows(2)->required()
+                Textarea::make('tlds')->label('TLDs')->rows(2) // needed by «Fetch these TLDs» only (review of #422)
                     ->helperText(__('Separated by commas or spaces, without the dot: com, net, org, eu. At first, the TLDs MyCS sells.')),
             ]),
             Section::make(__('Pricing'))->columns(3)->schema([
@@ -221,6 +218,12 @@ class ImportTlds extends Page implements HasForms
     {
         $connection = $this->connection();
         $tlds = self::parseTlds((string) ($this->data['tlds'] ?? ''));
+        if ($tlds === []) {
+            Notification::make()->warning()->title(__('Type the TLDs to fetch.'))->send();
+
+            return;
+        }
+        TimeLimit::atLeast(120);
         $answers = app(TldImport::class)->fetch($connection, $tlds);
         $fetched = [];
         foreach ($tlds as $tld) {
@@ -237,7 +240,7 @@ class ImportTlds extends Page implements HasForms
     /** The popular TLDs of the setting into the field, then fetched. */
     public function fetchPopular(): void
     {
-        $this->data['tlds'] = implode(', ', self::parseTlds((string) (config('settings.domain_popular_tlds') ?: self::POPULAR_TLDS)));
+        $this->data['tlds'] = implode(', ', self::parseTlds((string) (config('settings.domain_popular_tlds') ?: TldImport::POPULAR_TLDS)));
         $this->fetch();
     }
 
@@ -294,7 +297,7 @@ class ImportTlds extends Page implements HasForms
     /** Whether a fetch was made but is no longer kept (the page was left open for hours). */
     public function fetchExpired(): bool
     {
-        return $this->fetchKey !== null && $this->fetched() === [];
+        return $this->fetchKey !== null && !Cache::has($this->cacheKey($this->fetchKey));
     }
 
     public function updated(string $property): void
@@ -346,11 +349,11 @@ class ImportTlds extends Page implements HasForms
     /**
      * The grid: one row per TLD (this page of those the search and filter keep, sorted), and the counts.
      *
-     * @return array{rows: array<string, array<string, mixed>>, total: int, shown: int, alerts: int, pages: int}
+     * @return array{rows: array<string, array<string, mixed>>, total: int, shown: int, alerts: int, pages: int, first: int, per_page: int}
      */
     public function grid(): array
     {
-        $empty = ['rows' => [], 'total' => 0, 'shown' => 0, 'alerts' => 0, 'pages' => 1];
+        $empty = ['rows' => [], 'total' => 0, 'shown' => 0, 'alerts' => 0, 'pages' => 1, 'first' => 0, 'per_page' => self::PER_PAGE[0]];
         if ($this->fetched() === []) {
             return $empty;
         }
@@ -367,7 +370,7 @@ class ImportTlds extends Page implements HasForms
         $this->pageNo = min(max(1, $this->pageNo), $pages);
 
         return ['rows' => array_slice($rows, ($this->pageNo - 1) * $perPage, $perPage, true), 'total' => $total,
-            'shown' => count($rows), 'alerts' => $alerts, 'pages' => $pages];
+            'shown' => count($rows), 'alerts' => $alerts, 'pages' => $pages, 'first' => ($this->pageNo - 1) * $perPage, 'per_page' => $perPage];
     }
 
     /** @return array<string, array<string, mixed>> */
@@ -392,7 +395,10 @@ class ImportTlds extends Page implements HasForms
                 $new = $import->prices(new TldPricing(tld: $tld, costs: $costs), $options, [$currency])[$currency] ?? [];
                 $row['importable'] = $costs !== [];
                 foreach (TldImport::GRID_OPERATIONS as $operation) {
-                    $cell = $this->cell($costs[$operation] ?? null, $currency, $options, $record?->prices->firstWhere('operation', $operation)?->price, $new[$operation][1]['price'] ?? null);
+                    $price = $record?->prices->firstWhere('operation', $operation);
+                    // What the import writes: a free or not-offered price it keeps is shown kept (adversarial F5 of #422).
+                    $kept = $price !== null && $options->keepFreeAndClosed && ($price->price === null || bccomp((string) $price->price, '0', 2) === 0);
+                    $cell = $this->cell($costs[$operation] ?? null, $currency, $options, $price?->price, $kept ? null : ($new[$operation][1]['price'] ?? null));
                     $row['ops'][$operation] = $cell;
                     $row['alert'] = $row['alert'] || ($cell['alert'] !== null && in_array($operation, $this->operations(), true));
                 }

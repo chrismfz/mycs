@@ -24,6 +24,9 @@ use Throwable;
  */
 class TldImport
 {
+    /** The «Popular TLDs» setting's default (owner 2026-10-24): what the page's «Popular» fetches. */
+    public const POPULAR_TLDS = 'com, net, org, info, biz, eu, gr, com.gr, io, co, me, xyz, online, site, store, shop, app, dev, tech, cloud';
+
     /** The operations the import page shows, in its order. */
     public const GRID_OPERATIONS = ['register', 'renew', 'transfer', 'grace', 'redemption'];
 

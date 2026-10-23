@@ -37,6 +37,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
+use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
 
@@ -806,6 +807,9 @@ class OpenproviderRegistrar implements DomainRegistrar, ListsTldPricing, Manages
         if (!is_int($total) || $total < 0 || !is_array($first->json('data.results'))) {
             throw new RuntimeException('Το Openprovider δεν επέστρεψε τη λίστα των TLDs.');
         }
+        if ($total > self::TLD_PAGE * self::MAX_TLD_PAGES) {
+            throw new RuntimeException('Το Openprovider δίνει ' . $total . ' TLDs: περισσότερα απ\' όσα διαβάζουμε.');
+        }
         $pages = [$first];
         $offsets = range(self::TLD_PAGE, max(self::TLD_PAGE, min($total, self::TLD_PAGE * self::MAX_TLD_PAGES) - 1), self::TLD_PAGE);
         $rest = [];
@@ -822,16 +826,26 @@ class OpenproviderRegistrar implements DomainRegistrar, ListsTldPricing, Manages
         }
 
         $out = [];
+        $seen = 0;
         foreach ($pages as $page) {
             $results = $page->json('data.results');
             foreach (is_array($results) ? $results : [] as $result) {
-                $name = is_array($result) && is_string($result['name'] ?? null) ? mb_strtolower(trim($result['name'])) : '';
+                $seen++;
+                try { // in one form with the TLDs typed (an IDN as xn--…: review of #422)
+                    $name = is_array($result) && is_string($result['name'] ?? null) ? Domain::normalise(ltrim(trim($result['name']), '.')) : '';
+                } catch (InvalidArgumentException) {
+                    $name = '';
+                }
                 // Only what it sells now; a garbled entry is skipped, never guessed.
                 if ($name === '' || ($result['status'] ?? 'ACT') !== 'ACT' || !is_array($result['prices'] ?? null)) {
                     continue;
                 }
                 $out[$name] = $this->pricingFrom($name, $result);
             }
+        }
+        // All or nothing: a page shorter than asked (a lower cap on its side) would hide TLDs without a word.
+        if ($seen !== $total) {
+            throw new RuntimeException('Το Openprovider έδωσε ' . $seen . ' από τα ' . $total . ' TLDs της λίστας του.');
         }
         if (count($out) === 0 && $total > 0) {
             throw new RuntimeException('Το Openprovider δεν επέστρεψε τιμές στη λίστα των TLDs.');
@@ -927,7 +941,9 @@ class OpenproviderRegistrar implements DomainRegistrar, ListsTldPricing, Manages
     private function costEntry(mixed $block): ?array
     {
         $entry = is_array($block) ? ($block['reseller'] ?? null) : null;
-        if (!is_array($entry) || !is_scalar($entry['price'] ?? null) || !TldPriceMath::isAmount((string) $entry['price'])
+        // A number or a numeric string: a boolean is no price (true would read as «1»: adversarial F3 of #422).
+        $price = is_array($entry) ? ($entry['price'] ?? null) : null;
+        if (!is_array($entry) || !(is_int($price) || is_float($price) || is_string($price)) || !TldPriceMath::isAmount((string) $price)
             || !is_string($entry['currency'] ?? null) || trim($entry['currency']) === '') {
             return null;
         }

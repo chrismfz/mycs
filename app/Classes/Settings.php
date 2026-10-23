@@ -4,7 +4,6 @@ namespace App\Classes;
 
 use App\Admin\Actions\ResetColorsAction;
 use App\Admin\Actions\SendTestEmailAction;
-use App\Admin\Resources\DomainTldResource\Pages\ImportTlds;
 use App\Helpers\TemplateRenderer;
 use App\Models\Client;
 use App\Models\Currency;
@@ -12,6 +11,7 @@ use App\Models\Setting;
 use App\Models\TaxRate;
 use App\Rules\Cidr;
 use App\Rules\TicketReferenceMask;
+use App\Services\Domains\Pricing\TldImport;
 use App\Services\Mcp\McpOauth;
 use App\Services\Tax\EuVat;
 use App\Support\CurrentClient;
@@ -1121,7 +1121,7 @@ class Settings
                     'section' => 'Ordering',
                     'label' => 'Popular TLDs',
                     'type' => 'text',
-                    'default' => ImportTlds::POPULAR_TLDS,
+                    'default' => TldImport::POPULAR_TLDS,
                     'required' => false,
                     'validation' => ['nullable', 'max:2000'],
                     'description' => 'The TLDs the «Popular» button of TLD Import & Pricing Sync fetches, separated by commas or spaces, without the dot.',

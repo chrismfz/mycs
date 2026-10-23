@@ -12,7 +12,7 @@
         $cell = 'border border-gray-200 px-2 py-1 dark:border-white/10';
         $head = 'border border-gray-200 bg-gray-50 px-2 py-1 font-medium text-gray-600 dark:border-white/10 dark:bg-white/5 dark:text-gray-300';
         $arrow = fn (string $column) => $this->sort === $column ? ($this->direction === 'asc' ? ' ↑' : ' ↓') : '';
-        $first = ($this->pageNo - 1) * $this->perPage;
+        $first = $grid['first'];
     @endphp
 
     @if ($this->fetchExpired())
@@ -145,7 +145,7 @@
             </div>
 
             <div class="mt-3 flex flex-wrap items-center gap-3 text-sm text-gray-600 dark:text-gray-300">
-                <span>{{ __(':from–:to of :count', ['from' => $grid['shown'] === 0 ? 0 : $first + 1, 'to' => min($first + $this->perPage, $grid['shown']), 'count' => number_format($grid['shown'])]) }}</span>
+                <span>{{ __(':from–:to of :count', ['from' => $grid['shown'] === 0 ? 0 : $first + 1, 'to' => min($first + $grid['per_page'], $grid['shown']), 'count' => number_format($grid['shown'])]) }}</span>
                 <x-filament::input.wrapper>
                     <x-filament::input.select wire:model.live="perPage" :aria-label="__('Per page')">
                         @foreach (\App\Admin\Resources\DomainTldResource\Pages\ImportTlds::PER_PAGE as $n)
