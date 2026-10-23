@@ -102,6 +102,7 @@ nixpal (pilot). Τιμές από το `tblconfiguration` των δύο WHMCS, 2
 | Enable Termination (`AutoTermination`) | on | on | **P:** `cronjob_terminate_enabled` (default on) |
 | Termination Days (`AutoTerminationDays`), από την ημερομηνία λήξης | 120 | 60 | **P:** `cronjob_order_terminate` (default 60) |
 | — ελάχιστες ημέρες σε αναστολή | (όχι στο WHMCS) | | **P:** `cronjob_terminate_min_suspended_days`, default 1· 0 = ακριβώς WHMCS (BIL-4) |
+| — προστασία «πληρωμένο, όχι εφαρμοσμένο» | (όχι στο WHMCS) | | **P:** `cronjob_paid_not_applied_days`, default 30 (1–365): η υπηρεσία δεν χρεώνεται ξανά, δεν αναστέλλεται, δεν τερματίζεται όσο το cron ξαναδοκιμάζει (BIL-9) |
 | — ακύρωση απλήρωτων «Add Funds» | (hook του myip: 30) | | **P:** `cronjob_add_funds_cancel`, default 0 (ποτέ)· το myip 30 στο cut-over |
 | Email στο staff με ό,τι έκλεισε (WHMCS: email «Cron Job Activity» στους admins, όχι ρύθμιση) | — | — | **P:** `cronjob_suspension_digest`, default on· μετά το cron, ένα email στο System Email Address με κάθε υπηρεσία που έγινε suspend/terminate για μη πληρωμή (πελάτης, απλήρωτα τιμολόγια, link για Unsuspend και «Do Not Suspend Until»)· μόνο τις μέρες που έκλεισε κάτι |
 | — ανοιχτά τιμολόγια στον τερματισμό/ακύρωση (`CancelInvoiceOnCancellation`) | on | on | **P:** `cronjob_end_keeps_overdue`, default off = ακυρώνονται όλα (όπως σήμερα)· on: τα ληξιπρόθεσμα πάνω από `cronjob_end_keeps_overdue_days` (default 0) μένουν απλήρωτα, χρέος (Δ3a, απόφαση 4 της 2026-10-15) |
