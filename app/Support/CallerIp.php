@@ -28,7 +28,14 @@ final class CallerIp
     public static function bucket(string $ip): string
     {
         if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false) {
-            return bin2hex(substr((string) inet_pton($ip), 0, 8)) . '::/64';
+            $packed = (string) inet_pton($ip);
+            // An IPv4 caller seen through a dual-stack socket (::ffff:a.b.c.d) is that IPv4 address, not one /64 for all
+            // of them (review of #369).
+            if (str_starts_with($packed, str_repeat("\0", 10) . "\xff\xff")) {
+                return (string) inet_ntop(substr($packed, 12));
+            }
+
+            return bin2hex(substr($packed, 0, 8)) . '::/64';
         }
 
         return $ip;

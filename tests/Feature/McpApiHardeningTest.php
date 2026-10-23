@@ -3,7 +3,9 @@
 namespace Tests\Feature;
 
 use App\Http\Controllers\McpOauthController;
+use App\Http\Middleware\Api\AdminApi;
 use App\Livewire\Auth\Register;
+use App\Models\ApiKey;
 use App\Models\McpOauthGrant;
 use App\Models\Role;
 use App\Models\Setting;
@@ -193,5 +195,27 @@ class McpApiHardeningTest extends TestCase
         $submit('one-more@example.test')->assertHasErrors('email');
 
         $this->assertSame(0, User::query()->where('email', 'one-more@example.test')->count());
+    }
+
+    public function test_a_valid_admin_api_key_is_not_held_back_by_bad_tries_on_its_network(): void
+    {
+        for ($i = 0; $i < AdminApi::BAD_PER_MINUTE; $i++) {
+            $this->withToken('junk' . $i)->getJson(route('api.v1.admin.users.index'))->assertStatus(401);
+        }
+        $this->withToken('junk-more')->getJson(route('api.v1.admin.users.index'))->assertStatus(429);
+
+        $plain = 'PAYM' . bin2hex(random_bytes(8));
+        $staff = Staff::factory()->admin()->create();
+        ApiKey::create(['staff_id' => $staff->id, 'name' => 't', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $plain), 'permissions' => ['admin.users.viewAny']]);
+        $status = $this->withToken($plain)->getJson(route('api.v1.admin.users.index'))->status();
+        $this->assertNotContains($status, [401, 429], 'the key is let through to its own checks');
+    }
+
+    public function test_hosts_may_be_listed_on_new_lines(): void
+    {
+        $this->hosts("claude.ai\nexample.test");
+
+        $this->register('https://claude.ai/api/mcp/auth_callback')->assertCreated();
+        $this->register()->assertCreated();
     }
 }

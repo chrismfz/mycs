@@ -50,9 +50,13 @@ class McpOauthController extends Controller
             return response()->json(['error' => 'slow_down', 'error_description' => 'Too many registrations.'], 429);
         }
         RateLimiter::hit($limit, 3600);
-        RateLimiter::hit('mcp-register:all', 3600);
         try {
-            return response()->json(McpOauth::register($request->json()->all(), $ip), 201);
+            $client = McpOauth::register($request->json()->all(), $ip);
+            // Only a client that was made counts for everyone: refused ones would let a few networks block the rest
+            // (review of #369).
+            RateLimiter::hit('mcp-register:all', 3600);
+
+            return response()->json($client, 201);
         } catch (OAuthError $e) {
             return response()->json($e->body(), $e->status);
         }

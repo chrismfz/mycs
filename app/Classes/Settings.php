@@ -1306,7 +1306,7 @@ class Settings
                     'type' => 'text',
                     'default' => McpOauth::DEFAULT_REDIRECT_HOSTS,
                     'validation' => 'nullable|max:500',
-                    'description' => 'The hosts (and their subdomains) an MCP client may be sent back to with a staff member\'s authorization, comma-separated. Anyone can register an MCP client under any name: only these hosts can receive a grant. Empty: Claude\'s (claude.ai, claude.com) and this computer.',
+                    'description' => 'The hosts (and their subdomains) an MCP client may be sent back to with a staff member\'s authorization, separated by commas, spaces or new lines. Anyone can register an MCP client under any name: only these hosts can receive a grant. Empty: Claude\'s (claude.ai, claude.com) and this computer.',
                 ],
                 [
                     'name' => 'logs_full',

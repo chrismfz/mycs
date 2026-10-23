@@ -114,7 +114,7 @@ final class McpOauth
     {
         $host = strtolower((string) parse_url($uri, PHP_URL_HOST));
         $listed = config('settings.mcp_oauth_redirect_hosts');
-        $allowed = array_filter(array_map(fn (string $h) => strtolower(trim($h)), explode(',', is_string($listed) && trim($listed) !== '' ? $listed : self::DEFAULT_REDIRECT_HOSTS)));
+        $allowed = array_filter(array_map(fn (string $h) => strtolower(trim($h)), (preg_split('/[\s,]+/', is_string($listed) && trim($listed) !== '' ? $listed : self::DEFAULT_REDIRECT_HOSTS) ?: [])));
         foreach ($allowed as $entry) {
             if ($host === $entry || str_ends_with($host, '.' . ltrim($entry, '.'))) {
                 return true;

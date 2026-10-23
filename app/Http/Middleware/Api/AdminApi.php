@@ -26,24 +26,19 @@ class AdminApi implements AuthenticatesRequests
     {
         // Running first, before the route's throttle, it limits the requests without a valid key itself: so many a
         // minute from one network (review of PR #90, R1).
-        $bad = 'admin-api-bad:' . CallerIp::key($request);
-        if (RateLimiter::tooManyAttempts($bad, self::BAD_PER_MINUTE)) {
-            return response()->json(['error' => 'Too many requests.'], 429, ['Retry-After' => RateLimiter::availableIn($bad)]);
-        }
-
-        // Validate bearers token
-        if (!$request->bearerToken()) {
+        // A valid key is never held back by others' bad tries on its network (review of #369).
+        $token = $request->bearerToken() ? ApiKey::where('token', hash('sha256', $request->bearerToken()))->where('enabled', true)->first() : null;
+        if ($token === null) {
+            $bad = 'admin-api-bad:' . CallerIp::key($request);
+            if (RateLimiter::tooManyAttempts($bad, self::BAD_PER_MINUTE)) {
+                return response()->json(['error' => 'Too many requests.'], 429, ['Retry-After' => RateLimiter::availableIn($bad)]);
+            }
             RateLimiter::hit($bad, 60);
 
-            return response()->json(['error' => 'The request is missing a valid bearer token.'], 401);
+            return $request->bearerToken()
+                ? response()->json(['message' => 'The provided API key is invalid or has been disabled.'], 401)
+                : response()->json(['error' => 'The request is missing a valid bearer token.'], 401);
         }
-
-        $token = ApiKey::where('token', hash('sha256', $request->bearerToken()))
-            ->where('enabled', true)
-            ->firstOr(function () use ($bad) {
-                RateLimiter::hit($bad, 60);
-                abort(401, 'The provided API key is invalid or has been disabled.');
-            });
 
         // Check if the token is of type 'admin'
         if ($token->type !== 'admin' || ($token->ip_addresses && !in_array(CallerIp::of($request), $token->ip_addresses))) {
