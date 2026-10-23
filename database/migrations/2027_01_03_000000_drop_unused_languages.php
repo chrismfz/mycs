@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -30,6 +31,9 @@ return new class extends Migration
         foreach (['users', 'clients'] as $table) {
             DB::table($table)->whereIn('language', self::DROPPED)->update(['language' => null]);
         }
+        // The settings are cached for ever (SettingsProvider): read again, or the old ones stay until a flush (review).
+        Cache::forget('settings.rows');
+        Cache::forget('settings');
     }
 
     public function down(): void

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
@@ -30,11 +31,23 @@ class DroppedLanguagesTest extends TestCase
         DB::table('users')->where('id', $user->id)->update(['language' => 'it']);
         DB::table('clients')->where('id', $user->client()->id)->update(['language' => 'de']);
 
+        Cache::put('settings.rows', ['stale']);
+
         (require database_path('migrations/2027_01_03_000000_drop_unused_languages.php'))->up();
+
+        $this->assertFalse(Cache::has('settings.rows'), 'the cached settings are read again');
 
         $this->assertSame(['el', 'en'], json_decode(DB::table('settings')->where('key', 'allowed_languages')->value('value'), true));
         $this->assertSame('en', DB::table('settings')->where('key', 'app_language')->value('value'));
         $this->assertNull(DB::table('users')->where('id', $user->id)->value('language'));
         $this->assertSame('de', DB::table('clients')->where('id', $user->client()->id)->value('language'), 'a kept language stays');
+    }
+
+    public function test_a_session_holding_a_dropped_language_forgets_it(): void
+    {
+        $this->withSession(['locale' => 'zh'])->get('/')->assertOk();
+
+        $this->assertNotSame('zh', app()->getLocale());
+        $this->assertFalse(session()->has('locale'));
     }
 }
