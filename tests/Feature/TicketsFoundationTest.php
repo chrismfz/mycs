@@ -67,6 +67,8 @@ class TicketsFoundationTest extends TestCase
         // A2's and A3's tables point at the departments and tickets: down first, up again after (as a rollback would).
         $mailboxes = require database_path('migrations/2026_12_06_000001_tickets_mailboxes_quarantine.php');
         $outbound = require database_path('migrations/2026_12_07_000001_tickets_outbound_mail.php');
+        $imports = (require database_path('migrations/2027_01_01_000000_create_ticket_mail_imports.php')); // it points at the quarantine
+        $imports->down();
         $outbound->down();
         $mailboxes->down();
         $migration->down();
@@ -82,6 +84,7 @@ class TicketsFoundationTest extends TestCase
         $migration->up();
         $mailboxes->up();
         $outbound->up();
+        $imports->up();
 
         $this->assertSame(['Support', 'Sales', 'Billing'], TicketDepartment::query()->orderBy('sort')->pluck('name')->all(), 'the setting first, then names tickets carried');
         $this->assertNull(DB::table('settings')->where('key', 'ticket_departments')->value('value'));
