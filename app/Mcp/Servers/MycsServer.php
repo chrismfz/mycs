@@ -2,9 +2,14 @@
 
 namespace App\Mcp\Servers;
 
+use App\Mcp\Tools\AppLogTool;
+use App\Mcp\Tools\AuditSearchTool;
 use App\Mcp\Tools\ClientTool;
+use App\Mcp\Tools\CronHistoryTool;
+use App\Mcp\Tools\DomainTool;
 use App\Mcp\Tools\EmailLogsTool;
 use App\Mcp\Tools\FailedJobsTool;
+use App\Mcp\Tools\GatewayLogTool;
 use App\Mcp\Tools\HealthTool;
 use App\Mcp\Tools\InvoiceTool;
 use App\Mcp\Tools\LogsTool;
@@ -13,8 +18,10 @@ use App\Mcp\Tools\ProposalTool;
 use App\Mcp\Tools\ProposeResendMailTool;
 use App\Mcp\Tools\ProposeResolveModuleActionTool;
 use App\Mcp\Tools\ProposeRetryModuleActionTool;
+use App\Mcp\Tools\RegistrarLogTool;
 use App\Mcp\Tools\ServerTestTool;
 use App\Mcp\Tools\ServiceTool;
+use App\Mcp\Tools\TicketTool;
 use App\Mcp\Tools\ZlicTool;
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\Attributes\Instructions;
@@ -38,6 +45,9 @@ use Laravel\Mcp\Server\Attributes\Version;
     - `module_actions` lists server actions (create/suspend/…) still open or given up, with their errors.
     - `email_logs` answers "did the customer get the mail?"; `failed_jobs` and `logs` show what broke.
     - `zlic_probe` says what the license server would answer a customer's software from an address, without writing.
+    - `ticket` and `domain` give one ticket or domain whole; `registrar_log` and `gateway_log` show the registrars' and the
+      payment gateways' calls; `cron_history` what the daily cron did each day; `http_error_logs` the outgoing calls and
+      the application errors; `audit_search` who changed what and when.
 
     - `server_test` checks a provisioning server's connection with its stored settings (changes nothing).
     - `propose_*` tools only PROPOSE a change (retry or resolve a module action, resend a mail): staff approve or reject
@@ -49,6 +59,9 @@ use Laravel\Mcp\Server\Attributes\Version;
     TEXT)]
 class MycsServer extends Server
 {
+    /** Every tool in one page of tools/list (the default is 15): a client that does not ask for the next misses none. */
+    public int $defaultPaginationLength = 50;
+
     protected array $tools = [
         HealthTool::class,
         ServiceTool::class,
@@ -60,6 +73,13 @@ class MycsServer extends Server
         LogsTool::class,
         ZlicTool::class,
         ServerTestTool::class,
+        TicketTool::class,
+        DomainTool::class,
+        RegistrarLogTool::class,
+        GatewayLogTool::class,
+        CronHistoryTool::class,
+        AppLogTool::class,
+        AuditSearchTool::class,
         ProposeRetryModuleActionTool::class,
         ProposeResolveModuleActionTool::class,
         ProposeResendMailTool::class,

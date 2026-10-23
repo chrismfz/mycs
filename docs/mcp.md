@@ -37,11 +37,22 @@ The design follows Ekdosi's (laravel/mcp, a server class, one tool per question)
 | `logs` (level, laravel / payments) | View Failed Jobs | `mycs:logs` |
 | `zlic_probe` (key, ip) | View Services | `mycs:zlic` |
 | `server_test` (server) | Update Servers | Test Connection |
+| `ticket` (id, reference; or a list by status, account) | View Tickets | a ticket's page: messages, internal notes, CCs |
+| `domain` (id, name) | View Domains | a domain's page: dates, nameservers, handles, lines, registrar calls |
+| `registrar_log` (status, action, domain) | View Domains | Registrar Log (never requests, answers, EPP codes) |
+| `gateway_log` (gateway, outcome, invoice) | View Gateway Log | Gateway Log (fields masked) |
+| `cron_history` (days, step) | View Cron Stats | Automation Status |
+| `http_error_logs` (http / error, search) | View Debug Logs | HTTP Logs, Error Logs |
+| `audit_search` (type and id, staff, user, event, dates) | View Audit | Activity Log (secret fields by name only) |
 | `proposal` (id) | Use the MCP Server | the outcome of your proposals |
 
 - **Masked:** passwords, PSKs, API credentials in URLs, Authorization headers and the config's secrets come out as
   `********`. A license key comes out as its prefix and last 4.
 - **Errors:** a failing tool returns an MCP error with a masked message, never a stack.
+- **One page:** `tools/list` returns up to 50 tools at once (the package's default is 15), so a client that does not
+  follow the cursor still sees them all.
+- **Ticket text** comes as staff read it in the admin (up to 10,000 characters a message); what a customer pasted into a
+  ticket is not guessed at.
 
 ## OAuth (`App\Services\Mcp\McpOauth`)
 MyCS has its own small OAuth 2.1 server for `/mcp`, for staff only. There is no other OAuth server in MyCS (the
