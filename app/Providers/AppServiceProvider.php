@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Auth\StaffSessionGuard;
 use App\Classes\Synths\PriceSynth;
 use App\Console\Commands\MailSweep;
 use App\Exceptions\ErrorHandler;
@@ -24,6 +25,7 @@ use App\Support\BootFailure;
 use App\Support\CallerIp;
 use App\Support\CurrentClient;
 use App\Support\Domains\RegistrarTransactions;
+use App\Support\StaffSessions;
 use Closure;
 use Dedoc\Scramble\Scramble;
 use Dedoc\Scramble\Support\Generator\OpenApi;
@@ -32,6 +34,7 @@ use Exception;
 use Filament\Forms\Components\FileUpload;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\Logout;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Encryption\Encrypter;
 use Illuminate\Foundation\Exceptions\Handler;
@@ -42,6 +45,7 @@ use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Routing\Events\RouteMatched;
 use Illuminate\Routing\UrlGenerator;
 use Illuminate\Session\Middleware\StartSession;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Queue;
@@ -230,6 +234,22 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // The staff guard: Laravel's session guard with a __Host- «remember me» cookie (StaffSessionGuard).
+        Auth::extend('staff-session', function ($app, string $name, array $config) {
+            $guard = new StaffSessionGuard($name, Auth::createUserProvider($config['provider'] ?? null), $app['session.store'],
+                rehashOnLogin: $app['config']->get('hashing.rehash_on_login', true),
+                timeboxDuration: $app['config']->get('auth.timebox_duration', 200000),
+                hashKey: $app['config']->get('app.key'));
+            $guard->setCookieJar($app['cookie']);
+            $guard->setDispatcher($app['events']);
+            $guard->setRequest($app->refresh('request', $guard, 'setRequest'));
+            if (isset($config['remember'])) {
+                $guard->setRememberDuration($config['remember']);
+            }
+
+            return $guard;
+        });
+
         // The customers' one password rule: registration, reset and change alike (security audit AUTHN-12).
         Password::defaults(fn () => Password::min(8)->letters()->numbers());
         // .gr registry sessions end with the request or command (a worker keeps its own: it runs on): review 6 of #187.
@@ -290,10 +310,22 @@ class AppServiceProvider extends ServiceProvider
             self::countRefusedGatewayCallback($event->request, $event->response->getStatusCode());
         });
 
-        // When a member of staff last logged in (the staff list shows it).
+        // When a member of staff last logged in (the staff list shows it), and the login's own row (StaffSessions).
         Event::listen(function (Login $event) {
             if ($event->guard === 'staff' && $event->user instanceof Staff) {
                 $event->user->forceFill(['last_login_at' => now()])->saveQuietly();
+                StaffSessions::started($event->user, $event->remember, request());
+            }
+        });
+        // The row of a staff login keeps its session's current id and when it was last seen, whatever the route.
+        Event::listen(function (RequestHandled $event) {
+            if ($event->request->hasSession()) {
+                StaffSessions::touch($event->request->session(), $event->request);
+            }
+        });
+        Event::listen(function (Logout $event) {
+            if ($event->guard === 'staff' && $event->user instanceof Staff) {
+                StaffSessions::loggedOut($event->user, request());
             }
         });
 

@@ -2,8 +2,11 @@
 
 namespace App\Admin\Auth;
 
+use App\Livewire\Admin\StaffSessionList;
 use Filament\Auth\Pages\EditProfile as BaseEditProfile;
 use Filament\Forms\Components\TextInput;
+use Filament\Schemas\Components\Livewire;
+use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 
 /**
@@ -22,6 +25,9 @@ class EditProfile extends BaseEditProfile
                 $this->getPasswordFormComponent(),
                 $this->getPasswordConfirmationFormComponent(),
                 $this->getCurrentPasswordFormComponent(),
+                // A lost or shared laptop: the member's own sessions, to end (StaffSessions).
+                Section::make(__('Sessions'))->collapsible()->collapsed()
+                    ->schema([Livewire::make(StaffSessionList::class, fn () => ['staffId' => (int) auth('staff')->id()])->key('staff-sessions')]),
             ]);
     }
 }

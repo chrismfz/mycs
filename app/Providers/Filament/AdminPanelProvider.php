@@ -8,6 +8,7 @@ use App\Admin\Auth\Login;
 use App\Http\Controllers\TicketAttachmentController;
 use App\Http\Middleware\AdminLocale;
 use App\Http\Middleware\LockSession;
+use App\Http\Middleware\TrackStaffSession;
 use App\Http\Middleware\UseStaffGuard;
 use App\Models\Extension;
 use App\Models\Staff;
@@ -156,7 +157,7 @@ class AdminPanelProvider extends PanelProvider
             // Persistent: Livewire requests of the panel (its actions, forms, tables) go through /mycs/update, and
             // they too must see the staff member, never a customer logged in in the same browser.
             // LockSession too: the IP/agent lock covers the panel's actions, not only its pages.
-            ->middleware([UseStaffGuard::class, LockSession::class, AdminLocale::class], isPersistent: true)
+            ->middleware([UseStaffGuard::class, LockSession::class, TrackStaffSession::class, AdminLocale::class], isPersistent: true)
             ->viteTheme('resources/css/filament/admin/theme.css')
             ->authMiddleware([
                 Authenticate::class,

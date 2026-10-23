@@ -8,6 +8,7 @@ use App\Services\Mcp\McpOauth;
 use App\Services\Mcp\OAuthError;
 use App\Services\Mcp\RedirectedOAuthError;
 use App\Support\CallerIp;
+use App\Support\StaffSessions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -130,9 +131,18 @@ class McpOauthController extends Controller
             if (!$staff instanceof Staff || !McpAccess::staffMay($staff)) {
                 return self::back($request, 'Log in to the admin as a member of staff with «Use the MCP Server», or paste a key.');
             }
+            // Its session's row (one from before the rows has none yet): the consent is tied to it (StaffSessions).
+            if ($request->hasSession() && !StaffSessions::check($staff, $request)) {
+                return self::back($request, 'This session was ended: log in to the admin again.');
+            }
         }
 
-        return redirect()->away($authorize->redirect(['code' => McpOauth::issueCode($authorize, $staff, $key)]));
+        $code = McpOauth::issueCode($authorize, $staff, $key);
+        if ($code === null) {
+            return self::back($request, 'This session was ended: log in to the admin again.');
+        }
+
+        return redirect()->away($authorize->redirect(['code' => $code]));
     }
 
     public function token(Request $request): JsonResponse
