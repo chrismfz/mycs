@@ -3,6 +3,7 @@
 namespace App\Livewire\Auth;
 
 use App\Livewire\Component;
+use App\Models\LoginAttempt;
 use App\Models\User;
 use App\Support\CallerIp;
 use App\Traits\Captchable;
@@ -44,12 +45,14 @@ class Login extends Component
         // The address's own count is of failures only (below): many customers behind one office's address sign in.
         $keys = ['login:' . ($user->id ?? 'none') . ':' . $ip => [5, 900]];
         if (RateLimiter::tooManyAttempts('login-ip:' . $ip, 30)) {
+            LoginAttempt::record(LoginAttempt::CLIENT, $user, $this->email, LoginAttempt::THROTTLED);
             $this->addError('email', __('auth.throttle', ['seconds' => RateLimiter::availableIn('login-ip:' . $ip)]));
 
             return;
         }
         foreach ($keys as $key => [$max]) {
             if (RateLimiter::tooManyAttempts($key, $max)) {
+                LoginAttempt::record(LoginAttempt::CLIENT, $user, $this->email, LoginAttempt::THROTTLED);
                 $this->addError('email', __('auth.throttle', ['seconds' => RateLimiter::availableIn($key)]));
 
                 return;
@@ -57,6 +60,7 @@ class Login extends Component
         }
         $account = $user === null ? null : 'login-account:' . $user->id;
         if ($account !== null && RateLimiter::tooManyAttempts($account, 20)) {
+            LoginAttempt::record(LoginAttempt::CLIENT, $user, $this->email, LoginAttempt::THROTTLED);
             $this->addError('email', __('auth.throttle', ['seconds' => RateLimiter::availableIn($account)]));
 
             return;
@@ -72,6 +76,7 @@ class Login extends Component
             $valid = false; // a hash in an old format (imported): «Forgot password» sets a new one
         }
         if (!$valid) {
+            LoginAttempt::record(LoginAttempt::CLIENT, $user, $this->email, $user === null ? LoginAttempt::UNKNOWN : LoginAttempt::FAILED);
             RateLimiter::increment('login-ip:' . $ip, 900);
             if ($account !== null) {
                 RateLimiter::increment($account, 900);

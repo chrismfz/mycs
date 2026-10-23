@@ -2,6 +2,7 @@
 
 namespace App\Admin\Auth;
 
+use App\Models\LoginAttempt;
 use App\Models\Staff;
 use App\Support\AuthCookies;
 use App\Support\CallerIp;
@@ -31,6 +32,21 @@ class Login extends FilamentLogin
         return 'livewire-rate-limiter:' . sha1(($component ?? static::class) . '|' . $method . '|' . CallerIp::key());
     }
 
+    /** Filament's own limit per address: held back is in the history too. */
+    protected function rateLimit($maxAttempts, $decaySeconds = 60, $method = null, $component = null): void
+    {
+        // The limit is per calling method (its key): the caller's, as Filament's would find it.
+        $method ??= debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, limit: 2)[1]['function'];
+        try {
+            parent::rateLimit($maxAttempts, $decaySeconds, $method, $component);
+        } catch (TooManyRequestsException $e) {
+            $email = (string) ($this->data['email'] ?? '');
+            LoginAttempt::record(LoginAttempt::STAFF, Staff::query()->where('email', trim($email))->first(), $email, LoginAttempt::THROTTLED);
+
+            throw $e;
+        }
+    }
+
     public function authenticate(): ?LoginResponse
     {
         // The member the database finds (its collation matches more spellings than any normalising: review of #333).
@@ -38,6 +54,7 @@ class Login extends FilamentLogin
         $key = $staff === null ? null : 'staff-login-account:' . $staff->id;
         $known = $staff !== null && (string) request()->cookie(AuthCookies::name(self::DEVICE_COOKIE)) === (string) $staff->id;
         if ($key !== null && !$known && RateLimiter::tooManyAttempts($key, self::ACCOUNT_FAILURES)) {
+            LoginAttempt::record(LoginAttempt::STAFF, $staff, $staff->email, LoginAttempt::THROTTLED);
             $this->getRateLimitedNotification(new TooManyRequestsException(static::class, 'authenticate', CallerIp::of(request()), RateLimiter::availableIn($key)))?->send();
 
             return null;
@@ -46,6 +63,15 @@ class Login extends FilamentLogin
         try {
             $response = parent::authenticate();
         } catch (ValidationException $e) {
+            // The password's step fails on the form's fields, the 2FA challenge's on its own form.
+            $atPassword = collect(array_keys($e->errors()))
+                ->contains(fn (string $field) => str_starts_with($field, 'data.') && !str_starts_with($field, 'data.multiFactor'));
+            LoginAttempt::record(LoginAttempt::STAFF, $staff, (string) ($this->data['email'] ?? ''),
+                match (true) {
+                    $staff === null => LoginAttempt::UNKNOWN,
+                    $atPassword => LoginAttempt::FAILED,
+                    default => LoginAttempt::FAILED_2FA,
+                });
             if ($key !== null) {
                 RateLimiter::hit($key, 3600);
             }

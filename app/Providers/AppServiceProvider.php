@@ -15,6 +15,7 @@ use App\Mail\SystemMail;
 use App\Models\ApiKey;
 use App\Models\EmailLog;
 use App\Models\Extension;
+use App\Models\LoginAttempt;
 use App\Models\PaymentGatewayEvent;
 use App\Models\Staff;
 use App\Models\User;
@@ -35,6 +36,7 @@ use Filament\Forms\Components\FileUpload;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
+use Illuminate\Auth\SessionGuard;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Encryption\Encrypter;
 use Illuminate\Foundation\Exceptions\Handler;
@@ -313,6 +315,10 @@ class AppServiceProvider extends ServiceProvider
         // When a member of staff last logged in (the staff list shows it), and the login's own row (StaffSessions).
         Event::listen(function (Login $event) {
             if ($event->guard === 'staff' && $event->user instanceof Staff) {
+                // Login History: a session back by «Remember me» asked for no password.
+                $guard = Auth::guard('staff');
+                LoginAttempt::record(LoginAttempt::STAFF, $event->user, $event->user->email,
+                    $guard instanceof SessionGuard && $guard->viaRemember() ? LoginAttempt::REMEMBERED : LoginAttempt::SUCCESS);
                 $event->user->forceFill(['last_login_at' => now()])->saveQuietly();
                 StaffSessions::started($event->user, $event->remember, request());
             }

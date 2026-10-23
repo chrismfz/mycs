@@ -4,6 +4,7 @@ namespace App\Livewire\Auth;
 
 use App\Actions\Auth\Login;
 use App\Livewire\Component;
+use App\Models\LoginAttempt;
 use App\Models\User;
 use App\Support\RecoveryCodes;
 use App\Support\Totp;
@@ -48,6 +49,7 @@ class Tfa extends Component
         // Back-off (AUTH-20): 5 wrong codes lock the account's 2FA for 15 minutes, here and when turning it off; a code
         // is accepted once, never again in its time step (AUTHN-9). Staff have Filament's own on their guard.
         if (Totp::tooManyWrong($user)) {
+            LoginAttempt::record(LoginAttempt::CLIENT, $user, $user->email, LoginAttempt::THROTTLED);
             $this->addError('code', __('Too many attempts. Try again in :minutes minutes.', [
                 'minutes' => (int) ceil(RateLimiter::availableIn(Totp::limitKey($user)) / 60),
             ]));
@@ -55,6 +57,8 @@ class Tfa extends Component
             return;
         }
         if (!Totp::accept($user, $user->tfa_secret, (string) $this->code)) {
+            LoginAttempt::record(LoginAttempt::CLIENT, $user, $user->email, LoginAttempt::FAILED_2FA);
+
             return $this->addError('code', 'Invalid code.');
         }
 
@@ -76,6 +80,7 @@ class Tfa extends Component
             return $this->redirect(route('login'), true);
         }
         if (Totp::tooManyWrong($user)) {
+            LoginAttempt::record(LoginAttempt::CLIENT, $user, $user->email, LoginAttempt::THROTTLED);
             $this->addError('recovery', __('Too many attempts. Try again in :minutes minutes.', [
                 'minutes' => (int) ceil(RateLimiter::availableIn(Totp::limitKey($user)) / 60),
             ]));
@@ -83,6 +88,8 @@ class Tfa extends Component
             return;
         }
         if (!RecoveryCodes::consume($user, $this->recovery)) {
+            LoginAttempt::record(LoginAttempt::CLIENT, $user, $user->email, LoginAttempt::FAILED_2FA);
+
             return $this->addError('recovery', __('auth.recovery_code_invalid'));
         }
         // Told on whatever page it goes to (an invitation's, an OAuth consent: code review 2), not sent elsewhere.

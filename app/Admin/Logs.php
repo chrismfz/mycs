@@ -9,6 +9,7 @@ use App\Admin\Resources\EmailLogResource;
 use App\Admin\Resources\ErrorLogResource;
 use App\Admin\Resources\FailedJobResource;
 use App\Admin\Resources\HttpLogResource;
+use App\Admin\Resources\LoginAttemptResource;
 use App\Admin\Resources\McpCallResource;
 use App\Admin\Resources\ModuleActionResource;
 use App\Admin\Resources\PaymentGatewayEventResource;
@@ -30,6 +31,7 @@ final class Logs
     public const ITEMS = [
         'Activity' => [
             [AuditResource::class, 'Activity Log'],
+            [LoginAttemptResource::class, 'Login History'],
             [ModuleActionResource::class, 'Module Actions'],
             [DomainRegistrarLogResource::class, 'Registrar Log'],
             [CronStats::class, 'Automation Status'],

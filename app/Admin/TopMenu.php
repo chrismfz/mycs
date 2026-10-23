@@ -42,6 +42,7 @@ use App\Admin\Resources\InvoiceTransactions\InvoiceTransactionResource;
 use App\Admin\Resources\KbArticleResource;
 use App\Admin\Resources\KbCategoryResource;
 use App\Admin\Resources\LicenseResource;
+use App\Admin\Resources\LoginAttemptResource;
 use App\Admin\Resources\McpCallResource;
 use App\Admin\Resources\McpOauthGrantResource;
 use App\Admin\Resources\McpProposalResource;
@@ -129,6 +130,7 @@ class TopMenu
             [WhoisLookup::class],
             [GrRegistry::class],
             [AuditResource::class, 'index', 'Activity Log'],
+            [LoginAttemptResource::class, 'index', 'Login History'],
             [CronStats::class],
             [ModuleActionResource::class, 'index', 'Pending Module Actions'],
             [DomainRegistrarLogResource::class, 'index', 'Registrar Log'],

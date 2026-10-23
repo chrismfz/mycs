@@ -3,6 +3,7 @@
 namespace App\Actions\Auth;
 
 use App\Events\Auth\Login as LoginEvent;
+use App\Models\LoginAttempt;
 use App\Models\User;
 use App\Models\UserSession;
 use App\Support\AuthCookies;
@@ -41,5 +42,6 @@ class Login
         }
 
         event(new LoginEvent($user));
+        LoginAttempt::record(LoginAttempt::CLIENT, $user, $user->email, LoginAttempt::SUCCESS);
     }
 }
