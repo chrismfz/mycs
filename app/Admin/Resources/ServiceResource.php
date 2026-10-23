@@ -55,6 +55,7 @@ use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -254,7 +255,10 @@ class ServiceResource extends Resource
                         DatePicker::make('suspend_hold_until')
                             ->label('Do Not Suspend Until')
                             ->hintIcon(...$hint('While set to a future date, the cronjob neither suspends nor terminates this service, even if it is overdue (through that day). This does not affect manual suspension or termination.'))
-                            ->minDate(now())
+                            // A new date from today on; one already there, passed (an automatic hold of a day, review of
+                            // #411), never stops the page from saving.
+                            ->minDate(fn ($state, ?Service $record) => $record?->suspend_hold_until !== null && filled($state)
+                                && Carbon::parse($state)->isSameDay($record->suspend_hold_until) ? null : now()->startOfDay())
                             ->nullable()
                             ->placeholder('dd/mm/yyyy'),
                         Select::make('coupon_id')

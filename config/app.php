@@ -95,36 +95,19 @@ return [
     'fallback_locale' => env('APP_FALLBACK_LOCALE', 'en'),
 
     'available_locales' => [
-        'ar' => 'العربية',
-        'bn' => 'বাংলা',
         'da' => 'Dansk',
         'de' => 'Deutsch',
         'el' => 'Ελληνικά',
         'en' => 'English',
         'es' => 'Español',
-        'fi' => 'Suomi',
         'fr' => 'Français',
-        'he' => 'עברית',
-        'hi' => 'हिन्दी',
-        'hu' => 'Magyar',
-        'id' => 'Bahasa Indonesia',
-        'it' => 'Italiano',
-        'ko' => '한국어',
-        'lv' => 'Latviešu',
         'nl' => 'Nederlands',
-        'no' => 'Norsk',
-        'pl' => 'Polski',
         'pt' => 'Português',
-        'sr' => 'Српски',
         'sv' => 'Svenska',
-        'tr' => 'Türkçe',
-        'uk' => 'Українська',
-        'zh' => '中文',
     ],
 
-    'rtl_locales' => [
-        'ar',
-    ],
+    // None of ours today (Arabic and Hebrew were dropped, 2026-10-24); a right-to-left one goes here when added.
+    'rtl_locales' => [],
 
     'faker_locale' => env('APP_FAKER_LOCALE', 'en_US'),
 
