@@ -2,6 +2,7 @@
 
 namespace App\Providers\Filament;
 
+use App\Admin\Auth\AppAuthentication;
 use App\Admin\Auth\EditProfile;
 use App\Admin\Auth\Login;
 use App\Http\Controllers\TicketAttachmentController;
@@ -14,7 +15,6 @@ use App\Providers\SettingsProvider;
 use App\Support\StaffPresence;
 use Exception;
 use Filament\Actions\Action;
-use Filament\Auth\MultiFactor\App\AppAuthentication;
 use Filament\Auth\MultiFactor\Http\Middleware\EnsureMultiFactorAuthenticationIsEnabled;
 use Filament\Facades\Filament;
 use Filament\Http\Middleware\Authenticate;
