@@ -47,6 +47,7 @@ use Filament\Tables\Table;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 
 class InvoiceResource extends Resource
 {
@@ -82,6 +83,12 @@ class InvoiceResource extends Resource
         return 'warning';
     }
 
+    /** Its issue date may change while it is a draft or unpaid (INV-17). */
+    public static function issueDateEditable(Invoice $invoice): bool
+    {
+        return in_array($invoice->getOriginal('status'), [Invoice::STATUS_DRAFT, Invoice::STATUS_UNPAID], true);
+    }
+
     public static function form(Schema $schema): Schema
     {
         return $schema
@@ -102,14 +109,32 @@ class InvoiceResource extends Resource
                     ->state(fn (?Invoice $record) => $record?->splitFrom ? '#' . ($record->splitFrom->number ?: $record->splitFrom->id) : null)
                     ->url(fn (?Invoice $record) => $record?->split_from_id ? self::getUrl('edit', ['record' => $record->split_from_id]) : null)
                     ->visible(fn (?Invoice $record): bool => $record?->split_from_id !== null),
+                // Its date, as WHMCS's «Invoice Date» (INV-17: it was shown and never saved): today or before, and while it
+                // is not paid or ended (reports count a paid one in its year). Saved by the pages (CreateInvoice,
+                // EditInvoice::issuedAt): never fillable, so no other path moves it.
                 DatePicker::make('created_at')
                     ->label('Issued At')
                     ->required()
                     ->default(now())
+                    ->maxDate(fn () => now()->endOfDay())
+                    ->disabled(fn (?Invoice $record): bool => $record !== null && !self::issueDateEditable($record))
+                    ->helperText(fn (?Invoice $record): ?string => $record !== null && !self::issueDateEditable($record)
+                        ? __('Fixed once the invoice is paid, cancelled or refunded.') : null)
                     ->placeholder('Select the date and time the invoice was issued'),
                 DatePicker::make('due_at')
                     ->label('Due At')
                     ->required()
+                    // Not before its issue date, while that is staff's to set (an old one, imported, stays as it is).
+                    ->rule(fn (Get $get, ?Invoice $record) => function (string $attribute, mixed $value, \Closure $fail) use ($get, $record) {
+                        // On a new one, or when staff move either date (adversarial ADV-1, code review 1): a renewal billed late
+                        // is due before it was issued, and its other fields still save.
+                        $moved = $record === null || ($get('created_at') !== null && Carbon::parse($get('created_at'))->toDateString() !== $record->created_at?->toDateString())
+                            || ($value !== null && Carbon::parse($value)->toDateString() !== $record->due_at?->toDateString());
+                        if ($moved && ($record === null || self::issueDateEditable($record)) && filled($get('created_at')) && filled($value)
+                            && Carbon::parse($value)->startOfDay()->lt(Carbon::parse($get('created_at'))->startOfDay())) {
+                            $fail(__('The due date cannot be before the issue date.'));
+                        }
+                    })
                     ->default(now()->addDays(7))
                     ->placeholder('Select the date and time the invoice is due'),
                 Select::make('status')

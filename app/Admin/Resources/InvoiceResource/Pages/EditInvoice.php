@@ -22,6 +22,7 @@ use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Support\Exceptions\Halt;
+use Illuminate\Support\Carbon;
 
 class EditInvoice extends EditRecord
 {
@@ -109,7 +110,32 @@ class EditInvoice extends EditRecord
             $this->data['status'] = $current;
         }
 
+        // Its issue date (INV-17): set here, never by fill(); only while it is a draft or unpaid.
+        $issued = self::issuedAt($data['created_at'] ?? null);
+        $invoice = $this->record;
+        // Open by its status read now ($current, above), not as the page loaded it: one paid meanwhile keeps its
+        // date (code review 2).
+        if ($issued !== null && $invoice instanceof Invoice && in_array($current ?? $invoice->getOriginal('status'), [Invoice::STATUS_DRAFT, Invoice::STATUS_UNPAID], true)
+            && $issued->toDateString() !== $invoice->created_at?->toDateString()) {
+            $invoice->created_at = $issued;
+        }
+        unset($data['created_at']);
+
         return $data;
+    }
+
+    /** A date from the form, as the moment to keep: today's is now, an earlier day's its start; a later one is none. */
+    public static function issuedAt(mixed $date): ?Carbon
+    {
+        if (!filled($date)) {
+            return null;
+        }
+        $day = Carbon::parse((string) $date)->startOfDay();
+        if ($day->isFuture()) {
+            return null;
+        }
+
+        return $day->isToday() ? now() : $day;
     }
 
     protected function afterSave(): void

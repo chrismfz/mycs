@@ -37,6 +37,16 @@ class PaymentReminders
 {
     public const CATCH_UP_DAYS = 3;
 
+    /** Its «new invoice» mail went (on `due_on`): no «due soon» reminder that day. */
+    public const MAILED = 'mailed';
+
+    /** Its «new invoice» mail went today (or went again). */
+    public static function mailedToday(Invoice $invoice): void
+    {
+        DB::table('invoice_reminders')->insertOrIgnore(['invoice_id' => $invoice->id, 'kind' => self::MAILED, 'days' => 0,
+            'due_on' => Carbon::today()->toDateString(), 'sent_at' => now()]);
+    }
+
     /** The latest overdue day the setting takes (a year): more is ignored, never an overflow that stops them all. */
     public const MAX_DAYS = 365;
 
@@ -48,11 +58,14 @@ class PaymentReminders
 
         $before = (int) config('settings.cronjob_payment_reminder', 6);
         if ($before > 0) {
-            // Due within $before days, issued before today (not the day its own «new invoice» mail went).
+            // Due within $before days, issued before today and not mailed today (not the day its own «new invoice» mail
+            // went: an invoice dated earlier but made, published or sent again today; adversarial R2-1/R2-2 of #367).
             $due = $this->open()
                 ->whereDate('due_at', '>', $today)
                 ->whereDate('due_at', '<=', $today->copy()->addDays($before))
                 ->whereDate('created_at', '<', $today)
+                ->whereNotExists(fn ($query) => $query->from('invoice_reminders')->whereColumn('invoice_reminders.invoice_id', 'invoices.id')
+                    ->where('kind', self::MAILED)->whereDate('due_on', $today))
                 ->get();
             $this->known($due);
             foreach ($due as $invoice) {

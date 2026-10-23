@@ -55,6 +55,7 @@ class PaymentRemindersReviewTest extends TestCase
         $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => $due]);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $svc->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => 10]);
         DB::table('invoices')->where('id', $invoice->id)->update(['created_at' => $created]);
+        DB::table('invoice_reminders')->where(['invoice_id' => $invoice->id, 'kind' => 'mailed'])->delete(); // mailed that day, not today
         MailFacade::fake();
 
         return $invoice->fresh();
@@ -170,6 +171,7 @@ class PaymentRemindersReviewTest extends TestCase
         $invoice = Invoice::factory()->create(['client_id' => $user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => '2026-10-19']);
         $invoice->items()->create(['reference_type' => Credit::class, 'description' => 'Credit deposit', 'quantity' => 1, 'price' => 50]);
         DB::table('invoices')->where('id', $invoice->id)->update(['created_at' => '2026-10-19']);
+        DB::table('invoice_reminders')->where(['invoice_id' => $invoice->id, 'kind' => 'mailed'])->delete(); // mailed that day, not today
         MailFacade::fake();
 
         $this->assertSame(0, (new PaymentReminders)->send());

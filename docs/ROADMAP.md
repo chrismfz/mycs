@@ -56,7 +56,6 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       τα ίδια ids, εικόνες στο MyCS, parity (`app:import-whmcs-knowledgebase`, και στο πλήρες import).
 - [ ] Whois από το admin: υπάρχει ανά domain (κουμπί «WHOIS» στο domain, ανοίγει το `/whois`)· μένει, αν χρειαστεί, φόρμα
       στο μενού Domains του admin (80 χρήσεις/μήνα στο WHMCS).
-- [ ] Ένδειξη SSL δίπλα σε κάθε domain στο portal (το `ssl-check` του WHMCS, 90 πελάτες/μήνα)· μπορεί να δένει με το SSL.
 
 ### Cut-over (myip, και ό,τι ισχύει για τη nixpal)
 - [ ] **Χάρτης 301 για τα URLs που φέρνουν κίνηση** από Google: `/clients/knowledgebase/...` (~2.500/μήνα): τα 301
@@ -84,8 +83,10 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       (`tblclients.language`· nixpal: 6 πελάτες).
 - [ ] Το «Total» του PDF είναι μετά την πίστωση, του portal και του email το πλήρες· ενιαία διατύπωση (και το «Total»
       του portal είναι αμετάφραστο, `invoices/show.blade.php`). Το αυτόματο πιστωτικό της ακύρωσης γράφεται στα αγγλικά.
-- [ ] **INV-17:** το «Issued At» της φόρμας τιμολογίου δεν αποθηκεύεται (σιωπηλά). (INV-8, INV-10 έγιναν· «Group Similar
-      Line Items» απορρίφθηκε, `billing-cursor.md`.)
+- [x] ~~**INV-17**~~ **έγινε (fix/invoice-issued-at):** το «Issued At» αποθηκεύεται, όπως το «Invoice Date» του WHMCS:
+      σήμερα ή νωρίτερα, όσο το τιμολόγιο είναι draft ή απλήρωτο (ένα πληρωμένο το μετρούν οι αναφορές στη χρονιά του),
+      και η λήξη ποτέ πριν από αυτό· μόνο από τη φόρμα, ποτέ με fill. (INV-8, INV-10 έγιναν· «Group Similar Line Items»
+      απορρίφθηκε, `billing-cursor.md`.)
 - [ ] Πακέτο που γίνεται free ή one-time (`billing-cursor.md` §5)· ημέρες πριν τη λήξη ανά κύκλο.
 - [ ] Ανανεώσεις υπηρεσιών on demand από τον πελάτη (ρύθμιση του WHMCS, `settings-map.md`).
 - [ ] Οι 30 ημέρες του «paid not applied» (`RenewalBilling::PAID_NOT_APPLIED_DAYS`) γίνονται ρύθμιση.
@@ -197,4 +198,5 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
 Late fees, billable items, affiliates (το extension του upstream μένει αχρησιμοποίητο), escalation rules, network
 issues, fraud modules, φόρος δεύτερου επιπέδου, premium domains, δωρεάν domain με hosting, «Group Similar Line Items»,
 server status, TheSSLStore (SSL μέσω Openprovider). Επίσης: custom fields προϊόντος (Σ1-c), Δ4 `completed`, G2 (ανοιχτά
-τιμολόγια όταν αλλάζει το καθεστώς ΦΠΑ).
+τιμολόγια όταν αλλάζει το καθεστώς ΦΠΑ), η ένδειξη SSL δίπλα σε κάθε domain του portal (το `ssl-check` του WHMCS:
+περιττοί έλεγχοι και φόρτος, ο υπεύθυνος 2026-10-23).

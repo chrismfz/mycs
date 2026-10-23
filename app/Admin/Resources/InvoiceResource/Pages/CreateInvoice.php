@@ -3,6 +3,7 @@
 namespace App\Admin\Resources\InvoiceResource\Pages;
 
 use App\Admin\Resources\InvoiceResource;
+use App\Models\Invoice;
 use App\Services\Invoice\RecordPaymentService;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Database\Eloquent\Model;
@@ -19,9 +20,14 @@ class CreateInvoice extends CreateRecord
 
     protected function handleRecordCreation(array $data): Model
     {
-        $invoice = new (static::getModel());
+        $invoice = new Invoice;
         $invoice->fill($data);
         $invoice->send_create_email = $data['send_email'] ?? true;
+        // Its issue date as staff chose it (INV-17), never after today; today's keeps the time it is made.
+        $issued = EditInvoice::issuedAt($data['created_at'] ?? null);
+        if ($issued !== null) {
+            $invoice->created_at = $issued;
+        }
         $invoice->save();
 
         return $invoice;
