@@ -11,6 +11,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Cache;
 
 class UnsuspendJob implements ShouldQueue
 {
@@ -30,6 +31,11 @@ class UnsuspendJob implements ShouldQueue
     {
         // A queued action must not undo a newer payment or staff hold.
         if ($this->service->fresh()?->status !== Service::STATUS_ACTIVE) {
+            return;
+        }
+        // Paid before the worker reached its suspension (SuspendJob skipped it): nothing on the server to undo, and no
+        // «unsuspended» mail for a suspension the customer never got (review of #411, finding 11).
+        if (Cache::pull(SuspendJob::neverSuspendedKey($this->service->id)) === true) {
             return;
         }
         $data = [];

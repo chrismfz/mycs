@@ -64,6 +64,22 @@ class InvoiceResource extends Resource
     protected static ?string $model = Invoice::class;
 
     /** Its name in «Recently viewed» (the sidebar shows its kind beside it). */
+    /**
+     * What a cancellation does to the periods it bills (Δ3a, ADV-4), the same on the list and the invoice's page. Said as
+     * what happens to the service (owner 2026-10-24): «as usual» to re-issue an invoice left an active service suspended
+     * on its date with nothing to pay.
+     *
+     * @return array<string, string>
+     */
+    public static function cancelPeriods(): array
+    {
+        return [
+            'auto' => __('As usual: not renewing what the cron billed (an active service is suspended on its date, with no invoice to pay); farther periods invoiced early are billed at their time'),
+            'keep' => __('Re-issue: bill them all again (a new invoice, another price, a mistake)'),
+            'give_up' => __('Give them all up (not renewing)'),
+        ];
+    }
+
     public static function getRecordTitle(?Model $record): string|Htmlable|null
     {
         if (!$record instanceof Invoice) {
@@ -394,11 +410,8 @@ class InvoiceResource extends Resource
                         // them all up («not renewing»).
                         Radio::make('periods')
                             ->label('Its periods')
-                            ->options([
-                                'auto' => 'As usual: those the cron has billed are given up, farther ones (invoiced early) are billed at their time',
-                                'keep' => 'Bill them all again (to re-issue it)',
-                                'give_up' => 'Give them all up (not renewing)',
-                            ])
+                            ->options(self::cancelPeriods())
+                            ->helperText(__('A duplicate with no payment on it: delete it instead.'))
                             ->default('auto')
                             ->required(),
                     ])

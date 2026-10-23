@@ -1176,5 +1176,9 @@
     "Save the invoice first: the split moves its lines as saved.": "Αποθηκεύστε πρώτα το τιμολόγιο: ο διαχωρισμός μεταφέρει τις γραμμές του όπως είναι αποθηκευμένες.",
     "Tax :rate%: :amount": "Φόρος :rate%: :amount",
     "Clients with credit": "Πελάτες με πίστωση",
-    "No unused credit": "Καμία αχρησιμοποίητη πίστωση"
+    "No unused credit": "Καμία αχρησιμοποίητη πίστωση",
+    "As usual: not renewing what the cron billed (an active service is suspended on its date, with no invoice to pay); farther periods invoiced early are billed at their time": "Κανονικά: δεν ανανεώνεται ό,τι τιμολόγησε το cron (μια ενεργή υπηρεσία αναστέλλεται στην ημερομηνία της, χωρίς τιμολόγιο να πληρωθεί)· όσες περίοδοι τιμολογήθηκαν νωρίτερα τιμολογούνται στην ώρα τους",
+    "Re-issue: bill them all again (a new invoice, another price, a mistake)": "Επανέκδοση: τιμολογούνται όλες ξανά (νέο τιμολόγιο, άλλη τιμή, λάθος)",
+    "Give them all up (not renewing)": "Εγκαταλείπονται όλες (δεν ανανεώνεται)",
+    "A duplicate with no payment on it: delete it instead.": "Διπλό τιμολόγιο χωρίς πληρωμή: διαγράψτε το αντί να το ακυρώσετε."
 }

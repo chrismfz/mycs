@@ -10,6 +10,7 @@ use App\Enums\MoneyEventKind;
 use App\Exceptions\CreateSkipped;
 use App\Exceptions\DisplayException;
 use App\Exceptions\NothingToDoOnServer;
+use App\Jobs\Server\SuspendJob;
 use App\Models\BillingAgreement;
 use App\Models\Client;
 use App\Models\Credit;
@@ -1701,6 +1702,9 @@ class ExtensionHelper
      */
     public static function suspendServer(Service $service)
     {
+        // Suspended on the server now (staff's, or the cron's job): its next unsuspension is a real one.
+        Cache::forget(SuspendJob::neverSuspendedKey($service->id));
+
         return self::serverAction($service, 'suspendServer', 'suspend_server');
     }
 
