@@ -375,7 +375,7 @@ class ProductResource extends Resource
     /** How it is paid, from its plans: Free, One Time, Recurring, or those it mixes. */
     public static function payType(Product $product): string
     {
-        $names = ['free' => __('Free'), 'one-time' => __('One Time'), 'recurring' => __('Recurring')];
+        $names = ['free' => __('Free'), 'one-time' => __('One time'), 'recurring' => __('Recurring')];
         $types = $product->plans->pluck('type')->unique()->sort()->values();
 
         return $types->isEmpty() ? '—' : $types->map(fn ($type) => $names[$type] ?? (string) $type)->implode(', ');
@@ -400,7 +400,7 @@ class ProductResource extends Resource
                 TextColumn::make('stock')->label('Stock')
                     ->state(fn (Product $record) => $record->stock === null ? '∞' : (string) $record->stock),
                 TextColumn::make('autosetup')->label('Auto Setup')
-                    ->formatStateUsing(fn (?string $state) => self::AUTOSETUP_SHORT[$state ?? Product::AUTOSETUP_PAYMENT] ?? (string) $state)
+                    ->formatStateUsing(fn (?string $state) => isset(self::AUTOSETUP_SHORT[$state ?? Product::AUTOSETUP_PAYMENT]) ? __(self::AUTOSETUP_SHORT[$state ?? Product::AUTOSETUP_PAYMENT]) : (string) $state)
                     ->default(Product::AUTOSETUP_PAYMENT),
                 TextColumn::make('visibility')->label('Shown')->badge()
                     ->state(fn (Product $record) => $record->retired ? __('Retired') : ($record->hidden ? __('Hidden') : __('Listed')))

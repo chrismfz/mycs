@@ -31,9 +31,12 @@ class ProductListColumnsTest extends TestCase
         $free->plans()->update(['type' => 'free']);
 
         Livewire::test(ListProducts::class)
-            ->assertSee('CPanel')->assertSee('Recurring')->assertSee('On order')->assertSee('Hidden')
-            ->assertSee('Other')->assertSee('Free')->assertSee('Off')->assertSee('Retired')->assertSee('∞');
-        $this->assertSame('5', (string) $hosting->fresh()->stock);
+            ->assertTableColumnStateSet('type', 'CPanel', $hosting)->assertTableColumnStateSet('pay_type', 'Recurring', $hosting)
+            ->assertTableColumnStateSet('stock', '5', $hosting)->assertTableColumnFormattedStateSet('autosetup', 'On order', $hosting)
+            ->assertTableColumnStateSet('visibility', 'Hidden', $hosting)
+            ->assertTableColumnStateSet('type', 'Other', $free)->assertTableColumnStateSet('pay_type', 'Free', $free)
+            ->assertTableColumnStateSet('stock', '∞', $free)->assertTableColumnFormattedStateSet('autosetup', 'Off', $free)
+            ->assertTableColumnStateSet('visibility', 'Retired', $free);
         $this->assertSame('Free', ProductResource::payType($free->fresh()->load('plans')));
     }
 }
