@@ -8,7 +8,7 @@ final class Locales
     /** WHMCS's language names => ours. */
     public const WHMCS = ['english' => 'en', 'greek' => 'el', 'german' => 'de', 'french' => 'fr', 'italian' => 'it', 'spanish' => 'es',
         'dutch' => 'nl', 'portuguese-pt' => 'pt', 'portuguese-br' => 'pt', 'russian' => 'ru', 'turkish' => 'tr', 'arabic' => 'ar',
-        'danish' => 'da', 'swedish' => 'sv', 'croatian' => 'hr', 'macedonian' => 'mk', 'norwegian' => 'nb', 'hungarian' => 'hu',
+        'danish' => 'da', 'swedish' => 'sv', 'croatian' => 'hr', 'macedonian' => 'mk', 'norwegian' => 'no', 'hungarian' => 'hu',
         'czech' => 'cs', 'farsi' => 'fa', 'hebrew' => 'he', 'ukranian' => 'uk', 'azerbaijani' => 'az', 'catalan' => 'ca', 'estonian' => 'et'];
 
     /** WHMCS's name as ours, or null (empty: the instance's; unknown). */

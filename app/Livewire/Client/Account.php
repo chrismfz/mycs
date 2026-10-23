@@ -48,7 +48,8 @@ class Account extends ComponentWithProperties
         if ($this->canEditDetails) {
             // The account's details are its primary contact (PR 3a), as WHMCS's client profile.
             $this->fillContact(CurrentClient::model()?->primaryContact);
-            $this->language = (string) CurrentClient::model()?->language;
+            // One no longer allowed (imported, or taken off the list) shows as the default, never a value that fails (code review 2).
+            $this->language = (string) Locales::allowed(CurrentClient::model()?->language);
             $this->initializeProperties(CurrentClient::model(), Client::class);
         } else {
             $this->custom_properties = new Collection;

@@ -31,8 +31,8 @@ class Login
         Session::put('user_session', $userSession->ulid);
 
         Auth::guard('web')->login($user);
-        // Its pages in its own language, as it last chose (docs/accounts.md).
-        if (($locale = Locales::allowed($user->language)) !== null) {
+        // Its pages in its own language, as it last chose (docs/accounts.md); one chosen on this visit before signing in stays.
+        if (!Session::has('locale') && ($locale = Locales::allowed($user->language)) !== null) {
             Session::put('locale', $locale);
         }
 

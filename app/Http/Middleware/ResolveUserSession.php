@@ -5,8 +5,10 @@ namespace App\Http\Middleware;
 use App\Actions\Auth\Logout;
 use App\Models\UserSession;
 use App\Support\AuthCookies;
+use App\Support\Locales;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cookie;
 use Symfony\Component\HttpFoundation\Response;
@@ -48,6 +50,11 @@ class ResolveUserSession
             // Customers only (the `web` guard): staff have their own guard and plain session (docs/accounts.md, PR 1).
             if (!Auth::guard('web')->check() || Auth::guard('web')->id() !== $token->user_id) {
                 Auth::guard('web')->login($token->user);
+                // Back by its remember cookie: its pages in its own language, as at a login (docs/accounts.md).
+                if (!$session->has('locale') && ($locale = Locales::allowed($token->user->language)) !== null) {
+                    $session->put('locale', $locale);
+                    App::setLocale($locale);
+                }
             }
         }
 

@@ -112,6 +112,7 @@ class ClientResource extends Resource
                         Select::make('language')
                             ->label(__('Language'))
                             ->options(fn () => Locales::options())
+                            ->formatStateUsing(fn (?string $state) => Locales::allowed($state))
                             ->placeholder(fn () => __('Default') . ' (' . Locales::main() . ')')
                             ->helperText(__('The language of its emails and PDFs.')),
                         // The customer's choice, also set by staff (MT-1e): credit pays open invoices on its own, or is kept.

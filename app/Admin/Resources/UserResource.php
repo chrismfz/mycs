@@ -60,6 +60,7 @@ class UserResource extends Resource
                 Select::make('language')
                     ->label(__('Language'))
                     ->options(fn () => Locales::options())
+                    ->formatStateUsing(fn (?string $state) => Locales::allowed($state))
                     ->placeholder(fn () => __('Default') . ' (' . Locales::main() . ')'),
                 Toggle::make('tfa_secret')
                     ->label('Two Factor Authentication')

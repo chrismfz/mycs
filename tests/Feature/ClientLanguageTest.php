@@ -6,9 +6,12 @@ use App\Actions\Auth\Login;
 use App\Helpers\NotificationHelper;
 use App\Livewire\Client\Account;
 use App\Livewire\Components\LocaleSwitch;
+use App\Mail\Mail as MailMessage;
+use App\Models\BillingAgreement;
 use App\Models\User;
 use App\Support\CurrentClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -62,5 +65,29 @@ class ClientLanguageTest extends TestCase
         session()->forget('locale');
         app(Login::class)->execute($this->user->fresh());
         $this->assertSame('en', session('locale'));
+    }
+
+    /** Code review 1: a mail about the account in the account's language, whatever its owner's pages are in. */
+    public function test_account_mails_follow_the_account_not_the_owners_pages(): void
+    {
+        Mail::fake();
+        config(['settings.mail_disable' => false]);
+        $client = $this->user->client();
+        $client->forceFill(['language' => 'en'])->save();
+        $this->user->forceFill(['language' => 'el'])->save();
+
+        NotificationHelper::cardExpiringNotification($client->fresh(), new BillingAgreement(['name' => 'Visa 4242', 'expiry' => '2026-12-01']));
+
+        Mail::assertQueued(MailMessage::class, fn (MailMessage $mail) => $mail->locale === 'en');
+        Mail::assertNotQueued(MailMessage::class, fn (MailMessage $mail) => $mail->locale === 'el');
+    }
+
+    /** Code review 2: a language no longer allowed never blocks saving the account. */
+    public function test_a_language_no_longer_allowed_does_not_block_saving(): void
+    {
+        $this->user->client()->forceFill(['language' => 'de'])->save();
+        $this->actingAs($this->user)->withSession($this->loginUser($this->user, [CurrentClient::SESSION_KEY => $this->user->client()->id]));
+
+        Livewire::test(Account::class)->assertSet('language', '')->call('submit')->assertHasNoErrors();
     }
 }
