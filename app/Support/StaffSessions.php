@@ -146,12 +146,14 @@ final class StaffSessions
     {
         $ended = 0;
         $since = null;
+        $ulids = [];
         $currentId = self::store($request)->getId();
         foreach ($sessions as $row) {
             if ($row->staff_id !== $staff->id || $row->ended_at !== null) {
                 continue;
             }
             $row->forceFill(['ended_at' => now(), 'ended_by_staff_id' => $by->id])->save();
+            $ulids[] = $row->ulid;
             $since = $since === null || ($row->created_at !== null && $row->created_at->lt($since)) ? $row->created_at : $since;
             if (is_string($row->session_id) && $row->session_id !== '' && $row->session_id !== $currentId) {
                 try {
@@ -167,10 +169,11 @@ final class StaffSessions
             return 0;
         }
 
-        // The MCP connectors those logins could have approved (a lost laptop's): those approved by session since the
-        // earliest of them started, as a new password does (Staff::booted).
+        // The MCP connectors those sessions approved (a lost laptop's): by the session they were approved in. One
+        // approved before grants named their session is matched by time, since the earliest ended session started.
         McpOauthGrant::query()->where('staff_id', $staff->id)->where('approved_by', 'session')->whereNull('revoked_at')
-            ->when($since !== null, fn ($query) => $query->where('created_at', '>=', $since))
+            ->where(fn ($query) => $query->whereIn('staff_session', $ulids)
+                ->orWhere(fn ($old) => $old->whereNull('staff_session')->when($since !== null, fn ($q) => $q->where('created_at', '>=', $since))))
             ->get()->each(fn (McpOauthGrant $grant) => $grant->revoke('Session ended'));
 
         $staff->forceFill(['remember_token' => Str::random(60)])->saveQuietly();

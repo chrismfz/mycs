@@ -7,6 +7,7 @@ use App\Models\McpOauthClient;
 use App\Models\McpOauthCode;
 use App\Models\McpOauthGrant;
 use App\Models\Staff;
+use App\Support\StaffSessions;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -194,7 +195,9 @@ final class McpOauth
         $code = 'mcpco_' . Str::random(48);
         McpOauthCode::query()->create(['code_hash' => hash('sha256', $code), 'client_id' => $request->client->id, 'staff_id' => $staff->id,
             'api_key_id' => $key?->id, 'redirect_uri' => $request->redirectUri, 'code_challenge' => $request->codeChallenge,
-            'expires_at' => now()->addSeconds(self::CODE_SECONDS), 'created_at' => now()]);
+            'expires_at' => now()->addSeconds(self::CODE_SECONDS), 'created_at' => now(),
+            // Approved in a browser session: ending that session revokes it (StaffSessions::end).
+            'staff_session' => $key === null && request()->hasSession() && is_string($ulid = request()->session()->get(StaffSessions::SESSION_KEY)) ? $ulid : null]);
 
         return $code;
     }
@@ -238,7 +241,7 @@ final class McpOauth
             throw new OAuthError('invalid_grant', 'PKCE verification failed.');
         }
         $grant = McpOauthGrant::query()->create(['client_id' => $client->id, 'staff_id' => $code->staff_id, 'api_key_id' => $code->api_key_id,
-            'approved_by' => $code->api_key_id ? 'key' : 'session']);
+            'approved_by' => $code->api_key_id ? 'key' : 'session', 'staff_session' => $code->staff_session]);
         McpOauthCode::query()->whereKey($code->id)->update(['grant_id' => $grant->id]);
         if (self::grantAlive($grant) === null) {
             $grant->revoke('Not allowed any more');

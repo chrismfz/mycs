@@ -28,7 +28,7 @@ class McpOauthGrant extends Model implements Auditable
     use Traits\Auditable;
 
     protected $fillable = ['client_id', 'staff_id', 'api_key_id', 'approved_by', 'access_hash', 'access_expires_at', 'refresh_hash',
-        'previous_refresh_hash', 'refresh_expires_at', 'last_used_at', 'last_ip', 'revoked_at', 'revoked_reason'];
+        'previous_refresh_hash', 'refresh_expires_at', 'last_used_at', 'last_ip', 'revoked_at', 'revoked_reason', 'staff_session'];
 
     protected $hidden = ['access_hash', 'refresh_hash', 'previous_refresh_hash'];
 

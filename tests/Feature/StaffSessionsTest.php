@@ -4,6 +4,9 @@ namespace Tests\Feature;
 
 use App\Admin\Resources\StaffResource;
 use App\Livewire\Admin\StaffSessionList;
+use App\Models\McpOauthClient;
+use App\Models\McpOauthGrant;
+use App\Models\Setting;
 use App\Models\Staff;
 use App\Models\StaffSession;
 use App\Support\AuthCookies;
@@ -192,5 +195,76 @@ class StaffSessionsTest extends TestCase
             ->get($url)->assertOk()->assertDontSee('Other Browser');
         $this->actingAs(Staff::factory()->withPermissions(['admin.staff.viewAny', 'admin.staff.update', 'admin.staff.sessions'])->create(), 'staff')
             ->get($url)->assertOk()->assertSee('Other Browser');
+    }
+
+    private function grant(Staff $staff, ?string $staffSession, array $attributes = []): McpOauthGrant
+    {
+        $client = McpOauthClient::query()->create(['client_id' => 'c-' . uniqid(), 'name' => 'Claude', 'redirect_uris' => ['https://claude.ai/cb']]);
+
+        return McpOauthGrant::query()->create($attributes + ['client_id' => $client->id, 'staff_id' => $staff->id, 'approved_by' => 'session', 'staff_session' => $staffSession]);
+    }
+
+    /** Only what the ended session approved (review of #375): a connector approved in this browser stays. */
+    public function test_ending_an_old_session_keeps_a_connector_approved_in_another(): void
+    {
+        $staff = $this->member();
+        $old = $this->otherSession($staff, ['created_at' => now()->subDays(10)]);
+        $kept = $this->grant($staff, 'ulid-of-this-browser');
+        $gone = $this->grant($staff, $old->ulid);
+
+        StaffSessions::end($staff, [$old], $staff, request());
+
+        $this->assertNull($kept->fresh()->revoked_at);
+        $this->assertSame('Session ended', $gone->fresh()->revoked_reason);
+    }
+
+    public function test_a_connector_from_before_grants_named_their_session_is_matched_by_time(): void
+    {
+        $staff = $this->member();
+        $row = $this->otherSession($staff, ['created_at' => now()->subHour()]);
+        $older = $this->grant($staff, null);
+        $older->forceFill(['created_at' => now()->subDays(3)])->save();
+        $since = $this->grant($staff, null);
+
+        StaffSessions::end($staff, [$row], $staff, request());
+
+        $this->assertNull($older->fresh()->revoked_at);
+        $this->assertNotNull($since->fresh()->revoked_at);
+    }
+
+    public function test_a_consent_names_the_session_it_was_given_in(): void
+    {
+        Setting::query()->updateOrCreate(['key' => 'mcp_oauth_redirect_hosts', 'settingable_type' => null, 'settingable_id' => null], ['value' => 'example.test', 'type' => 'string']);
+        config(['settings.mcp_oauth_redirect_hosts' => 'example.test']);
+        $staff = $this->member();
+        $verifier = str_repeat('v', 50);
+        $clientId = $this->postJson('/mcp/oauth/register', ['client_name' => 'Claude', 'redirect_uris' => ['https://claude.example.test/cb']])->json('client_id');
+        $this->actingAs($staff, 'staff')->get(Filament::getPanel('admin')->getUrl())->assertOk();
+        $row = StaffSession::query()->sole();
+
+        $location = (string) $this->post('/mcp/oauth/authorize', ['response_type' => 'code', 'client_id' => $clientId, 'redirect_uri' => 'https://claude.example.test/cb',
+            'code_challenge' => rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '='), 'code_challenge_method' => 'S256',
+            'state' => 's', 'resource' => url('/mcp'), 'decision' => 'approve'])->headers->get('Location');
+        parse_str((string) parse_url($location, PHP_URL_QUERY), $query);
+        $this->app['auth']->forgetGuards();
+        $this->postJson('/mcp/oauth/token', ['grant_type' => 'authorization_code', 'client_id' => $clientId, 'code' => $query['code'],
+            'redirect_uri' => 'https://claude.example.test/cb', 'code_verifier' => $verifier])->assertOk();
+
+        $this->assertSame($row->ulid, McpOauthGrant::query()->sole()->staff_session);
+    }
+
+    /** The store kept an ended session: nothing of it stays, a customer login in it neither (review of #375). */
+    public function test_an_ended_session_is_emptied_when_refused(): void
+    {
+        $staff = $this->member();
+        $this->app['session.store']->start();
+        session(['marker' => 'x']);
+        Auth::guard('staff')->login($staff);
+        StaffSession::query()->sole()->forceFill(['ended_at' => now()])->save();
+        $this->app['auth']->forgetGuards();
+
+        $this->get(Filament::getPanel('admin')->getUrl())->assertRedirect();
+
+        $this->assertNull(session('marker'));
     }
 }

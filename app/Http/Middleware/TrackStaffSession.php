@@ -11,7 +11,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Symfony\Component\HttpFoundation\Response;
 
-/** Every admin request of a logged-in member: its session's row is seen, and an ended one is logged out (StaffSessions). */
+/**
+ * Every admin request of a logged-in member: a session without a row gets one (StaffSessions). An ended one is refused
+ * by the staff guard itself, before this runs; the branch below is its fallback.
+ */
 class TrackStaffSession
 {
     public function handle(Request $request, Closure $next): Response

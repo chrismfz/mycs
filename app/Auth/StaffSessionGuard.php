@@ -27,8 +27,11 @@ class StaffSessionGuard extends SessionGuard
         if ($user instanceof Staff && $this->checkedFor !== $request) {
             $this->checkedFor = $request;
             if (StaffSessions::endedIn($user, $this->session)) {
-                // This browser only: whoever ended it rotated the «remember me» token.
+                // This browser only (whoever ended it rotated the «remember me» token), and its session with it: the
+                // store kept it (review of #375), so nothing of it stays, a customer login in it neither.
                 $this->logoutCurrentDevice();
+                $this->session->invalidate();
+                $this->session->regenerateToken();
 
                 return null;
             }
