@@ -298,6 +298,10 @@ return [
             'mcp' => [
                 'use' => 'Use the MCP Server',
             ],
+            // System → System Cleanup: delete logs by hand (App\Support\Retention).
+            'system_cleanup' => [
+                'run' => 'Run System Cleanup',
+            ],
             // Who of the staff is in, in the sidebar and on the dashboard (docs/livechat.md §7β); every role by default.
             'staff_online' => [
                 'view' => 'View Staff Online',

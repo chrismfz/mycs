@@ -13,6 +13,7 @@ use App\Admin\Pages\IncomeReport;
 use App\Admin\Pages\LiveChat;
 use App\Admin\Pages\RevenueForecast;
 use App\Admin\Pages\Settings;
+use App\Admin\Pages\SystemCleanup;
 use App\Admin\Pages\WhoisLookup;
 use App\Admin\Resources\AdjustmentNoteResource;
 use App\Admin\Resources\ApiResource;
@@ -139,6 +140,7 @@ class TopMenu
             [McpCallResource::class, 'index', 'MCP Calls'],
             [ErrorLogResource::class, 'index', 'Error Logs'],
             [HttpLogResource::class, 'index', 'HTTP Logs'],
+            [SystemCleanup::class],
         ],
         'Setup' => [
             [Settings::class],

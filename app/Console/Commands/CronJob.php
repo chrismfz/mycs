@@ -15,11 +15,9 @@ use App\Logging\WriteFailures;
 use App\Models\BulkMail;
 use App\Models\Credit;
 use App\Models\CronStat;
-use App\Models\DebugLog;
 use App\Models\Domain;
 use App\Models\DomainOwnerChange;
 use App\Models\DomainRegistrarLog;
-use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\McpCall;
@@ -52,6 +50,7 @@ use App\Services\Payment\CardExpiryNotices;
 use App\Services\Service\SuspensionDigest;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use App\Support\DunningWindow;
+use App\Support\Retention;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
@@ -588,15 +587,11 @@ class CronJob extends Command
             // An account's services left at another group discount (a lock, a timeout when it moved; #272).
             $this->runCronJob('group_prices_reconciled', fn () => ClientGroupPricing::reconcile(), transaction: false);
 
-            $this->runCronJob('email_logs_deleted', function ($number = 0) {
-                // Delete email logs older than x days; 0 keeps them (it would wipe the whole log).
-                $days = (int) config('settings.cronjob_delete_email_logs', 90);
-                if ($days <= 0) {
-                    return 0;
-                }
-
-                return EmailLog::where('created_at', '<', now()->subDays($days))->delete();
-            });
+            // Email logs older than their days; 0 keeps them. In chunks, outside one transaction (App\Support\Retention).
+            $this->runCronJob('email_logs_deleted', fn () => ($days = Retention::days('email_logs')) > 0
+                ? Retention::pruneBefore('email_logs', now()->subDays($days)) : 0, transaction: false);
+            // The other logs by their own settings (Settings → Cronjob → Data Retention).
+            $this->runCronJob('logs_pruned', fn () => array_sum(Retention::pruneAll(except: ['email_logs'])), transaction: false);
 
             // What went down today, per service (as WHMCS's «Cron Job Activity»): staff unsuspend or hold the ones
             // they want kept. Before the notices mail (its failure would skip this), and also on a run with failures:
@@ -649,8 +644,6 @@ class CronJob extends Command
 
         $this->info('Successfully charged ' . $this->successFullCharges . ' invoices.');
 
-        // Remove old debug logs
-        DebugLog::where('created_at', '<', now()->subDays(30))->delete();
     }
 
     /** Saved cards and agreements charged (AutoCharge: once a day per invoice): the daily run's step, and the hourly one's. */
