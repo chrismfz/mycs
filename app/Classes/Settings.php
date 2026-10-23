@@ -560,7 +560,8 @@ class Settings
                     'required' => true,
                     'min_value' => 1,
                     'max_value' => 365,
-                    'description' => 'Not in WHMCS. A service on a paid invoice whose payment could not be applied yet (the cron tries again every run) is neither billed again, suspended nor terminated for this many days; staff are told every day.',
+                    'validation' => 'integer',
+                    'description' => 'Not in WHMCS. A service on a paid invoice whose payment could not be applied yet (the cron tries again every run) is neither billed again, suspended nor terminated for this many days; staff are told every day. Lowered, it applies at once to the invoices already waiting.',
                 ],
                 [
                     'name' => 'cronjob_suspension_digest',

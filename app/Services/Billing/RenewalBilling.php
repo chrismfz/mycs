@@ -69,10 +69,15 @@ final class RenewalBilling
     /** Protected this long by a paid line that is not applied (then the usual rules, after a notice every day): the default. */
     public const PAID_NOT_APPLIED_DAYS = 30;
 
-    /** The days of that protection: the setting (Settings → Cron, «Paid but not applied: protected days»), 1 to 365. */
+    /**
+     * The days of that protection: the setting (Settings → Cron, «Paid but not applied: protected days»), 1 to 365. One
+     * that is not a whole number (empty, text: a setting written outside the form) is the default, never a day (review).
+     */
     public static function paidNotAppliedDays(): int
     {
-        return max(1, min(365, (int) config('settings.cronjob_paid_not_applied_days', self::PAID_NOT_APPLIED_DAYS)));
+        $days = filter_var(config('settings.cronjob_paid_not_applied_days'), FILTER_VALIDATE_INT);
+
+        return max(1, min(365, $days === false ? self::PAID_NOT_APPLIED_DAYS : $days));
     }
 
     /**
