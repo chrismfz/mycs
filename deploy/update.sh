@@ -68,21 +68,31 @@ COMPOSER_DEV="${COMPOSER_DEV:-$(_env DEPLOY_COMPOSER_DEV)}"
 # ALLOW_DEV_IN_PRODUCTION=1 says it is meant (a one-off on a box that is not really production). APP_ENV and APP_DEBUG
 # as Laravel reads them (phpdotenv: quotes, comments, `export`, CRLF, untrimmed inside quotes), and debug on as
 # Laravel's env() has it: anything but false/0/empty/null (review of #392).
-# Read by tag, PHP's own warnings kept off stdout; when PHP cannot read it, refused (review of #392): there is no
-# telling then whether this is production.
-_parsed="$($PHP -d display_errors=stderr -d display_startup_errors=0 -r 'require "vendor/autoload.php"; $e = Dotenv\Dotenv::parse((string) file_get_contents(".env")); echo "\nMYCS_GUARD_ENV=", strtolower((string) ($e["APP_ENV"] ?? "")), "\nMYCS_GUARD_DEBUG=", strtolower((string) ($e["APP_DEBUG"] ?? "")), "\n";' 2>/dev/null || true)"
-if ! grep -q '^MYCS_GUARD_ENV=' <<<"$_parsed" || ! grep -q '^MYCS_GUARD_DEBUG=' <<<"$_parsed"; then
+# PHP decides, as Laravel would, and prints only two digits on a line of its own: no value of .env is echoed, so none
+# can shift or forge the answer (multi-line values, review of #392). The process environment wins over .env, as in
+# Laravel. When PHP cannot tell, refused: there is no knowing then whether this is production.
+_parsed="$($PHP -d display_errors=stderr -d display_startup_errors=0 -r '
+  require "vendor/autoload.php";
+  $file = Dotenv\Dotenv::parse((string) file_get_contents(".env"));
+  $get = fn (string $key) => getenv($key) !== false ? getenv($key) : ($file[$key] ?? null);
+  $debug = $get("APP_DEBUG");
+  $debug = match (is_string($debug) ? strtolower($debug) : $debug) { "true", "(true)" => true, "false", "(false)", "empty", "(empty)", "null", "(null)", null => false, default => (bool) $debug };
+  echo "\nMYCS_GUARD=", strtolower((string) $get("APP_ENV")) === "production" ? 1 : 0, " ", $debug ? 1 : 0, "\n";' 2>&1 || true)"
+_answer="$(grep -E '^MYCS_GUARD=[01] [01]$' <<<"$_parsed" | tail -1 || true)"
+if [[ -z "$_answer" ]]; then
   if [[ "${ALLOW_DEV_IN_PRODUCTION:-0}" != "1" ]]; then
-    fail "Cannot read .env as Laravel does ($PHP with vendor/autoload.php): APP_ENV and APP_DEBUG unknown. Fix PHP/vendor or .env (or ALLOW_DEV_IN_PRODUCTION=1)."; exit 1
+    fail "Cannot read .env as Laravel does ($PHP with vendor/autoload.php): APP_ENV and APP_DEBUG unknown. Fix PHP/vendor or .env (or ALLOW_DEV_IN_PRODUCTION=1). PHP said:"
+    printf '%s\n' "$_parsed" | tail -5 >&2; exit 1
   fi
+  _answer="MYCS_GUARD=0 0"
 fi
-_app_env="$(sed -n 's/^MYCS_GUARD_ENV=//p' <<<"$_parsed" | tail -1)"
-_app_debug="$(sed -n 's/^MYCS_GUARD_DEBUG=//p' <<<"$_parsed" | tail -1)"
+_app_env="$([[ "${_answer:11:1}" == "1" ]] && echo production || echo other)"
+_app_debug="$([[ "${_answer:13:1}" == "1" ]] && echo true || echo false)"
 if [[ "$_app_env" == "production" && "${ALLOW_DEV_IN_PRODUCTION:-0}" != "1" ]]; then
   if [[ "${COMPOSER_DEV:-0}" == "1" ]]; then
     fail "APP_ENV=production with COMPOSER_DEV/DEPLOY_COMPOSER_DEV=1: dev packages would be installed. Unset it (or ALLOW_DEV_IN_PRODUCTION=1)."; exit 1
   fi
-  if [[ ! "$_app_debug" =~ ^(|false|\(false\)|0|empty|\(empty\)|null|\(null\))$ ]]; then
+  if [[ "$_app_debug" == "true" ]]; then
     fail "APP_ENV=production with APP_DEBUG=true: error pages would show code and settings. Set APP_DEBUG=false (or ALLOW_DEV_IN_PRODUCTION=1)."; exit 1
   fi
 fi

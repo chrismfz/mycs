@@ -39,7 +39,7 @@ class DeployProductionGuardTest extends TestCase
     {
         File::put($this->dir . '/.env', $env);
         $prefix = implode(' ', array_map(fn ($k, $v) => $k . '=' . escapeshellarg($v), array_keys($vars), $vars));
-        exec('cd ' . escapeshellarg($this->dir) . ' && PATH=' . escapeshellarg($this->dir . '/bin:' . getenv('PATH')) . ' env -u COMPOSER_DEV -u ALLOW_DEV_IN_PRODUCTION -u APP_DIR -u MYCS_UPDATE_COPY ' . $prefix . ' bash deploy/update.sh --help-not-a-ref 2>&1 < /dev/null', $out, $code);
+        exec('cd ' . escapeshellarg($this->dir) . ' && PATH=' . escapeshellarg($this->dir . '/bin:' . getenv('PATH')) . ' env -u COMPOSER_DEV -u ALLOW_DEV_IN_PRODUCTION -u APP_DIR -u MYCS_UPDATE_COPY -u APP_ENV -u APP_DEBUG ' . $prefix . ' bash deploy/update.sh --help-not-a-ref 2>&1 < /dev/null', $out, $code);
 
         return [$code, implode("\n", $out)];
     }
@@ -101,8 +101,19 @@ class DeployProductionGuardTest extends TestCase
 
     public function test_a_space_inside_quotes_is_debug_on_as_for_laravel(): void
     {
-        [$code, $out] = $this->deploy("APP_ENV=production\nAPP_DEBUG=\" false\"\n");
+        foreach (["APP_ENV=production\nAPP_DEBUG=\" false\"\n", "APP_ENV=production\nAPP_DEBUG=\"false\nx\"\n", "APP_ENV=production\nAPP_DEBUG=\"false\n\"\n"] as $env) {
+            [$code, $out] = $this->deploy($env);
+            $this->assertSame(1, $code, json_encode($env) . ': ' . $out);
+            $this->assertStringContainsString('APP_DEBUG=true', $out);
+        }
+    }
+
+    /** The process environment wins over .env, as in Laravel (review of #392). */
+    public function test_debug_from_the_environment_is_refused(): void
+    {
+        [$code, $out] = $this->deploy("APP_ENV=production\nAPP_DEBUG=false\n", ['APP_DEBUG' => 'true']);
 
         $this->assertSame(1, $code, $out);
+        $this->assertStringContainsString('APP_DEBUG=true', $out);
     }
 }
