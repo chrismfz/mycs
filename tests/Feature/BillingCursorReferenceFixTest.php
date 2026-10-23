@@ -15,6 +15,7 @@ use App\Models\Server;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Models\User;
+use Filament\Actions\ActionGroup;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -241,7 +242,9 @@ class BillingCursorReferenceFixTest extends TestCase
         $page = new EditService;
         $page->record = $service;
         $actions = (new \ReflectionMethod($page, 'getHeaderActions'))->invoke($page);
-        $action = collect($actions)->first(fn ($action) => $action->getName() === 'changeStatus');
+        // Behind «More» since the compact page (2026-10-23): the group's actions too.
+        $action = collect($actions)->flatMap(fn ($action) => $action instanceof ActionGroup ? $action->getActions() : [$action])
+            ->first(fn ($action) => $action->getName() === 'changeStatus');
         config(['app.debug' => true]);
         $failed = false;
         try {

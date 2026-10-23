@@ -14,7 +14,15 @@ link που φτιάχτηκε πριν την αλλαγή δεν περνά τ
 φόρμες των σελίδων· τα modals και τα φίλτρα κρατούν την ετικέτα πάνω), σε στήλη 8–11rem· λιγότερο κενό ανάμεσα στα πεδία·
 το βοηθητικό κείμενο μικρό, κάτω από το πεδίο· ο άδειος πίνακας μία γραμμή, χωρίς εικονίδιο (`density.css`). Οι
 ημερομηνίες διαλέγονται με τον picker του Filament σε **d/m/Y** (ο του browser έγραφε 11/22/2026 στο locale του),
-η εβδομάδα από Δευτέρα. Η σελίδα της υπηρεσίας όπως το mockup: επόμενο PR.
+η εβδομάδα από Δευτέρα.
+
+**Η σελίδα της υπηρεσίας** (όπως το mockup, 2026-10-23): το usage και τα hosted domains σε **μία γραμμή** πάνω από τη
+φόρμα (`summary-line`, «+N» για τα υπόλοιπα)· «Billing» και «Account on the server» δίπλα δίπλα, τα βοηθητικά κείμενα
+πίσω από ⓘ· οι εντολές του module (Create, Suspend, Unsuspend, Change package, Terminate) ένα κουμπί η καθεμία μέσα στο
+Account, που ανοίγει την ίδια ενέργεια της σελίδας σε εκείνη την εντολή (`changeStatus`, ίδιοι έλεγχοι). Πάνω δεξιά:
+«Invoice next period», **«Log in to panel»** (το `getLoginUrl` του module, όπως ο πελάτης· δικό του δικαίωμα
+`admin.services.sso`, μόνο active/suspended, https χωρίς credentials στο URL, `panel_login` στο audit) και «More ▾» για τα
+υπόλοιπα.
 
 ## Μενού
 **Topbar Menu (vaslv/filament-topbar-menu): όχι.** Είναι MIT και Filament 5, αλλά:
