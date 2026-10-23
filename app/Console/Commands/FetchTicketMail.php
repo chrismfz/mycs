@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\TicketDepartment;
+use App\Models\TicketMailImport;
 use App\Models\TicketPollRun;
 use App\Models\TicketQuarantine;
 use App\Support\Tickets\InboundOutcome;
@@ -65,6 +66,7 @@ class FetchTicketMail extends Command
                         return false;
                     }
                 }
+                TicketMailImport::record($department, $email, $outcome);
                 $kind = isset($counts[$outcome->kind]) ? $outcome->kind : 'skipped';
                 $counts[$kind]++;
 

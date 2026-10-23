@@ -48,7 +48,7 @@ class AdminTopMenuTest extends TestCase
 
         $menu = $this->menuFor($support);
 
-        $this->assertSame(['Support Tickets', 'Open New Ticket'], $menu['Support']);
+        $this->assertSame(['Support Tickets', 'Open New Ticket', 'Ticket Mail Import Log'], $menu['Support']);
         // The accounts (Clients) and their logins (Users) apart since the split; each by its own permission.
         $this->assertSame(['View/Search Clients', 'Manage Users'], $menu['Clients']);
         $this->assertArrayNotHasKey('Billing', $menu);

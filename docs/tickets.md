@@ -110,6 +110,9 @@ email επιβεβαίωσης στον επισκέπτη με τον αριθ�
 - `ticket_messages`: `email_message_id` (unique), `via`, `is_internal` (εσωτερική σημείωση), `body_original`.
 - `ticket_quarantine`: εισερχόμενα που δεν πέρασαν το §3 (λόγος, headers, ασφαλές preview), με ενέργειες staff.
 - `ticket_blocked_senders`, `ticket_poll_runs`.
+- `ticket_mail_imports`: κάθε mail που διάβασε το polling και τι έγινε (νέο ticket, απάντηση, καραντίνα με τον λόγο,
+  blocked), με το ticket ή την καραντίνα· το Ticket Mail Import Log του WHMCS (owner 2026-10-23). Ένα mail που
+  ξαναδιαβάζεται (ίδιο Message-ID) δεν γράφεται δεύτερη φορά.
 - Ό,τι σήμερα υποθέτει πελάτη (policies, listener ειδοποιήσεων, admin infolist/στήλες/φίλτρα, ClientSummary, API,
   `TemplateRenderer`, `Client::tickets()`): χειρίζεται τον επισκέπτη (λίστα στο σημερινό inventory).
 - Καταστάσεις (5, όπως το Ekdosi): `open`, `answered`, `customer_reply`, `on_hold`, `closed`. Από το WHMCS: Open →
