@@ -66,12 +66,23 @@ final class RenewalBilling
         return Cache::lock("invoice-selected:{$clientId}", 600);
     }
 
-    /** Protected this long by a paid line that is not applied (then the usual rules, after a notice every day). */
+    /** Protected this long by a paid line that is not applied (then the usual rules, after a notice every day): the default. */
     public const PAID_NOT_APPLIED_DAYS = 30;
 
     /**
+     * The days of that protection: the setting (Settings → Cron, «Paid but not applied: protected days»), 1 to 365. One
+     * that is not a whole number (empty, text: a setting written outside the form) is the default, never a day (review).
+     */
+    public static function paidNotAppliedDays(): int
+    {
+        $days = filter_var(config('settings.cronjob_paid_not_applied_days'), FILTER_VALIDATE_INT);
+
+        return max(1, min(365, $days === false ? self::PAID_NOT_APPLIED_DAYS : $days));
+    }
+
+    /**
      * A line of the service (services.id in the outer query) on a paid invoice still to be applied (BIL-9), its own line
-     * not applied yet: another service of the same invoice, applied, is not protected by it. For PAID_NOT_APPLIED_DAYS.
+     * not applied yet: another service of the same invoice, applied, is not protected by it. For paidNotAppliedDays().
      *
      * @param  Builder  $line
      */
@@ -81,7 +92,7 @@ final class RenewalBilling
             ->where('invoice_items.reference_type', Service::class)->whereColumn('invoice_items.reference_id', 'services.id')
             ->whereNull('invoice_items.applied_at')
             ->where('invoices.status', Invoice::STATUS_PAID)
-            ->where('invoices.apply_pending_since', '>=', now()->subDays(self::PAID_NOT_APPLIED_DAYS));
+            ->where('invoices.apply_pending_since', '>=', now()->subDays(self::paidNotAppliedDays()));
     }
 
     /**

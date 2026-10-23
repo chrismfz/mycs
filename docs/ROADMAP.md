@@ -94,7 +94,8 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       απορρίφθηκε, `billing-cursor.md`.)
 - [ ] Πακέτο που γίνεται free ή one-time (`billing-cursor.md` §5)· ημέρες πριν τη λήξη ανά κύκλο.
 - [ ] Ανανεώσεις υπηρεσιών on demand από τον πελάτη (ρύθμιση του WHMCS, `settings-map.md`).
-- [ ] Οι 30 ημέρες του «paid not applied» (`RenewalBilling::PAID_NOT_APPLIED_DAYS`) γίνονται ρύθμιση.
+- [x] ~~Οι 30 ημέρες του «paid not applied»~~ **έγινε:** ρύθμιση `cronjob_paid_not_applied_days` (Settings → Cron, «Paid but
+      not applied: protected days», 30, από 1 έως 365).
 - [ ] Πληρωμές: μοναδικό κλειδί στο `transaction_id`· minor units στο Stripe (PAY-16)· fallback του Stripe (#1260 του
       upstream)· SEPA (υπάρχει κώδικας, όχι δοκιμή). (Η ανοχή υπογραφής του Stripe, PAY-14, έγινε: #341.)
 - [ ] Tests incomplete: `BillingCursorMoneyTest` γραμμές 173 και 224 (μάλλον διορθώθηκαν: έλεγχος και αφαίρεση),

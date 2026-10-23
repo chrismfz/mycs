@@ -552,6 +552,18 @@ class Settings
                     'description' => 'Not in WHMCS. Never terminated sooner after its suspension, whatever the due date (a hold that ended late, a date moved back, the cron down): the customer gets the suspension email first. 0 = as WHMCS.',
                 ],
                 [
+                    'name' => 'cronjob_paid_not_applied_days',
+                    'section' => 'Automatic Module Functions',
+                    'label' => 'Paid but not applied: protected days',
+                    'type' => 'number',
+                    'default' => 30,
+                    'required' => true,
+                    'min_value' => 1,
+                    'max_value' => 365,
+                    'validation' => 'integer',
+                    'description' => 'Not in WHMCS. A service on a paid invoice whose payment could not be applied yet (the cron tries again every run) is neither billed again, suspended nor terminated for this many days; staff are told every day. Lowered, it applies at once to the invoices already waiting.',
+                ],
+                [
                     'name' => 'cronjob_suspension_digest',
                     'section' => 'Automatic Module Functions',
                     'label' => 'Email staff what was suspended',

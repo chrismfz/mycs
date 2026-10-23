@@ -121,7 +121,7 @@ class CronJob extends Command
             // Paid invoices whose lines were not applied (the work after the payment's commit failed: a crash, a
             // server error): applied again, and their Paid event fired then (audit sweep BIL-9). Only those MyCS marked
             // paid; a few minutes old, so a payment being applied right now is left to finish. Until applied (for
-            // PAID_NOT_APPLIED_DAYS at most), the services of its lines not applied are neither billed again, suspended
+            // RenewalBilling::paidNotAppliedDays() at most), the services of its lines not applied are neither billed again, suspended
             // nor terminated. One invoice at a time; one that fails again is reported and tried again on the next run.
             $this->runCronJob('paid_applied', function ($number = 0) {
                 $ids = Invoice::query()->where('status', Invoice::STATUS_PAID)->whereNotNull('apply_pending_since')
@@ -144,7 +144,7 @@ class CronJob extends Command
                         $number++;
                     } catch (Throwable $e) {
                         report($e);
-                        $until = $invoice?->apply_pending_since?->addDays(RenewalBilling::PAID_NOT_APPLIED_DAYS)->toDateString();
+                        $until = $invoice?->apply_pending_since?->addDays(RenewalBilling::paidNotAppliedDays())->toDateString();
                         $this->notices["paid_applied #{$id}"] = new DisplayException("Invoice #{$id} is paid but its lines could not be applied: {$e->getMessage()}. Tried again on the next run; the services of the lines not applied are neither billed nor suspended until {$until}.");
 
                         continue;
