@@ -435,14 +435,23 @@ class Service extends Model implements Auditable
             return false;
         }
 
-        return (float) $this->price > 0 || ($this->coupon_id !== null && $this->coupon_expired_at === null);
+        if ((float) $this->price > 0) {
+            return true;
+        }
+        // A coupon that lowers the renewals now and stops (for N cycles, or when a product it needs goes): the full
+        // price comes back. One for the first cycle only, or for ever with nothing it needs, never does (round 2).
+        $coupon = $this->coupon_id === null || $this->coupon_expired_at !== null ? null : Coupon::query()->find($this->coupon_id);
+
+        return $coupon !== null && ($coupon->cycles() > 1 || ($coupon->cycles() === 0 && $coupon->requiredProducts()->exists()));
     }
 
     /** The services that pay every cycle (as paysEveryCycle()), for a query. @param Builder<Service> $query */
     public function scopePayingEveryCycle(Builder $query): void
     {
         $query->whereIn('status', self::PAYING_STATUSES)
-            ->where(fn (Builder $query) => $query->where('price', '>', 0)->orWhere(fn (Builder $query) => $query->whereNotNull('coupon_id')->whereNull('coupon_expired_at')));
+            ->where(fn (Builder $query) => $query->where('price', '>', 0)->orWhere(fn (Builder $query) => $query->whereNull('coupon_expired_at')
+                ->whereHas('coupon', fn (Builder $coupon) => $coupon->where('recurring', '>', 1)
+                    ->orWhere(fn (Builder $coupon) => $coupon->where('recurring', 0)->whereHas('requiredProducts')))));
     }
 
     /**
@@ -453,7 +462,9 @@ class Service extends Model implements Auditable
     {
         $current = $service->plan_id === null ? null : Plan::query()->find($service->plan_id);
         if ($plan === null || $current === null || $current->type !== 'recurring' || !in_array($plan->type, ['free', 'one-time'], true)
-            // As it is saved ($after): a price set to 0 (or a cancel) in the same save is staff saying so, as WHMCS's «0».
+            // As it is saved ($after): a price set to 0 (or a cancel) in the same save is staff saying so, as WHMCS's «0»,
+            // also under a coupon still running (round 2: on a free plan it bills nothing).
+            || ($after !== null && (float) $after->price <= 0 && (float) $service->price > 0)
             || !($after ?? $service)->paysEveryCycle()) {
             return null;
         }
