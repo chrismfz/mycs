@@ -11,6 +11,7 @@ use App\Models\InvoiceItem;
 use App\Models\Order;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
+use App\Services\Payment\SavedMethodCharge;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
@@ -62,6 +63,11 @@ final class InvoiceLineMove
         }
         if ($invoice->hasPayments(lock: true)) {
             return __('Invoice :invoice has payments: refund or delete them first.', ['invoice' => $label]);
+        }
+        // A card charge on its way (taken, its webhook not here yet; or its outcome unknown): moved, the next run would
+        // charge the other invoice in full and the late payment would land as credit, the card charged twice (sweep).
+        if (SavedMethodCharge::onItsWay($invoice)) {
+            return __('Invoice :invoice has a card charge on its way: wait for it (a few minutes, or the gateway\'s answer).', ['invoice' => $label]);
         }
         if ($invoice->adjustmentNotes()->where('status', AdjustmentNoteStatus::Active->value)->exists()) {
             return __('Invoice :invoice has a credit note: void it first.', ['invoice' => $label]);

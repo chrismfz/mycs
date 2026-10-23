@@ -47,6 +47,7 @@ use App\Services\Mcp\Proposals;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Payment\AutoCharge;
 use App\Services\Payment\CardExpiryNotices;
+use App\Services\Payment\SavedMethodCharge;
 use App\Services\Service\SuspensionDigest;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use App\Support\DunningWindow;
@@ -739,7 +740,7 @@ class CronJob extends Command
             try {
                 $done = DB::transaction(function () use ($id, $requiresInvoice) {
                     $service = $this->suspendable(overdueInvoice: $requiresInvoice)->whereKey($id)->lockForUpdate()->first();
-                    if ($service === null) {
+                    if ($service === null || self::chargeOnItsWay($service)) {
                         return 0;
                     }
                     // Register before Service Updated listeners, but execute only after the status commits.
@@ -774,7 +775,7 @@ class CronJob extends Command
             try {
                 $done = DB::transaction(function () use ($id) {
                     $service = $this->terminable()->whereKey($id)->lockForUpdate()->first();
-                    if ($service === null) {
+                    if ($service === null || self::chargeOnItsWay($service)) {
                         return 0;
                     }
                     TerminateJob::dispatch($service)->afterCommit();
@@ -929,6 +930,17 @@ class CronJob extends Command
                 ->where('invoice_items.reference_type', Service::class)->whereColumn('invoice_items.reference_id', 'services.id')
                 ->whereColumn('invoice_items.period_start', '>=', 'services.expires_at')
                 ->where('invoices.status', Invoice::STATUS_PAID));
+    }
+
+    /**
+     * A card charge on its way for one of its open invoices (SavedMethodCharge::onItsWay: taken and its webhook not here
+     * yet, or its outcome unknown, or still being sent): its customer paid, or may have. Not suspended or terminated
+     * now; the next run looks again (sweep 2026-10-24: Stripe answers «taken» and pays by webhook a moment later).
+     */
+    private static function chargeOnItsWay(Service $service): bool
+    {
+        return $service->invoices()->where('invoices.status', Invoice::STATUS_UNPAID)->get()
+            ->contains(fn (Invoice $invoice) => SavedMethodCharge::onItsWay($invoice));
     }
 
     /**
