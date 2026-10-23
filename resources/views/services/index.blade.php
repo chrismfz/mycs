@@ -46,7 +46,7 @@
             @if ($glance['ip'] !== null || $glance['fields'] !== [])
             <div class="text-sm text-base/60 flex flex-wrap gap-x-4 gap-y-1 mt-1">
                 @if ($glance['ip'] !== null)
-                <span><span class="text-base/80">{{ $service->license ? __('services.license.valid_ips') : __('services.dedicated_ip') }}:</span> {{ $glance['ip'] }}</span>
+                <span><span class="text-base/80">{{ $glance['ip_is_license'] ? __('services.license.valid_ips') : __('services.dedicated_ip') }}:</span> {{ $glance['ip'] }}</span>
                 @endif
                 @foreach ($glance['fields'] as $name => $value)
                 <span><span class="text-base/80">{{ $name }}:</span> {{ \Illuminate\Support\Str::limit($value, 80) }}</span>

@@ -2,11 +2,9 @@
 
 namespace App\Livewire\Services;
 
-use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
 use App\Models\Service;
 use App\Services\Licensing\Licenses;
-use App\Services\Licensing\MycsLicenseRepository;
 use App\Support\CurrentClient;
 use Illuminate\Database\Eloquent\Builder;
 use Livewire\Attributes\Url;
@@ -41,13 +39,16 @@ class Index extends Component
         }
         $search = trim(mb_substr($this->search, 0, 100));
         if ($search !== '') {
-            $like = '%' . addcslashes($search, '%_\\') . '%';
-            $query->where(fn (Builder $query) => $query->where('domain', 'like', $like)->orWhere('dedicated_ip', 'like', $like)
-                ->orWhereHas('product', fn (Builder $query) => $query->where('name', 'like', $like))
-                ->orWhereHas('license', fn (Builder $query) => $query->where('valid_ip', 'like', $like)->orWhere('license_key', 'like', $like))
-                // Only the values a license reports may match: the others are not shown to the customer.
-                ->orWhereHas('properties', fn (Builder $query) => $query->where('value', 'like', $like)
-                    ->whereIn('key', self::reportedKeys())));
+            // «!» escapes, the same on SQLite and MariaDB (code review 4: a backslash is MariaDB's only).
+            $pattern = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $search) . '%';
+            $like = fn (Builder $query, string $column, string $boolean = 'or') => $query->whereRaw("{$column} LIKE ? ESCAPE '!'", [$pattern], $boolean);
+            $query->where(fn (Builder $query) => $like($like($like($query, 'services.label'), 'services.domain'), 'services.dedicated_ip')
+                // Inside a relation the first is «and»: an «or» there would drop the relation's own constraint.
+                ->orWhereHas('product', fn (Builder $query) => $like($query, 'products.name', 'and'))
+                ->orWhereHas('license', fn (Builder $query) => $query->where(fn (Builder $query) => $like($like($query, 'licenses.valid_ip', 'and'), 'licenses.license_key')))
+                // The fields a license reports, as the list shows them (code review 1: by each service's own product,
+                // never a value it does not show).
+                ->orWhereIn('services.id', self::matchingReportedFields($search)));
         }
 
         return view('services.index', [
@@ -59,20 +60,22 @@ class Index extends Component
         ]);
     }
 
-    /** What tells the service apart in the list: its IP and the fields its license reports. @return array{ip: ?string, fields: array<string, string>} */
+    /** What tells the service apart in the list: its IP and the fields its license reports. @return array{ip: ?string, ip_is_license: bool, fields: array<string, string>} */
     public static function glance(Service $service): array
     {
-        $ip = filled($service->license?->valid_ip) ? str_replace(',', ', ', (string) $service->license->valid_ip) : $service->dedicated_ip;
+        $licensed = filled($service->license?->valid_ip);
+        $ip = $licensed ? str_replace(',', ', ', (string) $service->license->valid_ip) : $service->dedicated_ip;
 
-        return ['ip' => filled($ip) ? (string) $ip : null, 'fields' => Licenses::reportedFields($service)];
+        return ['ip' => filled($ip) ? (string) $ip : null, 'ip_is_license' => $licensed, 'fields' => Licenses::reportedFields($service)];
     }
 
-    /** @return list<string> the field keys any license product of this account reports */
-    private static function reportedKeys(): array
+    /** @return list<int> the account's services whose shown license fields contain $search (any case) */
+    private static function matchingReportedFields(string $search): array
     {
-        return CurrentClient::model()->services()->whereHas('license')->with('product.settings')->get()
-            ->flatMap(fn (Service $service) => $service->product === null ? [] : MycsLicenseRepository::fieldNames(
-                (string) (ExtensionHelper::settingsToArray($service->product->settings)['custom_fields'] ?? '')))
-            ->unique()->values()->all();
+        $needle = mb_strtolower($search);
+
+        return CurrentClient::model()->services()->whereHas('license')->with(['license', 'product.settings', 'properties'])->get()
+            ->filter(fn (Service $service) => collect(Licenses::reportedFields($service))->contains(fn (string $value) => str_contains(mb_strtolower($value), $needle)))
+            ->pluck('id')->map(fn ($id) => (int) $id)->values()->all();
     }
 }

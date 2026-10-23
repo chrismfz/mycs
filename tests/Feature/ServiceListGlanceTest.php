@@ -78,4 +78,26 @@ class ServiceListGlanceTest extends TestCase
 
         Livewire::actingAs($other)->test(Index::class)->set('search', '198.51')->assertDontSee('198.51.100.7');
     }
+
+    /** Code review 1: a value the list does not show (a hosting service's own «comments») is never found. */
+    public function test_a_value_not_shown_is_never_found(): void
+    {
+        $this->hosting->properties()->create(['key' => 'comments', 'name' => 'comments', 'value' => 'HIDDEN-HOSTING-NOTE']);
+
+        Livewire::actingAs($this->owner)->test(Index::class)->assertDontSee('HIDDEN-HOSTING-NOTE')
+            ->set('search', 'HIDDEN-HOSTING')->assertSee(__('services.no_match', ['search' => 'HIDDEN-HOSTING']));
+    }
+
+    /** Code review 2, 3, 4: the customer's own label; the IP named for what it is; «_» found on every database. */
+    public function test_label_ip_name_and_underscores(): void
+    {
+        $this->hosting->forceFill(['label' => 'My Shop Server', 'domain' => 'my_site.test'])->save();
+        License::query()->sole()->update(['valid_ip' => null]);
+        $this->licensed->update(['dedicated_ip' => '192.0.2.44']);
+
+        Livewire::actingAs($this->owner)->test(Index::class)->set('search', 'Shop Server')->assertSee('203.0.113.9');
+        Livewire::actingAs($this->owner)->test(Index::class)->set('search', 'my_site')->assertSee('203.0.113.9');
+        Livewire::actingAs($this->owner)->test(Index::class)->set('search', 'my%site')->assertSee(__('services.no_match', ['search' => 'my%site']));
+        $this->assertSame(['ip' => '192.0.2.44', 'ip_is_license' => false], array_intersect_key(Index::glance($this->licensed->fresh()), ['ip' => 0, 'ip_is_license' => 0]));
+    }
 }
