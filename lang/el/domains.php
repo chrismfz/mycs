@@ -469,6 +469,7 @@ return [
     ],
     // Staff's corrections of a domain's record (DomainRecordCorrections)
     'correct' => [
+        'sent' => 'Το «:domain» στάλθηκε στον registrar και δεν ολοκληρώθηκε ακόμα: περιμένετε (ή κλείστε το) πριν το διορθώσετε εδώ.',
         'not_a_name' => 'Το «:name» δεν είναι όνομα domain.',
         'no_connection' => 'Δεν υπάρχει τέτοια σύνδεση registrar.',
         'at_the_registrar' => 'Οι nameservers του είναι στον registrar: αλλάζουν με το «Nameservers».',

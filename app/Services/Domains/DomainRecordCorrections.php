@@ -2,6 +2,7 @@
 
 namespace App\Services\Domains;
 
+use App\Enums\DomainStatus;
 use App\Exceptions\DisplayException;
 use App\Models\Domain;
 use App\Models\DomainNameserver;
@@ -39,18 +40,29 @@ class DomainRecordCorrections
         if ($fqdn === $domain->fqdn) {
             return;
         }
-        // By the TLDs we know (co.uk before uk); one we do not sell: its first label is the name, the rest its ending.
+        self::refuseSent($domain);
+        // By the TLDs we know (co.uk before uk): a name under one of them with more labels is a subdomain, not a domain
+        // (ADV-2 of #403). One we do not sell: its first label is the name, the rest its ending.
         $name = DomainName::parse($fqdn, $tlds);
-        [$sld, $ending] = $name !== null && $name->tld !== null && $name->withTld() === $fqdn
-            ? [$name->sld, $name->tld]
-            : explode('.', $fqdn, 2);
+        if ($name !== null && $name->tld !== null && $name->withTld() !== $fqdn) {
+            throw new DisplayException(__('domains.correct.not_a_name', ['name' => $typed]));
+        }
+        [$sld, $ending] = $name !== null && $name->tld !== null ? [$name->sld, $name->tld] : explode('.', $fqdn, 2);
         $tld = DomainTld::query()->get()->first(fn (DomainTld $t) => DomainName::toAscii((string) $t->tld) === $ending);
         $before = ['fqdn' => $domain->fqdn, 'sld' => $domain->sld, 'tld' => $domain->tld, 'domain_tld_id' => $domain->domain_tld_id];
-        $after = ['fqdn' => $fqdn, 'sld' => $sld, 'tld' => $ending, 'domain_tld_id' => $tld->id ?? $domain->domain_tld_id];
+        // An ending we do not sell has no TLD of ours: never priced, staged or routed as the old one (ADV-1 of #403).
+        $after = ['fqdn' => $fqdn, 'sld' => $sld, 'tld' => $ending, 'domain_tld_id' => $tld?->id];
+        // Under the registrar's lock: never while a write to it is under way (ADV-4 of #403).
+        $lock = cache()->lock("domain-registrar:{$domain->id}", 30);
+        if (!$lock->get()) {
+            throw new DisplayException(__('domains.manage.busy', ['domain' => $domain->fqdn]));
+        }
         try {
             $domain->forceFill($after)->save(); // audited (its fields)
         } catch (UniqueConstraintViolationException) {
             throw new DisplayException(__('domains.order.already_here', ['domain' => $fqdn]));
+        } finally {
+            $lock->release();
         }
         $this->audit($domain, 'record_renamed', $before, $after, $staff);
     }
@@ -70,6 +82,7 @@ class DomainRecordCorrections
         if ((int) $domain->registrar_connection_id === (int) $connectionId && ($connectionId !== null || $domain->registrar_connection_id === null)) {
             return null;
         }
+        self::refuseSent($domain);
         $before = ['registrar_connection_id' => $domain->registrar_connection_id, 'registrar' => $domain->effectiveRegistrarConnection()?->label];
         // Under the registrar's lock: never while a write to the old one is under way (D-17).
         $lock = cache()->lock("domain-registrar:{$domain->id}", 30);
@@ -129,6 +142,17 @@ class DomainRecordCorrections
             }
         });
         $this->audit($domain, 'record_nameservers', ['nameservers' => $before], ['nameservers' => $hosts], $staff);
+    }
+
+    /**
+     * A registration or transfer sent and not done yet: the registrar has it under its name there; renamed or moved here,
+     * the sync would not find it and fail the order (ADV-3 of #403).
+     */
+    private static function refuseSent(Domain $domain): void
+    {
+        if (in_array($domain->status, [DomainStatus::PendingRegister, DomainStatus::PendingTransfer], true) && filled($domain->meta['sent_at'] ?? null)) {
+            throw new DisplayException(__('domains.correct.sent', ['domain' => $domain->fqdn]));
+        }
     }
 
     /** @param  array<string, mixed>  $old @param  array<string, mixed>  $new */

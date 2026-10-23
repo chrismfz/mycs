@@ -30,6 +30,8 @@ use App\Services\Domains\DomainSyncService;
 use App\Services\Domains\RegistrarOutcomeUnknown;
 use App\Support\Domains\DnssecOptions;
 use App\Support\Domains\DnssecRecord;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Closure;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
@@ -306,8 +308,9 @@ class ViewDomain extends ViewRecord
                         try {
                             $corrections->rename($record, (string) $data['fqdn'], $staff);
                             $said = $corrections->moveToRegistrar($record->refresh(), filled($data['registrar_connection_id'] ?? null) ? (int) $data['registrar_connection_id'] : null, $staff);
-                            if (array_key_exists('nameservers', $data)) {
-                                $corrections->setNameserversByHand($record->refresh(), preg_split('/\R/', (string) $data['nameservers']) ?: [], $staff);
+                            // Only while no registrar API keeps them: moved to one just now, they are read from there (ADV-5 of #403).
+                            if (array_key_exists('nameservers', $data) && !app(DomainManagementService::class)->isManageable($record->refresh())) {
+                                $corrections->setNameserversByHand($record, preg_split('/\R/', (string) $data['nameservers']) ?: [], $staff);
                             }
                             Notification::make()->success()->title(__('Corrected.'))->body($said)->send();
                         } catch (DisplayException $e) {
@@ -632,7 +635,9 @@ class ViewDomain extends ViewRecord
                             ? __('It renews at a recurring amount set by hand (:amount): change that too if the period changes.', ['amount' => $record->recurring_amount])
                             : __('From its next renewal; its open, unpaid renewal invoice changes with it.')),
                     // A price of staff's own (a friend's; owner 2026-10-23), kept until emptied («Recalculate»): the TLD's again.
-                    TextInput::make('recurring_amount')->label(__('Renewal price'))->numeric()->minValue(0)->nullable()
+                    // Decimal as typed, never through a float; what the column holds (ADV-6 of #403).
+                    TextInput::make('recurring_amount')->label(__('Renewal price'))->numeric()->minValue(0)->maxValue(99999999.99)->nullable()
+                        ->rule('regex:/^\d{1,8}(\.\d{1,2})?$/')
                         ->prefix(fn (Domain $record) => $record->currency_code)
                         ->placeholder(fn (Domain $record) => $record->domainTld?->priceFor('renew', max(1, (int) $record->years), (string) $record->currency_code) ?? '—')
                         ->helperText(__('Empty: the TLD\'s renew price (shown). From its next renewal invoice; one already made keeps its price.'))
@@ -654,7 +659,7 @@ class ViewDomain extends ViewRecord
                     }
                     $price = $data['recurring_amount'] ?? null;
                     $record->forceFill(['auto_renew' => (bool) $data['auto_renew'], 'notes' => ($data['notes'] ?? '') !== '' ? $data['notes'] : null,
-                        'recurring_amount' => $price === null || $price === '' ? null : number_format((float) $price, 2, '.', '')])->save(); // audited
+                        'recurring_amount' => $price === null || $price === '' ? null : (string) BigDecimal::of((string) $price)->toScale(2, RoundingMode::HalfUp)])->save(); // audited
                     Notification::make()->success()->title(__('Saved.'))->body(match ($outcome) {
                         DomainRenewalYears::INVOICE => __('Its open renewal invoice changed with the period.'),
                         DomainRenewalYears::NEXT => __('The period counts from its next renewal invoice: the open one, if any, keeps its period (paid or with money on it, a price set by hand, in grace or redemption, or a later period billed already).'),

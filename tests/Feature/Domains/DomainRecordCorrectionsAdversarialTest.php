@@ -17,10 +17,10 @@ use App\Services\Domains\Registrars\OpenproviderRegistrar;
 use App\Support\Domains\DomainRegistrarCredentials;
 use App\Support\Domains\DomainSyncResult;
 use Filament\Facades\Filament;
-use Filament\Notifications\Notification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Livewire\Livewire;
+use OwenIt\Auditing\Models\Audit;
 use Tests\TestCase;
 
 /** Adversarial review of #403: correcting a domain's record, its renewal price by hand. */
@@ -111,8 +111,9 @@ class DomainRecordCorrectionsAdversarialTest extends TestCase
 
         $this->assertSame($op->id, $this->domain->refresh()->registrar_connection_id, 'moved');
         $this->assertSame($op->id, $this->domain->registrar_connection_id);
-        Notification::assertNotNotified(__('Not corrected'));
-        Notification::assertNotified(__('Corrected.'));
+        // Fixed: the nameservers are the registrar's now, not set by hand after the move (nothing refused, nothing lost).
+        $this->assertSame(['ns1.old.gr', 'ns2.old.gr'], $this->domain->nameservers()->orderBy('sort')->pluck('host')->all());
+        $this->assertSame(0, Audit::query()->where('event', 'record_nameservers')->count());
     }
 
     /** ADV-6: the price by hand through a float: the column's largest is not kept (amounts never float, CLAUDE.md). */

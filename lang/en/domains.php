@@ -469,6 +469,7 @@ return [
     ],
     // Staff's corrections of a domain's record (DomainRecordCorrections)
     'correct' => [
+        'sent' => '«:domain» was sent to its registrar and is not done yet: wait for it (or close it) before correcting it here.',
         'not_a_name' => '«:name» is not a domain name.',
         'no_connection' => 'No such registrar connection.',
         'at_the_registrar' => 'Its nameservers are at its registrar: change them with «Nameservers».',
