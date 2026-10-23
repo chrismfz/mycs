@@ -8,6 +8,7 @@ use App\Admin\Resources\ClientResource\Concerns\NamesTheClient;
 use App\Admin\Resources\ServiceResource;
 use App\Models\Service;
 use App\Services\Admin\ClientSummary;
+use App\Support\LicenseKeyMask;
 use Filament\Actions\ViewAction;
 use Filament\Resources\Pages\ManageRelatedRecords;
 use Filament\Tables\Columns\TextColumn;
@@ -36,16 +37,16 @@ class ShowServices extends ManageRelatedRecords
         return $table
             ->recordTitleAttribute('product.name')
             // The amount's tax reads the client's country (review #213): loaded with the rows, not per row.
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['product', 'plan', 'currency', 'client.primaryContact']))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['product', 'plan', 'currency', 'client.primaryContact', 'license']))
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
                     ->sortable(),
                 TextColumn::make('product.name')
                     ->label(__('Product/Service'))
-                    ->description(fn (Service $record) => $record->domain)
-                    ->searchable(query: fn (Builder $query, string $search) => $query->where(fn (Builder $match) => $match
-                        ->where('domain', 'like', "%{$search}%")->orWhereHas('product', fn (Builder $product) => $product->where('name', 'like', "%{$search}%")))),
+                    ->description(fn (Service $record) => LicenseKeyMask::domain($record))
+                    ->searchable(query: fn (Builder $query, string $search) => $query->where(fn (Builder $match) => LicenseKeyMask::whereDomainLike($match, $search)
+                        ->orWhereHas('product', fn (Builder $product) => $product->where('name', 'like', "%{$search}%")))),
                 TextColumn::make('quantity')
                     ->label(__('Quantity'))
                     ->toggleable(isToggledHiddenByDefault: true),

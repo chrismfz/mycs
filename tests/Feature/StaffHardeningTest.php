@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use App\Admin\Resources\ExtensionResource\Pages\EditExtension;
 use App\Admin\Resources\LicenseResource\Pages\ListLicenses;
 use App\Admin\Resources\ProductResource\Pages\EditProduct;
+use App\Admin\Resources\ServiceResource;
+use App\Admin\Resources\ServiceResource\Pages\ListService;
 use App\Models\Extension;
 use App\Models\License;
 use App\Models\Product;
@@ -78,5 +80,32 @@ class StaffHardeningTest extends TestCase
     public function test_the_panel_refuses_what_has_no_policy(): void
     {
         $this->assertTrue(Filament::getPanel('admin')->isAuthorizationStrict());
+    }
+
+    /** A license's key is its service's domain too: masked there, and found by the whole key only (review of #368). */
+    public function test_a_key_that_is_the_service_domain_is_masked_in_the_service_lists_and_search(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $product = $this->createProduct();
+        $key = 'ZCAgent-0123456789abcdef';
+        $service = Service::factory()->create(['client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id,
+            'product_id' => $product->product->id, 'currency_code' => 'USD', 'domain' => $key]);
+        License::query()->create(['service_id' => $service->id, 'license_key' => $key, 'status' => License::STATUS_ACTIVE]);
+        $masked = Staff::factory()->withPermissions(['admin.services.viewAny'])->create();
+
+        $this->livewireAs($masked)->test(ListService::class)
+            ->assertCanSeeTableRecords([$service])->assertDontSee($key)
+            ->searchTable('ZCAgent-01234')->assertCanNotSeeTableRecords([$service])
+            ->searchTable($key)->assertCanSeeTableRecords([$service]); // the search box holds what they typed, the key whole
+
+        $this->actingAs($masked, 'staff');
+        $this->assertCount(0, ServiceResource::getGlobalSearchResults('ZCAgent-01234'));
+        $titles = ServiceResource::getGlobalSearchResults($key)->map(fn ($r) => (string) $r->title)->implode(' ');
+        $this->assertStringContainsString('#' . $service->id, $titles);
+        $this->assertStringNotContainsString($key, $titles);
+
+        $full = Staff::factory()->withPermissions(['admin.services.viewAny', 'admin.services.update'])->create();
+        $this->livewireAs($full)->test(ListService::class)
+            ->searchTable('ZCAgent-01234')->assertCanSeeTableRecords([$service])->assertSee($key);
     }
 }
