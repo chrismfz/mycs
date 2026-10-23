@@ -40,7 +40,7 @@ class SplitInvoiceAction
 
     /**
      * «With selected → Split to a new invoice» below the lines (owner 2026-10-24): the lines ticked there, as saved. A
-     * line not saved yet, or lines changed and not saved, are refused: the split moves the stored lines, and the page
+     * line not saved yet, or anything changed and not saved, is refused: the split moves the stored lines, and the page
      * reloads after it, which would drop what was typed.
      */
     public static function selected(): Action
@@ -62,8 +62,8 @@ class SplitInvoiceAction
 
                     return;
                 }
-                if ($ticked->contains(fn ($key) => !preg_match('/^record-\d+$/', (string) $key)) || $livewire->linesUnsaved()) {
-                    Notification::make()->warning()->title(__('Invoice not split'))->body(__('Save the lines first: the split moves them as saved.'))->send();
+                if ($ticked->contains(fn ($key) => !preg_match('/^record-\d+$/', (string) $key)) || $livewire->formUnsaved()) {
+                    Notification::make()->warning()->title(__('Invoice not split'))->body(__('Save the invoice first: the split moves its lines as saved.'))->send();
 
                     return;
                 }

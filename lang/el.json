@@ -1171,6 +1171,6 @@
     "Split to a new invoice": "Διαχωρισμός σε νέο τιμολόγιο",
     "The lines you ticked move to a new unpaid invoice, with their tax as issued and the same due date. Its email is not sent.": "Οι γραμμές που επιλέξατε μεταφέρονται σε νέο απλήρωτο τιμολόγιο, με τον φόρο όπως εκδόθηκε και την ίδια ημερομηνία λήξης. Το email του δεν αποστέλλεται.",
     "Tick the lines to move first.": "Επιλέξτε πρώτα τις γραμμές που θα μεταφερθούν.",
-    "Save the lines first: the split moves them as saved.": "Αποθηκεύστε πρώτα τις γραμμές: ο διαχωρισμός τις μεταφέρει όπως είναι αποθηκευμένες.",
+    "Save the invoice first: the split moves its lines as saved.": "Αποθηκεύστε πρώτα το τιμολόγιο: ο διαχωρισμός μεταφέρει τις γραμμές του όπως είναι αποθηκευμένες.",
     "Tax :rate%: :amount": "Φόρος :rate%: :amount"
 }
