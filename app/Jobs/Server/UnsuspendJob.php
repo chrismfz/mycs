@@ -36,13 +36,16 @@ class UnsuspendJob implements ShouldQueue
         // Paid before the worker reached its suspension (SuspendJob skipped it): no «unsuspended» mail for a suspension the
         // customer never got (review of #411, finding 11). The server is asked all the same: a mark is no proof, and an
         // account left suspended while MyCS says active is far worse than a needless call (review of #418).
-        $neverSuspended = Cache::pull(SuspendJob::neverSuspendedKey($this->service->id)) === true;
+        // Read now, cleared once the server has answered: a retry after a failure still knows (combined review).
+        $neverSuspended = Cache::get(SuspendJob::neverSuspendedKey($this->service->id)) === true;
         $data = [];
         try {
             $data = ExtensionHelper::unsuspendServer($this->service);
         } catch (NothingToDoOnServer) {
             // No module, or a module without this action: nothing to do (not retried).
         }
+
+        Cache::forget(SuspendJob::neverSuspendedKey($this->service->id));
 
         // WHMCS's «Service Unsuspension Notification» (sent at both companies).
         if (!$neverSuspended) {

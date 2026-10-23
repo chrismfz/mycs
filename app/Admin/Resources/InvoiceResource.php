@@ -73,7 +73,7 @@ class InvoiceResource extends Resource
     public static function cancelPeriods(): array
     {
         return [
-            'auto' => __('As usual: not renewing what the cron billed (an active service is suspended on its date, with no invoice to pay); farther periods invoiced early are billed at their time'),
+            'auto' => __('As usual: not renewing what the cron billed (an active service is suspended on its date, with no invoice to pay, unless «Suspend only with an overdue invoice» is on); farther periods invoiced early are billed at their time'),
             'keep' => __('Re-issue: bill them all again (a new invoice, another price, a mistake)'),
             'give_up' => __('Give them all up (not renewing)'),
         ];
