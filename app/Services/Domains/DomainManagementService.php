@@ -86,19 +86,21 @@ class DomainManagementService
             }
         }
 
-        $this->write($domain, 'nameservers', ['nameservers' => $hosts], $staff,
+        // What it had, so the log shows the change and staff can put them back (owner 2026-10-23).
+        $before = $domain->nameservers()->orderBy('sort')->pluck('host')->all();
+        $this->write($domain, 'nameservers', ['nameservers' => $hosts, 'before' => $before], $staff,
             fn (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) => $registrar->updateDomain($domain, new DomainChanges(nameservers: $hosts), $credentials));
     }
 
     public function setTransferLock(Domain $domain, bool $locked, Staff|User|null $staff): void
     {
-        $this->write($domain, $locked ? 'lock' : 'unlock', ['transfer_lock' => $locked], $staff,
+        $this->write($domain, $locked ? 'lock' : 'unlock', ['transfer_lock' => $locked, 'before' => (bool) $domain->transfer_lock], $staff,
             fn (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) => $registrar->updateDomain($domain, new DomainChanges(transferLock: $locked), $credentials));
     }
 
     public function setWhoisPrivacy(Domain $domain, bool $enabled, Staff|User|null $staff): void
     {
-        $this->write($domain, $enabled ? 'privacy_on' : 'privacy_off', ['whois_privacy' => $enabled], $staff,
+        $this->write($domain, $enabled ? 'privacy_on' : 'privacy_off', ['whois_privacy' => $enabled, 'before' => (bool) $domain->id_protection], $staff,
             fn (DomainRegistrar $registrar, DomainRegistrarCredentials $credentials) => $registrar->updateDomain($domain, new DomainChanges(whoisPrivacy: $enabled), $credentials));
     }
 
