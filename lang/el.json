@@ -1101,5 +1101,10 @@
     "Empty: the TLD's renew price (shown). From its next renewal invoice; one already made keeps its price.": "Κενό: η τιμή ανανέωσης του TLD (φαίνεται). Από το επόμενο τιμολόγιο ανανέωσης· όποιο έχει ήδη βγει κρατά την τιμή του.",
     "Sync": "Sync",
     "Registrar Log": "Αρχείο registrar",
-    "Adopted": "Υιοθετήθηκε"
+    "Adopted": "Υιοθετήθηκε",
+    "Ticket Mail Import Log": "Αρχείο εισαγωγής mail",
+    "Imported as a new ticket": "Εισήχθη ως νέο ticket",
+    "Imported as a reply": "Εισήχθη ως απάντηση",
+    "Quarantined": "Σε καραντίνα",
+    "Blocked sender": "Αποκλεισμένος αποστολέας"
 }

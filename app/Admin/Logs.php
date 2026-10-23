@@ -12,6 +12,7 @@ use App\Admin\Resources\HttpLogResource;
 use App\Admin\Resources\McpCallResource;
 use App\Admin\Resources\ModuleActionResource;
 use App\Admin\Resources\PaymentGatewayEventResource;
+use App\Admin\Resources\TicketMailImportResource;
 use App\Admin\Resources\TicketQuarantineResource;
 use Filament\Navigation\NavigationItem;
 use Filament\Pages\Page;
@@ -35,6 +36,7 @@ final class Logs
         ],
         'Mail' => [
             [EmailLogResource::class, 'Email Message Log'],
+            [TicketMailImportResource::class, 'Ticket Mail Import Log'],
             [TicketQuarantineResource::class, 'Mail Quarantine'],
         ],
         'Payments' => [

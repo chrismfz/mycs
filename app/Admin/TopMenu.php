@@ -60,6 +60,7 @@ use App\Admin\Resources\StaffResource;
 use App\Admin\Resources\TaxRateResource;
 use App\Admin\Resources\TicketBlockedSenderResource;
 use App\Admin\Resources\TicketDepartmentResource;
+use App\Admin\Resources\TicketMailImportResource;
 use App\Admin\Resources\TicketQuarantineResource;
 use App\Admin\Resources\TicketResource;
 use App\Admin\Resources\UserResource;
@@ -112,6 +113,7 @@ class TopMenu
             [TicketResource::class, 'create', 'Open New Ticket'],
             [LiveChat::class],
             [TicketQuarantineResource::class, 'index', 'Mail Quarantine'],
+            [TicketMailImportResource::class, 'index', 'Ticket Mail Import Log'],
             [TicketBlockedSenderResource::class, 'index', 'Blocked Senders'],
             [CannedReplyResource::class, 'index', 'Predefined Replies'],
             [CannedReplyCategoryResource::class, 'index', 'Reply Categories'],
