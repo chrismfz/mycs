@@ -13,6 +13,7 @@ use App\Http\Middleware\UseStaffGuard;
 use App\Models\Extension;
 use App\Models\Staff;
 use App\Providers\SettingsProvider;
+use App\Support\StaffChat;
 use App\Support\StaffPresence;
 use Exception;
 use Filament\Actions\Action;
@@ -127,7 +128,10 @@ class AdminPanelProvider extends PanelProvider
             ->renderHook(
                 PanelsRenderHook::BODY_END,
                 fn (): string => ($staff = auth('staff')->user()) instanceof Staff && StaffPresence::mayBeOnline($staff)
-                    ? Blade::render("@livewire('admin.staff-heartbeat')") : '',
+                    ? Blade::render("@livewire('admin.staff-heartbeat')")
+                        // The staff chat's sound, notification and count in the tab's title (§7γ), for those in the chat.
+                        . (StaffChat::canView($staff) ? Blade::render("@livewire('admin.staff-chat-notifier')") : '')
+                    : '',
             )
             ->renderHook(
                 'panels::head.end',

@@ -194,35 +194,78 @@ class StaffChat
      */
     public static function unreadByThread(Staff $staff): array
     {
+        return array_map(fn (array $stat) => min($stat['count'], self::UNREAD_CAP + 1), self::stats($staff));
+    }
+
+    /**
+     * What a notification may say of the member's unread messages (docs/livechat.md §7γ, F21): who wrote, never what.
+     * `latest` is the newest unread message id, so a browser notifies once per new message; `with` opens its thread.
+     *
+     * @return array{total: int, latest: int, title: ?string, with: ?int}
+     */
+    public static function news(Staff $staff): array
+    {
+        $stats = self::stats($staff);
+        if ($stats === []) {
+            return ['total' => 0, 'latest' => 0, 'title' => null, 'with' => null];
+        }
+        $newestKey = array_key_first($stats);
+        foreach ($stats as $key => $stat) {
+            if ($stat['latest'] > $stats[$newestKey]['latest']) {
+                $newestKey = $key;
+            }
+        }
+        $sum = array_sum(array_column($stats, 'count'));
+        $total = min(self::UNREAD_CAP + 1, $sum);
+        $title = match (true) {
+            // The cap stated as a cap, as the tab's title says «(99+)» (review of #382).
+            $sum > self::UNREAD_CAP => __('99+ new messages in the staff chat'),
+            count($stats) > 1 => trans_choice('{1} :count new message in the staff chat|[2,*] :count new messages in the staff chat', $total, ['count' => $total]),
+            $newestKey === 'room' => __('New message in the staff room'),
+            default => __('Message from :name', ['name' => (string) Staff::query()->find((int) $newestKey)?->name]),
+        };
+
+        return ['total' => $total, 'latest' => $stats[$newestKey]['latest'], 'title' => $title, 'with' => is_int($newestKey) ? $newestKey : null];
+    }
+
+    /**
+     * Unseen messages of others per thread the member is in, with the newest one's id: the room under `room`, a private
+     * thread under its other member's id. Three queries however many threads (review of #382: it runs every 10 seconds
+     * on every admin tab).
+     *
+     * @return array<int|string, array{count: int, latest: int}>
+     */
+    private static function stats(Staff $staff): array
+    {
         if (!self::canView($staff)) {
             return [];
         }
-        $counts = [];
-        $room = StaffThread::query()->where('direct_key', StaffThread::ROOM)->first();
-        if ($room !== null) {
-            $counts['room'] = self::countUnread($staff, $room->id);
-        }
-        $threads = DB::table('staff_thread_members as me')
+        $keys = DB::table('staff_thread_members as me')
             ->join('staff_threads as t', 't.id', '=', 'me.thread_id')
             ->join('staff_thread_members as peer', fn ($join) => $join->on('peer.thread_id', '=', 'me.thread_id')->on('peer.staff_id', '!=', 'me.staff_id'))
             ->where('me.staff_id', $staff->id)->where('t.kind', self::DIRECT)
-            ->pluck('peer.staff_id', 't.id');
-        foreach ($threads as $threadId => $peerId) {
-            $counts[(int) $peerId] = self::countUnread($staff, (int) $threadId);
+            ->pluck('peer.staff_id', 't.id')->map(fn ($peerId) => (int) $peerId)->all();
+        $roomId = StaffThread::query()->where('direct_key', StaffThread::ROOM)->value('id');
+        if ($roomId !== null) {
+            $keys[(int) $roomId] = 'room';
+        }
+        if ($keys === []) {
+            return [];
+        }
+        $rows = DB::table('staff_messages as m')
+            ->leftJoin('staff_thread_members as tm', fn ($join) => $join->on('tm.thread_id', '=', 'm.thread_id')->where('tm.staff_id', '=', $staff->id))
+            ->whereIn('m.thread_id', array_keys($keys))
+            ->where('m.staff_id', '!=', $staff->id)
+            ->whereRaw('m.id > COALESCE(tm.last_read_message_id, 0)')
+            ->groupBy('m.thread_id')
+            ->selectRaw('m.thread_id, COUNT(*) as unread, MAX(m.id) as latest')
+            ->get();
+        $stats = [];
+        foreach ($rows as $row) {
+            $stats[$keys[(int) $row->thread_id]] = ['count' => (int) $row->unread, 'latest' => (int) $row->latest];
         }
 
-        return array_filter($counts);
-    }
-
-    private static function countUnread(Staff $staff, int $threadId): int
-    {
-        $read = (int) DB::table('staff_thread_members')->where(['thread_id' => $threadId, 'staff_id' => $staff->id])->value('last_read_message_id');
-
-        return DB::query()->fromSub(
-            StaffMessage::query()->toBase()->select('id')->where('thread_id', $threadId)->where('id', '>', $read)
-                ->where('staff_id', '!=', $staff->id)->limit(self::UNREAD_CAP + 1),
-            'unread',
-        )->count();
+        return $stats;
     }
 
     private static function thread(string $kind, string $key): StaffThread

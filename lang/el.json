@@ -1014,5 +1014,16 @@
     "Your session was ended.": "Η συνεδρία σας τερματίστηκε.",
     "Remembered sessions no longer open on any browser were ended with it.": "Μαζί της τερματίστηκαν και απομνημονευμένες συνεδρίες που δεν είναι πια ανοιχτές σε κανέναν browser.",
     "This session was ended: log in to the admin again.": "Η συνεδρία τερματίστηκε: συνδεθείτε ξανά στο admin.",
-    "This member cannot receive messages in the staff chat.": "Αυτό το μέλος δεν μπορεί να λάβει μηνύματα στο chat του staff."
+    "This member cannot receive messages in the staff chat.": "Αυτό το μέλος δεν μπορεί να λάβει μηνύματα στο chat του staff.",
+    "{1} :count new message in the staff chat|[2,*] :count new messages in the staff chat": "{1} :count νέο μήνυμα στο chat του staff|[2,*] :count νέα μηνύματα στο chat του staff",
+    "New message in the staff room": "Νέο μήνυμα στο δωμάτιο staff",
+    "Message from :name": "Μήνυμα από :name",
+    "Test notification of the staff chat": "Δοκιμαστική ειδοποίηση του chat του staff",
+    "Turn on notifications": "Ενεργοποίηση ειδοποιήσεων",
+    "Notifications are on in this browser.": "Οι ειδοποιήσεις είναι ενεργές σε αυτόν τον browser.",
+    "Notifications are blocked in this browser's settings.": "Οι ειδοποιήσεις είναι μπλοκαρισμένες στις ρυθμίσεις αυτού του browser.",
+    "Sound: on": "Ήχος: ναι",
+    "Sound: off": "Ήχος: όχι",
+    "Test notification": "Δοκιμαστική ειδοποίηση",
+    "99+ new messages in the staff chat": "99+ νέα μηνύματα στο chat του staff"
 }
