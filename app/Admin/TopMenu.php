@@ -12,6 +12,7 @@ use App\Admin\Pages\IncomeReport;
 use App\Admin\Pages\LiveChat;
 use App\Admin\Pages\RevenueForecast;
 use App\Admin\Pages\Settings;
+use App\Admin\Pages\WhoisLookup;
 use App\Admin\Resources\AdjustmentNoteResource;
 use App\Admin\Resources\ApiResource;
 use App\Admin\Resources\Audits\AuditResource;
@@ -121,6 +122,7 @@ class TopMenu
         ],
         'Utilities' => [
             [EmailLogResource::class, 'index', 'Email Message Log'],
+            [WhoisLookup::class],
             [AuditResource::class, 'index', 'Activity Log'],
             [CronStats::class],
             [ModuleActionResource::class, 'index', 'Pending Module Actions'],

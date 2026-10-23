@@ -54,8 +54,9 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       `/clients/knowledgebase/...` και το `knowledgebase.php` κάνουν 301. RichEditor (HTML, sanitized), γλώσσα του
       instance με προαιρετική μετάφραση, αναζήτηση χωρίς τόνους, προτάσεις στο άνοιγμα ticket, μόνο προβολές. Import με
       τα ίδια ids, εικόνες στο MyCS, parity (`app:import-whmcs-knowledgebase`, και στο πλήρες import).
-- [ ] Whois από το admin: υπάρχει ανά domain (κουμπί «WHOIS» στο domain, ανοίγει το `/whois`)· μένει, αν χρειαστεί, φόρμα
-      στο μενού Domains του admin (80 χρήσεις/μήνα στο WHMCS).
+- [x] ~~Whois από το admin~~ **έγινε (feat/admin-whois):** «WHOIS Lookup» στα Utilities (όπως το WHMCS): οποιοδήποτε
+      όνομα από το μητρώο του, με σύνδεσμο στο domain όταν είναι δικό μας, και το WHOIS όπως ήρθε· με το δικαίωμα των
+      domains, 60 ανά 10 λεπτά ανά staff.
 
 ### Cut-over (myip, και ό,τι ισχύει για τη nixpal)
 - [ ] **Χάρτης 301 για τα URLs που φέρνουν κίνηση** από Google: `/clients/knowledgebase/...` (~2.500/μήνα): τα 301

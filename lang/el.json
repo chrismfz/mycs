@@ -985,5 +985,7 @@
     "A customer matter goes in the note of its chat or ticket, not here.": "Ένα θέμα πελάτη πάει στη σημείωση του chat ή του ticket του, όχι εδώ.",
     "You may not write here.": "Δεν μπορείτε να γράψετε εδώ.",
     "The message is empty.": "Το μήνυμα είναι κενό.",
-    "Too many messages, wait a moment.": "Πολλά μηνύματα, περιμένετε λίγο."
+    "Too many messages, wait a moment.": "Πολλά μηνύματα, περιμένετε λίγο.",
+    "Ours": "Δικό μας",
+    "Raw WHOIS": "Το WHOIS όπως ήρθε"
 }
