@@ -35,7 +35,9 @@ use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Support\Exceptions\Halt;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rules\Password;
 use Livewire\Attributes\Locked;
@@ -89,7 +91,13 @@ class EditService extends EditRecord
         /** @var Service $record */
         // Livewire reloads the record on every request: diff against the form as it was filled, so a
         // payment or the cron that ran while the page was open is not written back.
-        $record->applyStaffChanges($data, $this->filledAttributes ?: null);
+        try {
+            $record->applyStaffChanges(Arr::except($data, ['ends_billing']), $this->filledAttributes ?: null, (bool) ($data['ends_billing'] ?? false));
+        } catch (DisplayException $e) {
+            Notification::make()->danger()->title(__('Not saved'))->body($e->getMessage())->send();
+
+            throw new Halt;
+        }
 
         return $record;
     }

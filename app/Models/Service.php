@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Classes\Price;
 use App\Enums\InvoiceTransactionStatus;
+use App\Exceptions\DisplayException;
 use App\Models\Traits\HasProperties;
 use App\Observers\ServiceObserver;
 use App\Redactors\FullRedactor;
@@ -16,6 +17,7 @@ use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -420,6 +422,56 @@ class Service extends Model implements Auditable
         return $fullEnd === null ? (string) $this->price : BillingPeriod::prorate((string) $this->price, $start, $end, $fullEnd);
     }
 
+    /** Statuses in which a service is billed every cycle, or will be once its order is paid (adversarial ADV-3). */
+    public const PAYING_STATUSES = [self::STATUS_ACTIVE, self::STATUS_SUSPENDED, self::STATUS_PENDING];
+
+    /**
+     * Billed every cycle, now or later: a price, or a coupon still running (0 now, the full price after its cycles:
+     * adversarial ADV-4), in a live or pending status.
+     */
+    public function paysEveryCycle(): bool
+    {
+        if (!in_array($this->status, self::PAYING_STATUSES, true)) {
+            return false;
+        }
+
+        if ((float) $this->price > 0) {
+            return true;
+        }
+        // A coupon that lowers the renewals now and stops (for N cycles, or when a product it needs goes): the full
+        // price comes back. One for the first cycle only, or for ever with nothing it needs, never does (round 2).
+        $coupon = $this->coupon_id === null || $this->coupon_expired_at !== null ? null : Coupon::query()->find($this->coupon_id);
+
+        return $coupon !== null && ($coupon->cycles() > 1 || ($coupon->cycles() === 0 && $coupon->requiredProducts()->exists()));
+    }
+
+    /** The services that pay every cycle (as paysEveryCycle()), for a query. @param Builder<Service> $query */
+    public function scopePayingEveryCycle(Builder $query): void
+    {
+        $query->whereIn('status', self::PAYING_STATUSES)
+            ->where(fn (Builder $query) => $query->where('price', '>', 0)->orWhere(fn (Builder $query) => $query->whereNull('coupon_expired_at')
+                ->whereHas('coupon', fn (Builder $coupon) => $coupon->where('recurring', '>', 1)
+                    ->orWhere(fn (Builder $coupon) => $coupon->where('recurring', 0)->whereHas('requiredProducts')))));
+    }
+
+    /**
+     * Why moving this service to $plan needs staff to confirm it, or null: a live service on a plan billed every cycle,
+     * at a price, moved to a free or one-time plan is not billed again, for good (billing-cursor §5).
+     */
+    public static function endsBillingRefusal(self $service, ?Plan $plan, ?self $after = null): ?string
+    {
+        $current = $service->plan_id === null ? null : Plan::query()->find($service->plan_id);
+        if ($plan === null || $current === null || $current->type !== 'recurring' || !in_array($plan->type, ['free', 'one-time'], true)
+            // As it is saved ($after): a price set to 0 (or a cancel) in the same save is staff saying so, as WHMCS's «0»,
+            // also under a coupon still running (round 2: on a free plan it bills nothing).
+            || ($after !== null && (float) $after->price <= 0 && (float) $service->price > 0)
+            || !($after ?? $service)->paysEveryCycle()) {
+            return null;
+        }
+
+        return __('This service is billed every cycle: on a free or one-time plan it is never billed again. Confirm it to change the plan.');
+    }
+
     /**
      * Apply explicit staff changes on the same row lock as payment and billing. Only the fields that
      * differ from what the caller saw are written ($baseline: the raw attributes the admin form was
@@ -430,7 +482,7 @@ class Service extends Model implements Auditable
      * @param  array<string, mixed>  $attributes
      * @param  array<string, mixed>|null  $baseline
      */
-    public function applyStaffChanges(array $attributes, ?array $baseline = null): void
+    public function applyStaffChanges(array $attributes, ?array $baseline = null, bool $endsBilling = false): void
     {
         $probe = (new self)->setRawAttributes($baseline ?? $this->getAttributes(), true);
         $probe->fill($attributes);
@@ -439,10 +491,17 @@ class Service extends Model implements Auditable
             return;
         }
 
-        DB::transaction(function () use ($changes) {
+        DB::transaction(function () use ($changes, $endsBilling) {
             $locked = self::query()->whereKey($this->getKey())->lockForUpdate()->firstOrFail();
             // The probe's dirty values are stored values (cast already: an encrypted password is its ciphertext): put
             // them as they are, not through the casts again (review R1/F1: the password was encrypted twice).
+            // A paying service moved to a free or one-time plan is never billed again (billing-cursor §5): only when staff
+            // say so ($endsBilling), never by changing the plan alone.
+            if (array_key_exists('plan_id', $changes) && !$endsBilling
+                && ($refusal = self::endsBillingRefusal($locked, Plan::query()->find($changes['plan_id']),
+                    (clone $locked)->setRawAttributes(array_merge($locked->getAttributes(), $changes)))) !== null) {
+                throw new DisplayException($refusal);
+            }
             $locked->setRawAttributes(array_merge($locked->getAttributes(), $changes));
             if (($changes['status'] ?? null) === self::STATUS_SUSPENDED) {
                 $locked->dunning_suspended_at = null;
