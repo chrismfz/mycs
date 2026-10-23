@@ -70,6 +70,35 @@ class EditInvoice extends EditRecord
             || $form->contains(fn (array $amounts, string $key) => $stored->get($key) !== $amounts);
     }
 
+    /**
+     * Anything in the form not saved: its lines, or its own details (client, currency, status, dates). «Split» moves the
+     * saved lines and reloads the page, which would drop what was typed (ADV-1 of #414).
+     */
+    public function formUnsaved(): bool
+    {
+        $invoice = Invoice::query()->findOrFail($this->record->getKey());
+        $date = fn ($value): ?string => blank($value) ? null : Carbon::parse($value)->toDateString();
+        $details = fn (array $fields): array => [(string) ($fields['client_id'] ?? ''), (string) ($fields['currency_code'] ?? ''),
+            (string) ($fields['status'] ?? ''), $date($fields['due_at'] ?? null), $date($fields['created_at'] ?? null)];
+
+        return $this->linesUnsaved() || $details($this->data ?? []) !== $details([
+            'client_id' => $invoice->client_id, 'currency_code' => $invoice->currency_code, 'status' => $invoice->status,
+            'due_at' => $invoice->due_at, 'created_at' => $invoice->created_at,
+        ]);
+    }
+
+    /** The lines in the form differ from those saved (added, taken off, or any field changed): «Split» moves the saved ones. */
+    public function linesUnsaved(): bool
+    {
+        $stored = InvoiceItem::query()->where('invoice_id', $this->record->getKey())->get()
+            ->mapWithKeys(fn (InvoiceItem $line) => ['record-' . $line->getKey() => [...self::amounts($line->price, $line->quantity, $line->taxed), (string) $line->description]]);
+        $form = collect($this->data['items'] ?? [])
+            ->map(fn ($line) => [...self::amounts($line['price'] ?? null, $line['quantity'] ?? null, $line['taxed'] ?? null), (string) ($line['description'] ?? '')]);
+
+        return $stored->keys()->sort()->values()->all() !== $form->keys()->sort()->values()->all()
+            || $form->contains(fn (array $line, string $key) => $stored->get($key) !== $line);
+    }
+
     /** @return array{0: int, 1: string, 2: bool} */
     private static function amounts(mixed $price, mixed $quantity, mixed $taxed): array
     {

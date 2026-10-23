@@ -4,6 +4,7 @@ namespace App\Admin\Resources;
 
 use App\Admin\Actions\MergeInvoicesAction;
 use App\Admin\Actions\PayInvoicesAction;
+use App\Admin\Actions\SplitInvoiceAction;
 use App\Admin\Clusters\InvoiceCluster;
 use App\Admin\Components\ClientComponent;
 use App\Admin\RelationManagers\EmailLogsRelationManager;
@@ -19,6 +20,7 @@ use App\Exceptions\DisplayException;
 use App\Models\Currency;
 use App\Models\EmailLog;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Services\Invoice\RecordPaymentService;
@@ -26,10 +28,12 @@ use App\Support\AdminBadge;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
+use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Repeater;
+use Filament\Forms\Components\Repeater\TableColumn;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -37,8 +41,12 @@ use Filament\Forms\Components\Toggle;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\Actions;
+use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
+use Filament\Support\Enums\Alignment;
 use Filament\Support\Enums\FontWeight;
 use Filament\Support\Exceptions\Halt;
 use Filament\Support\RawJs;
@@ -124,113 +132,112 @@ class InvoiceResource extends Resource
     {
         return $schema
             ->components([
-                ClientComponent::make('client_id'),
-                TextInput::make('number')
-                    ->label('Invoice Number')
-                    ->helperText('The invoice number will be generated automatically')
-                    ->disabled(),
-                // Where it went or came from (PR E).
-                TextEntry::make('merged_into_id')
-                    ->label(__('Merged into'))
-                    ->state(fn (?Invoice $record) => $record?->mergedInto ? '#' . ($record->mergedInto->number ?: $record->mergedInto->id) : null)
-                    ->url(fn (?Invoice $record) => $record?->merged_into_id ? self::getUrl('edit', ['record' => $record->merged_into_id]) : null)
-                    ->visible(fn (?Invoice $record): bool => $record?->merged_into_id !== null),
-                TextEntry::make('split_from_id')
-                    ->label(__('Split from'))
-                    ->state(fn (?Invoice $record) => $record?->splitFrom ? '#' . ($record->splitFrom->number ?: $record->splitFrom->id) : null)
-                    ->url(fn (?Invoice $record) => $record?->split_from_id ? self::getUrl('edit', ['record' => $record->split_from_id]) : null)
-                    ->visible(fn (?Invoice $record): bool => $record?->split_from_id !== null),
-                // Its date, as WHMCS's «Invoice Date» (INV-17: it was shown and never saved): today or before, and while it
-                // is not paid or ended (reports count a paid one in its year). Saved by the pages (CreateInvoice,
-                // EditInvoice::issuedAt): never fillable, so no other path moves it.
-                DatePicker::make('created_at')
-                    ->label('Issued At')
-                    ->required()
-                    ->default(now())
-                    ->maxDate(fn () => now()->endOfDay())
-                    ->disabled(fn (?Invoice $record): bool => $record !== null && !self::issueDateEditable($record))
-                    ->helperText(fn (?Invoice $record): ?string => $record !== null && !self::issueDateEditable($record)
-                        ? __('Fixed once the invoice is paid, cancelled or refunded.') : null)
-                    ->placeholder('Select the date and time the invoice was issued'),
-                DatePicker::make('due_at')
-                    ->label('Due At')
-                    ->required()
-                    // Not before its issue date, while that is staff's to set (an old one, imported, stays as it is).
-                    ->rule(fn (Get $get, ?Invoice $record) => function (string $attribute, mixed $value, \Closure $fail) use ($get, $record) {
-                        // On a new one, or when staff move either date (adversarial ADV-1, code review 1): a renewal billed late
-                        // is due before it was issued, and its other fields still save.
-                        $moved = $record === null || ($get('created_at') !== null && Carbon::parse($get('created_at'))->toDateString() !== $record->created_at?->toDateString())
-                            || ($value !== null && Carbon::parse($value)->toDateString() !== $record->due_at?->toDateString());
-                        if ($moved && ($record === null || self::issueDateEditable($record)) && filled($get('created_at')) && filled($value)
-                            && Carbon::parse($value)->startOfDay()->lt(Carbon::parse($get('created_at'))->startOfDay())) {
-                            $fail(__('The due date cannot be before the issue date.'));
-                        }
-                    })
-                    ->default(now()->addDays(7))
-                    ->placeholder('Select the date and time the invoice is due'),
-                Select::make('status')
-                    ->label('Status')
-                    ->required()
-                    ->options(Invoice::statusOptions())
-                    // Paid only by recording its payment (Mark Paid, docs/money-trail.md MT-1c): never on a new invoice,
-                    // and on an existing one only when exactly nothing is left to pay. Paid over its total, it is closed
-                    // with «Close as paid», which gives the part over as credit (2b). A cancelled invoice is reopened first.
-                    // Refunded only by refunding its payments, and final (PR 2c); a paid invoice is refunded, never
-                    // cancelled (INV-16).
-                    ->disableOptionWhen(fn (string $value, ?Invoice $record): bool => ($value === Invoice::STATUS_PAID
-                        && $record?->getOriginal('status') !== Invoice::STATUS_PAID
-                        && ($record === null || $record->getOriginal('status') === Invoice::STATUS_CANCELLED
-                            || RecordPaymentService::toCents($record->remaining) !== 0))
-                        || ($value === Invoice::STATUS_REFUNDED) !== ($record?->getOriginal('status') === Invoice::STATUS_REFUNDED)
-                        || ($value === Invoice::STATUS_CANCELLED && $record?->getOriginal('status') === Invoice::STATUS_PAID))
-                    ->default(fn (): string => config('settings.immutable_invoices_enabled', false) ? Invoice::STATUS_DRAFT : Invoice::STATUS_UNPAID)
-                    ->placeholder('Select the status of the invoice'),
-                Select::make('currency_code')
-                    ->label('Currency')
-                    ->required()
-                    ->relationship('currency', 'code')
-                    ->placeholder('Select the currency'),
-                Toggle::make('send_email')
-                    ->label('Send Email')
-                    ->hiddenOn('edit')
-                    ->default(true),
+                // Its details, and beside them what it comes to and what is left (owner 2026-10-24).
+                Grid::make(['default' => 1, 'lg' => 3])
+                    ->columnSpanFull()
+                    ->schema([
+                        Grid::make(2)
+                            ->columnSpan(fn (string $operation): array|string => $operation === 'edit' ? ['default' => 1, 'lg' => 2] : 'full')
+                            ->schema([
+                                ClientComponent::make('client_id'),
+                                TextInput::make('number')
+                                    ->label('Invoice Number')
+                                    ->helperText('The invoice number will be generated automatically')
+                                    ->disabled(),
+                                // Where it went or came from (PR E).
+                                TextEntry::make('merged_into_id')
+                                    ->label(__('Merged into'))
+                                    ->state(fn (?Invoice $record) => $record?->mergedInto ? '#' . ($record->mergedInto->number ?: $record->mergedInto->id) : null)
+                                    ->url(fn (?Invoice $record) => $record?->merged_into_id ? self::getUrl('edit', ['record' => $record->merged_into_id]) : null)
+                                    ->visible(fn (?Invoice $record): bool => $record?->merged_into_id !== null),
+                                TextEntry::make('split_from_id')
+                                    ->label(__('Split from'))
+                                    ->state(fn (?Invoice $record) => $record?->splitFrom ? '#' . ($record->splitFrom->number ?: $record->splitFrom->id) : null)
+                                    ->url(fn (?Invoice $record) => $record?->split_from_id ? self::getUrl('edit', ['record' => $record->split_from_id]) : null)
+                                    ->visible(fn (?Invoice $record): bool => $record?->split_from_id !== null),
+                                // Its date, as WHMCS's «Invoice Date» (INV-17: it was shown and never saved): today or before, and while it
+                                // is not paid or ended (reports count a paid one in its year). Saved by the pages (CreateInvoice,
+                                // EditInvoice::issuedAt): never fillable, so no other path moves it.
+                                DatePicker::make('created_at')
+                                    ->label('Issued At')
+                                    ->required()
+                                    ->default(now())
+                                    ->maxDate(fn () => now()->endOfDay())
+                                    ->disabled(fn (?Invoice $record): bool => $record !== null && !self::issueDateEditable($record))
+                                    ->helperText(fn (?Invoice $record): ?string => $record !== null && !self::issueDateEditable($record)
+                                        ? __('Fixed once the invoice is paid, cancelled or refunded.') : null)
+                                    ->placeholder('Select the date and time the invoice was issued'),
+                                DatePicker::make('due_at')
+                                    ->label('Due At')
+                                    ->required()
+                                    // Not before its issue date, while that is staff's to set (an old one, imported, stays as it is).
+                                    ->rule(fn (Get $get, ?Invoice $record) => function (string $attribute, mixed $value, \Closure $fail) use ($get, $record) {
+                                        // On a new one, or when staff move either date (adversarial ADV-1, code review 1): a renewal billed late
+                                        // is due before it was issued, and its other fields still save.
+                                        $moved = $record === null || ($get('created_at') !== null && Carbon::parse($get('created_at'))->toDateString() !== $record->created_at?->toDateString())
+                                            || ($value !== null && Carbon::parse($value)->toDateString() !== $record->due_at?->toDateString());
+                                        if ($moved && ($record === null || self::issueDateEditable($record)) && filled($get('created_at')) && filled($value)
+                                            && Carbon::parse($value)->startOfDay()->lt(Carbon::parse($get('created_at'))->startOfDay())) {
+                                            $fail(__('The due date cannot be before the issue date.'));
+                                        }
+                                    })
+                                    ->default(now()->addDays(7))
+                                    ->placeholder('Select the date and time the invoice is due'),
+                                Select::make('status')
+                                    ->label('Status')
+                                    ->required()
+                                    ->options(Invoice::statusOptions())
+                                    // Paid only by recording its payment (Mark Paid, docs/money-trail.md MT-1c): never on a new invoice,
+                                    // and on an existing one only when exactly nothing is left to pay. Paid over its total, it is closed
+                                    // with «Close as paid», which gives the part over as credit (2b). A cancelled invoice is reopened first.
+                                    // Refunded only by refunding its payments, and final (PR 2c); a paid invoice is refunded, never
+                                    // cancelled (INV-16).
+                                    ->disableOptionWhen(fn (string $value, ?Invoice $record): bool => ($value === Invoice::STATUS_PAID
+                                        && $record?->getOriginal('status') !== Invoice::STATUS_PAID
+                                        && ($record === null || $record->getOriginal('status') === Invoice::STATUS_CANCELLED
+                                            || RecordPaymentService::toCents($record->remaining) !== 0))
+                                        || ($value === Invoice::STATUS_REFUNDED) !== ($record?->getOriginal('status') === Invoice::STATUS_REFUNDED)
+                                        || ($value === Invoice::STATUS_CANCELLED && $record?->getOriginal('status') === Invoice::STATUS_PAID))
+                                    ->default(fn (): string => config('settings.immutable_invoices_enabled', false) ? Invoice::STATUS_DRAFT : Invoice::STATUS_UNPAID)
+                                    ->placeholder('Select the status of the invoice'),
+                                Select::make('currency_code')
+                                    ->label('Currency')
+                                    ->required()
+                                    ->relationship('currency', 'code')
+                                    ->placeholder('Select the currency'),
+                                Toggle::make('send_email')
+                                    ->label('Send Email')
+                                    ->hiddenOn('edit')
+                                    ->default(true),
+                            ]),
+                        View::make('admin.resources.invoice-resource.balance')
+                            ->visible(fn (string $operation, ?Invoice $record): bool => $operation === 'edit' && $record !== null),
+                    ]),
+                // As an accountant reads it (owner 2026-10-24): the description first, a narrow quantity, the price before
+                // tax and whether it is taxed; the amount as saved. A line chosen here can be split off to a new invoice.
                 Repeater::make('items')
                     ->relationship('items')
                     ->label('Items')
                     ->columnSpanFull()
-                    ->columns(2)
+                    ->addActionLabel(__('Add line'))
+                    ->table([
+                        TableColumn::make(__('Select'))->hiddenHeaderLabel()->width('2.5rem'),
+                        TableColumn::make(__('Description'))->markAsRequired(),
+                        TableColumn::make(__('Qty'))->markAsRequired()->width('6rem'),
+                        TableColumn::make(__('Unit price'))->markAsRequired()->width('10rem'),
+                        TableColumn::make(__('VAT'))->width('4rem')->alignment(Alignment::Center),
+                        TableColumn::make(__('Amount'))->width('8rem')->alignment(Alignment::End),
+                    ])
                     ->schema([
-                        TextInput::make('price')
-                            ->label('Price (before tax)')
-                            // Grab invoice currency
-                            ->prefix(fn (Get $get): ?string => Currency::where('code', $get('../../currency_code'))->first()?->prefix)
-                            ->suffix(fn (Get $get): ?string => Currency::where('code', $get('../../currency_code'))->first()?->suffix)
-                            ->required()
-                            ->numeric()
-                            ->mask(RawJs::make(
-                                <<<'JS'
-                                    $money($input, '.', '', 2)
-                                JS
-                            ))
-                            ->placeholder('Enter the price of the product'),
-                        TextInput::make('quantity')
-                            ->label('Quantity')
-                            ->required()
-                            ->numeric()
-                            // Stored and billed as a whole number (adversarial A1 of PR B): «0.99996» would bill nothing.
-                            ->minValue(1)
-                            ->rule('regex:/^\d+(\.0+)?$/')
-                            ->placeholder('Enter the quantity of the product'),
-                        // Δ1: the price is net; the line adds the account's tax when taxed (rate kept from when it was made).
-                        Toggle::make('taxed')
-                            ->label('Taxed')
-                            ->default(true)
-                            ->helperText(fn (Get $get): ?string => $get('tax_amount') !== null && (float) $get('tax_amount') != 0
-                                ? 'Tax ' . rtrim(rtrim((string) $get('tax_rate'), '0'), '.') . '%: ' . $get('tax_amount')
-                                : null),
+                        // Chosen for «Split to a new invoice» below; never saved with the line.
+                        Checkbox::make('selected')
+                            ->hiddenLabel()
+                            ->dehydrated(false)
+                            ->visible(fn (string $operation): bool => $operation === 'edit'),
                         // Several lines, as WHMCS's (DATA-12: the column is text).
                         Textarea::make('description')
                             ->label('Description')
+                            ->hiddenLabel()
                             ->rows(1)
                             ->autosize()
                             ->required()
@@ -243,11 +250,54 @@ class InvoiceResource extends Resource
                                     ->hidden(fn (Get $get): bool => !in_array($get('reference_type'), [Service::class, ServiceUpgrade::class]))
                             )
                             ->placeholder('Enter the description of the product'),
+                        TextInput::make('quantity')
+                            ->label('Quantity')
+                            ->hiddenLabel()
+                            ->required()
+                            ->numeric()
+                            ->default(1)
+                            // Stored and billed as a whole number (adversarial A1 of PR B): «0.99996» would bill nothing.
+                            ->minValue(1)
+                            ->rule('regex:/^\d+(\.0+)?$/'),
+                        TextInput::make('price')
+                            ->label('Price (before tax)')
+                            ->hiddenLabel()
+                            // Grab invoice currency
+                            ->prefix(fn (Get $get): ?string => Currency::where('code', $get('../../currency_code'))->first()?->prefix)
+                            ->suffix(fn (Get $get): ?string => Currency::where('code', $get('../../currency_code'))->first()?->suffix)
+                            ->required()
+                            ->numeric()
+                            ->mask(RawJs::make(
+                                <<<'JS'
+                                    $money($input, '.', '', 2)
+                                JS
+                            ))
+                            ->extraInputAttributes(['class' => 'text-end tabular-nums']),
+                        // Δ1: the price is net; the line adds the account's tax when taxed (rate kept from when it was made).
+                        Checkbox::make('taxed')
+                            ->label('Taxed')
+                            ->hiddenLabel()
+                            ->default(true),
+                        // As the line was saved (net × quantity, its own rounding): worked out again on Save, never here.
+                        TextEntry::make('amount')
+                            ->hiddenLabel()
+                            ->state(fn (?InvoiceItem $record): string => $record?->exists ? (string) $record->formattedTotal : '—')
+                            ->tooltip(fn (?InvoiceItem $record): ?string => $record?->exists && (float) $record->tax_amount != 0
+                                ? __('Tax :rate%: :amount', ['rate' => rtrim(rtrim((string) $record->tax_rate, '0'), '.'), 'amount' => $record->tax_amount])
+                                : null)
+                            ->extraAttributes(['class' => 'text-end tabular-nums']),
                         // Shown for the link only, never written from the form: a browser could otherwise point a line at a
                         // Credit or at another customer's service (audit sweep AUTH-8).
                         Hidden::make('reference_type')->dehydrated(false),
                         Hidden::make('reference_id')->dehydrated(false),
                     ]),
+                Actions::make([SplitInvoiceAction::selected()])
+                    ->key('lineActions')
+                    ->visible(fn (string $operation, ?Invoice $record): bool => $operation === 'edit' && $record !== null)
+                    ->columnSpanFull(),
+                View::make('admin.resources.invoice-resource.totals')
+                    ->visible(fn (string $operation, ?Invoice $record): bool => $operation === 'edit' && $record !== null)
+                    ->columnSpanFull(),
 
             ]);
     }
