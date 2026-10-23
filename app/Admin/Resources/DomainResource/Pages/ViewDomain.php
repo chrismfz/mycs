@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\DomainResource\Pages;
 
+use App\Admin\Actions\AuditAction;
 use App\Admin\Actions\InvoiceSelectedItemsAction;
 use App\Admin\Components\ClientComponent;
 use App\Admin\Concerns\RemembersRecent;
@@ -15,12 +16,14 @@ use App\Models\Client;
 use App\Models\Contact;
 use App\Models\Domain;
 use App\Models\DomainOwnerChange;
+use App\Models\DomainRegistrarConnection;
 use App\Models\Staff;
 use App\Services\Billing\RenewalBilling;
 use App\Services\Clients\MoveToClient;
 use App\Services\Domains\DomainLifecycle;
 use App\Services\Domains\DomainManagementService;
 use App\Services\Domains\DomainOwnerChanges;
+use App\Services\Domains\DomainRecordCorrections;
 use App\Services\Domains\DomainRenewalService;
 use App\Services\Domains\DomainRenewalYears;
 use App\Services\Domains\DomainSyncService;
@@ -277,6 +280,43 @@ class ViewDomain extends ViewRecord
                         Notification::make()->title('Moved to ' . $to->name)->body($told !== '' ? $told : null)->success()->send();
                         $this->redirect(static::getResource()::getUrl('view', ['record' => $record]));
                     }),
+                // Our record corrected when something changed outside MyCS (owner 2026-10-23): nothing asked of a registrar,
+                // each change audited before → after (DomainRecordCorrections).
+                Action::make('correctRecord')->label(__('Correct the record'))->icon('heroicon-o-wrench-screwdriver')->color('gray')
+                    ->visible(fn () => self::can('admin.domains.update'))
+                    ->modalDescription(__('Our record only: nothing is sent to any registrar. Each change is in the domain\'s activity, before → after.'))
+                    ->fillForm(fn (Domain $record) => ['fqdn' => $record->fqdn, 'registrar_connection_id' => $record->registrar_connection_id,
+                        'nameservers' => $record->nameservers()->orderBy('sort')->pluck('host')->implode("\n")])
+                    ->schema(fn (Domain $record) => [
+                        TextInput::make('fqdn')->label(__('Name'))->required()->maxLength(255)
+                            ->helperText(__('As the registry writes it. A registrar never renames a domain: if it answers with another name, the sync says so.')),
+                        Select::make('registrar_connection_id')->label(__('Registrar'))
+                            ->placeholder(__('Its TLD\'s (:registrar)', ['registrar' => $record->domainTld->registrarConnection->label ?? __('none')]))
+                            ->options(DomainRegistrarConnection::query()->orderBy('label')->get()->mapWithKeys(fn (DomainRegistrarConnection $c) => [$c->id => $c->label
+                                . ($c->registrar === DomainRegistrarConnection::MANUAL ? ' (' . __('by hand') . ')' : '') . ($c->is_active ? '' : ' (' . __('inactive') . ')')])->all())
+                            ->helperText(__('Where it is (moved by hand). Then it is read from there, if it has an API.')),
+                        Textarea::make('nameservers')->label(__('Nameservers'))->rows(4)
+                            ->visible(fn () => !app(DomainManagementService::class)->isManageable($record))
+                            ->helperText(__('One a line. Only for a domain kept by hand: one at a registrar changes them there (Nameservers).')),
+                    ])
+                    ->action(function (Domain $record, array $data) {
+                        $staff = self::staff() ?? throw new \RuntimeException('No staff.');
+                        abort_unless(self::can('admin.domains.update'), 403);
+                        $corrections = app(DomainRecordCorrections::class);
+                        try {
+                            $corrections->rename($record, (string) $data['fqdn'], $staff);
+                            $said = $corrections->moveToRegistrar($record->refresh(), filled($data['registrar_connection_id'] ?? null) ? (int) $data['registrar_connection_id'] : null, $staff);
+                            if (array_key_exists('nameservers', $data)) {
+                                $corrections->setNameserversByHand($record->refresh(), preg_split('/\R/', (string) $data['nameservers']) ?: [], $staff);
+                            }
+                            Notification::make()->success()->title(__('Corrected.'))->body($said)->send();
+                        } catch (DisplayException $e) {
+                            Notification::make()->danger()->title(__('Not corrected'))->body($e->getMessage())->send();
+                        }
+                        $this->redirect(DomainResource::getUrl('view', ['record' => $record->refresh()]));
+                    }),
+                // All its history: staff's changes, the customer's, the sync's (owner 2026-10-23, as the service's).
+                AuditAction::make()->label(__('Activity')),
                 // D-1: a trusted customer's domain renewed now, paid later (the payment adopts it, never a second charge).
                 Action::make('renewNow')->label(__('Renew now'))->icon('heroicon-o-arrow-path-rounded-square')->color('warning')
                     ->visible(fn (Domain $record) => self::can('admin.domains.renew') && self::manageable($record))
@@ -577,7 +617,8 @@ class ViewDomain extends ViewRecord
                 ->url(fn (Domain $record) => WhoisLookup::getUrl(['domain' => $record->fqdn]))->openUrlInNewTab(),
             Action::make('edit')->label(__('Edit'))->icon('heroicon-o-pencil-square')
                 ->visible(fn () => self::can('admin.domains.update'))
-                ->fillForm(fn (Domain $record) => ['auto_renew' => $record->auto_renew, 'notes' => $record->notes, 'years' => max(1, (int) $record->years)])
+                ->fillForm(fn (Domain $record) => ['auto_renew' => $record->auto_renew, 'notes' => $record->notes, 'years' => max(1, (int) $record->years),
+                    'recurring_amount' => $record->recurring_amount])
                 ->schema([
                     Toggle::make('auto_renew')->label(__('Auto renew'))
                         ->helperText(__('Off: no renewal invoice is made for it (do not renew).')),
@@ -590,6 +631,13 @@ class ViewDomain extends ViewRecord
                         ->helperText(fn (Domain $record) => $record->recurring_amount !== null
                             ? __('It renews at a recurring amount set by hand (:amount): change that too if the period changes.', ['amount' => $record->recurring_amount])
                             : __('From its next renewal; its open, unpaid renewal invoice changes with it.')),
+                    // A price of staff's own (a friend's; owner 2026-10-23), kept until emptied («Recalculate»): the TLD's again.
+                    TextInput::make('recurring_amount')->label(__('Renewal price'))->numeric()->minValue(0)->nullable()
+                        ->prefix(fn (Domain $record) => $record->currency_code)
+                        ->placeholder(fn (Domain $record) => $record->domainTld?->priceFor('renew', max(1, (int) $record->years), (string) $record->currency_code) ?? '—')
+                        ->helperText(__('Empty: the TLD\'s renew price (shown). From its next renewal invoice; one already made keeps its price.'))
+                        ->hintAction(Action::make('recalculate')->label(__('Recalculate'))->icon('heroicon-o-arrow-path')
+                            ->action(fn (Set $set) => $set('recurring_amount', null))),
                     Textarea::make('notes')->label(__('Admin notes'))->helperText(__('Staff only.'))->rows(4)->maxLength(5000),
                 ])
                 ->action(function (Domain $record, array $data) {
@@ -604,7 +652,9 @@ class ViewDomain extends ViewRecord
                             return;
                         }
                     }
-                    $record->forceFill(['auto_renew' => (bool) $data['auto_renew'], 'notes' => ($data['notes'] ?? '') !== '' ? $data['notes'] : null])->save(); // audited
+                    $price = $data['recurring_amount'] ?? null;
+                    $record->forceFill(['auto_renew' => (bool) $data['auto_renew'], 'notes' => ($data['notes'] ?? '') !== '' ? $data['notes'] : null,
+                        'recurring_amount' => $price === null || $price === '' ? null : number_format((float) $price, 2, '.', '')])->save(); // audited
                     Notification::make()->success()->title(__('Saved.'))->body(match ($outcome) {
                         DomainRenewalYears::INVOICE => __('Its open renewal invoice changed with the period.'),
                         DomainRenewalYears::NEXT => __('The period counts from its next renewal invoice: the open one, if any, keeps its period (paid or with money on it, a price set by hand, in grace or redemption, or a later period billed already).'),

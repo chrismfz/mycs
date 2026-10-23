@@ -467,4 +467,10 @@ return [
         'grweb_help' => 'What EPP does not do: the domain\'s details as a PDF to its holder, the registrar\'s IP, its users and statistics.',
         'grweb_open' => 'Open grweb',
     ],
+    // Staff's corrections of a domain's record (DomainRecordCorrections)
+    'correct' => [
+        'not_a_name' => '«:name» is not a domain name.',
+        'no_connection' => 'No such registrar connection.',
+        'at_the_registrar' => 'Its nameservers are at its registrar: change them with «Nameservers».',
+    ],
 ];
