@@ -10,7 +10,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('mcp_oauth_codes', function (Blueprint $table) {
-            $table->string('staff_session', 26)->nullable();
+            $table->string('staff_session', 26)->nullable()->index();
         });
         Schema::table('mcp_oauth_grants', function (Blueprint $table) {
             $table->string('staff_session', 26)->nullable()->index();
@@ -24,6 +24,7 @@ return new class extends Migration
             $table->dropColumn('staff_session');
         });
         Schema::table('mcp_oauth_codes', function (Blueprint $table) {
+            $table->dropIndex(['staff_session']);
             $table->dropColumn('staff_session');
         });
     }

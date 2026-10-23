@@ -137,7 +137,12 @@ class McpOauthController extends Controller
             }
         }
 
-        return redirect()->away($authorize->redirect(['code' => McpOauth::issueCode($authorize, $staff, $key)]));
+        $code = McpOauth::issueCode($authorize, $staff, $key);
+        if ($code === null) {
+            return self::back($request, 'This session was ended: log in to the admin again.');
+        }
+
+        return redirect()->away($authorize->redirect(['code' => $code]));
     }
 
     public function token(Request $request): JsonResponse

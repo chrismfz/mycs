@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Admin\Resources\StaffResource;
 use App\Livewire\Admin\StaffSessionList;
 use App\Models\McpOauthClient;
+use App\Models\McpOauthCode;
 use App\Models\McpOauthGrant;
 use App\Models\Setting;
 use App\Models\Staff;
@@ -302,6 +303,20 @@ class StaffSessionsTest extends TestCase
         $this->assertSame(0, McpOauthGrant::query()->whereNull('revoked_at')->count());
     }
 
+    /** «End» committed between the consent's checks and its code: the code is refused (review of #375). */
+    public function test_an_end_racing_the_consent_leaves_no_code(): void
+    {
+        $staff = $this->member();
+        McpOauthCode::creating(function () use ($staff) {
+            StaffSession::query()->where('staff_id', $staff->id)->update(['ended_at' => now()]);
+        });
+
+        [, , $code] = $this->consent($staff);
+
+        $this->assertSame('', $code, 'no code reached the client');
+        $this->assertSame(0, McpOauthCode::query()->count());
+    }
+
     /** Signing out of the admin is not «End»: the connector approved in that browser keeps working. */
     public function test_a_logout_keeps_the_connector(): void
     {
@@ -318,11 +333,11 @@ class StaffSessionsTest extends TestCase
     }
 
     /** @return array{Staff, string, string, string} a consent in a logged-in browser: its code, not yet exchanged */
-    private function consent(): array
+    private function consent(?Staff $staff = null): array
     {
         Setting::query()->updateOrCreate(['key' => 'mcp_oauth_redirect_hosts', 'settingable_type' => null, 'settingable_id' => null], ['value' => 'example.test', 'type' => 'string']);
         config(['settings.mcp_oauth_redirect_hosts' => 'example.test']);
-        $staff = $this->member();
+        $staff ??= $this->member();
         $verifier = str_repeat('w', 50);
         $clientId = $this->postJson('/mcp/oauth/register', ['client_name' => 'Claude', 'redirect_uris' => ['https://claude.example.test/cb']])->json('client_id');
         $this->app['session.store']->start();
@@ -333,6 +348,6 @@ class StaffSessionsTest extends TestCase
         parse_str((string) parse_url($location, PHP_URL_QUERY), $query);
         $this->app['auth']->forgetGuards();
 
-        return [$staff, $clientId, (string) $query['code'], $verifier];
+        return [$staff, $clientId, (string) ($query['code'] ?? ''), $verifier];
     }
 }

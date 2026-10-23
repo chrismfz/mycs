@@ -7,6 +7,7 @@ use App\Models\McpOauthClient;
 use App\Models\McpOauthCode;
 use App\Models\McpOauthGrant;
 use App\Models\Staff;
+use App\Models\StaffSession;
 use App\Support\StaffSessions;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -189,15 +190,23 @@ final class McpOauth
         return $request;
     }
 
-    /** A consent: a one-minute single-use code for the client. */
-    public static function issueCode(AuthorizeRequest $request, Staff $staff, ?ApiKey $key): string
+    /** A consent: a one-minute single-use code for the client; none when its staff session was ended meanwhile. */
+    public static function issueCode(AuthorizeRequest $request, Staff $staff, ?ApiKey $key): ?string
     {
         $code = 'mcpco_' . Str::random(48);
-        McpOauthCode::query()->create(['code_hash' => hash('sha256', $code), 'client_id' => $request->client->id, 'staff_id' => $staff->id,
+        $row = McpOauthCode::query()->create(['code_hash' => hash('sha256', $code), 'client_id' => $request->client->id, 'staff_id' => $staff->id,
             'api_key_id' => $key?->id, 'redirect_uri' => $request->redirectUri, 'code_challenge' => $request->codeChallenge,
             'expires_at' => now()->addSeconds(self::CODE_SECONDS), 'created_at' => now(),
             // Approved in a browser session: ending that session revokes it (StaffSessions::end).
             'staff_session' => $key === null && request()->hasSession() && is_string($ulid = request()->session()->get(StaffSessions::SESSION_KEY)) ? $ulid : null]);
+
+        // Written first, then the session read again: an «End» committed meanwhile (it expires the codes it finds)
+        // is seen either way (review of #375).
+        if ($row->staff_session !== null && StaffSession::query()->where('ulid', $row->staff_session)->whereNotNull('ended_at')->exists()) {
+            $row->delete();
+
+            return null;
+        }
 
         return $code;
     }
