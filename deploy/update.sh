@@ -65,12 +65,21 @@ warn() { printf '\n\033[1;33m! %s\033[0m\n' "$*"; }
 _env() { { grep -E "^$1=" .env || true; } | tail -1 | cut -d= -f2- | sed -E 's/^"(.*)"$/\1/'; }
 COMPOSER_DEV="${COMPOSER_DEV:-$(_env DEPLOY_COMPOSER_DEV)}"
 # Production never gets dev packages (Debugbar, Ignition) nor debug output (security audit SEC-13): refused, unless
-# ALLOW_DEV_IN_PRODUCTION=1 says it is meant (a one-off on a box that is not really production).
-if [[ "$(_env APP_ENV)" == "production" && "${ALLOW_DEV_IN_PRODUCTION:-0}" != "1" ]]; then
+# ALLOW_DEV_IN_PRODUCTION=1 says it is meant (a one-off on a box that is not really production). APP_ENV and APP_DEBUG
+# as Laravel reads them (phpdotenv: quotes, comments, `export`, CRLF), and debug on as Laravel's env() has it: anything
+# but false/0/empty/null (review of #392).
+_app_env=""; _app_debug=""
+if _parsed="$($PHP -r 'require "vendor/autoload.php"; $e = Dotenv\Dotenv::parse((string) file_get_contents(".env")); echo strtolower(trim((string) ($e["APP_ENV"] ?? ""))), "\n", strtolower(trim((string) ($e["APP_DEBUG"] ?? ""))), "\n";' 2>/dev/null)"; then
+  _app_env="$(printf '%s\n' "$_parsed" | sed -n 1p)"; _app_debug="$(printf '%s\n' "$_parsed" | sed -n 2p)"
+else
+  _app_env="$(_env APP_ENV | tr -d "\r'\"" | tr '[:upper:]' '[:lower:]' | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//')"
+  _app_debug="$(_env APP_DEBUG | tr -d "\r'\"" | tr '[:upper:]' '[:lower:]' | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//')"
+fi
+if [[ "$_app_env" == "production" && "${ALLOW_DEV_IN_PRODUCTION:-0}" != "1" ]]; then
   if [[ "${COMPOSER_DEV:-0}" == "1" ]]; then
     fail "APP_ENV=production with COMPOSER_DEV/DEPLOY_COMPOSER_DEV=1: dev packages would be installed. Unset it (or ALLOW_DEV_IN_PRODUCTION=1)."; exit 1
   fi
-  if [[ "$(_env APP_DEBUG | tr '[:upper:]' '[:lower:]')" =~ ^(true|1|on|yes)$ ]]; then
+  if [[ ! "$_app_debug" =~ ^(|false|\(false\)|0|empty|\(empty\)|null|\(null\))$ ]]; then
     fail "APP_ENV=production with APP_DEBUG=true: error pages would show code and settings. Set APP_DEBUG=false (or ALLOW_DEV_IN_PRODUCTION=1)."; exit 1
   fi
 fi
