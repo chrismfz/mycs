@@ -11,14 +11,15 @@
     </form>
     {{-- The captcha a lookup asks for: the chosen one, or ours (Captchable::requireCaptchaOrAltcha). --}}
     <div class="flex flex-col items-center">
+        {{-- Its error once: <x-captcha> shows its own (owner 2026-10-23: «The CAPTCHA is required» twice). --}}
         @if (\App\Livewire\DomainShop\Whois::captchaKind() === 'altcha' && config('settings.captcha') !== 'altcha')
         <div wire:ignore><x-captcha.altcha /></div>
-        @else
-        <x-captcha :form="'whois'" />
-        @endif
         @error('captcha')
         <p class="text-red-500 text-xs mt-1">{{ $message }}</p>
         @enderror
+        @else
+        <x-captcha :form="'whois'" />
+        @endif
     </div>
 
     @if ($error)

@@ -9,6 +9,7 @@ use AltchaOrg\Altcha\CreateChallengeOptions;
 use AltchaOrg\Altcha\Payload;
 use AltchaOrg\Altcha\SolveChallengeOptions;
 use App\Livewire\Auth\Login;
+use App\Livewire\DomainShop\Whois;
 use App\Models\User;
 use App\Services\Captcha\Altcha;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -161,5 +162,23 @@ class AltchaCaptchaTest extends TestCase
         $this->travel(5)->minutes(); // past the new setting, within the challenge's own hour
 
         $this->assertFalse(app(Altcha::class)->verify($payload));
+    }
+
+    /** Owner 2026-10-23: «The CAPTCHA is required» twice under the whois box, and still there once solved. */
+    public function test_its_error_shows_once_in_the_visitors_language_and_goes_once_solved(): void
+    {
+        $user = User::factory()->create(['password' => bcrypt('secret-password')]);
+        config(['settings.captcha' => 'altcha']);
+        app()->setLocale('el');
+
+        $whois = Livewire::test(Whois::class)->set('query', 'example.com')->call('lookup')->assertHasErrors(['captcha' => __('auth.captcha_required')]);
+        $this->assertSame(1, substr_count($whois->html(), e(__('auth.captcha_required'))), 'one message, not the page\'s and the widget\'s');
+        $this->assertSame('Επιβεβαιώστε ότι δεν είστε ρομπότ.', __('auth.captcha_required'));
+
+        // Solved after the error: gone at once, and the solution still good for the form.
+        Livewire::test(Login::class)->set('email', $user->email)->set('password', 'secret-password')
+            ->call('submit')->assertHasErrors('captcha')
+            ->set('captcha', $this->solve($this->challenge()))->assertHasNoErrors('captcha')->assertDontSee(__('auth.captcha_required'))
+            ->call('submit')->assertHasNoErrors('captcha');
     }
 }
