@@ -7,6 +7,7 @@ use App\Admin\Resources\DomainResource\DomainContactActions;
 use App\Admin\Resources\DomainResource\Pages\ListDomains;
 use App\Admin\Resources\DomainResource\Pages\ViewDomain;
 use App\Admin\Resources\DomainResource\RelationManagers\RegistrarLogsRelationManager;
+use App\Admin\Search\SearchTitle;
 use App\Enums\DomainStatus;
 use App\Models\Client;
 use App\Models\Domain;
@@ -26,7 +27,9 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 
 /**
@@ -55,6 +58,31 @@ class DomainResource extends Resource
     public static function getGloballySearchableAttributes(): array
     {
         return ['fqdn'];
+    }
+
+    /** With its client, not one query each. */
+    public static function getGlobalSearchEloquentQuery(): Builder
+    {
+        return parent::getGlobalSearchEloquentQuery()->with(['client.primaryContact']);
+    }
+
+    /** «cdnet.gr ACTIVE», and two of one name told apart by it (owner 2026-10-23, as WHMCS). */
+    public static function getGlobalSearchResultTitle(Model $record): string|Htmlable
+    {
+        return $record instanceof Domain
+            ? SearchTitle::make($record->fqdn, $record->status->getLabel(), $record->status->getColor())
+            : (string) $record->getKey();
+    }
+
+    /** @return array<int, string> its client and when it expires, on one line */
+    public static function getGlobalSearchResultDetails(Model $record): array
+    {
+        if (!$record instanceof Domain) {
+            return [];
+        }
+
+        return [$record->client->name . ' #' . $record->client_id,
+            ...($record->expires_at !== null ? [__('Expires') . ' ' . $record->expires_at->format('d/m/Y')] : [])];
     }
 
     public static function table(Table $table): Table

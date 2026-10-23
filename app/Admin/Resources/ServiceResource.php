@@ -13,6 +13,7 @@ use App\Admin\Resources\ServiceResource\Pages\ListService;
 use App\Admin\Resources\ServiceResource\RelationManagers\ConfigOptionsRelationManager;
 use App\Admin\Resources\ServiceResource\RelationManagers\InvoicesRelationManager;
 use App\Admin\Resources\ServiceResource\RelationManagers\LicenseAccessLogsRelationManager;
+use App\Admin\Search\SearchTitle;
 use App\Exceptions\DisplayException;
 use App\Models\Contact;
 use App\Models\Currency;
@@ -162,7 +163,8 @@ class ServiceResource extends Resource
     public static function getGlobalSearchResultTitle(Model $record): string|Htmlable
     {
         return $record instanceof Service
-            ? '#' . $record->id . ' ' . ($record->product->name ?? '') . ($record->domain ? ' · ' . LicenseKeyMask::domain($record) : '')
+            ? SearchTitle::make('#' . $record->id . ' ' . ($record->product->name ?? '') . ($record->domain ? ' · ' . LicenseKeyMask::domain($record) : ''),
+                Service::statusLabel($record->status), Service::statusColor($record->status))
             : '#' . $record->getKey();
     }
 
