@@ -288,16 +288,51 @@ class StaffSessionsTest extends TestCase
         $this->assertNull($returning->fresh()->ended_at, 'a remembered return whose session is not saved yet is not taken for dead');
     }
 
-    /** A code approved in a session ended before its exchange: no live connector comes of it (review of #375). */
-    public function test_a_grant_of_an_ended_session_is_dead(): void
+    /** A consent given in a session ended before its code was exchanged: no connector comes of it (review of #375). */
+    public function test_a_code_of_an_ended_session_cannot_be_exchanged(): void
     {
+        [$staff, $clientId, $code, $verifier] = $this->consent();
+        $row = StaffSession::query()->where('staff_id', $staff->id)->sole();
+        $this->app['session.store']->setId(str_repeat('c', 40)); // ended from another browser
+
+        StaffSessions::end($staff, [$row], $staff, request());
+
+        $this->postJson('/mcp/oauth/token', ['grant_type' => 'authorization_code', 'client_id' => $clientId, 'code' => $code,
+            'redirect_uri' => 'https://claude.example.test/cb', 'code_verifier' => $verifier])->assertStatus(400);
+        $this->assertSame(0, McpOauthGrant::query()->whereNull('revoked_at')->count());
+    }
+
+    /** Signing out of the admin is not «End»: the connector approved in that browser keeps working. */
+    public function test_a_logout_keeps_the_connector(): void
+    {
+        [$staff, $clientId, $code, $verifier] = $this->consent();
+        $this->postJson('/mcp/oauth/token', ['grant_type' => 'authorization_code', 'client_id' => $clientId, 'code' => $code,
+            'redirect_uri' => 'https://claude.example.test/cb', 'code_verifier' => $verifier])->assertOk();
+        $grant = McpOauthGrant::query()->sole();
+
+        StaffSessions::loggedOut($staff, request());
+
+        $this->assertNotNull(StaffSession::query()->sole()->ended_at);
+        $this->assertNotNull(McpOauth::grantAlive($grant->fresh()));
+        $this->assertNull($grant->fresh()->revoked_at);
+    }
+
+    /** @return array{Staff, string, string, string} a consent in a logged-in browser: its code, not yet exchanged */
+    private function consent(): array
+    {
+        Setting::query()->updateOrCreate(['key' => 'mcp_oauth_redirect_hosts', 'settingable_type' => null, 'settingable_id' => null], ['value' => 'example.test', 'type' => 'string']);
+        config(['settings.mcp_oauth_redirect_hosts' => 'example.test']);
         $staff = $this->member();
-        $row = $this->otherSession($staff);
-        $grant = $this->grant($staff, $row->ulid);
-        $this->assertNotNull(McpOauth::grantAlive($grant));
+        $verifier = str_repeat('w', 50);
+        $clientId = $this->postJson('/mcp/oauth/register', ['client_name' => 'Claude', 'redirect_uris' => ['https://claude.example.test/cb']])->json('client_id');
+        $this->app['session.store']->start();
+        Auth::guard('staff')->login($staff);
+        $location = (string) $this->post('/mcp/oauth/authorize', ['response_type' => 'code', 'client_id' => $clientId, 'redirect_uri' => 'https://claude.example.test/cb',
+            'code_challenge' => rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '='), 'code_challenge_method' => 'S256',
+            'state' => 's', 'resource' => url('/mcp'), 'decision' => 'approve'])->headers->get('Location');
+        parse_str((string) parse_url($location, PHP_URL_QUERY), $query);
+        $this->app['auth']->forgetGuards();
 
-        $row->forceFill(['ended_at' => now()])->save();
-
-        $this->assertNull(McpOauth::grantAlive($grant->fresh()));
+        return [$staff, $clientId, (string) $query['code'], $verifier];
     }
 }

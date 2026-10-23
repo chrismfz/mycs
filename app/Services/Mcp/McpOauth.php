@@ -7,7 +7,6 @@ use App\Models\McpOauthClient;
 use App\Models\McpOauthCode;
 use App\Models\McpOauthGrant;
 use App\Models\Staff;
-use App\Models\StaffSession;
 use App\Support\StaffSessions;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -334,11 +333,6 @@ final class McpOauth
             $staff = McpAccess::keyStaff($grant->apiKey); // the key's allowlist: checked by address in McpAuth
 
             return $staff !== null && $staff->id === $grant->staff_id ? $staff : null;
-        }
-
-        // Approved in a browser session since ended (a code exchanged after «End», or a grant missed by it): dead.
-        if ($grant->staff_session !== null && StaffSession::query()->where('ulid', $grant->staff_session)->whereNotNull('ended_at')->exists()) {
-            return null;
         }
 
         return McpAccess::staffMay($grant->staff) ? $grant->staff : null;

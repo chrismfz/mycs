@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Models\McpOauthCode;
 use App\Models\McpOauthGrant;
 use App\Models\Staff;
 use App\Models\StaffSession;
@@ -183,6 +184,10 @@ final class StaffSessions
         if ($ended === 0) {
             return 0;
         }
+
+        // A consent of theirs not yet exchanged (its code lives a minute) never becomes a connector; a logout leaves
+        // both alone (review of #375).
+        McpOauthCode::query()->whereIn('staff_session', $ulids)->whereNull('used_at')->update(['expires_at' => now()->subSecond()]);
 
         // The MCP connectors those sessions approved (a lost laptop's): by the session they were approved in. One
         // approved before grants named their session is matched by time, since the earliest ended session started.
