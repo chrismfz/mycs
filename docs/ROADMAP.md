@@ -122,8 +122,9 @@ PayPal (7) την ημέρα του migration (ο υπεύθυνος, 2026-10-22
       της nixpal)· αναζήτηση με όνομα, domain, IP ή αυτά τα πεδία. Ποτέ οι σημειώσεις του staff (`notes`).
 
 ### Admin
-- [ ] Λίστα προϊόντων «σαν WHMCS»: στήλες Type/Pay Type/Stock/Auto Setup (Duplicate, Pending Orders και dashboard
-      υπάρχουν).
+- [x] ~~Λίστα προϊόντων «σαν WHMCS»~~ **έγινε (feat/product-list-columns):** στήλες Type (το module), Pay Type (από τα
+      πλάνα), Stock (∞ χωρίς όριο), Auto Setup, και Shown (Listed/Hidden/Retired). (Duplicate, Pending Orders και
+      dashboard υπήρχαν· το Auto Setup ως ρύθμιση του προϊόντος επίσης.)
 - [ ] `mycs:login-link`. (Έξοδα: ανήκουν στο Ekdosi.)
 - [ ] Έλεγχος σε πραγματικό browser (`audit-browser.md`, δεν έχει γραφτεί).
 
