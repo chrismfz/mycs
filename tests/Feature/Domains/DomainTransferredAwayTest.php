@@ -7,6 +7,7 @@ use App\Enums\DomainStatus;
 use App\Models\Currency;
 use App\Models\Domain;
 use App\Models\DomainRegistrarConnection;
+use App\Models\DomainRegistrarLog;
 use App\Models\DomainTld;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
@@ -141,6 +142,7 @@ class DomainTransferredAwayTest extends TestCase
         $this->assertSame('staff', $domains[0]->fresh()->meta['transferred_away']['by'] ?? null, 'staff can mark one');
 
         // A reseller leaving with 12 of 50 (under half): each marked by itself (owner 2026-10-18).
+        DomainRegistrarLog::query()->delete(); // the syncs above are logged (the Registrar Log)
         Domain::query()->delete();
         Carbon::setTestNow('2026-10-22 10:00:00');
         // All read within the day (a batch reads them): the breaker counts among those read (review 1 of #204).
